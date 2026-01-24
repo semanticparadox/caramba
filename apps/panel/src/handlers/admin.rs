@@ -500,6 +500,14 @@ pub async fn install_node(
             // Just register in node manager (sets status to 'new' explicitly)
             state.node_manager.add_node(id).await;
             
+            // Initialize default inbounds (Reality Keys, etc.)
+            // We spawn this to not block the redirect, or await it? 
+            // Awaiting is safer to ensure keys exist when user connects.
+            if let Err(e) = state.orchestration_service.init_default_inbounds(id).await {
+                error!("Failed to initialize inbounds for node {}: {}", id, e);
+                // We don't fail the request, but log it. Admin might need to "reset" node later.
+            }
+            
             let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
             let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
             

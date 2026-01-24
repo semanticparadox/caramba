@@ -18,7 +18,8 @@
                 <th>Actions</th>
             </tr>
         </thead>
-        <tbody>
+        <tbody hx-get="{{ admin_path }}/nodes" hx-trigger="every 5s" hx-select="#nodes-table-body"
+            hx-target="#nodes-table-body" id="nodes-table-body">
             {% for node in nodes %}
             <tr>
                 <td>{{ node.name }}</td>
