@@ -85,9 +85,14 @@ install_panel() {
     log_info "=== Installing Panel ==="
     
     # Prompt for configuration
-    read -p "Enter server domain (e.g. panel.example.com): " DOMAIN </dev/tty
-    read -p "Enter admin path [/admin]: " ADMIN_PATH </dev/tty
-    ADMIN_PATH=${ADMIN_PATH:-/admin}
+    if [[ -z "$DOMAIN" ]]; then
+        read -p "Enter server domain (e.g. panel.example.com): " DOMAIN </dev/tty
+    fi
+    
+    if [[ -z "$ADMIN_PATH" ]]; then
+        read -p "Enter admin path [/admin]: " ADMIN_PATH </dev/tty
+        ADMIN_PATH=${ADMIN_PATH:-/admin}
+    fi
     
     # Create directories FIRST
     mkdir -p /opt/exarobot/panel
@@ -159,23 +164,28 @@ EOF
 install_agent() {
     log_info "=== Installing Agent ==="
     
-    # Prompt for configuration
-    while true; do
-        read -p "Enter Panel URL (e.g. https://panel.example.com): " PANEL_URL </dev/tty
-        # Remove trailing slash
-        PANEL_URL=${PANEL_URL%/}
-        
-        # Add protocol if missing
-        if [[ ! "$PANEL_URL" =~ ^http(s)?:// ]]; then
-             PANEL_URL="https://$PANEL_URL"
-        fi
-        
-        if [[ -n "$PANEL_URL" ]]; then
-            break
-        fi
-        log_error "Panel URL cannot be empty"
-    done
-    read -p "Enter Node Token (from panel): " NODE_TOKEN </dev/tty
+    # Prompt for configuration if not set
+    if [[ -z "$PANEL_URL" ]]; then
+        while true; do
+            read -p "Enter Panel URL (e.g. https://panel.example.com): " PANEL_URL </dev/tty
+            # Remove trailing slash
+            PANEL_URL=${PANEL_URL%/}
+            
+            # Add protocol if missing
+            if [[ ! "$PANEL_URL" =~ ^http(s)?:// ]]; then
+                 PANEL_URL="https://$PANEL_URL"
+            fi
+            
+            if [[ -n "$PANEL_URL" ]]; then
+                break
+            fi
+            log_error "Panel URL cannot be empty"
+        done
+    fi
+    
+    if [[ -z "$NODE_TOKEN" ]]; then
+        read -p "Enter Node Token (from panel): " NODE_TOKEN </dev/tty
+    fi
     
     # Build agent
     log_info "Building agent..."
@@ -253,8 +263,54 @@ main() {
     
     check_root
     detect_os
+    
+    # Parse arguments
+    while [[ "$#" -gt 0 ]]; do
+        case $1 in
+            --role) ROLE="$2"; shift ;;
+            --panel) PANEL_URL="$2"; shift ;;
+            --token) NODE_TOKEN="$2"; shift ;;
+            --domain) DOMAIN="$2"; shift ;;
+            --admin-path) ADMIN_PATH="$2"; shift ;;
+            *) echo "Unknown parameter passed: $1"; exit 1 ;;
+        esac
+        shift
+    done
+
     install_dependencies
     clone_repository
+    
+    # Non-interactive mode
+    if [[ -n "$ROLE" ]]; then
+        case $ROLE in
+            panel)
+                if [[ -z "$DOMAIN" ]]; then
+                    read -p "Enter server domain (e.g. panel.example.com): " DOMAIN </dev/tty
+                fi
+                install_panel
+                ;;
+            agent)
+                if [[ -z "$PANEL_URL" || -z "$NODE_TOKEN" ]]; then
+                    log_error "--panel and --token are required for agent role"
+                    exit 1
+                fi
+                install_agent
+                ;;
+            both)
+                install_panel
+                echo ""
+                install_agent
+                ;;
+            *)
+                log_error "Invalid role: $ROLE (use panel, agent, or both)"
+                exit 1
+                ;;
+        esac
+        
+        echo ""
+        log_success "Installation complete!"
+        exit 0
+    fi
     
     echo ""
     echo "Select components to install:"

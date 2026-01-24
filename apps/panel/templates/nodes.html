@@ -27,8 +27,8 @@
                     <div style="display: flex; gap: 0.5rem; align-items: center;">
                         <small>⚡ Setup Required</small>
                         <button class="outline" style="font-size: 0.8rem; padding: 0.2rem 0.5rem;"
-                            onclick="navigator.clipboard.writeText(`curl -sL ${window.location.origin}/api/setup/{{ node.join_token.clone().unwrap_or_default() }} | bash`); this.innerText = '✅ Copied!'; setTimeout(() => this.innerText = '📋 Copy Setup', 2000)">
-                            📋 Copy Setup
+                            onclick="showConnectModal('{{ node.join_token.clone().unwrap_or_default() }}', '{{ node.name }}')">
+                            🔌 Connect
                         </button>
                     </div>
                     {% else %}
@@ -252,5 +252,63 @@
         </footer>
     </article>
 </dialog>
+
+<!-- Connect Node Modal -->
+<dialog id="connect-node-modal">
+    <article style="width: 800px; max-width: 90%;">
+        <header>
+            <a href="#close" aria-label="Close" class="close"
+                onclick="document.getElementById('connect-node-modal').close()"></a>
+            🔌 Connect Node
+        </header>
+
+        <p>Run the following command on your <strong><span id="connect-node-name"></span></strong> server:</p>
+
+        <pre><code id="connect-command" style="display: block; background: #222; padding: 1rem; border-radius: 6px; color: #a5d6ff; white-space: pre-wrap; word-break: break-all;">Loading...</code></pre>
+
+        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+            <button onclick="copyConnectCommand()" id="btn-copy-connect">📋 Copy Command</button>
+            <button class="secondary outline"
+                onclick="document.getElementById('connect-node-modal').close()">Close</button>
+        </div>
+
+        <hr>
+
+        <small style="color: #666;">
+            <strong>Troubleshooting:</strong><br>
+            • Ensure your server is running Debian 12+ or Ubuntu 22.04+<br>
+            • Ensure ports 80/443 are not blocked<br>
+            • If you see "Setup Required" after running this, check the logs on the server: `journalctl -u
+            exarobot-agent -f`
+        </small>
+    </article>
+</dialog>
+
+<script>
+    function showConnectModal(token, name) {
+        const modal = document.getElementById('connect-node-modal');
+        const cmdBlock = document.getElementById('connect-command');
+        const nameSpan = document.getElementById('connect-node-name');
+
+        nameSpan.innerText = name;
+
+        // Construct standard command
+        const origin = window.location.origin;
+        // Check if we are dev or prod (simple check)
+        const cmd = `curl -sSL https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/scripts/install.sh | sudo bash -s -- --role agent --panel "${origin}" --token "${token}"`;
+
+        cmdBlock.innerText = cmd;
+        modal.showModal();
+    }
+
+    function copyConnectCommand() {
+        const cmd = document.getElementById('connect-command').innerText;
+        navigator.clipboard.writeText(cmd);
+        const btn = document.getElementById('btn-copy-connect');
+        const original = btn.innerText;
+        btn.innerText = "✅ Copied!";
+        setTimeout(() => btn.innerText = original, 2000);
+    }
+</script>
 
 {% endblock %}

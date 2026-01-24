@@ -44,7 +44,9 @@ impl BotManager {
         let shutdown_rx = self.shutdown_sender.subscribe();
 
         let handle = tokio::spawn(async move {
+            info!("Bot task started for token: ...{}", &token.chars().last().unwrap_or('?')); // Log safe token end
             run_bot(bot, shutdown_rx, state).await;
+            info!("Bot task finished/stopped");
         });
 
         *handle_lock = Some(handle);
