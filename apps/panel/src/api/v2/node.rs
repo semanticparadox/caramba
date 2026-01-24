@@ -77,7 +77,7 @@ pub async fn get_config(
     // Using simple query_as to avoid compilation failure if DB migration is not applied locally yet.
     // At runtime, it will fail if column is missing, but it unblocks build.
     let node_res: Result<Option<(i64, bool)>, sqlx::Error> = sqlx::query_as("SELECT id, is_enabled FROM nodes WHERE join_token = ?")
-        .bind(token)
+        .bind(&token)
         .fetch_optional(&state.pool)
         .await;
 
