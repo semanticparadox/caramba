@@ -1,0 +1,10 @@
+{
+    "docs": [
+        "https://docs.rs/axum/latest/axum/",
+        "https://docs.rs/sqlx/latest/sqlx/",
+        "https://docs.rs/teloxide/latest/teloxide/",
+        "https://djc.github.io/askama/",
+        "https://htmx.org/docs/",
+        "https://sing-box.sagernet.org/configuration/"
+    ]
+}
