@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EXA ROBOT - {% block title %}{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --background-color: #0f172a;
+            --card-background-color: #1e293b;
+            --font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+
+        body {
+            background-color: var(--background-color);
+            font-family: var(--font-family);
+            background-image:
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.1) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(79, 70, 229, 0.1) 0px, transparent 50%);
+            min-height: 100vh;
+        }
+
+        main {
+            padding-top: 2rem;
+        }
+
+        .nav-container {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(12px);
+            margin-bottom: 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        article {
+            background: var(--card-background-color);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        article:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            border-color: var(--primary);
+        }
+
+        .badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge.success {
+            background: #059669;
+            color: white;
+        }
+
+        .badge.secondary {
+            background: #475569;
+            color: white;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            background: var(--primary);
+            color: white;
+            z-index: 1000;
+            display: none;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        nav a.active {
+            color: var(--primary);
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <header class="nav-container">
+        <nav class="container">
+            <ul>
+                <li><strong style="color: var(--primary); font-size: 1.25rem;">EXA ROBOT</strong></li>
+            </ul>
+            {% if is_auth %}
+            <ul>
+                <li><a href="{{ admin_path }}/dashboard" class="secondary">Dashboard</a></li>
+                <li>
+                    <details class="dropdown">
+                        <summary role="button" class="secondary outline">Store</summary>
+                        <ul>
+                            <li><a href="{{ admin_path }}/store/categories">Categories</a></li>
+                            <li><a href="{{ admin_path }}/store/products">Products</a></li>
+                            <li><a href="{{ admin_path }}/store/orders">Orders</a></li>
+                        </ul>
+                    </details>
+                </li>
+                <li><a href="{{ admin_path }}/nodes" class="secondary">Nodes</a></li>
+                <li><a href="{{ admin_path }}/plans" class="secondary">Plans</a></li>
+                <li><a href="{{ admin_path }}/users" class="secondary">Users</a></li>
+                <li><a href="{{ admin_path }}/transactions" class="secondary">Transactions</a></li>
+                <li><a href="{{ admin_path }}/settings" class="secondary">Settings</a></li>
+                <li>
+                    <form hx-post="{{ admin_path }}/logout" hx-trigger="click" style="margin:0;">
+                        <a href="#" class="secondary" style="color: #ff5555;">Logout</a>
+                    </form>
+                </li>
+            </ul>
+            {% endif %}
+        </nav>
+    </header>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        document.body.addEventListener('htmx:afterOnLoad', function (evt) {
+            if (evt.detail.xhr.status === 200 && (evt.detail.elt.id === "settings-form" || evt.detail.elt.hasAttribute("hx-post"))) {
+                showToast("Action completed successfully!");
+            }
+        });
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.innerText = message;
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 3000);
+        }
+    </script>
+</body>
+
+</html>

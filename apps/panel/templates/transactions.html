@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Transactions{% endblock %}
+
+{% block content %}
+<section>
+    <h2>Transaction History</h2>
+    <p>View all orders and payment statuses across the digital store.</p>
+
+    <div class="overflow-auto">
+        <table class="striped">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>User</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for order in orders %}
+                <tr id="order-{{ order.id }}">
+                    <td>#{{ order.id }}</td>
+                    <td>{{ order.username }}</td>
+                    <td><strong>{{ order.total_amount }} USDT</strong></td>
+                    <td>
+                        <span class="badge {% if order.status == " completed" %}badge-success{% else if
+                            order.status=="pending" %}badge-warning{% else %}badge-error{% endif %}">
+                            {{ order.status|capitalize }}
+                        </span>
+                    </td>
+                    <td><small>{{ order.created_at }}</small></td>
+                    <td>
+                        <button class="outline secondary pill"
+                            style="font-size: 0.7rem; padding: 2px 8px;">Details</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

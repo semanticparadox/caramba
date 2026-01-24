@@ -1,0 +1,16 @@
+[Unit]
+Description=EXA ROBOT Node Agent
+After=network.target
+Before=sing-box.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/exarobot/agent
+ExecStart=/opt/exarobot/agent/exarobot-agent
+Restart=always
+RestartSec=10s
+EnvironmentFile=/opt/exarobot/agent/.env
+
+[Install]
+WantedBy=multi-user.target

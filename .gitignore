@@ -1,0 +1,34 @@
+# Build artifacts
+/target
+Cargo.lock
+
+# Databases
+*.db
+*.db-shm
+*.db-wal
+*.sql.backup
+
+# Environment
+.env
+!.env.*.example
+
+# Logs
+*.log
+logs/
+
+# System files
+.DS_Store
+
+# SSH keys
+id_rsa
+id_rsa.pub
+
+# Temporary files
+build.zip
+check_error.txt
+diagnose_*.sh
+apply_*.sql
+
+# Ignore heavy panel assets temporarily
+apps/panel/static/
+apps/panel/migrations/

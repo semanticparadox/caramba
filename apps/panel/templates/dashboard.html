@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="grid">
+    <article>
+        <header>
+            <hgroup>
+                <h2>Nodes</h2>
+                <p>{{ active_nodes }} Online</p>
+            </hgroup>
+        </header>
+        <div style="font-size: 2rem; font-weight: bold; color: var(--ins-color);">{{ active_nodes }}</div>
+        <footer>
+            <a href="{{ admin_path }}/nodes" class="outline">Manage Servers</a>
+        </footer>
+    </article>
+
+    <article>
+        <header>
+            <hgroup>
+                <h2>Business</h2>
+                <p>Active subscriptions</p>
+            </hgroup>
+        </header>
+        <div style="font-size: 2rem; font-weight: bold; color: var(--primary);">{{ active_subs }}</div>
+        <footer>
+            <a href="{{ admin_path }}/users" class="outline">View Subscriptions</a>
+        </footer>
+    </article>
+
+    <article>
+        <header>
+            <hgroup>
+                <h2>Finance</h2>
+                <p>Total Revenue (Completed)</p>
+            </hgroup>
+        </header>
+        <div style="font-size: 2rem; font-weight: bold; color: #00ff41;">{{ total_revenue }} <small>USDT</small></div>
+        <footer>
+            <a href="{{ admin_path }}/settings" class="outline">Sales Settings</a>
+        </footer>
+    </article>
+
+    <article>
+        <header>
+            <hgroup>
+                <h2>Users</h2>
+                <p>Total digital customers</p>
+            </hgroup>
+        </header>
+        <div style="font-size: 2rem; font-weight: bold;">{{ total_users }}</div>
+        <footer>
+            <a href="{{ admin_path }}/users" class="outline">Customer Base</a>
+        </footer>
+    </article>
+
+    <article>
+        <header>
+            <hgroup>
+                <h2>Network</h2>
+                <p>Total Traffic (All Subs)</p>
+            </hgroup>
+        </header>
+        <div style="font-size: 2rem; font-weight: bold; color: var(--ins-color);">{{ total_traffic }}</div>
+        <footer>
+            <a href="{{ admin_path }}/nodes" class="outline">Node Usage</a>
+        </footer>
+    </article>
+</div>
+
+<article>
+    <header>Quick Actions</header>
+    <div class="grid">
+        <button class="outline" onclick="document.getElementById('add-node-modal-dash').showModal()">
+            Deploy New Node
+        </button>
+        <a href="{{ admin_path }}/settings" role="button" class="outline secondary">
+            System Settings
+        </a>
+    </div>
+</article>
+
+<div class="grid">
+    <article>
+        <header>Recent Activity</header>
+        <table class="striped">
+            <thead>
+                <tr>
+                    <th style="width: 100px;">Category</th>
+                    <th>Event</th>
+                    <th style="width: 150px;">Time</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for activity in activities %}
+                <tr>
+                    <td>
+                        {% if activity.category == "System" %}
+                        <span class="badge secondary">System</span>
+                        {% else if activity.category == "Node" %}
+                        <span class="badge info">Node</span>
+                        {% else if activity.category == "Plan" %}
+                        <span class="badge success">Plan</span>
+                        {% else %}
+                        <span class="badge">{{ activity.category }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ activity.event }}</td>
+                    <td><small>{{ activity.created_at.format("%m-%d %H:%M") }}</small></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </article>
+
+    <article>
+        <header>Bot Control & Console</header>
+        {% include "partials/bot_status.html" %}
+    </article>
+</div>
+
+<!-- Simple Add Node Modal for Dashboard -->
+<dialog id="add-node-modal-dash">
+    <article>
+        <header>
+            <a href="#close" aria-label="Close" class="close"
+                onclick="document.getElementById('add-node-modal-dash').close()"></a>
+            Quick Deploy Node
+        </header>
+        <form hx-post="{{ admin_path }}/nodes/install" hx-target="body">
+            <input type="text" name="name" placeholder="Node Name" required>
+            <input type="text" name="ip" placeholder="IP Address" required>
+            <input type="password" name="password" placeholder="Root Password" required>
+            <footer>
+                <button type="submit">Start Installation</button>
+            </footer>
+        </form>
+    </article>
+</dialog>
+
+{% endblock %}

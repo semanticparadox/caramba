@@ -1,0 +1,33 @@
+<header>
+    <a href="#close" aria-label="Close" class="close" onclick="document.getElementById('edit-node-modal').close()"></a>
+    Edit Node: {{ node.name }}
+</header>
+<form hx-post="{{ admin_path }}/nodes/{{ node.id }}/update" hx-swap="none">
+    <label for="edit_name">Friendly Name</label>
+    <input type="text" id="edit_name" name="name" value="{{ node.name }}" required>
+
+    <div class="grid">
+        <div>
+            <label for="edit_ip">IP Address</label>
+            <input type="text" id="edit_ip" name="ip" value="{{ node.ip }}" required>
+        </div>
+        <div>
+            <label for="edit_port">SSH Port</label>
+            <input type="number" id="edit_port" name="port" value="{{ node.ssh_port }}" required>
+        </div>
+    </div>
+
+    <label for="edit_username">SSH Username</label>
+    <input type="text" id="edit_username" name="username" value="{{ node.ssh_user }}" required>
+
+    <label for="edit_password">SSH Password</label>
+    <input type="password" id="edit_password" name="password" placeholder="Leave blank to keep existing">
+    <small>Only enter if you changed the password.</small>
+
+    <footer>
+        <button type="button" class="secondary"
+            onclick="document.getElementById('edit-node-modal').close()">Cancel</button>
+        <button type="submit" onclick="setTimeout(()=>document.getElementById('edit-node-modal').close(), 500)">Save
+            Changes</button>
+    </footer>
+</form>

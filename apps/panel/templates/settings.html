@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<section>
+    <form id="settings-form" hx-post="{{ admin_path }}/settings/save" hx-swap="none">
+        <!-- 1. Bot Control & Logs (Full Width) -->
+        <article style="margin-bottom: 2rem;">
+            <header>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <strong>Bot Control & Logs</strong>
+                    <span class="badge" style="background-color: {% if bot_status == " running"
+                        %}var(--pico-color-green-500){% else %}var(--pico-color-red-500){% endif %}; color: white;
+                        border: none;">
+                        {{ bot_status|capitalize }}
+                    </span>
+                </div>
+            </header>
+
+            <div style="margin-bottom: 2rem;">
+                <label for="bot_token">
+                    Telegram Bot Token
+                    <input type="text" name="bot_token" value="{{ masked_bot_token }}" placeholder="123456789:ABC..." {%
+                        if bot_status=="running" %}disabled title="Stop the bot to update the token" {% endif %}>
+                    <small>
+                        {% if bot_status == "running" %}
+                        Running: You must <b>Stop</b> the bot above to update the token.
+                        {% else %}
+                        Stopped: You can securely update the token now.
+                        {% endif %}
+                    </small>
+                </label>
+            </div>
+
+            <!-- Console and Control Buttons from Partial -->
+            {% include "partials/bot_status.html" %}
+        </article>
+
+        <!-- 2. System Settings (Grid) -->
+        <div class="grid">
+            <!-- Payment Settings -->
+            <article>
+                <header>Payment Gateway</header>
+                <fieldset>
+                    <label>
+                        NowPayments API Key
+                        <input type="text" name="payment_api_key" value="{{ masked_payment_api_key }}"
+                            placeholder="Enter API Key">
+                    </label>
+
+                    <label for="payment_ipn_url">
+                        NowPayments IPN URL
+                        <input type="url" id="payment_ipn_url" name="payment_ipn_url"
+                            placeholder="https://your-domain.com/api/webhooks/nowpayments"
+                            value="{{ payment_ipn_url }}">
+                    </label>
+
+                    <label for="currency_rate">
+                        Internal Currency Rate (to USDT)
+                        <input type="number" id="currency_rate" name="currency_rate" step="0.01"
+                            value="{{ currency_rate }}">
+                    </label>
+                </fieldset>
+            </article>
+
+            <!-- General Settings -->
+            <article>
+                <header>General Settings</header>
+                <fieldset>
+                    <label for="brand_name">
+                        Brand Name
+                        <input type="text" id="brand_name" name="brand_name" placeholder="EXA ROBOT"
+                            value="{{ brand_name }}">
+                    </label>
+
+                    <label for="support_url">
+                        Support Telegram Username
+                        <input type="text" id="support_url" name="support_url" placeholder="@username"
+                            value="{{ support_url }}">
+                        <small>Enter admin username (e.g. @support_admin) for bot support button.</small>
+                    </label>
+                </fieldset>
+            </article>
+
+            <!-- User Agreement Settings -->
+            <article style="grid-column: span 2;">
+                <header>User Onboarding</header>
+                <label>
+                    Terms of Service (Markdown)
+                    <textarea name="terms_of_service" style="height: 200px; font-family: monospace;"
+                        placeholder="Welcome to our service...">{{ terms_of_service }}</textarea>
+                    <small>Displayed to new users. They must accept this to proceed.</small>
+                </label>
+            </article>
+        </div>
+
+        <!-- Floating Save Button or Sticky Bottom -->
+        <div style="margin-top: 2rem; position: sticky; bottom: 20px; text-align: right; z-index: 100;">
+            <button type="submit" class="contrast" style="width: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+                💾 Save System Settings
+            </button>
+        </div>
+    </form>
+</section>
+
+{% endblock %}

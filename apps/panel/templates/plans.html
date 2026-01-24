@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+
+{% block title %}Subscription Plans{% endblock %}
+
+{% block extra_head %}
+<style>
+    .plans-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+        gap: 1.5rem;
+        align-items: stretch;
+    }
+
+    @media (min-width: 1200px) {
+        .plans-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    .plan-card {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        margin-bottom: 0 !important;
+    }
+
+    .plan-card article {
+        margin: 0;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .plan-card p {
+        flex-grow: 1;
+    }
+
+    .duration-item {
+        margin-bottom: 0.25rem;
+        font-size: 0.9rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .duration-row {
+        margin-bottom: 1rem;
+        border-bottom: 1px dashed #444;
+        padding-bottom: 0.5rem;
+    }
+
+    .durations-list {
+        background: rgba(0, 0, 0, 0.2);
+        padding: 0.5rem;
+        border-radius: 4px;
+        margin: 1rem 0;
+    }
+
+    .badge.traffic-plan {
+        background-color: #9c27b0;
+        color: white;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+        <h2>Subscription Plans</h2>
+        <button onclick="document.getElementById('add-plan-modal').showModal()">Create New Plan</button>
+    </div>
+
+    <div class="plans-grid">
+        {% for plan in plans %}
+        <div class="plan-card" id="plan-{{ plan.id }}">
+            <article>
+                <header>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <hgroup>
+                            <h3>{{ plan.name }}</h3>
+                            <p>Flexible Duration Plan</p>
+                        </hgroup>
+                        <span class="badge {% if plan.is_active %}success{% else %}secondary{% endif %}">
+                            {% if plan.is_active %}Active{% else %}Inactive{% endif %}
+                        </span>
+                    </div>
+                </header>
+                <p>
+                    {% if let Some(desc) = plan.description %}{{ desc }}{% else %}No description{% endif %}
+                </p>
+                <p>
+                    <small>📱 Device Limit:
+                        <strong>
+                            {% if plan.device_limit == 0 %}
+                            Unlimited
+                            {% else %}
+                            {{ plan.device_limit }}
+                            {% endif %}
+                        </strong>
+                        simultaneous connections
+                    </small>
+                </p>
+
+                <div class="durations-list">
+                    {% for dur in plan.durations %}
+                    <div class="duration-item">
+                        {% if dur.duration_days == 0 %}
+                        <span class="badge traffic-plan">🚀 Traffic Plan</span>
+                        {% else %}
+                        <span class="badge success">{{ dur.duration_days }}d</span>
+                        {% endif %}
+                        <strong>${{ dur.price / 100 }}</strong>
+                        <small>({{ dur.traffic_gb }}GB)</small>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <footer>
+                    <div role="group">
+                        <button class="outline" hx-get="{{ admin_path }}/plans/{{ plan.id }}"
+                            hx-target="#edit-plan-modal-content"
+                            onclick="document.getElementById('edit-plan-modal').showModal()">
+                            Edit
+                        </button>
+                        <a href="{{ admin_path }}/plans/{{ plan.id }}/bindings" role="button"
+                            class="outline">Bindings</a>
+                        <button class="secondary outline" hx-delete="{{ admin_path }}/plans/{{ plan.id }}"
+                            hx-confirm="Delete plan?" hx-target="closest tr" hx-swap="outerHTML">
+                            Delete
+                        </button>
+                    </div>
+                </footer>
+            </article>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+
+<script>
+    function addDurationRow() {
+        const container = document.getElementById('durations-container');
+        const row = document.createElement('div');
+        row.className = 'duration-row grid';
+        row.innerHTML = `
+                <div>
+                    <label>Days (0 for Traffic Plan)</label>
+                    <input type="number" name="duration_days" placeholder="0" min="0" required>
+                </div>
+                <div>
+                    <label>Price (Cents)</label>
+                    <input type="number" name="price" placeholder="Price (c)" required>
+                </div>
+                <div>
+                    <label>Traffic (GB)</label>
+                    <input type="number" name="traffic_gb" placeholder="Traffic GB" required>
+                </div>
+            `;
+        container.appendChild(row);
+    }
+</script>
+
+<!-- Add Plan Modal -->
+<dialog id="add-plan-modal">
+    <article>
+        <header>
+            <a href="#close" aria-label="Close" class="close"
+                onclick="document.getElementById('add-plan-modal').close()"></a>
+            Create New Plan
+        </header>
+        <form hx-post="{{ admin_path }}/plans/add" hx-target="body" hx-swap="none">
+            <label for="name">Plan Name</label>
+            <input type="text" id="name" name="name" placeholder="Standard Monthly" required>
+
+            <label for="description">Description</label>
+            <textarea id="description" name="description" placeholder="Best for personal use..."></textarea>
+
+            <label for="device_limit">Device Limit (0 for Unlimited)</label>
+            <input type="number" id="device_limit" name="device_limit" value="3" min="0" max="1000" required>
+            <small>Maximum number of simultaneous device connections (0-1000)</small>
+
+            <label for="traffic_gb">Durations</label>
+            <div id="durations-container">
+                <div class="duration-row grid">
+                    <div>
+                        <label>Days (0 = Traffic Plan)</label>
+                        <input type="number" name="duration_days" value="30" min="0" required>
+                    </div>
+                    <div>
+                        <label>Price (Cents)</label>
+                        <input type="number" name="price" value="500" required>
+                    </div>
+                    <div>
+                        <label>Traffic (GB)</label>
+                        <input type="number" name="traffic_gb" value="100" required>
+                    </div>
+                </div>
+            </div>
+            <button type="button" class="outline secondary" onclick="addDurationRow()"
+                style="width: 100%; margin-bottom: 1rem;">+ Add Another Duration</button>
+
+            <footer>
+                <button type="submit">Create Plan</button>
+            </footer>
+        </form>
+    </article>
+</dialog>
+
+<!-- Edit Plan Modal -->
+<dialog id="edit-plan-modal">
+    <article id="edit-plan-modal-content" style="width: 800px; max-width: 90%;">
+        <p aria-busy="true">Loading plan details...</p>
+    </article>
+</dialog>
+{% endblock %}

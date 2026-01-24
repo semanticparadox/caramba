@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Bot Logs{% endblock %}
+
+{% block content %}
+<section>
+    <h2>🤖 Bot Logs</h2>
+    <p>Real-time logs from the Telegram bot</p>
+
+    <div style="background: #1a1a1a; color: #00ff00; padding: 1rem; border-radius: 8px; font-family: 'Courier New', monospace; height: 600px; overflow-y: auto; font-size: 0.9rem;"
+        id="log-container">
+        <div id="logs">Loading logs...</div>
+    </div>
+
+    <div style="margin-top: 1rem; display: flex; gap: 1rem;">
+        <button onclick="clearLogs()">Clear Display</button>
+        <button onclick="scrollToBottom()">Scroll to Bottom</button>
+        <label>
+            <input type="checkbox" id="auto-scroll" checked> Auto-scroll
+        </label>
+    </div>
+</section>
+
+<script>
+    const logContainer = document.getElementById('log-container');
+    const logsDiv = document.getElementById('logs');
+    logsDiv.innerHTML = '';
+
+    // Read last 100 lines from server.log via fetch
+    async function loadInitialLogs() {
+        try {
+            const response = await fetch('{{ admin_path }}/bot-logs/history');
+            const logs = await response.text();
+            logsDiv.innerHTML = logs.split('\\n').map(line => {
+                if (line.trim()) {
+                    return `<div>${escapeHtml(line)}</div>`;
+                }
+                return '';
+            }).join('');
+            scrollToBottom();
+        } catch (e) {
+            logsDiv.innerHTML = '<div style="color: #ff0000">Error loading logs: ' + e.message + '</div>';
+        }
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function clearLogs() {
+        logsDiv.innerHTML = '';
+    }
+
+    function scrollToBottom() {
+        logContainer.scrollTop = logContainer.scrollHeight;
+    }
+
+    function appendLog(line) {
+        const div = document.createElement('div');
+        div.textContent = line;
+        logsDiv.appendChild(div);
+
+        if (document.getElementById('auto-scroll').checked) {
+            scrollToBottom();
+        }
+    }
+
+    // Load initial logs
+    loadInitialLogs();
+
+    // Poll for new logs every 2 seconds
+    setInterval(async () => {
+        try {
+            const response = await fetch('{{ admin_path }}/bot-logs/tail');
+            const newLogs = await response.text();
+            if (newLogs.trim()) {
+                newLogs.split('\\n').forEach(line => {
+                    if (line.trim()) appendLog(line);
+                });
+            }
+        } catch (e) {
+            console.error('Error fetching logs:', e);
+        }
+    }, 2000);
+</script>
+{% endblock %}

@@ -1,0 +1,35 @@
+<header>
+    <a href="#close" aria-label="Close" class="close"
+        onclick="document.getElementById('manual-install-modal').close()"></a>
+    Manual Install: {{ node.name }}
+</header>
+<div>
+    <p><strong>Quick One-Liner (Remnawave-style)</strong></p>
+    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+        <input type="text" id="one-liner"
+            value="bash <(curl -fsSL ${window.location.origin}/admin/nodes/{{ node.id }}/raw-install)" readonly
+            style="flex-grow: 1; font-family: monospace; font-size: 0.85rem;">
+        <button class="outline" onclick="
+            const liner = document.getElementById('one-liner');
+            liner.select();
+            document.execCommand('copy');
+            alert('Command copied!');
+        ">Copy</button>
+    </div>
+
+    <p>Or manually run the full script:</p>
+    <textarea style="height: 200px; font-family: monospace; font-size: 0.8rem;" readonly>{{ script }}</textarea>
+</div>
+<script>
+    // Dynamically update the origin in the input value
+    document.getElementById('one-liner').value = `bash <(curl -fsSL ${window.location.origin}/admin/nodes/{{ node.id }}/raw-install)`;
+</script>
+<footer>
+    <button class="secondary" onclick="
+        let el = this.parentElement.previousElementSibling.querySelector('textarea');
+        el.select();
+        document.execCommand('copy');
+        alert('Copied to clipboard!');
+    ">Copy to Clipboard</button>
+    <button class="outline" onclick="document.getElementById('manual-install-modal').close()">Close</button>
+</footer>

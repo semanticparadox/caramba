@@ -1,0 +1,91 @@
+<div id="bot-status-container" class="grid">
+    <div style="display: flex; flex-direction: column; justify-content: space-between;">
+        <div>
+            <h4 style="margin-bottom: 0.5rem;">Bot Control</h4>
+            <span class="badge {% if bot_status == " running" %}badge-success{% else %}badge-error{% endif %}"
+                style="font-size: 0.9rem; padding: 0.4rem 0.8rem;">
+                {{ bot_status|capitalize }}
+            </span>
+            <p style="margin-top: 1rem; color: var(--muted-color); font-size: 0.9rem;">
+                Manage lifecycle and monitor real-time activity metrics.
+            </p>
+        </div>
+        <button class="{% if bot_status == " running" %}secondary{% else %}primary{% endif %}"
+            hx-post="{{ admin_path }}/settings/bot/toggle" hx-target="#bot-status-container" hx-swap="outerHTML"
+            style="width: fit-content; margin-bottom: 0;">
+            {% if bot_status == "running" %}Stop Bot Service{% else %}Start Bot Service{% endif %}
+        </button>
+    </div>
+    <div>
+        <div
+            style="background: #000; border: 1px solid #333; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
+            <div
+                style="background: #222; padding: 4px 12px; font-size: 0.7rem; border-bottom: 1px solid #333; color: #888; display: flex; justify-content: space-between;">
+                <span>bot@exa:~$ logs --tail</span>
+                <span style="color: #444;">● ● ●</span>
+            </div>
+            <div id="bot-console"
+                style="background: #000; color: #00ff41; padding: 0.75rem; height: 160px; overflow-y: scroll; font-family: 'Fira Code', 'Courier New', monospace; font-size: 0.75rem; scroll-behavior: smooth; text-shadow: 0 0 2px rgba(0,255,65,0.4);">
+                <div id="bot-console-content">Initializing session...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function () {
+        const consoleContent = document.getElementById('bot-console-content');
+        const consoleContainer = document.getElementById('bot-console');
+
+        function stripAnsi(text) {
+            let clean = text.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+            // Simplify ISO Date 2026-01-19T05:06:12.202Z -> 05:06:12
+            return clean.replace(/\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}:\d{2})\.\d+Z/g, '$1');
+        }
+
+        async function fetchLogs() {
+            try {
+                const response = await fetch('{{ admin_path }}/bot-logs/history');
+                if (response.ok) {
+                    const text = await response.text();
+                    consoleContent.innerText = stripAnsi(text);
+                    consoleContainer.scrollTop = consoleContainer.scrollHeight;
+                }
+            } catch (e) {
+                console.error("Failed to fetch bot logs", e);
+            }
+        }
+
+        async function tailLogs() {
+            try {
+                const response = await fetch('{{ admin_path }}/bot-logs/tail');
+                if (response.ok) {
+                    const text = await response.text();
+                    if (text.length > 0) {
+                        const cleanText = stripAnsi(text);
+                        const lines = cleanText.split('\n');
+                        for (const line of lines) {
+                            if (line.trim().length > 0) {
+                                const div = document.createElement('div');
+                                div.innerText = line;
+                                consoleContent.appendChild(div);
+                            }
+                        }
+                        consoleContainer.scrollTop = consoleContainer.scrollHeight;
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to tail bot logs", e);
+            }
+        }
+
+        fetchLogs();
+        const interval = setInterval(tailLogs, 2000);
+
+        document.body.addEventListener('htmx:beforeSwap', function (evt) {
+            if (evt.detail.target.id === "bot-status-container") {
+                clearInterval(interval);
+            }
+        });
+    })();
+</script>

@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}Store Products{% endblock %}
+
+{% block content %}
+<section>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+        <h2>Store Products</h2>
+        <button onclick="document.getElementById('add-product-modal').showModal()">Add Product</button>
+    </div>
+
+    <div class="grid">
+        {% for product in products %}
+        <article id="product-{{ product.id }}">
+            <header>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <hgroup>
+                        <h3>{{ product.name }}</h3>
+                        <p>Type: {{ product.product_type }}</p>
+                    </hgroup>
+                    <span class="badge {% if product.is_active %}success{% else %}secondary{% endif %}">
+                        {% if product.is_active %}Active{% else %}Inactive{% endif %}
+                    </span>
+                </div>
+            </header>
+
+            <p>
+                {% if let Some(desc) = product.description %}{{ desc }}{% else %}No description{% endif %}
+            </p>
+
+            <div style="font-size: 1.5rem; font-weight: bold; margin: 1rem 0;">
+                ${{ product.price / 100 }}.{{ product.price % 100 }}
+            </div>
+
+            <footer>
+                <button class="secondary outline" hx-delete="{{ admin_path }}/store/products/{{ product.id }}"
+                    hx-confirm="Are you sure you want to delete this product?" hx-target="#product-{{ product.id }}"
+                    hx-swap="outerHTML">
+                    Delete
+                </button>
+            </footer>
+        </article>
+        {% endfor %}
+    </div>
+</section>
+
+<!-- Add Product Modal -->
+<dialog id="add-product-modal">
+    <article style="width: 100%; max-width: 600px;">
+        <header>
+            <a href="#close" aria-label="Close" class="close"
+                onclick="document.getElementById('add-product-modal').close()"></a>
+            Create New Product
+        </header>
+        <form hx-post="{{ admin_path }}/store/products" hx-target="body" enctype="multipart/form-data" hx-swap="none">
+            <label for="name">Product Name</label>
+            <input type="text" id="name" name="name" placeholder="Premium Config" required>
+
+            <label for="category_id">Category</label>
+            <select id="category_id" name="category_id" required>
+                {% for cat in categories %}
+                <option value="{{ cat.id }}">{{ cat.name }}</option>
+                {% endfor %}
+            </select>
+
+            <label for="description">Description</label>
+            <textarea id="description" name="description" placeholder="Product details..."></textarea>
+
+            <label for="product_type">Type</label>
+            <select id="product_type" name="product_type" required onchange="toggleContentField()">
+                <option value="text">Text Content (Key/Link)</option>
+                <option value="file">File Upload</option>
+                <option value="subscription">Subscription Plan</option>
+            </select>
+
+            <label for="price">Price (in cents)
+                <input type="number" id="price" name="price" value="100" required>
+            </label>
+
+            <div id="content-text-group">
+                <label for="content_text">Text Content</label>
+                <textarea id="content_text" name="content_text" placeholder="Enter key or link here..."></textarea>
+            </div>
+
+            <div id="content-file-group" style="display: none;">
+                <label for="content_file">File Upload</label>
+                <input type="file" id="content_file" name="content_file">
+            </div>
+
+            <footer>
+                <button type="submit">Create Product</button>
+            </footer>
+        </form>
+    </article>
+</dialog>
+
+<script>
+    function toggleContentField() {
+        const type = document.getElementById('product_type').value;
+        const textGroup = document.getElementById('content-text-group');
+        const fileGroup = document.getElementById('content-file-group');
+
+        if (type === 'file') {
+            textGroup.style.display = 'none';
+            fileGroup.style.display = 'block';
+        } else {
+            textGroup.style.display = 'block';
+            fileGroup.style.display = 'none';
+        }
+    }
+</script>
+{% endblock %}

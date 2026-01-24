@@ -1,0 +1,51 @@
+<header>
+    <a href="#close" aria-label="Close" class="close" onclick="document.getElementById('edit-plan-modal').close()"></a>
+    Edit Plan: {{ plan.name }}
+</header>
+<form hx-post="{{ admin_path }}/plans/{{ plan.id }}" hx-target="body" hx-swap="none">
+    <label for="edit_name">Plan Name</label>
+    <input type="text" id="edit_name" name="name" value="{{ plan.name }}" required>
+
+    <label for="edit_description">Description</label>
+    <textarea id="edit_description" name="description"
+        required>{{ plan.description.as_deref().unwrap_or("") }}</textarea>
+
+    <label for="edit_device_limit">Device Limit (0 for Unlimited)</label>
+    <input type="number" id="edit_device_limit" name="device_limit" value="{{ plan.device_limit }}" min="0" max="1000"
+        required>
+    <small>Maximum number of simultaneous device connections (0-1000)</small>
+
+    <label>Durations</label>
+    <div id="edit-durations-container">
+        {% for dur in plan.durations %}
+        <div class="duration-row grid">
+            <input type="number" name="duration_days" value="{{ dur.duration_days }}"
+                placeholder="Days (0 = Traffic Plan)" min="0" required>
+            <input type="number" name="price" value="{{ dur.price }}" placeholder="Price (c)" required>
+            <input type="number" name="traffic_gb" value="{{ dur.traffic_gb }}" placeholder="Traffic (GB)" required>
+            <button type="button" class="outline contrast" onclick="this.parentElement.remove()">×</button>
+        </div>
+        {% endfor %}
+    </div>
+    <button type="button" class="outline secondary" onclick="addEditDurationRow()"
+        style="width: 100%; margin-bottom: 1rem;">+ Add Another Duration</button>
+
+    <footer>
+        <button type="submit">Save Changes</button>
+    </footer>
+</form>
+
+<script>
+    function addEditDurationRow() {
+        const container = document.getElementById('edit-durations-container');
+        const row = document.createElement('div');
+        row.className = 'duration-row grid';
+        row.innerHTML = `
+            <input type="number" name="duration_days" placeholder="Days (0 = Traffic Plan)" min="0" required>
+            <input type="number" name="price" placeholder="Price (c)" required>
+            <input type="number" name="traffic_gb" placeholder="Traffic (GB)" required>
+            <button type="button" class="outline contrast" onclick="this.parentElement.remove()">×</button>
+        `;
+        container.appendChild(row);
+    }
+</script>

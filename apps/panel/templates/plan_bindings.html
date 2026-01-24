@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Plan Access Control{% endblock %}
+
+{% block content %}
+<section>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+        <div>
+            <h2>Manage Access: {{ plan.name }}</h2>
+            <small>Select which inbounds are available to users on this plan.</small>
+        </div>
+        <a href="/admin/plans" role="button" class="secondary outline">Back to Plans</a>
+    </div>
+
+    <form method="POST" action="/admin/plans/{{ plan.id }}/bindings">
+        {% for node_group in bindings %}
+        <article>
+            <header>
+                <strong>Node: {{ node_group.node_name }}</strong> ({{ node_group.node_ip }})
+            </header>
+            <div class="grid">
+                {% for item in node_group.inbounds %}
+                <label>
+                    <input type="checkbox" name="inbound_ids" value="{{ item.inbound.id }}" {% if item.is_bound
+                        %}checked{% endif %}>
+                    {{ item.inbound.tag }}
+                    <span class="badge secondary" style="font-size: 0.7em;">{{ item.inbound.protocol|upper }}</span>
+                    <small>Port: {{ item.inbound.listen_port }}</small>
+                </label>
+                {% endfor %}
+            </div>
+        </article>
+        {% endfor %}
+
+        {% if bindings.is_empty() %}
+        <p>No active inbounds found. Please configure nodes first.</p>
+        {% endif %}
+
+        <button type="submit" style="margin-top: 1rem;">Save Changes</button>
+    </form>
+</section>
+{% endblock %}

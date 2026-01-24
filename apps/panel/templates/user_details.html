@@ -1,0 +1,403 @@
+{% extends "base.html" %}
+
+{% block title %}User Details: {{ user.username.as_deref().unwrap_or("Unknown") }} <!-- Device Details Modal -->
+<dialog id="devices_modal">
+    <article style="width: 100%; max-width: 600px;">
+        <header>
+            <a href="#close" aria-label="Close" class="close" onclick="closeModal('devices_modal')"></a>
+            Connected Devices
+        </header>
+        <div id="devices_content">
+            <div aria-busy="true">Loading devices...</div>
+        </div>
+        <footer>
+            <button class="secondary" onclick="closeModal('devices_modal')">Close</button>
+        </footer>
+    </article>
+</dialog>
+{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb">
+    <ul>
+        <li><a href="{{ admin_path }}/dashboard">Dashboard</a></li>
+        <li><a href="{{ admin_path }}/users">Users</a></li>
+        <li>Details</li>
+    </ul>
+</nav>
+
+<div class="grid">
+    <!-- User Profile Card -->
+    <article>
+        <header>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <strong>User Profile</strong>
+                {% if user.is_banned %}
+                <span class="badge" style="background: red; color: white;">BANNED</span>
+                {% else %}
+                <span class="badge success">Active</span>
+                {% endif %}
+            </div>
+        </header>
+        <form hx-post="{{ admin_path }}/users/{{ user.id }}/update" hx-swap="none">
+            <div class="grid">
+                <label>
+                    Telegram ID
+                    <input type="text" value="{{ user.tg_id }}" readonly disabled>
+                </label>
+                <label>
+                    Username
+                    <input type="text" value="@{{ user.username.as_deref().unwrap_or(" None") }}" readonly disabled>
+                </label>
+            </div>
+
+            <label>
+                Full Name
+                <input type="text" value="{{ user.full_name.as_deref().unwrap_or("") }}" readonly disabled>
+            </label>
+
+            <div class="grid">
+                <label>
+                    Referral Code (Alias)
+                    <input type="text" name="referral_code" value="{{ user.referral_code.as_deref().unwrap_or(" None")
+                        }}">
+                </label>
+                <label>
+                    Registered At
+                    <input type="text" value="{{ user.created_at }}" readonly disabled>
+                </label>
+            </div>
+
+            <hr>
+            <h6>Actions</h6>
+            <div class="grid">
+                <label>
+                    Wallet Balance (Cents)
+                    <input type="number" name="balance" value="{{ user.balance }}">
+                </label>
+
+                <label>
+                    Status
+                    <select name="is_banned">
+                        <option value="false" {% if !user.is_banned %}selected{% endif %}>Active</option>
+                        <option value="true" {% if user.is_banned %}selected{% endif %}>Banned</option>
+                    </select>
+                </label>
+            </div>
+
+            <button type="submit" class="contrast">Update User</button>
+        </form>
+    </article>
+
+    <!-- Subscriptions & Orders -->
+    <div>
+        <article style="margin-bottom: 1rem;">
+            <header>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>Active Subscriptions</span>
+                    <button class="outline contrast" onclick="openGiftModal()"
+                        style="padding: 5px 15px; font-size: 0.8rem;">
+                        🎁 Gift Subscription
+                    </button>
+                </div>
+            </header>
+            {% if subscriptions.is_empty() %}
+            <p>No active subscriptions.</p>
+            {% else %}
+            <div style="overflow-x: auto; width: 100%;">
+                <table class="striped" style="width: 100%; min-width: 600px;">
+                    <thead>
+                        <tr>
+                            <th style="padding: 10px 5px; font-size: 0.85rem;">Plan</th>
+                            <th style="padding: 10px 5px; font-size: 0.85rem;">Expires</th>
+                            <th style="padding: 10px 5px; font-size: 0.85rem;">Status</th>
+                            <th style="padding: 10px 5px; font-size: 0.85rem;">Devs</th>
+                            <th style="padding: 10px 5px; font-size: 0.85rem;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for sub in subscriptions %}
+                        <tr>
+                            <td>
+                                <strong>{{ sub.plan_name }}</strong><br>
+                                <small class="secondary">UUID: ...{{ sub.id }}</small>
+                            </td>
+                            <td style="white-space: nowrap;">
+                                {{ sub.expires_at.format("%Y-%m-%d %H:%M") }}
+                                <button class="outline contrast" onclick="openExtendModal({{ sub.id }})"
+                                    style="padding: 2px 6px; font-size: 0.7rem; margin-left: 5px; display: inline-block; vertical-align: middle;"
+                                    data-tooltip="Extend Subscription">➕</button>
+                            </td>
+                            <td>
+                                {% if sub.status == "active" %}
+                                <span class="badge success">Active</span>
+                                {% else %}
+                                <span class="badge secondary">{{ sub.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div
+                                    style="display: flex; align-items: center; justify-content: space-between; gap: 5px;">
+                                    <span style="font-size: 0.9rem;">
+                                        <strong>{{ sub.active_devices }}</strong>/{% if sub.device_limit == 0 %}∞{% else
+                                        %}{{ sub.device_limit }}{% endif %}
+                                        {% if sub.device_limit > 0 && sub.active_devices >= sub.device_limit %}
+                                        <span style="color: var(--del-color);">⚠️</span>
+                                        {% else if sub.active_devices > 0 %}
+                                        <span style="color: var(--ins-color);">✓</span>
+                                        {% endif %}
+                                    </span>
+                                    <button class="outline contrast" onclick="openDevicesModal({{ sub.id }})"
+                                        style="padding: 2px 6px; font-size: 0.7rem;"
+                                        data-tooltip="View Devices">👁️</button>
+                                </div>
+                            </td>
+                            <td>
+                                <div role="group" style="display: flex; gap: 5px;">
+                                    <!-- Refund -->
+                                    <button class="outline warning"
+                                        onclick="openRefundModal({{ sub.id }}, {{ sub.price }}, {{ sub.created_at.timestamp_millis() }}, {{ sub.expires_at.timestamp_millis() }})"
+                                        style="padding: 5px 10px; font-size: 0.8rem;" data-tooltip="Refund">Ref</button>
+                                    <!-- Delete -->
+                                    <button hx-delete="{{ admin_path }}/users/subs/{{ sub.id }}"
+                                        hx-confirm="Are you sure you want to delete this subscription?"
+                                        class="outline danger" style="padding: 5px 10px; font-size: 0.8rem;"
+                                        data-tooltip="Delete">Del</button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% endif %}
+        </article>
+
+        <article>
+            <header>Order History</header>
+            {% if orders.is_empty() %}
+            <p>No orders found.</p>
+            {% else %}
+            <table class="striped">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                        <th>Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for order in orders %}
+                    <tr>
+                        <td>#{{ order.id }}</td>
+                        <td>{{ order.total_amount }} USDT</td>
+                        <td>{{ order.status }}</td>
+                        <td>{{ order.created_at }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endif %}
+        </article>
+
+        <article>
+            <header>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>Referred Users</span>
+                    <span class="badge success">Total Earned: ${{ total_referral_earnings }}</span>
+                </div>
+            </header>
+            {% if referrals.is_empty() %}
+            <p>This user hasn't invited anyone yet.</p>
+            {% else %}
+            <table class="striped">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>TG ID</th>
+                        <th>Joined At</th>
+                        <th>Revenue</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for referral in referrals %}
+                    <tr>
+                        <td>
+                            <a href="{{ admin_path }}/users/{{ referral.id }}">
+                                {{ referral.full_name.as_deref().unwrap_or("Unknown") }}
+                                (@{{ referral.username.as_deref().unwrap_or("None") }})
+                            </a>
+                        </td>
+                        <td><code>{{ referral.tg_id }}</code></td>
+                        <td>{{ referral.created_at.format("%Y-%m-%d").to_string() }}</td>
+                        <td>
+                            <span class="badge success">${{ format!("{:.2}", referral.total_earned as f64 / 100.0)
+                                }}</span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endif %}
+        </article>
+    </div>
+
+    <!-- Modals -->
+    <dialog id="gift_modal">
+        <article>
+            <header>
+                <button aria-label="Close" rel="prev" onclick="closeModal('gift_modal')"></button>
+                <h3>🎁 Gift Subscription</h3>
+            </header>
+            <form action="{{ admin_path }}/users/{{ user.id }}/gift" method="post">
+                <label>
+                    Select Plan & Duration
+                    <select name="duration_id" required>
+                        {% for plan in available_plans %}
+                        {% for duration in plan.durations %}
+                        <option value="{{ duration.id }}">{{ plan.name }} - {{ duration.duration_days }} Days (${{
+                            format!("{:.2}", duration.price as f64 / 100.0) }})</option>
+                        {% endfor %}
+                        {% endfor %}
+                    </select>
+                </label>
+                <footer>
+                    <button type="button" class="secondary" onclick="closeModal('gift_modal')">Cancel</button>
+                    <button type="submit">Gift & Notify</button>
+                </footer>
+            </form>
+        </article>
+    </dialog>
+    <dialog id="extend_modal">
+        <article>
+            <header>
+                <button aria-label="Close" rel="prev" onclick="closeModal('extend_modal')"></button>
+                <h3>Extend Subscription</h3>
+            </header>
+            <form id="extend_form" method="post">
+                <label>
+                    Duration (Days)
+                    <input type="number" name="days" value="30" required>
+                </label>
+                <footer>
+                    <button type="button" class="secondary" onclick="closeModal('extend_modal')">Cancel</button>
+                    <button type="submit">Confirm Extension</button>
+                </footer>
+            </form>
+        </article>
+    </dialog>
+
+    <dialog id="refund_modal">
+        <article>
+            <header>
+                <button aria-label="Close" rel="prev" onclick="closeModal('refund_modal')"></button>
+                <h3>Refund Subscription</h3>
+            </header>
+            <p>This will <strong>delete</strong> the subscription and refund the balance.</p>
+            <form id="refund_form" method="post">
+                <label>
+                    Refund Amount (Cents)
+                    <div class="grid">
+                        <input type="number" id="refund_amount" name="amount" placeholder="0" required>
+                        <button type="button" onclick="calculateProRated()" class="secondary outline">Calculate
+                            Pro-rated</button>
+                    </div>
+                    <small id="refund_help">Default is original price. Click Calculate for unused
+                        time.</small>
+                </label>
+                <footer>
+                    <button type="button" class="secondary" onclick="closeModal('refund_modal')">Cancel</button>
+                    <button type="submit" class="warning">Confirm Refund</button>
+                </footer>
+            </form>
+        </article>
+    </dialog>
+
+    <script>
+        function openExtendModal(subId) {
+            const modal = document.getElementById('extend_modal');
+            const form = document.getElementById('extend_form');
+            form.setAttribute('hx-post', `{{ admin_path }}/users/subs/${subId}/extend`);
+            htmx.process(form);
+            modal.showModal();
+        }
+
+        let currentRefundData = {};
+
+        function openRefundModal(subId, price, createdAt, expiresAt) {
+            const modal = document.getElementById('refund_modal');
+            const form = document.getElementById('refund_form');
+            const input = document.getElementById('refund_amount');
+
+            form.setAttribute('hx-post', `{{ admin_path }}/users/subs/${subId}/refund`);
+            htmx.process(form);
+
+            // Pre-fill with original price
+            input.value = price;
+
+            // Store data for calculation
+            currentRefundData = {
+                price: price,
+                createdAt: createdAt,
+                expiresAt: expiresAt
+            };
+
+            modal.showModal();
+        }
+
+        function calculateProRated() {
+            if (!currentRefundData.price) return;
+
+            const now = Date.now();
+            const totalDuration = currentRefundData.expiresAt - currentRefundData.createdAt;
+            const remaining = currentRefundData.expiresAt - now;
+
+            if (remaining <= 0) {
+                document.getElementById('refund_amount').value = 0;
+                return;
+            }
+
+            if (totalDuration <= 0) {
+                // Should not happen, but fallback
+                document.getElementById('refund_amount').value = currentRefundData.price;
+                return;
+            }
+
+            const ratio = remaining / totalDuration;
+            // Clamp ratio between 0 and 1 just in case
+            const clampedRatio = Math.max(0, Math.min(1, ratio));
+
+            const proRated = Math.floor(currentRefundData.price * clampedRatio);
+            document.getElementById('refund_amount').value = proRated;
+        }
+
+        function openDevicesModal(subId) {
+            const modal = document.getElementById('devices_modal');
+            const content = document.getElementById('devices_content');
+
+            content.innerHTML = '<div aria-busy="true">Loading devices...</div>';
+
+            // Fetch device list via HTMX manually or via fetch
+            fetch(`{{ admin_path }}/subs/${subId}/devices`)
+                .then(response => response.text())
+                .then(html => {
+                    content.innerHTML = html;
+                })
+                .catch(err => {
+                    content.innerHTML = '<p style="color: red;">Failed to load devices.</p>';
+                    console.error(err);
+                });
+
+            modal.showModal();
+        }
+
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            modal.close();
+        }
+        function openGiftModal() {
+            const modal = document.getElementById('gift_modal');
+            modal.showModal();
+        }
+    </script>
+    {% endblock %}

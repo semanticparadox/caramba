@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}User Management{% endblock %}
+
+{% block content %}
+<section>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+        <h2>User Management</h2>
+        <form hx-get="{{ admin_path }}/users" hx-target="body" hx-push-url="true" class="grid"
+            style="margin: 0; align-items: center;">
+            <input type="search" name="search" placeholder="Search by name..." value="{{ search }}"
+                style="margin-bottom: 0;">
+            <button type="submit" style="margin-bottom: 0;">Search</button>
+        </form>
+    </div>
+
+    <table role="grid">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Telegram ID</th>
+                <th>Name</th>
+                <th>Balance</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td>{{ user.id }}</td>
+                <td>{{ user.tg_id }}</td>
+                <td>
+                    <div style="font-weight: bold;">{{ user.full_name.as_deref().unwrap_or("Unknown") }}</div>
+                    {% if let Some(username) = user.username %}
+                    <small style="opacity: 0.7;">@{{ username }}</small>
+                    {% endif %}
+                </td>
+                <td>£{{ user.balance / 100 }}.{% if (user.balance % 100) < 10 %}0{% endif %}{{ user.balance % 100
+                        }}</td>
+                <td>
+                    {% if user.is_banned %}
+                    <span class="badge" style="background: red; color: white;">BANNED</span>
+                    {% else %}
+                    <span class="badge success">Active</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="{{ admin_path }}/users/{{ user.id }}" role="button" class="outline secondary"
+                        style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">Edit</a>
+                </td>
+
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+
+{% endblock %}

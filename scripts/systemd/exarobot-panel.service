@@ -1,0 +1,15 @@
+[Unit]
+Description=EXA ROBOT VPN Control Panel
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/exarobot/panel
+ExecStart=/opt/exarobot/panel/exarobot serve
+Restart=always
+RestartSec=5s
+EnvironmentFile=/opt/exarobot/panel/.env
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,47 @@
+<header>
+    <a href="#close" aria-label="Close" class="close"
+        onclick="document.getElementById('edit-inbound-modal').close()"></a>
+    Edit Inbound: {{ inbound.tag }}
+</header>
+<form hx-post="{{ admin_path }}/nodes/{{ node_id }}/inbounds/{{ inbound.id }}" hx-swap="none">
+    <div class="grid">
+        <div>
+            <label for="edit_tag">Tag</label>
+            <input type="text" id="edit_tag" name="tag" value="{{ inbound.tag }}" required>
+        </div>
+        <div>
+            <label for="edit_protocol">Protocol</label>
+            <select id="edit_protocol" name="protocol" required>
+                <option value="vless" {% if inbound.protocol=="vless" %}selected{% endif %}>VLESS</option>
+                <option value="hysteria2" {% if inbound.protocol=="hysteria2" %}selected{% endif %}>Hysteria 2</option>
+                <option value="trojan" {% if inbound.protocol=="trojan" %}selected{% endif %}>Trojan</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="grid">
+        <div>
+            <label for="edit_listen_port">Listen Port</label>
+            <input type="number" id="edit_listen_port" name="listen_port" value="{{ inbound.listen_port }}" required>
+        </div>
+        <div>
+            <label for="edit_listen_ip">Listen IP</label>
+            <input type="text" id="edit_listen_ip" name="listen_ip" value="{{ inbound.listen_ip }}" required>
+        </div>
+    </div>
+
+    <label for="edit_settings">Protocol Settings (JSON)</label>
+    <textarea id="edit_settings" name="settings" rows="6"
+        style="font-family: monospace;">{{ inbound.settings }}</textarea>
+
+    <label for="edit_stream_settings">Stream Settings (JSON)</label>
+    <textarea id="edit_stream_settings" name="stream_settings" rows="8"
+        style="font-family: monospace;">{{ inbound.stream_settings }}</textarea>
+
+    <footer>
+        <button type="button" class="secondary"
+            onclick="document.getElementById('edit-inbound-modal').close()">Cancel</button>
+        <button type="submit" onclick="setTimeout(()=>document.getElementById('edit-inbound-modal').close(), 500)">Save
+            Changes</button>
+    </footer>
+</form>

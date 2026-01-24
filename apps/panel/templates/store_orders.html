@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Store Orders{% endblock %}
+
+{% block content %}
+<section>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+        <h2>Recent Orders</h2>
+        <div></div>
+    </div>
+
+    <figure>
+        <table role="grid">
+            <thead>
+                <tr>
+                    <th scope="col">Order ID</th>
+                    <th scope="col">User ID</th>
+                    <th scope="col">Amount</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for order in orders %}
+                <tr>
+                    <th scope="row">#{{ order.id }}</th>
+                    <td>{{ order.user_id }}</td>
+                    <td>${{ order.total_amount / 100 }}.{{ order.total_amount % 100 }}</td>
+                    <td>
+                        <span class="badge {% if order.status == " paid" %}success{% else %}secondary{% endif %}">
+                            {{ order.status }}
+                        </span>
+                    </td>
+                    <td>{{ order.created_at }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </figure>
+</section>
+{% endblock %}
