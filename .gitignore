@@ -30,5 +30,5 @@ diagnose_*.sh
 apply_*.sql
 
 # Ignore heavy panel assets temporarily
-apps/panel/static/
-apps/panel/migrations/
+# apps/panel/static/
+# apps/panel/migrations/
