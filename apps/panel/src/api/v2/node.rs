@@ -38,13 +38,14 @@ pub async fn heartbeat(
         }
     };
 
-    info!("💓 Heartbeat from Node {}: ver={}, uptime={:?}", node.id, payload.version, payload.uptime);
+    info!("💓 Heartbeat from Node {:?}: ver={}, uptime={}", node.id, payload.version, payload.uptime);
 
     // 3. Update Status
+    // node.status is String (proven by compiler error)
     let new_status = if node.status == "new" || node.status == "installing" { "active" } else { "active" }; // Force active on heartbeat
     
     // NOTE: 'version' column apparently does not exist in 'nodes' table yet. Removing it for now.
-    let db_res = sqlx::query!(
+    let _db_res = sqlx::query!(
         "UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = ? WHERE id = ?",
         new_status,
         node.id

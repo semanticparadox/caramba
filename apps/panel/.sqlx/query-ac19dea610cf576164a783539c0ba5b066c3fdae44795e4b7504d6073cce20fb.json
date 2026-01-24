@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM subscription_ip_tracking WHERE subscription_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "ac19dea610cf576164a783539c0ba5b066c3fdae44795e4b7504d6073cce20fb"
+}
