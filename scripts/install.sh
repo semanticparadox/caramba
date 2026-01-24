@@ -64,7 +64,7 @@ install_dependencies() {
 }
 
 clone_repository() {
-    REPO_URL="https://github.com/YOUR_USERNAME/exarobot.git"
+    REPO_URL="https://github.com/semanticparadox/EXA-ROBOT.git"
     INSTALL_DIR="/opt/exarobot"
     
     if [ -d "$INSTALL_DIR/.git" ]; then
