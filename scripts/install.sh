@@ -130,11 +130,20 @@ EOF
     # Create DB file
     touch /opt/exarobot/panel/db.sqlite
     
-    # Apply schema using sqlite3 CLI
-    if [ -f "apps/panel/migrations/001_complete_schema.sql" ]; then
-        sqlite3 /opt/exarobot/panel/db.sqlite < apps/panel/migrations/001_complete_schema.sql
+    # Install sqlx-cli for migrations
+    if ! command -v sqlx &> /dev/null; then
+        log_info "Installing sqlx-cli..."
+        cargo install sqlx-cli --no-default-features --features native-tls,sqlite --quiet
+        log_success "sqlx-cli installed"
+    fi
+
+    # Apply ALL migrations using sqlx
+    log_info "Applying database migrations..."
+    if [ -d "apps/panel/migrations" ]; then
+        sqlx migrate run --source apps/panel/migrations
+        log_success "Migrations applied successfully"
     else
-        log_error "Migration file not found! Cannot build."
+        log_error "Migration directory not found! Cannot build."
         exit 1
     fi
 

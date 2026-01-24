@@ -15,7 +15,7 @@ Cargo.lock
 # Logs
 *.log
 logs/
-
+README.md
 # System files
 .DS_Store
 

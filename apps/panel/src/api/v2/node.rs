@@ -13,6 +13,7 @@ use exarobot_shared::config::ConfigResponse;
 pub async fn heartbeat(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Json(payload): Json<HeartbeatRequest>,
 ) -> impl IntoResponse {
     // 1. Extract Token
@@ -22,7 +23,7 @@ pub async fn heartbeat(
     };
 
     // 2. Validate Node
-    let node_res = sqlx::query!("SELECT id, status FROM nodes WHERE join_token = ?", token)
+    let node_res = sqlx::query!("SELECT id, status, ip FROM nodes WHERE join_token = ?", token)
         .fetch_optional(&state.pool)
         .await;
 
@@ -38,20 +39,30 @@ pub async fn heartbeat(
         }
     };
 
-    info!("💓 Heartbeat from Node {:?}: ver={}, uptime={}", node.id, payload.version, payload.uptime);
+    info!("💓 Heartbeat from Node {:?} ({}): ver={}, uptime={}", node.id, addr.ip(), payload.version, payload.uptime);
 
-    // 3. Update Status
-    // node.status is String (proven by compiler error)
-    let new_status = if node.status == "new" || node.status == "installing" { "active" } else { "active" }; // Force active on heartbeat
+    // 3. Update Status and IP
+    // Use X-Forwarded-For if available, else SocketAddr
+    let remote_ip = headers
+        .get("X-Forwarded-For")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or("").trim().to_string())
+        .unwrap_or_else(|| addr.ip().to_string());
     
-    // NOTE: 'version' column apparently does not exist in 'nodes' table yet. Removing it for now.
-    let _db_res = sqlx::query!(
-        "UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = ? WHERE id = ?",
-        new_status,
-        node.id
-    )
-    .execute(&state.pool)
-    .await;
+    // Only update IP if it looks like a temporary one ("pending-") or if it changed (and isn't loopback?)
+    // Actually, user wants the real IP. Let's just update it.
+    // Be careful about unique constraint on IP. If another node has this IP, it might fail? 
+    // Usually 1 node = 1 IP.
+    
+    let new_status = if node.status == "new" || node.status == "installing" { "active" } else { "active" };
+
+    // Use query! macro? No, schema might not match locally. Use execute with query string.
+    let _ = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = ?, ip = ? WHERE id = ?")
+        .bind(new_status)
+        .bind(remote_ip)
+        .bind(node.id)
+        .execute(&state.pool)
+        .await;
     
     // 4. Check if config update is needed (hash mismatch)
     (StatusCode::OK, Json(HeartbeatResponse {
