@@ -89,17 +89,10 @@ install_panel() {
     read -p "Enter admin path [/admin]: " ADMIN_PATH </dev/tty
     ADMIN_PATH=${ADMIN_PATH:-/admin}
     
-    # Build panel
-    log_info "Building panel (this may take a while)..."
-    cd /opt/exarobot
-    export SQLX_OFFLINE=true
-    cargo build -p exarobot --release --quiet
-    
-    # Create directories
+    # Create directories FIRST
     mkdir -p /opt/exarobot/panel
-    cp target/release/exarobot /opt/exarobot/panel/
     
-    # Create .env
+    # Create .env FIRST (needed for build macros)
     cat > /opt/exarobot/panel/.env <<EOF
 SERVER_DOMAIN=$DOMAIN
 ADMIN_PATH=$ADMIN_PATH
@@ -108,6 +101,30 @@ BOT_TOKEN=
 PAYMENT_API_KEY=
 NOWPAYMENTS_KEY=
 EOF
+
+    # Initialize database FIRST (needed for build macros)
+    log_info "Initializing database for build verification..."
+    export DATABASE_URL=sqlite:///opt/exarobot/panel/db.sqlite
+    
+    # Create DB file
+    touch /opt/exarobot/panel/db.sqlite
+    
+    # Apply schema using sqlite3 CLI
+    if [ -f "apps/panel/migrations/001_complete_schema.sql" ]; then
+        sqlite3 /opt/exarobot/panel/db.sqlite < apps/panel/migrations/001_complete_schema.sql
+    else
+        log_error "Migration file not found! Cannot build."
+        exit 1
+    fi
+
+    # Build panel (Online Mode)
+    log_info "Building panel..."
+    cd /opt/exarobot
+    export SQLX_OFFLINE=false
+    cargo build -p exarobot --release --quiet
+    
+    # Copy binary
+    cp target/release/exarobot /opt/exarobot/panel/
     
     # Create systemd service
     cat > /etc/systemd/system/exarobot-panel.service <<EOF
@@ -127,11 +144,6 @@ EnvironmentFile=/opt/exarobot/panel/.env
 [Install]
 WantedBy=multi-user.target
 EOF
-    
-    # Initialize database
-    log_info "Initializing database..."
-    cd /opt/exarobot/panel
-    ./exarobot admin reset-password admin admin123 || true
     
     # Start service
     systemctl daemon-reload
