@@ -47,7 +47,9 @@ CREATE TABLE IF NOT EXISTS nodes (
     domain TEXT,
     -- Smart Setup
     join_token TEXT,
-    auto_configure BOOLEAN DEFAULT 0
+    join_token TEXT,
+    auto_configure BOOLEAN DEFAULT 0,
+    is_enabled BOOLEAN DEFAULT 1 -- Added in v1.1
 );
 
 CREATE INDEX IF NOT EXISTS idx_nodes_ip ON nodes (ip);
@@ -288,3 +290,31 @@ VALUES
 (3, 30, 39.99, 0, 1),
 (3, 90, 107.99, 10, 1),
 (3, 365, 399.99, 17, 1);
+
+-- ================================================
+-- POST-SCHEMA UPDATES (Merged for Single-File Install)
+-- ================================================
+
+-- Create plan_inbounds join table
+CREATE TABLE IF NOT EXISTS plan_inbounds (
+    plan_id INTEGER NOT NULL,
+    inbound_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (plan_id, inbound_id),
+    FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
+    FOREIGN KEY (inbound_id) REFERENCES inbounds(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_plan_inbounds_plan ON plan_inbounds(plan_id);
+CREATE INDEX IF NOT EXISTS idx_plan_inbounds_inbound ON plan_inbounds(inbound_id);
+
+-- Ensure 'is_enabled' column exists in nodes
+-- SQLite does not support IF NOT EXISTS for columns in create table if table exists.
+-- The install.sh usually runs this on fresh DB.
+-- If running on existing DB, this might fail, so we append simple ALTERs that might error locally but fine for fresh.
+-- For robustness in 'catch-up' scenario on existing DB without migration tool:
+-- We can't do conditional alter easily in pure SQL script without logic.
+-- BUT, we can just update the CREATE TABLE 'nodes' above to include it for new installs.
+
+-- See step 2: I will update the CREATE TABLE nodes block above instead of appending ALTER here for 'is_enabled'.
+

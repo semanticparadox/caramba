@@ -49,15 +49,28 @@ pub async fn heartbeat(
         .map(|s| s.split(',').next().unwrap_or("").trim().to_string())
         .unwrap_or_else(|| addr.ip().to_string());
     
-    // Only update IP if it looks like a temporary one ("pending-") or if it changed (and isn't loopback?)
-    // Actually, user wants the real IP. Let's just update it.
-    // Be careful about unique constraint on IP. If another node has this IP, it might fail? 
-    // Usually 1 node = 1 IP.
-    
     let new_status = if node.status == "new" || node.status == "installing" { "active" } else { "active" };
 
-    // Use query! macro? No, schema might not match locally. Use execute with query string.
+    // Handle Unique IP Constraint Logic:
+    // If we try to update this node to 'remote_ip', and another node has 'remote_ip', it will fail with 500.
+    // Solution: "Steal" the IP. Set any OTHER node with this IP to a temporary value or NULL (if allowed).
+    // Validating if IP changed first to avoid unnecessary writes.
+    if node.ip != remote_ip {
+        // Clear IP from other nodes to enforce uniqueness "latest wins"
+        let _ = sqlx::query("UPDATE nodes SET ip = cast(id as text) || '_orphaned' WHERE ip = ? AND id != ?")
+            .bind(&remote_ip)
+            .bind(node.id)
+            .execute(&state.pool)
+            .await;
+    }
+
+    // Now safe to update
     let _ = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = ?, ip = ? WHERE id = ?")
+        .bind(new_status)
+        .bind(remote_ip)
+        .bind(node.id)
+        .execute(&state.pool)
+        .await;
         .bind(new_status)
         .bind(remote_ip)
         .bind(node.id)

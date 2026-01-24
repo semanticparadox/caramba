@@ -321,7 +321,12 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         ));
 
     // Start server
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let port: u16 = std::env::var("PANEL_PORT")
+        .unwrap_or_else(|_| "3000".to_string())
+        .parse()
+        .expect("PANEL_PORT must be a number");
+        
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tracing::info!("Listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

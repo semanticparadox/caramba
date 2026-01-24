@@ -28,7 +28,7 @@ main() {
     echo "2) Agent only"
     echo "3) Both"
     read -p "Choice [1-3]: " CHOICE
-    
+            
     case $CHOICE in
         1|3)
             log_info "Stopping and removing Panel..."

@@ -110,6 +110,11 @@ install_panel() {
         ADMIN_PATH=${ADMIN_PATH:-/admin}
     fi
     
+    if [[ -z "$PANEL_PORT" ]]; then
+        read -p "Enter Panel Port [3000]: " PANEL_PORT </dev/tty
+        PANEL_PORT=${PANEL_PORT:-3000}
+    fi
+    
     # Create directories FIRST
     mkdir -p /opt/exarobot/panel
     
@@ -117,11 +122,18 @@ install_panel() {
     cat > /opt/exarobot/panel/.env <<EOF
 SERVER_DOMAIN=$DOMAIN
 ADMIN_PATH=$ADMIN_PATH
+PANEL_PORT=$PANEL_PORT
 DATABASE_URL=sqlite:///opt/exarobot/panel/db.sqlite
 BOT_TOKEN=
 PAYMENT_API_KEY=
 NOWPAYMENTS_KEY=
 EOF
+
+    # Configure firewall specifically for Panel
+    if command -v ufw &> /dev/null; then
+        log_info "Opening Panel port $PANEL_PORT..."
+        ufw allow $PANEL_PORT/tcp
+    fi
 
     # Initialize database FIRST (needed for build macros)
     log_info "Initializing database for build verification..."
@@ -130,20 +142,14 @@ EOF
     # Create DB file
     touch /opt/exarobot/panel/db.sqlite
     
-    # Install sqlx-cli for migrations
-    if ! command -v sqlx &> /dev/null; then
-        log_info "Installing sqlx-cli..."
-        cargo install sqlx-cli --no-default-features --features native-tls,sqlite --quiet
-        log_success "sqlx-cli installed"
-    fi
-
-    # Apply ALL migrations using sqlx
-    log_info "Applying database migrations..."
-    if [ -d "apps/panel/migrations" ]; then
-        sqlx migrate run --source apps/panel/migrations
-        log_success "Migrations applied successfully"
+    # Note: We consolidated migrations into 001_complete_schema.sql for simple server installation.
+    # This avoids needing sqlx-cli on the server.
+    log_info "Applying database schema..."
+    if [ -f "apps/panel/migrations/001_complete_schema.sql" ]; then
+        sqlite3 /opt/exarobot/panel/db.sqlite < apps/panel/migrations/001_complete_schema.sql
+        log_success "Schema applied successfully"
     else
-        log_error "Migration directory not found! Cannot build."
+        log_error "Schema file not found! Cannot build."
         exit 1
     fi
 
