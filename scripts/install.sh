@@ -91,6 +91,7 @@ install_panel() {
     # Build panel
     log_info "Building panel (this may take a while)..."
     cd /opt/exarobot
+    export SQLX_OFFLINE=true
     cargo build -p exarobot --release --quiet
     
     # Create directories

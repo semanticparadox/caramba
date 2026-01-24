@@ -163,7 +163,7 @@ impl OrchestrationService {
             match serde_json::from_str::<InboundType>(&inbound.settings) {
                 Ok(mut settings) => {
                     match &mut settings {
-                        InboundType::Vless(ref mut vless) => {
+                        InboundType::Vless(vless) => {
                             for sub in &active_subs {
                                 if let Some(uuid) = &sub.vless_uuid {
                                     vless.clients.push(VlessClient {
@@ -174,7 +174,7 @@ impl OrchestrationService {
                                 }
                             }
                         },
-                        InboundType::Hysteria2(ref mut hy2) => {
+                        InboundType::Hysteria2(hy2) => {
                              for sub in &active_subs {
                                 if let Some(uuid) = &sub.vless_uuid {
                                     hy2.users.push(Hysteria2User {

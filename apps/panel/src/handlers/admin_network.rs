@@ -290,7 +290,7 @@ pub async fn preview_node_config(
              use crate::models::network::{InboundType, VlessClient};
              if let Ok(mut settings) = serde_json::from_str::<InboundType>(&inbound.settings) {
                  match &mut settings {
-                     InboundType::Vless(ref mut vless) => {
+                     InboundType::Vless(vless) => {
                          for sub in &active_subs {
                              if let Some(uuid) = &sub.vless_uuid {
                                  vless.clients.push(VlessClient { id: uuid.clone(), email: format!("user_{}", sub.user_id), flow: "xtls-rprx-vision".to_string() });
