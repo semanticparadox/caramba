@@ -24,6 +24,7 @@ pub struct Plan {
     pub name: String,
     pub description: Option<String>,
     pub is_active: bool,
+    pub traffic_limit_gb: i32,
     pub device_limit: i32,
     pub created_at: DateTime<Utc>,
     #[sqlx(skip)]
