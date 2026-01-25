@@ -109,12 +109,25 @@ check_conflicts() {
         echo ""
         echo -e "${RED}Conflicts detected!${NC}"
         echo "It seems a previous installation or another service is running."
-        read -p "Do you want to stop existing services and overwrite? (y/N): " OVERWRITE
+        read -p "Do you want to stop existing services and overwrite? (y/N): " OVERWRITE < /dev/tty
         if [[ "$OVERWRITE" == "y" ]]; then
-            log_info "Stopping services..."
+            log_info "Stopping and removing existing services..."
             systemctl stop exarobot-panel || true
+            systemctl disable exarobot-panel || true
+            rm -f /etc/systemd/system/exarobot-panel.service
+            
             systemctl stop exarobot-agent || true
-            # Kill by port if needed? Maybe too aggressive.
+            systemctl disable exarobot-agent || true
+            rm -f /etc/systemd/system/exarobot-agent.service
+            
+            systemctl daemon-reload
+            
+            # Optional: Kill lingering processes on port 3000 if still active
+            if command -v fuser &> /dev/null; then
+                 fuser -k 3000/tcp || true
+            fi
+            
+            log_success "Previous services removed. Proceeding..."
         else
             log_error "Installation aborted by user."
             exit 1
