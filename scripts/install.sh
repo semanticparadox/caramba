@@ -507,7 +507,7 @@ main() {
         rm -rf "$TEMP_BUILD_DIR"
     fi
     
-    fi
+
     
     echo ""
     log_success "Installation Complete!"
