@@ -7,6 +7,7 @@ use tracing::{info, error};
 use crate::AppState;
 use exarobot_shared::api::{HeartbeatRequest, HeartbeatResponse, AgentAction};
 use exarobot_shared::config::ConfigResponse;
+use sqlx::Row; // Import Row trait
 
 /// Handle agent heartbeat
 /// POST /api/v2/node/heartbeat
@@ -22,24 +23,27 @@ pub async fn heartbeat(
         None => return (StatusCode::UNAUTHORIZED, "Missing Token").into_response(),
     };
 
-    // 2. Validate Node
-    // PARANOID MODE: Use COALESCE in SQL and Option<String> in Rust to handle absolutely any schema state
-    // We explicitly cast to ensure types match what we expect
-    let node_res: Result<Option<(i64, Option<String>, Option<String>)>, sqlx::Error> = 
-        sqlx::query_as("SELECT id, status, COALESCE(ip, '') as ip FROM nodes WHERE join_token = ?")
-        .bind(&token) // Add & reference to safer binding
+    // 2. Validate Node - MANUAL ROW PARSING (Safest)
+    let row_res = sqlx::query("SELECT id, status, ip FROM nodes WHERE join_token = ?")
+        .bind(&token)
         .fetch_optional(&state.pool)
         .await;
 
-    let (node_id, node_status, node_ip) = match node_res {
-        Ok(Some((id, status, ip_opt))) => (id, status.unwrap_or_else(|| "new".to_string()), ip_opt.unwrap_or_default()),
+    let (node_id, node_status, node_ip) = match row_res {
+        Ok(Some(row)) => {
+            // Manually extract columns with defaults if missing/null
+            let id: i64 = row.try_get("id").unwrap_or(0);
+            let status: String = row.try_get("status").unwrap_or_else(|_| "new".to_string());
+            // Use simple string for IP, handle nulls gracefully
+            let ip: String = row.try_get("ip").unwrap_or_default(); 
+            (id, status, ip)
+        },
         Ok(None) => {
             tracing::warn!("Heartbeat from unknown token (Token: {}...)", &token.chars().take(5).collect::<String>());
             return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response();
         }
         Err(e) => {
             error!("CRITICAL DB ERROR in heartbeat select: {:?}", e);
-            // Return the actual error to the agent so we can see it in logs
             return (StatusCode::INTERNAL_SERVER_ERROR, format!("DB Select Error: {}", e)).into_response();
         }
     };

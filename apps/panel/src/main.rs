@@ -114,7 +114,7 @@ async fn main() -> Result<()> {
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "exarobot=debug,axum=info,tower_http=info,russh=info,sqlx=debug".into()))
+            .unwrap_or_else(|_| "exarobot=debug,axum=info,tower_http=info,sqlx=warn".into()))
         .with(tracing_subscriber::fmt::layer().with_writer(io::stdout))
         .with(tracing_subscriber::fmt::layer().with_writer(non_blocking).with_ansi(false))
         .init();
