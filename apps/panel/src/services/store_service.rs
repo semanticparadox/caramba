@@ -189,7 +189,7 @@ impl StoreService {
 
     pub async fn get_active_plans(&self) -> Result<Vec<Plan>> {
         let mut plans = match sqlx::query_as::<_, Plan>(
-        "SELECT id, name, description, is_active, created_at, device_limit FROM plans WHERE is_active = 1"
+        "SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb FROM plans WHERE is_active = 1"
     )
     .fetch_all(&self.pool)
     .await {
