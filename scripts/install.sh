@@ -143,12 +143,13 @@ check_conflicts() {
             log_info "Stopping and removing existing services..."
             
             # Stop Services
-            systemctl stop exarobot-panel || true
-            systemctl disable exarobot-panel || true
+            # Stop Services
+            systemctl stop exarobot-panel &> /dev/null || true
+            systemctl disable exarobot-panel &> /dev/null || true
             rm -f /etc/systemd/system/exarobot-panel.service
             
-            systemctl stop exarobot-agent || true
-            systemctl disable exarobot-agent || true
+            systemctl stop exarobot-agent &> /dev/null || true
+            systemctl disable exarobot-agent &> /dev/null || true
             rm -f /etc/systemd/system/exarobot-agent.service
             
             # Remove Sing-box (if requested by user "remove sing-box also")
@@ -195,6 +196,13 @@ build_binaries() {
     log_info "Building binaries from $src_dir..."
     cd "$src_dir"
     
+    
+    # Check if cargo works
+    if ! command -v cargo &> /dev/null; then
+        # Try sourcing again if lost
+        if [ -f "$HOME/.cargo/env" ]; then source "$HOME/.cargo/env"; fi
+    fi
+    
     # Init dummy DB for build macros if needed
     if [[ "$target_role" == "panel" || "$target_role" == "both" ]]; then
         if [ ! -f "build_db.sqlite" ]; then
@@ -205,13 +213,15 @@ build_binaries() {
             fi
         fi
         
-        log_info "Compiling Panel..."
-        cargo build -p exarobot --release --quiet
+        log_info "Compiling Panel (this may take a few minutes)..."
+        # Removed --quiet to show progress
+        cargo build -p exarobot --release
     fi
     
     if [[ "$target_role" == "agent" || "$target_role" == "both" ]]; then
-        log_info "Compiling Agent..."
-        cargo build -p exarobot-agent --release --quiet
+        log_info "Compiling Agent (this may take a few minutes)..."
+        # Removed --quiet
+        cargo build -p exarobot-agent --release
     fi
 }
 
@@ -425,8 +435,8 @@ main() {
     build_binaries "$ROLE" "$BUILD_SOURCE"
     
     # Stop existing
-    systemctl stop exarobot-panel || true
-    systemctl stop exarobot-agent || true
+    systemctl stop exarobot-panel &> /dev/null || true
+    systemctl stop exarobot-agent &> /dev/null || true
     
     setup_directory
     
