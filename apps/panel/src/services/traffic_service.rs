@@ -79,12 +79,12 @@ impl TrafficService {
     async fn enforce_quotas(&self) -> anyhow::Result<()> {
         // Find subscriptions that exceeded their plan's traffic limit
         let overloaded_subs: Vec<(i64, i64, i32)> = sqlx::query_as(
-            "SELECT s.id, s.user_id, p.traffic_gb 
+            "SELECT s.id, s.user_id, p.traffic_limit_gb 
              FROM subscriptions s
              JOIN plans p ON s.plan_id = p.id
              WHERE s.status = 'active' 
-             AND p.traffic_gb > 0 
-             AND s.used_traffic >= (CAST(p.traffic_gb AS BIGINT) * 1024 * 1024 * 1024)"
+             AND p.traffic_limit_gb > 0 
+             AND s.used_traffic >= (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)"
         )
         .fetch_all(&self.state.pool)
         .await?;

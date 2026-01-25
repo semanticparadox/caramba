@@ -36,7 +36,6 @@ pub struct PlanDuration {
     pub plan_id: i64,
     pub duration_days: i32,
     pub price: i64,
-    pub traffic_gb: i32,
     pub created_at: DateTime<Utc>,
 }
 

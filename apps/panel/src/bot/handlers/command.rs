@@ -35,7 +35,7 @@ pub async fn message_handler(
             match user_res_inner {
                 Ok(u) => Some(u),
                 Err(e) => {
-                    error!("Failed to upsert user on /start: {}", e);
+                    error!("Failed to upsert user on /start: {:?}", e);
                     None
                 }
             }

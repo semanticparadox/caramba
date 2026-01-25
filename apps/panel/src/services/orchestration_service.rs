@@ -113,7 +113,7 @@ impl OrchestrationService {
             reality_settings: None,
         };
         
-        sqlx::query("INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable) VALUES (?, ?, 'hysteria2', 443, ?, ?, 1)")
+        sqlx::query("INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable) VALUES (?, ?, 'hysteria2', 8443, ?, ?, 1)")
             .bind(node_id)
             .bind(format!("hysteria2-{}", node_id))
             .bind(hy2_json)

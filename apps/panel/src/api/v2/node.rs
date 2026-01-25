@@ -34,8 +34,8 @@ pub async fn heartbeat(
             return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response();
         }
         Err(e) => {
-            error!("DB Error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response();
+            error!("DB Error: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)).into_response();
         }
     };
 

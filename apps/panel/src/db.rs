@@ -33,5 +33,21 @@ pub async fn init_db() -> Result<SqlitePool> {
         .await
         .context("Failed to run migrations")?;
 
+    // Post-migration repairs (Fix for existing installations missing columns)
+    // 1. Ensure 'is_enabled' in nodes
+    let has_is_enabled: bool = sqlx::query_scalar(
+        "SELECT count(*) > 0 FROM pragma_table_info('nodes') WHERE name='is_enabled'"
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or(false);
+
+    if !has_is_enabled {
+        tracing::info!("Applying schema repair: Adding 'is_enabled' to nodes table");
+        if let Err(e) = sqlx::query("ALTER TABLE nodes ADD COLUMN is_enabled BOOLEAN DEFAULT 1").execute(&pool).await {
+            tracing::warn!("Failed to add is_enabled column (might exist?): {}", e);
+        }
+    }
+
     Ok(pool)
 }

@@ -255,6 +255,18 @@ configure_panel() {
         PANEL_PORT=${PANEL_PORT:-3000}
     fi
     
+    if [[ -z "$ADMIN_PATH" ]]; then
+        if [ -t 0 ]; then
+             read -p "Enter Admin Path (e.g. /admin): " ADMIN_PATH
+        else
+             echo -n "Enter Admin Path (e.g. /admin): "
+             read -r ADMIN_PATH < /dev/tty
+        fi
+        ADMIN_PATH=${ADMIN_PATH:-/admin}
+    fi
+     # Ensure leading slash
+    [[ "${ADMIN_PATH}" != /* ]] && ADMIN_PATH="/${ADMIN_PATH}"
+    
     # Firewall
     if command -v ufw &> /dev/null; then
         ufw allow $PANEL_PORT/tcp
@@ -315,6 +327,11 @@ EOF
     systemctl enable exarobot-panel
     systemctl restart exarobot-panel
     log_success "Panel installed. Access: https://$DOMAIN$ADMIN_PATH/login"
+    echo ""
+    echo -e "${YELLOW}IMPORTANT: Create your first Admin User:${NC}"
+    echo "  cd $INSTALL_DIR"
+    echo "  ./exarobot admin reset-password admin <your-password>"
+    echo ""
 }
 
 configure_agent() {
@@ -490,7 +507,16 @@ main() {
         rm -rf "$TEMP_BUILD_DIR"
     fi
     
+    fi
+    
+    echo ""
     log_success "Installation Complete!"
+    if [[ "$ROLE" == "panel" || "$ROLE" == "both" ]]; then
+        echo -e "${CYAN}--------------------------------------------------${NC}"
+        echo -e "Panel Address : https://${DOMAIN}${ADMIN_PATH}"
+        echo -e "Admin Creation: cd ${INSTALL_DIR} && ./exarobot admin reset-password <user> <pass>"
+        echo -e "${CYAN}--------------------------------------------------${NC}"
+    fi
 }
 
 main "$@"
