@@ -28,7 +28,7 @@ ROLE=""
 PANEL_URL=""
 NODE_TOKEN=""
 DOMAIN=""
-ADMIN_PATH="/admin"
+ADMIN_PATH="" # Default empty to force prompt or use intelligent default later
 FORCE_INSTALL=false
 
 # --------------------------------------------------
@@ -146,7 +146,11 @@ check_conflicts() {
             # Stop Services
             systemctl stop exarobot-panel &> /dev/null || true
             systemctl disable exarobot-panel &> /dev/null || true
+            # Also stop "exarobot" alias if used
+            systemctl stop exarobot &> /dev/null || true
+            systemctl disable exarobot &> /dev/null || true
             rm -f /etc/systemd/system/exarobot-panel.service
+            rm -f /etc/systemd/system/exarobot.service
             
             systemctl stop exarobot-agent &> /dev/null || true
             systemctl disable exarobot-agent &> /dev/null || true
@@ -318,6 +322,7 @@ ExecStart=$INSTALL_DIR/exarobot serve
 Restart=always
 RestartSec=5s
 EnvironmentFile=$ENV_FILE
+# ADMIN_PATH and other vars are loaded from EnvironmentFile, NOT hardcoded here!
 
 [Install]
 WantedBy=multi-user.target
