@@ -170,22 +170,24 @@ pub async fn callback_handler(
                         if let Ok(subs) = state.store_service.get_user_subscriptions(user_tg.id).await {
                             let sub_opt = subs.iter().find(|s| s.sub.id == sub_id);
                             
-                            if let Some(sub) = sub_opt {
-                                let nodes = state.store_service.get_active_nodes().await.unwrap_or_default();
-                                if nodes.is_empty() {
-                                    let _ = bot.send_message(ChatId(user_tg.tg_id), "❌ No nodes available for your plan yet.").await;
-                                } else {
-                                let mut response = "🔗 *Your Connection Links:*\n\n".to_string();
-                                for node in nodes {
-                                    if let (Some(pub_key), Some(short_id), Some(uuid)) = (&node.reality_pub, &node.short_id, &sub.sub.vless_uuid) {
-                                        let link = format!(
-                                            "vless://{}@{}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=google.com&fp=chrome&pbk={}&sid={}#EXA-{}-{}",
-                                            uuid, node.ip, pub_key, short_id, escape_md(&node.name), escape_md(&node.ip)
-                                        );
-                                        response.push_str(&format!("📍 *{}*\n`{}`\n\n", escape_md(&node.name), escape_md(&link)));
+                            if let Some(_sub) = sub_opt {
+                                // Use the proper link generation service
+                                match state.store_service.get_subscription_links(sub_id).await {
+                                    Ok(links) => {
+                                        if links.is_empty() {
+                                            let _ = bot.send_message(ChatId(user_tg.tg_id), "❌ No connection links available for your subscription yet.").await;
+                                        } else {
+                                            let mut response = "🔗 *Your Connection Links:*\n\n".to_string();
+                                            for link in links {
+                                                response.push_str(&format!("`{}`\n\n", escape_md(&link)));
+                                            }
+                                            let _ = bot.send_message(ChatId(user_tg.tg_id), response).parse_mode(ParseMode::MarkdownV2).await;
+                                        }
                                     }
-                                }
-                                let _ = bot.send_message(ChatId(user_tg.tg_id), response).parse_mode(ParseMode::MarkdownV2).await;
+                                    Err(e) => {
+                                        error!("Failed to get subscription links: {}", e);
+                                        let _ = bot.send_message(ChatId(user_tg.tg_id), "❌ Failed to generate connection links.").await;
+                                    }
                                 }
                             } else {
                                 let _ = bot.answer_callback_query(q.id.clone()).text("❌ Subscription not found").await;
