@@ -108,7 +108,7 @@
                     {% for dur in plan.durations %}
                     <div class="duration-item">
                         <span class="badge success">{{ dur.duration_days }}d</span>
-                        <strong>${{ dur.price / 100 }}</strong>
+                        <strong>${{ dur.price / 100 }}.{{ "{:02}"|format(dur.price % 100) }}</strong>
                     </div>
                     {% endfor %}
                 </div>

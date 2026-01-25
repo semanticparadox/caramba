@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS plans (
     description TEXT,
     traffic_limit_gb INTEGER NOT NULL, -- -1 for unlimited
     device_limit INTEGER DEFAULT 1,
-    price REAL NOT NULL,
+    price INTEGER NOT NULL,
     is_active BOOLEAN DEFAULT 1,
     sort_order INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS plan_durations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     plan_id INTEGER NOT NULL,
     duration_days INTEGER NOT NULL,
-    price REAL NOT NULL,
+    price INTEGER NOT NULL,
     discount_percent REAL DEFAULT 0,
     is_active BOOLEAN DEFAULT 1,
     FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     plan_id INTEGER NOT NULL,
     vless_uuid TEXT UNIQUE, -- Generated once, used for all configs
     status TEXT NOT NULL DEFAULT 'pending', -- pending, active, expired, suspended
-    traffic_used_gb REAL DEFAULT 0,
+    used_traffic INTEGER DEFAULT 0,
     device_count INTEGER DEFAULT 0,
     activated_at DATETIME,
     expires_at DATETIME,
@@ -272,25 +272,25 @@ VALUES ('admin', '$2b$12$K.z2iBv.m6.h7.8.9.a.bcdefghijklmno.pqrstuvwxyz');
 -- Default Plans
 INSERT OR IGNORE INTO plans (id, name, description, traffic_limit_gb, device_limit, price, is_active, sort_order)
 VALUES 
-(1, 'Basic', 'Perfect for individuals', 50, 1, 9.99, 1, 1),
-(2, 'Pro', 'For power users', 200, 3, 19.99, 1, 2),
-(3, 'Unlimited', 'No limits!', -1, 5, 39.99, 1, 3);
+(1, 'Basic', 'Perfect for individuals', 50, 1, 999, 1, 1),
+(2, 'Pro', 'For power users', 200, 3, 1999, 1, 2),
+(3, 'Unlimited', 'No limits!', -1, 5, 3999, 1, 3);
 
 -- Default Plan Durations
 INSERT OR IGNORE INTO plan_durations (plan_id, duration_days, price, discount_percent, is_active)
 VALUES 
 -- Basic
-(1, 30, 9.99, 0, 1),
-(1, 90, 26.99, 10, 1),
-(1, 365, 99.99, 17, 1),
+(1, 30, 999, 0, 1),
+(1, 90, 2699, 10, 1),
+(1, 365, 9999, 17, 1),
 -- Pro
-(2, 30, 19.99, 0, 1),
-(2, 90, 53.99, 10, 1),
-(2, 365, 199.99, 17, 1),
+(2, 30, 1999, 0, 1),
+(2, 90, 5399, 10, 1),
+(2, 365, 19999, 17, 1),
 -- Unlimited
-(3, 30, 39.99, 0, 1),
-(3, 90, 107.99, 10, 1),
-(3, 365, 399.99, 17, 1);
+(3, 30, 3999, 0, 1),
+(3, 90, 10799, 10, 1),
+(3, 365, 39999, 17, 1);
 
 -- ================================================
 -- POST-SCHEMA UPDATES (Merged for Single-File Install)
