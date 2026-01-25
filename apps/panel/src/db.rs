@@ -109,6 +109,36 @@ pub async fn init_db() -> Result<SqlitePool> {
              tracing::warn!("Failed to add warning_count column: {}", e);
         }
     }
+    
+    // 6. Ensure 'status' in nodes (TEXT)
+    let has_status: bool = sqlx::query_scalar(
+        "SELECT count(*) > 0 FROM pragma_table_info('nodes') WHERE name='status'"
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or(false);
+
+    if !has_status {
+        tracing::info!("Applying schema repair: Adding 'status' to nodes table");
+        if let Err(e) = sqlx::query("ALTER TABLE nodes ADD COLUMN status TEXT DEFAULT 'new'").execute(&pool).await {
+             tracing::warn!("Failed to add status column: {}", e);
+        }
+    }
+
+    // 7. Ensure 'last_seen' in nodes (DATETIME)
+    let has_last_seen: bool = sqlx::query_scalar(
+        "SELECT count(*) > 0 FROM pragma_table_info('nodes') WHERE name='last_seen'"
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or(false);
+
+    if !has_last_seen {
+        tracing::info!("Applying schema repair: Adding 'last_seen' to nodes table");
+        if let Err(e) = sqlx::query("ALTER TABLE nodes ADD COLUMN last_seen DATETIME").execute(&pool).await {
+             tracing::warn!("Failed to add last_seen column: {}", e);
+        }
+    }
 
     Ok(pool)
 }

@@ -23,27 +23,29 @@ pub async fn heartbeat(
     };
 
     // 2. Validate Node
-    // 2. Validate Node
-    // Using query_as for resilience against schema drift (e.g. if ip is null in older DBs)
-    let node_res: Result<Option<(i64, String, Option<String>)>, sqlx::Error> = 
-        sqlx::query_as("SELECT id, status, ip FROM nodes WHERE join_token = ?")
-        .bind(token)
+    // PARANOID MODE: Use COALESCE in SQL and Option<String> in Rust to handle absolutely any schema state
+    // We explicitly cast to ensure types match what we expect
+    let node_res: Result<Option<(i64, Option<String>, Option<String>)>, sqlx::Error> = 
+        sqlx::query_as("SELECT id, status, COALESCE(ip, '') as ip FROM nodes WHERE join_token = ?")
+        .bind(&token) // Add & reference to safer binding
         .fetch_optional(&state.pool)
         .await;
 
     let (node_id, node_status, node_ip) = match node_res {
-        Ok(Some((id, status, ip_opt))) => (id, status, ip_opt.unwrap_or_default()),
+        Ok(Some((id, status, ip_opt))) => (id, status.unwrap_or_else(|| "new".to_string()), ip_opt.unwrap_or_default()),
         Ok(None) => {
-            tracing::warn!("Heartbeat from unknown token");
+            tracing::warn!("Heartbeat from unknown token (Token: {}...)", &token.chars().take(5).collect::<String>());
             return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response();
         }
         Err(e) => {
-            error!("DB Error in heartbeat select: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)).into_response();
+            error!("CRITICAL DB ERROR in heartbeat select: {:?}", e);
+            // Return the actual error to the agent so we can see it in logs
+            return (StatusCode::INTERNAL_SERVER_ERROR, format!("DB Select Error: {}", e)).into_response();
         }
     };
 
-    info!("💓 Heartbeat from Node {:?} ({}): ver={}, uptime={}", node_id, addr.ip(), payload.version, payload.uptime);
+    info!("💓 [Checkpoint 1] Found Node ID: {:?} | Status: {} | IP: {}", node_id, node_status, node_ip);
+    info!("💓 [Checkpoint 2] Agent Payload: ver={}, uptime={}", payload.version, payload.uptime);
 
     // 3. Update Status and IP
     // Use X-Forwarded-For if available, else SocketAddr
@@ -53,15 +55,12 @@ pub async fn heartbeat(
         .map(|s| s.split(',').next().unwrap_or("").trim().to_string())
         .unwrap_or_else(|| addr.ip().to_string());
     
-    let new_status = if node_status == "new" || node_status == "installing" { "active" } else { "active" };
+    let new_status = "active"; // Always set to active on heartbeat
 
-    // Handle Unique IP Constraint Logic:
-    // If we try to update this node to 'remote_ip', and another node has 'remote_ip', it will fail with 500.
-    // Solution: "Steal" the IP. Set any OTHER node with this IP to a temporary value or NULL (if allowed).
-    // Validating if IP changed first to avoid unnecessary writes.
+    // Check orphan logic
     if node_ip != remote_ip {
-        info!("Node {:?} IP changed from {:?} to {}. Handling constraints...", node_id, node_ip, remote_ip);
-        // Clear IP from other nodes to enforce uniqueness "latest wins"
+        info!("💓 [Checkpoint 3] IP Mismatch! DB={} vs Remote={}. Handling constraints...", node_ip, remote_ip);
+        
         let update_res = sqlx::query("UPDATE nodes SET ip = cast(id as text) || '_orphaned' WHERE ip = ? AND id != ?")
             .bind(&remote_ip)
             .bind(node_id)
@@ -69,12 +68,15 @@ pub async fn heartbeat(
             .await;
         
         if let Err(e) = update_res {
-             error!("Failed to orphan old nodes with IP {}: {:?}", remote_ip, e);
-             // We continue, but the next update might fail
+             error!("⚠️ Failed to orphan old nodes with IP {}: {:?}", remote_ip, e);
+        } else {
+             info!("💓 [Checkpoint 3a] Terminated potential conflicts for IP {}", remote_ip);
         }
     }
 
     // Now safe to update
+    info!("💓 [Checkpoint 4] Updating Node {} to status='{}', ip='{}'", node_id, new_status, remote_ip);
+    
     let update_status_res = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = ?, ip = ? WHERE id = ?")
         .bind(new_status)
         .bind(&remote_ip)
@@ -83,9 +85,11 @@ pub async fn heartbeat(
         .await;
 
     if let Err(e) = update_status_res {
-        error!("Failed to update node {:?} heartbeat: {:?}", node_id, e);
+        error!("CRITICAL DB ERROR: Failed to update node {} heartbeat: {:?}", node_id, e);
         return (StatusCode::INTERNAL_SERVER_ERROR, format!("DB Update Error: {}", e)).into_response();
     }
+    
+    info!("💓 [Checkpoint 5] Success! Node {} updated.", node_id);
 
     
     // 4. Check if config update is needed (hash mismatch)
