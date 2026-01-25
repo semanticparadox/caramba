@@ -110,8 +110,9 @@ check_conflicts() {
     # Check Ports (only if we know them, e.g. default 3000)
     # If lsof or ss is available
     if command -v ss &> /dev/null; then
-        if ss -tuln | grep -q ":3000 "; then
-             log_warn "Port 3000 is in use (Panel default)."
+        local TARGET_PORT=${PANEL_PORT:-3000}
+        if ss -tuln | grep -q ":${TARGET_PORT} "; then
+             log_warn "Port ${TARGET_PORT} is in use (Panel)."
              clash=true
         fi
     fi
@@ -169,12 +170,13 @@ check_conflicts() {
             fi
 
             # Kill Ports - AGGRESSIVE
+            local TARGET_PORT=${PANEL_PORT:-3000}
             if command -v fuser &> /dev/null; then
-                 fuser -k 3000/tcp || true
+                 fuser -k ${TARGET_PORT}/tcp || true
             fi
             # Use lsof as backup if fuser missed it or not present
             if command -v lsof &> /dev/null; then
-                 lsof -t -i:3000 | xargs -r kill -9 || true
+                 lsof -t -i:${TARGET_PORT} | xargs -r kill -9 || true
             fi
             
             # Remove Files - SAFELY
@@ -241,6 +243,18 @@ setup_directory() {
     # Files are kept in root: /opt/exarobot/{exarobot, exarobot-agent, .env, .env.agent}
 }
 
+    ensure_panel_port() {
+      if [[ -z "$PANEL_PORT" ]]; then
+        if [ -t 0 ]; then
+             read -p "Enter Panel Port [3000]: " PANEL_PORT
+        else
+             echo -n "Enter Panel Port [3000]: "
+             read -r PANEL_PORT < /dev/tty
+        fi
+        PANEL_PORT=${PANEL_PORT:-3000}
+      fi
+    }
+
 configure_panel() {
     # Interactive Prompts
     if [[ -z "$DOMAIN" ]]; then
@@ -252,16 +266,8 @@ configure_panel() {
             read -r DOMAIN < /dev/tty
         fi
     fi
-    if [[ -z "$PANEL_PORT" ]]; then
-
-        if [ -t 0 ]; then
-             read -p "Enter Panel Port [3000]: " PANEL_PORT
-        else
-             echo -n "Enter Panel Port [3000]: "
-             read -r PANEL_PORT < /dev/tty
-        fi
-        PANEL_PORT=${PANEL_PORT:-3000}
-    fi
+    
+    ensure_panel_port
     
     if [[ -z "$ADMIN_PATH" ]]; then
         if [ -t 0 ]; then
@@ -435,6 +441,7 @@ main() {
             --clean) CLEAN_INSTALL=true ;;
             --role) ROLE="$2"; shift ;;
             --panel) PANEL_URL="$2"; shift ;;
+            --port) PANEL_PORT="$2"; shift ;;
             --token) NODE_TOKEN="$2"; shift ;;
             --domain) DOMAIN="$2"; shift ;;
             --admin-path) ADMIN_PATH="$2"; shift ;;
@@ -466,6 +473,10 @@ main() {
         esac
     fi
     
+    
+    if [[ "$ROLE" == "panel" || "$ROLE" == "both" ]]; then
+        ensure_panel_port
+    fi
     
     check_conflicts
     
