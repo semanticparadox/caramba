@@ -35,7 +35,17 @@ main() {
     echo "2) Agent (Service, Binary, Config)"
     echo "3) Everything (Completely remove /opt/exarobot)"
     echo "4) Cancel"
-    read -p "Choice [1-4]: " CHOICE
+    echo "4) Cancel"
+    
+    # Use robust reading due to pipe usage (curl | bash)
+    set +e
+    if [ -t 0 ]; then
+        read -p "Choice [1-4]: " CHOICE
+    else
+        echo -n "Choice [1-4]: "
+        read -r CHOICE < /dev/tty
+    fi
+    set -e
     
     [[ "$CHOICE" == "4" ]] && exit 0
     
@@ -58,7 +68,16 @@ main() {
              # handled at end
              true
         else
-             read -p "Remove Panel Database and Config? (y/N): " RMPANEL
+         else
+             set +e
+             if [ -t 0 ]; then
+                 read -p "Remove Panel Database and Config? (y/N): " RMPANEL
+             else
+                 echo -n "Remove Panel Database and Config? (y/N): "
+                 read -r RMPANEL < /dev/tty
+             fi
+             set -e
+             
              if [[ "$RMPANEL" == "y" ]]; then
                 rm -f "$INSTALL_DIR/exarobot.db"
                 rm -f "$INSTALL_DIR/.env"
@@ -85,7 +104,15 @@ main() {
         rm -f "$INSTALL_DIR/exarobot-agent"
         
         if [[ "$CHOICE" != "3" ]]; then
-             read -p "Remove Agent Config? (y/N): " RMAGENT
+             set +e
+             if [ -t 0 ]; then
+                 read -p "Remove Agent Config? (y/N): " RMAGENT
+             else
+                 echo -n "Remove Agent Config? (y/N): "
+                 read -r RMAGENT < /dev/tty
+             fi
+             set -e
+
              if [[ "$RMAGENT" == "y" ]]; then
                 rm -f "$INSTALL_DIR/.env.agent"
                 log_info "Agent data removed."
@@ -97,7 +124,17 @@ main() {
     
     # Full Cleanup
     if [[ "$CHOICE" == "3" ]]; then
-        read -p "Are you sure you want to delete ALL data in $INSTALL_DIR? (y/N): " CONFIRM
+    # Full Cleanup
+    if [[ "$CHOICE" == "3" ]]; then
+        set +e
+        if [ -t 0 ]; then
+            read -p "Are you sure you want to delete ALL data in $INSTALL_DIR? (y/N): " CONFIRM
+        else
+            echo -n "Are you sure you want to delete ALL data in $INSTALL_DIR? (y/N): "
+            read -r CONFIRM < /dev/tty
+        fi
+        set -e
+        
         if [[ "$CONFIRM" == "y" ]]; then
             log_info "Removing directory $INSTALL_DIR..."
             rm -rf "$INSTALL_DIR"
