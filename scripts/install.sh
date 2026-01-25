@@ -98,8 +98,8 @@ check_conflicts() {
     local clash=false
     
     # Check if services are running
-    if systemctl is-active --quiet exarobot-panel; then
-        log_warn "Service 'exarobot-panel' is currently running."
+    if systemctl is-active --quiet exarobot; then
+        log_warn "Service 'exarobot' (Panel) is currently running."
         clash=true
     fi
     if systemctl is-active --quiet exarobot-agent; then
@@ -144,13 +144,13 @@ check_conflicts() {
             
             # Stop Services
             # Stop Services
-            systemctl stop exarobot-panel &> /dev/null || true
-            systemctl disable exarobot-panel &> /dev/null || true
-            # Also stop "exarobot" alias if used
             systemctl stop exarobot &> /dev/null || true
             systemctl disable exarobot &> /dev/null || true
-            rm -f /etc/systemd/system/exarobot-panel.service
             rm -f /etc/systemd/system/exarobot.service
+            # Remove old legacy name if exists
+            systemctl stop exarobot-panel &> /dev/null || true
+            systemctl disable exarobot-panel &> /dev/null || true
+            rm -f /etc/systemd/system/exarobot-panel.service
             
             systemctl stop exarobot-agent &> /dev/null || true
             systemctl disable exarobot-agent &> /dev/null || true
@@ -309,7 +309,7 @@ EOF
     fi
     
     # Service
-    cat > /etc/systemd/system/exarobot-panel.service <<EOF
+    cat > /etc/systemd/system/exarobot.service <<EOF
 [Unit]
 Description=VPN Control Panel
 After=network.target
@@ -329,8 +329,8 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    systemctl enable exarobot-panel
-    systemctl restart exarobot-panel
+    systemctl enable exarobot
+    systemctl restart exarobot
     log_success "Panel installed. Access: https://$DOMAIN$ADMIN_PATH/login"
     echo ""
     echo -e "${YELLOW}IMPORTANT: Create your first Admin User:${NC}"
@@ -489,7 +489,7 @@ main() {
     build_binaries "$ROLE" "$BUILD_SOURCE"
     
     # Stop existing
-    systemctl stop exarobot-panel &> /dev/null || true
+    systemctl stop exarobot &> /dev/null || true
     systemctl stop exarobot-agent &> /dev/null || true
     
     setup_directory
@@ -528,7 +528,7 @@ main() {
         
         echo ""
         log_info "To view logs:"
-        echo "  Panel: journalctl -u exarobot-panel -f"
+        echo "  Panel: journalctl -u exarobot -f"
         echo "  Agent: journalctl -u exarobot-agent -f"
     fi
 
