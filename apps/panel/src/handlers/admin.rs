@@ -864,7 +864,6 @@ pub async fn delete_plan(
         }
     }
 }
-}
 
 pub async fn get_plan_edit(
     State(state): State<AppState>,
