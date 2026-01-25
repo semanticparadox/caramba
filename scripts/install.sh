@@ -236,10 +236,22 @@ setup_directory() {
 configure_panel() {
     # Interactive Prompts
     if [[ -z "$DOMAIN" ]]; then
-        read -p "Enter server domain (e.g. panel.example.com): " DOMAIN </dev/tty
+    if [[ -z "$DOMAIN" ]]; then
+        if [ -t 0 ]; then
+            read -p "Enter server domain (e.g. panel.example.com): " DOMAIN
+        else
+            echo -n "Enter server domain (e.g. panel.example.com): "
+            read -r DOMAIN < /dev/tty
+        fi
     fi
     if [[ -z "$PANEL_PORT" ]]; then
-        read -p "Enter Panel Port [3000]: " PANEL_PORT </dev/tty
+    if [[ -z "$PANEL_PORT" ]]; then
+        if [ -t 0 ]; then
+             read -p "Enter Panel Port [3000]: " PANEL_PORT
+        else
+             echo -n "Enter Panel Port [3000]: "
+             read -r PANEL_PORT < /dev/tty
+        fi
         PANEL_PORT=${PANEL_PORT:-3000}
     fi
     
@@ -307,10 +319,22 @@ EOF
 
 configure_agent() {
     if [[ -z "$PANEL_URL" ]]; then
-        read -p "Enter Panel URL (e.g. https://panel.example.com): " PANEL_URL </dev/tty
+    if [[ -z "$PANEL_URL" ]]; then
+        if [ -t 0 ]; then
+            read -p "Enter Panel URL (e.g. https://panel.example.com): " PANEL_URL
+        else
+            echo -n "Enter Panel URL (e.g. https://panel.example.com): "
+            read -r PANEL_URL < /dev/tty
+        fi
     fi
     if [[ -z "$NODE_TOKEN" ]]; then
-        read -p "Enter Node Token: " NODE_TOKEN </dev/tty
+    if [[ -z "$NODE_TOKEN" ]]; then
+        if [ -t 0 ]; then
+             read -p "Enter Node Token: " NODE_TOKEN
+        else
+             echo -n "Enter Node Token: "
+             read -r NODE_TOKEN < /dev/tty
+        fi
     fi
     
     # Agent Env
@@ -399,7 +423,15 @@ main() {
         echo "1) Panel"
         echo "2) Agent"
         echo "3) Both"
-        read -p "Choice [1-3]: " C </dev/tty
+        # Robust read
+        set +e
+        if [ -t 0 ]; then
+            read -p "Choice [1-3]: " C
+        else
+            echo -n "Choice [1-3]: "
+            read -r C < /dev/tty
+        fi
+        set -e
         case $C in
             1) ROLE="panel" ;;
             2) ROLE="agent" ;;
