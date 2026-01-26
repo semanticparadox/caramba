@@ -1,7 +1,7 @@
 # Build artifacts
 /target
 Cargo.lock
-
+/.agent
 # Databases
 *.db
 *.db-shm
