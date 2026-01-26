@@ -162,7 +162,7 @@ pub async fn login(
             let hash: String = row.get(0);
             if bcrypt::verify(&form.password, &hash).unwrap_or(false) {
                 let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-                let cookie = Cookie::build(("admin_session", "true"))
+                let cookie = Cookie::build(("admin_session", state.session_secret.clone()))
                     .path("/")
                     .http_only(true)
                     .build();

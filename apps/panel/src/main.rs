@@ -25,6 +25,7 @@ use clap::{Parser, Subcommand};
 use axum::{
     routing::{get, post},
     response::IntoResponse,
+    extract::State,
 };
 use axum_extra::extract::cookie::CookieJar;
 
@@ -38,6 +39,7 @@ pub struct AppState {
     pub orchestration_service: Arc<services::orchestration_service::OrchestrationService>,
     pub pay_service: Arc<services::pay_service::PayService>,
     pub ssh_public_key: String,
+    pub session_secret: String,
 }
 
 #[derive(Parser)]
@@ -74,8 +76,8 @@ enum AdminCommands {
     Info,
 }
 
-
 async fn auth_middleware(
+    State(state): State<AppState>,
     jar: CookieJar,
     req: axum::extract::Request,
     next: axum::middleware::Next,
@@ -93,7 +95,7 @@ async fn auth_middleware(
     }
 
     if let Some(cookie) = jar.get("admin_session") {
-        if cookie.value() == "true" {
+        if cookie.value() == state.session_secret {
             return next.run(req).await;
         }
     }
@@ -193,6 +195,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         orchestration_service,
         pay_service,
         ssh_public_key,
+        session_secret: uuid::Uuid::new_v4().to_string(),
     };
     
     // ... rest of function ...
@@ -237,7 +240,6 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     });
 
 
-use axum::routing::get_service;
 use tower_http::services::ServeDir;
 
     // Routes
