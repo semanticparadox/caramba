@@ -81,6 +81,21 @@ install_dependencies() {
     fi
 }
 
+install_singbox() {
+    if ! command -v sing-box &> /dev/null; then
+        log_info "Installing sing-box..."
+        curl -fsSL https://sing-box.app/gpg.key -o /etc/apt/keyrings/sagernet.asc
+        chmod a+r /etc/apt/keyrings/sagernet.asc
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/sagernet.asc] https://deb.sagernet.org/ * *" | \
+            tee /etc/apt/sources.list.d/sagernet.list > /dev/null
+        apt-get update -qq
+        apt-get install -y sing-box -qq
+        log_success "sing-box installed"
+    else
+        log_success "sing-box already installed"
+    fi
+}
+
 setup_firewall() {
     if command -v ufw &> /dev/null; then
         ufw allow 22/tcp
@@ -276,6 +291,9 @@ configure_panel() {
      # Ensure leading slash
     [[ "${ADMIN_PATH}" != /* ]] && ADMIN_PATH="/${ADMIN_PATH}"
     
+    # Install sing-box for key generation (Panel needs it for `sing-box generate reality-keypair`)
+    install_singbox
+    
     # Firewall
     if command -v ufw &> /dev/null; then
         ufw allow $PANEL_PORT/tcp
@@ -372,18 +390,12 @@ NODE_TOKEN=$NODE_TOKEN
 CONFIG_PATH=/etc/sing-box/config.json
 EOF
 
-    # Sing-box
-    if ! command -v sing-box &> /dev/null; then
-        log_info "Installing sing-box..."
-         curl -fsSL https://sing-box.app/gpg.key -o /etc/apt/keyrings/sagernet.asc
-        chmod a+r /etc/apt/keyrings/sagernet.asc
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/sagernet.asc] https://deb.sagernet.org/ * *" | \
-            tee /etc/apt/sources.list.d/sagernet.list > /dev/null
-        apt-get update -qq
-        apt-get install -y sing-box -qq
-        systemctl stop sing-box
-        systemctl disable sing-box
-    fi
+    # Install sing-box (shared function)
+    install_singbox
+    
+    # Stop default sing-box service (we manage it via Agent)
+    systemctl stop sing-box &> /dev/null || true
+    systemctl disable sing-box &> /dev/null || true
     
     # Generate self-signed certificates for Hysteria2
     log_info "Generating TLS certificates for Hysteria2..."
