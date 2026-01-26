@@ -179,6 +179,19 @@
                 </div>
             </div>
 
+            <label>Available Nodes</label>
+            <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                {% for node in nodes %}
+                <label>
+                    <input type="checkbox" name="node_ids" value="{{ node.id }}" checked>
+                    {{ node.name }} ({{ node.ip }})
+                </label>
+                {% endfor %}
+                {% if nodes.is_empty() %}
+                <small style="color: #ff9800;">No active nodes found. Add a node first.</small>
+                {% endif %}
+            </div>
+
             <label for="durations-container">Durations</label>
             <div id="durations-container">
                 <div class="duration-row grid">

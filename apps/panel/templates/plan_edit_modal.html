@@ -24,6 +24,25 @@
         </div>
     </div>
 
+    <label>Available Nodes</label>
+    <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+        {% for node in nodes %}
+        {% let mut is_checked = false %}
+        {% for linked_id in linked_node_ids %}
+        {% if linked_id == node.id %}
+        {% let is_checked = true %}
+        {% endif %}
+        {% endfor %}
+        <label>
+            <input type="checkbox" name="node_ids" value="{{ node.id }}" {% if is_checked %}checked{% endif %}>
+            {{ node.name }} ({{ node.ip }})
+        </label>
+        {% endfor %}
+        {% if nodes.is_empty() %}
+        <small style="color: #ff9800;">No active nodes found. Add a node first.</small>
+        {% endif %}
+    </div>
+
     <label>Durations</label>
     <div id="edit-durations-container">
         {% for dur in plan.durations %}

@@ -170,8 +170,16 @@ impl OrchestrationService {
         // 3. For each inbound, inject authorized users
         for inbound in &mut inbounds {
             // Find plans linked to this inbound
-            let linked_plans: Vec<i64> = sqlx::query_scalar("SELECT plan_id FROM plan_inbounds WHERE inbound_id = ?")
+            // Find plans linked to this inbound OR to the parent node Generally
+            let linked_plans: Vec<i64> = sqlx::query_scalar(
+                r#"
+                SELECT plan_id FROM plan_inbounds WHERE inbound_id = ?
+                UNION
+                SELECT plan_id FROM plan_nodes WHERE node_id = ?
+                "#
+            )
                 .bind(inbound.id)
+                .bind(node.id)
                 .fetch_all(&self.pool)
                 .await?;
 

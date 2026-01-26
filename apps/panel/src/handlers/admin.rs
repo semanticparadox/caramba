@@ -61,14 +61,7 @@ pub struct NodesTemplate {
     pub active_page: String,
 }
 
-#[derive(Template)]
-#[template(path = "plans.html")]
-pub struct PlansTemplate {
-    pub plans: Vec<Plan>,
-    pub is_auth: bool,
-    pub admin_path: String,
-    pub active_page: String,
-}
+
 
 
 #[derive(Template)]
@@ -679,10 +672,28 @@ pub async fn get_plans(State(state): State<AppState>) -> impl IntoResponse {
         plan.durations = durations;
     }
 
-    let template = PlansTemplate { plans, is_auth: true, admin_path: {
-        let p = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-        if p.starts_with('/') { p } else { format!("/{}", p) }
-    }, active_page: "plans".to_string() };
+    let nodes = sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE is_enabled = 1").fetch_all(&state.pool).await.unwrap_or_default();
+
+    #[derive(Template)]
+    #[template(path = "plans.html")]
+    pub struct PlansTemplate {
+        pub plans: Vec<Plan>,
+        pub nodes: Vec<Node>,
+        pub is_auth: bool,
+        pub admin_path: String,
+        pub active_page: String,
+    }
+
+    let template = PlansTemplate { 
+        plans, 
+        nodes,
+        is_auth: true, 
+        admin_path: {
+            let p = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+            if p.starts_with('/') { p } else { format!("/{}", p) }
+        }, 
+        active_page: "plans".to_string() 
+    };
     match template.render() {
         Ok(html) => Html(html).into_response(),
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Template error: {}", e)).into_response(),
@@ -787,6 +798,41 @@ pub async fn add_plan(
         }
     }
 
+    let mut node_ids: Vec<i64> = Vec::new();
+
+    for (key, value) in raw_form {
+        match key.as_str() {
+            "name" => name = value,
+            "description" => description = value,
+            "device_limit" => {
+                if let Ok(v) = value.parse() {
+                    device_limit = v;
+                }
+            },
+            "duration_days" => {
+                if let Ok(v) = value.parse() {
+                    duration_days.push(v);
+                }
+            },
+            "price" => {
+                if let Ok(v) = value.parse() {
+                    price.push(v);
+                }
+            },
+            "traffic_limit_gb" => {
+                if let Ok(v) = value.parse() {
+                    traffic_limit_gb = v;
+                }
+            },
+            "node_ids" => {
+                if let Ok(v) = value.parse() {
+                    node_ids.push(v);
+                }
+            },
+            _ => {}
+        }
+    }
+
     info!("Adding flexible plan: {}", name);
     if name.is_empty() {
         return (axum::http::StatusCode::BAD_REQUEST, "Plan name is required").into_response();
@@ -818,7 +864,6 @@ pub async fn add_plan(
 
     // 2. Insert Durations
     let count = duration_days.len().min(price.len());
-
     for i in 0..count {
         let days = duration_days[i];
         let p = price[i];
@@ -831,6 +876,18 @@ pub async fn add_plan(
             .await {
                 error!("Failed to insert plan duration {}: {}", i, e);
                 return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to add plan durations").into_response();
+            }
+    }
+
+    // 3. Link to Nodes
+    for node_id in node_ids {
+        if let Err(e) = sqlx::query("INSERT INTO plan_nodes (plan_id, node_id) VALUES (?, ?)")
+            .bind(plan_id)
+            .bind(node_id)
+            .execute(&mut *tx)
+            .await {
+                error!("Failed to link new plan to node: {}", e);
+                return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to link plan to node").into_response();
             }
     }
 
@@ -889,18 +946,30 @@ pub async fn get_plan_edit(
         _ => return (axum::http::StatusCode::NOT_FOUND, "Plan not found").into_response(),
     };
 
+    let all_nodes = sqlx::query_as::<_, crate::models::node::Node>("SELECT * FROM nodes WHERE is_enabled = 1")
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+
+    let linked_node_ids: Vec<i64> = sqlx::query_scalar("SELECT node_id FROM plan_nodes WHERE plan_id = ?")
+        .bind(id)
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+
     #[derive(Template)]
     #[template(path = "plan_edit_modal.html")]
     struct PlanEditModalTemplate {
         plan: Plan,
+        nodes: Vec<crate::models::node::Node>,
+        linked_node_ids: Vec<i64>,
         admin_path: String,
     }
 
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    // Ensure leading slash
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
 
-    Html(PlanEditModalTemplate { plan, admin_path }.render().unwrap_or_default()).into_response()
+    Html(PlanEditModalTemplate { plan, nodes: all_nodes, linked_node_ids, admin_path }.render().unwrap_or_default()).into_response()
 }
 
 pub async fn update_plan(
@@ -916,6 +985,8 @@ pub async fn update_plan(
     let mut duration_days: Vec<i32> = Vec::new();
     let mut price: Vec<i64> = Vec::new();
     let mut traffic_limit_gb: i32 = 0;
+
+    let mut node_ids: Vec<i64> = Vec::new();
 
     for (key, value) in raw_form {
         match key.as_str() {
@@ -939,6 +1010,11 @@ pub async fn update_plan(
             "traffic_limit_gb" => {
                 if let Ok(v) = value.parse() {
                     traffic_limit_gb = v;
+                }
+            },
+            "node_ids" => {
+                if let Ok(v) = value.parse() {
+                    node_ids.push(v);
                 }
             },
             _ => {}
@@ -991,6 +1067,26 @@ pub async fn update_plan(
             .await {
                 error!("Failed to insert duration: {}", e);
                 return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to insert duration: {}", e)).into_response();
+            }
+    }
+
+    // 4. Update Node Bindings (Modernized approach)
+    if let Err(e) = sqlx::query("DELETE FROM plan_nodes WHERE plan_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await {
+            error!("Failed to clear plan_nodes: {}", e);
+            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to clear plan bindings").into_response();
+        }
+
+    for node_id in node_ids {
+        if let Err(e) = sqlx::query("INSERT INTO plan_nodes (plan_id, node_id) VALUES (?, ?)")
+            .bind(id)
+            .bind(node_id)
+            .execute(&mut *tx)
+            .await {
+                error!("Failed to link plan to node: {}", e);
+                return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to link plan to node").into_response();
             }
     }
 
