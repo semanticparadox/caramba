@@ -23,20 +23,36 @@ impl OrchestrationService {
         info!("Initializing default inbounds for node {}", node_id);
         
         // 1. VLESS Reality (Vision)
-        // Generate keys using x25519-dalek 2.0+ (StaticSecret is now used usually, or EphemeralSecret)
-        // EphemeralSecret::new is deprecated -> random_from_rng
+        // Use sing-box native generation for guaranteed compatibility
         let (priv_key, pub_key) = {
-            use rand::rngs::OsRng;
-            use x25519_dalek::{StaticSecret, PublicKey};
-            use base64::{Engine as _, engine::general_purpose};
+            use std::process::Command;
             
-            // Use StaticSecret which allows exporting bytes easily
-            let secret = StaticSecret::random_from_rng(OsRng);
-            let public = PublicKey::from(&secret);
-            (
-                general_purpose::STANDARD.encode(secret.to_bytes()),
-                general_purpose::STANDARD.encode(public.as_bytes())
-            )
+            let output = Command::new("sing-box")
+                .args(&["generate", "reality-keypair"])
+                .output()
+                .map_err(|e| anyhow::anyhow!("Failed to execute sing-box generate: {}. Ensure sing-box is installed.", e))?;
+            
+            if !output.status.success() {
+                return Err(anyhow::anyhow!("sing-box generate failed: {}", String::from_utf8_lossy(&output.stderr)));
+            }
+            
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            let mut priv_key = String::new();
+            let mut pub_key = String::new();
+            
+            for line in output_str.lines() {
+                if let Some(key) = line.strip_prefix("PrivateKey:") {
+                    priv_key = key.trim().to_string();
+                } else if let Some(key) = line.strip_prefix("PublicKey:") {
+                    pub_key = key.trim().to_string();
+                }
+            }
+            
+            if priv_key.is_empty() || pub_key.is_empty() {
+                return Err(anyhow::anyhow!("Failed to parse sing-box output"));
+            }
+            
+            (priv_key, pub_key)
         };
         
         let short_id = hex::encode(&rand::random::<[u8; 8]>());
