@@ -1131,7 +1131,7 @@ pub async fn get_user_details(
         r#"
         SELECT 
             s.id, 
-            p.name as "plan_name!", 
+            p.name as plan_name, 
             s.expires_at, 
             s.created_at,
             s.status,
@@ -1143,7 +1143,7 @@ pub async fn get_user_details(
                  AND datetime(last_seen_at) > datetime('now', '-15 minutes')),
                 0
             ) as active_devices,
-            p.device_limit as "device_limit!"
+            p.device_limit as device_limit
         FROM subscriptions s
         JOIN plans p ON s.plan_id = p.id
         WHERE s.user_id = ?
