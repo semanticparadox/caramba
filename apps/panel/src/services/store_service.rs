@@ -989,6 +989,17 @@ impl StoreService {
                     }
                     params.push("insecure=1".to_string()); // Self-signed usually
 
+                    // Check for OBFS in protocol settings
+                    use crate::models::network::InboundType;
+                    if let Ok(InboundType::Hysteria2(settings)) = serde_json::from_str::<InboundType>(&inbound.settings) {
+                        if let Some(obfs) = settings.obfs {
+                            if obfs.ttype == "salamander" {
+                                params.push("obfs=salamander".to_string());
+                                params.push(format!("obfs-password={}", obfs.password));
+                            }
+                        }
+                    }
+
                     // Fetch TG ID for auth name
                     // We need to fetch it inside the loop or pre-fetch it. Pre-fetching is better but we are inside a loop over inbounds which is inside...
                     // Actually sub.user_id is available. Ideally we fetch tg_id once.
@@ -1106,6 +1117,17 @@ impl StoreService {
                             }
                         }
                         params.push("insecure=1".to_string()); // Self-signed usually
+
+                        // Check for OBFS in protocol settings
+                        use crate::models::network::InboundType;
+                        if let Ok(InboundType::Hysteria2(settings)) = serde_json::from_str::<InboundType>(&inbound.settings) {
+                            if let Some(obfs) = settings.obfs {
+                                if obfs.ttype == "salamander" {
+                                    params.push("obfs=salamander".to_string());
+                                    params.push(format!("obfs-password={}", obfs.password));
+                                }
+                            }
+                        }
 
                         // Use TG ID just like in config generation
                         let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?")
