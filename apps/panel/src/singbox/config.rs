@@ -60,6 +60,9 @@ pub struct VlessUser {
 pub struct VlessTlsConfig {
     pub enabled: bool,
     pub server_name: String,
+    // ALPN often needed for Vision/Reality
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alpn: Option<Vec<String>>,
     pub reality: RealityConfig,
 }
 
@@ -83,6 +86,8 @@ pub struct Hysteria2Inbound {
     pub listen: String,
     pub listen_port: u16,
     pub users: Vec<Hysteria2User>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ignore_client_bandwidth: Option<bool>,
     pub tls: Hysteria2TlsConfig,
 }
 
@@ -98,6 +103,8 @@ pub struct Hysteria2TlsConfig {
     pub server_name: String,
     pub key_path: Option<String>,
     pub certificate_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alpn: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

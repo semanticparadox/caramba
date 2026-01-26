@@ -46,6 +46,7 @@ impl ConfigGenerator {
                              tls_config = Some(VlessTlsConfig {
                                 enabled: true,
                                 server_name: reality.server_names.first().cloned().unwrap_or_default(),
+                                alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
                                 reality: RealityConfig {
                                     enabled: true,
                                     handshake: RealityHandshake {
@@ -82,6 +83,7 @@ impl ConfigGenerator {
                         server_name: "example.com".to_string(), // Default or from stream
                         key_path: Some("/etc/sing-box/certs/key.pem".to_string()),
                         certificate_path: Some("/etc/sing-box/certs/cert.pem".to_string()),
+                        alpn: Some(vec!["h3".to_string()]),
                     };
 
                     if let Some(tls) = stream_settings.tls_settings {
@@ -117,6 +119,7 @@ impl ConfigGenerator {
                         listen: inbound.listen_ip,
                         listen_port: inbound.listen_port as u16,
                         users,
+                        ignore_client_bandwidth: Some(false),
                         tls: tls_config,
                     }));
                 },
