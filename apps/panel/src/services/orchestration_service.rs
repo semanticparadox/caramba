@@ -67,7 +67,7 @@ impl OrchestrationService {
             .execute(&self.pool)
             .await?;
             
-        use crate::models::network::{InboundType, VlessSettings, RealitySettings, Hysteria2Settings, Hysteria2Obfs};
+        use crate::models::network::{InboundType, VlessSettings, RealitySettings, Hysteria2Settings};
         // Removed DestOverride if not in models
         
         let vless_settings_struct = VlessSettings {
@@ -111,14 +111,14 @@ impl OrchestrationService {
             .await?;
 
         // 2. Hysteria 2
-        let obfs_pass = uuid::Uuid::new_v4().to_string().replace("-", "");
+        // let obfs_pass = uuid::Uuid::new_v4().to_string().replace("-", ""); // Unused when OBFS disabled
         
         let hy2_settings_struct = Hysteria2Settings {
              users: vec![],
              up_mbps: 100,
              down_mbps: 100,
              obfs: None, // Disabled by default for better compatibility (matches Blitz)
-             masquerade: None,
+             masquerade: Some("/opt/exarobot/apps/panel/assets/masquerade".to_string()),
         };
 
         let hy2_json = serde_json::to_string(&InboundType::Hysteria2(hy2_settings_struct))?;

@@ -120,6 +120,7 @@ impl ConfigGenerator {
                         listen_port: inbound.listen_port as u16,
                         users,
                         ignore_client_bandwidth: Some(false),
+                        masquerade: hy2.masquerade.clone(),
                         tls: tls_config,
                     }));
                 },

@@ -580,6 +580,22 @@ main() {
         mkdir -p "$INSTALL_DIR/apps/panel"
         cp -r "$BUILD_SOURCE/apps/panel/assets" "$INSTALL_DIR/apps/panel/"
         
+        # Create Masquerade content for Hysteria 2
+        MASQ_DIR="$INSTALL_DIR/apps/panel/assets/masquerade"
+        mkdir -p "$MASQ_DIR"
+        if [ ! -f "$MASQ_DIR/index.html" ]; then
+            cat > "$MASQ_DIR/index.html" <<EOF
+<!DOCTYPE html>
+<html>
+<head><title>502 Bad Gateway</title></head>
+<body>
+<center><h1>502 Bad Gateway</h1></center>
+<hr><center>nginx</center>
+</body>
+</html>
+EOF
+        fi
+        
         configure_panel
     fi
     

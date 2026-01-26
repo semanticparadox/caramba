@@ -88,6 +88,10 @@ pub struct Hysteria2Inbound {
     pub users: Vec<Hysteria2User>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_client_bandwidth: Option<bool>,
+    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub masquerade: Option<String>,
+    
     pub tls: Hysteria2TlsConfig,
 }
 
