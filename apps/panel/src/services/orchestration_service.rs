@@ -85,8 +85,8 @@ impl OrchestrationService {
             reality_settings: Some(RealitySettings {
                 show: true,
                 xver: 0,
-                dest: "www.microsoft.com:443".to_string(),
-                server_names: vec!["www.microsoft.com".to_string(), "microsoft.com".to_string()],
+                dest: "drive.google.com:443".to_string(),
+                server_names: vec!["drive.google.com".to_string()],
                 private_key: priv_key,
                 short_ids: vec![short_id],
                 max_time_diff: Some(0), // Added Option<i64> to model
@@ -125,11 +125,15 @@ impl OrchestrationService {
 
         let hy2_json = serde_json::to_string(&InboundType::Hysteria2(hy2_settings_struct))?;
         
-        // Hysteria 2 uses UDP, correct. Stream settings usually empty or basic.
+        // Hysteria 2 uses UDP, correct. Stream settings with TLS.
+        use crate::models::network::TlsSettings;
         let hy2_stream = StreamSettings {
             network: "udp".to_string(), // Hysteria is UDP based
-            security: "none".to_string(),
-            tls_settings: None,
+            security: "tls".to_string(),
+            tls_settings: Some(TlsSettings {
+                server_name: "drive.google.com".to_string(),
+                certificates: None, // Will use auto-generated certs
+            }),
             reality_settings: None,
         };
         
