@@ -5,6 +5,8 @@
         "https://docs.rs/teloxide/latest/teloxide/",
         "https://djc.github.io/askama/",
         "https://htmx.org/docs/",
-        "https://sing-box.sagernet.org/configuration/"
+        "https://sing-box.sagernet.org/configuration/",
+        "https://v2.hysteria.network/docs/",
+        "https://github.com/XTLS/Xray-core"
     ]
 }

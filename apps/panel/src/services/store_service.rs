@@ -1086,7 +1086,7 @@ impl StoreService {
                         links.push(link);
                     },
                     "hysteria2" => {
-                        // hysteria2://password@ip:port?sni=...&insecure=1#remark
+                        // hysteria2://user:password@ip:port?sni=...&insecure=1#remark
                         let mut params = Vec::new();
                          if stream.security == "tls" {
                             if let Some(tls) = stream.tls_settings {
@@ -1095,7 +1095,11 @@ impl StoreService {
                         }
                         params.push("insecure=1".to_string()); // Self-signed usually
 
-                        let link = format!("hysteria2://{}@{}:{}?{}#{}", uuid, address, port, params.join("&"), remark);
+                        // Fix: Sing-box implementation uses users list with name=user_{id} and password=uuid
+                        // Client must provide user:password format
+                        let auth = format!("user_{}:{}", sub.user_id, uuid);
+
+                        let link = format!("hysteria2://{}@{}:{}?{}#{}", auth, address, port, params.join("&"), remark);
                         links.push(link);
                     },
                     _ => {}
