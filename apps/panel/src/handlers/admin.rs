@@ -1213,6 +1213,7 @@ pub async fn get_user_details(
             let p = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
             if p.starts_with('/') { p } else { format!("/{}", p) }
         },
+        active_page: "users".to_string(),
     };
 
     match template.render() {
