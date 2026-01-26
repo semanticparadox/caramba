@@ -303,7 +303,7 @@ use tower_http::services::ServeDir;
         .route("/store/products", axum::routing::get(handlers::admin_store::products_page).post(handlers::admin_store::add_product))
         .route("/store/products/:id", axum::routing::delete(handlers::admin_store::delete_product))
         .route("/store/orders", axum::routing::get(handlers::admin_store::orders_page))
-        .layer(axum::middleware::from_fn(auth_middleware));
+        .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware));
 
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
     // Ensure leading slash

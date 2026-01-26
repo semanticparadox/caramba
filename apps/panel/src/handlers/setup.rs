@@ -1,6 +1,6 @@
 use axum::{
     extract::{State, Form, Multipart},
-    response::{IntoResponse, Html, Redirect},
+    response::{IntoResponse, Html},
     http::StatusCode,
 };
 use askama::Template;
