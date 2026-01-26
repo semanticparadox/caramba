@@ -140,7 +140,7 @@ check_conflicts() {
             set -e
         fi
 
-        fi
+
 
         if [[ "$OVERWRITE" == "y" || "$OVERWRITE" == "Y" ]]; then
             # BACKUP DATABASE
