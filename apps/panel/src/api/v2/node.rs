@@ -112,7 +112,7 @@ pub async fn heartbeat(
                 Ok(resp) => {
                      if let Ok(json) = resp.json::<IpApiResponse>().await {
                          let _ = sqlx::query("UPDATE nodes SET country_code = ? WHERE id = ?")
-                             .bind(json.countryCode)
+                             .bind(&json.countryCode)
                              .bind(node_id)
                              .execute(&pool)
                              .await;
