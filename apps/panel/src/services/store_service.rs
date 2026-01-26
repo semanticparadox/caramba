@@ -982,21 +982,28 @@ impl StoreService {
                         links.push(link);
                     },
                     "hysteria2" => {
-                        // hysteria2://password@ip:port?sni=...&insecure=1#remark
-                        let mut params = Vec::new();
-                         if let Some(tls) = stream.tls_settings {
-                            params.push(format!("sni={}", tls.server_name));
-                        }
-                        params.push("insecure=1".to_string()); // Self-signed usually
+                    // hysteria2://user:password@ip:port?sni=...&insecure=1#remark
+                    let mut params = Vec::new();
+                     if let Some(tls) = stream.tls_settings {
+                        params.push(format!("sni={}", tls.server_name));
+                    }
+                    params.push("insecure=1".to_string()); // Self-signed usually
 
-                        // Fix: Sing-box implementation uses users list with name=user_{id} and password=uuid
-                        // Client must provide user:password format
-                        // Here sub is Subscription, so sub.user_id is valid
-                        let auth = format!("user_{}:{}", sub.user_id, uuid);
+                    // Fetch TG ID for auth name
+                    // We need to fetch it inside the loop or pre-fetch it. Pre-fetching is better but we are inside a loop over inbounds which is inside...
+                    // Actually sub.user_id is available. Ideally we fetch tg_id once.
+                    // Let's do a quick scalar query here (caching would be better but this is fine for now)
+                    let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?")
+                        .bind(sub.user_id)
+                        .fetch_optional(&self.pool)
+                        .await?
+                        .unwrap_or(0); // Fallback to 0 if not found (shouldn't happen)
 
-                        let link = format!("hysteria2://{}@{}:{}?{}#{}", auth, address, port, params.join("&"), remark);
-                        links.push(link);
-                    },
+                    let auth = format!("{}:{}", tg_id, uuid);
+
+                    let link = format!("hysteria2://{}@{}:{}?{}#{}", auth, address, port, params.join("&"), remark);
+                    links.push(link);
+                },
                     _ => {}
                 }
             }
@@ -1100,9 +1107,14 @@ impl StoreService {
                         }
                         params.push("insecure=1".to_string()); // Self-signed usually
 
-                        // Fix: Sing-box implementation uses users list with name=user_{id} and password=uuid
-                        // Client must provide user:password format
-                        let auth = format!("user_{}:{}", sub.sub.user_id, uuid);
+                        // Use TG ID just like in config generation
+                        let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?")
+                            .bind(sub.sub.user_id)
+                            .fetch_optional(&self.pool)
+                            .await?
+                            .unwrap_or(0);
+
+                        let auth = format!("{}:{}", tg_id, uuid);
 
                         let link = format!("hysteria2://{}@{}:{}?{}#{}", auth, address, port, params.join("&"), remark);
                         links.push(link);

@@ -181,47 +181,75 @@ impl OrchestrationService {
                 continue;
             }
 
-            let plan_ids_str = linked_plans.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
-            let query = format!("SELECT * FROM subscriptions WHERE status = 'active' AND plan_id IN ({})", plan_ids_str);
-            
-            let active_subs: Vec<Subscription> = sqlx::query_as(&query)
-                .fetch_all(&self.pool)
-                .await?;
+    
+        // Helper struct for query
+        #[derive(sqlx::FromRow)]
+        struct SubWithUser {
+            vless_uuid: Option<String>,
+            user_id: i64,
+            tg_id: i64,
+            username: Option<String>,
+        }
 
-            use crate::models::network::{InboundType, VlessClient, Hysteria2User};
+        let plan_ids_str = linked_plans.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
+        
+        let query = format!(
+            r#"
+            SELECT s.vless_uuid, s.user_id, u.tg_id, u.username
+            FROM subscriptions s
+            JOIN users u ON s.user_id = u.id
+            WHERE s.status = 'active' AND s.plan_id IN ({})
+            "#, 
+            plan_ids_str
+        );
+        
+        let active_subs: Vec<SubWithUser> = sqlx::query_as(&query)
+            .fetch_all(&self.pool)
+            .await?;
 
-            match serde_json::from_str::<InboundType>(&inbound.settings) {
-                Ok(mut settings) => {
-                    match &mut settings {
-                        InboundType::Vless(vless) => {
-                            for sub in &active_subs {
-                                if let Some(uuid) = &sub.vless_uuid {
-                                    let email = format!("user_{}", sub.user_id);
-                                    info!("🔑 Injecting VLESS user: {} (UUID: {})", email, uuid);
-                                    vless.clients.push(VlessClient {
-                                        id: uuid.clone(),
-                                        email: email,
-                                        flow: "xtls-rprx-vision".to_string(), // Default flow
-                                    });
-                                }
+        use crate::models::network::{InboundType, VlessClient, Hysteria2User};
+
+        match serde_json::from_str::<InboundType>(&inbound.settings) {
+            Ok(mut settings) => {
+                match &mut settings {
+                    InboundType::Vless(vless) => {
+                        for sub in &active_subs {
+                            if let Some(uuid) = &sub.vless_uuid {
+                                // Logic: Use TG ID as clean identifier (most stable). 
+                                // Alternatively use username if requested, but TG ID is safer for auth.
+                                // User asked for "ID telegram or username without @"
+                                // Let's use TG ID as primary auth name to avoid breakage if they change username.
+                                let auth_name = sub.tg_id.to_string();
+                                
+                                // Clean username for logging/comments (optional)
+                                let _display_name = sub.username.clone().unwrap_or_default().replace("@", "");
+
+                                info!("🔑 Injecting VLESS user: {} (UUID: {})", auth_name, uuid);
+                                vless.clients.push(VlessClient {
+                                    id: uuid.clone(),
+                                    email: auth_name,
+                                    flow: "xtls-rprx-vision".to_string(), 
+                                });
                             }
-                        },
-                        InboundType::Hysteria2(hy2) => {
-                             for sub in &active_subs {
-                                if let Some(uuid) = &sub.vless_uuid {
-                                    let name = format!("user_{}", sub.user_id);
-                                    info!("🔑 Injecting HYSTERIA user: {} (Pass: {})", name, uuid);
-                                    hy2.users.push(Hysteria2User {
-                                        name: name,
-                                        password: uuid.clone(),
-                                    });
-                                }
+                        }
+                    },
+                    InboundType::Hysteria2(hy2) => {
+                         for sub in &active_subs {
+                            if let Some(uuid) = &sub.vless_uuid {
+                                let auth_name = sub.tg_id.to_string();
+                                
+                                info!("🔑 Injecting HYSTERIA user: {} (Pass: {})", auth_name, uuid);
+                                hy2.users.push(Hysteria2User {
+                                    name: auth_name,
+                                    password: uuid.clone(),
+                                });
                             }
-                        },
-                        _ => {}
-                    }
-                    inbound.settings = serde_json::to_string(&settings)?;
-                },
+                        }
+                    },
+                    _ => {}
+                }
+                inbound.settings = serde_json::to_string(&settings)?;
+            },
                 Err(e) => {
                     error!("Skipping user injection for inbound {} due to parse error: {}", inbound.tag, e);
                 }
