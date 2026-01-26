@@ -1127,7 +1127,7 @@ pub async fn get_user_details(
     // We infer the price by matching plan_id and the duration (expires_at - created_at)
     // against plan_durations table.
     // Device count is calculated from subscription_ip_tracking (last 15 minutes)
-    let subscriptions = sqlx::query_as::<_, SubscriptionWithPlan>(
+    let subscriptions = match sqlx::query_as::<_, SubscriptionWithPlan>(
         r#"
         SELECT 
             s.id, 
@@ -1135,13 +1135,7 @@ pub async fn get_user_details(
             s.expires_at, 
             s.created_at,
             s.status,
-            COALESCE(
-                (SELECT price FROM plan_durations pd 
-                 WHERE pd.plan_id = s.plan_id 
-                 AND ABS(pd.duration_days - (julianday(s.expires_at) - julianday(s.created_at))) < 1
-                 LIMIT 1), 
-                0
-            ) as price,
+            0 as price, 
             COALESCE(
                 (SELECT COUNT(DISTINCT client_ip) 
                  FROM subscription_ip_tracking 
@@ -1157,12 +1151,14 @@ pub async fn get_user_details(
     )
     .bind(id)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        error!("Failed to fetch user subscriptions: {}", e);
-        e
-    })
-    .unwrap_or_default();
+    .await {
+        Ok(subs) => subs,
+        Err(e) => {
+            error!("Failed to fetch user subscriptions: {}", e);
+            // Return error to UI instead of empty list
+            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to fetch subs: {}", e)).into_response();
+        }
+    };
 
     // 3. Fetch Order History
     let db_orders = sqlx::query_as::<_, Order>(
