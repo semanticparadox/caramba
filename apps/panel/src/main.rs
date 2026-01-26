@@ -4,7 +4,6 @@ mod handlers;
 mod bot;
 mod bot_manager;
 mod node_manager;
-mod ssh;
 mod scripts;
 mod singbox;
 mod cli;

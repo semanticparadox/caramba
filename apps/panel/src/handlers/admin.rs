@@ -283,10 +283,7 @@ pub async fn get_dashboard(State(state): State<AppState>) -> impl IntoResponse {
 pub struct InstallNodeForm {
     pub name: String,
     pub ip: Option<String>,
-    pub username: String,
-    pub port: i64,
     pub vpn_port: i64,
-    pub password: Option<String>,
     pub auto_configure: Option<bool>,
 }
 
@@ -294,9 +291,6 @@ pub struct InstallNodeForm {
 pub struct UpdateNodeForm {
     pub name: String,
     pub ip: String,
-    pub username: String,
-    pub port: i64,
-    pub password: String,
 }
 
 #[derive(Template)]
