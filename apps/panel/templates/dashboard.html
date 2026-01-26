@@ -1,143 +1,207 @@
 {% extends "base.html" %}
 
 {% block title %}Dashboard{% endblock %}
+{% block header_title %}Overview{% endblock %}
 
 {% block content %}
-<div class="grid">
-    <article>
-        <header>
-            <hgroup>
-                <h2>Nodes</h2>
-                <p>{{ active_nodes }} Online</p>
-            </hgroup>
-        </header>
-        <div style="font-size: 2rem; font-weight: bold; color: var(--ins-color);">{{ active_nodes }}</div>
-        <footer>
-            <a href="{{ admin_path }}/nodes" class="outline">Manage Servers</a>
-        </footer>
-    </article>
+<!-- Stats Grid -->
+<div
+    style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+    <!-- Nodes Card -->
+    <div class="glass-card">
+        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
+            <div>
+                <div style="color: var(--text-muted); font-size: 0.875rem; font-weight: 500;">Active Nodes</div>
+                <div style="font-size: 2rem; font-weight: 700; color: white; margin-top: 0.5rem;">{{ active_nodes }}
+                </div>
+            </div>
+            <div style="background: rgba(99, 102, 241, 0.1); padding: 0.75rem; border-radius: 12px;">
+                <i data-lucide="server" style="color: var(--primary);"></i>
+            </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--success); font-size: 0.875rem;">
+            <i data-lucide="activity" size="16"></i>
+            <span>Systems operational</span>
+        </div>
+    </div>
 
-    <article>
-        <header>
-            <hgroup>
-                <h2>Business</h2>
-                <p>Active subscriptions</p>
-            </hgroup>
-        </header>
-        <div style="font-size: 2rem; font-weight: bold; color: var(--primary);">{{ active_subs }}</div>
-        <footer>
-            <a href="{{ admin_path }}/users" class="outline">View Subscriptions</a>
-        </footer>
-    </article>
+    <!-- Subscriptions Card -->
+    <div class="glass-card">
+        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
+            <div>
+                <div style="color: var(--text-muted); font-size: 0.875rem; font-weight: 500;">Active Subs</div>
+                <div style="font-size: 2rem; font-weight: 700; color: white; margin-top: 0.5rem;">{{ active_subs }}
+                </div>
+            </div>
+            <div style="background: rgba(139, 92, 246, 0.1); padding: 0.75rem; border-radius: 12px;">
+                <i data-lucide="users" style="color: var(--accent);"></i>
+            </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); font-size: 0.875rem;">
+            <span>Total Customers: {{ total_users }}</span>
+        </div>
+    </div>
 
-    <article>
-        <header>
-            <hgroup>
-                <h2>Finance</h2>
-                <p>Total Revenue (Completed)</p>
-            </hgroup>
-        </header>
-        <div style="font-size: 2rem; font-weight: bold; color: #00ff41;">{{ total_revenue }} <small>USDT</small></div>
-        <footer>
-            <a href="{{ admin_path }}/settings" class="outline">Sales Settings</a>
-        </footer>
-    </article>
+    <!-- Revenue Card -->
+    <div class="glass-card">
+        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
+            <div>
+                <div style="color: var(--text-muted); font-size: 0.875rem; font-weight: 500;">Revenue</div>
+                <div style="font-size: 2rem; font-weight: 700; color: var(--success); margin-top: 0.5rem;">${{
+                    total_revenue }}</div>
+            </div>
+            <div style="background: rgba(16, 185, 129, 0.1); padding: 0.75rem; border-radius: 12px;">
+                <i data-lucide="dollar-sign" style="color: var(--success);"></i>
+            </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); font-size: 0.875rem;">
+            <span>Lifetime Earnings</span>
+        </div>
+    </div>
 
-    <article>
-        <header>
-            <hgroup>
-                <h2>Users</h2>
-                <p>Total digital customers</p>
-            </hgroup>
-        </header>
-        <div style="font-size: 2rem; font-weight: bold;">{{ total_users }}</div>
-        <footer>
-            <a href="{{ admin_path }}/users" class="outline">Customer Base</a>
-        </footer>
-    </article>
-
-    <article>
-        <header>
-            <hgroup>
-                <h2>Network</h2>
-                <p>Total Traffic (All Subs)</p>
-            </hgroup>
-        </header>
-        <div style="font-size: 2rem; font-weight: bold; color: var(--ins-color);">{{ total_traffic }}</div>
-        <footer>
-            <a href="{{ admin_path }}/nodes" class="outline">Node Usage</a>
-        </footer>
-    </article>
+    <!-- Traffic Card -->
+    <div class="glass-card">
+        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
+            <div>
+                <div style="color: var(--text-muted); font-size: 0.875rem; font-weight: 500;">Traffic Usage</div>
+                <div style="font-size: 2rem; font-weight: 700; color: white; margin-top: 0.5rem;">{{ total_traffic }}
+                </div>
+            </div>
+            <div style="background: rgba(245, 158, 11, 0.1); padding: 0.75rem; border-radius: 12px;">
+                <i data-lucide="network" style="color: var(--warning);"></i>
+            </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); font-size: 0.875rem;">
+            <span>Across all nodes</span>
+        </div>
+    </div>
 </div>
 
-<article>
-    <header>Quick Actions</header>
-    <div class="grid">
-        <button class="outline" onclick="document.getElementById('add-node-modal-dash').showModal()">
-            Deploy New Node
-        </button>
-        <a href="{{ admin_path }}/settings" role="button" class="outline secondary">
-            System Settings
-        </a>
-    </div>
-</article>
+<!-- Charts Section -->
+<div class="glass-card" style="margin-bottom: 2rem;">
+    <h3 style="margin-bottom: 1.5rem; font-size: 1.25rem;">Network Activity</h3>
+    <div id="trafficChart" style="min-height: 350px;"></div>
+</div>
 
-<div class="grid">
-    <article>
-        <header>Recent Activity</header>
-        <table class="striped">
+<!-- Two Columns: Activity & Bot -->
+<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 2rem;">
+    <!-- Recent Activity -->
+    <div class="glass-card">
+        <h3 style="margin-bottom: 1.5rem; font-size: 1.25rem;">Recent Activity</h3>
+        <table style="width: 100%;">
             <thead>
                 <tr>
-                    <th style="width: 100px;">Category</th>
+                    <th style="padding-left:0 !important;">Category</th>
                     <th>Event</th>
-                    <th style="width: 150px;">Time</th>
+                    <th style="text-align: right; padding-right:0 !important;">Time</th>
                 </tr>
             </thead>
             <tbody>
                 {% for activity in activities %}
                 <tr>
-                    <td>
+                    <td style="padding-left:0 !important;">
                         {% if activity.category == "System" %}
-                        <span class="badge secondary">System</span>
+                        <span class="badge badge-secondary">System</span>
                         {% else if activity.category == "Node" %}
-                        <span class="badge info">Node</span>
-                        {% else if activity.category == "Plan" %}
-                        <span class="badge success">Plan</span>
+                        <span class="badge badge-warning">Node</span>
                         {% else %}
-                        <span class="badge">{{ activity.category }}</span>
+                        <span class="badge badge-success">{{ activity.category }}</span>
                         {% endif %}
                     </td>
-                    <td>{{ activity.event }}</td>
-                    <td><small>{{ activity.created_at.format("%m-%d %H:%M") }}</small></td>
+                    <td style="color: var(--text-muted);">{{ activity.event }}</td>
+                    <td
+                        style="text-align: right; color: var(--text-muted); font-size: 0.85rem; padding-right:0 !important;">
+                        {{ activity.created_at.format("%H:%M") }}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-    </article>
+    </div>
 
-    <article>
-        <header>Bot Control & Console</header>
+    <!-- Bot Status -->
+    <div class="glass-card">
+        <h3 style="margin-bottom: 1.5rem; font-size: 1.25rem;">Bot Status</h3>
         {% include "partials/bot_status.html" %}
-    </article>
+
+        <div style="margin-top: 2rem;">
+            <button class="primary"
+                style="width: 100%; display: flex; justify-content: center; gap: 0.5rem; align-items: center;"
+                onclick="document.getElementById('add-node-modal-dash').showModal()">
+                <i data-lucide="plus"></i> Deploy Node
+            </button>
+        </div>
+    </div>
 </div>
 
-<!-- Simple Add Node Modal for Dashboard -->
+<!-- Modal logic preserved -->
 <dialog id="add-node-modal-dash">
-    <article>
+    <article class="glass-card" style="max-width: 500px; background: #1e293b;">
         <header>
             <a href="#close" aria-label="Close" class="close"
                 onclick="document.getElementById('add-node-modal-dash').close()"></a>
             Quick Deploy Node
         </header>
         <form hx-post="{{ admin_path }}/nodes/install" hx-target="body">
-            <input type="text" name="name" placeholder="Node Name" required>
-            <input type="text" name="ip" placeholder="IP Address" required>
-            <input type="password" name="password" placeholder="Root Password" required>
-            <footer>
-                <button type="submit">Start Installation</button>
+            <label>Friendly Name</label>
+            <input type="text" name="name" placeholder="e.g. Germany 1" required>
+
+            <label>IP Address</label>
+            <input type="text" name="ip" placeholder="1.2.3.4" required>
+
+            <label>Root Password</label>
+            <input type="password" name="password" placeholder="Server root password" required>
+
+            <footer style="margin-top: 2rem;">
+                <button type="submit" class="primary" style="width: 100%;">Start Installation</button>
             </footer>
         </form>
     </article>
 </dialog>
 
+<script>
+    // Initialize ApexChart
+    var options = {
+        series: [{
+            name: 'Network Traffic (GB)',
+            data: [31, 40, 28, 51, 42, 109, 100, 48, 60, 85, 90, 120] // Placeholder data
+        }],
+        chart: {
+            height: 350,
+            type: 'area',
+            toolbar: { show: false },
+            fontFamily: 'Inter, sans-serif',
+            background: 'transparent'
+        },
+        dataLabels: { enabled: false },
+        stroke: { curve: 'smooth', width: 2 },
+        colors: ['#6366f1'],
+        fill: {
+            type: 'gradient',
+            gradient: {
+                shadeIntensity: 1,
+                opacityFrom: 0.4,
+                opacityTo: 0.05,
+                stops: [0, 90, 100]
+            }
+        },
+        xaxis: {
+            categories: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00", "16:00", "18:00", "20:00", "22:00"],
+            labels: { style: { colors: '#94a3b8' } },
+            axisBorder: { show: false },
+            axisTicks: { show: false }
+        },
+        yaxis: {
+            labels: { style: { colors: '#94a3b8' } }
+        },
+        grid: {
+            borderColor: 'rgba(255,255,255,0.05)',
+            strokeDashArray: 4,
+        },
+        theme: { mode: 'dark' }
+    };
+
+    var chart = new ApexCharts(document.querySelector("#trafficChart"), options);
+    chart.render();
+</script>
 {% endblock %}
