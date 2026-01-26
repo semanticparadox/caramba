@@ -23,7 +23,13 @@
             {% for node in nodes %}
             <tr style="opacity: {% if node.is_enabled %}1{% else %}0.6{% endif %};">
                 <td>
-                    <div style="font-weight: bold;">{{ node.name }}</div>
+                    <div style="font-weight: bold; display: flex; align-items: center; gap: 0.5rem;">
+                        {% if let Some(code) = node.country_code %}
+                        <img src="https://flagcdn.com/24x18/{{ code|lower }}.png" title="{{ code }}" width="24"
+                            height="18" style="border-radius: 2px;">
+                        {% endif %}
+                        {{ node.name }}
+                    </div>
                     <small style="color: #666;">
                         {% if node.status == "new" || node.status == "installing" %}
                         <a href="#"

@@ -8,6 +8,12 @@ use crate::AppState;
 use exarobot_shared::api::{HeartbeatRequest, HeartbeatResponse, AgentAction};
 use exarobot_shared::config::ConfigResponse;
 use sqlx::Row; // Import Row trait
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct IpApiResponse {
+    countryCode: String,
+}
 
 /// Handle agent heartbeat
 /// POST /api/v2/node/heartbeat
@@ -24,19 +30,20 @@ pub async fn heartbeat(
     };
 
     // 2. Validate Node - MANUAL ROW PARSING (Safest)
-    let row_res = sqlx::query("SELECT id, status, ip FROM nodes WHERE join_token = ?")
+    let row_res = sqlx::query("SELECT id, status, ip, country_code FROM nodes WHERE join_token = ?")
         .bind(&token)
         .fetch_optional(&state.pool)
         .await;
 
-    let (node_id, node_status, node_ip) = match row_res {
+    let (node_id, node_status, node_ip, node_country) = match row_res {
         Ok(Some(row)) => {
             // Manually extract columns with defaults if missing/null
             let id: i64 = row.try_get("id").unwrap_or(0);
             let status: String = row.try_get("status").unwrap_or_else(|_| "new".to_string());
             // Use simple string for IP, handle nulls gracefully
-            let ip: String = row.try_get("ip").unwrap_or_default(); 
-            (id, status, ip)
+            let ip: String = row.try_get("ip").unwrap_or_default();
+            let country: Option<String> = row.try_get("country_code").unwrap_or(None);
+            (id, status, ip, country)
         },
         Ok(None) => {
             tracing::warn!("Heartbeat from unknown token (Token: {}...)", &token.chars().take(5).collect::<String>());
@@ -94,6 +101,28 @@ pub async fn heartbeat(
     }
     
     info!("💓 [Checkpoint 5] Success! Node {} updated.", node_id);
+    
+    // GeoIP Check (Async)
+    if node_country.is_none() {
+        let pool = state.pool.clone();
+        let ip_target = remote_ip.clone();
+        tokio::spawn(async move {
+            let url = format!("http://ip-api.com/json/{}?fields=countryCode", ip_target);
+            match reqwest::get(&url).await {
+                Ok(resp) => {
+                     if let Ok(json) = resp.json::<IpApiResponse>().await {
+                         let _ = sqlx::query("UPDATE nodes SET country_code = ? WHERE id = ?")
+                             .bind(json.countryCode)
+                             .bind(node_id)
+                             .execute(&pool)
+                             .await;
+                         info!("🗺️ [GeoIP] Detected country {} for node {}", json.countryCode, node_id);
+                     }
+                },
+                Err(e) => error!("GeoIP failed: {}", e)
+            }
+        });
+    }
 
     
     // 4. Check if config update is needed (hash mismatch)

@@ -185,5 +185,20 @@ pub async fn init_db() -> Result<SqlitePool> {
         }
     }
 
+    // 11. Ensure 'country_code' in nodes (TEXT, 2 chars)
+    let has_country: bool = sqlx::query_scalar(
+        "SELECT count(*) > 0 FROM pragma_table_info('nodes') WHERE name='country_code'"
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or(false);
+
+    if !has_country {
+        tracing::info!("Applying schema repair: Adding 'country_code' to nodes table");
+        if let Err(e) = sqlx::query("ALTER TABLE nodes ADD COLUMN country_code TEXT").execute(&pool).await {
+             tracing::warn!("Failed to add country_code column: {}", e);
+        }
+    }
+
     Ok(pool)
 }

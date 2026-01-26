@@ -22,4 +22,5 @@ pub struct Node {
     pub join_token: Option<String>,
     pub auto_configure: bool,
     pub is_enabled: bool, // Added in migration 004
+    pub country_code: Option<String>,
 }
