@@ -117,10 +117,7 @@ impl OrchestrationService {
              users: vec![],
              up_mbps: 100,
              down_mbps: 100,
-             obfs: Some(Hysteria2Obfs {
-                 ttype: "salamander".to_string(),
-                 password: obfs_pass,
-             }),
+             obfs: None, // Disabled by default for better compatibility (matches Blitz)
              masquerade: None,
         };
 
