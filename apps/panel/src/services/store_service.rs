@@ -989,7 +989,12 @@ impl StoreService {
                         }
                         params.push("insecure=1".to_string()); // Self-signed usually
 
-                        let link = format!("hysteria2://{}@{}:{}?{}#{}", uuid, address, port, params.join("&"), remark);
+                        // Fix: Sing-box implementation uses users list with name=user_{id} and password=uuid
+                        // Client must provide user:password format
+                        // Here sub is Subscription, so sub.user_id is valid
+                        let auth = format!("user_{}:{}", sub.user_id, uuid);
+
+                        let link = format!("hysteria2://{}@{}:{}?{}#{}", auth, address, port, params.join("&"), remark);
                         links.push(link);
                     },
                     _ => {}
