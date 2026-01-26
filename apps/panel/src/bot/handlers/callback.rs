@@ -207,7 +207,7 @@ pub async fn callback_handler(
                             let _ = bot.answer_callback_query(q.id).text("✅ Activated!").await;
                             let orch = state.orchestration_service.clone();
                             tokio::spawn(async move {
-                                let _ = orch.sync_all_nodes().await;
+                                // Agents pull config automatically - no sync needed
                             });
                             if let Some(msg) = q.message {
                                 let _ = bot.send_message(msg.chat().id, format!("🚀 *Subscription Activated!*\nExpires: `{}`", sub.expires_at.format("%Y-%m-%d"))).parse_mode(ParseMode::MarkdownV2).await;
@@ -522,7 +522,7 @@ pub async fn callback_handler(
                                 let _ = bot.answer_callback_query(q.id).text("✅ Purchase successful!").await;
                                 let orch = state.orchestration_service.clone();
                                 tokio::spawn(async move {
-                                    let _ = orch.sync_all_nodes().await;
+                                    // Agents pull config automatically - no sync needed
                                 });
                                 if let Some(msg) = q.message {
                                     let _ = bot.send_message(msg.chat().id, "✅ *Purchase Successful\\!*\n\nYour subscription is now *Pending*.\nGo to *My Services* to activate it when you are ready.").parse_mode(ParseMode::MarkdownV2).await;
@@ -550,7 +550,7 @@ pub async fn callback_handler(
                                 // Sync logic if needed, usually extension doesn't change UUIDs but good to sync
                                 let orch = state.orchestration_service.clone();
                                 tokio::spawn(async move {
-                                    let _ = orch.sync_all_nodes().await;
+                                    // Agents pull config automatically - no sync needed
                                 });
 
                                 if let Some(msg) = q.message {

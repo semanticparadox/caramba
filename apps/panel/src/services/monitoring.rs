@@ -54,7 +54,7 @@ impl MonitoringService {
         // Trigger global re-sync to remove expired users from nodes
         let orch = self.state.orchestration_service.clone();
         tokio::spawn(async move {
-            let _ = orch.sync_all_nodes().await;
+            // Agents pull config automatically - no sync needed
         });
 
         Ok(())

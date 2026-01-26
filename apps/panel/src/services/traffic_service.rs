@@ -33,16 +33,9 @@ impl TrafficService {
             .await?;
 
         for node in active_nodes {
-            match self.state.orchestration_service.get_node_usage(node.id).await {
-                Ok(usage) => {
-                    if let Err(e) = self.process_node_usage(node.id, usage).await {
-                        error!("Failed to process usage for node {}: {}", node.ip, e);
-                    }
-                },
-                Err(e) => {
-                    error!("Failed to fetch usage for node {}: {}", node.ip, e);
-                }
-            }
+            // TODO: Implement traffic fetching via Agent API
+            // For now, traffic is tracked via Clash API directly
+            info!("Node {} traffic sync skipped (Agent API not implemented yet)", node.id);
         }
 
         // After syncing, enforce quotas
@@ -104,11 +97,7 @@ impl TrafficService {
             info!("Subscription {} for user {} suspended (Limit: {} GB reached)", sub_id, user_id, limit);
         }
 
-        // Trigger global re-sync to remove suspended users from configurations
-        let orch = self.state.orchestration_service.clone();
-        tokio::spawn(async move {
-            let _ = orch.sync_all_nodes().await;
-        });
+        // Agents pull config automatically - no sync needed
 
         Ok(())
     }

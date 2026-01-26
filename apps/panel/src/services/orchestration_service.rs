@@ -9,7 +9,7 @@ use crate::services::store_service::StoreService;
 
 
 pub struct OrchestrationService {
-    pool: SqlitePool,
+    pub pool: SqlitePool,
     #[allow(dead_code)]
     store_service: Arc<StoreService>,
 }
@@ -145,8 +145,7 @@ impl OrchestrationService {
             .execute(&self.pool)
             .await?;
             
-        // 3. Trigger Sync
-        self.sync_node_config(node_id).await
+        Ok(())
     }
 
     /// Generates Node Config JSON without applying it (Internal)
