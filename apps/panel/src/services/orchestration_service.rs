@@ -195,7 +195,7 @@ impl OrchestrationService {
             SELECT s.vless_uuid, u.tg_id, u.username
             FROM subscriptions s
             JOIN users u ON s.user_id = u.id
-            WHERE s.status = 'active' AND s.plan_id IN ({})
+            WHERE LOWER(s.status) = 'active' AND s.plan_id IN ({})
             "#, 
             plan_ids_str
         );
@@ -203,6 +203,8 @@ impl OrchestrationService {
         let active_subs: Vec<SubWithUser> = sqlx::query_as(&query)
             .fetch_all(&self.pool)
             .await?;
+            
+        info!("Found {} active subscriptions for inbound {}", active_subs.len(), inbound.tag);
 
         use crate::models::network::{InboundType, VlessClient, Hysteria2User};
 
