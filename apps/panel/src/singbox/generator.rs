@@ -132,12 +132,15 @@ impl ConfigGenerator {
 
         SingBoxConfig {
             log: LogConfig {
-                level: "panic".to_string(),
+                level: "info".to_string(),
                 timestamp: true,
             },
             inbounds: generated_inbounds,
-            outbounds: vec![], // No special outbounds needed in modern format
-            route: None, // No routing rules needed - traffic goes direct by default
+            outbounds: vec![
+                Outbound::Direct { tag: "direct".to_string() },
+                Outbound::Block { tag: "block".to_string() }
+            ],
+            route: None, // No routing rules needed - traffic goes direct by default via first outbound
             // Enable Clash API for device monitoring and limit enforcement
             experimental: Some(ExperimentalConfig {
                 clash_api: ClashApiConfig {
