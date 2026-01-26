@@ -513,6 +513,11 @@ main() {
     if [[ "$ROLE" == "panel" || "$ROLE" == "both" ]]; then
         cp "$BUILD_SOURCE/target/release/exarobot" "$INSTALL_DIR/"
         chmod +x "$INSTALL_DIR/exarobot"
+        
+        # Copy Assets
+        mkdir -p "$INSTALL_DIR/apps/panel"
+        cp -r "$BUILD_SOURCE/apps/panel/assets" "$INSTALL_DIR/apps/panel/"
+        
         configure_panel
     fi
     
