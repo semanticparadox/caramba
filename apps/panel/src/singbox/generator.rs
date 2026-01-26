@@ -88,10 +88,23 @@ impl ConfigGenerator {
                          tls_config.server_name = tls.server_name;
                          if let Some(certs) = tls.certificates {
                              if let Some(first) = certs.first() {
-                                 tls_config.key_path = Some(first.key_file.clone());
-                                 tls_config.certificate_path = Some(first.certificate_file.clone());
+                                 // Only overwrite if not empty
+                                 if !first.key_file.is_empty() {
+                                     tls_config.key_path = Some(first.key_file.clone());
+                                 }
+                                 if !first.certificate_file.is_empty() {
+                                     tls_config.certificate_path = Some(first.certificate_file.clone());
+                                 }
                              }
                          }
+                    }
+
+                    // FINAL SAFEGUARD: If still None, force defaults
+                    if tls_config.key_path.is_none() {
+                        tls_config.key_path = Some("/etc/sing-box/certs/key.pem".to_string());
+                    }
+                    if tls_config.certificate_path.is_none() {
+                        tls_config.certificate_path = Some("/etc/sing-box/certs/cert.pem".to_string());
                     }
 
                     let users = hy2.users.iter().map(|u| Hysteria2User {
