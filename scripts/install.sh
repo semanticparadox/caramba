@@ -140,7 +140,18 @@ check_conflicts() {
             set -e
         fi
 
+        fi
+
         if [[ "$OVERWRITE" == "y" || "$OVERWRITE" == "Y" ]]; then
+            # BACKUP DATABASE
+            if [ -f "$INSTALL_DIR/exarobot.db" ]; then
+                BACKUP_DIR="/var/backups/exarobot"
+                mkdir -p "$BACKUP_DIR"
+                TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+                cp "$INSTALL_DIR/exarobot.db" "$BACKUP_DIR/exarobot.db.bak_$TIMESTAMP"
+                log_success "Database backed up to: $BACKUP_DIR/exarobot.db.bak_$TIMESTAMP"
+            fi
+
             log_info "Stopping and removing existing services..."
             
             # Stop Services

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup - EXA ROBOT</title>
+    <link rel="stylesheet" href="{{ admin_path }}/assets/css/modern.css">
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: radial-gradient(circle at top right, #1e293b, #0f172a);
+            margin: 0;
+            padding: 1rem;
+        }
+
+        .setup-container {
+            width: 100%;
+            max-width: 500px;
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        .setup-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .setup-header h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 0.5rem;
+        }
+
+        .setup-header p {
+            color: #94a3b8;
+            font-size: 0.875rem;
+        }
+
+        .tabs {
+            display: flex;
+            margin-bottom: 1.5rem;
+            background: rgba(15, 23, 42, 0.5);
+            padding: 0.25rem;
+            border-radius: 0.5rem;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 0.5rem;
+            border: none;
+            background: transparent;
+            color: #94a3b8;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .tab-btn.active {
+            background: #2563eb;
+            color: white;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Form Styles */
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #e2e8f0;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.625rem;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 0.5rem;
+            color: white;
+            font-size: 0.875rem;
+            transition: border-color 0.2s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 1px #3b82f6;
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 0.75rem;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-top: 1rem;
+        }
+
+        .btn-primary:hover {
+            background: #1d4ed8;
+        }
+
+        .file-upload-box {
+            border: 2px dashed rgba(255, 255, 255, 0.1);
+            border-radius: 0.5rem;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .file-upload-box:hover {
+            border-color: #3b82f6;
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        .file-upload-box input[type="file"] {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .icon-upload {
+            font-size: 2rem;
+            color: #94a3b8;
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+    </style>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+
+<body>
+
+    <div class="setup-container">
+        <div class="setup-header">
+            <h1>Welcome to EXA ROBOT</h1>
+            <p>Complete setup to get started</p>
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('create')">New Install</button>
+            <button class="tab-btn" onclick="switchTab('restore')">Restore Backup</button>
+        </div>
+
+        <!-- Create Admin Tab -->
+        <div id="tab-create" class="tab-content active">
+            <form hx-post="{{ admin_path }}/setup/create_admin" hx-swap="outerHTML">
+                <div class="form-group">
+                    <label class="form-label">Username</label>
+                    <input type="text" name="username" class="form-input" placeholder="admin" required autofocus>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input type="password" name="password" class="form-input" placeholder="••••••••" required>
+                </div>
+                <button type="submit" class="btn-primary">Create Account</button>
+            </form>
+        </div>
+
+        <!-- Restore Backup Tab -->
+        <div id="tab-restore" class="tab-content">
+            <form hx-post="{{ admin_path }}/setup/restore_backup" hx-encoding="multipart/form-data" hx-swap="outerHTML">
+                <div class="form-group">
+                    <div class="file-upload-box">
+                        <span class="icon-upload">📂</span>
+                        <p style="color: #cbd5e1; margin: 0;">Click to upload <b>exarobot.db</b></p>
+                        <p style="color: #64748b; font-size: 0.75rem; margin-top: 0.5rem;">Or drag and drop file here
+                        </p>
+                        <input type="file" name="backup_file" accept=".db,.sqlite,.sqlite3" required
+                            onchange="this.nextElementSibling.innerText = this.files[0].name">
+                        <div style="margin-top: 1rem; color: #3b82f6; font-weight: 500;"></div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <p style="font-size: 0.75rem; color: #94a3b8; line-height: 1.4;">
+                        <strong>Note:</strong> Uploading a database will overwrite current data and restart the panel.
+                        You will be redirected to login.
+                    </p>
+                </div>
+                <button type="submit" class="btn-primary">Restore & Restart</button>
+            </form>
+        </div>
+
+    </div>
+
+    <script>
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+
+            document.getElementById('tab-' + tab).classList.add('active');
+            event.target.classList.add('active');
+        }
+    </script>
+
+</body>
+
+</html>

@@ -88,9 +88,10 @@ async fn auth_middleware(
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
     
     let login_path = format!("{}/login", admin_path);
-    
-    // Allow login page/handler without auth
-    if path == login_path {
+    let setup_path = format!("{}/setup", admin_path);
+
+    // Allow static assets, login, and setup paths
+    if path == login_path || path.starts_with(&setup_path) || path.starts_with("/assets") {
         return next.run(req).await;
     }
 
@@ -98,6 +99,16 @@ async fn auth_middleware(
         if cookie.value() == state.session_secret {
             return next.run(req).await;
         }
+    }
+
+    // Check if any admin exists
+    let admin_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM admins")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(0);
+
+    if admin_count == 0 {
+        return axum::response::Redirect::to(&setup_path).into_response();
     }
 
     axum::response::Redirect::to(&login_path).into_response()
@@ -305,6 +316,10 @@ use tower_http::services::ServeDir;
             move || async move { axum::response::Redirect::to(&format!("{}/dashboard", path)) } // Redirect to dashboard
         }))
         .route(&format!("{}/login", admin_path), axum::routing::get(handlers::admin::get_login).post(handlers::admin::login))
+        // Setup Routes
+        .route(&format!("{}/setup", admin_path), axum::routing::get(handlers::setup::get_setup))
+        .route(&format!("{}/setup/create_admin", admin_path), axum::routing::post(handlers::setup::create_admin))
+        .route(&format!("{}/setup/restore_backup", admin_path), axum::routing::post(handlers::setup::restore_backup))
         .route("/api/payments/cryptobot", axum::routing::post(handlers::admin::handle_payment))
         // Agent V2 API
         .route("/api/v2/node/heartbeat", axum::routing::post(api::v2::node::heartbeat))
