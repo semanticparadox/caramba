@@ -50,7 +50,7 @@ impl ConfigGenerator {
                                 reality: RealityConfig {
                                     enabled: true,
                                     handshake: RealityHandshake {
-                                        server: reality.dest.clone(),
+                                        server: reality.dest.split(':').next().unwrap_or(&reality.dest).to_string(),
                                         server_port: reality.dest.split(':').last().and_then(|p| p.parse().ok()).unwrap_or(443),
                                     },
                                     private_key: reality.private_key,
