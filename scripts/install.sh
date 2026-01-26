@@ -99,104 +99,80 @@ check_conflicts() {
     
     # Check if services are running
     if systemctl is-active --quiet exarobot; then
-        log_warn "Service 'exarobot' (Panel) is currently running."
         clash=true
     fi
     if systemctl is-active --quiet exarobot-agent; then
-        log_warn "Service 'exarobot-agent' is currently running."
         clash=true
     fi
     
-    # Check Ports (only if we know them, e.g. default 3000)
-    # If lsof or ss is available
     if command -v ss &> /dev/null; then
         local TARGET_PORT=${PANEL_PORT:-3000}
         if ss -tuln | grep -q ":${TARGET_PORT} "; then
-             log_warn "Port ${TARGET_PORT} is in use (Panel)."
              clash=true
         fi
     fi
     
     if [ "$clash" = true ]; then
         echo ""
-        echo -e "${RED}Conflicts detected!${NC}"
-        echo "It seems a previous installation or another service is running."
+        echo -e "${YELLOW}Existing installation detected!${NC}"
+        echo "Choose installation mode:"
+        echo "1) Update (Recommended)"
+        echo "   - Preserves database, users, and settings."
+        echo "   - Replaces binaries and updates assets."
+        echo "   - Automatically runs migrations on startup."
+        echo "2) Clean Install"
+        echo "   - BACKS UP existing database to /var/backups/exarobot/"
+        echo "   - DELETES all current data and configuration."
+        echo "   - Starts from a fresh state."
+        echo "3) Cancel"
         
-        OVERWRITE="n"
-        if [ "$FORCE_INSTALL" = true ]; then
-            log_warn "Force flag detected. Overwriting..."
-            OVERWRITE="y"
+        ACTION=""
+        if [ -t 0 ]; then
+            read -p "Select [1-3]: " ACTION
         else
-            # Use set +e to prevent exit on read failure
-            set +e
-            # Force read from TTY specifically, separate echo for safety
-            if [ -t 0 ]; then
-                read -p "Do you want to stop existing services, DELETE DATA, and overwrite? (y/N): " OVERWRITE
-            else
-                 # Try direct TTY access
-                 echo -n "Do you want to stop existing services, DELETE DATA, and overwrite? (y/N): "
-                 read -r OVERWRITE < /dev/tty
-            fi
-            set -e
+             read -r ACTION < /dev/tty
         fi
-
-        if [[ "$OVERWRITE" == "y" || "$OVERWRITE" == "Y" ]]; then
-            # BACKUP DATABASE
-            if [ -f "$INSTALL_DIR/exarobot.db" ]; then
-                BACKUP_DIR="/var/backups/exarobot"
-                mkdir -p "$BACKUP_DIR"
-                TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-                cp "$INSTALL_DIR/exarobot.db" "$BACKUP_DIR/exarobot.db.bak_$TIMESTAMP"
-                log_success "Database backed up to: $BACKUP_DIR/exarobot.db.bak_$TIMESTAMP"
-            fi
-
-            log_info "Stopping and removing existing services..."
-            
-            # Stop Services
-            systemctl stop exarobot &> /dev/null || true
-            systemctl disable exarobot &> /dev/null || true
-            rm -f /etc/systemd/system/exarobot.service
-            # Remove old legacy name if exists
-            systemctl stop exarobot-panel &> /dev/null || true
-            systemctl disable exarobot-panel &> /dev/null || true
-            rm -f /etc/systemd/system/exarobot-panel.service
-            
-            systemctl stop exarobot-agent &> /dev/null || true
-            systemctl disable exarobot-agent &> /dev/null || true
-            rm -f /etc/systemd/system/exarobot-agent.service
-            
-            # Remove Sing-box
-            if command -v sing-box &> /dev/null; then
-                 log_info "Removing Sing-box..."
-                 systemctl stop sing-box || true
-                 systemctl disable sing-box || true
-                 apt-get remove -y sing-box || true
-                 rm -rf /etc/sing-box
-                 rm -f /etc/systemd/system/sing-box.service.d/override.conf
-            fi
-
-            # Kill Ports - AGGRESSIVE
-            local TARGET_PORT=${PANEL_PORT:-3000}
-            if command -v fuser &> /dev/null; then
-                 fuser -k ${TARGET_PORT}/tcp || true
-            fi
-            # Use lsof as backup
-            if command -v lsof &> /dev/null; then
-                 lsof -t -i:${TARGET_PORT} | xargs -r kill -9 || true
-            fi
-            
-            # Remove Files - SAFELY
-            cd /tmp || exit 1
-            
-            log_info "Removing installation directory..."
-            rm -rf "$INSTALL_DIR"
-            
-            systemctl daemon-reload
-            log_success "Cleanup complete. Proceeding with fresh install..."
-        else
-            log_error "Installation aborted by user."
-            exit 1
-        fi
+        
+        case $ACTION in
+            1)
+                log_info "Starting Update process..."
+                log_info "Stopping services..."
+                systemctl stop exarobot &> /dev/null || true
+                systemctl stop exarobot-agent &> /dev/null || true
+                # Do NOT remove directory or files.
+                # Just stop services so we can overwrite binaries.
+                ;;
+            2)
+                log_info "Starting Clean Install..."
+                
+                # BACKUP DATABASE
+                if [ -f "$INSTALL_DIR/exarobot.db" ]; then
+                    BACKUP_DIR="/var/backups/exarobot"
+                    mkdir -p "$BACKUP_DIR"
+                    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+                    cp "$INSTALL_DIR/exarobot.db" "$BACKUP_DIR/exarobot.db.bak_$TIMESTAMP"
+                    log_success "Database backed up to: $BACKUP_DIR/exarobot.db.bak_$TIMESTAMP"
+                fi
+                
+                log_info "Stopping services..."
+                systemctl stop exarobot &> /dev/null || true
+                systemctl disable exarobot &> /dev/null || true
+                rm -f /etc/systemd/system/exarobot.service
+                
+                systemctl stop exarobot-agent &> /dev/null || true
+                systemctl disable exarobot-agent &> /dev/null || true
+                rm -f /etc/systemd/system/exarobot-agent.service
+                
+                # Cleanup files
+                cd /tmp || exit 1
+                rm -rf "$INSTALL_DIR"
+                systemctl daemon-reload
+                ;;
+            *)
+                log_error "Aborted."
+                exit 1
+                ;;
+        esac
     fi
 }
 
