@@ -64,6 +64,9 @@ async fn main() -> anyhow::Result<()> {
         current_hash: load_current_hash(&args.config_path).await,
     };
 
+    // Initialize HTTP Client
+    let client = reqwest::Client::new();
+
     // 4. Fetch initial config
     info!("🔄 Fetching initial configuration from Panel...");
     match check_and_update_config(&client, &panel_url, &token, &args.config_path, &mut state).await {
@@ -76,7 +79,6 @@ async fn main() -> anyhow::Result<()> {
     }
     
     // 5. Main Loop
-    let client = reqwest::Client::new();
     let mut failures = 0;
     
     let start_time = std::time::Instant::now();
