@@ -129,7 +129,8 @@ impl ConfigGenerator {
             route: Some(RouteConfig {
                 rules: vec![
                      RouteRule {
-                        outbound: "direct".to_string(),
+                        action: Some("route".to_string()),
+                        outbound: Some("direct".to_string()),
                         protocol: Some(vec!["dns".to_string()]),
                         port: None,
                         domain: None,

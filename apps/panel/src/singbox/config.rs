@@ -115,8 +115,14 @@ pub struct RouteConfig {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RouteRule {
-    pub outbound: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outbound: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<Vec<u16>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub domain: Option<Vec<String>>,
 }
