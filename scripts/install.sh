@@ -297,6 +297,8 @@ configure_panel() {
             echo -n "Enter server domain (e.g. panel.example.com): "
             read -r DOMAIN < /dev/tty
         fi
+        # Trim whitespace
+        DOMAIN=$(echo "$DOMAIN" | xargs)
     fi
     
     ensure_panel_port
