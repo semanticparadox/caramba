@@ -475,6 +475,48 @@ EOF
         log_info "TLS certificates match SNI: $TARGET_SNI"
     fi
     
+    # 4. Masquerade Setup (Prevent "file not found" crash)
+    MASQ_DIR="/var/www/html"
+    if [ ! -d "$MASQ_DIR" ]; then
+        log_info "Creating default masquerade directory: $MASQ_DIR"
+        mkdir -p "$MASQ_DIR"
+        # Create a professional "API Gateway" dummy page
+        cat > "$MASQ_DIR/index.html" <<EOF
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Gateway</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f5f5f7; color: #333; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .container { text-align: center; padding: 40px; background: white; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); max-width: 400px; width: 90%; }
+        h1 { font-size: 24px; font-weight: 600; margin-bottom: 10px; color: #1d1d1f; }
+        p { font-size: 14px; color: #86868b; line-height: 1.5; margin-bottom: 20px; }
+        .code { font-family: monospace; background: #f0f0f0; padding: 4px 8px; border-radius: 4px; color: #555; }
+        .status { display: inline-block; width: 10px; height: 10px; background: #34c759; border-radius: 50%; margin-right: 6px; }
+        .footer { margin-top: 30px; font-size: 12px; color: #d2d2d7; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div style="margin-bottom: 20px;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#007aff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+        </div>
+        <h1>API Gateway</h1>
+        <p>This endpoint is operational.</p>
+        <div style="font-size: 13px; color: #555; background: #fafafa; padding: 15px; border-radius: 8px; text-align: left;">
+            <div><span class="status"></span>System Status: <strong>Normal</strong></div>
+            <div style="margin-top: 8px;">Region: <span class="code">us-east-1</span></div>
+            <div style="margin-top: 8px;">Protocol: <span class="code">h3</span></div>
+        </div>
+        <div class="footer">Protected by ExaWall &copy; 2026</div>
+    </div>
+</body>
+</html>
+EOF
+    fi
+    
     # Service
     # Note: We override sing-box service dependency
     mkdir -p /etc/systemd/system/sing-box.service.d
