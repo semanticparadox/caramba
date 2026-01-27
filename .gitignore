@@ -8,6 +8,7 @@ Cargo.lock
 *.db-wal
 *.sql.backup
 log.md
+actual.md
 # Environment
 .env
 !.env.*.example

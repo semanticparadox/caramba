@@ -98,19 +98,29 @@
                 <div>
                     <label for="listen_ip">Listen IP</label>
                     <input type="text" id="listen_ip" name="listen_ip" value="::" required>
+                    <div>
+                        <label for="listen_ip">Listen IP</label>
+                        <input type="text" id="listen_ip" name="listen_ip" value="::" required>
+                    </div>
                 </div>
-            </div>
 
-            <label for="settings">Protocol Settings (JSON)</label>
-            <textarea id="settings" name="settings" rows="6" style="font-family: monospace;">{}</textarea>
-            <small>Specific settings for the selected protocol (e.g. clients, fallbacks).</small>
+                <!-- SNI Field (Helper) -->
+                <div id="sni_container">
+                    <label for="sni_input">Server Name (SNI) / Destination</label>
+                    <input type="text" id="sni_input" placeholder="drive.google.com" oninput="updateSniFromJson()">
+                    <small>Updates <code>server_name</code> or <code>dest</code> in Stream Settings.</small>
+                </div>
 
-            <label for="stream_settings">Stream Settings (JSON)</label>
-            <textarea id="stream_settings" name="stream_settings" rows="10"
-                style="font-family: monospace;">{}</textarea>
-            <small>Transport layer settings (e.g. TCP, XTLS-Reality, QUIC).</small>
+                <label for="settings">Protocol Settings (JSON)</label>
+                <textarea id="settings" name="settings" rows="6" style="font-family: monospace;">{}</textarea>
+                <small>Specific settings for the selected protocol (e.g. clients, fallbacks).</small>
 
-            <button type="submit" style="margin-top: 1rem;">Add Inbound</button>
+                <label for="stream_settings">Stream Settings (JSON)</label>
+                <textarea id="stream_settings" name="stream_settings" rows="10" style="font-family: monospace;"
+                    oninput="syncSniInput()">{}</textarea>
+                <small>Transport layer settings (e.g. TCP, XTLS-Reality, QUIC).</small>
+
+                <button type="submit" style="margin-top: 1rem;">Add Inbound</button>
         </form>
     </article>
 </section>
@@ -128,9 +138,9 @@
                 "security": "reality",
                 "reality_settings": {
                     "show": false,
-                    "dest": "yahoo.com:443",
+                    "dest": "drive.google.com:443",
                     "xver": 0,
-                    "server_names": ["yahoo.com"],
+                    "server_names": ["drive.google.com"],
                     "private_key": "",
                     "short_ids": [""]
                 }
@@ -147,7 +157,7 @@
                 "network": "udp",
                 "security": "tls",
                 "tls_settings": {
-                    "server_name": "example.com",
+                    "server_name": "drive.google.com",
                     "certificates": []
                 }
             }
@@ -161,7 +171,7 @@
                 "network": "tcp",
                 "security": "tls",
                 "tls_settings": {
-                    "server_name": "example.com",
+                    "server_name": "drive.google.com",
                     "certificates": []
                 }
             }
@@ -174,7 +184,56 @@
         if (tmpl) {
             document.getElementById('settings').value = JSON.stringify(tmpl.settings, null, 4);
             document.getElementById('stream_settings').value = JSON.stringify(tmpl.stream_settings, null, 4);
+
+            // Auto-populate SNI input
+            syncSniInput();
         }
+    }
+
+    function syncSniInput() {
+        try {
+            const json = JSON.parse(document.getElementById('stream_settings').value);
+            let sni = "";
+
+            // Check Reality
+            if (json.reality_settings && json.reality_settings.server_names && json.reality_settings.server_names.length > 0) {
+                sni = json.reality_settings.server_names[0];
+            }
+            // Check TLS
+            else if (json.tls_settings && json.tls_settings.server_name) {
+                sni = json.tls_settings.server_name;
+            }
+
+            if (sni) document.getElementById('sni_input').value = sni;
+        } catch (e) { }
+    }
+
+    function updateSniFromJson() {
+        const sni = document.getElementById('sni_input').value;
+        try {
+            const json = JSON.parse(document.getElementById('stream_settings').value);
+
+            // Update Reality
+            if (json.reality_settings) {
+                json.reality_settings.server_names = [sni];
+                // Also update dest if it looks like a domain
+                if (json.reality_settings.dest && json.reality_settings.dest.includes(":")) {
+                    json.reality_settings.dest = sni + ":443";
+                }
+            }
+            // Update TLS
+            else if (json.tls_settings) {
+                json.tls_settings.server_name = sni;
+            }
+            // If neither, assumes TLS structure creation? No, stay safe.
+            else {
+                // Heuristic: if protocol is Hysteria2 or Trojan, assume TLS
+                if (!json.tls_settings) json.tls_settings = {};
+                json.tls_settings.server_name = sni;
+            }
+
+            document.getElementById('stream_settings').value = JSON.stringify(json, null, 4);
+        } catch (e) { }
     }
 
     // Initialize

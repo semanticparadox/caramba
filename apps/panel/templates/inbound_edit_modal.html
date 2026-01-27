@@ -35,8 +35,76 @@
         style="font-family: monospace;">{{ inbound.settings }}</textarea>
 
     <label for="edit_stream_settings">Stream Settings (JSON)</label>
-    <textarea id="edit_stream_settings" name="stream_settings" rows="8"
-        style="font-family: monospace;">{{ inbound.stream_settings }}</textarea>
+    <textarea id="edit_stream_settings" name="stream_settings" rows="8" style="font-family: monospace;"
+        oninput="syncEditSniInput()">{{ inbound.stream_settings }}</textarea>
+
+    <!-- SNI Helper for Edit -->
+    <div
+        style="margin-top: 1rem; margin-bottom: 1rem; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+        <label for="edit_sni_input" style="margin-bottom: 0.5rem; display: block;">Server Name (SNI) /
+            Destination</label>
+        <div style="display: flex; gap: 10px;">
+            <input type="text" id="edit_sni_input" placeholder="drive.google.com" oninput="updateEditSniFromJson()"
+                style="flex: 1;">
+            <button type="button" class="outline secondary" onclick="syncEditSniInput()"
+                style="width: auto;">Reset</button>
+        </div>
+        <small style="color: #888;">Editing this updates the JSON above.</small>
+    </div>
+
+    <script>
+        function syncEditSniInput() {
+            try {
+                const json = JSON.parse(document.getElementById('edit_stream_settings').value);
+                let sni = "";
+                // Check Reality
+                if (json.reality_settings && json.reality_settings.server_names && json.reality_settings.server_names.length > 0) {
+                    sni = json.reality_settings.server_names[0];
+                }
+                // Check TLS
+                else if (json.tls_settings && json.tls_settings.server_name) {
+                    sni = json.tls_settings.server_name;
+                }
+                if (sni) document.getElementById('edit_sni_input').value = sni;
+            } catch (e) { }
+        }
+
+        function updateEditSniFromJson() {
+            const sni = document.getElementById('edit_sni_input').value;
+            try {
+                const json = JSON.parse(document.getElementById('edit_stream_settings').value);
+
+                // Update Reality
+                if (json.reality_settings) {
+                    json.reality_settings.server_names = [sni];
+                    if (json.reality_settings.dest && json.reality_settings.dest.includes(":")) {
+                        json.reality_settings.dest = sni + ":443";
+                    }
+                }
+                // Update TLS
+                else if (json.tls_settings) {
+                    json.tls_settings.server_name = sni;
+                }
+                else {
+                    // Safety: if no tls/reality struct, try to infer or init TLS if protocol implies it?
+                    // Better to only update if struct exists or if we are sure.
+                    // For now, if no settings exist, we create minimal TLS
+                    if (!json.tls_settings && !json.reality_settings) {
+                        // Only if protocol is relevant? Too complex for client-side without protocol check context.
+                        // Assume TLS
+                        json.tls_settings = { server_name: sni };
+                    } else if (json.tls_settings) {
+                        json.tls_settings.server_name = sni;
+                    }
+                }
+
+                document.getElementById('edit_stream_settings').value = JSON.stringify(json, null, 4);
+            } catch (e) { }
+        }
+
+        // Init on load
+        setTimeout(syncEditSniInput, 100);
+    </script>
 
     <footer>
         <button type="button" class="secondary"

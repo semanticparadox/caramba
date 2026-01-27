@@ -140,6 +140,7 @@ async fn send_heartbeat(
         config_hash: state.current_hash.clone(),
         traffic_up: 0,
         traffic_down: 0,
+        certificates: Some(check_certificates(&state.current_hash.as_ref().map(|_| "/etc/sing-box/config.json").unwrap_or("/etc/sing-box/config.json")).await),
     };
     
     let resp = client.post(&url)
@@ -234,18 +235,76 @@ async fn save_config(path: &str, content: &serde_json::Value) -> anyhow::Result<
     Ok(())
 }
 
-fn restart_singbox() -> anyhow::Result<()> {
-    info!("🔄 Restarting sing-box service...");
-    
-    let output = std::process::Command::new("systemctl")
-        .args(&["restart", "sing-box"])
-        .output()?;
-    
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("systemctl restart failed: {}", stderr);
-    }
-    
     info!("✅ Service restarted");
     Ok(())
+}
+
+async fn check_certificates(config_path: &str) -> Vec<exarobot_shared::api::CertificateStatus> {
+    let mut statuses = Vec::new();
+    let cert_dir = Path::new(config_path).parent().unwrap_or(Path::new("/etc/sing-box")).join("certs");
+    
+    if !cert_dir.exists() {
+        return statuses;
+    }
+
+    // Read dir
+    let mut entries = match tokio::fs::read_dir(&cert_dir).await {
+        Ok(e) => e,
+        Err(_) => return statuses,
+    };
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        // Only check .pem files likely to be certs (not keys)
+        // Convention: cert.pem or *.crt
+        if let Some(ext) = path.extension() {
+            if ext == "pem" || ext == "crt" {
+                // Heuristic: check if this is a cert or key
+                // Or just try openssl x509 on it. If it fails, maybe it's a key.
+                
+                let output = std::process::Command::new("openssl")
+                    .args(&["x509", "-in", path.to_str().unwrap_or(""), "-noout", "-subject", "-enddate", "-checkend", "0"])
+                    .output();
+
+                match output {
+                    Ok(out) => {
+                        if out.status.success() {
+                            let stdout = String::from_utf8_lossy(&out.stdout);
+                            // Parse subject: subject=CN = drive.google.com
+                            let sni = stdout.lines()
+                                .find(|l| l.starts_with("subject="))
+                                .and_then(|l| l.split("CN = ").nth(1))
+                                .or_else(|| stdout.lines().find(|l| l.starts_with("subject=")).and_then(|l| l.split("CN=").nth(1))) 
+                                // Handling both "CN = val" and "CN=val"
+                                .map(|s| s.trim().to_string())
+                                .unwrap_or_else(|| "unknown".to_string());
+
+                            // Parse expiry
+                            // openssl -checkend 0 returns 0 if valid (not expired), 1 if expired
+                            // But we also want the date for display.
+                            // We don't parse date strictly here for now to avoid chrono dep complexity if not present, 
+                            // but we can trust checkend for valid flag.
+                            let valid = out.status.code() == Some(0);
+
+                            // For expires_at, we might need to parse "notAfter=Jan 27 00:00:00 2036 GMT"
+                            // For MVP, just return current timestamp + 1 year if valid? 
+                            // Or better: use openssl -enddate -noout -> "notAfter=..."
+                            // Implementation detail: Shared struct requires expires_at: i64.
+                            // We can use 0 for now or implement parsing.
+                            
+                            statuses.push(exarobot_shared::api::CertificateStatus {
+                                sni,
+                                valid,
+                                expires_at: 0, // TODO: Parse logic
+                                error: None,
+                            });
+                        }
+                    },
+                    Err(_) => {}
+                }
+            }
+        }
+    }
+    
+    statuses
 }

@@ -75,12 +75,35 @@ pub async fn add_inbound(
 ) -> impl IntoResponse {
     info!("Adding inbound {} ({}) to node {}", form.tag, form.protocol, node_id);
 
-    // Validate JSON
-    if let Err(e) = serde_json::from_str::<serde_json::Value>(&form.settings) {
-        return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Settings JSON: {}", e)).into_response();
+    // Validate JSON against Models
+    // 1. Stream Settings
+    if let Err(e) = serde_json::from_str::<crate::models::network::StreamSettings>(&form.stream_settings) {
+         return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Stream Settings: {}", e)).into_response();
     }
-    if let Err(e) = serde_json::from_str::<serde_json::Value>(&form.stream_settings) {
-         return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Stream Settings JSON: {}", e)).into_response();
+
+    // 2. Protocol Settings
+    match form.protocol.as_str() {
+        "vless" => {
+            if let Err(e) = serde_json::from_str::<crate::models::network::VlessSettings>(&form.settings) {
+                return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid VLESS Settings: {}", e)).into_response();
+            }
+        },
+        "hysteria2" => {
+            if let Err(e) = serde_json::from_str::<crate::models::network::Hysteria2Settings>(&form.settings) {
+                return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Hysteria2 Settings: {}", e)).into_response();
+            }
+        },
+        "trojan" => {
+            if let Err(e) = serde_json::from_str::<crate::models::network::TrojanSettings>(&form.settings) {
+                return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Trojan Settings: {}", e)).into_response();
+            }
+        },
+        _ => {
+            // Unknown protocol, just check valid JSON
+            if let Err(e) = serde_json::from_str::<serde_json::Value>(&form.settings) {
+                return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid JSON: {}", e)).into_response();
+            }
+        }
     }
 
     // Check if port is already in use
@@ -375,10 +398,35 @@ pub async fn update_inbound(
 ) -> impl IntoResponse {
     info!("Updating inbound {} on node {}", inbound_id, node_id);
     
-    // Validate JSON
-    if serde_json::from_str::<serde_json::Value>(&form.settings).is_err() || 
-       serde_json::from_str::<serde_json::Value>(&form.stream_settings).is_err() {
-        return (axum::http::StatusCode::BAD_REQUEST, "Invalid JSON").into_response();
+    // Validate JSON against Models
+    // 1. Stream Settings
+    if let Err(e) = serde_json::from_str::<crate::models::network::StreamSettings>(&form.stream_settings) {
+         return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Stream Settings: {}", e)).into_response();
+    }
+
+    // 2. Protocol Settings
+    match form.protocol.as_str() {
+        "vless" => {
+            if let Err(e) = serde_json::from_str::<crate::models::network::VlessSettings>(&form.settings) {
+                return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid VLESS Settings: {}", e)).into_response();
+            }
+        },
+        "hysteria2" => {
+            if let Err(e) = serde_json::from_str::<crate::models::network::Hysteria2Settings>(&form.settings) {
+                return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Hysteria2 Settings: {}", e)).into_response();
+            }
+        },
+        "trojan" => {
+            if let Err(e) = serde_json::from_str::<crate::models::network::TrojanSettings>(&form.settings) {
+                return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Trojan Settings: {}", e)).into_response();
+            }
+        },
+        _ => {
+            // Unknown protocol, just check valid JSON
+            if let Err(e) = serde_json::from_str::<serde_json::Value>(&form.settings) {
+                return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid JSON: {}", e)).into_response();
+            }
+        }
     }
 
     // Check if port is already in use (excluding self)

@@ -11,6 +11,15 @@ pub mod api {
         pub config_hash: Option<String>,
         pub traffic_up: u64,
         pub traffic_down: u64,
+        pub certificates: Option<Vec<CertificateStatus>>,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct CertificateStatus {
+        pub sni: String,
+        pub valid: bool,
+        pub expires_at: i64,
+        pub error: Option<String>,
     }
 
     #[derive(Debug, Serialize, Deserialize)]

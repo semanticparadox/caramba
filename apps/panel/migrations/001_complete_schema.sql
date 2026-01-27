@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS nodes (
     join_token TEXT,
 
     auto_configure BOOLEAN DEFAULT 0,
-    is_enabled BOOLEAN DEFAULT 1 -- Added in v1.1
+    is_enabled BOOLEAN DEFAULT 1, -- Added in v1.1
+    certificates_status TEXT DEFAULT NULL -- JSON: Verification results from Agent
 );
 
 CREATE INDEX IF NOT EXISTS idx_nodes_ip ON nodes (ip);

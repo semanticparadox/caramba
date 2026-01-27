@@ -89,9 +89,13 @@ pub async fn heartbeat(
     // Now safe to update
     info!("💓 [Checkpoint 4] Updating Node {} to status='{}', ip='{}'", node_id, new_status, remote_ip);
     
-    let update_status_res = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = ?, ip = ? WHERE id = ?")
+    // Serialize cert status if present
+    let certs_json = payload.certificates.as_ref().and_then(|c| serde_json::to_string(c).ok());
+
+    let update_status_res = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = ?, ip = ?, certificates_status = ? WHERE id = ?")
         .bind(new_status)
         .bind(&remote_ip)
+        .bind(certs_json)
         .bind(node_id)
         .execute(&state.pool)
         .await;
