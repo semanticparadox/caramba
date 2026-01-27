@@ -175,12 +175,5 @@ impl ConfigGenerator {
         }
     }
 
-    pub fn generate_node_config_json(
-        _node_id: i64, 
-        _pool: &sqlx::SqlitePool
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<(crate::models::node::Node, serde_json::Value)>> + Send + '_>> {
-        Box::pin(async move {
-            Err(anyhow::anyhow!("Use OrchestrationService for node config generation"))
-        })
-    }
+
 }
