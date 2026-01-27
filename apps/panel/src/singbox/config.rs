@@ -87,12 +87,26 @@ pub struct Hysteria2Inbound {
     pub listen_port: u16,
     pub users: Vec<Hysteria2User>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub up: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub down: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_client_bandwidth: Option<bool>,
     
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub obfs: Option<Hysteria2Obfs>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub masquerade: Option<String>,
     
     pub tls: Hysteria2TlsConfig,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Hysteria2Obfs {
+    #[serde(rename = "type")]
+    pub ttype: String,
+    pub password: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

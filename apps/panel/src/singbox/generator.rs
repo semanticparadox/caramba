@@ -120,7 +120,19 @@ impl ConfigGenerator {
                         listen: inbound.listen_ip,
                         listen_port: inbound.listen_port as u16,
                         users,
-                        ignore_client_bandwidth: Some(false),
+                        // Configured bandwidth hints (optional but recommended)
+                        up: Some(format!("{} Mbps", hy2.up_mbps)),
+                        down: Some(format!("{} Mbps", hy2.down_mbps)),
+                        ignore_client_bandwidth: Some(false), // Enforce limits if set? Or respect client? Usually respect client for H2.
+                        // Actually 'ignore_client_bandwidth: false' means "do NOT ignore", so trust client?
+                        // If true, it ignores client's bandwidth claim and uses server's BBR.
+                        // Let's keep it false (default behavior).
+                        
+                        obfs: hy2.obfs.map(|o| Hysteria2Obfs {
+                            ttype: o.ttype,
+                            password: o.password,
+                        }),
+
                         masquerade: hy2.masquerade.clone().map(|s| {
                             if !s.contains("://") && s.starts_with('/') {
                                 format!("file://{}", s)
