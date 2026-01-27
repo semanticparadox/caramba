@@ -770,35 +770,8 @@ pub async fn add_plan(
     let mut price: Vec<i64> = Vec::new();
     let mut traffic_limit_gb: i32 = 0;
 
-    for (key, value) in raw_form {
-        match key.as_str() {
-            "name" => name = value,
-            "description" => description = value,
-            "device_limit" => {
-                if let Ok(v) = value.parse() {
-                    device_limit = v;
-                }
-            },
-            "duration_days" => {
-                if let Ok(v) = value.parse() {
-                    duration_days.push(v);
-                }
-            },
-            "price" => {
-                if let Ok(v) = value.parse() {
-                    price.push(v);
-                }
-            },
-            "traffic_limit_gb" => {
-                if let Ok(v) = value.parse() {
-                    traffic_limit_gb = v;
-                }
-            },
-            _ => {}
-        }
-    }
-
     let mut node_ids: Vec<i64> = Vec::new();
+
 
     for (key, value) in raw_form {
         match key.as_str() {
@@ -961,15 +934,19 @@ pub async fn get_plan_edit(
     #[template(path = "plan_edit_modal.html")]
     struct PlanEditModalTemplate {
         plan: Plan,
-        nodes: Vec<crate::models::node::Node>,
-        linked_node_ids: Vec<i64>,
+        nodes: Vec<(crate::models::node::Node, bool)>,
         admin_path: String,
     }
 
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
 
-    Html(PlanEditModalTemplate { plan, nodes: all_nodes, linked_node_ids, admin_path }.render().unwrap_or_default()).into_response()
+    let nodes_with_status: Vec<(crate::models::node::Node, bool)> = all_nodes.into_iter().map(|n| {
+        let is_linked = linked_node_ids.contains(&n.id);
+        (n, is_linked)
+    }).collect();
+
+    Html(PlanEditModalTemplate { plan, nodes: nodes_with_status, admin_path }.render().unwrap_or_default()).into_response()
 }
 
 pub async fn update_plan(
