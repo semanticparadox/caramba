@@ -116,7 +116,10 @@ async fn auth_middleware(
 #[tokio::main]
 async fn main() -> Result<()> {
     // Load .env
-    dotenvy::dotenv().ok();
+    if let Err(e) = dotenvy::dotenv() {
+        // Only warn if we are not in a test/dev environment where it might be intentional
+        println!("⚠️  Warning: Failed to load .env file: {}", e);
+    }
 
     let cli = Cli::parse();
 
