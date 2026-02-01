@@ -1,115 +1,148 @@
-<header>
-    <a href="#close" aria-label="Close" class="close"
-        onclick="document.getElementById('edit-inbound-modal').close()"></a>
-    Edit Inbound: {{ inbound.tag }}
-</header>
-<form hx-post="{{ admin_path }}/nodes/{{ node_id }}/inbounds/{{ inbound.id }}" hx-swap="none">
-    <div class="grid">
-        <div>
-            <label for="edit_tag">Tag</label>
-            <input type="text" id="edit_tag" name="tag" value="{{ inbound.tag }}" required>
+<!-- Modal Header -->
+<div class="flex justify-between items-center mb-6 pb-4 border-b border-white/5 sticky top-0 bg-slate-900 z-10">
+    <div>
+        <h3 class="text-xl font-bold text-white flex items-center gap-2">
+            <i data-lucide="settings-2" class="w-5 h-5 text-indigo-400"></i>
+            Edit Inbound
+        </h3>
+        <p class="text-sm text-slate-400 mt-1">Tag: <span class="font-mono text-indigo-300">{{ inbound.tag }}</span></p>
+    </div>
+    <form method="dialog">
+        <button class="text-slate-400 hover:text-white transition-colors p-1"
+            onclick="document.getElementById('edit-inbound-modal').close()">
+            <i data-lucide="x" class="w-6 h-6"></i>
+        </button>
+    </form>
+</div>
+
+<form hx-post="{{ admin_path }}/nodes/{{ node_id }}/inbounds/{{ inbound.id }}" hx-swap="none" class="space-y-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Basic Settings -->
+        <div class="space-y-4">
+            <div>
+                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Tag</label>
+                <input type="text" id="edit_tag" name="tag" value="{{ inbound.tag }}" required
+                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-indigo-500 outline-none transition-all">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Protocol</label>
+                <div class="relative">
+                    <select id="edit_protocol" name="protocol" required
+                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-indigo-500 outline-none appearance-none">
+                        <option value="vless" {% if inbound.protocol=="vless" %}selected{% endif %}>VLESS</option>
+                        <option value="hysteria2" {% if inbound.protocol=="hysteria2" %}selected{% endif %}>Hysteria 2
+                        </option>
+                        <option value="trojan" {% if inbound.protocol=="trojan" %}selected{% endif %}>Trojan</option>
+                    </select>
+                    <i data-lucide="chevron-down"
+                        class="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"></i>
+                </div>
+            </div>
         </div>
-        <div>
-            <label for="edit_protocol">Protocol</label>
-            <select id="edit_protocol" name="protocol" required>
-                <option value="vless" {% if inbound.protocol=="vless" %}selected{% endif %}>VLESS</option>
-                <option value="hysteria2" {% if inbound.protocol=="hysteria2" %}selected{% endif %}>Hysteria 2</option>
-                <option value="trojan" {% if inbound.protocol=="trojan" %}selected{% endif %}>Trojan</option>
-            </select>
+
+        <div class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Listen
+                        Port</label>
+                    <input type="number" id="edit_listen_port" name="listen_port" value="{{ inbound.listen_port }}"
+                        required
+                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-indigo-500 outline-none font-mono">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Listen
+                        IP</label>
+                    <input type="text" id="edit_listen_ip" name="listen_ip" value="{{ inbound.listen_ip }}" required
+                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-indigo-500 outline-none font-mono">
+                </div>
+            </div>
         </div>
     </div>
 
-    <div class="grid">
-        <div>
-            <label for="edit_listen_port">Listen Port</label>
-            <input type="number" id="edit_listen_port" name="listen_port" value="{{ inbound.listen_port }}" required>
+    <!-- SNI Helper -->
+    <div class="bg-indigo-500/5 border border-indigo-500/10 rounded-xl p-4">
+        <label class="block text-xs font-medium text-indigo-300 uppercase tracking-wider mb-2">QUICK EDIT: Server Name
+            (SNI)</label>
+        <div class="flex gap-3">
+            <input type="text" id="edit_sni_input" placeholder="e.g. drive.google.com" oninput="updateEditSniFromJson()"
+                class="flex-1 bg-slate-950 border border-indigo-500/20 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:border-indigo-500 outline-none text-sm">
+            <button type="button" onclick="syncEditSniInput()"
+                class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium transition-colors border border-white/5">
+                Reset
+            </button>
         </div>
+        <p class="text-[10px] text-indigo-400/60 mt-1.5">Updates the JSON configuration below.</p>
+    </div>
+
+    <!-- JSON Settings -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-            <label for="edit_listen_ip">Listen IP</label>
-            <input type="text" id="edit_listen_ip" name="listen_ip" value="{{ inbound.listen_ip }}" required>
+            <div class="flex justify-between items-center mb-1.5">
+                <label class="text-xs font-medium text-slate-400 uppercase tracking-wider">Protocol Settings</label>
+                <span class="text-[10px] text-slate-600 font-mono">JSON</span>
+            </div>
+            <textarea id="edit_settings" name="settings" rows="6"
+                class="w-full bg-[#0d1117] border border-white/10 rounded-xl p-3 text-xs text-emerald-400 font-mono focus:border-indigo-500 outline-none transition-all leading-relaxed resize-y custom-scrollbar">{{ inbound.settings }}</textarea>
+        </div>
+
+        <div>
+            <div class="flex justify-between items-center mb-1.5">
+                <label class="text-xs font-medium text-slate-400 uppercase tracking-wider">Stream Settings</label>
+                <span class="text-[10px] text-slate-600 font-mono">JSON</span>
+            </div>
+            <textarea id="edit_stream_settings" name="stream_settings" rows="8" oninput="syncEditSniInput()"
+                class="w-full bg-[#0d1117] border border-white/10 rounded-xl p-3 text-xs text-emerald-400 font-mono focus:border-indigo-500 outline-none transition-all leading-relaxed resize-y custom-scrollbar">{{ inbound.stream_settings }}</textarea>
         </div>
     </div>
 
-    <label for="edit_settings">Protocol Settings (JSON)</label>
-    <textarea id="edit_settings" name="settings" rows="6"
-        style="font-family: monospace;">{{ inbound.settings }}</textarea>
-
-    <label for="edit_stream_settings">Stream Settings (JSON)</label>
-    <textarea id="edit_stream_settings" name="stream_settings" rows="8" style="font-family: monospace;"
-        oninput="syncEditSniInput()">{{ inbound.stream_settings }}</textarea>
-
-    <!-- SNI Helper for Edit -->
-    <div
-        style="margin-top: 1rem; margin-bottom: 1rem; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px;">
-        <label for="edit_sni_input" style="margin-bottom: 0.5rem; display: block;">Server Name (SNI) /
-            Destination</label>
-        <div style="display: flex; gap: 10px;">
-            <input type="text" id="edit_sni_input" placeholder="drive.google.com" oninput="updateEditSniFromJson()"
-                style="flex: 1;">
-            <button type="button" class="outline secondary" onclick="syncEditSniInput()"
-                style="width: auto;">Reset</button>
-        </div>
-        <small style="color: #888;">Editing this updates the JSON above.</small>
+    <div class="pt-6 border-t border-white/5 flex gap-3 justify-end">
+        <button type="button"
+            class="px-5 py-2.5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors font-medium text-sm"
+            onclick="document.getElementById('edit-inbound-modal').close()">Cancel</button>
+        <button type="submit" onclick="setTimeout(()=>document.getElementById('edit-inbound-modal').close(), 500)"
+            class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02] text-sm">
+            Save Changes
+        </button>
     </div>
+</form>
 
-    <script>
-        function syncEditSniInput() {
-            try {
-                const json = JSON.parse(document.getElementById('edit_stream_settings').value);
-                let sni = "";
-                // Check Reality
-                if (json.reality_settings && json.reality_settings.server_names && json.reality_settings.server_names.length > 0) {
-                    sni = json.reality_settings.server_names[0];
-                }
-                // Check TLS
-                else if (json.tls_settings && json.tls_settings.server_name) {
-                    sni = json.tls_settings.server_name;
-                }
-                if (sni) document.getElementById('edit_sni_input').value = sni;
-            } catch (e) { }
-        }
+<script>
+    function syncEditSniInput() {
+        try {
+            const json = JSON.parse(document.getElementById('edit_stream_settings').value);
+            let sni = "";
+            if (json.reality_settings && json.reality_settings.server_names && json.reality_settings.server_names.length > 0) {
+                sni = json.reality_settings.server_names[0];
+            } else if (json.tls_settings && json.tls_settings.server_name) {
+                sni = json.tls_settings.server_name;
+            }
+            if (sni) document.getElementById('edit_sni_input').value = sni;
+        } catch (e) { }
+    }
 
-        function updateEditSniFromJson() {
-            const sni = document.getElementById('edit_sni_input').value;
-            try {
-                const json = JSON.parse(document.getElementById('edit_stream_settings').value);
-
-                // Update Reality
-                if (json.reality_settings) {
-                    json.reality_settings.server_names = [sni];
-                    if (json.reality_settings.dest && json.reality_settings.dest.includes(":")) {
-                        json.reality_settings.dest = sni + ":443";
-                    }
+    function updateEditSniFromJson() {
+        const sni = document.getElementById('edit_sni_input').value;
+        try {
+            const json = JSON.parse(document.getElementById('edit_stream_settings').value);
+            if (json.reality_settings) {
+                json.reality_settings.server_names = [sni];
+                if (json.reality_settings.dest && json.reality_settings.dest.includes(":")) {
+                    json.reality_settings.dest = sni + ":443";
                 }
-                // Update TLS
-                else if (json.tls_settings) {
+            } else if (json.tls_settings) {
+                json.tls_settings.server_name = sni;
+            } else {
+                if (!json.tls_settings && !json.reality_settings) {
+                    if (!json.tls_settings) json.tls_settings = {}; // minimal init
+                    json.tls_settings.server_name = sni;
+                } else if (json.tls_settings) {
                     json.tls_settings.server_name = sni;
                 }
-                else {
-                    // Safety: if no tls/reality struct, try to infer or init TLS if protocol implies it?
-                    // Better to only update if struct exists or if we are sure.
-                    // For now, if no settings exist, we create minimal TLS
-                    if (!json.tls_settings && !json.reality_settings) {
-                        // Only if protocol is relevant? Too complex for client-side without protocol check context.
-                        // Assume TLS
-                        json.tls_settings = { server_name: sni };
-                    } else if (json.tls_settings) {
-                        json.tls_settings.server_name = sni;
-                    }
-                }
+            }
+            document.getElementById('edit_stream_settings').value = JSON.stringify(json, null, 4);
+        } catch (e) { }
+    }
 
-                document.getElementById('edit_stream_settings').value = JSON.stringify(json, null, 4);
-            } catch (e) { }
-        }
-
-        // Init on load
-        setTimeout(syncEditSniInput, 100);
-    </script>
-
-    <footer>
-        <button type="button" class="secondary"
-            onclick="document.getElementById('edit-inbound-modal').close()">Cancel</button>
-        <button type="submit" onclick="setTimeout(()=>document.getElementById('edit-inbound-modal').close(), 500)">Save
-            Changes</button>
-    </footer>
-</form>
+    setTimeout(syncEditSniInput, 100);
+    lucide.createIcons();
+</script>

@@ -1,36 +1,81 @@
-<header>
-    <a href="#close" aria-label="Close" class="close"
-        onclick="document.getElementById('manual-install-modal').close()"></a>
-    Manual Install: {{ node.name }}
+<header class="flex justify-between items-center mb-6 sticky top-0 bg-slate-900 z-10 pb-4 border-b border-white/5">
+    <h3 class="text-xl font-bold text-white flex items-center gap-2">
+        <i data-lucide="terminal" class="w-5 h-5 text-indigo-400"></i>
+        Manual Setup: <span class="text-indigo-400 font-mono text-base">{{ node.name }}</span>
+    </h3>
+    <button onclick="document.getElementById('manual-install-modal').close()"
+        class="text-slate-400 hover:text-white transition-colors">
+        <i data-lucide="x" class="w-6 h-6"></i>
+    </button>
 </header>
-<div>
-    <p><strong>Quick One-Liner (Remnawave-style)</strong></p>
-    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
-        <input type="text" id="one-liner" value="" readonly
-            style="flex-grow: 1; font-family: monospace; font-size: 0.85rem;">
-        <button class="outline" onclick="
-            const liner = document.getElementById('one-liner');
-            liner.select();
-            document.execCommand('copy');
-            alert('Command copied!');
-        ">Copy</button>
+
+<div class="space-y-6">
+    <!-- One Liner -->
+    <div>
+        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Quick One-Liner</label>
+        <div class="relative group">
+            <input type="text" id="one-liner" value="Calculating..." readonly
+                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3.5 pr-24 text-emerald-400 font-mono text-xs focus:border-indigo-500 outline-none">
+
+            <button onclick="copyToClipboard('one-liner')"
+                class="absolute right-2 top-2 bottom-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg transition-colors border border-white/5 flex items-center gap-1.5">
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy
+            </button>
+        </div>
+        <p class="text-[10px] text-slate-500 mt-2 flex items-center gap-1.5">
+            <i data-lucide="info" class="w-3 h-3 text-indigo-400"></i>
+            Run this command on your server (as root) to auto-install and join the node.
+        </p>
     </div>
 
-    <p>Or manually run the full script:</p>
-    <textarea style="height: 200px; font-family: monospace; font-size: 0.8rem;" readonly>{{ script }}</textarea>
+    <!-- Full Script -->
+    <div>
+        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Full Script
+            Preview</label>
+        <div class="relative group">
+            <textarea id="full-script" rows="8" readonly
+                class="w-full bg-[#0d1117] border border-white/10 rounded-xl p-4 text-xs text-slate-400 font-mono focus:border-indigo-500 outline-none leading-relaxed custom-scrollbar resize-none">{{ script }}</textarea>
+
+            <button onclick="copyToClipboard('full-script')"
+                class="absolute right-4 top-4 px-2 py-1.5 bg-slate-800/80 hover:bg-slate-700/80 backdrop-blur text-slate-300 text-xs rounded-lg transition-colors border border-white/5 flex items-center gap-1.5 opacity-0 group-hover:opacity-100">
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy
+            </button>
+        </div>
+    </div>
 </div>
+
+<div class="pt-6 border-t border-white/5 flex justify-end">
+    <button
+        class="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-xl transition-colors border border-white/5"
+        onclick="document.getElementById('manual-install-modal').close()">
+        Close Window
+    </button>
+</div>
+
 <script>
     // Dynamically update the origin in the input value
     const origin = window.location.origin;
     const token = "{{ node.join_token.clone().unwrap_or_default() }}";
     document.getElementById('one-liner').value = `curl -fsSL https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/scripts/install.sh | sudo bash -s -- --role agent --panel "${origin}" --token "${token}"`;
-</script>
-<footer>
-    <button class="secondary" onclick="
-        let el = this.parentElement.previousElementSibling.querySelector('textarea');
+
+    function copyToClipboard(elementId) {
+        const el = document.getElementById(elementId);
         el.select();
-        document.execCommand('copy');
-        alert('Copied to clipboard!');
-    ">Copy to Clipboard</button>
-    <button class="outline" onclick="document.getElementById('manual-install-modal').close()">Close</button>
-</footer>
+        el.setSelectionRange(0, 99999);
+        navigator.clipboard.writeText(el.value).then(() => {
+            // Show toast or temporary success state
+            const btn = el.parentElement.querySelector('button');
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5"></i> Copied!';
+            btn.classList.add('text-emerald-400');
+            setTimeout(() => {
+                btn.innerHTML = originalHtml;
+                btn.classList.remove('text-emerald-400');
+                lucide.createIcons(); // re-init icon
+            }, 2000);
+            lucide.createIcons();
+        });
+    }
+
+    lucide.createIcons();
+</script>

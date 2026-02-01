@@ -1,18 +1,44 @@
-<header>
-    <a href="#close" aria-label="Close" class="close" onclick="document.getElementById('edit-node-modal').close()"></a>
-    Edit Node: {{ node.name }}
+<header class="flex justify-between items-center mb-6 sticky top-0 bg-slate-900 z-10 pb-4 border-b border-white/5">
+    <h3 class="text-xl font-bold text-white flex items-center gap-2">
+        <i data-lucide="server" class="w-5 h-5 text-indigo-400"></i>
+        Edit Node
+    </h3>
+    <button onclick="document.getElementById('edit-node-modal').close()"
+        class="text-slate-400 hover:text-white transition-colors">
+        <i data-lucide="x" class="w-6 h-6"></i>
+    </button>
 </header>
-<form hx-post="{{ admin_path }}/nodes/{{ node.id }}/update" hx-swap="none">
-    <label for="edit_name">Friendly Name</label>
-    <input type="text" id="edit_name" name="name" value="{{ node.name }}" required>
 
-    <label for="edit_ip">IP Address</label>
-    <input type="text" id="edit_ip" name="ip" value="{{ node.ip }}" required>
+<form hx-post="{{ admin_path }}/nodes/{{ node.id }}/update" hx-swap="none" class="space-y-6">
+    <div>
+        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Friendly Name</label>
+        <div class="relative">
+            <input type="text" name="name" value="{{ node.name }}" required
+                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 pl-11 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+            <i data-lucide="tag" class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"></i>
+        </div>
+    </div>
 
-    <footer>
-        <button type="button" class="secondary"
+    <div>
+        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">IP Address</label>
+        <div class="relative">
+            <input type="text" name="ip" value="{{ node.ip }}" required
+                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 pl-11 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all font-mono">
+            <i data-lucide="globe" class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"></i>
+        </div>
+    </div>
+
+    <div class="pt-6 border-t border-white/5 flex gap-3">
+        <button type="button"
+            class="flex-1 py-3 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors font-medium"
             onclick="document.getElementById('edit-node-modal').close()">Cancel</button>
-        <button type="submit" onclick="setTimeout(()=>document.getElementById('edit-node-modal').close(), 500)">Save
-            Changes</button>
-    </footer>
+        <button type="submit" onclick="setTimeout(()=>document.getElementById('edit-node-modal').close(), 500)"
+            class="flex-[2] bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02]">
+            Save Changes
+        </button>
+    </div>
 </form>
+
+<script>
+    lucide.createIcons();
+</script>

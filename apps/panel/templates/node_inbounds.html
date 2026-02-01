@@ -1,128 +1,224 @@
 {% extends "base.html" %}
 
 {% block title %}Node Inbounds{% endblock %}
+{% block header_title %}Node Inbounds{% endblock %}
 
 {% block content %}
-<section>
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+<section class="space-y-6">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-            <h2>Manage Inbounds</h2>
-            <small>Node: {{ node.name }} ({{ node.ip }})</small>
+            <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                <i data-lucide="network" class="w-6 h-6 text-indigo-400"></i>
+                Manage Inbounds
+            </h2>
+            <div class="flex items-center gap-2 text-sm text-slate-400 mt-1">
+                <span class="font-mono text-indigo-300">{{ node.name }}</span>
+                <span class="text-slate-600">•</span>
+                <span class="font-mono bg-slate-800 px-1.5 py-0.5 rounded text-xs">{{ node.ip }}</span>
+            </div>
         </div>
-        <a href="{{ admin_path }}/nodes" role="button" class="secondary outline">Back to Nodes</a>
+        <a href="{{ admin_path }}/nodes"
+            class="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-sm font-medium rounded-xl transition-colors border border-white/5">
+            <i data-lucide="arrow-left" class="w-4 h-4"></i> Back to Nodes
+        </a>
     </div>
 
     <!-- Inbounds List -->
-    <article>
-        <h3>Active Inbounds</h3>
-        <table role="grid">
-            <thead>
-                <tr>
-                    <th>Tag</th>
-                    <th>Protocol</th>
-                    <th>Port</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for inbound in inbounds %}
-                <tr>
-                    <td>{{ inbound.tag }}</td>
-                    <td><span class="badge secondary">{{ inbound.protocol|upper }}</span></td>
-                    <td>{{ inbound.listen_port }}</td>
-                    <td>
-                        {% if inbound.enable %}
-                        <span class="badge success">Enabled</span>
-                        {% else %}
-                        <span class="badge secondary">Disabled</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <div role="group">
-                            <button class="outline"
-                                hx-get="{{ admin_path }}/nodes/{{ node.id }}/inbounds/{{ inbound.id }}"
-                                hx-target="#edit-inbound-modal-content"
-                                hx-on::after-request="document.getElementById('edit-inbound-modal').showModal()">
-                                Edit
-                            </button>
-                            <button class="secondary outline" style="color: #ff5555; border-color: #ff5555;"
-                                hx-delete="{{ admin_path }}/nodes/{{ node.id }}/inbounds/{{ inbound.id }}"
-                                hx-confirm="Are you sure you want to delete this inbound?" hx-target="closest tr"
-                                hx-swap="outerHTML">
-                                Delete
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% if inbounds.is_empty() %}
-        <p style="text-align: center; color: #666; padding: 2rem;">No inbounds configured for this node.</p>
-        {% endif %}
-    </article>
+    <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden shadow-xl">
+        <div class="p-6 border-b border-white/5 flex justify-between items-center bg-slate-900/30">
+            <h3 class="text-lg font-semibold text-white">Active Inbounds</h3>
+            <span
+                class="px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                {{ inbounds.len() }} Configured
+            </span>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                        <th class="px-6 py-4">Tag</th>
+                        <th class="px-6 py-4">Protocol</th>
+                        <th class="px-6 py-4">Port</th>
+                        <th class="px-6 py-4">Status</th>
+                        <th class="px-6 py-4 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5">
+                    {% for inbound in inbounds %}
+                    <tr class="hover:bg-white/5 transition-colors group">
+                        <td class="px-6 py-4">
+                            <span class="font-medium text-white">{{ inbound.tag }}</span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <span
+                                class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-slate-800 text-slate-300 border border-white/5 font-mono">
+                                {{ inbound.protocol|upper }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 text-slate-400 font-mono">{{ inbound.listen_port }}</td>
+                        <td class="px-6 py-4">
+                            {% if inbound.enable %}
+                            <span
+                                class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                Enabled
+                            </span>
+                            {% else %}
+                            <span
+                                class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-500/10 text-slate-400 border border-slate-500/20">
+                                Disabled
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4 text-right">
+                            <div class="flex items-center justify-end gap-2">
+                                <button
+                                    class="p-2 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 hover:text-indigo-300 transition-colors border border-indigo-500/10"
+                                    hx-get="{{ admin_path }}/nodes/{{ node.id }}/inbounds/{{ inbound.id }}"
+                                    hx-target="#edit-inbound-modal-content"
+                                    hx-on::after-request="document.getElementById('edit-inbound-modal').showModal()">
+                                    <i data-lucide="settings-2" class="w-4 h-4"></i>
+                                </button>
+                                <button
+                                    class="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors border border-red-500/10"
+                                    hx-delete="{{ admin_path }}/nodes/{{ node.id }}/inbounds/{{ inbound.id }}"
+                                    hx-confirm="Delete inbound {{ inbound.tag }}?" hx-target="closest tr"
+                                    hx-swap="outerHTML">
+                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+
+                    {% if inbounds.is_empty() %}
+                    <tr>
+                        <td colspan="5" class="px-6 py-12 text-center text-slate-500">
+                            <div class="flex flex-col items-center gap-3">
+                                <div class="w-12 h-12 rounded-full bg-slate-800/50 flex items-center justify-center">
+                                    <i data-lucide="network" class="w-6 h-6 text-slate-600"></i>
+                                </div>
+                                <p>No inbounds configured for this node.</p>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
 
     <!-- Edit Inbound Modal -->
-    <dialog id="edit-inbound-modal">
-        <article id="edit-inbound-modal-content" style="width: 800px; max-width: 90%;">
-            <!-- Content loaded via HTMX -->
-            <p aria-busy="true">Loading inbound details...</p>
-        </article>
+    <dialog id="edit-inbound-modal"
+        class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50">
+        <div id="edit-inbound-modal-content"
+            class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto m-4"
+            onclick="event.stopPropagation()">
+            <div class="flex items-center justify-center p-12 text-slate-500">
+                <i data-lucide="loader-2" class="w-6 h-6 animate-spin mr-3"></i> Loading...
+            </div>
+        </div>
     </dialog>
 
     <!-- Add Inbound Form -->
-    <article style="margin-top: 2rem;">
-        <header>Add New Inbound</header>
-        <form hx-post="{{ admin_path }}/nodes/{{ node.id }}/inbounds" hx-target="body" hx-swap="none">
-            <div class="grid">
-                <div>
-                    <label for="tag">Tag (Unique Identifier)</label>
-                    <input type="text" id="tag" name="tag" placeholder="vless-tcp-reality" required>
-                </div>
-                <div>
-                    <label for="protocol">Protocol</label>
-                    <select id="protocol" name="protocol" onchange="updateTemplates()" required>
-                        <option value="vless">VLESS</option>
-                        <option value="hysteria2">Hysteria 2</option>
-                        <option value="trojan">Trojan</option>
-                    </select>
-                </div>
-            </div>
+    <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6 sm:p-8">
+        <header class="mb-8">
+            <h3 class="text-lg font-bold text-white mb-2">Add New Inbound</h3>
+            <p class="text-sm text-slate-400">Configure a new proxy inbound protocols for this node.</p>
+        </header>
 
-            <div class="grid">
-                <div>
-                    <label for="listen_port">Listen Port</label>
-                    <input type="number" id="listen_port" name="listen_port" value="443" required>
-                </div>
-                <div>
-                    <label for="listen_ip">Listen IP</label>
-                    <input type="text" id="listen_ip" name="listen_ip" value="::" required>
+        <form hx-post="{{ admin_path }}/nodes/{{ node.id }}/inbounds" hx-target="body" hx-swap="none" class="space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Basic Info -->
+                <div class="space-y-6">
                     <div>
-                        <label for="listen_ip">Listen IP</label>
-                        <input type="text" id="listen_ip" name="listen_ip" value="::" required>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Tag
+                            (Identifier)</label>
+                        <input type="text" name="tag" placeholder="e.g. vless-tcp-reality" required
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                    </div>
+                    <div>
+                        <label
+                            class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Protocol</label>
+                        <div class="relative">
+                            <select id="protocol" name="protocol" onchange="updateTemplates()" required
+                                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500 outline-none appearance-none">
+                                <option value="vless">VLESS</option>
+                                <option value="hysteria2">Hysteria 2</option>
+                                <option value="trojan">Trojan</option>
+                            </select>
+                            <i data-lucide="chevron-down"
+                                class="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"></i>
+                        </div>
                     </div>
                 </div>
 
-                <!-- SNI Field (Helper) -->
-                <div id="sni_container">
-                    <label for="sni_input">Server Name (SNI) / Destination</label>
-                    <input type="text" id="sni_input" placeholder="drive.google.com" oninput="updateSniFromJson()">
-                    <small>Updates <code>server_name</code> or <code>dest</code> in Stream Settings.</small>
+                <div class="space-y-6">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label
+                                class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Listen
+                                Port</label>
+                            <input type="number" name="listen_port" value="443" required
+                                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500 outline-none font-mono">
+                        </div>
+                        <div>
+                            <label
+                                class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Listen
+                                IP</label>
+                            <input type="text" name="listen_ip" value="::" required
+                                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500 outline-none font-mono">
+                        </div>
+                    </div>
+
+                    <!-- SNI Helper -->
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Server
+                            Name (SNI) / Dest</label>
+                        <input type="text" id="sni_input" placeholder="e.g. drive.google.com"
+                            oninput="updateSniFromJson()"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none">
+                        <p class="text-[10px] text-slate-500 mt-1.5 flex items-center gap-1">
+                            <i data-lucide="info" class="w-3 h-3"></i> Auto-updates JSON settings below
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-4 border-t border-white/5">
+                <!-- Protocol Settings -->
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider">Protocol
+                            Settings</label>
+                        <span class="text-[10px] text-slate-500 font-mono">JSON</span>
+                    </div>
+                    <textarea id="settings" name="settings" rows="8"
+                        class="w-full bg-[#0d1117] border border-white/10 rounded-xl p-4 text-sm text-emerald-400 font-mono focus:border-indigo-500 outline-none transition-all leading-relaxed resize-y custom-scrollbar">{}</textarea>
                 </div>
 
-                <label for="settings">Protocol Settings (JSON)</label>
-                <textarea id="settings" name="settings" rows="6" style="font-family: monospace;">{}</textarea>
-                <small>Specific settings for the selected protocol (e.g. clients, fallbacks).</small>
+                <!-- Stream Settings -->
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider">Stream
+                            Settings</label>
+                        <span class="text-[10px] text-slate-500 font-mono">JSON</span>
+                    </div>
+                    <textarea id="stream_settings" name="stream_settings" rows="8" oninput="syncSniInput()"
+                        class="w-full bg-[#0d1117] border border-white/10 rounded-xl p-4 text-sm text-emerald-400 font-mono focus:border-indigo-500 outline-none transition-all leading-relaxed resize-y custom-scrollbar">{}</textarea>
+                </div>
+            </div>
 
-                <label for="stream_settings">Stream Settings (JSON)</label>
-                <textarea id="stream_settings" name="stream_settings" rows="10" style="font-family: monospace;"
-                    oninput="syncSniInput()">{}</textarea>
-                <small>Transport layer settings (e.g. TCP, XTLS-Reality, QUIC).</small>
-
-                <button type="submit" style="margin-top: 1rem;">Add Inbound</button>
+            <div class="pt-6 border-t border-white/5 flex justify-end">
+                <button type="submit"
+                    class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 px-8 rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02]">
+                    <i data-lucide="plus" class="w-5 h-5"></i>
+                    <span>Add Inbound Configuration</span>
+                </button>
+            </div>
         </form>
-    </article>
+    </div>
 </section>
 
 <script>
@@ -185,8 +281,6 @@
         if (tmpl) {
             document.getElementById('settings').value = JSON.stringify(tmpl.settings, null, 4);
             document.getElementById('stream_settings').value = JSON.stringify(tmpl.stream_settings, null, 4);
-
-            // Auto-populate SNI input
             syncSniInput();
         }
     }
@@ -195,16 +289,11 @@
         try {
             const json = JSON.parse(document.getElementById('stream_settings').value);
             let sni = "";
-
-            // Check Reality
             if (json.reality_settings && json.reality_settings.server_names && json.reality_settings.server_names.length > 0) {
                 sni = json.reality_settings.server_names[0];
-            }
-            // Check TLS
-            else if (json.tls_settings && json.tls_settings.server_name) {
+            } else if (json.tls_settings && json.tls_settings.server_name) {
                 sni = json.tls_settings.server_name;
             }
-
             if (sni) document.getElementById('sni_input').value = sni;
         } catch (e) { }
     }
@@ -213,31 +302,21 @@
         const sni = document.getElementById('sni_input').value;
         try {
             const json = JSON.parse(document.getElementById('stream_settings').value);
-
-            // Update Reality
             if (json.reality_settings) {
                 json.reality_settings.server_names = [sni];
-                // Also update dest if it looks like a domain
                 if (json.reality_settings.dest && json.reality_settings.dest.includes(":")) {
                     json.reality_settings.dest = sni + ":443";
                 }
-            }
-            // Update TLS
-            else if (json.tls_settings) {
+            } else if (json.tls_settings) {
                 json.tls_settings.server_name = sni;
-            }
-            // If neither, assumes TLS structure creation? No, stay safe.
-            else {
-                // Heuristic: if protocol is Hysteria2 or Trojan, assume TLS
+            } else {
                 if (!json.tls_settings) json.tls_settings = {};
                 json.tls_settings.server_name = sni;
             }
-
             document.getElementById('stream_settings').value = JSON.stringify(json, null, 4);
         } catch (e) { }
     }
 
-    // Initialize
     updateTemplates();
 </script>
 {% endblock %}
