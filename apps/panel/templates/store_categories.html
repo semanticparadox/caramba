@@ -1,68 +1,129 @@
 {% extends "base.html" %}
 
 {% block title %}Store Categories{% endblock %}
+{% block header_title %}Store Categories{% endblock %}
 
 {% block content %}
-<section>
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-        <h2>Store Categories</h2>
-        <button onclick="document.getElementById('add-category-modal').showModal()">Add Category</button>
+<section class="max-w-5xl mx-auto space-y-6">
+    <!-- Header -->
+    <div
+        class="flex justify-between items-center bg-slate-900/50 backdrop-blur-md border border-white/5 p-4 rounded-2xl">
+        <div class="px-2">
+            <h2 class="text-lg font-semibold text-white">Manage Categories</h2>
+            <p class="text-xs text-slate-500">Organize your products into sorted categories.</p>
+        </div>
+        <button onclick="document.getElementById('add-category-modal').showModal()"
+            class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 px-4 rounded-lg shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02]">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span>Add Category</span>
+        </button>
     </div>
 
-    <div class="grid">
+    <div class="space-y-4">
         {% for category in categories %}
-        <article id="category-{{ category.id }}">
-            <header>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <hgroup>
-                        <h3>{{ category.name }}</h3>
-                        <p>Sort Order: {{ category.sort_order }}</p>
-                    </hgroup>
-                    <span class="badge {% if category.is_active %}success{% else %}secondary{% endif %}">
-                        {% if category.is_active %}Active{% else %}Inactive{% endif %}
-                    </span>
+        <div id="category-{{ category.id }}"
+            class="group bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-xl p-5 flex items-center gap-4 transition-all hover:border-indigo-500/20 hover:bg-white/5">
+            <!-- Drag Handle (Visual) -->
+            <div class="text-slate-600 cursor-grab active:cursor-grabbing hover:text-slate-400 p-2">
+                <i data-lucide="grip-vertical" class="w-5 h-5"></i>
+            </div>
+
+            <!-- Content -->
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-3 mb-1">
+                    <h3 class="text-base font-bold text-white truncate">{{ category.name }}</h3>
+                    {% if category.is_active %}
+                    <span
+                        class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active</span>
+                    {% else %}
+                    <span
+                        class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-slate-500/10 text-slate-400 border border-slate-500/20">Inactive</span>
+                    {% endif %}
                 </div>
-            </header>
+                <div class="text-sm text-slate-400 flex items-center gap-4">
+                    <span class="truncate max-w-md">{% if let Some(desc) = category.description %}{{ desc }}{% else %}No
+                        description{% endif %}</span>
+                    <span
+                        class="text-slate-600 text-xs px-2 py-0.5 bg-slate-950 rounded border border-white/5 font-mono">Sort:
+                        {{ category.sort_order }}</span>
+                </div>
+            </div>
 
-            <p>
-                {% if let Some(desc) = category.description %}{{ desc }}{% else %}No description{% endif %}
-            </p>
-
-            <footer>
-                <button class="secondary outline" hx-delete="{{ admin_path }}/store/categories/{{ category.id }}"
-                    hx-confirm="Are you sure you want to delete this category?" hx-target="#category-{{ category.id }}"
-                    hx-swap="outerHTML">
-                    Delete
+            <!-- Actions -->
+            <div class="flex items-center gap-2">
+                <button class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                    title="Edit (Coming Soon)">
+                    <i data-lucide="pencil" class="w-4 h-4"></i>
                 </button>
-            </footer>
-        </article>
+                <button class="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                    hx-delete="{{ admin_path }}/store/categories/{{ category.id }}"
+                    hx-confirm="Are you sure you want to delete this category?" hx-target="#category-{{ category.id }}"
+                    hx-swap="outerHTML" title="Delete">
+                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
         {% endfor %}
+
+        {% if categories.is_empty() %}
+        <div
+            class="flex flex-col items-center justify-center p-12 text-center bg-slate-900/30 border border-white/5 rounded-2xl border-dashed">
+            <div class="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-4">
+                <i data-lucide="layers" class="w-8 h-8 text-slate-600"></i>
+            </div>
+            <h3 class="text-lg font-medium text-white mb-1">No Categories</h3>
+            <p class="text-slate-500 max-w-sm mb-6">Create categories to organize your products in the store.</p>
+        </div>
+        {% endif %}
     </div>
 </section>
 
 <!-- Add Category Modal -->
-<dialog id="add-category-modal">
-    <article>
-        <header>
-            <a href="#close" aria-label="Close" class="close"
-                onclick="document.getElementById('add-category-modal').close()"></a>
-            Create New Category
+<dialog id="add-category-modal"
+    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
+    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-md p-6 m-4"
+        onclick="event.stopPropagation()">
+        <header class="flex justify-between items-center mb-6">
+            <h3 class="text-xl font-bold text-white">New Category</h3>
+            <button onclick="document.getElementById('add-category-modal').close()"
+                class="text-slate-400 hover:text-white transition-colors">
+                <i data-lucide="x" class="w-6 h-6"></i>
+            </button>
         </header>
-        <form hx-post="{{ admin_path }}/store/categories" hx-target="body" hx-swap="none">
-            <label for="name">Category Name</label>
-            <input type="text" id="name" name="name" placeholder="VPN Keys" required>
 
-            <label for="description">Description</label>
-            <textarea id="description" name="description" placeholder="Access keys for VLESS..."></textarea>
+        <form hx-post="{{ admin_path }}/store/categories" hx-target="body" hx-swap="none" class="space-y-4">
+            <div>
+                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Category
+                    Name</label>
+                <input type="text" name="name" placeholder="e.g. VIP Subscription" required
+                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all">
+            </div>
 
-            <label for="sort_order">Sort Order
-                <input type="number" id="sort_order" name="sort_order" value="0" required>
-            </label>
+            <div>
+                <label
+                    class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Description</label>
+                <textarea name="description" placeholder="Brief description..." rows="2"
+                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all resize-none"></textarea>
+            </div>
 
-            <footer>
-                <button type="submit">Create Category</button>
-            </footer>
+            <div>
+                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Sort
+                    Order</label>
+                <input type="number" name="sort_order" value="0" required
+                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all">
+                <p class="text-[10px] text-slate-500 mt-1">Lower numbers appear first.</p>
+            </div>
+
+            <div class="pt-4 flex gap-3">
+                <button type="button"
+                    class="flex-1 py-3 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors font-medium"
+                    onclick="document.getElementById('add-category-modal').close()">Cancel</button>
+                <button type="submit"
+                    class="flex-[1.5] bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02]">
+                    Create Category
+                </button>
+            </div>
         </form>
-    </article>
+    </div>
 </dialog>
 {% endblock %}

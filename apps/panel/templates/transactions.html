@@ -1,45 +1,93 @@
 {% extends "base.html" %}
 
 {% block title %}Transactions{% endblock %}
+{% block header_title %}Transactions{% endblock %}
 
 {% block content %}
-<section>
-    <h2>Transaction History</h2>
-    <p>View all orders and payment statuses across the digital store.</p>
+<section class="max-w-6xl mx-auto space-y-6">
+    <div class="flex items-center justify-between mb-2">
+        <div>
+            <h2 class="text-lg font-semibold text-white">Transaction History</h2>
+            <p class="text-sm text-slate-500">View all orders and payment statuses across the digital store.</p>
+        </div>
+        <div class="flex gap-2">
+            <button
+                class="px-3 py-2 rounded-lg bg-slate-900 border border-white/10 text-slate-400 text-sm hover:text-white transition-colors">
+                <i data-lucide="filter" class="w-4 h-4"></i>
+            </button>
+            <button
+                class="px-3 py-2 rounded-lg bg-slate-900 border border-white/10 text-slate-400 text-sm hover:text-white transition-colors">
+                <i data-lucide="download" class="w-4 h-4"></i>
+            </button>
+        </div>
+    </div>
 
-    <div class="overflow-auto">
-        <table class="striped">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>User</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                    <th>Date</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for order in orders %}
-                <tr id="order-{{ order.id }}">
-                    <td>#{{ order.id }}</td>
-                    <td>{{ order.username }}</td>
-                    <td><strong>{{ order.total_amount }} USDT</strong></td>
-                    <td>
-                        <span class="badge {% if order.status == " completed" %}badge-success{% else if
-                            order.status=="pending" %}badge-warning{% else %}badge-error{% endif %}">
-                            {{ order.status|capitalize }}
-                        </span>
-                    </td>
-                    <td><small>{{ order.created_at }}</small></td>
-                    <td>
-                        <button class="outline secondary pill"
-                            style="font-size: 0.7rem; padding: 2px 8px;">Details</button>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden shadow-xl">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/50">
+                        <th class="px-6 py-4 w-24">ID</th>
+                        <th class="px-6 py-4">User</th>
+                        <th class="px-6 py-4">Amount</th>
+                        <th class="px-6 py-4">Status</th>
+                        <th class="px-6 py-4">Date</th>
+                        <th class="px-6 py-4 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5">
+                    {% for order in orders %}
+                    <tr id="order-{{ order.id }}" class="hover:bg-white/5 transition-colors group">
+                        <td class="px-6 py-4 text-xs font-mono text-slate-500">#{{ order.id }}</td>
+                        <td class="px-6 py-4">
+                            <div class="text-sm font-medium text-white">{{ order.username }}</div>
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="font-mono font-medium text-emerald-400">{{ order.total_amount }} USDT</span>
+                        </td>
+                        <td class="px-6 py-4">
+                            {% if order.status == "completed" %}
+                            <span
+                                class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span> Completed
+                            </span>
+                            {% else if order.status == "pending" %}
+                            <span
+                                class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                <span class="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5 animate-pulse"></span> Pending
+                            </span>
+                            {% else %}
+                            <span
+                                class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">
+                                {{ order.status|capitalize }}
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4 text-sm text-slate-400">
+                            {{ order.created_at }}
+                        </td>
+                        <td class="px-6 py-4 text-right">
+                            <button
+                                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 text-xs font-medium text-slate-300 transition-colors">
+                                Details
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+
+                    {% if orders.is_empty() %}
+                    <tr>
+                        <td colspan="6" class="px-6 py-12 text-center text-slate-500">
+                            <div class="flex flex-col items-center gap-2">
+                                <i data-lucide="receipt" class="w-8 h-8 opacity-50"></i>
+                                <p>No transactions found.</p>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
     </div>
 </section>
 {% endblock %}

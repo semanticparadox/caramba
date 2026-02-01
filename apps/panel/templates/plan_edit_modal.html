@@ -1,71 +1,122 @@
-<header>
-    <a href="#close" aria-label="Close" class="close" onclick="document.getElementById('edit-plan-modal').close()"></a>
-    Edit Plan: {{ plan.name }}
+<header class="flex justify-between items-center mb-6 sticky top-0 bg-slate-900 z-10 pb-4 border-b border-white/5">
+    <h3 class="text-xl font-bold text-white">Edit Plan: <span class="text-indigo-400">{{ plan.name }}</span></h3>
+    <button onclick="document.getElementById('edit-plan-modal').close()"
+        class="text-slate-400 hover:text-white transition-colors">
+        <i data-lucide="x" class="w-6 h-6"></i>
+    </button>
 </header>
-<form hx-post="{{ admin_path }}/plans/{{ plan.id }}" hx-target="body" hx-swap="none">
-    <label for="edit_name">Plan Name</label>
-    <input type="text" id="edit_name" name="name" value="{{ plan.name }}" required>
 
-    <label for="edit_description">Description</label>
-    <textarea id="edit_description" name="description"
-        required>{{ plan.description.as_deref().unwrap_or("") }}</textarea>
+<form hx-post="{{ admin_path }}/plans/{{ plan.id }}" hx-target="body" hx-swap="none" class="space-y-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="md:col-span-2">
+            <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Plan Name</label>
+            <input type="text" name="name" value="{{ plan.name }}" required
+                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+        </div>
 
-    <label for="edit_device_limit">Device Limit (0 for Unlimited)</label>
-    <div class="grid">
+        <div class="md:col-span-2">
+            <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Description</label>
+            <textarea name="description" required rows="3"
+                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all resize-none">{{ plan.description.as_deref().unwrap_or("") }}</textarea>
+        </div>
+
         <div>
-            <input type="number" id="edit_device_limit" name="device_limit" value="{{ plan.device_limit }}" min="0"
-                max="1000" required>
-            <small>Max connections</small>
+            <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Device Limit</label>
+            <input type="number" name="device_limit" value="{{ plan.device_limit }}" min="0" max="1000" required
+                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none">
+            <p class="text-[10px] text-slate-500 mt-1">0 for unlimited devices</p>
         </div>
+
         <div>
-            <input type="number" id="edit_traffic_limit_gb" name="traffic_limit_gb" style="margin-bottom:0;"
-                value="{{ plan.traffic_limit_gb }}" min="0" required>
-            <small>Traffic Limit (GB)</small>
+            <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Traffic Limit
+                (GB)</label>
+            <input type="number" name="traffic_limit_gb" value="{{ plan.traffic_limit_gb }}" min="0" required
+                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none">
         </div>
     </div>
 
-    <label>Available Nodes</label>
-    <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
-        {% for (node, is_checked) in nodes %}
-        <label>
-            <input type="checkbox" name="node_ids" value="{{ node.id }}" {% if is_checked %}checked{% endif %}>
-            {{ node.name }} ({{ node.ip }})
-        </label>
-        {% endfor %}
-        {% if nodes.is_empty() %}
-        <small style="color: #ff9800;">No active nodes found. Add a node first.</small>
-        {% endif %}
-    </div>
-
-    <label>Durations</label>
-    <div id="edit-durations-container">
-        {% for dur in plan.durations %}
-        <div class="duration-row grid">
-            <input type="number" name="duration_days" value="{{ dur.duration_days }}" placeholder="Days" min="1"
-                required>
-            <input type="number" name="price" value="{{ dur.price }}" placeholder="Price (c)" required>
-            <button type="button" class="outline contrast" onclick="this.parentElement.remove()">×</button>
+    <div class="bg-slate-950/50 rounded-xl border border-white/5 p-4">
+        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Available Nodes</label>
+        <div class="space-y-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
+            {% for (node, is_checked) in nodes %}
+            <label
+                class="flex items-center p-3 rounded-lg border border-white/5 bg-slate-900 hover:bg-white/5 cursor-pointer transition-colors">
+                <input type="checkbox" name="node_ids" value="{{ node.id }}" {% if is_checked %}checked{% endif %}
+                    class="w-4 h-4 rounded border-slate-600 text-indigo-600 focus:ring-indigo-500 bg-slate-800">
+                <span class="ml-3 text-sm text-slate-200">{{ node.name }} <span class="text-slate-500">({{ node.ip
+                        }})</span></span>
+            </label>
+            {% endfor %}
+            {% if nodes.is_empty() %}
+            <div class="text-sm text-amber-500 flex items-center gap-2">
+                <i data-lucide="alert-triangle" class="w-4 h-4"></i> No active nodes found. Add a node first.
+            </div>
+            {% endif %}
         </div>
-        {% endfor %}
     </div>
-    <button type="button" class="outline secondary" onclick="addEditDurationRow()"
-        style="width: 100%; margin-bottom: 1rem;">+ Add Another Duration</button>
 
-    <footer>
-        <button type="submit">Save Changes</button>
-    </footer>
+    <div>
+        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Pricing Options</label>
+        <div id="edit-durations-container" class="space-y-3">
+            {% for dur in plan.durations %}
+            <div class="grid grid-cols-2 gap-4 group relative">
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Days</label>
+                    <input type="number" name="duration_days" value="{{ dur.duration_days }}" min="1" required
+                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:border-indigo-500">
+                </div>
+                <div class="relative">
+                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Price
+                        (Cents)</label>
+                    <input type="number" name="price" value="{{ dur.price }}" required
+                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:border-indigo-500">
+                    <button type="button" onclick="this.parentElement.parentElement.remove()"
+                        class="absolute -right-2 -top-2 w-6 h-6 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/30">
+                        <i data-lucide="x" class="w-3 h-3"></i>
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        <button type="button" onclick="addEditDurationRow()"
+            class="mt-3 text-sm text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1.5 transition-colors">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i> Add Another Duration
+        </button>
+    </div>
+
+    <div class="pt-6 flex gap-3 border-t border-white/5">
+        <button type="button"
+            class="flex-1 py-3.5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors font-medium"
+            onclick="document.getElementById('edit-plan-modal').close()">Cancel</button>
+
+        <button type="submit"
+            class="flex-[2] bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02]">
+            Save Changes
+        </button>
+    </div>
 </form>
 
 <script>
     function addEditDurationRow() {
         const container = document.getElementById('edit-durations-container');
         const row = document.createElement('div');
-        row.className = 'duration-row grid';
+        row.className = 'grid grid-cols-2 gap-4 animate-fade-in group relative';
         row.innerHTML = `
-            <input type="number" name="duration_days" placeholder="Days" min="1" required>
-            <input type="number" name="price" placeholder="Price (c)" required>
-            <button type="button" class="outline contrast" onclick="this.parentElement.remove()">×</button>
+            <div>
+                 <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Days</label>
+                <input type="number" name="duration_days" placeholder="30" min="1" required class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:border-indigo-500">
+            </div>
+            <div class="relative">
+                 <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Price (Cents)</label>
+                <input type="number" name="price" placeholder="500" required class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:border-indigo-500">
+                 <button type="button" onclick="this.parentElement.parentElement.remove()" class="absolute -right-2 -top-2 w-6 h-6 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/30">
+                    <i data-lucide="x" class="w-3 h-3"></i>
+                </button>
+            </div>
         `;
         container.appendChild(row);
+        lucide.createIcons();
     }
+    // Re-init icons when modal content loads
+    lucide.createIcons();
 </script>
