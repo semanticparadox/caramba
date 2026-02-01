@@ -1115,7 +1115,7 @@ pub struct UserDetailsTemplate {
     pub subscriptions: Vec<SubscriptionWithPlan>,
     pub orders: Vec<UserOrderDisplay>,
     pub referrals: Vec<crate::services::store_service::DetailedReferral>,
-    pub total_referral_earnings: String,
+    pub total_referral_earnings: i64,
     pub available_plans: Vec<Plan>,
     pub is_auth: bool,
     pub admin_path: String,
@@ -1272,7 +1272,7 @@ pub async fn get_user_details(
         subscriptions,
         orders,
         referrals,
-        total_referral_earnings: format!("{:.2} USDT", earnings_cents as f64 / 100.0),
+        total_referral_earnings: earnings_cents,
         available_plans,
         is_auth: true,
         admin_path: {

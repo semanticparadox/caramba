@@ -13,6 +13,8 @@ use tracing::{info, error};
 #[template(path = "setup.html")]
 pub struct SetupTemplate {
     pub admin_path: String,
+    pub is_auth: bool,
+    pub active_page: String,
 }
 
 #[derive(Deserialize)]
@@ -25,7 +27,11 @@ pub async fn get_setup() -> impl IntoResponse {
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
     
-    Html(SetupTemplate { admin_path }.render().unwrap_or_default())
+    Html(SetupTemplate { 
+        admin_path,
+        is_auth: false,
+        active_page: "setup".to_string(),
+    }.render().unwrap_or_default())
 }
 
 pub async fn create_admin(
