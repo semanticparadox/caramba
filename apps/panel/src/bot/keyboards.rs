@@ -1,4 +1,4 @@
-use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, KeyboardMarkup, WebAppInfo};
+use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, KeyboardMarkup};
 
 pub fn main_menu() -> KeyboardMarkup {
     // Requires ADMIN_PANEL_URL env var or we hardcode for now for MVP testing

@@ -20,6 +20,7 @@ pub fn escape_md(text: &str) -> String {
 }
 
 // Channel Trial Helpers
+use teloxide::prelude::Requester;
 use teloxide::types::{ChatId, UserId, ChatMemberKind};
 
 /// Check if user is a member of the required channel

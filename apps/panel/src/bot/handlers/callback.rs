@@ -810,11 +810,11 @@ pub async fn callback_handler(
                          let mut total_price: i64 = 0;
                          let mut t = "🛒 *YOUR SHOPPING CART*\n\n".to_string();
                          
-                         for (prod, qty, _) in &cart_items {
-                             let price_major = prod.price / 100;
-                             let price_minor = prod.price % 100;
-                             t.push_str(&format!("• *{}* \\(x{}\\) - ${}.{:02}\n", escape_md(&prod.name), qty, price_major, price_minor));
-                             total_price += prod.price * (*qty as i64);
+                         for item in &cart_items {
+                             let price_major = item.price / 100;
+                             let price_minor = item.price % 100;
+                             t.push_str(&format!("• *{}* \\(x{}\\) - ${}.{:02}\n", escape_md(&item.product_name), item.quantity, price_major, price_minor));
+                             total_price += item.price * item.quantity;
                          }
 
                          let total_major = total_price / 100;

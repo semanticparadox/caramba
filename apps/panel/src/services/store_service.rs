@@ -1863,7 +1863,7 @@ impl StoreService {
     }
 
     /// Checkout cart items (simple balance-based implementation)
-    pub async fn checkout_cart(&self, user_id: i64) -> Result<()> {
+    pub async fn checkout_cart(&self, user_id: i64) -> Result<Vec<String>> {
         let cart = self.get_user_cart(user_id).await?;
         if cart.is_empty() {
              return Err(anyhow::anyhow!("Cart is empty"));
@@ -1916,7 +1916,12 @@ impl StoreService {
 
         tx.commit().await?;
         info!("Successfully processed order #{} for user {}", order_id, user_id);
-        Ok(())
+        
+        let mut notes = vec![format!("Order #{} placed successfully", order_id)];
+        notes.push(format!("Total Amount: ${}.{:02}", total_price / 100, total_price % 100));
+        notes.push("Items will be provisioned shortly.".to_string());
+        
+        Ok(notes)
     }
 }
 

@@ -202,6 +202,49 @@ pub async fn frontend_heartbeat(
     Ok(StatusCode::OK)
 }
 
+/// Rotate frontend server auth token
+pub async fn rotate_token(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> Result<Json<TokenRotateResponse>, StatusCode> {
+    // 1. Get frontend
+    let frontend = sqlx::query_as::<_, FrontendServer>(
+        "SELECT * FROM frontend_servers WHERE id = ?"
+    )
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    // 2. Generate new token
+    let (token, token_hash) = generate_frontend_token_with_hash(&frontend.domain)?;
+    let expires_at = calculate_token_expiration();
+
+    // 3. Update DB
+    sqlx::query(
+        "UPDATE frontend_servers 
+         SET auth_token_hash = ?, 
+             token_expires_at = ?,
+             updated_at = CURRENT_TIMESTAMP 
+         WHERE id = ?"
+    )
+    .bind(&token_hash)
+    .bind(&expires_at)
+    .bind(id)
+    .execute(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to rotate token: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    Ok(Json(TokenRotateResponse {
+        token: token.clone(),
+        expires_at: expires_at,
+        instructions: generate_install_command(&frontend.domain, &token, &frontend.region),
+    }))
+}
+
 
 // Helper functions
 /// Generate frontend token with bcrypt hash
@@ -216,7 +259,7 @@ fn generate_frontend_token_with_hash(domain: &str) -> Result<(String, String), S
     let mut rng = rand::thread_rng();
     
     // Generate 32 bytes of randomness (256 bits)
-    let random_bytes: Vec<u8> = (0..32).map(|_| rng.gen()).collect();
+    let random_bytes: Vec<u8> = (0..32).map(|_| rng.r#gen()).collect();
     
     // Create token with domain prefix for identification
     let token = format!(

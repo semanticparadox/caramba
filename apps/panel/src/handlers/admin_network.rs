@@ -365,7 +365,7 @@ pub async fn preview_node_config(
     }
 
     // 4. Generate Config
-    let config = crate::singbox::ConfigGenerator::generate_config(&node.ip, inbounds);
+    let config = crate::singbox::ConfigGenerator::generate_config(&node, inbounds);
     let json = serde_json::to_string_pretty(&config).unwrap_or_default();
 
     (axum::http::StatusCode::OK, json).into_response()

@@ -341,11 +341,11 @@ pub async fn message_handler(
                          let mut total_price: i64 = 0;
                          let mut text = "🛒 *YOUR SHOPPING CART*\n\n".to_string();
                          
-                         for (prod, _, _) in &cart_items {
-                             let price_major = prod.price / 100;
-                             let price_minor = prod.price % 100;
-                             text.push_str(&format!("• *{}* - ${}.{:02}\n", escape_md(&prod.name), price_major, price_minor));
-                             total_price += prod.price;
+                         for item in &cart_items {
+                             let price_major = item.price / 100;
+                             let price_minor = item.price % 100;
+                             text.push_str(&format!("• *{}* - ${}.{:02}\n", escape_md(&item.product_name), price_major, price_minor));
+                             total_price += item.price * item.quantity;
                          }
 
                          let total_major = total_price / 100;
