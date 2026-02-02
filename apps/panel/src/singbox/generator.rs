@@ -164,7 +164,6 @@ impl ConfigGenerator {
             outbounds: vec![
                 Outbound::Direct { tag: "direct".to_string() }
             ],
-            ],
             route: Some(RouteConfig {
                 rules: {
                     let mut rules = Vec::new();
