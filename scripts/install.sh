@@ -115,7 +115,21 @@ install_dependencies() {
     setup_firewall
     
     apt-get update -qq
-    apt-get install -y curl git build-essential pkg-config libssl-dev sqlite3 -qq
+    apt-get install -y curl git build-essential pkg-config libssl-dev sqlite3 redis-server -qq
+    
+    # Configure and start Redis
+    if command -v redis-server &> /dev/null; then
+        log_info "Configuring Redis..."
+        systemctl enable redis-server &> /dev/null || systemctl enable redis &> /dev/null || true
+        systemctl start redis-server &> /dev/null || systemctl start redis &> /dev/null || true
+        
+        # Verify Redis is running
+        if redis-cli ping &> /dev/null; then
+            log_success "Redis is running"
+        else
+            log_warn "Redis installed but not responding to ping"
+        fi
+    fi
     
     if ! command -v cargo &> /dev/null; then
         log_info "Installing Rust..."
