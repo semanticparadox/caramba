@@ -245,13 +245,15 @@ pub async fn login(
     jar: CookieJar,
     Form(form): Form<LoginForm>,
 ) -> impl IntoResponse {
-    // Rate Limit: 5 attempts per minute per username
+    // Rate Limit: 5 attempts per minute per username (optional if Redis unavailable)
     let rate_key = format!("rate:login:{}", form.username);
     if let Ok(allowed) = state.redis.check_rate_limit(&rate_key, 5, 60).await {
         if !allowed {
              tracing::warn!("Login rate limit exceeded for user: {}", form.username);
              return (axum::http::StatusCode::TOO_MANY_REQUESTS, "Too many login attempts. Please wait.").into_response();
         }
+    } else {
+        tracing::warn!("Redis unavailable, skipping rate limit check");
     }
 
     let admin_res = sqlx::query("SELECT password_hash FROM admins WHERE username = ?")
@@ -264,14 +266,17 @@ pub async fn login(
             use sqlx::Row;
             let hash: String = row.get(0);
             if bcrypt::verify(&form.password, &hash).unwrap_or(false) {
+                tracing::info!("✅ Login successful for admin: {}", form.username);
                 let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
                 
                 // Generate random session token
                 let token = uuid::Uuid::new_v4().to_string();
                 
-                // Store in Redis (24h TTL)
+                // Store in Redis (24h TTL) - optional if Redis unavailable
                 let redis_key = format!("session:{}", token);
-                let _ = state.redis.set(&redis_key, "admin", 86400).await;
+                if let Err(e) = state.redis.set(&redis_key, "admin", 86400).await {
+                    tracing::warn!("Redis unavailable for session storage: {}. Sessions will use cookies only.", e);
+                }
 
                 let cookie = Cookie::build(("admin_session", token))
                     .path("/")
@@ -290,9 +295,16 @@ pub async fn login(
                     jar.add(cookie),
                     headers,
                 ).into_response();
+            } else {
+                tracing::warn!("❌ Login failed for admin: {} (invalid password)", form.username);
             }
         }
-        _ => {}
+        Ok(None) => {
+            tracing::warn!("❌ Login failed: admin '{}' not found", form.username);
+        }
+        Err(e) => {
+            tracing::error!("❌ Database error during login: {}", e);
+        }
     }
 
     (axum::http::StatusCode::UNAUTHORIZED, "Invalid username or password").into_response()
