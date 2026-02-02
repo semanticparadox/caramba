@@ -17,7 +17,7 @@ Cargo.lock
 .env.local
 .env.production
 !.env.*.example
-
+warnings.md
 # Logs
 *.log
 logs/
