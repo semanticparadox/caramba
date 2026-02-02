@@ -13,6 +13,7 @@ use sha2::Sha256;
 use std::collections::HashMap;
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey};
 use std::env;
+use sqlx::Row;
 
 #[derive(Deserialize)]
 pub struct InitDataRequest {
@@ -25,7 +26,7 @@ pub struct AuthResponse {
     pub token: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: String, // Telegram ID as string
     pub exp: usize,  // Expiration
@@ -288,7 +289,7 @@ struct IpApiResponse {
     lon: f64,
 }
 
-async fn get_client_coordinates(state: A.ppState, ip: String) -> Option<(f64, f64)> {
+async fn get_client_coordinates(state: AppState, ip: String) -> Option<(f64, f64)> {
     // 1. Check Cache
     {
         let cache = state.geo_cache.lock().unwrap();

@@ -16,7 +16,7 @@
                         class="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-slate-300 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none appearance-none cursor-pointer transition-all">
                         <option value="">All Categories</option>
                         {% for cat in categories %}
-                        <option value="{{ cat }}" {% if current_category==cat %}selected{% endif %}>{{ cat }}</option>
+                        <option value="{{ cat }}" {% if current_category == cat %}selected{% endif %}>{{ cat }}</option>
                         {% endfor %}
                     </select>
                 </form>

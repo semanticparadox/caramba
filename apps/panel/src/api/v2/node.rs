@@ -3,14 +3,12 @@ use axum::{
     response::{IntoResponse, Json},
     http::StatusCode,
 };
-use tracing::{info, error};
+use tracing::{info, warn, error};
 use crate::AppState;
 use exarobot_shared::api::{HeartbeatRequest, HeartbeatResponse, AgentAction};
 use exarobot_shared::config::ConfigResponse;
-use sqlx::Row; // Import Row trait
 use serde::Deserialize;
 
-#[derive(Deserialize)]
 #[derive(Deserialize)]
 struct IpApiResponse {
     #[serde(rename = "countryCode")]

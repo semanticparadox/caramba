@@ -73,6 +73,11 @@ impl BotManager {
         self.current_handle.lock().await.is_some()
     }
 
+    pub async fn get_bot(&self) -> Result<Bot, String> {
+        let bot_lock = self.current_bot.lock().await;
+        bot_lock.clone().ok_or_else(|| "Bot not running".to_string())
+    }
+
     pub async fn send_notification(&self, chat_id: i64, text: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let bot_lock = self.current_bot.lock().await;
         if let Some(bot) = bot_lock.as_ref() {

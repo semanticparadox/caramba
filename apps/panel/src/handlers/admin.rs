@@ -491,91 +491,6 @@ pub async fn get_traffic_analytics(State(state): State<AppState>) -> impl IntoRe
     }
 }
 
-// --- Traffic Analytics ---
-
-#[derive(serde::Serialize)]
-pub struct ChartUser {
-    pub username: Option<String>,
-    pub total_traffic_fmt: String,
-}
-
-#[derive(Template)]
-#[template(path = "analytics.html")]
-pub struct TrafficAnalyticsTemplate {
-    pub total_traffic_30d: String,
-    pub active_nodes_count: i64,
-    pub top_users: Vec<ChartUser>,
-    
-    // Chart Data (JSON strings)
-    pub history_labels_json: String,
-    pub history_data_json: String,
-    pub node_labels_json: String,
-    pub node_series_json: String,
-
-    pub is_auth: bool,
-    pub admin_path: String,
-    pub active_page: String,
-}
-
-pub async fn get_traffic_analytics(State(state): State<AppState>) -> impl IntoResponse {
-    use crate::services::analytics_service::AnalyticsService;
-    
-    // 1. Fetch Data concurrently
-    let (history, top_users, node_stats) = tokio::join!(
-        AnalyticsService::get_traffic_history(&state.pool),
-        AnalyticsService::get_top_users(&state.pool),
-        AnalyticsService::get_node_traffic_stats(&state.pool)
-    );
-
-    let history = history.unwrap_or_default();
-    let top_users = top_users.unwrap_or_default();
-    let node_stats = node_stats.unwrap_or_default();
-
-    // 2. Process History (Area Chart)
-    // History comes DESC (newest first). Need ASC for chart.
-    let mut history_asc = history;
-    history_asc.reverse();
-
-    let history_labels: Vec<String> = history_asc.iter().map(|d| d.date.clone()).collect();
-    let history_data: Vec<f64> = history_asc.iter().map(|d| d.traffic_used as f64 / 1024.0 / 1024.0 / 1024.0).collect(); // GB
-
-    let total_traffic_bytes: i64 = history_asc.iter().map(|d| d.traffic_used).sum();
-    let total_traffic_30d = format!("{:.2} GB", total_traffic_bytes as f64 / 1024.0 / 1024.0 / 1024.0);
-
-    // 3. Process Node Stats (Donut Chart)
-    let node_labels: Vec<String> = node_stats.iter().map(|n| n.name.clone()).collect();
-    let node_series: Vec<f64> = node_stats.iter().map(|n| n.total_traffic as f64 / 1024.0 / 1024.0 / 1024.0).collect(); // GB
-    let active_nodes_count = node_stats.len() as i64;
-
-    // 4. Process Top Users (Table)
-    let formatted_top_users: Vec<ChartUser> = top_users.into_iter().map(|u| ChartUser {
-        username: u.username,
-        total_traffic_fmt: format!("{:.2} GB", u.total_traffic as f64 / 1024.0 / 1024.0 / 1024.0),
-    }).collect();
-
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
-
-    let template = TrafficAnalyticsTemplate {
-        total_traffic_30d,
-        active_nodes_count,
-        top_users: formatted_top_users,
-        
-        history_labels_json: serde_json::to_string(&history_labels).unwrap_or("[]".to_string()),
-        history_data_json: serde_json::to_string(&history_data).unwrap_or("[]".to_string()),
-        node_labels_json: serde_json::to_string(&node_labels).unwrap_or("[]".to_string()),
-        node_series_json: serde_json::to_string(&node_series).unwrap_or("[]".to_string()),
-
-        is_auth: true,
-        admin_path,
-        active_page: "analytics".to_string(),
-    };
-
-    match template.render() {
-        Ok(html) => Html(html).into_response(),
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Template error: {}", e)).into_response(),
-    }
-}
 
 #[derive(Deserialize)]
 pub struct InstallNodeForm {
@@ -587,7 +502,6 @@ pub struct InstallNodeForm {
 
 #[derive(Deserialize)]
 pub struct UpdateNodeForm {
-    pub name: String,
     pub name: String,
     pub ip: String,
     
@@ -2190,11 +2104,11 @@ pub struct ToolsTemplate {
     pub is_auth: bool,
     pub admin_path: String,
     pub active_page: String,
-    pub last_export: Option<String>,
+    pub last_export: String,
     pub free_trial_days: i64,
     pub channel_trial_days: i64,
     pub required_channel_id: String,
-    pub trial_stats: Option<TrialStats>,
+    pub trial_stats: TrialStats,
 }
 
 pub struct TrialStats {
@@ -2230,11 +2144,15 @@ pub async fn get_tools_page(
         is_auth: true,
         admin_path,
         active_page: "tools".to_string(),
-        last_export: None, // TODO: Track last export timestamp
+        last_export: "Never".to_string(), // TODO: Track last export timestamp
         free_trial_days,
         channel_trial_days,
         required_channel_id,
-        trial_stats,
+        trial_stats: trial_stats.unwrap_or(TrialStats {
+            default_count: 0,
+            channel_count: 0,
+            active_count: 0,
+        }),
     };
     
     Html(tmpl.render().unwrap())
@@ -2259,7 +2177,7 @@ pub async fn db_export_download(
             (
                 StatusCode::OK,
                 [
-                    (header::CONTENT_TYPE, "application/gzip"),
+                    (header::CONTENT_TYPE, "application/gzip".to_string()),
                     (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", filename)),
                 ],
                 data

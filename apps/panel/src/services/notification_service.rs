@@ -50,7 +50,7 @@ impl NotificationService {
         let mut notified_count = 0;
         let mut failed_count = 0;
 
-        for user in users {
+        for user in &users {
             let message = self.format_rotation_message(old_sni, new_sni, rotation_id);
             
             match bot.send_message(ChatId(user.tg_id), message)

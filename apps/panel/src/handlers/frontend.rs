@@ -87,7 +87,7 @@ pub async fn create_frontend(
     
     Ok(Json(FrontendCreatedResponse {
         frontend,
-        auth_token: token,  // Return plaintext ONCE
+        auth_token: token.clone(),  // Clone to use in next line
         install_command: generate_install_command(&payload.domain, &token, &payload.region),
     }))
 }
@@ -216,7 +216,7 @@ fn generate_frontend_token_with_hash(domain: &str) -> Result<(String, String), S
     let mut rng = rand::thread_rng();
     
     // Generate 32 bytes of randomness (256 bits)
-    let random_bytes: Vec<u8> = (0..32).map(|_| rng.r#gen()).collect();
+    let random_bytes: Vec<u8> = (0..32).map(|_| rng.gen()).collect();
     
     // Create token with domain prefix for identification
     let token = format!(

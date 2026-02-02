@@ -93,8 +93,8 @@ impl StoreService {
         old_sni: &str, 
         new_sni: &str, 
         reason: &str
-    ) -> Result<()> {
-        sqlx::query(
+    ) -> Result<i64> {
+        let res = sqlx::query(
             "INSERT INTO sni_rotation_log (node_id, old_sni, new_sni, reason)
              VALUES (?, ?, ?, ?)"
         )
@@ -105,7 +105,8 @@ impl StoreService {
         .execute(&self.pool)
         .await
         .context("Failed to log SNI rotation")?;
-        Ok(())
+
+        Ok(res.last_insert_rowid())
     }
 
     pub async fn get_products_by_category(&self, category_id: i64) -> Result<Vec<crate::models::store::Product>> {
@@ -1821,4 +1822,110 @@ impl StoreService {
         
         Ok(alerts_to_send)
     }
+    /// Add an item to the user's shopping cart
+    pub async fn add_to_cart(&self, user_id: i64, product_id: i64, quantity: i64) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO cart_items (user_id, product_id, quantity) 
+             VALUES (?, ?, ?) 
+             ON CONFLICT(user_id, product_id) 
+             DO UPDATE SET quantity = quantity + ?"
+        )
+        .bind(user_id)
+        .bind(product_id)
+        .bind(quantity)
+        .bind(quantity)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Retrieve all items in a user's cart
+    pub async fn get_user_cart(&self, user_id: i64) -> Result<Vec<CartItem>> {
+        let items = sqlx::query_as::<_, CartItem>(
+            "SELECT c.id, c.user_id, c.product_id, c.quantity, p.name as product_name, p.price 
+             FROM cart_items c 
+             JOIN products p ON c.product_id = p.id 
+             WHERE c.user_id = ?"
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(items)
+    }
+
+    /// Clear a user's shopping cart
+    pub async fn clear_cart(&self, user_id: i64) -> Result<()> {
+        sqlx::query("DELETE FROM cart_items WHERE user_id = ?")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Checkout cart items (simple balance-based implementation)
+    pub async fn checkout_cart(&self, user_id: i64) -> Result<()> {
+        let cart = self.get_user_cart(user_id).await?;
+        if cart.is_empty() {
+             return Err(anyhow::anyhow!("Cart is empty"));
+        }
+
+        let total_price: i64 = cart.iter().map(|item| item.price * item.quantity).sum();
+        
+        let mut tx = self.pool.begin().await?;
+
+        // Check balance
+        let balance: i64 = sqlx::query_scalar("SELECT balance FROM users WHERE id = ?")
+            .bind(user_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+        if balance < total_price {
+            return Err(anyhow::anyhow!("Insufficient balance. Need {}, have {}", total_price, balance));
+        }
+
+        // Deduct balance
+        sqlx::query("UPDATE users SET balance = balance - ? WHERE id = ?")
+            .bind(total_price)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // Create order
+        let order_id: i64 = sqlx::query_scalar("INSERT INTO orders (user_id, total_amount, status) VALUES (?, ?, 'completed') RETURNING id")
+            .bind(user_id)
+            .bind(total_price)
+            .fetch_one(&mut *tx)
+            .await?;
+
+        // Add order items
+        for item in cart {
+            sqlx::query("INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (?, ?, ?, ?)")
+                .bind(order_id)
+                .bind(item.product_id)
+                .bind(item.quantity)
+                .bind(item.price)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        // Clear cart
+        sqlx::query("DELETE FROM cart_items WHERE user_id = ?")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        info!("Successfully processed order #{} for user {}", order_id, user_id);
+        Ok(())
+    }
+}
+
+#[derive(serde::Serialize, sqlx::FromRow)]
+pub struct CartItem {
+    pub id: i64,
+    pub user_id: i64,
+    pub product_id: i64,
+    pub quantity: i64,
+    pub product_name: String,
+    pub price: i64,
 }

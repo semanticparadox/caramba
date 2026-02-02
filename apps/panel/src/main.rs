@@ -48,6 +48,7 @@ pub struct AppState {
     pub ssh_public_key: String,
     // Format: IP -> (Lat, Lon, Timestamp)
     pub geo_cache: Arc<Mutex<HashMap<String, (f64, f64, Instant)>>>,
+    pub session_secret: String,
 }
 
 #[derive(Parser)]
@@ -243,7 +244,8 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         channel_trial_service,
         notification_service,
         redis: redis_service, // NEW
-        pubsub: Arc::new(services::pubsub_service::PubSubService::new(redis_url).await.expect("Failed to init PubSub")), // NEW
+        pubsub: services::pubsub_service::PubSubService::new(redis_url).await.expect("Failed to init PubSub"), // NEW
+        session_secret: std::env::var("SESSION_SECRET").unwrap_or_else(|_| "change-this-secret-immediately".to_string()),
         ssh_public_key,
         geo_cache: Arc::new(Mutex::new(HashMap::new())),
     };
