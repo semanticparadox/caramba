@@ -891,6 +891,7 @@ pub async fn callback_handler(
                      }
                  }
             }
+            "edit_ref_code" => {
                 let _ = bot.answer_callback_query(q.id).await;
                 if let Some(msg) = q.message {
                     let text = "🔗 *EDIT REFERRAL ALIAS*\n\n\
