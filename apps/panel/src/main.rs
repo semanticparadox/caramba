@@ -11,6 +11,7 @@ mod models;
 mod services;
 mod api;
 mod subscription;
+mod filters;
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
