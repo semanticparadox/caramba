@@ -423,7 +423,8 @@ configure_panel() {
             read -r DOMAIN < /dev/tty
         fi
         # Trim whitespace
-        DOMAIN=$(echo "$DOMAIN" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        # Sanitize: Keep only alphanumeric, dots, and hyphens. Remove hidden chars.
+        DOMAIN=$(echo "$DOMAIN" | tr -cd '[:alnum:].-')
     fi
     
     ensure_panel_port
