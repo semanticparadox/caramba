@@ -143,6 +143,7 @@ async fn auth_middleware(
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    println!("ExaRobot binary started. Version: {}", env!("CARGO_PKG_VERSION"));
     // Load .env
     if let Err(e) = dotenvy::dotenv() {
         // Only warn if we are not in a test/dev environment where it might be intentional
@@ -164,6 +165,7 @@ async fn main() -> Result<()> {
 
     // Initialize database (needed for most commands)
     let pool = init_db().await?;
+    println!("Database initialized successfully.");
 
     match cli.command {
         Commands::Serve => {
