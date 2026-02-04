@@ -12,8 +12,8 @@ use crate::models::node::Node;
 use crate::models::network::Inbound;
 use crate::models::store::Plan;
 use tracing::{info, error};
-use askama::filters;
-use crate::utils::format_bytes;
+use tracing::{info, error};
+// Filters handled by crate::filters
 
 #[derive(Template)]
 #[template(path = "node_inbounds.html")]

@@ -13,8 +13,9 @@ use tracing::{info, error};
 use axum_extra::extract::cookie::{Cookie, CookieJar};
 use axum::extract::Query;
 use time::Duration;
-use askama::filters; // Resolve built-in filters like | default
-use crate::utils::format_bytes; // Resolve custom filter
+use time::Duration;
+// Filters are automatically loaded from crate::filters
+
 // But `cookie.set_max_age` takes `time::Duration`.
 // If I search codebase for `Duration`?
 // I will try to use `time::Duration` fully qualified if I can add it, but I can't add crates.
@@ -415,12 +416,6 @@ pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
     Html(template.render().unwrap_or_default())
 }
 
-fn format_bytes(bytes: u64) -> String {
-    if bytes < 1024 { format!("{} B", bytes) }
-    else if bytes < 1024 * 1024 { format!("{:.1} KB", bytes as f64 / 1024.0) }
-    else if bytes < 1024 * 1024 * 1024 { format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0)) }
-    else { format!("{:.2} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0)) }
-}
 
 pub async fn get_login() -> impl IntoResponse {
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());

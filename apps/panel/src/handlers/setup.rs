@@ -8,13 +8,6 @@ use serde::Deserialize;
 use crate::AppState;
 use axum_extra::extract::cookie::{Cookie, CookieJar};
 use tracing::{info, error};
-use askama::filters; 
-// Note: setup.html might not use format_bytes, but safe to import if needed, or just filters.
-// If setup.html doesn't use format_bytes, this might be unused.
-// But we must have `filters` for default. 
-// I'll check if format_bytes is needed. If not, unused warning might appear again.
-// Setup probably doesn't use format_bytes.
-// But better safe.
 
 #[derive(Template)]
 #[template(path = "setup.html")]
