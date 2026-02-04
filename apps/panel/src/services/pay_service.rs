@@ -189,17 +189,22 @@ impl PayService {
     fn verify_stripe_signature(&self, payload: &str, signature: Option<&str>, webhook_secret: &str) -> Result<()> {
         let sig = signature.ok_or_else(|| anyhow!("Missing Stripe-Signature header"))?;
         
-        // Parse Stripe signature header (format: t=timestamp,v1=signature)
         let parts: Vec<&str> = sig.split(',').collect();
-        let timestamp = parts.iter()
-            .find(|p| p.starts_with("t="))
-            .and_then(|p| p.strip_prefix("t=""))
-            .ok_or_else(|| anyhow!("Missing timestamp in signature"))?;
-        let sig_v1 = parts.iter()
-            .find(|p| p.starts_with("v1="))
-            .and_then(|p| p.strip_prefix("v1="))
-            .ok_or_else(|| anyhow!("Missing v1 signature"))?;
         
+        let mut timestamp = "";
+        let mut sig_v1 = "";
+        
+        for p in parts {
+            if let Some(val) = p.strip_prefix("t=") {
+                timestamp = val;
+            } else if let Some(val) = p.strip_prefix("v1=") {
+                sig_v1 = val;
+            }
+        }
+        
+        if timestamp.is_empty() { return Err(anyhow!("Missing timestamp in signature")); }
+        if sig_v1.is_empty() { return Err(anyhow!("Missing v1 signature")); }
+
         use hmac::{Hmac, Mac};
         type HmacSha256 = Hmac<sha2::Sha256>;
         
