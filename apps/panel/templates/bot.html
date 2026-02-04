@@ -16,7 +16,6 @@
                 </div>
                 <div>
                     <h3 class="text-lg font-semibold text-white">Settings</h3>
-                    <h3 class="text-lg font-semibold text-white">Settings</h3>
                     <p class="text-xs text-slate-500">Bot instance configuration</p>
                 </div>
             </header>
@@ -31,7 +30,7 @@
                     <span class="text-slate-400">Webhook Status:</span>
                     <span class="{% if webhook_info == " Active (Polling)" %}text-emerald-400{% else %}text-amber-400{%
                         endif %} font-medium bg-white/5 px-2 py-0.5 rounded text-xs">{{
-                        webhook_info|default("Checking...") }}</span>
+                        webhook_info }}</span>
                 </div>
             </div>
 
