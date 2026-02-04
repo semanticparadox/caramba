@@ -522,10 +522,6 @@ pub async fn message_handler(
                         .parse_mode(ParseMode::MarkdownV2)
                         .reply_markup(InlineKeyboardMarkup::new(buttons))
                         .await
-                        .map(|m| {
-                            if let Some(user) = user_db {
-                                let state = state.clone();
-                                let uid = user.id;
                         .map(move |m| {
                             if let Some(user) = user_db {
                                 let state = state.clone();
