@@ -9,8 +9,20 @@ use crate::models::node::Node;
 use crate::models::store::{Plan, User, Order};
 use crate::services::logging_service::LoggingService;
 use std::collections::HashMap;
-use tracing::{info, error};
+use tracing::{info, error, warn};
 use axum_extra::extract::cookie::{Cookie, CookieJar};
+
+// Helper: Get authenticated username
+async fn get_auth_user(state: &AppState, jar: &CookieJar) -> Option<String> {
+    if let Some(cookie) = jar.get("admin_session") {
+        let token = cookie.value();
+        // Check Redis
+        if let Ok(Some(username)) = state.redis.get(&format!("session:{}", token)).await {
+             return Some(username);
+        }
+    }
+    None
+}
 
 #[derive(serde::Serialize)]
 #[allow(dead_code)]
@@ -18,11 +30,10 @@ pub struct TrialStats {
     pub default_count: i64,
     pub channel_count: i64,
     pub active_count: i64,
-}
-
 #[derive(Template)]
 #[template(path = "settings.html")]
 pub struct SettingsTemplate {
+    pub username: String, // NEW
     pub masked_payment_api_key: String,
     pub masked_nowpayments_api_key: String,
     pub masked_cryptomus_merchant_id: String,
@@ -62,6 +73,7 @@ pub struct BotTemplate {
     pub bot_username: String,
     pub webhook_info: String,
     pub is_auth: bool,
+    pub username: String, // NEW
     pub admin_path: String,
     pub active_page: String,
 }
@@ -106,6 +118,7 @@ pub struct UsersTemplate {
     pub users: Vec<User>,
     pub search: String,
     pub is_auth: bool,
+    pub username: String, // NEW
     pub admin_path: String,
     pub active_page: String,
 }
@@ -128,6 +141,7 @@ pub struct UserDetailsTemplate {
     pub total_referral_earnings: String,
     pub available_plans: Vec<Plan>,
     pub is_auth: bool,
+    pub username: String, // NEW
     pub admin_path: String,
     pub active_page: String,
 }
@@ -148,6 +162,7 @@ pub struct SubscriptionWithPlan {
 #[template(path = "bot_logs.html")]
 pub struct BotLogsTemplate {
     pub is_auth: bool,
+    pub username: String, // NEW
     pub admin_path: String,
     pub active_page: String,
 }
@@ -164,6 +179,7 @@ pub struct BotStatusPartial {
 pub struct NodesTemplate {
     pub nodes: Vec<Node>,
     pub is_auth: bool,
+    pub username: String, // NEW
     pub admin_path: String,
     pub active_page: String,
 }
@@ -217,6 +233,7 @@ pub struct OrderWithUser {
 pub struct TransactionsTemplate {
     pub orders: Vec<OrderWithUser>,
     pub is_auth: bool,
+    pub username: String, // NEW
     pub admin_path: String,
     pub active_page: String,
 }
@@ -226,6 +243,7 @@ pub struct TransactionsTemplate {
 pub struct StoreCategoriesTemplate {
     pub categories: Vec<crate::models::store::Category>,
     pub is_auth: bool,
+    pub username: String, // NEW
     pub admin_path: String,
     pub active_page: String,
 }
@@ -236,6 +254,7 @@ pub struct StoreProductsTemplate {
     pub products: Vec<crate::models::store::Product>,
     pub categories: Vec<crate::models::store::Category>,
     pub is_auth: bool,
+    pub username: String, // NEW
     pub admin_path: String,
     pub active_page: String,
 }
@@ -263,6 +282,7 @@ pub struct DashboardTemplate {
     pub activities: Vec<RecentActivity>,
     pub bot_status: String,
     pub is_auth: bool,
+    pub username: String, // NEW
     pub admin_path: String,
     pub active_page: String,
 }
@@ -305,7 +325,10 @@ pub struct LoginForm {
     pub password: String,
 }
 
-pub async fn get_dashboard(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn get_dashboard(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
     let active_nodes = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM nodes WHERE status = 'active'").fetch_one(&state.pool).await.unwrap_or(0);
     let total_users = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users").fetch_one(&state.pool).await.unwrap_or(0);
     let active_subs = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM subscriptions WHERE status = 'active'").fetch_one(&state.pool).await.unwrap_or(0);
@@ -318,6 +341,8 @@ pub async fn get_dashboard(State(state): State<AppState>) -> impl IntoResponse {
 
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+
+    let username = get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string());
 
     let is_running = state.bot_manager.is_running().await;
     let bot_status = if is_running { "running" } else { "stopped" }.to_string();
@@ -339,6 +364,7 @@ pub async fn get_dashboard(State(state): State<AppState>) -> impl IntoResponse {
         activities,
         bot_status,
         is_auth: true,
+        username,
         admin_path,
         active_page: "dashboard".to_string(),
     };
@@ -475,7 +501,7 @@ fn jar_with_cookie(cookie: Cookie<'static>) -> CookieJar {
 }
 
 pub async fn logout(jar: CookieJar) -> impl IntoResponse {
-    let mut cookie = Cookie::from("admin_session"); // Fixed: Was auth_token
+    let mut cookie = Cookie::from("admin_session");
     cookie.set_value("");
     cookie.set_path("/");
     cookie.set_max_age(time::Duration::seconds(0)); // Expire immediately
@@ -483,7 +509,11 @@ pub async fn logout(jar: CookieJar) -> impl IntoResponse {
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
     
-    (jar.add(cookie), axum::response::Redirect::to(&format!("{}/login", admin_path)))
+    // Use HX-Redirect for HTMX clients (force full page reload)
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("HX-Redirect", format!("{}/login", admin_path).parse().unwrap());
+    
+    (jar.add(cookie), headers, "Logging out...")
 }
 pub async fn get_settings(
     State(state): State<AppState>,
@@ -569,6 +599,7 @@ pub async fn get_settings(
         required_channel_id,
         last_export,
         is_auth: true,
+        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
         admin_path,
         active_page: "settings".to_string(),
     };
@@ -596,16 +627,17 @@ pub struct SystemLogsTemplate {
     pub current_page: i64,
     pub has_next: bool,
     pub is_auth: bool,
+    pub username: String, // NEW
     pub admin_path: String,
     pub active_page: String,
 }
 
+
 pub async fn get_system_logs_page(
     State(state): State<AppState>,
-    axum::extract::Query(filter): axum::extract::Query<LogsFilter>,
+    jar: CookieJar,
+    Query(filter): Query<LogsFilter>,
 ) -> impl IntoResponse {
-    use crate::services::logging_service::LoggingService;
-    
     let page = filter.page.unwrap_or(1);
     let limit = 50;
     let offset = (page - 1) * limit;
@@ -640,6 +672,7 @@ pub async fn get_system_logs_page(
         current_page: page,
         has_next,
         is_auth: true,
+        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
         admin_path,
         active_page: "system_logs".to_string(),
     };
@@ -853,12 +886,16 @@ pub async fn toggle_bot(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 // Nodes Handlers
-pub async fn get_nodes(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn get_nodes(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
     let nodes = state.orchestration_service.get_all_nodes().await.unwrap_or_default();
     
     let template = NodesTemplate { 
         nodes, 
         is_auth: true, 
+        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
         admin_path: {
             let p = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
             if p.starts_with('/') { p } else { format!("/{}", p) }
@@ -1073,7 +1110,10 @@ pub async fn get_node_raw_install_script(
 
 
 // Plans Handlers
-pub async fn get_plans(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn get_plans(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
     let mut plans = match sqlx::query_as::<_, Plan>("SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb FROM plans")
         .fetch_all(&state.pool)
         .await {
@@ -1106,6 +1146,7 @@ pub async fn get_plans(State(state): State<AppState>) -> impl IntoResponse {
         pub plans: Vec<Plan>,
         pub nodes: Vec<Node>,
         pub is_auth: bool,
+        pub username: String, // NEW
         pub admin_path: String,
         pub active_page: String,
     }
@@ -1114,6 +1155,7 @@ pub async fn get_plans(State(state): State<AppState>) -> impl IntoResponse {
         plans, 
         nodes,
         is_auth: true, 
+        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
         admin_path: {
             let p = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
             if p.starts_with('/') { p } else { format!("/{}", p) }
@@ -1506,6 +1548,7 @@ pub async fn update_plan(
 // Users Handlers
 pub async fn get_users(
     State(state): State<AppState>,
+    jar: CookieJar,
     query: axum::extract::Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let search = query.get("search").cloned().unwrap_or_default();
@@ -1523,7 +1566,7 @@ pub async fn get_users(
             .unwrap_or_default()
     };
 
-    let template = UsersTemplate { users, search, is_auth: true, admin_path: {
+    let template = UsersTemplate { users, search, is_auth: true, username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()), admin_path: {
         let p = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
         if p.starts_with('/') { p } else { format!("/{}", p) }
     }, active_page: "users".to_string() };
@@ -1578,6 +1621,7 @@ pub async fn admin_gift_subscription(
 pub async fn get_user_details(
     Path(id): Path<i64>,
     State(state): State<AppState>,
+    jar: CookieJar,
 ) -> impl IntoResponse {
     // 1. Fetch User
     let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?")
@@ -1664,6 +1708,7 @@ pub async fn get_user_details(
         total_referral_earnings: format!("{:.2}", earnings_cents as f64 / 100.0),
         available_plans,
         is_auth: true,
+        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
         admin_path: {
             let p = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
             if p.starts_with('/') { p } else { format!("/{}", p) }
@@ -1939,13 +1984,16 @@ async fn get_recent_orders(pool: &sqlx::SqlitePool) -> Vec<OrderWithUser> {
     .unwrap_or_default()
 }
 
-pub async fn bot_logs_page(jar: CookieJar) -> impl IntoResponse {
+pub async fn bot_logs_page(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
     if !is_authenticated(&jar) {
         return axum::response::Redirect::to("/admin/login").into_response();
     }
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
-    Html(BotLogsTemplate { is_auth: true, admin_path, active_page: "settings".to_string() }.render().unwrap()).into_response()
+    Html(BotLogsTemplate { is_auth: true, username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()), admin_path, active_page: "settings".to_string() }.render().unwrap()).into_response()
 }
 
 
@@ -2127,6 +2175,7 @@ pub async fn get_transactions(
     let template = TransactionsTemplate {
         orders,
         is_auth: true,
+        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
         admin_path: {
             let p = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
             if p.starts_with('/') { p } else { format!("/{}", p) }
@@ -2275,16 +2324,21 @@ fn is_authenticated(jar: &CookieJar) -> bool {
 #[template(path = "frontends.html")]
 pub struct FrontendsTemplate {
     pub is_auth: bool,
+    pub username: String, // NEW
     pub admin_path: String,
     pub active_page: String,
 }
 
-pub async fn get_frontends(State(_state): State<AppState>) -> impl IntoResponse {
+pub async fn get_frontends(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
 
     let template = FrontendsTemplate {
         is_auth: true,
+        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
         admin_path,
         active_page: "frontends".to_string(),
     };
@@ -2299,6 +2353,7 @@ pub async fn get_frontends(State(_state): State<AppState>) -> impl IntoResponse 
 
 pub async fn get_bot_page(
     State(state): State<AppState>,
+    jar: CookieJar,
 ) -> impl IntoResponse {
     let bot_token = state.settings.get_or_default("bot_token", "").await;
     let bot_status = state.settings.get_or_default("bot_status", "stopped").await;
@@ -2327,6 +2382,7 @@ pub async fn get_bot_page(
         bot_username,
         webhook_info: webhook_status, 
         is_auth: true,
+        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
         admin_path,
         active_page: "bot".to_string(),
     };
@@ -2429,7 +2485,10 @@ async fn get_trial_stats(pool: &sqlx::SqlitePool) -> anyhow::Result<TrialStats> 
 
 // --- Store Management Handlers ---
 
-pub async fn get_store_categories_page(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn get_store_categories_page(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
     let categories = state.store_service.get_categories().await.unwrap_or_default();
     
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
@@ -2438,6 +2497,7 @@ pub async fn get_store_categories_page(State(state): State<AppState>) -> impl In
     let template = StoreCategoriesTemplate {
         categories,
         is_auth: true,
+        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
         admin_path,
         active_page: "store_categories".to_string(),
     };
@@ -2493,7 +2553,10 @@ pub async fn delete_category(
     }
 }
 
-pub async fn get_store_products_page(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn get_store_products_page(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
     let products = sqlx::query_as::<_, crate::models::store::Product>("SELECT * FROM products ORDER BY created_at DESC")
         .fetch_all(&state.pool)
         .await
@@ -2508,6 +2571,7 @@ pub async fn get_store_products_page(State(state): State<AppState>) -> impl Into
         products,
         categories,
         is_auth: true,
+        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
         admin_path,
         active_page: "store_products".to_string(),
     };

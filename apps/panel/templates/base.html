@@ -278,7 +278,7 @@
                         <i data-lucide="user" class="w-4 h-4"></i>
                     </div>
                     <div class="flex-1 min-w-0">
-                        <p class="text-sm font-medium text-white truncate">Admin</p>
+                        <p class="text-sm font-medium text-white truncate">{{ username|default("Admin") }}</p>
                         <p class="text-xs text-slate-500 truncate group-hover:text-red-400 transition-colors">Logout</p>
                     </div>
                     <i data-lucide="log-out"
