@@ -1,14 +1,18 @@
 use askama::Result;
-pub use askama::filters::*; // Re-export built-in filters so Askama can find them
+pub use askama::filters::default; // Explicit re-export to fix "not found" error because glob might be failing or confusing compiler
+pub use askama::filters::*; // Keep glob for others just in case
 
-
-pub fn format_bytes(s: &i64) -> Result<String> {
-    let bytes = *s as u64;
-    let res = if bytes < 1024 { format!("{} B", bytes) }
+// Helper for Rust code (non-template usage) to avoid type mismatch
+pub fn format_bytes_str(bytes: u64) -> String {
+    if bytes < 1024 { format!("{} B", bytes) }
     else if bytes < 1024 * 1024 { format!("{:.1} KB", bytes as f64 / 1024.0) }
     else if bytes < 1024 * 1024 * 1024 { format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0)) }
-    else { format!("{:.2} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0)) };
-    Ok(res)
+    else { format!("{:.2} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0)) }
+}
+
+// Helper for Askama templates (must match filter signature)
+pub fn format_bytes(s: &i64) -> Result<String> {
+    Ok(format_bytes_str(*s as u64))
 }
 
 // Overload or handling for u64 if needed? Askama usually passes reference.

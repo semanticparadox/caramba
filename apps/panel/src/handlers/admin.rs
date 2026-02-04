@@ -13,8 +13,8 @@ use tracing::{info, error};
 use axum_extra::extract::cookie::{Cookie, CookieJar};
 use axum::extract::Query;
 use time::Duration;
-use crate::filters; // Resolve built-in filters (like | default) AND custom filters
-use crate::filters::format_bytes; // Import explicit function for local usage
+use crate::filters; // For Askama generated code (filters::default)
+use crate::filters::format_bytes_str; // For local Rust usage
 
 
 // But `cookie.set_max_age` takes `time::Duration`.
@@ -355,7 +355,7 @@ pub async fn get_dashboard(
     
     // Total traffic across all nodes
     let total_traffic_bytes = sqlx::query_scalar::<_, i64>("SELECT SUM(total_ingress + total_egress) FROM nodes").fetch_one(&state.pool).await.unwrap_or(0);
-    let total_traffic = format_bytes(total_traffic_bytes as u64);
+    let total_traffic = format_bytes_str(total_traffic_bytes as u64);
 
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
@@ -1947,7 +1947,7 @@ pub async fn get_traffic_analytics(
 
     // 1. Total Traffic (30d)
     let total_traffic_30d_bytes = sqlx::query_scalar::<_, i64>("SELECT SUM(total_ingress + total_egress) FROM nodes").fetch_one(&state.pool).await.unwrap_or(0); // This is total, should be sum of stats for 30d if available
-    let total_traffic_30d = format_bytes(total_traffic_30d_bytes as u64);
+    let total_traffic_30d = format_bytes_str(total_traffic_30d_bytes as u64);
 
     // 2. Active Nodes Count
     let active_nodes_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM nodes WHERE status = 'active'").fetch_one(&state.pool).await.unwrap_or(0);
