@@ -13,8 +13,9 @@ use tracing::{info, error};
 use axum_extra::extract::cookie::{Cookie, CookieJar};
 use axum::extract::Query;
 use time::Duration;
-use crate::filters; // For Askama generated code (filters::default)
-use crate::filters::format_bytes_str; // For local Rust usage
+use crate::utils::format_bytes; // Import custom filter
+use crate::utils::format_bytes_str; // Helper for Rust logic
+
 
 
 // But `cookie.set_max_age` takes `time::Duration`.
