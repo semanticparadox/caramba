@@ -674,12 +674,7 @@ pub async fn save_settings(
     let masked_bot_token = if !current_bot_token.is_empty() { mask_key(&current_bot_token) } else { "".to_string() };
     
      if let Some(v) = form.bot_token {
-        // Aggressive Unicode-aware sanitization
-        // Remove ALL whitespace (including NBSP), quotes, and control chars
-        let v: String = v.chars()
-            .filter(|c| !c.is_whitespace() && !matches!(c, '"' | '\'' | '\n' | '\r' | '\t'))
-            .collect();
-
+        let v = v.trim().to_string();
         if !v.is_empty() && v != masked_bot_token {
             if is_running {
                  return (
@@ -687,32 +682,6 @@ pub async fn save_settings(
                     "Cannot update Bot Token while bot is running. Please stop the bot first."
                 ).into_response();
             }
-
-            // Validate structure: ID:HASH
-            let parts: Vec<&str> = v.split(':').collect();
-            if parts.len() != 2 || parts[0].chars().any(|c| !c.is_numeric()) || v.len() < 20 {
-                 error!("Invalid bot token format rejected: len={}, start={}", v.len(), parts.get(0).unwrap_or(&"???"));
-                 return (
-                    axum::http::StatusCode::BAD_REQUEST, 
-                    format!("Invalid Bot Token Format. Expected '123456:ABC...'. Received: '{}'", v)
-                ).into_response();
-            }
-
-            // Validate Charset: Only alphanumeric, :, -, _ allowed
-            if let Some(invalid_char) = v.chars().find(|c| !c.is_ascii_alphanumeric() && *c != ':' && *c != '-' && *c != '_') {
-                error!("Invalid character in bot token: '{}' (escape: {:?})", invalid_char, invalid_char);
-                 return (
-                    axum::http::StatusCode::BAD_REQUEST, 
-                    format!("Token contains invalid character: '{}'. Only alphanumeric, :, -, _ are allowed.", invalid_char)
-                ).into_response();
-            }
-
-            info!("Updating Bot Token: len={}, snippet={}...", v.len(), &v.chars().take(5).collect::<String>());
-            
-            // Critical Debug: Log bytes to prove no hidden chars to user
-            let hex_bytes: String = v.as_bytes().iter().map(|b| format!("{:02X}", b)).collect::<Vec<String>>().join(" ");
-            info!("Bot Token Hex Dump: {}", hex_bytes);
-            
             settings.insert("bot_token".to_string(), v);
         }
     }
