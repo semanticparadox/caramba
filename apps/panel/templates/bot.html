@@ -21,11 +21,13 @@
             </header>
 
             <div class="mb-6 p-4 bg-slate-950/50 rounded-xl border border-white/5 space-y-3">
+                {% if bot_username != "" %}
                 <div class="flex justify-between items-center text-sm">
                     <span class="text-slate-400">Bot Name:</span>
                     <span class="text-white font-mono bg-white/5 px-2 py-0.5 rounded text-xs select-all">@{{
                         bot_username }}</span>
                 </div>
+                {% endif %}
                 <div class="flex justify-between items-center text-sm">
                     <span class="text-slate-400">Webhook Status:</span>
                     <span class="{% if webhook_info == " Active (Polling)" %}text-emerald-400{% else %}text-amber-400{%

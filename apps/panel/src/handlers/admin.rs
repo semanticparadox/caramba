@@ -674,6 +674,7 @@ pub async fn save_settings(
     let masked_bot_token = if !current_bot_token.is_empty() { mask_key(&current_bot_token) } else { "".to_string() };
     
     if let Some(v) = form.bot_token {
+        let v = v.trim().to_string(); // Sanitize input
         if !v.is_empty() && v != masked_bot_token {
             if is_running {
                 // Return error if trying to update token while running
@@ -2314,7 +2315,8 @@ pub async fn get_bot_page(
     
     
     // Attempt to get username (or use hardcoded default for now)
-    let bot_username = state.settings.get_or_default("bot_username", "exarobot_bot").await;
+    // Attempt to get username (or use hardcoded default for now)
+    let bot_username = state.settings.get_or_default("bot_username", "").await;
 
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
