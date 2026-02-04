@@ -30,6 +30,7 @@ pub struct TrialStats {
     pub default_count: i64,
     pub channel_count: i64,
     pub active_count: i64,
+}
 #[derive(Template)]
 #[template(path = "settings.html")]
 pub struct SettingsTemplate {
