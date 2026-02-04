@@ -12,6 +12,13 @@ use std::collections::HashMap;
 use tracing::{info, error};
 use axum_extra::extract::cookie::{Cookie, CookieJar};
 
+#[derive(serde::Serialize)]
+pub struct TrialStats {
+    pub default_count: i64,
+    pub channel_count: i64,
+    pub active_count: i64,
+}
+
 #[derive(Template)]
 #[template(path = "settings.html")]
 pub struct SettingsTemplate {
@@ -23,7 +30,7 @@ pub struct SettingsTemplate {
     pub masked_aaio_merchant_id: String,
     pub masked_aaio_secret_1: String,
     pub masked_aaio_secret_2: String,
-    pub masked_aaio_secret_2: String,
+
     pub payment_ipn_url: String,
     pub currency_rate: String,
     pub support_url: String,
@@ -183,13 +190,13 @@ pub struct LoginForm {
 #[derive(Deserialize)]
 pub struct SaveSettingsForm {
     pub bot_token: Option<String>,
-    pub bot_token: Option<String>,
+
     pub payment_api_key: Option<String>,
     pub cryptomus_merchant_id: Option<String>,
     pub cryptomus_payment_api_key: Option<String>,
     pub aaio_merchant_id: Option<String>,
     pub aaio_secret_1: Option<String>,
-    pub aaio_secret_1: Option<String>,
+
     pub aaio_secret_2: Option<String>,
     pub payment_ipn_url: Option<String>,
     pub currency_rate: Option<String>,
@@ -2303,7 +2310,7 @@ pub async fn db_export_download(
             
             // Update last export timestamp
             let now_str = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string();
-            state.settings.insert("last_export".to_string(), now_str).await;
+            state.settings.set("last_export", &now_str).await;
 
             (
                 StatusCode::OK,
@@ -2332,7 +2339,7 @@ pub struct TrialConfigForm {
 }
 
 pub async fn update_trial_config(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Form(form): Form<TrialConfigForm>,
 ) -> impl IntoResponse {
     use axum::response::Redirect;
@@ -2345,9 +2352,9 @@ pub async fn update_trial_config(
     );
     
     // Save to DB
-    state.settings.insert("free_trial_days".to_string(), form.free_trial_days.to_string()).await;
-    state.settings.insert("channel_trial_days".to_string(), form.channel_trial_days.to_string()).await;
-    state.settings.insert("required_channel_id".to_string(), form.required_channel_id).await;
+    state.settings.set("free_trial_days", &form.free_trial_days.to_string()).await;
+    state.settings.set("channel_trial_days", &form.channel_trial_days.to_string()).await;
+    state.settings.set("required_channel_id", &form.required_channel_id).await;
     
     let admin_path = std::env::var("ADMIN_PATH")
         .unwrap_or_else(|_| "/admin".to_string());

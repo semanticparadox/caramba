@@ -284,7 +284,7 @@
 
                 <div class="flex items-center justify-between">
                     <div>
-                        {% if last_export and last_export != "Never" %}
+                        {% if last_export != "Never" %}
                         <p class="text-sm text-slate-400">Last backup: <span class="text-white font-mono">{{ last_export
                                 }}</span></p>
                         {% else %}

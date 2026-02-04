@@ -72,7 +72,7 @@ pub async fn message_handler(
                     ).await;
                     
                     // Trial system: check channel membership and grant trial if new user
-                    if !u.trial_used {
+                    if !u.trial_used.unwrap_or(false) {
                         info!("New user {} - checking trial eligibility", tg_id);
                         
                         // Check channel membership (uses REQUIRED_CHANNEL_ID env var)

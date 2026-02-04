@@ -1,7 +1,7 @@
 use sqlx::SqlitePool;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, error};
 use std::sync::Arc;
 use chrono::Utc;
 use crate::services::store_service::StoreService;

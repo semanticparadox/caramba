@@ -970,7 +970,7 @@ pub async fn callback_handler(
                     
                     match (state.store_service.get_trial_plan().await, state.store_service.mark_trial_used(user.id).await) {
                         (Ok(trial_plan), Ok(_)) => {
-                            match state.store_service.create_trial_subscription(user.id, trial_plan.id).await {
+                            match state.store_service.create_trial_subscription(user.id, trial_plan.id, 1).await {
                                 Ok(sub_id) => {
                                     if let Some(msg) = q.message {
                                         let _ = bot.delete_message(msg.chat().id, msg.id()).await;
