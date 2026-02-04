@@ -9,7 +9,7 @@ pub fn main_menu() -> KeyboardMarkup {
     markup_with_webapp(&web_app_url)
 }
 
-pub fn markup_with_webapp(url: &str) -> KeyboardMarkup {
+pub fn markup_with_webapp(_url: &str) -> KeyboardMarkup {
     KeyboardMarkup::new(vec![
         vec![
             // WebApp method not supported in this Teloxide version for KeyboardButton

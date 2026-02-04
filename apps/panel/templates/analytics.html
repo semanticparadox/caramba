@@ -108,7 +108,7 @@
     stroke: {
         curve: 'smooth',
             width: 3,
-                colors: ['#6366f1']
+                colors: ['#FF6B35']
     },
     xaxis: {
         categories: { { history_labels_json | safe } },
@@ -132,8 +132,8 @@
                     opacityTo: 0.05,
                         stops: [0, 90, 100],
                             colorStops: [
-                                { offset: 0, color: '#6366f1', opacity: 0.4 },
-                                { offset: 100, color: '#6366f1', opacity: 0 }
+                                { offset: 0, color: '#FF6B35', opacity: 0.4 },
+                                { offset: 100, color: '#FF6B35', opacity: 0 }
                             ]
         }
     }
@@ -177,7 +177,7 @@
             labels: { colors: '#94a3b8' }
     },
     theme: { mode: 'dark' },
-    colors: ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6']
+    colors: ['#FF6B35', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6']
     };
     var nodeChart = new ApexCharts(document.querySelector("#nodeDistributionChart"), nodeOptions);
     nodeChart.render();

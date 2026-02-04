@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use sqlx::SqlitePool;
 use teloxide::prelude::*;
-use tracing::{info, warn, error};
+use tracing::{info, warn};
 
 /// Service for sending notifications to users via Telegram bot
 pub struct NotificationService {
@@ -134,6 +134,7 @@ impl NotificationService {
 
 /// User affected by SNI rotation
 #[derive(sqlx::FromRow)]
+#[allow(dead_code)]
 struct AffectedUser {
     id: i64,
     tg_id: i64,

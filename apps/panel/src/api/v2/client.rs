@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use crate::AppState;
-use tracing::{error, debug};
+use tracing::error;
 
 #[derive(Deserialize)]
 pub struct RecommendedQuery {

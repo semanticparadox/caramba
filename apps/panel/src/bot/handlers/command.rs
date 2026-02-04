@@ -2,8 +2,9 @@ use teloxide::prelude::*;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ForceReply, ParseMode};
 use tracing::{info, error};
 use crate::AppState;
-use crate::bot::utils::escape_md;
+use crate::bot::utils::{escape_md, check_channel_membership, get_trial_days};
 use crate::bot::keyboards::{main_menu, language_keyboard, terms_keyboard};
+use crate::services::logging_service::LoggingService;
 
 pub async fn message_handler(
     bot: Bot,
@@ -20,7 +21,18 @@ pub async fn message_handler(
          info!("Processing Stars Payment: {} XTR (${:.2})", amount_xtr, amount_usd);
          
          match state.pay_service.process_any_payment(amount_usd, "stars", Some(payment.provider_payment_charge_id.clone()), &payment.invoice_payload).await {
-             Ok(_) => { let _ = bot.send_message(msg.chat.id, "✅ Payment successful! Balance updated.").await; },
+             Ok(_) => { 
+                 // Log successful payment
+                 let _ = LoggingService::log_user(
+                     &state.pool,
+                     Some(tg_id),
+                     "payment_stars",
+                     &format!("Stars payment successful: {} XTR (${:.2})", amount_xtr, amount_usd),
+                     None
+                 ).await;
+                 
+                 let _ = bot.send_message(msg.chat.id, "✅ Payment successful! Balance updated.").await; 
+             },
              Err(e) => { 
                  error!("Stars payment processing failed: {}", e);
                  let _ = bot.send_message(msg.chat.id, "❌ Error processing payment. Please contact support.").await; 
@@ -49,7 +61,59 @@ pub async fn message_handler(
             ).await;
 
             match user_res_inner {
-                Ok(u) => Some(u),
+                Ok(u) => {
+                    // Log user /start command
+                    let _ = LoggingService::log_user(
+                        &state.pool,
+                        Some(tg_id),
+                        "bot_start",
+                        &format!("User {} executed /start command", tg_id),
+                        None
+                    ).await;
+                    
+                    // Trial system: check channel membership and grant trial if new user
+                    if !u.trial_used {
+                        info!("New user {} - checking trial eligibility", tg_id);
+                        
+                        // Check channel membership (uses REQUIRED_CHANNEL_ID env var)
+                        let is_member = check_channel_membership(&bot, tg_id).await.unwrap_or(false);
+                        let trial_days = get_trial_days(is_member);
+                        
+                        info!("User {} channel member: {}, trial days: {}", tg_id, is_member, trial_days);
+                        
+                        // Update user with trial info (mark as used, set source)
+                        let trial_source = if is_member { "channel_member" } else { "free" };
+                        let _ = sqlx::query(
+                            "UPDATE users SET trial_used = 1, trial_used_at = CURRENT_TIMESTAMP, channel_member_verified = ?, channel_verified_at = CURRENT_TIMESTAMP, trial_source = ? WHERE id = ?"
+                        )
+                        .bind(is_member)
+                        .bind(trial_source)
+                        .bind(u.id)
+                        .execute(&state.pool)
+                        .await;
+                        
+                        // Create actual trial subscription
+                        let plans = state.store_service.get_active_plans().await.unwrap_or_default();
+                        if let Some(first_plan) = plans.first() {
+                             match state.store_service.create_trial_subscription(u.id, first_plan.id, trial_days).await {
+                                 Ok(_) => info!("Trial subscription activated for user {}", u.id),
+                                 Err(e) => error!("Failed to create trial subscription: {}", e),
+                             }
+                        } else {
+                             error!("No active plans found for trial creation!");
+                        }
+
+                        let _ = LoggingService::log_user(
+                            &state.pool,
+                            Some(tg_id),
+                            "trial_granted",
+                            &format!("Trial granted: {} days (source: {})", trial_days, trial_source),
+                            None
+                        ).await;
+                    }
+                    
+                    Some(u)
+                },
                 Err(e) => {
                     error!("Failed to upsert user on /start: {:?}", e);
                     None

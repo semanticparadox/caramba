@@ -213,6 +213,12 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     let crystalpay_login = settings.get_or_default("crystalpay_login", "").await;
     let crystalpay_secret = settings.get_or_default("crystalpay_secret", "").await;
     let stripe_secret_key = settings.get_or_default("stripe_secret_key", "").await;
+    let stripe_secret_key = settings.get_or_default("stripe_secret_key", "").await;
+    let cryptomus_merchant_id = settings.get_or_default("cryptomus_merchant_id", "").await;
+    let cryptomus_payment_api_key = settings.get_or_default("cryptomus_payment_api_key", "").await;
+    let aaio_merchant_id = settings.get_or_default("aaio_merchant_id", "").await;
+    let aaio_secret_1 = settings.get_or_default("aaio_secret_1", "").await;
+    let aaio_secret_2 = settings.get_or_default("aaio_secret_2", "").await;
     let is_testnet: String = settings.get_or_default("payment_testnet", "true").await;
     
     let pay_service = Arc::new(services::pay_service::PayService::new(
@@ -224,6 +230,11 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         crystalpay_login,
         crystalpay_secret,
         stripe_secret_key,
+        cryptomus_merchant_id,
+        cryptomus_payment_api_key,
+        aaio_merchant_id,
+        aaio_secret_1,
+        aaio_secret_2,
         is_testnet == "true",
     ));
 
@@ -301,8 +312,10 @@ use tower_http::services::ServeDir;
         .route("/settings", axum::routing::get(handlers::admin::get_settings))
         .route("/settings/save", axum::routing::post(handlers::admin::save_settings))
         .route("/settings/bot/toggle", axum::routing::post(handlers::admin::toggle_bot))
-        // Tools page - DB Export & Trial Configuration
-        .route("/tools", axum::routing::get(handlers::admin::get_tools_page))
+        // New Bot Page
+        .route("/bot", axum::routing::get(handlers::admin::get_bot_page))
+        // Tools Logic (Page removed, actions preserved)
+        // .route("/tools", axum::routing::get(handlers::admin::get_tools_page)) // Removed
         .route("/tools/export", axum::routing::get(handlers::admin::db_export_download))
         .route("/tools/trial-config", axum::routing::post(handlers::admin::update_trial_config))
         .route("/traffic", axum::routing::get(handlers::admin::get_traffic_analytics)) // NEW

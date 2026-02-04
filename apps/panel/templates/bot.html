@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Telegram Bot{% endblock %}
+{% block header_title %}Telegram Bot Control{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 max-h-[calc(100vh-10rem)]">
+    <!-- Left Column: Configuration -->
+    <div class="lg:col-span-1 space-y-6">
+
+        <!-- Configuration Card -->
+        <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-6 shadow-xl">
+            <header class="flex items-center gap-3 mb-6">
+                <div class="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400">
+                    <i data-lucide="settings-2" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold text-white">Settings</h3>
+                    <p class="text-xs text-slate-500">Bot instance configuration</p>
+                </div>
+            </header>
+
+            <form hx-post="{{ admin_path }}/settings/save" hx-swap="none" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Bot
+                        Token</label>
+                    <div class="relative">
+                        <input type="text" name="bot_token" value="{{ masked_bot_token }}"
+                            placeholder="123456789:ABC..."
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-mono text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            {% if bot_status=="running" %}disabled title="Stop the bot to update the token" {% endif %}>
+
+                        {% if bot_status == "running" %}
+                        <div class="absolute right-3 top-3 text-xs text-amber-500 flex items-center gap-1">
+                            <i data-lucide="lock" class="w-3 h-3"></i> Locked
+                        </div>
+                        {% endif %}
+                    </div>
+                    <p class="text-[10px] text-slate-500 mt-2">
+                        Get this token from <a href="https://t.me/BotFather" target="_blank"
+                            class="text-blue-400 hover:underline">@BotFather</a>.
+                    </p>
+                </div>
+
+                <button type="submit"
+                    class="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-medium py-2.5 px-4 rounded-xl border border-white/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    {% if bot_status=="running" %}disabled{% endif %}>
+                    <i data-lucide="save" class="w-4 h-4"></i>
+                    Save Token
+                </button>
+            </form>
+        </div>
+
+        <!-- Webhook Info Card -->
+        <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-6 shadow-xl">
+            <header class="flex items-center gap-3 mb-6">
+                <div class="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400">
+                    <i data-lucide="webhook" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold text-white">Webhook</h3>
+                    <p class="text-xs text-slate-500">Telegram API status</p>
+                </div>
+            </header>
+
+            <div class="space-y-4">
+                <div class="flex items-center justify-between p-3 rounded-lg bg-slate-950/50 border border-white/5">
+                    <span class="text-sm text-slate-400">Status</span>
+                    {% if bot_status == "running" %}
+                    <span class="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded">ACTIVE</span>
+                    {% else %}
+                    <span class="text-xs font-bold text-slate-500 bg-slate-800 px-2 py-1 rounded">INACTIVE</span>
+                    {% endif %}
+                </div>
+
+                {% if bot_username %}
+                <div class="flex items-center justify-between p-3 rounded-lg bg-slate-950/50 border border-white/5">
+                    <span class="text-sm text-slate-400">Username</span>
+                    <a href="https://t.me/{{ bot_username }}" target="_blank"
+                        class="text-sm text-blue-400 hover:underline">@{{ bot_username }}</a>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="mt-4 pt-4 border-t border-white/5">
+                <p class="text-[10px] text-slate-500 leading-tight">
+                    Webhook is automatically set when the service starts. Ensure your domain has a valid SSL
+                    certificate.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Column: Console & Control -->
+    <div class="lg:col-span-2 flex flex-col h-full space-y-6">
+        <!-- Control Panel & Console -->
+        <div
+            class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-6 shadow-xl flex-1 flex flex-col">
+            <header class="flex items-center justify-between mb-6">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+                        <i data-lucide="terminal" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-white">Bot Console</h3>
+                        <p class="text-xs text-slate-500">Live logs and control</p>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Console Partial -->
+            <div class="flex-1">
+                {% include "partials/bot_status.html" %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

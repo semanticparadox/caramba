@@ -346,7 +346,7 @@ async fn get_active_servers(
      headers: axum::http::HeaderMap,
      axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
 ) -> impl IntoResponse {
-    let mut nodes: Vec<crate::models::node::Node> = sqlx::query_as("SELECT * FROM nodes WHERE is_enabled = 1")
+    let nodes: Vec<crate::models::node::Node> = sqlx::query_as("SELECT * FROM nodes WHERE is_enabled = 1")
         .fetch_all(&state.pool)
         .await
         .unwrap_or_default();

@@ -5,242 +5,452 @@
 
 {% block content %}
 <section class="max-w-5xl mx-auto pb-20">
-    <form id="settings-form" hx-post="{{ admin_path }}/settings/save" hx-swap="none" class="space-y-6">
+    <!-- Main Settings Form (Invisible Wrapper) -->
+    <form id="main-settings-form" hx-post="{{ admin_path }}/settings/save" hx-swap="none"></form>
 
-        <!-- 1. Bot Control & Logs -->
-        <div
-            class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6 transition-all hover:border-indigo-500/20">
-            <header class="flex justify-between items-center mb-6">
-                <div>
-                    <h3 class="text-lg font-semibold text-white">Bot Configuration</h3>
-                    <p class="text-sm text-slate-500">Manage Telegram bot instance and tokens.</p>
-                </div>
-                {% if bot_status == "running" %}
-                <span
-                    class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-lg shadow-emerald-500/10">
-                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span> Running
-                </span>
-                {% else %}
-                <span
-                    class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">
-                    <span class="w-1.5 h-1.5 rounded-full bg-red-500 mr-1.5"></span> Stopped
-                </span>
-                {% endif %}
-            </header>
+    <!-- Tab Navigation -->
+    <div
+        class="flex items-center gap-1 p-1 bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-xl mb-8 overflow-x-auto">
+        <button onclick="switchTab('general')" id="tab-general"
+            class="tab-btn flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all text-white bg-indigo-500 shadow-lg shadow-indigo-500/20">
+            <i data-lucide="settings-2" class="w-4 h-4"></i> General
+        </button>
+        <button onclick="switchTab('payments')" id="tab-payments"
+            class="tab-btn flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white hover:bg-white/5">
+            <i data-lucide="credit-card" class="w-4 h-4"></i> Payments
+        </button>
+        <button onclick="switchTab('trials')" id="tab-trials"
+            class="tab-btn flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white hover:bg-white/5">
+            <i data-lucide="gift" class="w-4 h-4"></i> Trials
+        </button>
+        <button onclick="switchTab('system')" id="tab-system"
+            class="tab-btn flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white hover:bg-white/5">
+            <i data-lucide="server-cog" class="w-4 h-4"></i> System
+        </button>
+    </div>
 
-            <div class="mb-6">
-                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Telegram Bot
-                    Token</label>
-                <div class="relative">
-                    <input type="text" name="bot_token" value="{{ masked_bot_token }}" placeholder="123456789:ABC..."
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all font-mono text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                        {% if bot_status=="running" %}disabled title="Stop the bot to update the token" {% endif %}>
+    <!-- TABS CONTENT -->
+    <div class="space-y-6">
 
-                    {% if bot_status == "running" %}
-                    <div class="absolute right-3 top-3 text-xs text-amber-500 flex items-center gap-1">
-                        <i data-lucide="lock" class="w-3 h-3"></i> Locked (Running)
-                    </div>
-                    {% else %}
-                    <div class="absolute right-3 top-3 text-xs text-emerald-500 flex items-center gap-1">
-                        <i data-lucide="unlock" class="w-3 h-3"></i> Editable
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
-
-            <!-- Console and Control Buttons from Partial -->
-            <div class="border-t border-white/5 pt-6">
-                {% include "partials/bot_status.html" %}
-            </div>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <!-- 2. Payment Settings -->
-            <div
-                class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6 hover:border-indigo-500/20 transition-all">
+        <!-- 1. GENERAL TAB -->
+        <div id="content-general" class="tab-content block space-y-6 animate-fade-in">
+            <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6">
                 <header class="flex items-center gap-3 mb-6">
-                    <div class="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400">
-                        <i data-lucide="credit-card" class="w-4 h-4"></i>
+                    <div class="w-10 h-10 rounded-xl bg-slate-700/30 flex items-center justify-center text-slate-300">
+                        <i data-lucide="globe" class="w-5 h-5"></i>
                     </div>
-                    <h3 class="text-lg font-semibold text-white">Payment Gateway</h3>
+                    <div>
+                        <h3 class="text-lg font-semibold text-white">General Configuration</h3>
+                        <p class="text-xs text-slate-500">Basic panel settings and personalization</p>
+                    </div>
                 </header>
 
-                <div class="space-y-4">
-                    <div>
-                        <label
-                            class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">NowPayments
-                            API Key</label>
-                        <input type="text" name="payment_api_key" value="{{ masked_payment_api_key }}"
-                            placeholder="Enter API Key"
-                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">IPN
-                            Callback URL</label>
-                        <input type="url" name="payment_ipn_url" value="{{ payment_ipn_url }}" placeholder="https://..."
-                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all text-sm">
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Rate
-                            (USDT Conversion)</label>
-                        <div class="relative">
-                            <span class="absolute left-4 top-2.5 text-slate-500">$</span>
-                            <input type="number" name="currency_rate" step="0.01" value="{{ currency_rate }}"
-                                class="w-full bg-slate-950 border border-white/10 rounded-xl pl-8 pr-4 py-2.5 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 3. General Settings -->
-            <div
-                class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6 hover:border-indigo-500/20 transition-all">
-                <header class="flex items-center gap-3 mb-6">
-                    <div class="w-8 h-8 rounded-lg bg-slate-700/30 flex items-center justify-center text-slate-300">
-                        <i data-lucide="settings-2" class="w-4 h-4"></i>
-                    </div>
-                    <h3 class="text-lg font-semibold text-white">General Config</h3>
-                </header>
-
-                <div class="space-y-4">
+                <div class="space-y-5">
                     <div>
                         <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Brand
                             Name</label>
-                        <input type="text" name="brand_name" value="{{ brand_name }}" placeholder="EXA ROBOT"
-                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all text-sm">
+                        <input type="text" form="main-settings-form" name="brand_name" value="{{ brand_name }}"
+                            placeholder="CARAMBA"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all text-sm">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Bot
+                            Username (No @)</label>
+                        <input type="text" form="main-settings-form" name="bot_username" value="{{ bot_username }}"
+                            placeholder="exarobot_bot"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all text-sm">
                     </div>
 
                     <div>
                         <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Support
                             Username</label>
                         <div class="relative">
-                            <span class="absolute left-4 top-2.5 text-slate-500">@</span>
-                            <input type="text" name="support_url" value="{{ support_url }}" placeholder="admin_support"
-                                class="w-full bg-slate-950 border border-white/10 rounded-xl pl-8 pr-4 py-2.5 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all text-sm">
+                            <span class="absolute left-4 top-3 text-slate-500">@</span>
+                            <input type="text" form="main-settings-form" name="support_url" value="{{ support_url }}"
+                                placeholder="admin_support"
+                                class="w-full bg-slate-950 border border-white/10 rounded-xl pl-8 pr-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all text-sm">
                         </div>
                         <p class="text-[10px] text-slate-500 mt-1.5">Username for the support button in the bot.</p>
                     </div>
                 </div>
             </div>
 
-            <!-- 4. User Agreement Settings -->
-            <div
-                class="col-span-1 lg:col-span-2 bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6 hover:border-indigo-500/20 transition-all">
+            <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6">
                 <header class="flex items-center gap-3 mb-4">
-                    <div class="w-8 h-8 rounded-lg bg-slate-700/30 flex items-center justify-center text-slate-300">
-                        <i data-lucide="file-text" class="w-4 h-4"></i>
+                    <div class="w-10 h-10 rounded-xl bg-slate-700/30 flex items-center justify-center text-slate-300">
+                        <i data-lucide="file-text" class="w-5 h-5"></i>
                     </div>
                     <div>
                         <h3 class="text-lg font-semibold text-white">Terms of Service</h3>
-                        <p class="text-xs text-slate-500">Displayed to new users during onboarding.</p>
+                        <p class="text-xs text-slate-500">Displayed to new users during onboarding</p>
                     </div>
                 </header>
 
-                <textarea name="terms_of_service"
+                <textarea form="main-settings-form" name="terms_of_service"
                     class="w-full bg-slate-950 border border-white/10 rounded-xl p-4 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm h-48 custom-scrollbar resize-y">{{ terms_of_service }}</textarea>
             </div>
+        </div>
 
-            <!-- 5. Decoy Traffic Generator -->
-            <div
-                class="col-span-1 lg:col-span-2 bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6 hover:border-indigo-500/20 transition-all relative group">
-                <div
-                    class="absolute inset-0 bg-gradient-to-r from-purple-500/5 to-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+        <!-- 2. PAYMENTS TAB -->
+        <div id="content-payments" class="tab-content hidden space-y-6 animate-fade-in">
+            <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6">
+                <header class="flex items-center gap-3 mb-6">
+                    <div class="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-400">
+                        <i data-lucide="wallet" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-white">Payment Gateways</h3>
+                        <p class="text-xs text-slate-500">Configure API keys for crypto payments</p>
+                    </div>
+                </header>
+
+                <div class="mb-6 p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
+                    <h4 class="text-sm font-semibold text-indigo-300 mb-2">Registration Links (No IP/OOO Required)</h4>
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+                        <a href="http://t.me/CryptoBot" target="_blank"
+                            class="flex items-center gap-1.5 text-slate-300 hover:text-white transition-colors">
+                            <i data-lucide="external-link" class="w-3 h-3"></i> CryptoBot
+                        </a>
+                        <a href="https://aaio.so/" target="_blank"
+                            class="flex items-center gap-1.5 text-slate-300 hover:text-white transition-colors">
+                            <i data-lucide="external-link" class="w-3 h-3"></i> Aaio
+                        </a>
+                        <a href="https://cryptomus.com/" target="_blank"
+                            class="flex items-center gap-1.5 text-slate-300 hover:text-white transition-colors">
+                            <i data-lucide="external-link" class="w-3 h-3"></i> Cryptomus
+                        </a>
+                        <a href="https://crystalpay.io/" target="_blank"
+                            class="flex items-center gap-1.5 text-slate-300 hover:text-white transition-colors">
+                            <i data-lucide="external-link" class="w-3 h-3"></i> CrystalPay
+                        </a>
+                        <a href="https://nowpayments.io/" target="_blank"
+                            class="flex items-center gap-1.5 text-slate-300 hover:text-white transition-colors">
+                            <i data-lucide="external-link" class="w-3 h-3"></i> NowPayments
+                        </a>
+                        <a href="https://lava.top/" target="_blank"
+                            class="flex items-center gap-1.5 text-slate-300 hover:text-white transition-colors">
+                            <i data-lucide="external-link" class="w-3 h-3"></i> Lava.top
+                        </a>
+                    </div>
                 </div>
-                <header class="flex items-center justify-between mb-6 relative">
+
+                <div class="space-y-5">
+                    <div>
+                        <label
+                            class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">NowPayments
+                            API Key</label>
+                        <input type="text" form="main-settings-form" name="payment_api_key"
+                            value="{{ masked_payment_api_key }}" placeholder="Enter API Key"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
+                    </div>
+
+                    <div>
+                        <label
+                            class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Cryptomus
+                            Merchant ID</label>
+                        <input type="text" form="main-settings-form" name="cryptomus_merchant_id"
+                            value="{{ masked_cryptomus_merchant_id }}" placeholder="Enter Merchant ID"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
+                    </div>
+
+                    <div>
+                        <label
+                            class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Cryptomus
+                            Payment API Key</label>
+                        <input type="text" form="main-settings-form" name="cryptomus_payment_api_key"
+                            value="{{ masked_cryptomus_payment_api_key }}" placeholder="Enter API Key"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Aaio
+                            Merchant ID</label>
+                        <input type="text" form="main-settings-form" name="aaio_merchant_id"
+                            value="{{ masked_aaio_merchant_id }}" placeholder="Enter Merchant ID"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Aaio
+                                Secret #1</label>
+                            <input type="text" form="main-settings-form" name="aaio_secret_1"
+                                value="{{ masked_aaio_secret_1 }}" placeholder="Secret Key 1"
+                                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Aaio
+                                Secret #2</label>
+                            <input type="text" form="main-settings-form" name="aaio_secret_2"
+                                value="{{ masked_aaio_secret_2 }}" placeholder="Secret Key 2"
+                                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">IPN
+                            Callback URL</label>
+                        <input type="url" form="main-settings-form" name="payment_ipn_url" value="{{ payment_ipn_url }}"
+                            placeholder="https://..."
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all text-sm">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Exchange
+                            Rate (Internal USD)</label>
+                        <div class="relative">
+                            <span class="absolute left-4 top-3 text-slate-500">$</span>
+                            <input type="number" form="main-settings-form" name="currency_rate" step="0.01"
+                                value="{{ currency_rate }}"
+                                class="w-full bg-slate-950 border border-white/10 rounded-xl pl-8 pr-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
+                        </div>
+                        <p class="text-[10px] text-slate-500 mt-1.5">Fixed conversion rate if required by your setup.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. TRIALS TAB (Independent Form) -->
+        <div id="content-trials" class="tab-content hidden space-y-6 animate-fade-in">
+            <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6">
+                <header class="flex items-center gap-3 mb-6">
+                    <div class="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-400">
+                        <i data-lucide="timer" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-white">Trial Configuration</h3>
+                        <p class="text-xs text-slate-500">Manage free trial periods for new users</p>
+                    </div>
+                </header>
+
+                <form hx-post="{{ admin_path }}/tools/trial-config" hx-swap="none" class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label
+                                class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Default
+                                Trial (Days)</label>
+                            <input type="number" name="free_trial_days" value="{{ free_trial_days }}" min="1" max="365"
+                                required
+                                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-orange-500 outline-none transition-all text-sm">
+                        </div>
+                        <div>
+                            <label
+                                class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Channel
+                                Member Trial (Days)</label>
+                            <input type="number" name="channel_trial_days" value="{{ channel_trial_days }}" min="1"
+                                max="365" required
+                                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-orange-500 outline-none transition-all text-sm">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Required
+                            Channel ID (Optional)</label>
+                        <input type="text" name="required_channel_id" value="{{ required_channel_id }}"
+                            placeholder="-100..."
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-orange-500 outline-none transition-all text-sm">
+                        <p class="text-[10px] text-slate-500 mt-1.5">Telegram channel ID (e.g., -100123456) for extended
+                            trials. Leave empty to disable.</p>
+                    </div>
+
+                    <div class="pt-4">
+                        <button type="submit"
+                            class="flex items-center gap-2 bg-orange-600 hover:bg-orange-500 text-white font-bold py-2.5 px-6 rounded-lg shadow-lg shadow-orange-500/20 transition-all">
+                            <i data-lucide="save" class="w-4 h-4"></i>
+                            Update Trial Settings
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 4. SYSTEM TAB -->
+        <div id="content-system" class="tab-content hidden space-y-6 animate-fade-in">
+
+            <!-- Backup Section (Moved from Tools) -->
+            <div
+                class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6 hover:border-blue-500/20 transition-all">
+                <header class="flex items-center gap-3 mb-6">
+                    <div class="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400">
+                        <i data-lucide="database-backup" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-white">Database Backup</h3>
+                        <p class="text-xs text-slate-500">Export system data and configuration</p>
+                    </div>
+                </header>
+
+                <div class="flex items-center justify-between">
+                    <div>
+                        {% if last_export and last_export != "Never" %}
+                        <p class="text-sm text-slate-400">Last backup: <span class="text-white font-mono">{{ last_export
+                                }}</span></p>
+                        {% else %}
+                        <p class="text-sm text-slate-400">No backups created yet.</p>
+                        {% endif %}
+                    </div>
+                    <a href="{{ admin_path }}/tools/export"
+                        class="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-blue-500/20">
+                        <i data-lucide="download" class="w-4 h-4"></i> Download Archive
+                    </a>
+                </div>
+            </div>
+
+            <!-- Decoy Traffic -->
+            <div
+                class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6 hover:border-purple-500/20 transition-all">
+                <header class="flex items-center justify-between mb-6">
                     <div class="flex items-center gap-3">
                         <div
-                            class="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400">
-                            <i data-lucide="ghost" class="w-4 h-4"></i>
+                            class="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400">
+                            <i data-lucide="ghost" class="w-5 h-5"></i>
                         </div>
                         <div>
                             <h3 class="text-lg font-semibold text-white">Decoy Traffic Generator</h3>
-                            <p class="text-xs text-slate-500">Generate fake traffic to mask VPN signatures.</p>
+                            <p class="text-xs text-slate-500">Generate fake traffic to mask VPN signatures</p>
                         </div>
                     </div>
                     <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" name="decoy_enabled" class="sr-only peer" {% if decoy_enabled %}checked{%
-                            endif %}>
+                        <input type="checkbox" form="main-settings-form" name="decoy_enabled" class="sr-only peer" {% if
+                            decoy_enabled %}checked{% endif %}>
                         <div
                             class="w-11 h-6 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-purple-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600">
                         </div>
-                        <span class="ml-3 text-sm font-medium text-slate-300">Enabled</span>
                     </label>
                 </header>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div class="col-span-1 md:col-span-2">
                         <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Target
-                            URLs (JSON Array)</label>
-                        <input type="text" name="decoy_urls" value="{{ decoy_urls }}"
-                            placeholder='["https://google.com", "https://netflix.com"]'
-                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all font-mono text-sm">
-                        <p class="text-[10px] text-slate-500 mt-1.5">Agents will randomly visit these sites to blend in.
-                        </p>
+                            URLs (JSON)</label>
+                        <input type="text" form="main-settings-form" name="decoy_urls" value="{{ decoy_urls }}"
+                            placeholder='["https://google.com", ...]'
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all font-mono text-sm">
                     </div>
-
                     <div>
                         <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Min
-                            Interval (Seconds)</label>
-                        <input type="number" name="decoy_min_interval" value="{{ decoy_min_interval }}"
-                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all text-sm">
+                            Interval (s)</label>
+                        <input type="number" form="main-settings-form" name="decoy_min_interval"
+                            value="{{ decoy_min_interval }}"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all text-sm">
                     </div>
-
                     <div>
                         <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Max
-                            Interval (Seconds)</label>
-                        <input type="number" name="decoy_max_interval" value="{{ decoy_max_interval }}"
-                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all text-sm">
+                            Interval (s)</label>
+                        <input type="number" form="main-settings-form" name="decoy_max_interval"
+                            value="{{ decoy_max_interval }}"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all text-sm">
                     </div>
                 </div>
             </div>
 
-            <!-- 6. Emergency Kill Switch -->
+            <!-- Kill Switch -->
             <div
-                class="col-span-1 lg:col-span-2 bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6 hover:border-red-500/20 transition-all relative group">
-                <div
-                    class="absolute inset-0 bg-gradient-to-r from-red-500/5 to-orange-500/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                </div>
-                <header class="flex items-center justify-between mb-6 relative">
+                class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6 hover:border-red-500/20 transition-all">
+                <header class="flex items-center justify-between mb-6">
                     <div class="flex items-center gap-3">
-                        <div class="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center text-red-500">
-                            <i data-lucide="skull" class="w-4 h-4"></i>
+                        <div class="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center text-red-500">
+                            <i data-lucide="skull" class="w-5 h-5"></i>
                         </div>
                         <div>
                             <h3 class="text-lg font-semibold text-white">Emergency Kill Switch</h3>
-                            <p class="text-xs text-slate-500">Auto-terminate VPN nodes if panel connection is lost.</p>
+                            <p class="text-xs text-slate-500">Auto-terminate nodes if panel connection is lost</p>
                         </div>
                     </div>
                     <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" name="kill_switch_enabled" class="sr-only peer" {% if kill_switch_enabled
-                            %}checked{% endif %}>
+                        <input type="checkbox" form="main-settings-form" name="kill_switch_enabled" class="sr-only peer"
+                            {% if kill_switch_enabled %}checked{% endif %}>
                         <div
                             class="w-11 h-6 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-red-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600">
                         </div>
-                        <span class="ml-3 text-sm font-medium text-slate-300">Enabled</span>
                     </label>
                 </header>
 
                 <div>
                     <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Timeout
                         (Seconds)</label>
-                    <input type="number" name="kill_switch_timeout" value="{{ kill_switch_timeout }}" placeholder="300"
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:border-red-500 outline-none transition-all text-sm">
-                    <p class="text-[10px] text-slate-500 mt-1.5">If agent cannot reach panel for this long, it will
-                        self-destruct (stop services).</p>
+                    <input type="number" form="main-settings-form" name="kill_switch_timeout"
+                        value="{{ kill_switch_timeout }}" placeholder="300"
+                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-red-500 outline-none transition-all text-sm">
                 </div>
             </div>
         </div>
+    </div>
 
-        <!-- Sticky Save Button -->
-        <div class="fixed bottom-6 right-6 z-50">
-            <button type="submit"
-                class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-6 rounded-full shadow-lg shadow-indigo-500/30 transition-all hover:scale-105 active:scale-95 border border-indigo-500/20 backdrop-blur-sm">
-                <i data-lucide="save" class="w-5 h-5"></i>
-                Save Configuration
-            </button>
-        </div>
-    </form>
+    <!-- Sticky Save Button (Main Form Only) -->
+    <!-- We hide this button when on 'trials' tab since trials has its own save button -->
+    <div id="sticky-save-btn" class="fixed bottom-6 right-6 z-50 transition-opacity duration-300">
+        <button type="submit" form="main-settings-form"
+            class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-6 rounded-full shadow-lg shadow-indigo-500/30 transition-all hover:scale-105 active:scale-95 border border-indigo-500/20 backdrop-blur-sm">
+            <i data-lucide="save" class="w-5 h-5"></i>
+            Save Configuration
+        </button>
+    </div>
 </section>
+
+<style>
+    .tab-btn.active {
+        background-color: rgb(99 102 241);
+        /* indigo-500 */
+        color: white;
+        box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.2);
+    }
+
+    .animate-fade-in {
+        animation: fadeIn 0.3s ease-in-out;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+</style>
+
+<script>
+    function switchTab(tabId) {
+        // Build tab IDs
+        const tabs = ['general', 'payments', 'trials', 'system'];
+
+        tabs.forEach(t => {
+            const btn = document.getElementById(`tab-${t}`);
+            const content = document.getElementById(`content-${t}`);
+
+            if (t === tabId) {
+                // Active State
+                btn.classList.remove('text-slate-400', 'hover:text-white', 'hover:bg-white/5');
+                btn.classList.add('bg-indigo-500', 'text-white', 'shadow-lg', 'shadow-indigo-500/20');
+                content.classList.remove('hidden');
+                content.classList.add('block');
+            } else {
+                // Inactive State
+                btn.classList.add('text-slate-400', 'hover:text-white', 'hover:bg-white/5');
+                btn.classList.remove('bg-indigo-500', 'text-white', 'shadow-lg', 'shadow-indigo-500/20');
+                content.classList.add('hidden');
+                content.classList.remove('block');
+            }
+        });
+
+        // Hide main save button on Trials tab (it has own button)
+        const saveBtn = document.getElementById('sticky-save-btn');
+        if (tabId === 'trials') {
+            saveBtn.style.opacity = '0';
+            saveBtn.style.pointerEvents = 'none';
+        } else {
+            saveBtn.style.opacity = '1';
+            saveBtn.style.pointerEvents = 'auto';
+        }
+
+        // Re-init icons just in case icons inside hidden tabs need it (sometimes SVGs behave weirdly)
+        if (window.lucide) lucide.createIcons();
+    }
+</script>
 {% endblock %}

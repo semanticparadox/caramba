@@ -3,6 +3,7 @@ use tokio::time::{interval, Duration};
 use crate::AppState;
 use chrono::Utc;
 use crate::models::node::Node;
+use crate::services::analytics_service::AnalyticsService;
 
 pub struct TrafficService {
     state: AppState,
@@ -59,6 +60,9 @@ impl TrafficService {
                                     .bind(sub_id)
                                     .execute(&mut *tx)
                                     .await?;
+                                
+                                // Track traffic in analytics
+                                let _ = AnalyticsService::track_traffic(&self.state.pool, bytes as i64).await;
                             }
                         }
                     }

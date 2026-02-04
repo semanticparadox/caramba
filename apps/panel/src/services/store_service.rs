@@ -1755,14 +1755,7 @@ impl StoreService {
     }
     
     /// Create a trial subscription
-    pub async fn create_trial_subscription(&self, user_id: i64, plan_id: i64) -> Result<i64> {
-        let duration = sqlx::query_as::<_, PlanDuration>(
-            "SELECT * FROM plan_durations WHERE plan_id = ? LIMIT 1"
-        )
-        .bind(plan_id)
-        .fetch_one(&self.pool)
-        .await?;
-        
+    pub async fn create_trial_subscription(&self, user_id: i64, plan_id: i64, duration_days: i64) -> Result<i64> {
         let sub_id: i64 = sqlx::query_scalar(
             "INSERT INTO subscriptions 
              (user_id, plan_id, status, expires_at, used_traffic, is_trial, created_at) 
@@ -1771,11 +1764,11 @@ impl StoreService {
         )
         .bind(user_id)
         .bind(plan_id)
-        .bind(duration.duration_days)
+        .bind(duration_days)
         .fetch_one(&self.pool)
         .await?;
         
-        info!("Created trial subscription {} for user {}", sub_id, user_id);
+        info!("Created trial subscription {} for user {} ({} days)", sub_id, user_id, duration_days);
         Ok(sub_id)
     }
     

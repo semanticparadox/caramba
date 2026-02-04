@@ -58,7 +58,7 @@ impl ExportService {
             .unwrap_or_else(|_| "sqlite:exarobot.db".to_string());
         
         // Extract path from sqlite:// or sqlite: prefix
-        let db_path = db_url
+        let _db_path = db_url
             .strip_prefix("sqlite://")
             .or_else(|| db_url.strip_prefix("sqlite:"))
             .unwrap_or("exarobot.db");
@@ -122,7 +122,7 @@ impl ExportService {
     /// Export metadata and restoration instructions
     fn export_metadata(&self, export_dir: &str) -> Result<()> {
         let metadata = format!(
-"ExaRobot Panel Backup
+"CARAMBA Panel Backup
 =====================
 
 Export Timestamp: {}

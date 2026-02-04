@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Analytics - EXA ROBOT{% endblock %}
+{% block title %}Analytics - CARAMBA{% endblock %}
 {% block header_title %}Analytics{% endblock %}
 
 {% block content %}
@@ -150,21 +150,21 @@
                 {
                     label: 'Revenue ($)',
                     data: dataRevenue,
-                    borderColor: '#36b9cc',
+                    borderColor: '#FF6B35', // Caramba Orange
                     yAxisID: 'y1',
                     fill: false
                 },
                 {
                     label: 'Active Users',
                     data: dataActiveUsers,
-                    borderColor: '#1cc88a',
+                    borderColor: '#10b981', // Emerald
                     yAxisID: 'y',
                     fill: false
                 },
                 {
                     label: 'New Users',
                     data: dataNewUsers,
-                    borderColor: '#4e73df',
+                    borderColor: '#E63946', // Deep Orange
                     yAxisID: 'y',
                     fill: false,
                     borderDash: [5, 5]

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use bb8_redis::{bb8, RedisConnectionManager};
-use tracing::{info, error};
+use tracing::info;
 
 #[derive(Clone)]
 pub struct RedisService {

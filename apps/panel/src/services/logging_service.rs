@@ -1,7 +1,6 @@
 use sqlx::SqlitePool;
 use anyhow::Result;
 use serde::Serialize;
-use crate::models::store::User;
 
 #[derive(sqlx::FromRow, Serialize)]
 pub struct LogEntry {
@@ -57,12 +56,10 @@ impl LoggingService {
              LEFT JOIN users u ON l.user_id = u.id"
         );
         
-        let mut has_where = false;
         
         if let Some(cat) = &category_filter {
             if !cat.is_empty() {
                 query.push_str(" WHERE l.action = ?");
-                has_where = true;
             }
         }
 

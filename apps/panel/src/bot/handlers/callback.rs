@@ -119,10 +119,10 @@ pub async fn callback_handler(
             "topup_menu" => {
                 let response = "💳 *Choose Top-up Method:*";
                 let buttons = vec![
-                    vec![InlineKeyboardButton::callback("💎 CryptoBot", "pay_cryptobot")],
-                    vec![InlineKeyboardButton::callback("🔥 NOWPayments", "pay_nowpayments")],
-                    vec![InlineKeyboardButton::callback("🇷🇺 Cards (CrystalPay)", "pay_crystal")],
-                    vec![InlineKeyboardButton::callback("💳 Stripe (Card)", "pay_stripe")],
+                    vec![InlineKeyboardButton::callback("🪙 Crypto (USDT/TON)", "pay_cryptobot")],
+                    vec![InlineKeyboardButton::callback("⚡ Crypto (Altcoins)", "pay_nowpayments")],
+                    vec![InlineKeyboardButton::callback("🇷🇺 Cards (RUB/SBP)", "pay_crystal")],
+                    vec![InlineKeyboardButton::callback("🌍 Global Cards (USD)", "pay_stripe")],
                     vec![InlineKeyboardButton::callback("⭐️ Telegram Stars", "pay_stars")],
                 ];
                 if let Some(msg) = q.message {

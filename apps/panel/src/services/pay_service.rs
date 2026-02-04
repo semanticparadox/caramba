@@ -6,8 +6,11 @@ use std::sync::Arc;
 use chrono::Utc;
 use crate::services::store_service::StoreService;
 use crate::bot_manager::BotManager;
+use anyhow::anyhow;
+use base64::Engine;
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct CryptoBotInvoice {
     pub asset: String,
     pub amount: String,
@@ -18,6 +21,7 @@ pub struct CryptoBotInvoice {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct CryptoBotResponse<T> {
     pub ok: bool,
     pub result: Option<T>,
@@ -25,6 +29,7 @@ pub struct CryptoBotResponse<T> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct CreateInvoiceResult {
     pub invoice_id: i64,
     pub bot_invoice_url: String,
@@ -51,6 +56,7 @@ pub struct NowPaymentResponse {
 pub enum PaymentType {
     BalanceTopup,
     OrderPurchase(i64), // order_id
+    SubscriptionPurchase(i64), // plan_id
 }
 
 impl PaymentType {
@@ -58,6 +64,7 @@ impl PaymentType {
         match self {
             PaymentType::BalanceTopup => format!("{}:bal:0", user_id),
             PaymentType::OrderPurchase(order_id) => format!("{}:ord:{}", user_id, order_id),
+            PaymentType::SubscriptionPurchase(plan_id) => format!("{}:sub:{}", user_id, plan_id),
         }
     }
 }
@@ -71,7 +78,13 @@ pub struct PayService {
     nowpayments_key: String,
     crystalpay_login: String,
     crystalpay_secret: String,
+
     stripe_secret_key: String,
+    cryptomus_merchant_id: String,
+    cryptomus_payment_api_key: String,
+    aaio_merchant_id: String,
+    aaio_secret_1: String,
+    aaio_secret_2: String,
     is_testnet: bool,
 }
 
@@ -84,7 +97,13 @@ impl PayService {
         nowpayments_key: String, 
         crystalpay_login: String,
         crystalpay_secret: String,
+
         stripe_secret_key: String,
+        cryptomus_merchant_id: String,
+        cryptomus_payment_api_key: String,
+        aaio_merchant_id: String,
+        aaio_secret_1: String,
+        aaio_secret_2: String,
         is_testnet: bool
     ) -> Self {
         Self { 
@@ -94,9 +113,146 @@ impl PayService {
             cryptobot_token, 
             nowpayments_key, 
             crystalpay_login,
+
             crystalpay_secret,
             stripe_secret_key,
+            cryptomus_merchant_id,
+            cryptomus_payment_api_key,
+            aaio_merchant_id,
+            aaio_secret_1,
+            aaio_secret_2,
             is_testnet 
+        }
+    }
+
+    // Webhook signature verification helpers
+    
+    /// Verify CryptoBot webhook signature (HMAC-SHA256)
+    fn verify_cryptobot_signature(&self, payload: &str, signature: Option<&str>) -> Result<()> {
+        let sig = signature.ok_or_else(|| anyhow!("Missing signature header"))?;
+        
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        hasher.update(self.cryptobot_token.as_bytes());
+        hasher.update(payload.as_bytes());
+        let expected = hex::encode(hasher.finalize());
+        
+        if sig == expected {
+            Ok(())
+        } else {
+            Err(anyhow!("Invalid CryptoBot signature"))
+        }
+    }
+    
+    /// Verify NOWPayments IPN signature (HMAC-SHA512)
+    fn verify_nowpayments_signature(&self, payload: &str, signature: Option<&str>) -> Result<()> {
+        let sig = signature.ok_or_else(|| anyhow!("Missing x-nowpayments-sig header"))?;
+        
+        use hmac::{Hmac, Mac};
+        type HmacSha512 = Hmac<sha2::Sha512>;
+        
+        let mut mac = HmacSha512::new_from_slice(self.nowpayments_key.as_bytes())
+            .map_err(|e| anyhow!("Invalid HMAC key: {}", e))?;
+        mac.update(payload.as_bytes());
+        let expected = hex::encode(mac.finalize().into_bytes());
+        
+        if sig == expected {
+            Ok(())
+        } else {
+            Err(anyhow!("Invalid NOWPayments signature"))
+        }
+    }
+    
+    /// Verify CrystalPay signature (MD5 hash)
+    fn verify_crystalpay_signature(&self, payload: &serde_json::Value) -> Result<()> {
+        // CrystalPay uses MD5(data + secret) for signature verification
+        let sign_from_callback = payload.get("signature")
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| anyhow!("Missing signature in payload"))?;
+        
+        // Extract all fields except signature for hash calculation
+        let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        let state = payload.get("state").and_then(|v| v.as_str()).unwrap_or("");
+        let amount = payload.get("amount").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        
+        let data = format!("{}{}{}{}", id, amount, state, self.crystalpay_secret);
+        let expected = format!("{:x}", md5::compute(data.as_bytes()));
+        
+        if sign_from_callback == expected {
+            Ok(())
+        } else {
+            Err(anyhow!("Invalid CrystalPay signature"))
+        }
+    }
+    
+    /// Verify Stripe webhook signature
+    fn verify_stripe_signature(&self, payload: &str, signature: Option<&str>, webhook_secret: &str) -> Result<()> {
+        let sig = signature.ok_or_else(|| anyhow!("Missing Stripe-Signature header"))?;
+        
+        // Parse Stripe signature header (format: t=timestamp,v1=signature)
+        let parts: Vec<&str> = sig.split(',').collect();
+        let timestamp = parts.iter()
+            .find(|p| p.starts_with("t="))
+            .and_then(|p| p.strip_prefix("t=""))
+            .ok_or_else(|| anyhow!("Missing timestamp in signature"))?;
+        let sig_v1 = parts.iter()
+            .find(|p| p.starts_with("v1="))
+            .and_then(|p| p.strip_prefix("v1="))
+            .ok_or_else(|| anyhow!("Missing v1 signature"))?;
+        
+        use hmac::{Hmac, Mac};
+        type HmacSha256 = Hmac<sha2::Sha256>;
+        
+        let signed_payload = format!("{}.{}", timestamp, payload);
+        let mut mac = HmacSha256::new_from_slice(webhook_secret.as_bytes())
+            .map_err(|e| anyhow!("Invalid HMAC key: {}", e))?;
+        mac.update(signed_payload.as_bytes());
+        let expected = hex::encode(mac.finalize().into_bytes());
+        
+        if sig_v1 == expected {
+            Ok(())
+        } else {
+            Err(anyhow!("Invalid Stripe signature"))
+        }
+        if sig_v1 == expected {
+            Ok(())
+        } else {
+            Err(anyhow!("Invalid Stripe signature"))
+        }
+    }
+
+    /// Verify Cryptomus signature (MD5(base64(body) + key))
+    fn verify_cryptomus_signature(&self, payload: &str, signature: Option<&str>) -> Result<()> {
+        let sig = signature.ok_or_else(|| anyhow!("Missing sign header for Cryptomus"))?;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(payload);
+        let to_hash = format!("{}{}", encoded, self.cryptomus_payment_api_key);
+        let expected = format!("{:x}", md5::compute(to_hash.as_bytes()));
+        
+        if sig == expected {
+            Ok(())
+        } else {
+            Err(anyhow!("Invalid Cryptomus signature"))
+        }
+    }
+
+    fn generate_cryptomus_signature(&self, payload: &str) -> String {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(payload);
+        let to_hash = format!("{}{}", encoded, self.cryptomus_payment_api_key);
+        format!("{:x}", md5::compute(to_hash.as_bytes()))
+    }
+
+    /// Verify Aaio signature (SHA256(merchant_id:amount:currency:secret_2:order_id))
+    fn verify_aaio_signature(&self, merchant_id: &str, amount: &str, currency: &str, order_id: &str, sign: &str) -> Result<()> {
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        let data = format!("{}:{}:{}:{}:{}", merchant_id, amount, currency, self.aaio_secret_2, order_id);
+        hasher.update(data.as_bytes());
+        let expected = hex::encode(hasher.finalize());
+        
+        if sign == expected {
+            Ok(())
+        } else {
+             Err(anyhow!("Invalid Aaio signature. Expected: {}, Got: {}", expected, sign))
         }
     }
 
@@ -191,7 +347,7 @@ impl PayService {
             "amount": amount_usd,
             "amount_currency": "USD", // Request USD
             "type": "purchase",
-            "description": format!("ExaRobot User {}", user_id),
+            "description": format!("CARAMBA User {}", user_id),
             "redirect_url": "https://t.me/exarobot_bot",
             "callback_url": "https://api.exa.robot/api/payments/crystalpay",
             "extra": payload 
@@ -243,13 +399,127 @@ impl PayService {
         } else {
              Err(anyhow::anyhow!("Stripe Error: {:?}", body))
         }
+        } else {
+             Err(anyhow::anyhow!("Stripe Error: {:?}", body))
+        }
     }
 
-    pub async fn handle_webhook(&self, source: &str, payload: &str) -> Result<()> {
+    pub async fn create_cryptomus_invoice(&self, user_id: i64, amount_usd: f64, payment_type: PaymentType) -> Result<String> {
+        info!("Creating Cryptomus invoice for user {}: ${}", user_id, amount_usd);
+        
+        // Setup payload
+        let payload_str = payment_type.to_payload_string(user_id);
+        let order_id = format!("{}_{}", user_id, Utc::now().timestamp());
+        
+        let body_json = serde_json::json!({
+            "amount": amount_usd.to_string(), // Cryptomus often expects string for amount
+            "currency": "USD",
+            "order_id": order_id,
+            "url_callback": "https://api.exa.robot/api/payments/cryptomus",
+            "url_return": "https://t.me/exarobot_bot", // Redirect user back to bot
+            "additional_data": payload_str // Pass metadata here
+        });
+        
+        let body_str = serde_json::to_string(&body_json)?;
+        let sign = self.generate_cryptomus_signature(&body_str);
+        
+        let client = reqwest::Client::new();
+        let resp = client.post("https://api.cryptomus.com/v1/payment")
+            .header("merchant", &self.cryptomus_merchant_id)
+            .header("sign", sign)
+            .header("Content-Type", "application/json")
+            .body(body_str)
+            .send()
+            .await?;
+            
+        let resp_json: serde_json::Value = resp.json().await?;
+        // Cryptomus response: { state: 0, result: { url: "...", ... } }
+        // Note: Check docs or common key names. result.url is common.
+        
+        if let Some(result) = resp_json.get("result") {
+            if let Some(url) = result.get("url").and_then(|u| u.as_str()) {
+                 return Ok(url.to_string());
+            }
+        }
+        
+        Err(anyhow::anyhow!("Cryptomus Error: {:?}", resp_json))
+    }
+
+    pub async fn create_aaio_invoice(&self, user_id: i64, amount_usd: f64, payment_type: PaymentType) -> Result<String> {
+        info!("Creating Aaio invoice for user {}: ${}", user_id, amount_usd);
+        
+        let pay_desc = format!("Payment for User {}", user_id);
+        let order_id = format!("{}:{}:{}", user_id, Utc::now().timestamp(), payment_type.to_payload_string(user_id));
+        let currency = "USD";
+        let amount_str = format!("{:.2}", amount_usd);
+        
+        // Sign: SHA256(merchant_id:amount:currency:secret_1:order_id)
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        let sign_data = format!("{}:{}:{}:{}:{}", self.aaio_merchant_id, amount_str, currency, self.aaio_secret_1, order_id);
+        hasher.update(sign_data.as_bytes());
+        let sign = hex::encode(hasher.finalize());
+        
+        let client = reqwest::Client::new();
+        let params = [
+            ("merchant_id", self.aaio_merchant_id.as_str()),
+            ("amount", amount_str.as_str()),
+            ("currency", currency),
+            ("order_id", order_id.as_str()),
+            ("sign", sign.as_str()),
+            ("desc", pay_desc.as_str()),
+            ("lang", "en"),
+        ];
+
+        // Ensure we send as form-encoded since typically they expect POST params or query string for link generation
+        // But wait, the docs say to generate a URL to redirect user to. 
+        // We can just construct the URL and return it if we don't need to create an order via API call first.
+        // Actually, Aaio is usually "Redirect to Payment URL".
+        // URL: https://aaio.so/merchant/pay?merchant_id=...
+        // Let's verify if 'get_pay_url' is an API that RETURNS a url or if we just build it.
+        // Tool said 'get_pay_url' endpoint.
+        // The script uses `https://aaio.so/merchant/get_pay_url` and gets a result.
+        
+        let resp = client.post("https://aaio.so/merchant/get_pay_url")
+            .form(&params)
+            .send()
+            .await?;
+            
+        // Response is usually providing the redirect URL.
+        // But if we just want to redirect, we can construct https://aaio.so/merchant/pay?...
+        // Let's try to get the URL from the API for better UX (it might return a specific session URL).
+        
+        if let Ok(url_str) = resp.text().await {
+             // Sometimes it returns just the URL string, sometimes JSON.
+             // If URL string starts with http, return it.
+             if url_str.starts_with("http") {
+                 return Ok(url_str);
+             }
+             // Try parsing JSON if needed, but docs say get_pay_url returns URL in body or JSON?
+             // Assuming URL for now.
+             return Ok(url_str); // Fallback
+        }
+        
+        Err(anyhow::anyhow!("Aaio Error"))
+    }
+
+    pub async fn handle_webhook(
+        &self, 
+        source: &str, 
+        payload: &str,
+        crypto_sig: Option<&str>,
+        nowpayments_sig: Option<&str>,
+        stripe_sig: Option<&str>,
+        cryptomus_sig: Option<&str>,
+    ) -> Result<()> {
+    ) -> Result<()> {
         let body: serde_json::Value = serde_json::from_str(payload)?;
         
         match source {
             "cryptobot" => {
+                 // Verify signature
+                 self.verify_cryptobot_signature(payload, crypto_sig)?;
+                 
                  if let Some(update_type) = body["update_type"].as_str() {
                     if update_type == "invoice_paid" {
                         let invoice = &body["update_payload"];
@@ -263,6 +533,9 @@ impl PayService {
                  }
             },
             "nowpayments" => {
+                 // Verify signature
+                 self.verify_nowpayments_signature(payload, nowpayments_sig)?;
+                 
                  if let Some(status) = body["payment_status"].as_str() {
                      if status == "finished" {
                          let amount: f64 = body["pay_amount"].as_f64().unwrap_or(0.0);
@@ -274,7 +547,9 @@ impl PayService {
                  }
             },
             "crystalpay" => {
-                // Check signature logic usually needed here, but for now trusting payload for MVP
+                // Verify signature from payload
+                self.verify_crystalpay_signature(&body)?;
+
                 // CrystalPay callback: type=payment, state=payed
                 if body["type"].as_str().unwrap_or("") == "payment" && body["state"].as_str().unwrap_or("") == "payed" {
                     let amount: f64 = body["amount"].as_f64().unwrap_or(0.0); // usually in currency requested
@@ -284,6 +559,13 @@ impl PayService {
                 }
             },
             "stripe" => {
+                // Get webhook secret from env
+                let webhook_secret = std::env::var("STRIPE_WEBHOOK_SECRET")
+                    .unwrap_or_default();
+                
+                // Verify signature
+                self.verify_stripe_signature(payload, stripe_sig, &webhook_secret)?;
+                
                 // Stripe sends Event object
                 if body["type"].as_str().unwrap_or("") == "checkout.session.completed" {
                     let session = &body["data"]["object"];
@@ -294,6 +576,60 @@ impl PayService {
                     self.process_any_payment(amount_usd, "stripe", Some(id), payload_str).await?;
                 }
             },
+            },
+             "cryptomus" => {
+                 // Verify signature 
+                 self.verify_cryptomus_signature(payload, cryptomus_sig)?;
+
+                 // Check status
+                 // Payload structure from Cryptomus Webhook: { type: "payment", status: "paid", amount, order_id, additional_data, ... }
+                 // Note: Check actual structure. Usually:
+                 // { "type": "payment", "status": "paid", "amount": "10.00", "currency": "USD", "order_id": "...", "additional_data": "..." }
+                 
+                 let status = body["status"].as_str().unwrap_or("");
+                 if status == "paid" || status == "paid_over" {
+                     let amount: f64 = body["amount"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
+                     let payload_str = body["additional_data"].as_str().unwrap_or("");
+                     let id = body["uuid"].as_str().unwrap_or("").to_string(); // Cryptomus UUID
+                     
+                     self.process_any_payment(amount, "cryptomus", Some(id), payload_str).await?;
+                 }
+             },
+             "aaio" => {
+                 // Aaio typically sends form-data. Need to parse body as form-urlencoded if it's not JSON?
+                 // Or it sends JSON?
+                 // Usually form-data POST.
+                 // We receive `payload` as string. If it is JSON, `serde_json` works.
+                 // If it is form-data, we need to parse it. 
+                 // We will attempt JSON first (some send JSON), else URL encoded.
+                 
+                 let data: serde_json::Value = if let Ok(v) = serde_json::from_str(payload) {
+                     v
+                 } else {
+                     // Try parsing query string
+                     let parsed: std::collections::HashMap<String, String> = serde_urlencoded::from_str(payload)
+                        .unwrap_or_default();
+                     serde_json::to_value(parsed).unwrap_or(serde_json::json!({}))
+                 };
+                 
+                 let merchant_id = data["merchant_id"].as_str().unwrap_or("");
+                 let amount = data["amount"].as_str().unwrap_or("");
+                 let currency = data["currency"].as_str().unwrap_or("");
+                 let order_id = data["order_id"].as_str().unwrap_or("");
+                 let sign = data["sign"].as_str().unwrap_or("");
+                 
+                 self.verify_aaio_signature(merchant_id, amount, currency, order_id, sign)?;
+                 
+                 // order_id format: user_id:timestamp:payload_string
+                 // Extract payload string
+                 let parts: Vec<&str> = order_id.splitn(3, ':').collect();
+                 if parts.len() == 3 {
+                     let amount_val: f64 = amount.parse().unwrap_or(0.0);
+                     let payload_str = parts[2];
+                     let id = data["invoice_id"].as_str().unwrap_or(order_id).to_string(); // or use aaio invoice id
+                     self.process_any_payment(amount_val, "aaio", Some(id), payload_str).await?;
+                 }
+             },
             _ => {}
         }
 
@@ -319,6 +655,7 @@ impl PayService {
         match type_code {
             "bal" => self.process_balance_topup(user_id, amount_usd, method, external_id).await,
             "ord" => self.process_order_purchase(user_id, target_id, amount_usd, method, external_id).await,
+            "sub" => self.process_subscription_purchase(user_id, target_id, amount_usd, method, external_id).await,
             _ => Err(anyhow::anyhow!("Unknown Type: {}", type_code)),
         }
     }
@@ -332,6 +669,42 @@ impl PayService {
         let _ = self.bot_manager.send_notification(user_id, "✅ Your order has been paid successfully!").await;
         
         let _ = crate::services::analytics_service::AnalyticsService::track_revenue(&self.store_service.get_pool(), amount_units).await;
+        Ok(())
+    }
+
+    async fn process_subscription_purchase(&self, user_id: i64, plan_id: i64, amount_usd: f64, method: &str, external_id: Option<String>) -> Result<()> {
+        info!("Processing SUBSCRIPTION payment for user {} (Plan: {})", user_id, plan_id);
+        
+        // 1. Top up balance first (to record the flow of money)
+        self.process_balance_topup(user_id, amount_usd, method, external_id.clone()).await?;
+
+        // 2. Attempt to purchase the plan internally using the just-added balance
+        // We need to find the plan duration ID or pass plan_id directly if supported.
+        // Assuming purchase_plan takes duration_id. 
+        // For now, let's assume we are buying the 1-month duration of the plan.
+        
+        let durations = sqlx::query_as::<_, crate::models::store::PlanDuration>(
+            "SELECT * FROM plan_durations WHERE plan_id = ? ORDER BY duration_days ASC LIMIT 1"
+        )
+        .bind(plan_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if let Some(duration) = durations {
+            match self.store_service.purchase_plan(user_id, duration.id).await {
+                Ok(_) => {
+                    let _ = self.bot_manager.send_notification(user_id, "✅ Subscription activated successfully!").await;
+                },
+                Err(e) => {
+                    error!("Failed to auto-purchase subscription after payment: {}", e);
+                    let _ = self.bot_manager.send_notification(user_id, "⚠️ Payment received but subscription activation failed. Please contact support.").await;
+                }
+            }
+        } else {
+             error!("No duration found for plan {}", plan_id);
+             let _ = self.bot_manager.send_notification(user_id, "⚠️ Error: Plan duration not found. Balance credited.").await;
+        }
+        
         Ok(())
     }
 

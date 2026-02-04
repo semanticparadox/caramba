@@ -7,6 +7,7 @@ use serde::Deserialize;
 use crate::AppState;
 use crate::models::node::Node;
 use crate::models::store::{Plan, User, Order};
+use crate::services::logging_service::LoggingService;
 use std::collections::HashMap;
 use tracing::{info, error};
 use axum_extra::extract::cookie::{Cookie, CookieJar};
@@ -17,9 +18,16 @@ pub struct SettingsTemplate {
     pub masked_bot_token: String,
     pub bot_status: String,
     pub masked_payment_api_key: String,
+    pub masked_cryptomus_merchant_id: String,
+    pub masked_cryptomus_payment_api_key: String,
+    pub masked_aaio_merchant_id: String,
+    pub masked_aaio_secret_1: String,
+    pub masked_aaio_secret_2: String,
+    pub masked_aaio_secret_2: String,
     pub payment_ipn_url: String,
     pub currency_rate: String,
     pub support_url: String,
+    pub bot_username: String,
     pub brand_name: String,
     pub terms_of_service: String,
     pub is_auth: bool,
@@ -35,6 +43,24 @@ pub struct SettingsTemplate {
     // Kill Switch Settings
     pub kill_switch_enabled: bool,
     pub kill_switch_timeout: String,
+
+    // Trial Configuration (Moved from Tools)
+    pub free_trial_days: i64,
+    pub channel_trial_days: i64,
+    pub required_channel_id: String,
+    pub last_export: String,
+}
+
+#[derive(Template)]
+#[template(path = "bot.html")]
+pub struct BotTemplate {
+    pub masked_bot_token: String,
+    pub bot_status: String,
+    pub bot_username: String,
+    pub webhook_info: Option<String>,
+    pub is_auth: bool,
+    pub admin_path: String,
+    pub active_page: String,
 }
 
 
@@ -157,10 +183,18 @@ pub struct LoginForm {
 #[derive(Deserialize)]
 pub struct SaveSettingsForm {
     pub bot_token: Option<String>,
+    pub bot_token: Option<String>,
     pub payment_api_key: Option<String>,
+    pub cryptomus_merchant_id: Option<String>,
+    pub cryptomus_payment_api_key: Option<String>,
+    pub aaio_merchant_id: Option<String>,
+    pub aaio_secret_1: Option<String>,
+    pub aaio_secret_1: Option<String>,
+    pub aaio_secret_2: Option<String>,
     pub payment_ipn_url: Option<String>,
     pub currency_rate: Option<String>,
     pub support_url: Option<String>,
+    pub bot_username: Option<String>,
     pub brand_name: Option<String>,
     pub terms_of_service: Option<String>,
     pub decoy_enabled: Option<String>, // Checkbox sends "on" or nothing
@@ -267,6 +301,14 @@ pub async fn login(
             let hash: String = row.get(0);
             if bcrypt::verify(&form.password, &hash).unwrap_or(false) {
                 tracing::info!("✅ Login successful for admin: {}", form.username);
+                
+                // Log successful admin login
+                let _ = LoggingService::log_system(
+                    &state.pool,
+                    "admin_login_success",
+                    &format!("Admin '{}' logged in successfully", form.username)
+                ).await;
+                
                 let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
                 
                 // Generate random session token
@@ -297,10 +339,24 @@ pub async fn login(
                 ).into_response();
             } else {
                 tracing::warn!("❌ Login failed for admin: {} (invalid password)", form.username);
+                
+                // Log failed login attempt
+                let _ = LoggingService::log_system(
+                    &state.pool,
+                    "admin_login_failed",
+                    &format!("Failed login attempt for admin '{}' (invalid password)", form.username)
+                ).await;
             }
         }
         Ok(None) => {
             tracing::warn!("❌ Login failed: admin '{}' not found", form.username);
+            
+            // Log failed login attempt (user not found)
+            let _ = LoggingService::log_system(
+                &state.pool,
+                "admin_login_failed",
+                &format!("Failed login attempt for non-existent admin '{}'", form.username)
+            ).await;
         }
         Err(e) => {
             tracing::error!("❌ Database error during login: {}", e);
@@ -552,8 +608,9 @@ pub async fn get_settings(State(state): State<AppState>) -> impl IntoResponse {
     let payment_ipn_url = state.settings.get_or_default("payment_ipn_url", "").await;
     let currency_rate = state.settings.get_or_default("currency_rate", "1.0").await;
     let support_url = state.settings.get_or_default("support_url", "").await;
-    let brand_name = state.settings.get_or_default("brand_name", "EXA ROBOT").await;
-    let terms_of_service = state.settings.get_or_default("terms_of_service", "Welcome to EXA ROBOT.").await;
+    let bot_username = state.settings.get_or_default("bot_username", "exarobot_bot").await;
+    let brand_name = state.settings.get_or_default("brand_name", "CARAMBA").await;
+    let terms_of_service = state.settings.get_or_default("terms_of_service", "Welcome to CARAMBA.").await;
     
     // Fetch Decoy Settings
     let decoy_enabled = state.settings.get_or_default("decoy_enabled", "false").await == "true";
@@ -571,16 +628,40 @@ pub async fn get_settings(State(state): State<AppState>) -> impl IntoResponse {
     });
     tracing::info!("get_settings handler seeing ADMIN_PATH: {}", admin_path);
 
+    // Fetch Trial Config (Persistent)
+    let free_trial_days = state.settings.get_or_default("free_trial_days", "3").await.parse().unwrap_or(3);
+    let channel_trial_days = state.settings.get_or_default("channel_trial_days", "7").await.parse().unwrap_or(7);
+    let required_channel_id = state.settings.get_or_default("required_channel_id", "").await;
+    let last_export = state.settings.get_or_default("last_export", "Never").await;
+
     let masked_bot_token = if !bot_token.is_empty() { mask_key(&bot_token) } else { "".to_string() };
     let masked_payment_api_key = if !payment_api_key.is_empty() { mask_key(&payment_api_key) } else { "".to_string() };
+
+    let cryptomus_merchant_id = state.settings.get_or_default("cryptomus_merchant_id", "").await;
+    let cryptomus_payment_api_key = state.settings.get_or_default("cryptomus_payment_api_key", "").await;
+    let aaio_merchant_id = state.settings.get_or_default("aaio_merchant_id", "").await;
+    let aaio_secret_1 = state.settings.get_or_default("aaio_secret_1", "").await;
+    let aaio_secret_2 = state.settings.get_or_default("aaio_secret_2", "").await;
+
+    let masked_cryptomus_merchant_id = if !cryptomus_merchant_id.is_empty() { mask_key(&cryptomus_merchant_id) } else { "".to_string() };
+    let masked_cryptomus_payment_api_key = if !cryptomus_payment_api_key.is_empty() { mask_key(&cryptomus_payment_api_key) } else { "".to_string() };
+    let masked_aaio_merchant_id = if !aaio_merchant_id.is_empty() { mask_key(&aaio_merchant_id) } else { "".to_string() };
+    let masked_aaio_secret_1 = if !aaio_secret_1.is_empty() { mask_key(&aaio_secret_1) } else { "".to_string() };
+    let masked_aaio_secret_2 = if !aaio_secret_2.is_empty() { mask_key(&aaio_secret_2) } else { "".to_string() };
 
     let template = SettingsTemplate {
         masked_bot_token,
         bot_status,
         masked_payment_api_key,
+        masked_cryptomus_merchant_id,
+        masked_cryptomus_payment_api_key,
+        masked_aaio_merchant_id,
+        masked_aaio_secret_1,
+        masked_aaio_secret_2,
         payment_ipn_url,
         currency_rate,
         support_url,
+        bot_username,
         brand_name,
         terms_of_service,
         is_auth: true,
@@ -594,6 +675,11 @@ pub async fn get_settings(State(state): State<AppState>) -> impl IntoResponse {
 
         kill_switch_enabled,
         kill_switch_timeout,
+
+        free_trial_days,
+        channel_trial_days,
+        required_channel_id,
+        last_export,
     };
     
     match template.render() {
@@ -711,10 +797,51 @@ pub async fn save_settings(
         }
     }
 
+    let current_cryptomus_id = state.settings.get_or_default("cryptomus_merchant_id", "").await;
+    let masked_cryptomus_id = if !current_cryptomus_id.is_empty() { mask_key(&current_cryptomus_id) } else { "".to_string() };
+    if let Some(v) = form.cryptomus_merchant_id {
+        if !v.is_empty() && v != masked_cryptomus_id {
+            settings.insert("cryptomus_merchant_id".to_string(), v);
+        }
+    }
+
+    let current_cryptomus_key = state.settings.get_or_default("cryptomus_payment_api_key", "").await;
+    let masked_cryptomus_key = if !current_cryptomus_key.is_empty() { mask_key(&current_cryptomus_key) } else { "".to_string() };
+    if let Some(v) = form.cryptomus_payment_api_key {
+        if !v.is_empty() && v != masked_cryptomus_key {
+            settings.insert("cryptomus_payment_api_key".to_string(), v);
+        }
+    }
+
+    let current_aaio_id = state.settings.get_or_default("aaio_merchant_id", "").await;
+    let masked_aaio_id = if !current_aaio_id.is_empty() { mask_key(&current_aaio_id) } else { "".to_string() };
+    if let Some(v) = form.aaio_merchant_id {
+        if !v.is_empty() && v != masked_aaio_id {
+            settings.insert("aaio_merchant_id".to_string(), v);
+        }
+    }
+
+    let current_aaio_s1 = state.settings.get_or_default("aaio_secret_1", "").await;
+    let masked_aaio_s1 = if !current_aaio_s1.is_empty() { mask_key(&current_aaio_s1) } else { "".to_string() };
+    if let Some(v) = form.aaio_secret_1 {
+        if !v.is_empty() && v != masked_aaio_s1 {
+            settings.insert("aaio_secret_1".to_string(), v);
+        }
+    }
+
+    let current_aaio_s2 = state.settings.get_or_default("aaio_secret_2", "").await;
+    let masked_aaio_s2 = if !current_aaio_s2.is_empty() { mask_key(&current_aaio_s2) } else { "".to_string() };
+    if let Some(v) = form.aaio_secret_2 {
+        if !v.is_empty() && v != masked_aaio_s2 {
+            settings.insert("aaio_secret_2".to_string(), v);
+        }
+    }
+
     // For other fields, update if provided (allow empty to clear)
     if let Some(v) = form.payment_ipn_url { settings.insert("payment_ipn_url".to_string(), v); }
     if let Some(v) = form.currency_rate { settings.insert("currency_rate".to_string(), v); }
     if let Some(v) = form.support_url { settings.insert("support_url".to_string(), v); }
+    if let Some(v) = form.bot_username { settings.insert("bot_username".to_string(), v); }
     if let Some(v) = form.brand_name { settings.insert("brand_name".to_string(), v); }
     if let Some(v) = form.terms_of_service { settings.insert("terms_of_service".to_string(), v); }
 
@@ -1753,6 +1880,13 @@ pub async fn update_user_balance(
 
     match res {
         Ok(_) => {
+            // Log balance update action
+            let _ = LoggingService::log_system(
+                &state.pool,
+                "admin_update_balance",
+                &format!("Admin updated user {} balance to {} cents", id, balance)
+            ).await;
+            
             let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
             ([("HX-Redirect", format!("{}/users", admin_path))], "Updated").into_response()
         },
@@ -1818,13 +1952,23 @@ pub async fn extend_user_subscription(
 }
 
 
+use axum::http::HeaderMap;
+
 pub async fn handle_payment(
     State(state): State<AppState>,
     Path(source): Path<String>,
+    headers: HeaderMap,
     body: String,
 ) -> impl IntoResponse {
     info!("Received payment webhook from source: {}", source);
-    if let Err(e) = state.pay_service.handle_webhook(&source, &body).await {
+    
+    // Extract potential signatures
+    let crypto_sig = headers.get("crypto-pay-api-signature").and_then(|h| h.to_str().ok());
+    let nowpayments_sig = headers.get("x-nowpayments-sig").and_then(|h| h.to_str().ok());
+    let stripe_sig = headers.get("stripe-signature").and_then(|h| h.to_str().ok());
+    let cryptomus_sig = headers.get("sign").and_then(|h| h.to_str().ok());
+
+    if let Err(e) = state.pay_service.handle_webhook(&source, &body, crypto_sig, nowpayments_sig, stripe_sig, cryptomus_sig).await {
         error!("Failed to process payment webhook: {}", e);
         return axum::http::StatusCode::INTERNAL_SERVER_ERROR;
     }
@@ -2108,66 +2252,37 @@ pub async fn get_frontends(State(_state): State<AppState>) -> impl IntoResponse 
     }
 }
 
-// ========== Tools Page - DB Export and Trial Configuration ==========
+// ========== Tools Page Logic Migrated to Settings & Bot Page ==========
 
-#[derive(Template)]
-#[template(path = "tools.html")]
-pub struct ToolsTemplate {
-    pub is_auth: bool,
-    pub admin_path: String,
-    pub active_page: String,
-    pub last_export: String,
-    pub free_trial_days: i64,
-    pub channel_trial_days: i64,
-    pub required_channel_id: String,
-    pub trial_stats: TrialStats,
-}
-
-pub struct TrialStats {
-    pub default_count: i64,
-    pub channel_count: i64,
-    pub active_count: i64,
-}
-
-pub async fn get_tools_page(
+pub async fn get_bot_page(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    // Get current config from environment
-    let free_trial_days = std::env::var("FREE_TRIAL_DAYS")
-        .unwrap_or_else(|_| "3".to_string())
-        .parse()
-        .unwrap_or(3);
+    let bot_token = state.settings.get_or_default("bot_token", "").await;
+    let bot_status = state.settings.get_or_default("bot_status", "stopped").await;
     
-    let channel_trial_days = std::env::var("CHANNEL_TRIAL_DAYS")
-        .unwrap_or_else(|_| "7".to_string())
-        .parse()
-        .unwrap_or(7);
+    let masked_bot_token = if !bot_token.is_empty() { mask_key(&bot_token) } else { "".to_string() };
     
-    let required_channel_id = std::env::var("REQUIRED_CHANNEL_ID")
-        .unwrap_or_default();
     
-    // Get trial statistics from database
-    let trial_stats = get_trial_stats(&state.pool).await.ok();
-    
-    let admin_path = std::env::var("ADMIN_PATH")
-        .unwrap_or_else(|_| "/admin".to_string());
-    
-    let tmpl = ToolsTemplate {
+    // Attempt to get username (or use hardcoded default for now)
+    let bot_username = state.settings.get_or_default("bot_username", "exarobot_bot").await;
+
+    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+
+    let template = BotTemplate {
+        masked_bot_token,
+        bot_status,
+        bot_username,
+        webhook_info: None, // Can be fetched from bot manager later
         is_auth: true,
         admin_path,
-        active_page: "tools".to_string(),
-        last_export: "Never".to_string(), // TODO: Track last export timestamp
-        free_trial_days,
-        channel_trial_days,
-        required_channel_id,
-        trial_stats: trial_stats.unwrap_or(TrialStats {
-            default_count: 0,
-            channel_count: 0,
-            active_count: 0,
-        }),
+        active_page: "bot".to_string(),
     };
-    
-    Html(tmpl.render().unwrap())
+
+    match template.render() {
+        Ok(html) => Html(html).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Template error: {}", e)).into_response(),
+    }
 }
 
 pub async fn db_export_download(
@@ -2186,6 +2301,10 @@ pub async fn db_export_download(
             
             info!("Export successful: {} bytes, filename: {}", data.len(), filename);
             
+            // Update last export timestamp
+            let now_str = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string();
+            state.settings.insert("last_export".to_string(), now_str).await;
+
             (
                 StatusCode::OK,
                 [
@@ -2225,18 +2344,15 @@ pub async fn update_trial_config(
         form.required_channel_id
     );
     
-    // NOTE: These settings are currently read from .env
-    // To persist changes, would need to:
-    // 1. Store in database settings table
-    // 2. Or dynamically update .env file
-    // For now, just redirect back with the current values
-    
-    // TODO: Implement persistent storage for trial configuration
+    // Save to DB
+    state.settings.insert("free_trial_days".to_string(), form.free_trial_days.to_string()).await;
+    state.settings.insert("channel_trial_days".to_string(), form.channel_trial_days.to_string()).await;
+    state.settings.insert("required_channel_id".to_string(), form.required_channel_id).await;
     
     let admin_path = std::env::var("ADMIN_PATH")
         .unwrap_or_else(|_| "/admin".to_string());
     
-    Redirect::to(&format!("{}/tools", admin_path))
+    Redirect::to(&format!("{}/settings", admin_path))
 }
 
 async fn get_trial_stats(pool: &sqlx::SqlitePool) -> anyhow::Result<TrialStats> {
