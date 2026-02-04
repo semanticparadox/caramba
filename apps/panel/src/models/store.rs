@@ -155,6 +155,7 @@ pub struct SubscriptionIpTracking {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[allow(dead_code)]
 pub struct SniPool {
     pub id: i64,
     pub domain: String,
@@ -166,6 +167,7 @@ pub struct SniPool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[allow(dead_code)]
 pub struct SniRotationLog {
     pub id: i64,
     pub node_id: i64,

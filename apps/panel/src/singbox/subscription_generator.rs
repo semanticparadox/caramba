@@ -6,7 +6,7 @@ use serde_json::json;
 pub struct UserKeys {
     pub user_uuid: String,
     pub hy2_password: String,
-    pub awg_private_key: Option<String>,
+    pub _awg_private_key: Option<String>,
 }
 
 /// Simplified node struct for subscription generation

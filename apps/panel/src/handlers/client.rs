@@ -33,7 +33,7 @@ pub struct UserInfo {
 #[derive(Deserialize)]
 struct TelegramUser {
     id: i64,
-    username: Option<String>,
+    _username: Option<String>,
     // other fields like first_name, last_name, etc.
 }
 

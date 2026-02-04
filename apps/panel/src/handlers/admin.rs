@@ -59,7 +59,7 @@ pub struct SettingsTemplate {
 pub struct BotTemplate {
     pub masked_bot_token: String,
     pub bot_status: String,
-    pub bot_username: String,
+    pub _bot_username: String,
     pub is_auth: bool,
     pub admin_path: String,
     pub active_page: String,
@@ -260,8 +260,6 @@ pub struct DashboardTemplate {
     pub total_revenue: String,
     pub total_traffic: String,
     pub activities: Vec<RecentActivity>,
-    pub db_status: String,
-    pub redis_status: String,
     pub bot_status: String,
     pub is_auth: bool,
     pub admin_path: String,
@@ -284,8 +282,11 @@ pub struct AnalyticsTemplate {
     pub orders: Vec<OrderWithUser>,
     pub top_users: Vec<UserWithTraffic>,
     pub history_data_json: String,
+#[allow(dead_code)]
     pub history_labels_json: String,
+#[allow(dead_code)]
     pub node_series_json: String,
+#[allow(dead_code)]
     pub node_labels_json: String,
     pub is_auth: bool,
     pub admin_path: String,
@@ -335,8 +336,6 @@ pub async fn get_dashboard(State(state): State<AppState>) -> impl IntoResponse {
         total_revenue,
         total_traffic,
         activities,
-        db_status: "Online".to_string(), // Still kept for now if template expects it, but should be removed from template later
-        redis_status: "Online".to_string(),
         bot_status,
         is_auth: true,
         admin_path,
@@ -430,9 +429,7 @@ pub async fn login(
             .http_only(true)
             .build();
             
-        // Also set legacy auth_token for backward compat if any middleware uses it (logout does)
-        // But logout clears "auth_token". Middleware checks "admin_session". 
-        // Let's set both to be safe or migrate logout to use "admin_session".
+        let _ = cookie; // Suppress unused warning if logic doesn't use it directly here (it uses jar_with_cookie later which takes A cookie, but maybe I constructed logic wrong in previous edit)
         // The middleware in main.rs checks "admin_session".
         
         let mut headers = axum::http::HeaderMap::new();

@@ -4,6 +4,7 @@ use chrono::Utc;
 
 pub struct AnalyticsService;
 
+#[allow(dead_code)]
 impl AnalyticsService {
     /// Track a new user registration (increments daily_stats.new_users)
     pub async fn track_new_user(pool: &SqlitePool) -> Result<()> {

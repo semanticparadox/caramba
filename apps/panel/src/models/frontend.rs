@@ -13,6 +13,7 @@ pub struct FrontendServer {
     pub auth_token_hash: Option<String>,
     /// Legacy plaintext token - will be removed after migration
     #[serde(skip_serializing)]  // Never send to client
+    #[allow(dead_code)]
     pub auth_token: Option<String>,
     pub is_active: bool,
     pub last_heartbeat: Option<DateTime<Utc>>,

@@ -302,14 +302,4 @@ fn generate_install_command(domain: &str, token: &str, region: &str) -> String {
 }
 
 // Response types
-#[derive(Serialize)]
-pub struct FrontendServerResponse {
-    pub frontend: FrontendServer,
-    pub install_command: String,
-}
 
-#[derive(Serialize)]
-pub struct TokenResponse {
-    pub token: String,
-    pub instructions: String,
-}

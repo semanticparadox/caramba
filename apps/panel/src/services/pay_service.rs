@@ -555,7 +555,7 @@ impl PayService {
         #[derive(Deserialize)]
         struct LavaData {
             url: String, 
-            id: String
+            _id: String
         }
         
         let lava_res: LavaResponse = res.json().await?;
