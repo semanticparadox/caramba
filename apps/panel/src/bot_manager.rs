@@ -44,6 +44,11 @@ impl BotManager {
         let shutdown_rx = self.shutdown_sender.subscribe();
 
         let handle = tokio::spawn(async move {
+            // DEBUG: Log Hex Dump of token to find hidden characters
+            if !token.is_empty() {
+                let hex_repr: Vec<String> = token.as_bytes().iter().map(|b| format!("{:02X}", b)).collect();
+                info!("DEBUG TOKEN HEX: {}", hex_repr.join(" "));
+            }
             info!("Bot task started for token: ...{}", &token.chars().last().unwrap_or('?')); // Log safe token end
             run_bot(bot, shutdown_rx, state).await;
             info!("Bot task finished/stopped");
