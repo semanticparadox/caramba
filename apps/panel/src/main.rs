@@ -212,7 +212,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     let nowpayments_key = settings.get_or_default("nowpayments_key", "").await;
     let crystalpay_login = settings.get_or_default("crystalpay_login", "").await;
     let crystalpay_secret = settings.get_or_default("crystalpay_secret", "").await;
-    let stripe_secret_key = settings.get_or_default("stripe_secret_key", "").await;
+
     let stripe_secret_key = settings.get_or_default("stripe_secret_key", "").await;
     let cryptomus_merchant_id = settings.get_or_default("cryptomus_merchant_id", "").await;
     let cryptomus_payment_api_key = settings.get_or_default("cryptomus_payment_api_key", "").await;
