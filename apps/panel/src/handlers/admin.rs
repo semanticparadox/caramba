@@ -673,8 +673,14 @@ pub async fn save_settings(
     let current_bot_token = state.settings.get_or_default("bot_token", "").await;
     let masked_bot_token = if !current_bot_token.is_empty() { mask_key(&current_bot_token) } else { "".to_string() };
     
-    if let Some(v) = form.bot_token {
-        let v = v.trim().to_string(); // Sanitize input
+     if let Some(v) = form.bot_token {
+        // Aggressive sanitization: remove quotes, trim, remove internal whitespace (newlines/tabs)
+        // Bot tokens should NOT have spaces or newlines.
+        let v = v.trim()
+            .replace(['"', '\''], "")
+            .replace(['\n', '\r', '\t', ' '], "")
+            .to_string();
+            
         if !v.is_empty() && v != masked_bot_token {
             if is_running {
                 // Return error if trying to update token while running
@@ -683,6 +689,7 @@ pub async fn save_settings(
                     "Cannot update Bot Token while bot is running. Please stop the bot first."
                 ).into_response();
             }
+            info!("Updating Bot Token: len={}, snippet={}...", v.len(), &v.chars().take(5).collect::<String>());
             settings.insert("bot_token".to_string(), v);
         }
     }
