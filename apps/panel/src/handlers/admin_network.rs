@@ -26,9 +26,6 @@ pub struct NodeInboundsTemplate {
 
 pub async fn get_node_inbounds(
     State(state): State<AppState>,
-    Path(node_id): Path<i64>,
-pub async fn get_node_inbounds(
-    State(state): State<AppState>,
     jar: CookieJar,
     Path(node_id): Path<i64>,
 ) -> impl IntoResponse {
@@ -202,9 +199,6 @@ pub struct InboundBindingItem {
     pub is_bound: bool,
 }
 
-pub async fn get_plan_bindings(
-    State(state): State<AppState>,
-    Path(plan_id): Path<i64>,
 pub async fn get_plan_bindings(
     State(state): State<AppState>,
     jar: CookieJar,
