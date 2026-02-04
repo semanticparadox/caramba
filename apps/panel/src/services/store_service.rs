@@ -230,12 +230,50 @@ impl StoreService {
     }
 
     pub async fn update_last_bot_msg_id(&self, user_id: i64, msg_id: i32) -> Result<()> {
+        // Legacy: kept for compatibility but superseded by history tracking
         sqlx::query("UPDATE users SET last_bot_msg_id = ? WHERE id = ?")
             .bind(msg_id)
             .bind(user_id)
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    pub async fn add_bot_message_to_history(&self, user_id: i64, chat_id: i64, message_id: i32) -> Result<()> {
+        sqlx::query("INSERT INTO bot_chat_history (user_id, chat_id, message_id) VALUES (?, ?, ?)")
+            .bind(user_id)
+            .bind(chat_id)
+            .bind(message_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn cleanup_bot_history(&self, user_id: i64, keep_count: i64) -> Result<Vec<(i64, i32)>> {
+        // 1. Get IDs to delete (keeping latest N)
+        // Note: LIMIT -1 OFFSET N is SQLite syntax for "All after N"
+        let ids_to_delete: Vec<(i64, i64, i32)> = sqlx::query_as(
+            "SELECT id, chat_id, message_id FROM bot_chat_history 
+             WHERE user_id = ? 
+             ORDER BY created_at DESC 
+             LIMIT -1 OFFSET ?"
+        )
+        .bind(user_id)
+        .bind(keep_count)
+        .fetch_all(&self.pool)
+        .await?;
+
+        if ids_to_delete.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // 2. Delete from DB
+        let id_list = ids_to_delete.iter().map(|(id, _, _)| id.to_string()).collect::<Vec<_>>().join(",");
+        let query = format!("DELETE FROM bot_chat_history WHERE id IN ({})", id_list);
+        sqlx::query(&query).execute(&self.pool).await?;
+
+        // 3. Return chat_id, message_id for Telegram deletion
+        Ok(ids_to_delete.into_iter().map(|(_, chat_id, msg_id)| (chat_id, msg_id)).collect())
     }
 
     pub async fn update_user_terms(&self, user_id: i64) -> Result<()> {

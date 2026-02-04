@@ -4,7 +4,8 @@ use tracing::{info, error};
 use crate::AppState;
 use crate::bot::utils::{escape_md, check_channel_membership, get_trial_days};
 use crate::bot::keyboards::{main_menu, language_keyboard, terms_keyboard};
-use crate::services::logging_service::LoggingService;
+use crate::bot::utils::{escape_md, check_channel_membership, get_trial_days, register_bot_message};
+use crate::bot::keyboards::{main_menu, language_keyboard, terms_keyboard};
 
 pub async fn message_handler(
     bot: Bot,
@@ -157,10 +158,12 @@ pub async fn message_handler(
                     .parse_mode(ParseMode::Html)
                     .reply_markup(terms_keyboard())
                     .await
-                    .map(|m| {
+                    .map(move |m| {
                          let state = state.clone();
+                         let bot = bot.clone();
+                         let uid = user.id;
                          tokio::spawn(async move {
-                             let _ = state.store_service.update_last_bot_msg_id(user.id, m.id.0).await;
+                             register_bot_message(bot, &state, uid, &m).await;
                          });
                     })
                     .map_err(|e| error!("Failed to send terms: {}", e));
@@ -168,9 +171,9 @@ pub async fn message_handler(
             }
 
             // --- Dissolving Effect: Delete previous bot message & this command ---
-            if let Some(last_id) = user.last_bot_msg_id {
-                let _ = bot.delete_message(msg.chat.id, MessageId(last_id)).await;
-            }
+            // --- Dissolving Effect: History Handled by register_bot_message ---
+            // Old deletion logic removed to support "Keep 3" history.
+            // ---------------------------------------------------------------------
             let _ = bot.delete_message(msg.chat.id, msg.id).await;
             // ---------------------------------------------------------------------
 
@@ -198,11 +201,12 @@ pub async fn message_handler(
                     .parse_mode(ParseMode::Html)
                     .reply_markup(main_menu())
                     .await
-                    .map(|m| {
+                    .map(move |m| {
                         let state = state.clone();
+                        let bot = bot.clone();
                         let uid = user.id;
                         tokio::spawn(async move {
-                            let _ = state.store_service.update_last_bot_msg_id(uid, m.id.0).await;
+                            register_bot_message(bot, &state, uid, &m).await;
                         });
                     })
                     .map_err(|e| error!("Failed to send welcome on /start: {}", e));
@@ -444,7 +448,15 @@ pub async fn message_handler(
                          let _ = bot.send_message(msg.chat.id, text)
                             .parse_mode(ParseMode::MarkdownV2)
                             .reply_markup(InlineKeyboardMarkup::new(buttons))
-                            .await;
+                            .await
+                            .map(move |m| {
+                                let state = state.clone();
+                                let bot = bot.clone();
+                                let uid = user.id;
+                                tokio::spawn(async move {
+                                    register_bot_message(bot, &state, uid, &m).await;
+                                });
+                            });
                      }
                  }
             }
@@ -514,8 +526,13 @@ pub async fn message_handler(
                             if let Some(user) = user_db {
                                 let state = state.clone();
                                 let uid = user.id;
+                        .map(move |m| {
+                            if let Some(user) = user_db {
+                                let state = state.clone();
+                                let bot = bot.clone();
+                                let uid = user.id;
                                 tokio::spawn(async move {
-                                    let _ = state.store_service.update_last_bot_msg_id(uid, m.id.0).await;
+                                    register_bot_message(bot, &state, uid, &m).await;
                                 });
                             }
                         });
@@ -543,7 +560,15 @@ pub async fn message_handler(
                     let _ = bot.send_message(msg.chat.id, response)
                         .parse_mode(ParseMode::MarkdownV2)
                         .reply_markup(InlineKeyboardMarkup::new(buttons))
-                        .await;
+                        .await
+                        .map(move |m| {
+                             let state = state.clone();
+                             let bot = bot.clone();
+                             let uid = user.id;
+                             tokio::spawn(async move {
+                                 register_bot_message(bot, &state, uid, &m).await;
+                             });
+                        });
                 }
             }
 
@@ -575,11 +600,12 @@ pub async fn message_handler(
                         let _ = bot.send_message(msg.chat.id, response)
                             .parse_mode(ParseMode::MarkdownV2)
                             .await
-                            .map(|m| {
+                            .map(move |m| {
                                 let state = state.clone();
+                                let bot = bot.clone();
                                 let uid = user.id;
                                 tokio::spawn(async move {
-                                    let _ = state.store_service.update_last_bot_msg_id(uid, m.id.0).await;
+                                    register_bot_message(bot, &state, uid, &m).await;
                                 });
                             });
                     } else {
@@ -675,11 +701,12 @@ pub async fn message_handler(
                             .parse_mode(ParseMode::MarkdownV2)
                             .reply_markup(InlineKeyboardMarkup::new(buttons))
                             .await
-                            .map(|m| {
+                            .map(move |m| {
                                 let state = state.clone();
+                                let bot = bot.clone();
                                 let uid = user.id;
                                 tokio::spawn(async move {
-                                    let _ = state.store_service.update_last_bot_msg_id(uid, m.id.0).await;
+                                    register_bot_message(bot, &state, uid, &m).await;
                                 });
                             });
                     }
@@ -730,7 +757,15 @@ pub async fn message_handler(
                     let _ = bot.send_message(msg.chat.id, response)
                         .parse_mode(ParseMode::MarkdownV2)
                         .reply_markup(InlineKeyboardMarkup::new(buttons))
-                        .await;
+                        .await
+                        .map(move |m| {
+                             let state = state.clone();
+                             let bot = bot.clone();
+                             let uid = user.id;
+                             tokio::spawn(async move {
+                                 register_bot_message(bot, &state, uid, &m).await;
+                             });
+                        });
                 }
             }
 
@@ -800,11 +835,12 @@ pub async fn message_handler(
                                    .parse_mode(ParseMode::MarkdownV2)
                                    .reply_markup(InlineKeyboardMarkup::new(buttons))
                                    .await
-                                   .map(|m| {
+                                   .map(move |m| {
                                        let state = state.clone();
+                                       let bot = bot.clone();
                                        let uid = u.id;
                                        tokio::spawn(async move {
-                                           let _ = state.store_service.update_last_bot_msg_id(uid, m.id.0).await;
+                                           register_bot_message(bot, &state, uid, &m).await;
                                        });
                                    });
 
@@ -820,11 +856,12 @@ pub async fn message_handler(
                                    .parse_mode(ParseMode::MarkdownV2)
                                    .reply_markup(InlineKeyboardMarkup::new(buttons))
                                    .await
-                                   .map(|m| {
+                                   .map(move |m| {
                                        let state = state.clone();
+                                       let bot = bot.clone();
                                        let uid = u.id;
                                        tokio::spawn(async move {
-                                           let _ = state.store_service.update_last_bot_msg_id(uid, m.id.0).await;
+                                           register_bot_message(bot, &state, uid, &m).await;
                                        });
                                    });
                            }
