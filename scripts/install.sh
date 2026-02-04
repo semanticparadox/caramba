@@ -423,7 +423,7 @@ configure_panel() {
             read -r DOMAIN < /dev/tty
         fi
         # Trim whitespace
-        DOMAIN=$(echo "$DOMAIN" | xargs)
+        DOMAIN=$(echo "$DOMAIN" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     fi
     
     ensure_panel_port
