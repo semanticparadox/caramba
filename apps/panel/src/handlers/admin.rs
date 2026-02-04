@@ -675,7 +675,6 @@ pub async fn save_settings(
     
      if let Some(v) = form.bot_token {
         // Aggressive sanitization: remove quotes, trim, remove internal whitespace (newlines/tabs)
-        // Bot tokens should NOT have spaces or newlines.
         let v = v.trim()
             .replace(['"', '\''], "")
             .replace(['\n', '\r', '\t', ' '], "")
@@ -683,12 +682,22 @@ pub async fn save_settings(
             
         if !v.is_empty() && v != masked_bot_token {
             if is_running {
-                // Return error if trying to update token while running
                  return (
                     axum::http::StatusCode::BAD_REQUEST, 
                     "Cannot update Bot Token while bot is running. Please stop the bot first."
                 ).into_response();
             }
+
+            // Validate Token Format: 123456789:ABCDefG...
+            let parts: Vec<&str> = v.split(':').collect();
+            if parts.len() != 2 || parts[0].chars().any(|c| !c.is_numeric()) || v.len() < 20 {
+                 error!("Invalid bot token format rejected: len={}, start={}", v.len(), parts.get(0).unwrap_or(&"???"));
+                 return (
+                    axum::http::StatusCode::BAD_REQUEST, 
+                    format!("Invalid Bot Token Format. Expected '123456:ABC...'. Received: '{}'", v)
+                ).into_response();
+            }
+
             info!("Updating Bot Token: len={}, snippet={}...", v.len(), &v.chars().take(5).collect::<String>());
             settings.insert("bot_token".to_string(), v);
         }
