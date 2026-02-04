@@ -445,24 +445,16 @@ pub async fn login(
         
         // Also, main.rs middleware checks if token exists in Redis:
         // `if let Ok(Some(_)) = state.redis.get(&redis_key).await`
-        // We need to set the session in Redis too!
-        // For now, let's just use the simple session_secret match which seems to be what `setup.rs` does?
-        // Setup.rs: `jar.add(cookie)` with "admin_session" = state.session_secret.
-        // Middleware: checks `state.redis.get`... WAIT.
-        // main.rs:112 `state.redis.get(&redis_key)`
-        // If Redis check is strict, we MUST put it in Redis.
-        // But setup.rs DOES NOT put it in Redis. It just sends cookie.
-        // Does middleware allow it if NOT in redis?
-        // main.rs:112: `if let Ok(Some(_)) = state.redis.get(&redis_key).await { return next.run(req).await; }`
-        // It ONLY ensures valid session if found in Redis.
-        // If logic continues... it falls through to "Check if any admin exists".
-        // If admins exist, it redirects to login.
-        // SO: We MUST put session in Redis for middleware to pass `auth_middleware`!
-        
+        // Create session in Redis
         let token = uuid::Uuid::new_v4().to_string();
+        // Store explicit username (trim just in case)
+        let clean_username = form.username.trim().to_string();
+        
+        info!("Creating session for user: '{}' (token: {}...)", clean_username, &token[..6]);
+
         let _ = state.redis.set(
             &format!("session:{}", token),
-            &form.username,
+            &clean_username,
             24 * 60 * 60 // 24 hours
         ).await;
 
@@ -483,9 +475,10 @@ fn jar_with_cookie(cookie: Cookie<'static>) -> CookieJar {
 }
 
 pub async fn logout(jar: CookieJar) -> impl IntoResponse {
-    let mut cookie = Cookie::from("auth_token");
+    let mut cookie = Cookie::from("admin_session"); // Fixed: Was auth_token
     cookie.set_value("");
     cookie.set_path("/");
+    cookie.set_max_age(time::Duration::seconds(0)); // Expire immediately
     
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };

@@ -120,9 +120,9 @@ async fn auth_middleware(
             if user_exists {
                 return next.run(req).await;
             } else {
-                tracing::warn!("Session found for '{}' but user missing in DB. Invalidating.", username);
-                // Ideally we'd delete the redis key here too, but this is a read path.
-                // The session effectively becomes invalid.
+                tracing::warn!("Session INVALID: Redis has username '{}' but DB check failed. (Ghost session?)", username);
+                // Force cache clear on client side if possible, but mainly we just reject access here.
+                // NOTE: Falling through will redirect to Login.
             }
         }
     }
