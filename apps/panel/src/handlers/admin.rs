@@ -2303,7 +2303,9 @@ pub async fn get_bot_page(
     let bot_token = state.settings.get_or_default("bot_token", "").await;
     let bot_status = state.settings.get_or_default("bot_status", "stopped").await;
     
-    let masked_bot_token = if !bot_token.is_empty() { mask_key(&bot_token) } else { "".to_string() };
+    // DEBUG: Show FULL bot token to reassure user it's not truncated
+    // let masked_bot_token = if !bot_token.is_empty() { mask_key(&bot_token) } else { "".to_string() };
+    let masked_bot_token = bot_token.clone();
     
     
     // Attempt to get username (or use hardcoded default for now)
