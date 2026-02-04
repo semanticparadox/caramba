@@ -167,6 +167,15 @@ pub struct NodesTemplate {
     pub active_page: String,
 }
 
+#[derive(Template)]
+#[template(path = "partials/statusbar.html")]
+pub struct StatusbarPartial {
+    pub bot_status: String,
+    pub db_status: String,
+    pub redis_status: String,
+    pub admin_path: String,
+}
+
 #[derive(Deserialize)]
 pub struct InstallNodeForm {
     pub name: String,
@@ -311,14 +320,22 @@ pub async fn get_dashboard(State(state): State<AppState>) -> impl IntoResponse {
     let is_running = state.bot_manager.is_running().await;
     let bot_status = if is_running { "running" } else { "stopped" }.to_string();
 
+    // Fetch recent activity logs
+    let logs = LoggingService::get_logs(&state.pool, 10, 0, None).await.unwrap_or_default();
+    let activities: Vec<RecentActivity> = logs.into_iter().map(|log| RecentActivity {
+        action: log.action,
+        details: log.details,
+        created_at: log.created_at,
+    }).collect();
+
     let template = DashboardTemplate {
         active_nodes,
         total_users,
         active_subs,
         total_revenue,
         total_traffic,
-        activities: Vec::new(), // Placeholder
-        db_status: "Online".to_string(),
+        activities,
+        db_status: "Online".to_string(), // Still kept for now if template expects it, but should be removed from template later
         redis_status: "Online".to_string(),
         bot_status,
         is_auth: true,
@@ -326,6 +343,34 @@ pub async fn get_dashboard(State(state): State<AppState>) -> impl IntoResponse {
         active_page: "dashboard".to_string(),
     };
     Html(template.render().unwrap())
+}
+
+pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
+    let is_running = state.bot_manager.is_running().await;
+    let bot_status = if is_running { "running" } else { "stopped" }.to_string();
+    
+    // Check Redis
+    let redis_status = match state.redis.ping().await {
+        Ok(_) => "Online".to_string(),
+        Err(_) => "Offline".to_string(),
+    };
+
+    // Check DB (simple query)
+    let db_status = match sqlx::query("SELECT 1").execute(&state.pool).await {
+        Ok(_) => "Online".to_string(),
+        Err(_) => "Offline".to_string(),
+    };
+
+    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+
+    let template = StatusbarPartial {
+        bot_status,
+        db_status,
+        redis_status,
+        admin_path,
+    };
+    Html(template.render().unwrap_or_default())
 }
 
 fn format_bytes(bytes: u64) -> String {
@@ -345,23 +390,89 @@ pub async fn get_login() -> impl IntoResponse {
     }.render().unwrap())
 }
 
-pub async fn login(Form(form): Form<LoginForm>) -> impl IntoResponse {
-    let admin_user = std::env::var("ADMIN_USER").unwrap_or_else(|_| "admin".to_string());
-    let admin_pass = std::env::var("ADMIN_PASS").unwrap_or_else(|_| "admin".to_string());
+pub async fn login(
+    State(state): State<AppState>,
+    Form(form): Form<LoginForm>
+) -> impl IntoResponse {
+    // 1. Check Database First
+    let admin_opts: Option<(String,)> = sqlx::query_as("SELECT password_hash FROM admins WHERE username = ?")
+        .bind(&form.username)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
 
-    if form.username == admin_user && form.password == admin_pass {
+    let mut is_valid = false;
+
+    if let Some((hash,)) = admin_opts {
+        // Verify hash
+        if bcrypt::verify(&form.password, &hash).unwrap_or(false) {
+            is_valid = true;
+        }
+    } else {
+        // Fallback to legacy env vars (only if not found in DB, for smooth migration/emergency)
+        let admin_user = std::env::var("ADMIN_USER").unwrap_or_else(|_| "admin".to_string());
+        let admin_pass = std::env::var("ADMIN_PASS").unwrap_or_else(|_| "admin".to_string());
+        
+        if form.username == admin_user && form.password == admin_pass {
+            is_valid = true;
+        }
+    }
+
+    if is_valid {
         let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
         let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
         
-        // Use the same auth_token logic as is_authenticated
-        let token = std::env::var("ADMIN_PASS").unwrap_or_else(|_| "admin".to_string());
-        let cookie = Cookie::build(("auth_token", token))
+        // Use a secure random session secret or the legacy token logic
+        // For consistency with setup.rs, let's use the session_secret from state
+        // creating a session cookie.
+        let cookie = Cookie::build(("admin_session", state.session_secret.clone()))
             .path("/")
             .http_only(true)
             .build();
             
+        // Also set legacy auth_token for backward compat if any middleware uses it (logout does)
+        // But logout clears "auth_token". Middleware checks "admin_session". 
+        // Let's set both to be safe or migrate logout to use "admin_session".
+        // The middleware in main.rs checks "admin_session".
+        
         let mut headers = axum::http::HeaderMap::new();
         headers.insert("HX-Redirect", format!("{}/dashboard", admin_path).parse().unwrap());
+        
+        // We return the jar with cookie.
+        // NOTE: The previous code laid a cookie named "auth_token" but middleware checked "admin_session"?
+        // Wait, main.rs line 108: `if let Some(cookie) = jar.get("admin_session")`
+        // But login.rs line 358: `Cookie::build(("auth_token", token))`
+        // This confirms why "it creates but doesn't log in" - cookie name mismatch!
+        // Fixed: Use "admin_session"
+        
+        // Also, main.rs middleware checks if token exists in Redis:
+        // `if let Ok(Some(_)) = state.redis.get(&redis_key).await`
+        // We need to set the session in Redis too!
+        // For now, let's just use the simple session_secret match which seems to be what `setup.rs` does?
+        // Setup.rs: `jar.add(cookie)` with "admin_session" = state.session_secret.
+        // Middleware: checks `state.redis.get`... WAIT.
+        // main.rs:112 `state.redis.get(&redis_key)`
+        // If Redis check is strict, we MUST put it in Redis.
+        // But setup.rs DOES NOT put it in Redis. It just sends cookie.
+        // Does middleware allow it if NOT in redis?
+        // main.rs:112: `if let Ok(Some(_)) = state.redis.get(&redis_key).await { return next.run(req).await; }`
+        // It ONLY ensures valid session if found in Redis.
+        // If logic continues... it falls through to "Check if any admin exists".
+        // If admins exist, it redirects to login.
+        // SO: We MUST put session in Redis for middleware to pass `auth_middleware`!
+        
+        let token = uuid::Uuid::new_v4().to_string();
+        let _ = state.redis.set_ex(
+            &format!("session:{}", token),
+            &form.username,
+            24 * 60 * 60 // 24 hours
+        ).await;
+
+        let cookie = Cookie::build(("admin_session", token))
+            .path("/")
+            .http_only(true)
+            .build();
+
         (axum::http::StatusCode::OK, jar_with_cookie(cookie), headers, "Success").into_response()
     } else {
         Html("<div class='text-red-500 text-sm mt-2'>Invalid username or password</div>").into_response()

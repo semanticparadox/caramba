@@ -390,6 +390,7 @@ use tower_http::services::ServeDir;
         .route("/bot-logs", axum::routing::get(handlers::admin::bot_logs_page))
         .route("/bot-logs/history", axum::routing::get(handlers::admin::bot_logs_history))
         .route("/bot-logs/tail", axum::routing::get(handlers::admin::bot_logs_tail))
+        .route("/partials/statusbar", axum::routing::get(handlers::admin::get_statusbar)) // NEW
         .route("/logout", axum::routing::post(handlers::admin::logout))
         
         // Store Management Routes

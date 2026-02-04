@@ -118,52 +118,8 @@
             {% include "partials/bot_status.html" %}
 
             <div class="mt-auto pt-6 border-t border-white/5 space-y-3">
-                <h4 class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Service Health</h4>
-
-                <!-- Database -->
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <div class="p-1.5 bg-indigo-500/10 rounded-lg text-indigo-400">
-                            <i data-lucide="database" class="w-3.5 h-3.5"></i>
-                        </div>
-                        <span class="text-sm text-slate-300">Database</span>
-                    </div>
-                    <span
-                        class="flex items-center gap-1.5 text-xs font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                        <span class="relative flex h-1.5 w-1.5">
-                            <span
-                                class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                            <span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-                        </span>
-                        {{ db_status }}
-                    </span>
-                </div>
-
-                <!-- Redis -->
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <div class="p-1.5 bg-rose-500/10 rounded-lg text-rose-400">
-                            <i data-lucide="layers" class="w-3.5 h-3.5"></i>
-                        </div>
-                        <span class="text-sm text-slate-300">Redis Cache</span>
-                    </div>
-                    {% if redis_status == "Online" %}
-                    <span
-                        class="flex items-center gap-1.5 text-xs font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                        <span class="relative flex h-1.5 w-1.5">
-                            <span
-                                class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                            <span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-                        </span>
-                        {{ redis_status }}
-                    </span>
-                    {% else %}
-                    <span
-                        class="flex items-center gap-1.5 text-xs font-medium text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full border border-red-500/20">
-                        {{ redis_status }}
-                    </span>
-                    {% endif %}
-                </div>
+                <!-- Status removed: Moved to global footer -->
+                <p class="text-xs text-slate-500 text-center">Service health monitors moved to footer.</p>
             </div>
         </div>
     </div>
