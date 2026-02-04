@@ -179,14 +179,25 @@
                 </a>
 
                 <div class="px-3 mt-6 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Commerce</div>
-                <a href="{{ admin_path }}/store/orders"
+                <a href="{{ admin_path }}/store/products"
                     class="flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 group {% if active_page=="
-                    orders" %}bg-indigo-500/10 text-indigo-400 border border-indigo-500/20
+                    store_products" %}bg-indigo-500/10 text-indigo-400 border border-indigo-500/20
                     shadow-[0_0_15px_rgba(99,102,241,0.15)] transform scale-[1.02]{% else %}text-slate-400
                     hover:text-white hover:bg-white/5{% endif %}">
-                    <i data-lucide="shopping-cart" class="w-4 h-4 mr-3 {% if active_page==" orders" %}text-indigo-400{%
-                        else %}text-slate-500 group-hover:text-white{% endif %} transition-colors"></i>
-                    Store & Orders
+                    <i data-lucide="shopping-bag" class="w-4 h-4 mr-3 {% if active_page==" store_products"
+                        %}text-indigo-400{% else %}text-slate-500 group-hover:text-white{% endif %}
+                        transition-colors"></i>
+                    Products
+                </a>
+                <a href="{{ admin_path }}/store/categories"
+                    class="flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 group {% if active_page=="
+                    store_categories" %}bg-indigo-500/10 text-indigo-400 border border-indigo-500/20
+                    shadow-[0_0_15px_rgba(99,102,241,0.15)] transform scale-[1.02]{% else %}text-slate-400
+                    hover:text-white hover:bg-white/5{% endif %}">
+                    <i data-lucide="layers" class="w-4 h-4 mr-3 {% if active_page==" store_categories"
+                        %}text-indigo-400{% else %}text-slate-500 group-hover:text-white{% endif %}
+                        transition-colors"></i>
+                    Categories
                 </a>
                 <a href="{{ admin_path }}/transactions"
                     class="flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 group {% if active_page=="
@@ -197,6 +208,7 @@
                         else %}text-slate-500 group-hover:text-white{% endif %} transition-colors"></i>
                     Transactions
                 </a>
+
 
                 <div class="px-3 mt-6 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">System</div>
                 <a href="{{ admin_path }}/logs"

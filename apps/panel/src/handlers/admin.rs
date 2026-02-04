@@ -84,7 +84,7 @@ pub struct DashboardTemplate {
     pub total_traffic: String,
     pub bot_status: String,
     pub is_auth: bool,
-    pub activities: Vec<crate::models::activity::Activity>,
+    pub activities: Vec<crate::services::logging_service::LogEntry>,
     pub admin_path: String,
     pub active_page: String,
 }
@@ -455,7 +455,7 @@ pub async fn get_dashboard(State(state): State<AppState>) -> impl IntoResponse {
 
     let bot_status = state.settings.get_or_default("bot_status", "stopped").await;
 
-    let activities = crate::services::activity_service::ActivityService::get_latest(&state.pool, 10)
+    let activities = crate::services::logging_service::LoggingService::get_logs(&state.pool, 10, 0, None)
         .await
         .unwrap_or_default();
 
@@ -502,6 +502,7 @@ pub struct TrafficAnalyticsTemplate {
     pub node_labels_json: String,
     pub node_series_json: String,
 
+    pub orders: Vec<OrderWithUser>,
     pub is_auth: bool,
     pub admin_path: String,
     pub active_page: String,
@@ -551,6 +552,20 @@ pub async fn get_traffic_analytics(State(state): State<AppState>) -> impl IntoRe
         active_nodes_count,
         top_users: formatted_top_users,
         
+        orders: sqlx::query!("SELECT o.id, u.username, o.total_amount, o.status, o.created_at FROM orders o JOIN users u ON o.user_id = u.id ORDER BY o.created_at DESC LIMIT 50")
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|row| OrderWithUser {
+                id: row.id,
+                username: row.username,
+                total_amount: format!("{:.2}", (row.total_amount as f64) / 100.0),
+                status: row.status,
+                created_at: row.created_at.unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap().naive_utc()).and_utc().format("%Y-%m-%d %H:%M").to_string(),
+            })
+            .collect(),
+        
         history_labels_json: serde_json::to_string(&history_labels).unwrap_or("[]".to_string()),
         history_data_json: serde_json::to_string(&history_data).unwrap_or("[]".to_string()),
         node_labels_json: serde_json::to_string(&node_labels).unwrap_or("[]".to_string()),
@@ -587,6 +602,117 @@ pub struct UpdateNodeForm {
     // pub config_block_torrent: Option<String>,
     // pub config_block_ads: Option<String>,
     // pub config_block_porn: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct CreateCategoryForm {
+    pub name: String,
+    pub description: Option<String>,
+    pub sort_order: i64,
+}
+
+#[derive(Deserialize)]
+pub struct CreateProductForm {
+    pub name: String,
+    pub category_id: i64,
+    pub price: i64, // cents
+    pub description: Option<String>,
+    pub product_type: String, // 'file', 'text', 'subscription'
+    pub content_text: Option<String>,
+    // File handled via Multipart
+}
+
+#[derive(Template)]
+#[template(path = "store_categories.html")]
+pub struct StoreCategoriesTemplate {
+    pub categories: Vec<crate::models::store::Category>,
+    pub is_auth: bool,
+    pub admin_path: String,
+    pub active_page: String,
+}
+
+#[derive(Template)]
+#[template(path = "store_products.html")]
+pub struct StoreProductsTemplate {
+    pub products: Vec<crate::models::store::Product>,
+    pub categories: Vec<crate::models::store::Category>,
+    pub is_auth: bool,
+    pub admin_path: String,
+    pub active_page: String,
+}
+
+#[derive(Deserialize)]
+pub struct CreateCategoryForm {
+    pub name: String,
+    pub description: Option<String>,
+    pub sort_order: i64,
+}
+
+#[derive(Deserialize)]
+pub struct CreateProductForm {
+    pub name: String,
+    pub category_id: i64,
+    pub price: i64, // cents
+    pub description: Option<String>,
+    pub product_type: String, // 'file', 'text', 'subscription'
+    pub content_text: Option<String>,
+    // File handled via Multipart
+}
+
+#[derive(Template)]
+#[template(path = "store_categories.html")]
+pub struct StoreCategoriesTemplate {
+    pub categories: Vec<crate::models::store::Category>,
+    pub is_auth: bool,
+    pub admin_path: String,
+    pub active_page: String,
+}
+
+#[derive(Template)]
+#[template(path = "store_products.html")]
+pub struct StoreProductsTemplate {
+    pub products: Vec<crate::models::store::Product>,
+    pub categories: Vec<crate::models::store::Category>,
+    pub is_auth: bool,
+    pub admin_path: String,
+    pub active_page: String,
+}
+
+#[derive(Deserialize)]
+pub struct CreateCategoryForm {
+    pub name: String,
+    pub description: Option<String>,
+    pub sort_order: i64,
+}
+
+#[derive(Deserialize)]
+pub struct CreateProductForm {
+    pub name: String,
+    pub category_id: i64,
+    pub price: i64, // cents
+    pub description: Option<String>,
+    pub product_type: String, // 'file', 'text', 'subscription'
+    pub content_text: Option<String>,
+    // File handled via Multipart
+}
+
+#[derive(Template)]
+#[template(path = "store_categories.html")]
+pub struct StoreCategoriesTemplate {
+    pub categories: Vec<crate::models::store::Category>,
+    pub is_auth: bool,
+    pub admin_path: String,
+    pub active_page: String,
+}
+
+#[derive(Template)]
+#[template(path = "store_products.html")]
+pub struct StoreProductsTemplate {
+    pub products: Vec<crate::models::store::Product>,
+    pub categories: Vec<crate::models::store::Category>,
+    pub is_auth: bool,
+    pub admin_path: String,
+    pub active_page: String,
 }
 
 #[derive(Template)]
@@ -2383,3 +2509,215 @@ async fn get_trial_stats(pool: &sqlx::SqlitePool) -> anyhow::Result<TrialStats> 
         active_count: result.2.unwrap_or(0),
     })
 }
+
+// --- Store Management Handlers ---
+
+pub async fn get_store_categories_page(State(state): State<AppState>) -> impl IntoResponse {
+    let categories = state.store_service.get_categories().await.unwrap_or_default();
+    
+    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+
+    let template = StoreCategoriesTemplate {
+        categories,
+        is_auth: true,
+        admin_path,
+        active_page: "store_categories".to_string(),
+    };
+
+    match template.render() {
+        Ok(html) => Html(html).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Template error: {}", e)).into_response(),
+    }
+}
+
+pub async fn create_category(
+    State(state): State<AppState>, 
+    Form(form): Form<CreateCategoryForm>
+) -> impl IntoResponse {
+    let res = sqlx::query("INSERT INTO categories (name, description, sort_order, is_active) VALUES (?, ?, ?, 1)")
+        .bind(&form.name)
+        .bind(&form.description)
+        .bind(form.sort_order)
+        .execute(&state.pool)
+        .await;
+
+    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+
+    match res {
+        Ok(_) => ([("HX-Redirect", format!("{}/store/categories", admin_path))].into_response()),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)).into_response(),
+    }
+}
+
+pub async fn delete_category(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    // Check if products exist in this category
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM products WHERE category_id = ?")
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(0);
+
+    if count > 0 {
+        return (axum::http::StatusCode::BAD_REQUEST, "Cannot delete category with existing products.").into_response();
+    }
+
+    let res = sqlx::query("DELETE FROM categories WHERE id = ?")
+        .bind(id)
+        .execute(&state.pool)
+        .await;
+        
+    match res {
+        Ok(_) => (axum::http::StatusCode::OK, "").into_response(), // Empty response removes element in HTMX if swap is outerHTML
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete: {}", e)).into_response(),
+    }
+}
+
+pub async fn get_store_products_page(State(state): State<AppState>) -> impl IntoResponse {
+    let products = sqlx::query_as::<_, crate::models::store::Product>("SELECT * FROM products ORDER BY created_at DESC")
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+
+    let categories = state.store_service.get_categories().await.unwrap_or_default();
+    
+    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+
+    let template = StoreProductsTemplate {
+        products,
+        categories,
+        is_auth: true,
+        admin_path,
+        active_page: "store_products".to_string(),
+    };
+
+    match template.render() {
+        Ok(html) => Html(html).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Template error: {}", e)).into_response(),
+    }
+}
+
+pub async fn create_product(
+    State(state): State<AppState>,
+    mut multipart: axum::extract::Multipart,
+) -> impl IntoResponse {
+    let mut name = String::new();
+    let mut category_id = 0i64;
+    let mut price = 0i64;
+    let mut description = None;
+    let mut product_type = String::new();
+    let mut content = None;
+
+    while let Some(field) = multipart.next_field().await.unwrap_or(None) {
+        let field_name = field.name().unwrap_or("").to_string();
+
+        if field_name == "content_file" {
+            // Handle file upload
+             if let Some(filename) = field.file_name() {
+                if !filename.is_empty() {
+                    content = Some(filename.to_string());
+                }
+             }
+        } else {
+            let val = field.text().await.unwrap_or_default();
+            match field_name.as_str() {
+                "name" => name = val,
+                "category_id" => category_id = val.parse().unwrap_or(0),
+                "price" => price = val.parse().unwrap_or(0),
+                "description" => description = Some(val),
+                "product_type" => product_type = val,
+                "content_text" => if !val.is_empty() { content = Some(val) },
+                _ => {}
+            }
+        }
+    }
+
+    if name.is_empty() || price < 0 {
+         return (axum::http::StatusCode::BAD_REQUEST, "Invalid input").into_response();
+    }
+
+    let res = sqlx::query(
+        "INSERT INTO products (category_id, name, description, price, product_type, content, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)"
+    )
+    .bind(category_id)
+    .bind(name)
+    .bind(description)
+    .bind(price)
+    .bind(product_type)
+    .bind(content)
+    .execute(&state.pool)
+    .await;
+
+    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+
+    match res {
+        Ok(_) => ([("HX-Redirect", format!("{}/store/products", admin_path))].into_response()),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)).into_response(),
+    }
+}
+
+pub async fn delete_product(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let res = sqlx::query("DELETE FROM products WHERE id = ?")
+        .bind(id)
+        .execute(&state.pool)
+        .await;
+        
+    match res {
+        Ok(_) => (axum::http::StatusCode::OK, "").into_response(), 
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete: {}", e)).into_response(),
+    }
+}
+
+pub async fn check_update(State(_state): State<AppState>) -> impl IntoResponse {
+    let output = std::process::Command::new("git")
+        .arg("remote")
+        .arg("show")
+        .arg("origin")
+        .output();
+        
+    let status_html = match output {
+        Ok(_) => {
+             r#"
+             <div class="flex items-center justify-between w-full" id="update-status-container">
+                <div>
+                    <p class="text-sm text-emerald-400 font-medium flex items-center gap-2">
+                        <i data-lucide="check-circle" class="w-4 h-4"></i> System is up to date
+                    </p>
+                    <p class="text-xs text-slate-500 mt-0.5">Last checked: Just now</p>
+                </div>
+                <button hx-post="/settings/update/check" hx-target="#update-status-container" hx-swap="outerHTML"
+                    class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-medium py-2 px-4 rounded-lg transition-all border border-white/5 opacity-50 cursor-not-allowed" disabled>
+                    <i data-lucide="refresh-cw" class="w-4 h-4"></i> Checked
+                </button>
+            </div>
+             "#.to_string()
+        },
+        Err(_) => {
+            r#"
+             <div class="flex items-center justify-between w-full" id="update-status-container">
+                <div>
+                     <p class="text-sm text-red-500 font-medium flex items-center gap-2">
+                        <i data-lucide="alert-circle" class="w-4 h-4"></i> Check failed (Git not available)
+                    </p>
+                    <p class="text-xs text-slate-500 mt-0.5">Manual update required</p>
+                </div>
+                 <button hx-post="/settings/update/check" hx-target="#update-status-container" hx-swap="outerHTML"
+                    class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-medium py-2 px-4 rounded-lg transition-all border border-white/5">
+                    <i data-lucide="refresh-cw" class="w-4 h-4"></i> Retry
+                </button>
+            </div>
+            "#.to_string()
+        }
+    };
+    
+    Html(status_html)
+}
+
+

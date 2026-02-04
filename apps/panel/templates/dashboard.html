@@ -147,21 +147,21 @@
                 {% for activity in activities %}
                 <tr class="hover:bg-white/5 transition-colors group">
                     <td class="px-6 py-4">
-                        {% if activity.category == "System" %}
+                        {% if activity.action == "System" %}
                         <span
                             class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20">System</span>
-                        {% else if activity.category == "Node" %}
+                        {% else if activity.action == "Node" %}
                         <span
                             class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">Node</span>
                         {% else %}
                         <span
                             class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">{{
-                            activity.category }}</span>
+                            activity.action }}</span>
                         {% endif %}
                     </td>
                     <td class="px-6 py-4 text-slate-300 font-medium group-hover:text-white transition-colors">{{
-                        activity.event }}</td>
-                    <td class="px-6 py-4 text-right text-slate-500 font-mono">{{ activity.created_at.format("%H:%M") }}
+                        activity.details.as_deref().unwrap_or("-") }}</td>
+                    <td class="px-6 py-4 text-right text-slate-500 font-mono">{{ activity.created_at }}
                     </td>
                 </tr>
                 {% endfor %}

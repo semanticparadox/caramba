@@ -312,6 +312,7 @@ use tower_http::services::ServeDir;
         .route("/settings", axum::routing::get(handlers::admin::get_settings))
         .route("/settings/save", axum::routing::post(handlers::admin::save_settings))
         .route("/settings/bot/toggle", axum::routing::post(handlers::admin::toggle_bot))
+        .route("/settings/update/check", axum::routing::post(handlers::admin::check_update)) // NEW
         // New Bot Page
         .route("/bot", axum::routing::get(handlers::admin::get_bot_page))
         // Tools Logic (Page removed, actions preserved)
@@ -373,11 +374,11 @@ use tower_http::services::ServeDir;
         .route("/logout", axum::routing::post(handlers::admin::logout))
         
         // Store Management Routes
-        .route("/store/categories", axum::routing::get(handlers::admin_store::categories_page).post(handlers::admin_store::add_category))
-        .route("/store/categories/:id", axum::routing::delete(handlers::admin_store::delete_category))
-        .route("/store/products", axum::routing::get(handlers::admin_store::products_page).post(handlers::admin_store::add_product))
-        .route("/store/products/:id", axum::routing::delete(handlers::admin_store::delete_product))
-        .route("/store/orders", axum::routing::get(handlers::admin_store::orders_page))
+        .route("/store/categories", axum::routing::get(handlers::admin::get_store_categories_page).post(handlers::admin::create_category))
+        .route("/store/categories/:id", axum::routing::delete(handlers::admin::delete_category))
+        .route("/store/products", axum::routing::get(handlers::admin::get_store_products_page).post(handlers::admin::create_product))
+        .route("/store/products/:id", axum::routing::delete(handlers::admin::delete_product))
+        // .route("/store/orders", axum::routing::get(handlers::admin_store::orders_page)) // Handled by analytics/dashboard now
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware));
 
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
