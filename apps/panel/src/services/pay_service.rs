@@ -214,6 +214,7 @@ impl PayService {
         } else {
             Err(anyhow!("Invalid Stripe signature"))
         }
+    }
 
 
     /// Verify Cryptomus signature (MD5(base64(body) + key))
