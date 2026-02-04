@@ -3,7 +3,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use serde::Serialize;
+
 use crate::AppState;
 use crate::models::frontend::{
     FrontendServer, CreateFrontendServer, FrontendHeartbeat,

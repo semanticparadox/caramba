@@ -2321,7 +2321,7 @@ pub async fn get_bot_page(
     let template = BotTemplate {
         masked_bot_token,
         bot_status,
-        bot_username,
+        _bot_username: bot_username,
         // webhook_info: None, // Removed
         is_auth: true,
         admin_path,

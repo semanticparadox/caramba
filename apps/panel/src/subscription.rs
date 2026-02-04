@@ -84,7 +84,7 @@ pub async fn subscription_handler(
         Ok(Some((user_uuid, hy2_password))) => UserKeys {
             user_uuid,
             hy2_password,
-            awg_private_key: None, // Client generates this
+            _awg_private_key: None, // Client generates this
         },
         _ => {
             error!("User keys not found for user_id={}", sub.user_id);
