@@ -30,6 +30,15 @@ impl RedisService {
         Ok(value)
     }
 
+    pub async fn ping(&self) -> Result<()> {
+        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let _: () = redis::cmd("PING")
+            .query_async(&mut *conn)
+            .await
+            .context("Redis PING failed")?;
+        Ok(())
+    }
+
     pub async fn set(&self, key: &str, value: &str, ttl_seconds: usize) -> Result<()> {
         let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
         let _: () = redis::cmd("SETEX")

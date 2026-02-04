@@ -732,7 +732,7 @@ pub async fn callback_handler(
                  if let Some(u) = user_db {
                       // Verify ownership
                       let user_subs = state.store_service.get_user_subscriptions(u.id).await.unwrap_or_default();
-                      if let Some(sub_details) = user_subs.iter().find(|s| s.sub.id == sub_id) {
+                      if let Some(_sub_details) = user_subs.iter().find(|s| s.sub.id == sub_id) {
                           // Get active IPs
                           let ips = state.store_service.get_subscription_active_ips(sub_id).await.unwrap_or_default();
                           let limit = state.store_service.get_subscription_device_limit(sub_id).await.unwrap_or(0);

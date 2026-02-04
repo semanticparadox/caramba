@@ -462,7 +462,7 @@ pub async fn login(
         // SO: We MUST put session in Redis for middleware to pass `auth_middleware`!
         
         let token = uuid::Uuid::new_v4().to_string();
-        let _ = state.redis.set_ex(
+        let _ = state.redis.set(
             &format!("session:{}", token),
             &form.username,
             24 * 60 * 60 // 24 hours
@@ -2462,7 +2462,7 @@ pub async fn create_category(
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
 
     match res {
-        Ok(_) => ([("HX-Redirect", format!("{}/store/categories", admin_path))].into_response()),
+        Ok(_) => [("HX-Redirect", format!("{}/store/categories", admin_path))].into_response(),
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)).into_response(),
     }
 }
@@ -2572,7 +2572,7 @@ pub async fn create_product(
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
 
     match res {
-        Ok(_) => ([("HX-Redirect", format!("{}/store/products", admin_path))].into_response()),
+        Ok(_) => [("HX-Redirect", format!("{}/store/products", admin_path))].into_response(),
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)).into_response(),
     }
 }
