@@ -559,7 +559,7 @@ pub async fn get_traffic_analytics(State(state): State<AppState>) -> impl IntoRe
             .into_iter()
             .map(|row| OrderWithUser {
                 id: row.id,
-                username: row.username,
+                username: row.username.unwrap_or_else(|| "Unknown".to_string()),
                 total_amount: format!("{:.2}", (row.total_amount as f64) / 100.0),
                 status: row.status,
                 created_at: row.created_at.unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap().naive_utc()).and_utc().format("%Y-%m-%d %H:%M").to_string(),
@@ -641,79 +641,7 @@ pub struct StoreProductsTemplate {
     pub active_page: String,
 }
 
-#[derive(Deserialize)]
-pub struct CreateCategoryForm {
-    pub name: String,
-    pub description: Option<String>,
-    pub sort_order: i64,
-}
 
-#[derive(Deserialize)]
-pub struct CreateProductForm {
-    pub name: String,
-    pub category_id: i64,
-    pub price: i64, // cents
-    pub description: Option<String>,
-    pub product_type: String, // 'file', 'text', 'subscription'
-    pub content_text: Option<String>,
-    // File handled via Multipart
-}
-
-#[derive(Template)]
-#[template(path = "store_categories.html")]
-pub struct StoreCategoriesTemplate {
-    pub categories: Vec<crate::models::store::Category>,
-    pub is_auth: bool,
-    pub admin_path: String,
-    pub active_page: String,
-}
-
-#[derive(Template)]
-#[template(path = "store_products.html")]
-pub struct StoreProductsTemplate {
-    pub products: Vec<crate::models::store::Product>,
-    pub categories: Vec<crate::models::store::Category>,
-    pub is_auth: bool,
-    pub admin_path: String,
-    pub active_page: String,
-}
-
-#[derive(Deserialize)]
-pub struct CreateCategoryForm {
-    pub name: String,
-    pub description: Option<String>,
-    pub sort_order: i64,
-}
-
-#[derive(Deserialize)]
-pub struct CreateProductForm {
-    pub name: String,
-    pub category_id: i64,
-    pub price: i64, // cents
-    pub description: Option<String>,
-    pub product_type: String, // 'file', 'text', 'subscription'
-    pub content_text: Option<String>,
-    // File handled via Multipart
-}
-
-#[derive(Template)]
-#[template(path = "store_categories.html")]
-pub struct StoreCategoriesTemplate {
-    pub categories: Vec<crate::models::store::Category>,
-    pub is_auth: bool,
-    pub admin_path: String,
-    pub active_page: String,
-}
-
-#[derive(Template)]
-#[template(path = "store_products.html")]
-pub struct StoreProductsTemplate {
-    pub products: Vec<crate::models::store::Product>,
-    pub categories: Vec<crate::models::store::Category>,
-    pub is_auth: bool,
-    pub admin_path: String,
-    pub active_page: String,
-}
 
 #[derive(Template)]
 #[template(path = "node_edit_modal.html")]
@@ -2684,7 +2612,7 @@ pub async fn check_update(State(_state): State<AppState>) -> impl IntoResponse {
         
     let status_html = match output {
         Ok(_) => {
-             r#"
+             r##"
              <div class="flex items-center justify-between w-full" id="update-status-container">
                 <div>
                     <p class="text-sm text-emerald-400 font-medium flex items-center gap-2">
@@ -2697,10 +2625,10 @@ pub async fn check_update(State(_state): State<AppState>) -> impl IntoResponse {
                     <i data-lucide="refresh-cw" class="w-4 h-4"></i> Checked
                 </button>
             </div>
-             "#.to_string()
+             "##.to_string()
         },
         Err(_) => {
-            r#"
+            r##"
              <div class="flex items-center justify-between w-full" id="update-status-container">
                 <div>
                      <p class="text-sm text-red-500 font-medium flex items-center gap-2">
@@ -2713,7 +2641,7 @@ pub async fn check_update(State(_state): State<AppState>) -> impl IntoResponse {
                     <i data-lucide="refresh-cw" class="w-4 h-4"></i> Retry
                 </button>
             </div>
-            "#.to_string()
+            "##.to_string()
         }
     };
     
