@@ -214,12 +214,7 @@ impl PayService {
         } else {
             Err(anyhow!("Invalid Stripe signature"))
         }
-        if sig_v1 == expected {
-            Ok(())
-        } else {
-            Err(anyhow!("Invalid Stripe signature"))
-        }
-    }
+
 
     /// Verify Cryptomus signature (MD5(base64(body) + key))
     fn verify_cryptomus_signature(&self, payload: &str, signature: Option<&str>) -> Result<()> {
@@ -399,9 +394,7 @@ impl PayService {
         } else {
              Err(anyhow::anyhow!("Stripe Error: {:?}", body))
         }
-        } else {
-             Err(anyhow::anyhow!("Stripe Error: {:?}", body))
-        }
+
     }
 
     pub async fn create_cryptomus_invoice(&self, user_id: i64, amount_usd: f64, payment_type: PaymentType) -> Result<String> {
@@ -512,7 +505,7 @@ impl PayService {
         stripe_sig: Option<&str>,
         cryptomus_sig: Option<&str>,
     ) -> Result<()> {
-    ) -> Result<()> {
+
         let body: serde_json::Value = serde_json::from_str(payload)?;
         
         match source {
@@ -576,7 +569,7 @@ impl PayService {
                     self.process_any_payment(amount_usd, "stripe", Some(id), payload_str).await?;
                 }
             },
-            },
+
              "cryptomus" => {
                  // Verify signature 
                  self.verify_cryptomus_signature(payload, cryptomus_sig)?;
