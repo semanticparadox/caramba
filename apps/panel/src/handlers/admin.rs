@@ -674,12 +674,12 @@ pub async fn save_settings(
     let masked_bot_token = if !current_bot_token.is_empty() { mask_key(&current_bot_token) } else { "".to_string() };
     
      if let Some(v) = form.bot_token {
-        // Aggressive sanitization: remove quotes, trim, remove internal whitespace (newlines/tabs)
-        let v = v.trim()
-            .replace(['"', '\''], "")
-            .replace(['\n', '\r', '\t', ' '], "")
-            .to_string();
-            
+        // Aggressive Unicode-aware sanitization
+        // Remove ALL whitespace (including NBSP), quotes, and control chars
+        let v: String = v.chars()
+            .filter(|c| !c.is_whitespace() && !matches!(c, '"' | '\'' | '\n' | '\r' | '\t'))
+            .collect();
+
         if !v.is_empty() && v != masked_bot_token {
             if is_running {
                  return (
@@ -688,13 +688,22 @@ pub async fn save_settings(
                 ).into_response();
             }
 
-            // Validate Token Format: 123456789:ABCDefG...
+            // Validate structure: ID:HASH
             let parts: Vec<&str> = v.split(':').collect();
             if parts.len() != 2 || parts[0].chars().any(|c| !c.is_numeric()) || v.len() < 20 {
                  error!("Invalid bot token format rejected: len={}, start={}", v.len(), parts.get(0).unwrap_or(&"???"));
                  return (
                     axum::http::StatusCode::BAD_REQUEST, 
                     format!("Invalid Bot Token Format. Expected '123456:ABC...'. Received: '{}'", v)
+                ).into_response();
+            }
+
+            // Validate Charset: Only alphanumeric, :, -, _ allowed
+            if let Some(invalid_char) = v.chars().find(|c| !c.is_ascii_alphanumeric() && *c != ':' && *c != '-' && *c != '_') {
+                error!("Invalid character in bot token: '{}' (escape: {:?})", invalid_char, invalid_char);
+                 return (
+                    axum::http::StatusCode::BAD_REQUEST, 
+                    format!("Token contains invalid character: '{}'. Only alphanumeric, :, -, _ are allowed.", invalid_char)
                 ).into_response();
             }
 
