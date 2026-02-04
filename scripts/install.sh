@@ -14,6 +14,7 @@ set -e
 REPO_URL="https://github.com/semanticparadox/EXA-ROBOT.git"
 INSTALL_DIR="/opt/exarobot"
 TEMP_BUILD_DIR="/tmp/exarobot_build"
+VERSION_TAG="2026-02-05-v3"
 
 # Colors
 RED='\033[0;31m'
@@ -34,7 +35,7 @@ SKIP_GPG_CHECK=${SKIP_GPG_CHECK:-false}  # Allow GPG check skip via env var
 
 # --------------------------------------------------
 # Logging
-# --------------------------------------------------яя
+# --------------------------------------------------
 log_info() { echo -e "${CYAN}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
@@ -888,6 +889,9 @@ register_with_panel() {
 # Main Logic
 # --------------------------------------------------
 main() {
+    echo "--------------------------------------------------"
+    echo "ExaRobot Installer - Version: $VERSION_TAG"
+    echo "--------------------------------------------------"
     check_root
     detect_os
     
@@ -963,7 +967,10 @@ main() {
         if [ ! -d "$SOURCE_DIR" ]; then
             git clone "$REPO_URL" "$SOURCE_DIR"
         else
-            cd "$SOURCE_DIR" && git pull
+            log_info "Updating source code (Force Reset to origin/main)..."
+            cd "$SOURCE_DIR"
+            git fetch --all
+            git reset --hard origin/main
         fi
         BUILD_SOURCE="$SOURCE_DIR"
     fi
