@@ -19,3 +19,4 @@ exarobot-shared = { path = "../../libs/shared" }
 md5 = "0.8.0"
 rand = "0.8"
 sys-info = "0.9" # Telemetry
+sha2 = "0.10"

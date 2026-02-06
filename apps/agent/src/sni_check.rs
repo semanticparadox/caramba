@@ -1,6 +1,6 @@
 use serde_json::Value;
 use tokio::net::TcpStream;
-use tracing::{info, error};
+use tracing::error;
 
 pub async fn get_current_sni(config_path: &str) -> Option<String> {
     // Read file

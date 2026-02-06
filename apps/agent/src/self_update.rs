@@ -1,4 +1,3 @@
-use std::path::{Path, PathBuf};
 use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 use tracing::{info, error, warn};

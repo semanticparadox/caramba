@@ -64,9 +64,3 @@ time = "0.3"
 # For embedding scripts later if needed
 # rust-embed = "8.0"
 
-[profile.release]
-opt-level = 3
-lto = true
-strip = true
-codegen-units = 1
-panic = "abort"
