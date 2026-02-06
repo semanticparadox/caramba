@@ -202,6 +202,13 @@ pub struct NodesTemplate {
 }
 
 #[derive(Template)]
+#[template(path = "partials/nodes_rows.html")]
+pub struct NodesRowsPartial {
+    pub nodes: Vec<Node>,
+    pub admin_path: String,
+}
+
+#[derive(Template)]
 #[template(path = "partials/statusbar.html")]
 pub struct StatusbarPartial {
     pub bot_status: String,
@@ -902,21 +909,30 @@ pub async fn toggle_bot(State(state): State<AppState>) -> impl IntoResponse {
 // Nodes Handlers
 pub async fn get_nodes(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     jar: CookieJar,
 ) -> impl IntoResponse {
     let nodes = state.orchestration_service.get_all_nodes().await.unwrap_or_default();
+    
+    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+
+    if headers.contains_key("hx-request") {
+        let template = NodesRowsPartial {
+            nodes,
+            admin_path,
+        };
+        return Html(template.render().unwrap()).into_response();
+    }
     
     let template = NodesTemplate { 
         nodes, 
         is_auth: true, 
         username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
-        admin_path: {
-            let p = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-            if p.starts_with('/') { p } else { format!("/{}", p) }
-        },
+        admin_path,
         active_page: "nodes".to_string(),
     };
-    Html(template.render().unwrap())
+    Html(template.render().unwrap()).into_response()
 }
 
 
