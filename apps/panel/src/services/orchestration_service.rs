@@ -80,8 +80,8 @@ impl OrchestrationService {
         // Stream Settings for Reality
         use crate::models::network::StreamSettings;
         let stream_settings = StreamSettings {
-            network: "tcp".to_string(),
-            security: "reality".to_string(),
+            network: Some("tcp".to_string()),
+            security: Some("reality".to_string()),
             tls_settings: None,
             reality_settings: Some(RealitySettings {
                 show: true,
@@ -126,8 +126,8 @@ impl OrchestrationService {
         // Hysteria 2 uses UDP, correct. Stream settings with TLS.
         use crate::models::network::TlsSettings;
         let hy2_stream = StreamSettings {
-            network: "udp".to_string(), // Hysteria is UDP based
-            security: "tls".to_string(),
+            network: Some("udp".to_string()), // Hysteria is UDP based
+            security: Some("tls".to_string()),
             tls_settings: Some(TlsSettings {
                 server_name: "drive.google.com".to_string(),
                 certificates: None, // Will use auto-generated certs
