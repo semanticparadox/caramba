@@ -52,9 +52,9 @@ pub async fn heartbeat(
         }
     };
 
-    // 3. Update Telemetry
+    // 3. Update Telemetry & Status
     if let Some(lat) = req.latency {
-        let _ = sqlx::query("UPDATE nodes SET last_latency = ?, last_cpu = ?, last_ram = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ?")
+        let _ = sqlx::query("UPDATE nodes SET last_latency = ?, last_cpu = ?, last_ram = ?, last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'new' THEN 'active' ELSE status END WHERE id = ?")
             .bind(lat)
             .bind(req.cpu_usage.unwrap_or(0.0))
             .bind(req.memory_usage.unwrap_or(0.0))
@@ -63,7 +63,7 @@ pub async fn heartbeat(
             .await;
     } else {
         // Just update last_seen if no telemetry (or older agent)
-        let _ = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP WHERE id = ?")
+        let _ = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'new' THEN 'active' ELSE status END WHERE id = ?")
             .bind(node_id)
             .execute(&state.pool)
             .await;
