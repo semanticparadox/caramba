@@ -37,12 +37,7 @@ struct AgentState {
     kill_switch_timeout: u64,
     vpn_stopped_by_kill_switch: bool,
 }
-    // Kill Switch State
-    last_successful_contact: std::time::Instant,
-    kill_switch_enabled: bool,
-    kill_switch_timeout: u66,
-    vpn_stopped_by_kill_switch: bool,
-}
+
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
