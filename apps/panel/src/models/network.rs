@@ -129,8 +129,8 @@ pub struct Fallback {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StreamSettings {
-    pub network: String, // "tcp", "udp", "quic", "grpc"
-    pub security: String, // "none", "tls", "reality"
+    pub network: Option<String>, // "tcp", "udp", "quic", "grpc"
+    pub security: Option<String>, // "none", "tls", "reality"
     pub tls_settings: Option<TlsSettings>,
     pub reality_settings: Option<RealitySettings>,
 }

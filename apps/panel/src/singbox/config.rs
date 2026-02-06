@@ -38,6 +38,7 @@ pub struct LogConfig {
 pub enum Inbound {
     Vless(VlessInbound),
     Hysteria2(Hysteria2Inbound),
+    AmneziaWg(AmneziaWgInbound),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -127,6 +128,35 @@ pub struct Hysteria2TlsConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alpn: Option<Vec<String>>,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AmneziaWgInbound {
+    pub tag: String,
+    pub listen: String,
+    pub listen_port: u16,
+    pub users: Vec<AmneziaWgUser>,
+    pub private_key: String,
+    // AmneziaWG specific fields
+    pub jc: u16,
+    pub jmin: u16,
+    pub jmax: u16,
+    pub s1: u16,
+    pub s2: u16,
+    pub h1: u32,
+    pub h2: u32,
+    pub h3: u32,
+    pub h4: u32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AmneziaWgUser {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub public_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preshared_key: Option<String>,
+}
+
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename_all = "lowercase")]

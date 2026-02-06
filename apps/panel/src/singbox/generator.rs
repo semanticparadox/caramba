@@ -43,7 +43,8 @@ impl ConfigGenerator {
                 InboundType::Vless(vless) => {
                     let mut tls_config = None;
                     
-                    if stream_settings.security == "reality" {
+                    let security = stream_settings.security.as_deref().unwrap_or("none");
+                    if security == "reality" {
                         if let Some(reality) = stream_settings.reality_settings {
                              tls_config = Some(VlessTlsConfig {
                                 enabled: true,
@@ -60,7 +61,7 @@ impl ConfigGenerator {
                                 }
                              });
                         }
-                    } else if stream_settings.security == "tls" {
+                    } else if security == "tls" {
                          // Regular TLS implementation (placeholder)
                     }
 
@@ -148,6 +149,32 @@ impl ConfigGenerator {
                         tls: tls_config,
                     }));
                 },
+                InboundType::AmneziaWg(awg) => {
+                    let users = awg.users.iter().map(|u| AmneziaWgUser {
+                        name: Some(u.name.clone()),
+                        public_key: u.public_key.clone(),
+                        preshared_key: u.preshared_key.clone(),
+                    }).collect();
+
+                    generated_inbounds.push(Inbound::AmneziaWg(AmneziaWgInbound {
+                        tag: inbound.tag,
+                        listen: inbound.listen_ip,
+                        listen_port: inbound.listen_port as u16,
+                        users,
+                        private_key: awg.private_key,
+                        // AmneziaWG specific fields
+                        jc: awg.jc,
+                        jmin: awg.jmin,
+                        jmax: awg.jmax,
+                        s1: awg.s1,
+                        s2: awg.s2,
+                        h1: awg.h1,
+                        h2: awg.h2,
+                        h3: awg.h3,
+                        h4: awg.h4,
+                    }));
+                },
+
                 _ => {
                     warn!("Unsupported protocol for inbound {}", inbound.tag);
                 }

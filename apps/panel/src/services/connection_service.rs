@@ -103,7 +103,10 @@ impl ConnectionService {
         // Collect connections from all nodes
         let mut subscription_ips: HashMap<String, HashSet<String>> = HashMap::new();
 
-        for node in &nodes {
+        for node in nodes {
+            if node.status != "active" {
+                continue;
+            }
             match self.fetch_node_connections(&node.ip).await {
                 Ok(connections) => {
                     info!("Fetched {} connections from node {}", connections.len(), node.ip);
