@@ -7,7 +7,7 @@ use tracing::{info, warn, error};
 use crate::AppState;
 use exarobot_shared::api::{HeartbeatRequest, HeartbeatResponse, AgentAction};
 use exarobot_shared::config::ConfigResponse;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 struct IpApiResponse {
@@ -52,12 +52,14 @@ pub async fn heartbeat(
         }
     };
 
-    // 3. Update Telemetry & Status
+    // 3. Update Telemetry & Status & IP
     if let Some(lat) = req.latency {
-        let _ = sqlx::query("UPDATE nodes SET last_latency = ?, last_cpu = ?, last_ram = ?, last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'new' THEN 'active' ELSE status END WHERE id = ?")
+        // Fix: Also update IP here, because if a node sends stats, we still want to fix its IP if it's pending.
+        let _ = sqlx::query("UPDATE nodes SET last_latency = ?, last_cpu = ?, last_ram = ?, last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'new' THEN 'active' ELSE status END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN ? ELSE ip END WHERE id = ?")
             .bind(lat)
             .bind(req.cpu_usage.unwrap_or(0.0))
             .bind(req.memory_usage.unwrap_or(0.0))
+            .bind(&remote_ip) // Bind IP
             .bind(node_id)
             .execute(&state.pool)
             .await;
@@ -392,4 +394,85 @@ pub async fn get_settings(
             "timeout": kill_switch_timeout
         }
     })).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct RegisterNodeRequest {
+    pub enrollment_key: String,
+    pub hostname: String,
+    pub ip: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct RegisterNodeResponse {
+    pub node_id: i64,
+    pub join_token: String,
+}
+
+/// Register a new node using an Enrollment Key
+/// POST /api/v2/node/register
+pub async fn register(
+    State(state): State<AppState>,
+    Json(payload): Json<RegisterNodeRequest>,
+) -> impl IntoResponse {
+    // 1. Validate API Key
+    let api_key_res: Result<Option<crate::models::api_key::ApiKey>, _> = sqlx::query_as("SELECT * FROM api_keys WHERE key = ? AND is_active = 1")
+    .bind(&payload.enrollment_key)
+    .fetch_optional(&state.pool)
+    .await;
+
+    let api_key = match api_key_res {
+        Ok(Some(k)) => k,
+        Ok(None) => return (StatusCode::UNAUTHORIZED, "Invalid API Key").into_response(),
+        Err(e) => {
+             error!("DB Error checking API key: {}", e);
+             return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response();
+        }
+    };
+
+    if api_key.key_type != "enrollment" {
+        return (StatusCode::FORBIDDEN, "Invalid Key Type").into_response();
+    }
+
+    if let Some(max) = api_key.max_uses {
+        if api_key.current_uses >= max {
+             return (StatusCode::FORBIDDEN, "Key Usage Limit Reached").into_response();
+        }
+    }
+
+    // 2. Increment Usage
+    let _ = sqlx::query("UPDATE api_keys SET current_uses = current_uses + 1 WHERE id = ?")
+        .bind(api_key.id)
+        .execute(&state.pool)
+        .await;
+
+    // 3. Create Node
+    let join_token = uuid::Uuid::new_v4().to_string();
+    // Default to pending IP to ensure it's updated later. OR use 0.0.0.0.
+    // Use "pending-" prefix so our heartbeat logic picks it up!
+    let ip = payload.ip.unwrap_or_else(|| format!("pending-{}", &join_token[0..8])); 
+
+    let node_id_res = sqlx::query("INSERT INTO nodes (name, ip, join_token, status, is_enabled) VALUES (?, ?, ?, 'new', 1) RETURNING id")
+        .bind(&payload.hostname)
+        .bind(&ip)
+        .bind(&join_token)
+        .fetch_one(&state.pool)
+        .await;
+
+    match node_id_res {
+        Ok(row) => {
+             use sqlx::Row;
+             let node_id: i64 = row.get("id");
+             info!("✅ Node registered via API Key {}: {} (ID: {})", api_key.name, payload.hostname, node_id);
+             
+             (StatusCode::OK, Json(RegisterNodeResponse {
+                 node_id,
+                 join_token,
+             })).into_response()
+        },
+        Err(e) => {
+            error!("Failed to create node: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create node").into_response()
+        }
+    }
 }

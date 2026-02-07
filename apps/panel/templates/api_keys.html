@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block title %}Enrollment Keys{% endblock %}
+{% block header_title %}Enrollment Keys{% endblock %}
+
+{% block content %}
+<section class="max-w-6xl mx-auto pb-20">
+
+    <!-- Header & Create Button -->
+    <div class="flex items-center justify-between mb-8">
+        <div>
+            <h2 class="text-xl font-bold text-white">Enrollment Keys</h2>
+            <p class="text-slate-400 text-sm mt-1">Manage keys for bulk node registration</p>
+        </div>
+        <button onclick="document.getElementById('create-modal').showModal()"
+            class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-lg shadow-indigo-500/20">
+            <i data-lucide="plus" class="w-4 h-4"></i> Create Key
+        </button>
+    </div>
+
+    <!-- Keys Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% for key in keys %}
+        <div
+            class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-xl p-5 hover:border-indigo-500/30 transition-all group">
+            <div class="flex justify-between items-start mb-4">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400 group-hover:bg-indigo-500 py-1 group-hover:text-white transition-all">
+                        <i data-lucide="key" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold text-white">{{ key.name }}</h3>
+                        <p class="text-xs text-slate-500">{{ key.created_at|truncate(10) }}</p>
+                        <!-- Simple truncate for date -->
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="copyToClipboard('{{ key.key }}')"
+                        class="p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors">
+                        <i data-lucide="copy" class="w-4 h-4"></i>
+                    </button>
+                    <form action="{{ admin_path }}/api-keys/delete/{{ key.id }}" method="POST"
+                        onsubmit="return confirm('Delete this key?');">
+                        <button type="submit"
+                            class="p-2 hover:bg-red-500/10 rounded-lg text-slate-400 hover:text-red-400 transition-colors">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <div
+                class="bg-slate-950/50 rounded-lg p-3 mb-4 font-mono text-xs text-slate-300 break-all border border-white/5">
+                {{ key.key }}
+            </div>
+
+            <div class="flex items-center justify-between text-xs text-slate-400">
+                <div class="flex items-center gap-1.5">
+                    <i data-lucide="download" class="w-3 h-3"></i>
+                    <span>Uses: <b class="text-white">{{ key.current_uses }}</b> / {% if key.max_uses.is_some() %}{{
+                        key.max_uses.unwrap() }}{% else %}∞{% endif %}</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <span
+                        class="w-1.5 h-1.5 rounded-full {% if key.is_active %}bg-emerald-500{% else %}bg-red-500{% endif %}"></span>
+                    <span>{% if key.is_active %}Active{% else %}Inactive{% endif %}</span>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div
+            class="col-span-full py-12 text-center text-slate-500 bg-slate-900/30 rounded-2xl border border-white/5 border-dashed">
+            <i data-lucide="key" class="w-8 h-8 mx-auto mb-3 opacity-50"></i>
+            <p>No enrollment keys found. Create one to get started.</p>
+        </div>
+        {% endfor %}
+    </div>
+
+</section>
+
+<!-- Create Modal -->
+<dialog id="create-modal" class="bg-transparent p-0 w-full max-w-md backdrop:bg-slate-950/80 backdrop:backdrop-blur-sm">
+    <div class="bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl">
+        <h3 class="text-lg font-bold text-white mb-4">Create Enrollment Key</h3>
+        <form action="{{ admin_path }}/api-keys" method="POST" class="space-y-4">
+            <div>
+                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Key Name</label>
+                <input type="text" name="name" required placeholder="e.g. Europe Cluster"
+                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:border-indigo-500 outline-none transition-all text-sm">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Max Uses (0 =
+                    Unlimited)</label>
+                <input type="number" name="max_uses" value="0" min="0"
+                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:border-indigo-500 outline-none transition-all text-sm">
+            </div>
+
+            <div class="flex gap-3 pt-2">
+                <button type="button" onclick="document.getElementById('create-modal').close()"
+                    class="flex-1 px-4 py-2.5 rounded-xl font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all">
+                    Cancel
+                </button>
+                <button type="submit"
+                    class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 rounded-xl font-medium transition-all shadow-lg shadow-indigo-500/20">
+                    Create Key
+                </button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+<script>
+    function copyToClipboard(text) {
+        navigator.clipboard.writeText(text).then(() => {
+            // Optional: Show toast
+            // alert('Copied!'); 
+        });
+    }
+</script>
+{% endblock %}

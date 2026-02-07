@@ -468,7 +468,28 @@ CREATE INDEX IF NOT EXISTS idx_frontend_active ON frontend_servers(is_active);
 CREATE INDEX IF NOT EXISTS idx_frontend_stats_time ON frontend_server_stats(timestamp);
 CREATE INDEX IF NOT EXISTS idx_frontend_stats_server ON frontend_server_stats(frontend_id);
 CREATE INDEX IF NOT EXISTS idx_frontend_token_expiration ON frontend_servers(token_expires_at);
+CREATE INDEX IF NOT EXISTS idx_frontend_token_expiration ON frontend_servers(token_expires_at);
 CREATE INDEX IF NOT EXISTS idx_frontend_auth_hash ON frontend_servers(auth_token_hash);
+
+-- ================================================
+-- API KEYS (Enrollment) (018_api_keys)
+-- ================================================
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'enrollment', -- 'enrollment', 'admin', etc.
+    max_uses INTEGER, -- NULL = unlimited
+    current_uses INTEGER DEFAULT 0,
+    is_active BOOLEAN DEFAULT 1,
+    expires_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER, -- User ID who created it
+    FOREIGN KEY (created_by) REFERENCES admins(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);
 
 -- ================================================
 -- INITIAL DATA

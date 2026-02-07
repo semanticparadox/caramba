@@ -406,6 +406,8 @@ use tower_http::services::ServeDir;
         .route("/bot-logs", axum::routing::get(handlers::admin::bot_logs_page))
         .route("/bot-logs/history", axum::routing::get(handlers::admin::bot_logs_history))
         .route("/bot-logs/tail", axum::routing::get(handlers::admin::bot_logs_tail))
+        .route("/api-keys", axum::routing::get(handlers::admin::api_keys_list).post(handlers::admin::api_keys_create)) // NEW
+        .route("/api-keys/delete/:id", axum::routing::post(handlers::admin::api_keys_delete)) // NEW
         .route("/partials/statusbar", axum::routing::get(handlers::admin::get_statusbar)) // NEW
         .route("/logout", axum::routing::post(handlers::admin::logout))
         
@@ -440,6 +442,7 @@ use tower_http::services::ServeDir;
         .route("/api/v2/node/update-info", axum::routing::get(api::v2::node::get_update_info))
         .route("/api/v2/node/updates/poll", axum::routing::get(api::v2::node::poll_updates)) // NEW
         .route("/api/v2/node/settings", axum::routing::get(api::v2::node::get_settings)) // NEW
+        .route("/api/v2/node/register", axum::routing::post(api::v2::node::register)) // NEW Enrollment
         .route("/api/v2/client/recommended", axum::routing::get(api::v2::client::get_recommended_nodes)) // AI Routing
         // Client API
         .nest("/api/client", api::client::routes(state.clone()))

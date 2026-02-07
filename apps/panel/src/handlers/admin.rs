@@ -13,7 +13,8 @@ use tracing::{info, error};
 use axum_extra::extract::cookie::{Cookie, CookieJar};
 use axum::extract::Query;
 use time::Duration;
-use crate::utils::format_bytes_str; // Helper for Rust logic
+use crate::utils::format_bytes_str;
+use crate::models::api_key::ApiKey;
 
 
 
@@ -95,7 +96,22 @@ pub struct BotTemplate {
     pub active_page: String,
 }
 
+
+#[derive(Template)]
+#[template(path = "api_keys.html")]
+pub struct ApiKeysTemplate {
+    pub keys: Vec<ApiKey>,
+    pub username: String,
+    pub is_auth: bool,
+    pub admin_path: String,
+    pub active_page: String,
+}
+
 #[derive(Deserialize)]
+pub struct CreateApiKeyForm {
+    pub name: String,
+    pub max_uses: Option<i64>,
+}
 pub struct SaveSettingsForm {
     pub bot_token: Option<String>,
     pub payment_api_key: Option<String>,
@@ -2737,4 +2753,72 @@ pub async fn check_update(State(_state): State<AppState>) -> impl IntoResponse {
     Html(status_html)
 }
 
+
+// --- API Keys Management ---
+
+pub async fn api_keys_list(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
+    let username = match get_auth_user(&state, &jar).await {
+        Some(u) => u,
+        None => return (StatusCode::SEE_OTHER, [("Location", "/admin/login")]).into_response(),
+    };
+
+    let keys = sqlx::query_as::<_, ApiKey>("SELECT * FROM api_keys ORDER BY created_at DESC")
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+
+    let template = ApiKeysTemplate {
+        keys,
+        username,
+        is_auth: true,
+        admin_path: "/admin".to_string(),
+        active_page: "api_keys".to_string(),
+    };
+
+    Html(template.render().unwrap()).into_response()
+}
+
+pub async fn api_keys_create(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Form(form): Form<CreateApiKeyForm>,
+) -> impl IntoResponse {
+    let _ = match get_auth_user(&state, &jar).await {
+        Some(u) => u,
+        None => return (StatusCode::SEE_OTHER, [("Location", "/admin/login")]).into_response(),
+    };
+
+    let key = uuid::Uuid::new_v4().to_string(); // Simple UUID key
+    let max_uses = if form.max_uses.unwrap_or(0) > 0 { form.max_uses } else { None };
+
+    let _ = sqlx::query("INSERT INTO api_keys (key, name, type, max_uses) VALUES (?, ?, 'enrollment', ?)")
+        .bind(key)
+        .bind(form.name)
+        .bind(max_uses)
+        .execute(&state.pool)
+        .await;
+
+    (StatusCode::SEE_OTHER, [("Location", "/admin/api-keys")]).into_response()
+}
+
+pub async fn api_keys_delete(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let _ = match get_auth_user(&state, &jar).await {
+        Some(u) => u,
+        None => return (StatusCode::SEE_OTHER, [("Location", "/admin/login")]).into_response(),
+    };
+
+    let _ = sqlx::query("DELETE FROM api_keys WHERE id = ?")
+        .bind(id)
+        .execute(&state.pool)
+        .await;
+
+    (StatusCode::SEE_OTHER, [("Location", "/admin/api-keys")]).into_response()
+}
 
