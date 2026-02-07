@@ -60,15 +60,19 @@
                         <td class="px-6 py-4 text-slate-400 font-mono">{{ inbound.listen_port }}</td>
                         <td class="px-6 py-4">
                             {% if inbound.enable %}
-                            <span
-                                class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/inbounds/{{ inbound.id }}/toggle"
+                                hx-swap="none"
+                                class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 cursor-pointer transition-colors"
+                                title="Click to Disable">
                                 Enabled
-                            </span>
+                            </button>
                             {% else %}
-                            <span
-                                class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-500/10 text-slate-400 border border-slate-500/20">
+                            <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/inbounds/{{ inbound.id }}/toggle"
+                                hx-swap="none"
+                                class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-500/10 text-slate-400 border border-slate-500/20 hover:bg-slate-500/20 cursor-pointer transition-colors"
+                                title="Click to Enable">
                                 Disabled
-                            </span>
+                            </button>
                             {% endif %}
                         </td>
                         <td class="px-6 py-4 text-right">

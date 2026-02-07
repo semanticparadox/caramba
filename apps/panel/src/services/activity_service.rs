@@ -5,7 +5,9 @@ pub struct ActivityService;
 
 impl ActivityService {
     pub async fn log(pool: &SqlitePool, category: &str, event: &str) -> Result<()> {
-        sqlx::query("INSERT INTO panel_activities (category, event) VALUES (?, ?)")
+        // Redirect legacy logging to new activity_log table
+        // Map category -> action, event -> details
+        sqlx::query("INSERT INTO activity_log (user_id, action, details, ip_address) VALUES (NULL, ?, ?, NULL)")
             .bind(category)
             .bind(event)
             .execute(pool)

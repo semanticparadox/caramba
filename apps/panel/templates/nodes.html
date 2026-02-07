@@ -41,7 +41,7 @@
 <!-- Add Node Modal -->
 <dialog id="add-node-modal"
     class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4"
+    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4 overflow-hidden"
         onclick="event.stopPropagation()">
         <header class="flex justify-between items-center mb-6">
             <h3 class="text-xl font-bold text-white">Add New VPN Node</h3>
@@ -183,7 +183,7 @@
 <dialog id="edit-node-modal"
     class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
     <div id="edit-node-modal-content"
-        class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4"
+        class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4 overflow-hidden"
         onclick="event.stopPropagation()">
         <!-- Content loaded via HTMX -->
         <div class="flex items-center justify-center p-12 text-slate-500">
@@ -196,7 +196,7 @@
 <dialog id="manual-install-modal"
     class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
     <div id="manual-install-modal-content"
-        class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-4xl p-6 m-4"
+        class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-4xl p-6 m-4 overflow-hidden"
         onclick="event.stopPropagation()">
         <!-- Content loaded via HTMX -->
         <div class="flex items-center justify-center p-12 text-slate-500">
@@ -218,7 +218,7 @@
             </button>
         </header>
 
-        <div class="flex-1 overflow-auto bg-[#0a0a0a] rounded-xl border border-white/5 p-4">
+        <div class="flex-1 overflow-auto no-scrollbar bg-[#0a0a0a] rounded-xl border border-white/5 p-4">
             <pre id="preview-content"
                 class="text-emerald-400 font-mono text-xs leading-relaxed whitespace-pre-wrap font-fira"></pre>
         </div>
@@ -262,7 +262,7 @@
 <!-- Logs Modal -->
 <dialog id="logs-modal"
     class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-5xl p-6 m-4 flex flex-col max-h-[90vh]"
+    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-5xl p-6 m-4 flex flex-col max-h-[90vh] overflow-hidden"
         onclick="event.stopPropagation()">
         <header class="flex justify-between items-center mb-6 flex-shrink-0">
             <h3 class="text-xl font-bold text-white flex items-center gap-2">
@@ -275,7 +275,7 @@
         </header>
 
         <div id="logs-modal-content"
-            class="flex-1 overflow-auto bg-[#0a0a0a] rounded-xl border border-white/5 p-4 font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">
+            class="flex-1 overflow-auto no-scrollbar bg-[#0a0a0a] rounded-xl border border-white/5 p-4 font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">
             Loading logs...
         </div>
 

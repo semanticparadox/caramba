@@ -4,290 +4,381 @@
 {% block header_title %}Overview{% endblock %}
 
 {% block content %}
-<!-- Stats Grid -->
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-    <!-- Active Nodes -->
-    <div
-        class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-6 rounded-2xl relative overflow-hidden group hover:border-indigo-500/30 transition-all duration-300">
-        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-            <i data-lucide="server" class="w-16 h-16 text-indigo-500"></i>
-        </div>
-        <div class="flex items-center justify-between mb-4">
-            <div class="p-3 bg-indigo-500/10 rounded-xl text-indigo-400">
-                <i data-lucide="server" class="w-6 h-6"></i>
+<div class="space-y-8">
+
+    <!-- KPI Overview -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <!-- Total Traffic -->
+        <div
+            class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-6 rounded-2xl relative overflow-hidden group hover:border-indigo-500/30 transition-all duration-300 glass shadow-[0_0_20px_rgba(99,102,241,0.05)]">
+            <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                <i data-lucide="activity" class="w-16 h-16 text-indigo-500"></i>
             </div>
-            <span
-                class="flex items-center gap-1.5 text-xs font-medium text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
-                <i data-lucide="activity" class="w-3 h-3"></i> Online
-            </span>
-        </div>
-        <div>
-            <p class="text-slate-400 text-sm font-medium mb-1">Active Nodes</p>
-            <h3 class="text-3xl font-bold text-white">{{ active_nodes }}</h3>
-        </div>
-    </div>
-
-    <!-- Active Subs -->
-    <div
-        class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-6 rounded-2xl relative overflow-hidden group hover:border-purple-500/30 transition-all duration-300">
-        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-            <i data-lucide="users" class="w-16 h-16 text-purple-500"></i>
-        </div>
-        <div class="flex items-center justify-between mb-4">
-            <div class="p-3 bg-purple-500/10 rounded-xl text-purple-400">
-                <i data-lucide="users" class="w-6 h-6"></i>
+            <div class="flex items-center gap-3 mb-4">
+                <div class="p-2.5 bg-indigo-500/10 rounded-xl text-indigo-400">
+                    <i data-lucide="bar-chart-2" class="w-5 h-5"></i>
+                </div>
+                <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Network Load</span>
             </div>
-            <span
-                class="text-xs font-medium text-purple-400 bg-purple-500/10 px-2.5 py-1 rounded-full border border-purple-500/20">
-                {{ total_users }} Total
-            </span>
-        </div>
-        <div>
-            <p class="text-slate-400 text-sm font-medium mb-1">Active Subs</p>
-            <h3 class="text-3xl font-bold text-white">{{ active_subs }}</h3>
-        </div>
-    </div>
-
-    <!-- Revenue -->
-    <div
-        class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-6 rounded-2xl relative overflow-hidden group hover:border-emerald-500/30 transition-all duration-300">
-        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-            <i data-lucide="dollar-sign" class="w-16 h-16 text-emerald-500"></i>
-        </div>
-        <div class="flex items-center justify-between mb-4">
-            <div class="p-3 bg-emerald-500/10 rounded-xl text-emerald-400">
-                <i data-lucide="dollar-sign" class="w-6 h-6"></i>
-            </div>
-            <span
-                class="text-xs font-medium text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
-                LTD
-            </span>
-        </div>
-        <div>
-            <p class="text-slate-400 text-sm font-medium mb-1">Revenue</p>
-            <h3 class="text-3xl font-bold text-emerald-400">${{ total_revenue }}</h3>
-        </div>
-    </div>
-
-    <!-- Traffic -->
-    <div
-        class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-6 rounded-2xl relative overflow-hidden group hover:border-amber-500/30 transition-all duration-300">
-        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-            <i data-lucide="network" class="w-16 h-16 text-amber-500"></i>
-        </div>
-        <div class="flex items-center justify-between mb-4">
-            <div class="p-3 bg-amber-500/10 rounded-xl text-amber-400">
-                <i data-lucide="network" class="w-6 h-6"></i>
-            </div>
-            <span
-                class="text-xs font-medium text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20">
-                Global
-            </span>
-        </div>
-        <div>
-            <p class="text-slate-400 text-sm font-medium mb-1">Traffic Usage</p>
-            <h3 class="text-3xl font-bold text-white">{{ total_traffic }}</h3>
-        </div>
-    </div>
-</div>
-
-<!-- Main Grid Section -->
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-    <!-- Chart Section (Spans 2 columns) -->
-    <div class="lg:col-span-2 bg-slate-900/50 backdrop-blur-md border border-white/5 p-6 rounded-2xl">
-        <div class="flex items-center justify-between mb-6">
-            <h3 class="text-lg font-semibold text-white">Network Activity</h3>
-            <select
-                class="bg-slate-950 border border-white/10 text-slate-400 text-xs rounded-lg px-2 py-1 outline-none focus:border-indigo-500">
-                <option>Last 24 Hours</option>
-                <option>Last 7 Days</option>
-                <option>Last 30 Days</option>
-            </select>
-        </div>
-        <div id="trafficChart" class="w-full min-h-[350px]"></div>
-    </div>
-
-    <!-- Bot Status / Quick Actions (Spans 1 column) -->
-    <div class="space-y-8">
-        <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-6 rounded-2xl h-full flex flex-col">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-semibold text-white">Bot Status</h3>
-                <div class="animate-pulse w-2 h-2 rounded-full {% if bot_status == " running" %}bg-emerald-500{% else
-                    %}bg-red-500{% endif %}"></div>
-            </div>
-            {% include "partials/bot_status.html" %}
-
-            <div class="mt-auto pt-6 border-t border-white/5 space-y-3">
-                <!-- Status removed: Moved to global footer -->
-                <p class="text-xs text-slate-500 text-center">Service health monitors moved to footer.</p>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Recent Activity Table -->
-<div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden">
-    <div class="p-6 border-b border-white/5">
-        <h3 class="text-lg font-semibold text-white">Recent Activity</h3>
-    </div>
-    <div class="overflow-x-auto">
-        <table class="w-full text-left border-collapse">
-            <thead>
-                <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5">
-                    <th class="px-6 py-4">Category</th>
-                    <th class="px-6 py-4">Event</th>
-                    <th class="px-6 py-4 text-right">Time</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-white/5 text-sm">
-                {% for activity in activities %}
-                <tr class="hover:bg-white/5 transition-colors group">
-                    <td class="px-6 py-4">
-                        {% if activity.action == "System" %}
-                        <span
-                            class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20">System</span>
-                        {% else if activity.action == "Node" %}
-                        <span
-                            class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">Node</span>
-                        {% else %}
-                        <span
-                            class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">{{
-                            activity.action }}</span>
-                        {% endif %}
-                    </td>
-                    <td class="px-6 py-4 text-slate-300 font-medium group-hover:text-white transition-colors">{{
-                        activity.details.as_deref().unwrap_or("-") }}</td>
-                    <td class="px-6 py-4 text-right text-slate-500 font-mono">{{ activity.created_at }}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- Modal Logic -->
-<dialog id="add-node-modal-dash"
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4"
-        onclick="event.stopPropagation()">
-        <header class="flex justify-between items-center mb-6">
-            <h3 class="text-xl font-bold text-white">Quick Deploy Node</h3>
-            <button onclick="document.getElementById('add-node-modal-dash').close()"
-                class="text-slate-400 hover:text-white transition-colors">
-                <i data-lucide="x" class="w-6 h-6"></i>
-            </button>
-        </header>
-
-        <form hx-post="{{ admin_path }}/nodes/install" hx-target="body" class="space-y-4">
             <div>
-                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Friendly
-                    Name</label>
-                <input type="text" name="name" placeholder="e.g. Germany 1" required
-                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                <h3 class="text-3xl font-bold text-white">{{ total_traffic_30d }}</h3>
+                <p class="text-slate-400 text-sm mt-1">Total Traffic (30d)</p>
             </div>
+        </div>
 
+        <!-- Active Nodes -->
+        <div
+            class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-6 rounded-2xl relative overflow-hidden group hover:border-emerald-500/30 transition-all duration-300 glass shadow-[0_0_20px_rgba(16,185,129,0.05)]">
+            <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                <i data-lucide="server" class="w-16 h-16 text-emerald-500"></i>
+            </div>
+            <div class="flex items-center gap-3 mb-4">
+                <div class="p-2.5 bg-emerald-500/10 rounded-xl text-emerald-400">
+                    <i data-lucide="cpu" class="w-5 h-5"></i>
+                </div>
+                <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Infrastructure</span>
+            </div>
             <div>
-                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">IP
-                    Address</label>
-                <input type="text" name="ip" placeholder="1.2.3.4" required
-                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                <h3 class="text-3xl font-bold text-white">{{ active_nodes }}</h3>
+                <p class="text-emerald-400 text-sm mt-1 font-medium">Active Nodes</p>
             </div>
+        </div>
 
+        <!-- Sales Velocity (Recent Orders count) -->
+        <div
+            class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-6 rounded-2xl relative overflow-hidden group hover:border-amber-500/30 transition-all duration-300 glass shadow-[0_0_20px_rgba(245,158,11,0.05)]">
+            <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                <i data-lucide="shopping-bag" class="w-16 h-16 text-amber-500"></i>
+            </div>
+            <div class="flex items-center gap-3 mb-4">
+                <div class="p-2.5 bg-amber-500/10 rounded-xl text-amber-400">
+                    <i data-lucide="shopping-cart" class="w-5 h-5"></i>
+                </div>
+                <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Sales Velocity</span>
+            </div>
             <div>
-                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Root
-                    Password</label>
-                <input type="password" name="password" placeholder="Server root password" required
-                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                <h3 class="text-3xl font-bold text-white">{{ orders.len() }}</h3>
+                <p class="text-slate-400 text-sm mt-1">Recent Orders</p>
             </div>
+        </div>
 
-            <div class="pt-4">
-                <button type="submit"
-                    class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02]">
-                    Start Installation
-                </button>
+        <!-- Revenue -->
+        <div
+            class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-6 rounded-2xl relative overflow-hidden group hover:border-rose-500/30 transition-all duration-300 glass shadow-[0_0_20px_rgba(244,63,94,0.05)]">
+            <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                <i data-lucide="wallet" class="w-16 h-16 text-rose-500"></i>
             </div>
-        </form>
+            <div class="flex items-center gap-3 mb-4">
+                <div class="p-2.5 bg-rose-500/10 rounded-xl text-rose-400">
+                    <i data-lucide="dollar-sign" class="w-5 h-5"></i>
+                </div>
+                <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Revenue Stream</span>
+            </div>
+            <div>
+                <h3 class="text-3xl font-bold text-rose-400">${{ total_revenue }}</h3>
+                <p class="text-slate-400 text-sm mt-1">Lifetime Value</p>
+            </div>
+        </div>
     </div>
-</dialog>
+
+    <!-- Charts Section -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- Area Chart -->
+        <div class="lg:col-span-2 bg-slate-900/50 backdrop-blur-md border border-white/5 p-6 rounded-2xl glass">
+            <div class="flex items-center justify-between mb-6">
+                <div>
+                    <h3 class="text-lg font-bold text-white">Traffic Volume</h3>
+                    <p class="text-slate-500 text-sm">Data usage trends over last 30 days</p>
+                </div>
+            </div>
+            <div id="trafficHistoryChart" class="w-full min-h-[350px]"></div>
+        </div>
+
+        <!-- Donut Chart -->
+        <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-6 rounded-2xl glass flex flex-col">
+            <div class="mb-6">
+                <h3 class="text-lg font-bold text-white">Node Distribution</h3>
+                <p class="text-slate-500 text-sm">Load balancing status</p>
+            </div>
+            <div id="nodeDistributionChart" class="w-full flex-1 flex items-center justify-center min-h-[300px]"></div>
+        </div>
+    </div>
+
+    <!-- Two-Column Data Layout -->
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
+
+        <!-- Recent Orders -->
+        <div
+            class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden glass flex flex-col h-full">
+            <div class="p-6 border-b border-white/5 flex items-center justify-between">
+                <div>
+                    <h3 class="text-lg font-bold text-white">Recent Transactions</h3>
+                    <p class="text-slate-500 text-sm">Latest store activity</p>
+                </div>
+                <a href="{{ admin_path }}/transactions"
+                    class="text-xs font-medium text-indigo-400 hover:text-white transition-colors bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-1.5 rounded-lg border border-indigo-500/20">View
+                    All</a>
+            </div>
+            <div class="overflow-x-auto flex-1">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr
+                            class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                            <th class="px-6 py-4">User</th>
+                            <th class="px-6 py-4">Amount</th>
+                            <th class="px-6 py-4">Status</th>
+                            <th class="px-6 py-4 text-right">Date</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-white/5 text-sm">
+                        {% for order in orders %}
+                        {% if loop.index0 < 10 %} <!-- Limit to 10 latest here -->
+                            <tr class="hover:bg-white/5 transition-colors group">
+                                <td class="px-6 py-4">
+                                    <span class="font-medium text-white block">{{ order.username }}</span>
+                                    <span class="text-xs text-slate-500 font-mono">#{{ order.id }}</span>
+                                </td>
+                                <td class="px-6 py-4 font-mono text-slate-300">
+                                    ${{ order.total_amount }}
+                                </td>
+                                <td class="px-6 py-4">
+                                    {% if order.status == "completed" %}
+                                    <span
+                                        class="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                        Paid
+                                    </span>
+                                    {% else if order.status == "pending" %}
+                                    <span
+                                        class="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                        Pending
+                                    </span>
+                                    {% else %}
+                                    <span
+                                        class="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide bg-slate-700 text-slate-400 border border-slate-600">
+                                        {{ order.status }}
+                                    </span>
+                                    {% endif %}
+                                </td>
+                                <td class="px-6 py-4 text-right text-slate-500 text-xs">
+                                    {{ order.created_at }}
+                                </td>
+                            </tr>
+                            {% endif %}
+                            {% endfor %}
+
+                            {% if orders.is_empty() %}
+                            <tr>
+                                <td colspan="4" class="px-6 py-8 text-center text-slate-500">
+                                    No recent transactions.
+                                </td>
+                            </tr>
+                            {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Top Users -->
+        <div
+            class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden glass flex flex-col h-full">
+            <div class="p-6 border-b border-white/5">
+                <h3 class="text-lg font-bold text-white">Top Bandwidth Users</h3>
+                <p class="text-slate-500 text-sm">Users consuming the most resources</p>
+            </div>
+            <div class="overflow-x-auto flex-1">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr
+                            class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                            <th class="px-6 py-4">Rank</th>
+                            <th class="px-6 py-4">Username</th>
+                            <th class="px-6 py-4 text-right">Data Used</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-white/5 text-sm">
+                        {% for user in top_users %}
+                        <tr class="hover:bg-white/5 transition-colors">
+                            <td class="px-6 py-4 font-mono text-slate-500 text-xs">0{{ loop.index }}</td>
+                            <td class="px-6 py-4 font-medium text-white">
+                                <div class="flex items-center gap-3">
+                                    <div
+                                        class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center text-indigo-400 border border-white/5">
+                                    </div>
+                                    {{ user.username }}
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 text-right">
+                                <span
+                                    class="px-2 py-1 bg-slate-800 rounded border border-white/10 font-mono text-xs text-indigo-300 shadow-sm">
+                                    {{ user.total_traffic_fmt }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Activity Table (Moved from old Dashboard) -->
+    <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden glass">
+        <div class="p-6 border-b border-white/5">
+            <h3 class="text-lg font-semibold text-white">Recent Activity</h3>
+            <p class="text-slate-500 text-sm">System and node lifecycle events</p>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                        <th class="px-6 py-4">Category</th>
+                        <th class="px-6 py-4">Event</th>
+                        <th class="px-6 py-4 text-right">Time</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5 text-sm">
+                    {% for activity in activities %}
+                    <tr class="hover:bg-white/5 transition-colors group">
+                        <td class="px-6 py-4">
+                            {% if activity.action == "System" %}
+                            <span
+                                class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20">System</span>
+                            {% else if activity.action == "Node" %}
+                            <span
+                                class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">Node</span>
+                            {% else %}
+                            <span
+                                class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">{{
+                                activity.action }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4 text-slate-300 font-medium group-hover:text-white transition-colors">{{
+                            activity.details.as_deref().unwrap_or("-") }}</td>
+                        <td class="px-6 py-4 text-right text-slate-500 font-mono">{{ activity.created_at }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
 
 <script>
-    // Initialize ApexChart
-    var options = {
+    // --- Traffic History Chart (Area) ---
+    var historyOptions = {
         series: [{
-            name: 'Network Traffic (GB)',
-            data: [31, 40, 28, 51, 42, 109, 100, 48, 60, 85, 90, 120]
+            name: 'Traffic (GB)',
+            data: {{ history_data_json| safe }}
         }],
-        chart: {
-            height: 350,
+    chart: {
+        height: 350,
             type: 'area',
-            toolbar: { show: false },
-            fontFamily: 'Inter, sans-serif',
-            background: 'transparent'
-        },
-        dataLabels: { enabled: false },
-        stroke: {
-            curve: 'smooth',
+                toolbar: { show: false },
+        fontFamily: 'Inter, sans-serif',
+            background: 'transparent',
+                animations: { enabled: true, easing: 'easeinout', speed: 800 }
+    },
+    dataLabels: { enabled: false },
+    stroke: {
+        curve: 'smooth',
             width: 3,
-            colors: ['#FF6B35']
-        },
-        fill: {
-            type: 'gradient',
-            gradient: {
-                shadeIntensity: 1,
-                opacityFrom: 0.3,
-                opacityTo: 0.05,
-                stops: [0, 90, 100],
-                colorStops: [
-                    {
-                        offset: 0,
-                        color: '#FF6B35',
-                        opacity: 0.4
-                    },
-                    {
-                        offset: 100,
-                        color: '#FF6B35',
-                        opacity: 0
-                    }
-                ]
-            }
-        },
-        xaxis: {
-            categories: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00", "16:00", "18:00", "20:00", "22:00"],
-            labels: {
-                style: { colors: '#94a3b8', fontSize: '12px' }
-            },
-            axisBorder: { show: false },
-            axisTicks: { show: false }
-        },
-        yaxis: {
-            labels: { style: { colors: '#94a3b8', fontSize: '12px' } }
-        },
-        grid: {
-            borderColor: 'rgba(255,255,255,0.05)',
+                colors: ['#FF6B35'] // Caramba Orange
+    },
+    xaxis: {
+        categories: { { history_labels_json | safe } },
+        labels: { style: { colors: '#64748b', fontSize: '11px', fontFamily: 'Inter' } },
+        axisBorder: { show: false },
+        axisTicks: { show: false },
+        tooltip: { enabled: false }
+    },
+    yaxis: {
+        labels: {
+            style: { colors: '#64748b', fontSize: '11px', fontFamily: 'Inter' },
+            formatter: (val) => val.toFixed(1)
+        }
+    },
+    grid: {
+        borderColor: 'rgba(255,255,255,0.03)',
             strokeDashArray: 4,
-            yaxis: {
-                lines: { show: true }
-            },
-            xaxis: {
-                lines: { show: false }
-            },
-            padding: { top: 0, right: 0, bottom: 0, left: 10 }
-        },
-        theme: { mode: 'dark' },
-        tooltip: {
-            theme: 'dark',
-            style: { fontSize: '12px' },
-            x: { show: false },
-            y: {
-                formatter: function (value) {
-                    return value + " GB"
+                padding: { top: 0, right: 0, bottom: 0, left: 10 }
+    },
+    theme: { mode: 'dark' },
+    fill: {
+        type: 'gradient',
+            gradient: {
+            shadeIntensity: 1,
+                opacityFrom: 0.4,
+                    opacityTo: 0.05,
+                        stops: [0, 90, 100],
+                            colorStops: [
+                                { offset: 0, color: '#FF6B35', opacity: 0.4 },
+                                { offset: 100, color: '#FF6B35', opacity: 0 }
+                            ]
+        }
+    },
+    tooltip: {
+        theme: 'dark',
+            y: { formatter: (val) => val.toFixed(2) + " GB" },
+        x: { show: false },
+        marker: { show: false },
+        style: { fontSize: '12px', fontFamily: 'Inter' }
+    }
+    };
+    var historyChart = new ApexCharts(document.querySelector("#trafficHistoryChart"), historyOptions);
+    historyChart.render();
+
+    // --- Node Distribution Chart (Donut) ---
+    var nodeOptions = {
+        series: {{ node_series_json| safe }},
+    labels: { { node_labels_json | safe } },
+    chart: {
+        type: 'donut',
+            height: 320,
+                background: 'transparent',
+                    animations: { enabled: true }
+    },
+    plotOptions: {
+        pie: {
+            startAngle: -90,
+                endAngle: 90,
+                    offsetY: 10,
+                        donut: {
+                size: '75%',
+                    labels: {
+                    show: true,
+                        name: { show: true, fontSize: '12px', fontFamily: 'Inter', color: '#64748b', offsetY: -10 },
+                    value: { show: true, fontSize: '24px', fontFamily: 'Inter', fontWeight: 700, color: '#ffffff', offsetY: 10, formatter: (val) => parseFloat(val).toFixed(2) },
+                    total: {
+                        show: true,
+                            label: 'Total Traffic',
+                                color: '#64748b',
+                                    fontSize: '11px',
+                                        fontFamily: 'Inter',
+                                            formatter: function (w) {
+                                                return w.globals.seriesTotals.reduce((a, b) => a + b, 0).toFixed(1) + " GB"
+                                            }
+                    }
                 }
             }
         }
+    },
+    stroke: { show: false },
+    dataLabels: { enabled: false },
+    legend: {
+        position: 'bottom',
+            labels: { colors: '#94a3b8', useSeriesColors: false },
+        fontFamily: 'Inter',
+            itemMargin: { horizontal: 10, vertical: 0 }
+    },
+    theme: { mode: 'dark' },
+    colors: ['#FF6B35', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4'],
+        tooltip: {
+        y: { formatter: (val) => val.toFixed(2) + " GB" }
+    }
     };
-
-    var chart = new ApexCharts(document.querySelector("#trafficChart"), options);
-    chart.render();
+    var nodeChart = new ApexCharts(document.querySelector("#nodeDistributionChart"), nodeOptions);
+    nodeChart.render();
 </script>
 {% endblock %}

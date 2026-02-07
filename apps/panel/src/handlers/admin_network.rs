@@ -467,3 +467,29 @@ pub async fn update_inbound(
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)).into_response(),
     }
 }
+
+pub async fn toggle_inbound(
+    Path((node_id, inbound_id)): Path<(i64, i64)>,
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
+    use axum::http::StatusCode;
+    
+    if !crate::handlers::admin::is_authenticated(&state, &jar).await {
+       return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    // Toggle
+    let _ = sqlx::query("UPDATE inbounds SET enable = NOT enable WHERE id = ? AND node_id = ?")
+        .bind(inbound_id)
+        .bind(node_id)
+        .execute(&state.pool)
+        .await;
+
+    // Trigger Node Update
+    let _ = state.orchestration_service.notify_node_update(node_id).await;
+    let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "update").await;
+
+    let admin_path = state.admin_path.clone();
+    ([("HX-Redirect", format!("{}/nodes/{}/inbounds", admin_path, node_id))]).into_response()
+}

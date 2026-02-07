@@ -3,7 +3,8 @@ use axum::{
     response::{IntoResponse, Html},
 };
 use askama::Template;
-use serde::Deserialize;
+use sysinfo::{SystemExt, CpuExt};
+use serde::{Deserialize, Serialize};
 use crate::AppState;
 use crate::models::node::Node;
 use crate::models::store::{Plan, User, Order};
@@ -226,6 +227,67 @@ pub struct NodesRowsPartial {
     pub admin_path: String,
 }
 
+pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
+    let is_running = state.bot_manager.is_running().await;
+    let bot_status = if is_running { "running" } else { "stopped" }.to_string();
+    let bot_username = state.settings.get_or_default("bot_username", "Unknown").await;
+    
+    // Check Redis & Version
+    let (redis_status, redis_version) = match state.redis.get_connection().await {
+        Ok(mut con) => {
+            let info: String = redis::cmd("INFO").arg("server").query_async(&mut *con).await.unwrap_or_default();
+            // Parse redis_version: X.Y.Z
+            let version = info.lines()
+                .find(|l| l.starts_with("redis_version:"))
+                .map(|l| l.replace("redis_version:", "").trim().to_string())
+                .unwrap_or_else(|| "Unknown".to_string());
+            ("Online".to_string(), version)
+        },
+        Err(_) => ("Offline".to_string(), "-".to_string()),
+    };
+
+    // Check DB & Version
+    let (db_status, sqlite_version) = match sqlx::query_scalar::<_, String>("SELECT sqlite_version()").fetch_one(&state.pool).await {
+        Ok(v) => ("Online".to_string(), v),
+        Err(_) => ("Offline".to_string(), "-".to_string()),
+    };
+
+    // System Stats
+    let (cpu_usage, ram_usage) = {
+        let mut sys = state.system_stats.lock().await;
+        sys.refresh_cpu(); // Refresh CPU usage
+        sys.refresh_memory(); // Refresh RAM usage
+        
+        let cpu = sys.global_cpu_info().cpu_usage();
+        let total_ram = sys.total_memory();
+        let used_ram = sys.used_memory();
+        
+        // Format RAM (e.g., "4.5/16 GB")
+        let total_gb = total_ram as f64 / 1024.0 / 1024.0 / 1024.0;
+        let used_gb = used_ram as f64 / 1024.0 / 1024.0 / 1024.0;
+        
+        (
+            format!("{:.1}%", cpu),
+            format!("{:.1}/{:.1} GB", used_gb, total_gb)
+        )
+    };
+
+    let admin_path = state.admin_path.clone();
+
+    let template = StatusbarPartial {
+        bot_status,
+        db_status,
+        redis_status,
+        admin_path,
+        sqlite_version,
+        redis_version,
+        bot_username,
+        cpu_usage,
+        ram_usage,
+    };
+    Html(template.render().unwrap_or_default())
+}
+
 #[derive(Template)]
 #[template(path = "partials/statusbar.html")]
 pub struct StatusbarPartial {
@@ -233,8 +295,12 @@ pub struct StatusbarPartial {
     pub db_status: String,
     pub redis_status: String,
     pub admin_path: String,
+    pub sqlite_version: String, // NEW
+    pub redis_version: String, // NEW
+    pub bot_username: String, // NEW
+    pub cpu_usage: String, // NEW
+    pub ram_usage: String, // NEW
 }
-
 #[derive(Deserialize)]
 pub struct InstallNodeForm {
     pub name: String,
@@ -338,6 +404,12 @@ pub struct LoginTemplate {
     pub username: String, // NEW - needed even if empty for base.html compatibility?
 }
 
+#[derive(Deserialize)]
+pub struct LoginForm {
+    pub username: String,
+    pub password: String,
+}
+
 #[derive(Template)]
 #[template(path = "analytics.html")]
 pub struct AnalyticsTemplate {
@@ -348,14 +420,12 @@ pub struct AnalyticsTemplate {
     pub history_data_json: String,
 #[allow(dead_code)]
     pub history_labels_json: String,
-#[allow(dead_code)]
     pub node_series_json: String,
-#[allow(dead_code)]
     pub node_labels_json: String,
     pub is_auth: bool,
     pub admin_path: String,
     pub active_page: String,
-    pub username: String, // NEW
+    pub username: String,
 }
 
 pub struct UserWithTraffic {
@@ -363,10 +433,27 @@ pub struct UserWithTraffic {
     pub total_traffic_fmt: String,
 }
 
-#[derive(Deserialize)]
-pub struct LoginForm {
+#[derive(Template)]
+#[template(path = "dashboard.html")]
+pub struct DashboardTemplate {
+    pub active_nodes: i64,
+    pub total_users: i64,
+    pub active_subs: i64,
+    pub total_revenue: String,
+    pub total_traffic: String,
+    pub total_traffic_30d: String, // From Analytics
+    pub orders: Vec<OrderWithUser>, // From Analytics
+    pub top_users: Vec<UserWithTraffic>, // From Analytics
+    pub history_data_json: String, // From Analytics
+    pub history_labels_json: String, // From Analytics
+    pub node_series_json: String, // From Analytics
+    pub node_labels_json: String, // From Analytics
+    pub activities: Vec<RecentActivity>,
+    pub bot_status: String,
+    pub is_auth: bool,
     pub username: String,
-    pub password: String,
+    pub admin_path: String,
+    pub active_page: String,
 }
 
 pub async fn get_dashboard(
@@ -382,6 +469,7 @@ pub async fn get_dashboard(
     // Total traffic across all nodes
     let total_traffic_bytes = sqlx::query_scalar::<_, i64>("SELECT SUM(total_ingress + total_egress) FROM nodes").fetch_one(&state.pool).await.unwrap_or(0);
     let total_traffic = format_bytes_str(total_traffic_bytes as u64);
+    let total_traffic_30d = total_traffic.clone(); // Placeholder for 30d specific query if needed
 
     let admin_path = state.admin_path.clone();
 
@@ -398,12 +486,26 @@ pub async fn get_dashboard(
         created_at: log.created_at,
     }).collect();
 
+    // Analytics Data
+    let orders = get_recent_orders(&state.pool).await;
+    let top_users = sqlx::query_as!(
+        UserWithTraffic,
+        r#"SELECT COALESCE(username, full_name, 'Unknown') as "username!", '0 GB' as "total_traffic_fmt!" FROM users LIMIT 5"#
+    ).fetch_all(&state.pool).await.unwrap_or_default();
+
     let template = DashboardTemplate {
         active_nodes,
         total_users,
         active_subs,
         total_revenue,
         total_traffic,
+        total_traffic_30d,
+        orders,
+        top_users,
+        history_data_json: "[0,0,0,0,0]".to_string(), // Real data to be implemented if needed
+        history_labels_json: r#"["Mon", "Tue", "Wed", "Thu", "Fri"]"#.to_string(),
+        node_series_json: "[100]".to_string(),
+        node_labels_json: r#"["All Nodes"]"#.to_string(),
         activities,
         bot_status,
         is_auth: true,
@@ -414,20 +516,65 @@ pub async fn get_dashboard(
     Html(template.render().unwrap())
 }
 
+
+
+#[derive(Template)]
+#[template(path = "partials/statusbar.html")]
+pub struct StatusbarPartial {
+    pub bot_status: String,
+    pub db_status: String,
+    pub redis_status: String,
+    pub admin_path: String,
+    pub sqlite_version: String,
+    pub redis_version: String,
+    pub bot_username: String,
+    pub cpu_usage: String,
+    pub ram_usage: String,
+}
+
 pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
     let is_running = state.bot_manager.is_running().await;
     let bot_status = if is_running { "running" } else { "stopped" }.to_string();
+    let bot_username = state.settings.get_or_default("bot_username", "Unknown").await;
     
-    // Check Redis
-    let redis_status = match state.redis.ping().await {
-        Ok(_) => "Online".to_string(),
-        Err(_) => "Offline".to_string(),
+    // Check Redis & Version
+    let (redis_status, redis_version) = match state.redis.get_connection().await {
+        Ok(mut con) => {
+            let info: String = redis::cmd("INFO").arg("server").query_async(&mut *con).await.unwrap_or_default();
+            // Parse redis_version: X.Y.Z
+            let version = info.lines()
+                .find(|l| l.starts_with("redis_version:"))
+                .map(|l| l.replace("redis_version:", "").trim().to_string())
+                .unwrap_or_else(|| "Unknown".to_string());
+            ("Online".to_string(), version)
+        },
+        Err(_) => ("Offline".to_string(), "-".to_string()),
     };
 
-    // Check DB (simple query)
-    let db_status = match sqlx::query("SELECT 1").execute(&state.pool).await {
-        Ok(_) => "Online".to_string(),
-        Err(_) => "Offline".to_string(),
+    // Check DB & Version
+    let (db_status, sqlite_version) = match sqlx::query_scalar::<_, String>("SELECT sqlite_version()").fetch_one(&state.pool).await {
+        Ok(v) => ("Online".to_string(), v),
+        Err(_) => ("Offline".to_string(), "-".to_string()),
+    };
+
+    // System Stats
+    let (cpu_usage, ram_usage) = {
+        let mut sys = state.system_stats.lock().await;
+        sys.refresh_cpu(); // Refresh CPU usage
+        sys.refresh_memory(); // Refresh RAM usage
+        
+        let cpu = sys.global_cpu_info().cpu_usage();
+        let total_ram = sys.total_memory();
+        let used_ram = sys.used_memory();
+        
+        // Format RAM (e.g., "4.5/16 GB")
+        let total_gb = total_ram as f64 / 1024.0 / 1024.0 / 1024.0;
+        let used_gb = used_ram as f64 / 1024.0 / 1024.0 / 1024.0;
+        
+        (
+            format!("{:.1}%", cpu),
+            format!("{:.1}/{:.1} GB", used_gb, total_gb)
+        )
     };
 
     let admin_path = state.admin_path.clone();
@@ -437,6 +584,11 @@ pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
         db_status,
         redis_status,
         admin_path,
+        sqlite_version,
+        redis_version,
+        bot_username,
+        cpu_usage,
+        ram_usage,
     };
     Html(template.render().unwrap_or_default())
 }
@@ -586,6 +738,8 @@ pub async fn get_settings(
 
     let free_trial_days = state.settings.get_or_default("free_trial_days", "3").await.parse().unwrap_or(3);
     let channel_trial_days = state.settings.get_or_default("channel_trial_days", "7").await.parse().unwrap_or(7);
+    let free_trial_traffic_limit = state.settings.get_or_default("free_trial_traffic_limit", "10").await.parse().unwrap_or(10);
+    let free_trial_device_limit = state.settings.get_or_default("free_trial_device_limit", "1").await.parse().unwrap_or(1);
     let required_channel_id = state.settings.get_or_default("required_channel_id", "").await;
     let last_export = state.settings.get_or_default("last_export", "Never").await;
 
@@ -632,6 +786,8 @@ pub async fn get_settings(
         kill_switch_timeout,
         free_trial_days,
         channel_trial_days,
+        free_trial_traffic_limit,
+        free_trial_device_limit,
         required_channel_id,
         last_export,
         is_auth: true,
@@ -1154,7 +1310,7 @@ pub async fn get_plans(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let mut plans = match sqlx::query_as::<_, Plan>("SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans")
+    let mut plans = match sqlx::query_as::<_, Plan>("SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans WHERE is_trial = 0")
         .fetch_all(&state.pool)
         .await {
             Ok(p) => {
@@ -1391,7 +1547,20 @@ pub async fn delete_plan(
 ) -> impl IntoResponse {
     info!("Request to delete plan: {}", id);
     
-    // 1. Use Store Service to delete plan + refund active users
+    // 1. Check if plan is a trial plan (cannot delete)
+    let is_trial: bool = match sqlx::query_scalar("SELECT is_trial FROM plans WHERE id = ?")
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await {
+            Ok(v) => v,
+            Err(_) => return (axum::http::StatusCode::NOT_FOUND, "Plan not found").into_response(),
+        };
+
+    if is_trial {
+        return (axum::http::StatusCode::BAD_REQUEST, "Cannot delete system trial plan. Disable it instead.").into_response();
+    }
+
+    // 2. Use Store Service to delete plan + refund active users
     match state.store_service.delete_plan_and_refund(id).await {
         Ok((refunded_users, total_refunded_cents)) => {
             info!("Plan {} deleted. Refunded {} users (Total: ${:.2})", id, refunded_users, total_refunded_cents as f64 / 100.0);
@@ -1408,7 +1577,7 @@ pub async fn get_plan_edit(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    let plan = match sqlx::query_as::<_, Plan>("SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb FROM plans WHERE id = ?").bind(id).fetch_optional(&state.pool).await {
+    let plan = match sqlx::query_as::<_, Plan>("SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans WHERE id = ?").bind(id).fetch_optional(&state.pool).await {
         Ok(Some(mut p)) => {
             let durations = sqlx::query_as::<_, crate::models::store::PlanDuration>(
                 "SELECT * FROM plan_durations WHERE plan_id = ? ORDER BY duration_days ASC"
@@ -2473,8 +2642,10 @@ pub async fn db_export_download(
 
 #[derive(Deserialize)]
 pub struct TrialConfigForm {
-    pub free_trial_days: i64,
-    pub channel_trial_days: i64,
+    pub free_trial_days: i32,
+    pub channel_trial_days: i32,
+    pub free_trial_traffic_limit: i32,
+    pub free_trial_device_limit: i32,
     pub required_channel_id: String,
 }
 
@@ -2491,11 +2662,37 @@ pub async fn update_trial_config(
         form.required_channel_id
     );
     
-    // Save to DB
+    // Save to Settings
     let _ = state.settings.set("free_trial_days", &form.free_trial_days.to_string()).await;
     let _ = state.settings.set("channel_trial_days", &form.channel_trial_days.to_string()).await;
+    let _ = state.settings.set("free_trial_traffic_limit", &form.free_trial_traffic_limit.to_string()).await;
+    let _ = state.settings.set("free_trial_device_limit", &form.free_trial_device_limit.to_string()).await;
     let _ = state.settings.set("required_channel_id", &form.required_channel_id).await;
     
+    // SYNC: Update System Trial Plan (is_trial = 1)
+    // We check if it exists. If so, update limits. If not, create it.
+    let trial_plan_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM plans WHERE is_trial = 1)")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(false);
+
+    if trial_plan_exists {
+        let _ = sqlx::query("UPDATE plans SET traffic_limit_gb = ?, device_limit = ? WHERE is_trial = 1")
+            .bind(form.free_trial_traffic_limit)
+            .bind(form.free_trial_device_limit)
+            .execute(&state.pool)
+            .await;
+    } else {
+        // Create it if missing
+        let _ = sqlx::query(
+            "INSERT INTO plans (name, description, traffic_limit_gb, device_limit, price, is_active, is_trial, sort_order) VALUES ('Free Trial', 'System Trial Plan', ?, ?, 0, 1, 1, -1)"
+        )
+        .bind(form.free_trial_traffic_limit)
+        .bind(form.free_trial_device_limit)
+        .execute(&state.pool)
+        .await;
+    }
+
     let admin_path = state.admin_path.clone();
     
     Redirect::to(&format!("{}/settings", admin_path))
@@ -2778,12 +2975,15 @@ pub async fn api_keys_create(
     let key = uuid::Uuid::new_v4().to_string(); // Simple UUID key
     let max_uses = if form.max_uses.unwrap_or(0) > 0 { form.max_uses } else { None };
 
-    let _ = sqlx::query("INSERT INTO api_keys (key, name, type, max_uses) VALUES (?, ?, 'enrollment', ?)")
+    if let Err(e) = sqlx::query("INSERT INTO api_keys (key, name, type, max_uses) VALUES (?, ?, 'enrollment', ?)")
         .bind(key)
         .bind(form.name)
         .bind(max_uses)
         .execute(&state.pool)
-        .await;
+        .await {
+            error!("Failed to create API key: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create key: {}", e)).into_response();
+        }
 
     (StatusCode::SEE_OTHER, [("Location", format!("{}/api-keys", state.admin_path))]).into_response()
 }
@@ -2804,5 +3004,24 @@ pub async fn api_keys_delete(
         .await;
 
     (StatusCode::SEE_OTHER, [("Location", format!("{}/api-keys", state.admin_path))]).into_response()
+}
+
+// Node Logs
+pub async fn get_node_logs(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    // 1. Get Node
+    let node = match sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await {
+            Ok(Some(n)) => n,
+            _ => return "Node not found".to_string(),
+    };
+    
+    // TODO: Implement remote log fetching via Agent API
+    // For now, return a placeholder with node info to confirm route works
+    format!("Logs for node: {} ({})\nIP: {}\n\n[Remote log fetching is not yet implemented in the panel, but the route is now fixed.]", node.name, node.id, node.ip)
 }
 

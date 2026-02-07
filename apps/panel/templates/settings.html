@@ -324,6 +324,25 @@
                         </div>
                     </div>
 
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label
+                                class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Traffic
+                                Limit (GB)</label>
+                            <input type="number" name="free_trial_traffic_limit" value="{{ free_trial_traffic_limit }}"
+                                min="1" required
+                                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-orange-500 outline-none transition-all text-sm">
+                        </div>
+                        <div>
+                            <label
+                                class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Device
+                                Limit</label>
+                            <input type="number" name="free_trial_device_limit" value="{{ free_trial_device_limit }}"
+                                min="1" required
+                                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-orange-500 outline-none transition-all text-sm">
+                        </div>
+                    </div>
+
                     <div>
                         <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Required
                             Channel ID (Optional)</label>

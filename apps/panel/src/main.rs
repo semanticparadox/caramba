@@ -280,6 +280,11 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
 
+    // Initialize System Monitor
+    let mut sys = sysinfo::System::new_all();
+    sys.refresh_all();
+    let system_stats = std::sync::Arc::new(tokio::sync::Mutex::new(sys));
+
     // App state
     let state = AppState {
         pool: pool.clone(),
@@ -298,6 +303,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         geo_cache: Arc::new(Mutex::new(HashMap::new())),
         session_secret: std::env::var("SESSION_SECRET").unwrap_or_else(|_| "secret".to_string()),
         admin_path: admin_path.clone(), // Store it
+        system_stats,
     };
     
     // ... rest of function ...
@@ -370,11 +376,13 @@ use tower_http::services::ServeDir;
         .route("/nodes/:id/raw-install", axum::routing::get(handlers::admin::get_node_raw_install_script))
         .route("/nodes/:id/config/preview", axum::routing::get(handlers::admin_network::preview_node_config))
         .route("/nodes/:id/sync", axum::routing::post(handlers::admin::sync_node))
+        .route("/nodes/:id/logs", axum::routing::get(handlers::admin::get_node_logs)) // NEW
         // SSH-based Node Control removed - use Agent API endpoints instead
         .route("/nodes/:id/delete", axum::routing::delete(handlers::admin::delete_node))
         .route("/nodes/:id/toggle", axum::routing::post(handlers::admin::toggle_node_enable))
         .route("/nodes/:id/inbounds", axum::routing::get(handlers::admin_network::get_node_inbounds).post(handlers::admin_network::add_inbound))
         .route("/nodes/:id/inbounds/:inbound_id", axum::routing::get(handlers::admin_network::get_edit_inbound).post(handlers::admin_network::update_inbound).delete(handlers::admin_network::delete_inbound))
+        .route("/nodes/:id/inbounds/:inbound_id/toggle", axum::routing::post(handlers::admin_network::toggle_inbound))
         .route("/plans", axum::routing::get(handlers::admin::get_plans))
         .route("/plans/add", axum::routing::post(handlers::admin::add_plan))
         .route("/plans/:id", axum::routing::get(handlers::admin::get_plan_edit).post(handlers::admin::update_plan).delete(handlers::admin::delete_plan))
@@ -391,13 +399,8 @@ use tower_http::services::ServeDir;
         .route("/subs/:id/devices/kill", axum::routing::post(handlers::admin::admin_kill_subscription_sessions))
         .route("/analytics", axum::routing::get(handlers::admin::get_traffic_analytics))
         
-        // Frontend Servers
+        // Frontend Servers (Page)
         .route("/frontends", axum::routing::get(handlers::admin::get_frontends))
-        .route("/api/admin/frontends", axum::routing::get(handlers::frontend::list_frontends).post(handlers::frontend::create_frontend))
-        .route("/api/admin/frontends/by-region/:region", axum::routing::get(handlers::frontend::get_active_frontends))
-        .route("/api/admin/frontends/:id", axum::routing::delete(handlers::frontend::delete_frontend))
-        .route("/api/admin/frontends/:id/rotate-token", axum::routing::post(handlers::frontend::rotate_token))
-        .route("/api/admin/frontends/:domain/heartbeat", axum::routing::post(handlers::frontend::frontend_heartbeat))
         
         // Client API (Mini App)
         .route("/api/client/auth/telegram", axum::routing::post(handlers::client::auth_telegram))
@@ -453,6 +456,14 @@ use tower_http::services::ServeDir;
         .nest("/api/client", api::client::routes(state.clone()))
         // Public Subscription URL endpoint
         .route("/sub/:uuid", axum::routing::get(subscription::subscription_handler))
+
+        // Frontend API Routes (Must be top level to match /api/admin/frontends)
+        .route("/api/admin/frontends", axum::routing::get(handlers::frontend::list_frontends).post(handlers::frontend::create_frontend))
+        .route("/api/admin/frontends/by-region/:region", axum::routing::get(handlers::frontend::get_active_frontends))
+        .route("/api/admin/frontends/:id", axum::routing::delete(handlers::frontend::delete_frontend))
+        .route("/api/admin/frontends/:id/rotate-token", axum::routing::post(handlers::frontend::rotate_token))
+        .route("/api/admin/frontends/:domain/heartbeat", axum::routing::post(handlers::frontend::frontend_heartbeat))
+
         .nest(&admin_path, admin_routes)
         .with_state(state)
         .layer(tower_http::compression::CompressionLayer::new())
