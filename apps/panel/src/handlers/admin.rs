@@ -15,6 +15,7 @@ use axum::extract::Query;
 use time::Duration;
 use crate::utils::format_bytes_str;
 use crate::models::api_key::ApiKey;
+use axum::http::StatusCode;
 
 
 
@@ -112,6 +113,7 @@ pub struct CreateApiKeyForm {
     pub name: String,
     pub max_uses: Option<i64>,
 }
+#[derive(Deserialize)]
 pub struct SaveSettingsForm {
     pub bot_token: Option<String>,
     pub payment_api_key: Option<String>,
