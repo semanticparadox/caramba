@@ -204,7 +204,7 @@ impl OrchestrationService {
 
         let awg_json = serde_json::to_string(&InboundType::AmneziaWg(awg_settings))?;
         
-        sqlx::query("INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable) VALUES (?, ?, 'amneziawg', 51820, ?, '{}', 1)")
+        sqlx::query("INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable) VALUES (?, ?, 'amneziawg', 51820, ?, '{}', 0)")
             .bind(node_id)
             .bind(format!("amneziawg-{}", node_id))
             .bind(awg_json)
