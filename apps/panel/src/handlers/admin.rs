@@ -54,6 +54,7 @@ pub struct TrialStats {
 #[template(path = "settings.html")]
 pub struct SettingsTemplate {
     pub username: String, // NEW
+    pub masked_bot_token: String, // NEW
     pub masked_payment_api_key: String,
     pub masked_nowpayments_api_key: String,
     pub masked_cryptomus_merchant_id: String,
@@ -639,6 +640,7 @@ pub async fn get_settings(
     let nowpayments_api_key = state.settings.get_or_default("nowpayments_api_key", "").await;
     let lava_project_id = state.settings.get_or_default("lava_project_id", "").await;
     let lava_secret_key = state.settings.get_or_default("lava_secret_key", "").await;
+    let bot_token = state.settings.get_or_default("bot_token", "").await;
     let telegram_stars_enabled = state.settings.get_or_default("telegram_stars_enabled", "false").await == "true";
 
     let payment_ipn_url = state.settings.get_or_default("payment_ipn_url", "").await;
@@ -667,6 +669,7 @@ pub async fn get_settings(
 
     let masked_payment_api_key = if !payment_api_key.is_empty() { mask_key(&payment_api_key) } else { "".to_string() };
     let masked_nowpayments_api_key = if !nowpayments_api_key.is_empty() { mask_key(&nowpayments_api_key) } else { "".to_string() };
+    let masked_bot_token = if !bot_token.is_empty() { mask_key(&bot_token) } else { "".to_string() };
 
     let cryptomus_merchant_id = state.settings.get_or_default("cryptomus_merchant_id", "").await;
     let cryptomus_payment_api_key = state.settings.get_or_default("cryptomus_payment_api_key", "").await;
@@ -684,6 +687,8 @@ pub async fn get_settings(
     let masked_aaio_secret_2 = if !aaio_secret_2.is_empty() { mask_key(&aaio_secret_2) } else { "".to_string() };
 
     let template = SettingsTemplate {
+        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
+        masked_bot_token,
         masked_payment_api_key,
         masked_nowpayments_api_key,
         masked_cryptomus_merchant_id,
@@ -713,7 +718,6 @@ pub async fn get_settings(
         required_channel_id,
         last_export,
         is_auth: true,
-        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
         admin_path,
         active_page: "settings".to_string(),
     };

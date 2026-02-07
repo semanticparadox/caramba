@@ -47,6 +47,17 @@
 
                 <div class="space-y-5">
                     <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Bot
+                            Token</label>
+                        <input type="text" form="main-settings-form" name="bot_token" value="{{ masked_bot_token }}"
+                            placeholder="123456789:ABC..."
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
+                        <p class="text-[10px] text-slate-500 mt-1.5">Required for Mini App and notifications. <a
+                                href="{{ admin_path }}/bot" class="text-indigo-400 hover:underline">Go to Bot
+                                Console</a></p>
+                    </div>
+
+                    <div>
                         <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Brand
                             Name</label>
                         <input type="text" form="main-settings-form" name="brand_name" value="{{ brand_name }}"
