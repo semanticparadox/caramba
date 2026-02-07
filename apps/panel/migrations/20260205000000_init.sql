@@ -170,14 +170,10 @@ CREATE TABLE IF NOT EXISTS plans (
     device_limit INTEGER DEFAULT 1,
     price INTEGER NOT NULL,
     is_active BOOLEAN DEFAULT 1,
+    is_trial INTEGER DEFAULT 0,
     sort_order INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-
--- Safely add is_trial column (Supports both fresh installs and updates)
--- We removed it from CREATE TABLE above and added it here to avoid "duplicate column" errors on fresh installs 
--- if we had kept it in both places. This effectively acts as the migration.
-ALTER TABLE plans ADD COLUMN is_trial BOOLEAN DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS plan_durations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
