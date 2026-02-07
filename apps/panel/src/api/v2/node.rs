@@ -63,7 +63,9 @@ pub async fn heartbeat(
             .await;
     } else {
         // Just update last_seen if no telemetry (or older agent)
-        let _ = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'new' THEN 'active' ELSE status END WHERE id = ?")
+        // Also update IP if it was a pending placeholder
+        let _ = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'new' THEN 'active' ELSE status END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN ? ELSE ip END WHERE id = ?")
+            .bind(&remote_ip)
             .bind(node_id)
             .execute(&state.pool)
             .await;
