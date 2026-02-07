@@ -1154,7 +1154,7 @@ pub async fn get_plans(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let mut plans = match sqlx::query_as::<_, Plan>("SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb FROM plans")
+    let mut plans = match sqlx::query_as::<_, Plan>("SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans")
         .fetch_all(&state.pool)
         .await {
             Ok(p) => {
