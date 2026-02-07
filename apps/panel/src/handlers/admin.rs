@@ -3,8 +3,7 @@ use axum::{
     response::{IntoResponse, Html},
 };
 use askama::Template;
-use sysinfo::System;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use crate::AppState;
 use crate::models::node::Node;
 use crate::models::store::{Plan, User, Order};

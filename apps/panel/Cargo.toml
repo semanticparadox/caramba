@@ -7,7 +7,7 @@ edition = "2024"
 axum = { version = "0.7.5", features = ["macros", "multipart"] }
 tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio", "macros", "chrono", "tls-rustls"] }
-askama = "0.12"
+askama = "0.12.1"
 askama_axum = "0.4"
 clap = { version = "4.4", features = ["derive"] }
 libc = "0.2"
