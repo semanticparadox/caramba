@@ -17,6 +17,6 @@ machine-uid = "0.5" # For persistent HWID
 dotenvy = "0.15"
 exarobot-shared = { path = "../../libs/shared" }
 md5 = "0.8.0"
-rand = "0.8"
-sys-info = "0.9" # Telemetry
+rand = "0.9"
+sysinfo = "0.33" # Telemetry
 sha2 = "0.10"

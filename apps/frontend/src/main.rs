@@ -39,14 +39,14 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(handlers::health::health_check))
         
         // Subscription URLs
-        .route("/sub/:uuid", get(handlers::subscription::subscription_handler))
+        .route("/sub/{uuid}", get(handlers::subscription::subscription_handler))
         
         // Mini App (static files)
         .route("/app", get(handlers::app::serve_app))
-        .route("/app/*path", get(handlers::app::serve_app_assets))
+        .route("/app/{*path}", get(handlers::app::serve_app_assets))
         
         // API proxy to main panel
-        .route("/api/*path", axum::routing::any(handlers::proxy::proxy_handler))
+        .route("/api/{*path}", axum::routing::any(handlers::proxy::proxy_handler))
         
         .layer(TraceLayer::new_for_http())
         .with_state(state);

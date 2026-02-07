@@ -1,6 +1,5 @@
 use tracing::{info, error, debug};
 use std::time::Duration;
-use rand::Rng;
 use reqwest::Client;
 use serde::Deserialize;
 
@@ -62,18 +61,14 @@ impl DecoyService {
             };
 
             // 2. Calculate Sleep Time
-            let delay = {
-                let mut rng = rand::thread_rng();
-                rng.gen_range(settings.min_interval..=settings.max_interval)
-            };
+            let delay = rand::random_range(settings.min_interval..=settings.max_interval);
 
             info!("🎭 Next decoy request in {} seconds...", delay);
             tokio::time::sleep(Duration::from_secs(delay)).await;
 
             // 3. Send Request
             let target_url = {
-                let mut rng = rand::thread_rng();
-                let idx = rng.gen_range(0..settings.urls.len());
+                let idx = rand::random_range(0..settings.urls.len());
                 &settings.urls[idx]
             };
 

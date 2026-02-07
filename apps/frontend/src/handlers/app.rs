@@ -3,7 +3,7 @@ use axum::{
     http::{header, StatusCode, Uri},
     response::{Html, IntoResponse, Response},
 };
-use rust_embed::{RustEmbed, Embed};
+use rust_embed::RustEmbed;
 
 #[derive(RustEmbed)]
 #[folder = "../mini-app/dist"]

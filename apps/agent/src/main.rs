@@ -1,5 +1,6 @@
 use clap::Parser;
 use tracing::{info, warn, error};
+use sysinfo::System;
 use std::time::Duration;
 use std::path::Path;
 use exarobot_shared::api::{HeartbeatRequest, HeartbeatResponse};
@@ -41,6 +42,9 @@ struct AgentState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+     // Initialize System Monitor
+    let mut sys = System::new_all();
+    sys.refresh_all();
     // 1. Setup Logging
     tracing_subscriber::fmt()
         .with_env_filter("info")
@@ -107,7 +111,7 @@ async fn main() -> anyhow::Result<()> {
         let uptime = start_time.elapsed().as_secs();
         
         // Send Heartbeat
-        match send_heartbeat(&client, &panel_url, &token, uptime, &state).await {
+        match send_heartbeat(&client, &panel_url, &token, uptime, &state, &mut sys).await {
             Ok(resp) => {
                 failures = 0;
                 state.last_successful_contact = std::time::Instant::now(); // Update contact time
@@ -290,11 +294,12 @@ async fn send_heartbeat(
     token: &str,
     uptime: u64,
     state: &AgentState,
+    sys: &mut System,
 ) -> anyhow::Result<HeartbeatResponse> {
     let url = format!("{}/api/v2/node/heartbeat", panel_url);
     
     // Collect Telemetry
-    let (latency, cpu, ram) = collect_telemetry(client).await;
+    let (latency, cpu, ram) = collect_telemetry(client, sys).await;
 
     let payload = HeartbeatRequest {
         version: "0.2.0".to_string(),
@@ -518,7 +523,7 @@ async fn fetch_global_settings(
     Ok(())
 }
 
-async fn collect_telemetry(client: &reqwest::Client) -> (Option<f64>, Option<f64>, Option<f64>) {
+async fn collect_telemetry(client: &reqwest::Client, sys: &mut System) -> (Option<f64>, Option<f64>, Option<f64>) {
     // 1. Latency Check (HTTP HEAD to Google)
     let start = std::time::Instant::now();
     let latency = match client.head("https://www.google.com")
@@ -531,14 +536,17 @@ async fn collect_telemetry(client: &reqwest::Client) -> (Option<f64>, Option<f64
     };
 
     // 2. System Stats (CPU/RAM)
-    // sys-info calls are blocking but fast (read /proc)
-    let cpu = sys_info::loadavg().map(|l| l.one).ok();
+    sys.refresh_cpu_usage();
+    sys.refresh_memory();
+
+    let cpu = Some(sys.global_cpu_usage() as f64);
     
-    let ram = sys_info::mem_info().map(|m| {
-        if m.total == 0 { return 0.0; }
-        let used = m.total - m.free; // Simple approximation
-        (used as f64 / m.total as f64) * 100.0
-    }).ok();
+    let total_mem = sys.total_memory();
+    let ram = if total_mem > 0 {
+        Some((sys.used_memory() as f64 / total_mem as f64) * 100.0)
+    } else {
+        None
+    };
 
     (latency, cpu, ram)
 }
