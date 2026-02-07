@@ -38,7 +38,7 @@ impl ChannelTrialService {
                     member.kind,
                     ChatMemberKind::Administrator(_)
                         | ChatMemberKind::Owner(_)
-                        | ChatMemberKind::Member
+                        | ChatMemberKind::Member(_)
                 );
 
                 if is_member {

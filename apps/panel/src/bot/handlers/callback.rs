@@ -20,7 +20,7 @@ pub async fn callback_handler(
         match data.as_str() {
             "set_lang_en" | "set_lang_ru" => {
                 let lang = if data.contains("en") { "en" } else { "ru" };
-                let _ = bot.answer_callback_query(&callback_id).await;
+                let _ = bot.answer_callback_query(callback_id).await;
 
                 // Fetch user to get ID
                 if let Some(u) = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten() {
@@ -44,7 +44,7 @@ pub async fn callback_handler(
             }
 
             "accept_terms" => {
-                let _ = bot.answer_callback_query(&callback_id).await;
+                let _ = bot.answer_callback_query(callback_id).await;
                 if let Some(u) = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten() {
                         let _ = state.store_service.update_user_terms(u.id).await;
                         
@@ -72,7 +72,7 @@ pub async fn callback_handler(
             }
 
             "decline_terms" => {
-                let _ = bot.answer_callback_query(&callback_id).text("You must accept terms to proceed.").show_alert(true).await;
+                let _ = bot.answer_callback_query(callback_id).text("You must accept terms to proceed.").show_alert(true).await;
                 // Optional: Ban user or just ignore
             }
 
@@ -81,9 +81,9 @@ pub async fn callback_handler(
                     let plans = state.store_service.get_active_plans().await.unwrap_or_default();
                     
                     if plans.is_empty() {
-                        let _ = bot.answer_callback_query(&callback_id).text("❌ No active plans available at the moment.").await;
+                        let _ = bot.answer_callback_query(callback_id).text("❌ No active plans available at the moment.").await;
                     } else {
-                        let _ = bot.answer_callback_query(&callback_id).await;
+                        let _ = bot.answer_callback_query(callback_id).await;
                         let mut response = "💎 *Choose Plan to Extend:*\n\n".to_string();
                         let mut buttons = Vec::new();
 
@@ -116,7 +116,7 @@ pub async fn callback_handler(
             }
 
             "enter_promo" => {
-                let _ = bot.answer_callback_query(&callback_id).await;
+                let _ = bot.answer_callback_query(callback_id).await;
                 if let Some(msg) = q.message {
                     let _ = bot.send_message(msg.chat().id, "🎟 Enter your Gift Code below:")
                         .reply_markup(ForceReply::new().selective())
@@ -186,13 +186,13 @@ pub async fn callback_handler(
                     match state.pay_service.create_cryptobot_invoice(u.id, amount, PaymentType::BalanceTopup).await {
                         Ok(url) => {
                              let buttons = vec![vec![InlineKeyboardButton::url("🔗 Pay with CryptoBot", url.parse().unwrap())]];
-                             let _ = bot.answer_callback_query(&callback_id).await;
+                             let _ = bot.answer_callback_query(callback_id).await;
                              if let Some(msg) = q.message {
                                  let _ = bot.send_message(msg.chat().id, format!("💳 Invoice for *${:.2}* created\\!", amount)).parse_mode(ParseMode::MarkdownV2).reply_markup(InlineKeyboardMarkup::new(buttons)).await;
                              }
                         }
                         Err(e) => {
-                             let _ = bot.answer_callback_query(&callback_id).text(format!("Error: {}", e)).show_alert(true).await;
+                             let _ = bot.answer_callback_query(callback_id).text(format!("Error: {}", e)).show_alert(true).await;
                         }
                     }
                 }
@@ -204,13 +204,13 @@ pub async fn callback_handler(
                     match state.pay_service.create_nowpayments_invoice(u.id, amount, PaymentType::BalanceTopup).await {
                         Ok(url) => {
                              let buttons = vec![vec![InlineKeyboardButton::url("🔗 Pay with NOWPayments", url.parse().unwrap())]];
-                             let _ = bot.answer_callback_query(&callback_id).await;
+                             let _ = bot.answer_callback_query(callback_id).await;
                              if let Some(msg) = q.message {
                                  let _ = bot.send_message(msg.chat().id, format!("💳 Invoice for *${:.2}* created\\!", amount)).parse_mode(ParseMode::MarkdownV2).reply_markup(InlineKeyboardMarkup::new(buttons)).await;
                              }
                         }
                         Err(e) => {
-                             let _ = bot.answer_callback_query(&callback_id).text(format!("Error: {}", e)).show_alert(true).await;
+                             let _ = bot.answer_callback_query(callback_id).text(format!("Error: {}", e)).show_alert(true).await;
                         }
                     }
                 }
@@ -222,13 +222,13 @@ pub async fn callback_handler(
                     match state.pay_service.create_crystalpay_invoice(u.id, amount, PaymentType::BalanceTopup).await {
                         Ok(url) => {
                              let buttons = vec![vec![InlineKeyboardButton::url("🔗 Pay with Card (CrystalPay)", url.parse().unwrap())]];
-                             let _ = bot.answer_callback_query(&callback_id).await;
+                             let _ = bot.answer_callback_query(callback_id).await;
                              if let Some(msg) = q.message {
                                  let _ = bot.send_message(msg.chat().id, format!("💳 Invoice for *${:.2}* created\\!", amount)).parse_mode(ParseMode::MarkdownV2).reply_markup(InlineKeyboardMarkup::new(buttons)).await;
                              }
                         }
                         Err(e) => {
-                             let _ = bot.answer_callback_query(&callback_id).text(format!("Error: {}", e)).show_alert(true).await;
+                             let _ = bot.answer_callback_query(callback_id).text(format!("Error: {}", e)).show_alert(true).await;
                         }
                     }
                 }
@@ -240,13 +240,13 @@ pub async fn callback_handler(
                     match state.pay_service.create_stripe_session(u.id, amount, PaymentType::BalanceTopup).await {
                         Ok(url) => {
                              let buttons = vec![vec![InlineKeyboardButton::url("🔗 Pay with Stripe", url.parse().unwrap())]];
-                             let _ = bot.answer_callback_query(&callback_id).await;
+                             let _ = bot.answer_callback_query(callback_id).await;
                              if let Some(msg) = q.message {
                                  let _ = bot.send_message(msg.chat().id, format!("💳 Invoice for *${:.2}* created\\!", amount)).parse_mode(ParseMode::MarkdownV2).reply_markup(InlineKeyboardMarkup::new(buttons)).await;
                              }
                         }
                         Err(e) => {
-                             let _ = bot.answer_callback_query(&callback_id).text(format!("Error: {}", e)).show_alert(true).await;
+                             let _ = bot.answer_callback_query(callback_id).text(format!("Error: {}", e)).show_alert(true).await;
                         }
                     }
                 }
@@ -273,7 +273,6 @@ pub async fn callback_handler(
                             "Balance Top-up",
                             format!("Top-up balance by ${}", amount_usd),
                             payload,
-                            "", // Provider token empty for XTR
                             "XTR",
                             prices
                         ).await;
@@ -309,7 +308,7 @@ pub async fn callback_handler(
                                     }
                                 }
                             } else {
-                                let _ = bot.answer_callback_query(&callback_id).text("❌ Subscription not found").await;
+                                let _ = bot.answer_callback_query(callback_id).text("❌ Subscription not found").await;
                             }
                         }
                     }
@@ -317,7 +316,7 @@ pub async fn callback_handler(
             
             get_config if get_config.starts_with("get_config_") => {
                 let _sub_id = get_config.strip_prefix("get_config_").unwrap_or("0");
-                let _ = bot.answer_callback_query(&callback_id).text("Generating profile...").await;
+                let _ = bot.answer_callback_query(callback_id).text("Generating profile...").await;
                 
                 let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                 if let Some(u) = user_db {
@@ -348,14 +347,14 @@ pub async fn callback_handler(
                 if let Some(u) = user_db {
                     match state.store_service.activate_subscription(sub_id, u.id).await {
                         Ok(sub) => {
-                                let _ = bot.answer_callback_query(&callback_id).text("✅ Activated!").await;
+                                let _ = bot.answer_callback_query(callback_id).text("✅ Activated!").await;
                             if let Some(msg) = q.message {
                                 let _ = bot.send_message(msg.chat().id, format!("🚀 *Subscription Activated!*\nExpires: `{}`", sub.expires_at.format("%Y-%m-%d"))).parse_mode(ParseMode::MarkdownV2).await;
                             }
                         }
                         Err(e) => {
                             error!("Activation failed: {}", e);
-                            let _ = bot.answer_callback_query(&callback_id).text(format!("❌ Error: {}", e)).show_alert(true).await;
+                            let _ = bot.answer_callback_query(callback_id).text(format!("❌ Error: {}", e)).show_alert(true).await;
                         }
                     }
                 }
@@ -364,7 +363,7 @@ pub async fn callback_handler(
             "my_gifts" => {
                 let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                 if let Some(u) = user_db {
-                    let _ = bot.answer_callback_query(&callback_id).await;
+                    let _ = bot.answer_callback_query(callback_id).await;
                     match state.store_service.get_user_gift_codes(u.id).await {
                         Ok(codes) => {
                             if codes.is_empty() {
@@ -391,13 +390,13 @@ pub async fn callback_handler(
                         }
                     }
                 } else {
-                        let _ = bot.answer_callback_query(&callback_id).await;
+                        let _ = bot.answer_callback_query(callback_id).await;
                 }
             }
 
             edit_note if edit_note.starts_with("edit_note_") => {
                     let sub_id = edit_note.strip_prefix("edit_note_").unwrap_or("0");
-                    let _ = bot.answer_callback_query(&callback_id).await;
+                    let _ = bot.answer_callback_query(callback_id).await;
                     if let Some(msg) = q.message {
                         let _ = bot.send_message(msg.chat().id, format!("Reply to this message with your note for Subscription #{}.", sub_id))
                         .reply_markup(ForceReply::new().selective())
@@ -407,7 +406,7 @@ pub async fn callback_handler(
 
             devices if devices.starts_with("devices_") => {
                 let sub_id = devices.strip_prefix("devices_").unwrap_or("0").parse::<i64>().unwrap_or(0);
-                let _ = bot.answer_callback_query(&callback_id).await;
+                let _ = bot.answer_callback_query(callback_id).await;
                 
                 if let Some(msg) = q.message {
                     // Get device limit + plan info
@@ -461,9 +460,9 @@ pub async fn callback_handler(
                 let plans = state.store_service.get_active_plans().await.unwrap_or_default();
                 
                 if plans.is_empty() {
-                    let _ = bot.answer_callback_query(&callback_id).text("❌ No active plans available.").await;
+                    let _ = bot.answer_callback_query(callback_id).text("❌ No active plans available.").await;
                 } else {
-                    let _ = bot.answer_callback_query(&callback_id).await;
+                    let _ = bot.answer_callback_query(callback_id).await;
                     let total_plans = plans.len();
                     // Safety check
                     let index = if index >= total_plans { 0 } else { index };
@@ -615,7 +614,7 @@ pub async fn callback_handler(
                         }
                     }
                 }
-                let _ = bot.answer_callback_query(&callback_id).await;
+                let _ = bot.answer_callback_query(callback_id).await;
             }
 
             gift if gift.starts_with("gift_init_") => {
@@ -629,10 +628,10 @@ pub async fn callback_handler(
                                 if let Some(msg) = q.message {
                                     let _ = bot.send_message(msg.chat().id, response).parse_mode(ParseMode::MarkdownV2).await;
                                 }
-                                let _ = bot.answer_callback_query(&callback_id).text("✅ Code Generated!").await;
+                                let _ = bot.answer_callback_query(callback_id).text("✅ Code Generated!").await;
                             },
                             Err(e) => {
-                                let _ = bot.answer_callback_query(&callback_id).text(format!("❌ Error: {}", e)).show_alert(true).await;
+                                let _ = bot.answer_callback_query(callback_id).text(format!("❌ Error: {}", e)).show_alert(true).await;
                             }
                         }
                     }
@@ -655,14 +654,14 @@ pub async fn callback_handler(
                     if let Some(u) = user_db {
                         match state.store_service.purchase_plan(u.id, duration_id).await {
                             Ok(_sub) => {
-                                let _ = bot.answer_callback_query(&callback_id).text("✅ Purchase successful!").await;
+                                let _ = bot.answer_callback_query(callback_id).text("✅ Purchase successful!").await;
                                 if let Some(msg) = q.message {
                                     let _ = bot.send_message(msg.chat().id, "✅ *Purchase Successful\\!*\n\nYour subscription is now *Pending*.\nGo to *My Services* to activate it when you are ready.").parse_mode(ParseMode::MarkdownV2).await;
                                 }
                             }
                             Err(e) => {
                                 error!("Purchase failed for user {}: {}", u.id, e);
-                                let _ = bot.answer_callback_query(&callback_id).text(format!("❌ Error: {}", e)).show_alert(true).await;
+                                let _ = bot.answer_callback_query(callback_id).text(format!("❌ Error: {}", e)).show_alert(true).await;
                             }
                         }
                     } else {
@@ -678,7 +677,7 @@ pub async fn callback_handler(
                     if let Some(u) = user_db {
                         match state.store_service.extend_subscription(u.id, duration_id).await {
                             Ok(sub) => {
-                                let _ = bot.answer_callback_query(&callback_id).text("✅ Extension successful!").await;
+                                let _ = bot.answer_callback_query(callback_id).text("✅ Extension successful!").await;
                                 // Agents pull config automatically - no sync needed
 
                                 if let Some(msg) = q.message {
@@ -687,7 +686,7 @@ pub async fn callback_handler(
                             }
                             Err(e) => {
                                 error!("Extension failed for user {}: {}", u.id, e);
-                                let _ = bot.answer_callback_query(&callback_id).text(format!("❌ Error: {}", e)).show_alert(true).await;
+                                let _ = bot.answer_callback_query(callback_id).text(format!("❌ Error: {}", e)).show_alert(true).await;
                             }
                         }
                     } else {
@@ -704,7 +703,7 @@ pub async fn callback_handler(
                     if let Some(u) = user_db {
                         match state.store_service.purchase_product_with_balance(u.id, prod_id).await {
                             Ok(product) => {
-                                let _ = bot.answer_callback_query(&callback_id).text("✅ Paid!").await;
+                                let _ = bot.answer_callback_query(callback_id).text("✅ Paid!").await;
                                 if let Some(msg) = q.message {
                                     if let Some(content) = product.content {
                                         let _ = bot.send_message(msg.chat().id, format!("✅ *Purchase Successful!*\n\n📦 *{}*\n\n📋 *Content:*\n`{}`", escape_md(&product.name), escape_md(&content)))
@@ -718,7 +717,7 @@ pub async fn callback_handler(
                                 }
                             }
                             Err(e) => {
-                                    let _ = bot.answer_callback_query(&callback_id).text(format!("❌ Failed: {}", e)).show_alert(true).await;
+                                    let _ = bot.answer_callback_query(callback_id).text(format!("❌ Failed: {}", e)).show_alert(true).await;
                             }
                         }
                     }
@@ -765,10 +764,10 @@ pub async fn callback_handler(
                                   .await;
                           }
                       } else {
-                          let _ = bot.answer_callback_query(&callback_id).text("❌ Subscription not found.").await;
+                          let _ = bot.answer_callback_query(callback_id.clone()).text("❌ Subscription not found.").await;
                       }
                  }
-                 let _ = bot.answer_callback_query(&callback_id).await;
+                 let _ = bot.answer_callback_query(callback_id.clone()).await;
             }
 
             kill if kill.starts_with("kill_sessions_") => {
@@ -782,7 +781,7 @@ pub async fn callback_handler(
                           if let Some(uuid) = &sub_details.sub.vless_uuid {
                                match state.connection_service.kill_subscription_connections(uuid).await {
                                    Ok(_) => {
-                                        let _ = bot.answer_callback_query(&callback_id).text("✅ Sessions reset successfully!").show_alert(true).await;
+                                        let _ = bot.answer_callback_query(callback_id).text("✅ Sessions reset successfully!").show_alert(true).await;
                                         // Update the message to remove "Kill" button or showing refreshed list
                                         if let Some(msg) = q.message {
                                             // Trigger refresh by sending "devices_" callback essentially?
@@ -791,7 +790,7 @@ pub async fn callback_handler(
                                         }
                                    }
                                    Err(e) => {
-                                       let _ = bot.answer_callback_query(&callback_id).text(format!("❌ Error: {}", e)).show_alert(true).await;
+                                       let _ = bot.answer_callback_query(callback_id).text(format!("❌ Error: {}", e)).show_alert(true).await;
                                    }
                                }
                           }
@@ -806,9 +805,9 @@ pub async fn callback_handler(
                         if let Ok(cat_id) = cat_id_str.parse::<i64>() {
                             let products = state.store_service.get_products_by_category(cat_id).await.unwrap_or_default();
                             if products.is_empty() {
-                                let _ = bot.answer_callback_query(&callback_id).text("Category is empty").await;
+                                let _ = bot.answer_callback_query(callback_id).text("Category is empty").await;
                             } else {
-                                let _ = bot.answer_callback_query(&callback_id).await;
+                                let _ = bot.answer_callback_query(callback_id).await;
                                 // Showcase style: separate message per product
                                 for product in products {
                                     let price = product.price as f64 / 100.0;
@@ -839,7 +838,7 @@ pub async fn callback_handler(
                 } else if let Some(prod_id_str) = store.strip_prefix("store_prod_") {
                         if let Ok(prod_id) = prod_id_str.parse::<i64>() {
                             if let Ok(product) = state.store_service.get_product(prod_id).await {
-                                let _ = bot.answer_callback_query(&callback_id).await;
+                                let _ = bot.answer_callback_query(callback_id).await;
                                 let price = product.price as f64 / 100.0;
                                 let text = format!("📦 *{}*\n\n{}\n\n💰 Price: *${:.2}*", 
                                     escape_md(&product.name), 
@@ -858,7 +857,7 @@ pub async fn callback_handler(
                                     .reply_markup(InlineKeyboardMarkup::new(buttons))
                                     .await;
                             } else {
-                                let _ = bot.answer_callback_query(&callback_id).text("Product not found").await;
+                                let _ = bot.answer_callback_query(callback_id).text("Product not found").await;
                             }
                         }
                 } else if store == "store_home" {
@@ -880,7 +879,7 @@ pub async fn callback_handler(
 
             // Cart Actions
             "view_cart" => {
-                 let _ = bot.answer_callback_query(&callback_id).await;
+                 let _ = bot.answer_callback_query(callback_id).await;
                  let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                  if let Some(user) = user_db {
                      let cart_items = state.store_service.get_user_cart(user.id).await.unwrap_or_default();
@@ -927,7 +926,7 @@ pub async fn callback_handler(
                  let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                  if let Some(user) = user_db {
                      let _ = state.store_service.clear_cart(user.id).await;
-                     let _ = bot.answer_callback_query(&callback_id).text("🗑️ Cart cleared").await;
+                     let _ = bot.answer_callback_query(callback_id).text("🗑️ Cart cleared").await;
                      if let Some(msg) = q.message {
                          let _ = bot.edit_message_text(msg.chat().id, msg.id(), "🛒 Your cart is empty.")
                              .reply_markup(InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback("📦 Return to Store", "store_home")]]))
@@ -941,7 +940,7 @@ pub async fn callback_handler(
                  if let Some(user) = user_db {
                      match state.store_service.checkout_cart(user.id).await {
                          Ok(notes) => {
-                             let _ = bot.answer_callback_query(&callback_id).text("✅ Checkout successful!").await;
+                             let _ = bot.answer_callback_query(callback_id).text("✅ Checkout successful!").await;
                              let mut response = "✅ *Order Processed Successfully\\!*\n\n".to_string();
                              for note in notes {
                                  response.push_str(&format!("{}\n", escape_md(&note)));
@@ -952,7 +951,7 @@ pub async fn callback_handler(
                              }
                          },
                          Err(e) => {
-                             let _ = bot.answer_callback_query(&callback_id).text(format!("❌ Failed: {}", e)).show_alert(true).await;
+                             let _ = bot.answer_callback_query(callback_id).text(format!("❌ Failed: {}", e)).show_alert(true).await;
                          }
                      }
                  }
@@ -964,16 +963,16 @@ pub async fn callback_handler(
                  if let Some(user) = user_db {
                      match state.store_service.add_to_cart(user.id, prod_id, 1).await {
                          Ok(_) => {
-                             let _ = bot.answer_callback_query(&callback_id).text("🛒 Added to cart!").await;
+                             let _ = bot.answer_callback_query(callback_id).text("🛒 Added to cart!").await;
                          },
                          Err(e) => {
-                             let _ = bot.answer_callback_query(&callback_id).text(format!("❌ Error: {}", e)).await;
+                             let _ = bot.answer_callback_query(callback_id).text(format!("❌ Error: {}", e)).await;
                          }
                      }
                  }
             }
             "edit_ref_code" => {
-                let _ = bot.answer_callback_query(&callback_id).await;
+                let _ = bot.answer_callback_query(callback_id).await;
                 if let Some(msg) = q.message {
                     let text = "🔗 *EDIT REFERRAL ALIAS*\n\n\
                         Please reply to this message with your new referral code \\(alias\\)\\.\n\n\
@@ -992,7 +991,7 @@ pub async fn callback_handler(
             }
 
             "enter_referrer" => {
-                let _ = bot.answer_callback_query(&callback_id).await;
+                let _ = bot.answer_callback_query(callback_id).await;
                 if let Some(msg) = q.message {
                     let text = "🎁 *Enter Referrer Code*\n\n\
                         Please reply to this message with the referral code of the person who invited you\\.";
@@ -1009,7 +1008,7 @@ pub async fn callback_handler(
             // === Quick Wins: Auto-Renewal Toggle ===
             toggle if toggle.starts_with("toggle_renew_") => {
                 let sub_id: i64 = toggle.strip_prefix("toggle_renew_").and_then(|s| s.parse().ok()).unwrap_or(0);
-                let _ = bot.answer_callback_query(&callback_id).await;
+                let _ = bot.answer_callback_query(callback_id).await;
                 
                 match state.store_service.toggle_auto_renewal(sub_id).await {
                     Ok(new_state) => {
@@ -1038,11 +1037,11 @@ pub async fn callback_handler(
 
             // === Quick Wins: Free Trial Activation ===
             "start_trial" => {
-                let _ = bot.answer_callback_query(&callback_id).await;
+                let _ = bot.answer_callback_query(callback_id.clone()).await;
                 
                 if let Some(user) = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten() {
                     if user.trial_used.unwrap_or(false) {
-                        let _ = bot.answer_callback_query(&callback_id)
+                        let _ = bot.answer_callback_query(callback_id.clone())
                             .text("❌ Free trial already used")
                             .show_alert(true)
                             .await;
@@ -1094,7 +1093,7 @@ pub async fn callback_handler(
             }
 
             _ => {
-                let _ = bot.answer_callback_query(&callback_id).text("Feature not yet implemented.").await;
+                let _ = bot.answer_callback_query(callback_id).text("Feature not yet implemented.").await;
             }
         }
     }

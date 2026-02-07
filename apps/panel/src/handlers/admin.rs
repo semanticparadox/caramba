@@ -3,6 +3,7 @@ use axum::{
     response::{IntoResponse, Html},
 };
 use askama::Template;
+use askama_web::WebTemplate;
 use serde::Deserialize;
 use crate::AppState;
 use crate::models::node::Node;
@@ -49,7 +50,7 @@ pub struct TrialStats {
     pub channel_count: i64,
     pub active_count: i64,
 }
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "settings.html")]
 pub struct SettingsTemplate {
     pub username: String, // NEW
@@ -86,7 +87,7 @@ pub struct SettingsTemplate {
     pub active_page: String,
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "bot.html")]
 pub struct BotTemplate {
     pub masked_bot_token: String,
@@ -100,7 +101,7 @@ pub struct BotTemplate {
 }
 
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "api_keys.html")]
 pub struct ApiKeysTemplate {
     pub keys: Vec<ApiKey>,
@@ -149,7 +150,7 @@ fn mask_key(key: &str) -> String {
     format!("{}****{}", &key[..4], &key[key.len() - 4..])
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "users.html")]
 pub struct UsersTemplate {
     pub users: Vec<User>,
@@ -168,7 +169,7 @@ pub struct UserOrderDisplay {
     pub created_at: String,
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "user_details.html")]
 pub struct UserDetailsTemplate {
     pub user: User,
@@ -195,7 +196,7 @@ pub struct SubscriptionWithPlan {
     pub device_limit: i64,
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "bot_logs.html")]
 pub struct BotLogsTemplate {
     pub is_auth: bool,
@@ -204,14 +205,14 @@ pub struct BotLogsTemplate {
     pub active_page: String,
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "partials/bot_status.html")]
 pub struct BotStatusPartial {
     pub bot_status: String,
     pub admin_path: String,
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "nodes.html")]
 pub struct NodesTemplate {
     pub nodes: Vec<Node>,
@@ -221,7 +222,7 @@ pub struct NodesTemplate {
     pub active_page: String,
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "partials/nodes_rows.html")]
 pub struct NodesRowsPartial {
     pub nodes: Vec<Node>,
@@ -258,7 +259,7 @@ pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
         let mut sys = state.system_stats.lock().await;
         sys.refresh_all();
         
-        let cpu = sys.global_cpu_info().cpu_usage();
+        let cpu = sys.global_cpu_usage();
         let total_ram = sys.total_memory();
         let used_ram = sys.used_memory();
         
@@ -288,7 +289,7 @@ pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
     Html(template.render().unwrap_or_default())
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "partials/statusbar.html")]
 pub struct StatusbarPartial {
     pub bot_status: String,
@@ -336,7 +337,7 @@ pub struct OrderWithUser {
     pub created_at: String,
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "transactions.html")]
 pub struct TransactionsTemplate {
     pub orders: Vec<OrderWithUser>,
@@ -346,7 +347,7 @@ pub struct TransactionsTemplate {
     pub active_page: String,
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "store_categories.html")]
 pub struct StoreCategoriesTemplate {
     pub categories: Vec<crate::models::store::Category>,
@@ -356,7 +357,7 @@ pub struct StoreCategoriesTemplate {
     pub active_page: String,
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "store_products.html")]
 pub struct StoreProductsTemplate {
     pub products: Vec<crate::models::store::Product>,
@@ -381,7 +382,7 @@ pub struct RecentActivity {
 
 
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "login.html")]
 pub struct LoginTemplate {
     pub admin_path: String,
@@ -396,7 +397,7 @@ pub struct LoginForm {
     pub password: String,
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "analytics.html")]
 pub struct AnalyticsTemplate {
     pub total_traffic_30d: String,
@@ -419,7 +420,7 @@ pub struct UserWithTraffic {
     pub total_traffic_fmt: String,
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "dashboard.html")]
 pub struct DashboardTemplate {
     pub active_nodes: i64,
@@ -724,7 +725,7 @@ pub struct LogsFilter {
     pub page: Option<i64>,
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "logs.html")]
 pub struct SystemLogsTemplate {
     pub logs: Vec<crate::services::logging_service::LogEntry>,
@@ -1250,7 +1251,7 @@ pub async fn get_plans(
 
     let nodes = sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE is_enabled = 1").fetch_all(&state.pool).await.unwrap_or_default();
 
-    #[derive(Template)]
+    #[derive(Template, WebTemplate)]
     #[template(path = "plans.html")]
     pub struct PlansTemplate {
         pub plans: Vec<Plan>,
@@ -1517,7 +1518,7 @@ pub async fn get_plan_edit(
         .await
         .unwrap_or_default();
 
-    #[derive(Template)]
+    #[derive(Template, WebTemplate)]
     #[template(path = "plan_edit_modal.html")]
     struct PlanEditModalTemplate {
         plan: Plan,
@@ -2444,7 +2445,7 @@ pub async fn is_authenticated(state: &AppState, jar: &CookieJar) -> bool {
     false
 }
 // Frontends UI Handler
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "frontends.html")]
 pub struct FrontendsTemplate {
     pub is_auth: bool,

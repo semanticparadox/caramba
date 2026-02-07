@@ -6,6 +6,7 @@ use axum::{
 use axum_extra::extract::cookie::CookieJar;
 use crate::handlers::admin::get_auth_user;
 use askama::Template;
+use askama_web::WebTemplate;
 use serde::Deserialize;
 use crate::AppState;
 use crate::models::node::Node;
@@ -15,7 +16,7 @@ use tracing::{info, error};
 
 
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "node_inbounds.html")]
 pub struct NodeInboundsTemplate {
     pub node: Node,

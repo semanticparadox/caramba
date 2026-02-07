@@ -60,7 +60,7 @@ pub async fn check_channel_membership(bot: &teloxide::Bot, user_id: i64) -> anyh
     match bot.get_chat_member(ChatId(channel_id), UserId(user_id as u64)).await {
         Ok(member) => Ok(matches!(
             member.kind,
-            ChatMemberKind::Administrator(_) | ChatMemberKind::Owner(_) | ChatMemberKind::Member
+            ChatMemberKind::Administrator(_) | ChatMemberKind::Owner(_) | ChatMemberKind::Member(_)
         )),
         Err(_) => Ok(false),
     }

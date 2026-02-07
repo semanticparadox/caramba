@@ -256,10 +256,10 @@ pub async fn rotate_token(
 /// - Domain prefix for easy identification
 fn generate_frontend_token_with_hash(domain: &str) -> Result<(String, String), StatusCode> {
     use rand::Rng;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     
     // Generate 32 bytes of randomness (256 bits)
-    let random_bytes: Vec<u8> = (0..32).map(|_| rng.r#gen()).collect();
+    let random_bytes: Vec<u8> = (0..32).map(|_| rng.random()).collect();
     
     // Create token with domain prefix for identification
     let token = format!(

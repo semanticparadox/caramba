@@ -1,15 +1,16 @@
 use axum::{
     extract::{State, Form, Multipart},
-    response::{IntoResponse, Html},
+    response::IntoResponse,
     http::StatusCode,
 };
 use askama::Template;
+use askama_web::WebTemplate;
 use serde::Deserialize;
 use crate::AppState;
 use axum_extra::extract::cookie::{Cookie, CookieJar};
 use tracing::{info, error};
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "setup.html")]
 pub struct SetupTemplate {
     pub admin_path: String,
@@ -24,15 +25,15 @@ pub struct CreateAdminForm {
     pub password: String,
 }
 
-pub async fn get_setup(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn get_setup(State(state): State<AppState>) -> SetupTemplate {
     let admin_path = state.admin_path.clone();
     
-    Html(SetupTemplate { 
+    SetupTemplate { 
         admin_path,
         is_auth: false,
         active_page: "setup".to_string(),
         username: "".to_string(),
-    }.render().unwrap_or_default())
+    }
 }
 
 pub async fn create_admin(
