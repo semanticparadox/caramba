@@ -2229,7 +2229,7 @@ pub async fn get_subscription_devices(
     Path(sub_id): Path<i64>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    if !is_authenticated(&jar) {
+    if !is_authenticated(&state, &jar).await {
         return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
@@ -2288,7 +2288,7 @@ pub async fn admin_kill_subscription_sessions(
     Path(sub_id): Path<i64>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    if !is_authenticated(&jar) {
+    if !is_authenticated(&state, &jar).await {
         return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
@@ -2353,7 +2353,10 @@ async fn is_authenticated(state: &AppState, jar: &CookieJar) -> bool {
         let token = cookie.value();
         // Validate existence in Redis to ensure session is still active/valid
         // If Redis was flushed (e.g. reinstall), this should return false even if cookie exists
-        return state.redis.exists(&format!("session:{}", token)).await.unwrap_or(false);
+        return match state.redis.get(&format!("session:{}", token)).await {
+            Ok(Some(_)) => true,
+            _ => false,
+        };
     }
     false
 }

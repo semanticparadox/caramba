@@ -48,7 +48,6 @@ pub async fn get_node_inbounds(
                 node,
                 inbounds,
                 is_auth: true,
-                admin_path: {
                 admin_path: state.admin_path.clone(),
                 active_page: "nodes".to_string(),
                 username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
