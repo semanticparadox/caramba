@@ -408,6 +408,7 @@ pub struct AnalyticsTemplate {
 #[allow(dead_code)]
     pub history_labels_json: String,
     pub node_series_json: String,
+    #[allow(dead_code)]
     pub node_labels_json: String,
     pub is_auth: bool,
     pub admin_path: String,
@@ -424,18 +425,24 @@ pub struct UserWithTraffic {
 #[template(path = "dashboard.html")]
 pub struct DashboardTemplate {
     pub active_nodes: i64,
+    #[allow(dead_code)]
     pub total_users: i64,
+    #[allow(dead_code)]
     pub active_subs: i64,
     pub total_revenue: String,
+    #[allow(dead_code)]
     pub total_traffic: String,
     pub total_traffic_30d: String, // From Analytics
     pub orders: Vec<OrderWithUser>, // From Analytics
     pub top_users: Vec<UserWithTraffic>, // From Analytics
     pub history_data_json: String, // From Analytics
+    #[allow(dead_code)]
     pub history_labels_json: String, // From Analytics
     pub node_series_json: String, // From Analytics
+    #[allow(dead_code)]
     pub node_labels_json: String, // From Analytics
     pub activities: Vec<RecentActivity>,
+    #[allow(dead_code)]
     pub bot_status: String,
     pub is_auth: bool,
     pub username: String,
