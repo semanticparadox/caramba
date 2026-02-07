@@ -8,7 +8,15 @@ pub async fn patch_database_schema(pool: &Pool<Sqlite>) {
 
     // 1. Check for 'is_trial' column in 'plans'
     // We try to select it. If error, we add it.
-    if let Err(_) = sqlx::query("SELECT is_trial FROM plans LIMIT 1").fetch_one(pool).await {
+    // 1. Check for 'is_trial' column in 'plans'
+    let has_is_trial: bool = sqlx::query_scalar(
+        "SELECT count(*) > 0 FROM pragma_table_info('plans') WHERE name='is_trial'"
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(false);
+
+    if !has_is_trial {
         warn!("⚠️ Missing column 'is_trial' in 'plans'. Patching...");
         if let Err(e) = sqlx::query("ALTER TABLE plans ADD COLUMN is_trial BOOLEAN DEFAULT 0").execute(pool).await {
             error!("Failed to add 'is_trial' column: {}", e);
@@ -54,10 +62,22 @@ pub async fn patch_database_schema(pool: &Pool<Sqlite>) {
     }
     
     // 3. Check for 'reality_sni' in 'nodes' (Just in case)
-    if let Err(_) = sqlx::query("SELECT reality_sni FROM nodes LIMIT 1").fetch_one(pool).await {
+    // Use fetch_optional to avoid RowNotFound error on empty tables triggering a false negative
+    // 3. Check for 'reality_sni' in 'nodes'
+    let has_reality_sni: bool = sqlx::query_scalar(
+        "SELECT count(*) > 0 FROM pragma_table_info('nodes') WHERE name='reality_sni'"
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(false);
+
+    if !has_reality_sni {
         warn!("⚠️ Missing column 'reality_sni' in 'nodes'. Patching...");
         if let Err(e) = sqlx::query("ALTER TABLE nodes ADD COLUMN reality_sni TEXT DEFAULT 'www.google.com'").execute(pool).await {
-            error!("Failed to add 'reality_sni' column: {}", e);
+            // Ignore duplicate column error if we raced or failed check
+            if !e.to_string().contains("duplicate column") {
+                error!("Failed to add 'reality_sni' column: {}", e);
+            }
         } else {
              info!("✅ Added 'reality_sni' column to 'nodes'");
         }

@@ -8,6 +8,7 @@ pub struct ApiKey {
     pub key: String,
     pub name: String,
     #[serde(rename = "type")]
+    #[sqlx(rename = "type")]
     pub key_type: String, // 'enrollment'
     pub max_uses: Option<i64>,
     pub current_uses: i64,

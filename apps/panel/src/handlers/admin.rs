@@ -383,8 +383,7 @@ pub async fn get_dashboard(
     let total_traffic_bytes = sqlx::query_scalar::<_, i64>("SELECT SUM(total_ingress + total_egress) FROM nodes").fetch_one(&state.pool).await.unwrap_or(0);
     let total_traffic = format_bytes_str(total_traffic_bytes as u64);
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
 
     let username = get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string());
 
@@ -431,8 +430,7 @@ pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
         Err(_) => "Offline".to_string(),
     };
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
 
     let template = StatusbarPartial {
         bot_status,
@@ -444,9 +442,10 @@ pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 
-pub async fn get_login() -> impl IntoResponse {
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+pub async fn get_login(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let admin_path = state.admin_path.clone();
     Html(LoginTemplate { 
         admin_path,
         is_auth: false,
@@ -484,8 +483,7 @@ pub async fn login(
     }
 
     if is_valid {
-        let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-        let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+        let admin_path = state.admin_path.clone();
         
         // Use a secure random session secret or the legacy token logic
         // For consistency with setup.rs, let's use the session_secret from state
@@ -558,8 +556,8 @@ pub async fn get_settings(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    if !is_authenticated(&jar) {
-        let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+    if !is_authenticated(&state, &jar).await {
+        let admin_path = state.admin_path.clone();
         return axum::response::Redirect::to(&admin_path).into_response();
     }
 
@@ -584,8 +582,7 @@ pub async fn get_settings(
     let kill_switch_enabled = state.settings.get_or_default("kill_switch_enabled", "false").await == "true";
     let kill_switch_timeout = state.settings.get_or_default("kill_switch_timeout", "300").await;
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
 
     let free_trial_days = state.settings.get_or_default("free_trial_days", "3").await.parse().unwrap_or(3);
     let channel_trial_days = state.settings.get_or_default("channel_trial_days", "7").await.parse().unwrap_or(7);
@@ -701,8 +698,7 @@ pub async fn get_system_logs_page(
         .await
         .unwrap_or_default();
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
 
     let template = SystemLogsTemplate {
         logs,
@@ -910,8 +906,7 @@ pub async fn toggle_bot(State(state): State<AppState>) -> impl IntoResponse {
 
     let _ = state.settings.set("bot_status", &new_status).await;
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
 
     let template = BotStatusPartial {
         bot_status: new_status,
@@ -932,8 +927,7 @@ pub async fn get_nodes(
 ) -> impl IntoResponse {
     let nodes = state.orchestration_service.get_all_nodes().await.unwrap_or_default();
     
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
 
     if headers.contains_key("hx-request") {
         let template = NodesRowsPartial {
@@ -1008,8 +1002,7 @@ pub async fn install_node(
                 // We don't fail the request, but log it. Admin might need to "reset" node later.
             }
             
-            let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-            let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+            let admin_path = state.admin_path.clone();
             
             let mut headers = axum::http::HeaderMap::new();
             headers.insert("HX-Redirect", format!("{}/nodes", admin_path).parse().unwrap());
@@ -1049,7 +1042,7 @@ pub async fn get_node_edit(
             }
         };
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+    let admin_path = state.admin_path.clone();
     // Ensure leading slash
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
 
@@ -1079,8 +1072,7 @@ pub async fn update_node(
 
     match query.execute(&state.pool).await {
         Ok(_) => {
-             let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-             let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+             let admin_path = state.admin_path.clone();
              
              let mut headers = axum::http::HeaderMap::new();
              headers.insert("HX-Redirect", format!("{}/nodes", admin_path).parse().unwrap());
@@ -1204,10 +1196,7 @@ pub async fn get_plans(
         nodes,
         is_auth: true, 
         username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
-        admin_path: {
-            let p = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-            if p.starts_with('/') { p } else { format!("/{}", p) }
-        }, 
+        admin_path: state.admin_path.clone(), 
         active_page: "plans".to_string() 
     };
     match template.render() {
@@ -1272,7 +1261,7 @@ pub struct CreatePlanForm {
     #[serde(deserialize_with = "deserialize_vec_or_single")]
     pub duration_days: Vec<i32>,
     #[serde(deserialize_with = "deserialize_vec_or_single")]
-    pub traffic_gb: Vec<i32>,
+    pub traffic_limit_gb: Vec<i32>,
 }
 
 pub async fn add_plan(
@@ -1389,8 +1378,7 @@ pub async fn add_plan(
     let _ = crate::services::activity_service::ActivityService::log(&state.pool, "Plan", &format!("New plan created: {}", name)).await;
 
     // Redirect to plans page to show new plan
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
     
     let mut headers = axum::http::HeaderMap::new();
     headers.insert("HX-Redirect", format!("{}/plans", admin_path).parse().unwrap());
@@ -1454,7 +1442,7 @@ pub async fn get_plan_edit(
         admin_path: String,
     }
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+    let admin_path = state.admin_path.clone();
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
 
     let nodes_with_status: Vec<(crate::models::node::Node, bool)> = all_nodes.into_iter().map(|n| {
@@ -1590,7 +1578,7 @@ pub async fn update_plan(
 
     let _ = crate::services::activity_service::ActivityService::log(&state.pool, "Plan", &format!("Plan {} updated: {}", id, name)).await;
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+    let admin_path = state.admin_path.clone();
     ([("HX-Redirect", format!("{}/plans", admin_path))], "Redirecting...").into_response()
 }
 // Users Handlers
@@ -1614,10 +1602,7 @@ pub async fn get_users(
             .unwrap_or_default()
     };
 
-    let template = UsersTemplate { users, search, is_auth: true, username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()), admin_path: {
-        let p = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-        if p.starts_with('/') { p } else { format!("/{}", p) }
-    }, active_page: "users".to_string() };
+    let template = UsersTemplate { users, search, is_auth: true, username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()), admin_path: state.admin_path.clone(), active_page: "users".to_string() };
     
     match template.render() {
         Ok(html) => Html(html).into_response(),
@@ -1653,8 +1638,7 @@ pub async fn admin_gift_subscription(
                  ).await;
             }
 
-            let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-            let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+            let admin_path = state.admin_path.clone();
             return axum::response::Redirect::to(&format!("{}/users/{}", admin_path, user_id)).into_response();
         },
         Err(e) => {
@@ -1757,10 +1741,7 @@ pub async fn get_user_details(
         available_plans,
         is_auth: true,
         username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
-        admin_path: {
-            let p = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-            if p.starts_with('/') { p } else { format!("/{}", p) }
-        },
+        admin_path: state.admin_path.clone(),
         active_page: "users".to_string(),
     };
 
@@ -1833,7 +1814,7 @@ pub async fn update_user(
                 }
             }
 
-            let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+            let admin_path = state.admin_path.clone();
             ([("HX-Redirect", format!("{}/users/{}", admin_path, id))], "Updated").into_response()
         },
         Err(e) => {
@@ -1866,7 +1847,7 @@ pub async fn update_user_balance(
                 &format!("Admin updated user {} balance to {} cents", id, balance)
             ).await;
             
-            let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+            let admin_path = state.admin_path.clone();
             ([("HX-Redirect", format!("{}/users", admin_path))], "Updated").into_response()
         },
         Err(e) => {
@@ -1965,8 +1946,7 @@ pub async fn activate_node(
 
     match res {
         Ok(_) => {
-            let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-            let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+            let admin_path = state.admin_path.clone();
             ([("HX-Redirect", format!("{}/nodes", admin_path))]).into_response()
         },
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to activate: {}", e)).into_response(),
@@ -1996,8 +1976,7 @@ pub async fn get_traffic_analytics(
         r#"SELECT COALESCE(username, full_name, 'Unknown') as "username!", '0 GB' as "total_traffic_fmt!" FROM users LIMIT 5"#
     ).fetch_all(&state.pool).await.unwrap_or_default();
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
 
     let template = AnalyticsTemplate {
         total_traffic_30d,
@@ -2042,17 +2021,19 @@ pub async fn bot_logs_page(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    if !is_authenticated(&jar) {
-        return axum::response::Redirect::to("/admin/login").into_response();
+    if !is_authenticated(&state, &jar).await {
+        return axum::response::Redirect::to(&format!("{}/login", state.admin_path)).into_response();
     }
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
     Html(BotLogsTemplate { is_auth: true, username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()), admin_path, active_page: "settings".to_string() }.render().unwrap()).into_response()
 }
 
 
-pub async fn bot_logs_history(jar: CookieJar) -> impl IntoResponse {
-    if !is_authenticated(&jar) {
+pub async fn bot_logs_history(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
+    if !is_authenticated(&state, &jar).await {
         return "Unauthorized".to_string();
     }
     
@@ -2068,8 +2049,11 @@ pub async fn bot_logs_history(jar: CookieJar) -> impl IntoResponse {
 
 static mut LAST_LOG_POS: u64 = 0;
 
-pub async fn bot_logs_tail(jar: CookieJar) -> impl IntoResponse {
-    if !is_authenticated(&jar) {
+pub async fn bot_logs_tail(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
+    if !is_authenticated(&state, &jar).await {
         return String::new();
     }
     
@@ -2171,8 +2155,7 @@ pub async fn toggle_node_enable(
 
     match res {
         Ok(_) => {
-            let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-            let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+            let admin_path = state.admin_path.clone();
             // Refresh the row
             ([("HX-Redirect", format!("{}/nodes", admin_path))], "Toggled").into_response()
         }
@@ -2187,8 +2170,8 @@ pub async fn get_transactions(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    if !is_authenticated(&jar) {
-        return axum::response::Redirect::to("/admin/login").into_response();
+    if !is_authenticated(&state, &jar).await {
+        return axum::response::Redirect::to(&format!("{}/login", state.admin_path)).into_response();
     }
 
     struct OrderQueryRow {
@@ -2230,10 +2213,7 @@ pub async fn get_transactions(
         orders,
         is_auth: true,
         username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
-        admin_path: {
-            let p = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-            if p.starts_with('/') { p } else { format!("/{}", p) }
-        },
+        admin_path: state.admin_path.clone(),
         active_page: "transactions".to_string(),
     };
 
@@ -2261,8 +2241,7 @@ pub async fn get_subscription_devices(
         }
     };
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
 
     let mut html = String::new();
     
@@ -2333,15 +2312,14 @@ pub async fn admin_kill_subscription_sessions(
         return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to kill sessions: {}", e)).into_response();
     }
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
 
     // 3. Return a success message
     let success_html = format!(
         r##"
         <div class="flex flex-col items-center justify-center py-12 text-center animate-fade-in">
             <div class="w-20 h-20 rounded-3xl bg-emerald-500/10 flex items-center justify-center mb-6 text-emerald-400 border border-emerald-500/20 shadow-xl shadow-emerald-500/10 transform rotate-3">
-                <i data-lucide="check-circle" class="w-10 h-10"></i>
+                <i data-lucide='check-circle' class="w-10 h-10"></i>
             </div>
             <h4 class="text-xl font-bold text-white mb-2 tracking-tight">Sessions Reset Successfully</h4>
             <p class="text-sm text-slate-500 mb-8 px-12 leading-relaxed">All active connections for subscription #{} have been terminated. It may take up to 60 seconds for all caches to clear.</p>
@@ -2370,8 +2348,14 @@ fn format_duration(dur: chrono::Duration) -> String {
     }
 }
 
-fn is_authenticated(jar: &CookieJar) -> bool {
-    jar.get("admin_session").is_some()
+async fn is_authenticated(state: &AppState, jar: &CookieJar) -> bool {
+    if let Some(cookie) = jar.get("admin_session") {
+        let token = cookie.value();
+        // Validate existence in Redis to ensure session is still active/valid
+        // If Redis was flushed (e.g. reinstall), this should return false even if cookie exists
+        return state.redis.exists(&format!("session:{}", token)).await.unwrap_or(false);
+    }
+    false
 }
 // Frontends UI Handler
 #[derive(Template)]
@@ -2387,8 +2371,7 @@ pub async fn get_frontends(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
 
     let template = FrontendsTemplate {
         is_auth: true,
@@ -2421,8 +2404,7 @@ pub async fn get_bot_page(
     // Attempt to get username (or use hardcoded default for now)
     let bot_username = state.settings.get_or_default("bot_username", "").await;
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
 
     let webhook_status = if !bot_token.is_empty() {
         "Active (Polling)".to_string() // Simplified for now, or fetch real status
@@ -2511,8 +2493,7 @@ pub async fn update_trial_config(
     let _ = state.settings.set("channel_trial_days", &form.channel_trial_days.to_string()).await;
     let _ = state.settings.set("required_channel_id", &form.required_channel_id).await;
     
-    let admin_path = std::env::var("ADMIN_PATH")
-        .unwrap_or_else(|_| "/admin".to_string());
+    let admin_path = state.admin_path.clone();
     
     Redirect::to(&format!("{}/settings", admin_path))
 }
@@ -2545,8 +2526,7 @@ pub async fn get_store_categories_page(
 ) -> impl IntoResponse {
     let categories = state.store_service.get_categories().await.unwrap_or_default();
     
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
 
     let template = StoreCategoriesTemplate {
         categories,
@@ -2573,7 +2553,7 @@ pub async fn create_category(
         .execute(&state.pool)
         .await;
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+    let admin_path = state.admin_path.clone();
 
     match res {
         Ok(_) => [("HX-Redirect", format!("{}/store/categories", admin_path))].into_response(),
@@ -2618,8 +2598,7 @@ pub async fn get_store_products_page(
 
     let categories = state.store_service.get_categories().await.unwrap_or_default();
     
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
 
     let template = StoreProductsTemplate {
         products,
@@ -2687,7 +2666,7 @@ pub async fn create_product(
     .execute(&state.pool)
     .await;
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+    let admin_path = state.admin_path.clone();
 
     match res {
         Ok(_) => [("HX-Redirect", format!("{}/store/products", admin_path))].into_response(),
@@ -2764,7 +2743,7 @@ pub async fn api_keys_list(
 ) -> impl IntoResponse {
     let username = match get_auth_user(&state, &jar).await {
         Some(u) => u,
-        None => return (StatusCode::SEE_OTHER, [("Location", "/admin/login")]).into_response(),
+        None => return (StatusCode::SEE_OTHER, [("Location", format!("{}/login", state.admin_path))]).into_response(),
     };
 
     let keys = sqlx::query_as::<_, ApiKey>("SELECT * FROM api_keys ORDER BY created_at DESC")
@@ -2776,7 +2755,7 @@ pub async fn api_keys_list(
         keys,
         username,
         is_auth: true,
-        admin_path: "/admin".to_string(),
+        admin_path: state.admin_path.clone(),
         active_page: "api_keys".to_string(),
     };
 
@@ -2790,7 +2769,7 @@ pub async fn api_keys_create(
 ) -> impl IntoResponse {
     let _ = match get_auth_user(&state, &jar).await {
         Some(u) => u,
-        None => return (StatusCode::SEE_OTHER, [("Location", "/admin/login")]).into_response(),
+        None => return (StatusCode::SEE_OTHER, [("Location", format!("{}/login", state.admin_path))]).into_response(),
     };
 
     let key = uuid::Uuid::new_v4().to_string(); // Simple UUID key
@@ -2803,7 +2782,7 @@ pub async fn api_keys_create(
         .execute(&state.pool)
         .await;
 
-    (StatusCode::SEE_OTHER, [("Location", "/admin/api-keys")]).into_response()
+    (StatusCode::SEE_OTHER, [("Location", format!("{}/api-keys", state.admin_path))]).into_response()
 }
 
 pub async fn api_keys_delete(
@@ -2813,7 +2792,7 @@ pub async fn api_keys_delete(
 ) -> impl IntoResponse {
     let _ = match get_auth_user(&state, &jar).await {
         Some(u) => u,
-        None => return (StatusCode::SEE_OTHER, [("Location", "/admin/login")]).into_response(),
+        None => return (StatusCode::SEE_OTHER, [("Location", format!("{}/login", state.admin_path))]).into_response(),
     };
 
     let _ = sqlx::query("DELETE FROM api_keys WHERE id = ?")
@@ -2821,6 +2800,6 @@ pub async fn api_keys_delete(
         .execute(&state.pool)
         .await;
 
-    (StatusCode::SEE_OTHER, [("Location", "/admin/api-keys")]).into_response()
+    (StatusCode::SEE_OTHER, [("Location", format!("{}/api-keys", state.admin_path))]).into_response()
 }
 

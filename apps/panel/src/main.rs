@@ -51,6 +51,7 @@ pub struct AppState {
     // Format: IP -> (Lat, Lon, Timestamp)
     pub geo_cache: Arc<Mutex<HashMap<String, (f64, f64, Instant)>>>,
     pub session_secret: String,
+    pub admin_path: String, // NEW: Store configured admin path
 }
 
 #[derive(Parser)]
@@ -276,6 +277,9 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
 
     let pubsub = services::pubsub_service::PubSubService::new(redis_url).await.expect("Failed to init PubSub");
 
+    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+
     // App state
     let state = AppState {
         pool: pool.clone(),
@@ -293,6 +297,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         ssh_public_key,
         geo_cache: Arc::new(Mutex::new(HashMap::new())),
         session_secret: std::env::var("SESSION_SECRET").unwrap_or_else(|_| "secret".to_string()),
+        admin_path: admin_path.clone(), // Store it
     };
     
     // ... rest of function ...

@@ -49,9 +49,7 @@ pub async fn get_node_inbounds(
                 inbounds,
                 is_auth: true,
                 admin_path: {
-                    let p = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-                    if p.starts_with('/') { p } else { format!("/{}", p) }
-                },
+                admin_path: state.admin_path.clone(),
                 active_page: "nodes".to_string(),
                 username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
             };
@@ -142,8 +140,7 @@ pub async fn add_inbound(
             let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "update").await;
 
             // Redirect back to the list
-             let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-             let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+             let admin_path = state.admin_path.clone();
              ([("HX-Redirect", format!("{}/nodes/{}/inbounds", admin_path, node_id))], "Redirecting...").into_response()
         },
         Err(e) => {
@@ -244,9 +241,7 @@ pub async fn get_plan_bindings(
         });
     }
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
     Html(PlanBindingsTemplate { plan, bindings, is_auth: true, admin_path, active_page: "plans".to_string(), username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()) }.render().unwrap_or_default()).into_response()
 }
 
@@ -313,8 +308,7 @@ pub async fn save_plan_bindings(
          return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Transaction Commit Failed").into_response();
     }
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
     axum::response::Redirect::to(&format!("{}/plans", admin_path)).into_response()
 }
 
@@ -401,8 +395,7 @@ pub async fn get_edit_inbound(
             Err(_) => return (axum::http::StatusCode::NOT_FOUND, "Inbound not found").into_response(),
         };
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = state.admin_path.clone();
 
     let template = InboundEditModalTemplate { node_id, inbound, admin_path };
     Html(template.render().unwrap_or_default()).into_response()
@@ -469,8 +462,7 @@ pub async fn update_inbound(
             // PubSub Notify
             let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "update").await;
 
-            let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-            let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+            let admin_path = state.admin_path.clone();
             ([("HX-Redirect", format!("{}/nodes/{}/inbounds", admin_path, node_id))], "Updated").into_response()
         },
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)).into_response(),

@@ -24,9 +24,8 @@ pub struct CreateAdminForm {
     pub password: String,
 }
 
-pub async fn get_setup() -> impl IntoResponse {
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+pub async fn get_setup(State(state): State<AppState>) -> impl IntoResponse {
+    let admin_path = state.admin_path.clone();
     
     Html(SetupTemplate { 
         admin_path,
@@ -66,7 +65,7 @@ pub async fn create_admin(
             info!("Setup: Admin {} created successfully.", form.username);
             
             // Auto-login
-            let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+            let admin_path = state.admin_path.clone();
             let cookie = Cookie::build(("admin_session", state.session_secret.clone()))
                 .path("/")
                 .http_only(true)
@@ -85,6 +84,7 @@ pub async fn create_admin(
 }
 
 pub async fn restore_backup(
+    State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
     // We don't need State because we are overwriting the DB file directly.
@@ -124,7 +124,7 @@ pub async fn restore_backup(
                     std::process::exit(0);
                 });
                 
-                let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+                let admin_path = state.admin_path.clone();
                 let mut headers = axum::http::HeaderMap::new();
                 headers.insert("HX-Redirect", format!("{}/login", admin_path).parse().unwrap());
                 
