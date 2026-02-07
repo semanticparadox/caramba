@@ -39,7 +39,8 @@ impl PubSubService {
             info!("🔄 PubSub: Connecting to Redis...");
             match redis::Client::open(self.redis_url.clone()) {
                 Ok(client) => {
-                    match client.get_multiplexed_async_connection().await {
+                    #[allow(deprecated)]
+                    match client.get_async_connection().await {
                         Ok(conn) => {
                             let mut pubsub = conn.into_pubsub();
                             // Subscribe to all node events
