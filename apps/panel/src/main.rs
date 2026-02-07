@@ -370,34 +370,34 @@ use tower_http::services::ServeDir;
         .route("/nodes", axum::routing::get(handlers::admin::get_nodes))
 
         .route("/nodes/install", axum::routing::post(handlers::admin::install_node))
-        .route("/nodes/:id/edit", axum::routing::get(handlers::admin::get_node_edit))
-        .route("/nodes/:id/update", axum::routing::post(handlers::admin::update_node))
-        .route("/nodes/:id/activate", axum::routing::post(handlers::admin::activate_node))
-        .route("/nodes/:id/script", axum::routing::get(handlers::admin::get_node_install_script))
-        .route("/nodes/:id/raw-install", axum::routing::get(handlers::admin::get_node_raw_install_script))
-        .route("/nodes/:id/config/preview", axum::routing::get(handlers::admin_network::preview_node_config))
-        .route("/nodes/:id/sync", axum::routing::post(handlers::admin::sync_node))
-        .route("/nodes/:id/logs", axum::routing::get(handlers::admin::get_node_logs)) // NEW
+        .route("/nodes/{id}/edit", axum::routing::get(handlers::admin::get_node_edit))
+        .route("/nodes/{id}/update", axum::routing::post(handlers::admin::update_node))
+        .route("/nodes/{id}/activate", axum::routing::post(handlers::admin::activate_node))
+        .route("/nodes/{id}/script", axum::routing::get(handlers::admin::get_node_install_script))
+        .route("/nodes/{id}/raw-install", axum::routing::get(handlers::admin::get_node_raw_install_script))
+        .route("/nodes/{id}/config/preview", axum::routing::get(handlers::admin_network::preview_node_config))
+        .route("/nodes/{id}/sync", axum::routing::post(handlers::admin::sync_node))
+        .route("/nodes/{id}/logs", axum::routing::get(handlers::admin::get_node_logs)) // NEW
         // SSH-based Node Control removed - use Agent API endpoints instead
-        .route("/nodes/:id/delete", axum::routing::delete(handlers::admin::delete_node))
-        .route("/nodes/:id/toggle", axum::routing::post(handlers::admin::toggle_node_enable))
-        .route("/nodes/:id/inbounds", axum::routing::get(handlers::admin_network::get_node_inbounds).post(handlers::admin_network::add_inbound))
-        .route("/nodes/:id/inbounds/:inbound_id", axum::routing::get(handlers::admin_network::get_edit_inbound).post(handlers::admin_network::update_inbound).delete(handlers::admin_network::delete_inbound))
-        .route("/nodes/:id/inbounds/:inbound_id/toggle", axum::routing::post(handlers::admin_network::toggle_inbound))
+        .route("/nodes/{id}/delete", axum::routing::delete(handlers::admin::delete_node))
+        .route("/nodes/{id}/toggle", axum::routing::post(handlers::admin::toggle_node_enable))
+        .route("/nodes/{id}/inbounds", axum::routing::get(handlers::admin_network::get_node_inbounds).post(handlers::admin_network::add_inbound))
+        .route("/nodes/{id}/inbounds/{inbound_id}", axum::routing::get(handlers::admin_network::get_edit_inbound).post(handlers::admin_network::update_inbound).delete(handlers::admin_network::delete_inbound))
+        .route("/nodes/{id}/inbounds/{inbound_id}/toggle", axum::routing::post(handlers::admin_network::toggle_inbound))
         .route("/plans", axum::routing::get(handlers::admin::get_plans))
         .route("/plans/add", axum::routing::post(handlers::admin::add_plan))
-        .route("/plans/:id", axum::routing::get(handlers::admin::get_plan_edit).post(handlers::admin::update_plan).delete(handlers::admin::delete_plan))
-        .route("/plans/:id/bindings", axum::routing::get(handlers::admin_network::get_plan_bindings).post(handlers::admin_network::save_plan_bindings))
+        .route("/plans/{id}", axum::routing::get(handlers::admin::get_plan_edit).post(handlers::admin::update_plan).delete(handlers::admin::delete_plan))
+        .route("/plans/{id}/bindings", axum::routing::get(handlers::admin_network::get_plan_bindings).post(handlers::admin_network::save_plan_bindings))
         .route("/users", get(handlers::admin::get_users))
-        .route("/users/:id", get(handlers::admin::get_user_details))
-        .route("/users/:id/balance", post(handlers::admin::update_user_balance))
-        .route("/users/:id/update", post(handlers::admin::update_user))
-        .route("/users/:id/gift", post(handlers::admin::admin_gift_subscription))
-        .route("/users/subs/:id", axum::routing::delete(handlers::admin::delete_user_subscription))
-        .route("/users/subs/:id/refund", axum::routing::post(handlers::admin::refund_user_subscription))
-        .route("/users/subs/:id/extend", axum::routing::post(handlers::admin::extend_user_subscription))
-        .route("/subs/:id/devices", axum::routing::get(handlers::admin::get_subscription_devices))
-        .route("/subs/:id/devices/kill", axum::routing::post(handlers::admin::admin_kill_subscription_sessions))
+        .route("/users/{id}", get(handlers::admin::get_user_details))
+        .route("/users/{id}/balance", post(handlers::admin::update_user_balance))
+        .route("/users/{id}/update", post(handlers::admin::update_user))
+        .route("/users/{id}/gift", post(handlers::admin::admin_gift_subscription))
+        .route("/users/subs/{id}", axum::routing::delete(handlers::admin::delete_user_subscription))
+        .route("/users/subs/{id}/refund", axum::routing::post(handlers::admin::refund_user_subscription))
+        .route("/users/subs/{id}/extend", axum::routing::post(handlers::admin::extend_user_subscription))
+        .route("/subs/{id}/devices", axum::routing::get(handlers::admin::get_subscription_devices))
+        .route("/subs/{id}/devices/kill", axum::routing::post(handlers::admin::admin_kill_subscription_sessions))
         .route("/analytics", axum::routing::get(handlers::admin::get_traffic_analytics))
         
         // Frontend Servers (Page)
@@ -416,15 +416,15 @@ use tower_http::services::ServeDir;
         .route("/bot-logs/history", axum::routing::get(handlers::admin::bot_logs_history))
         .route("/bot-logs/tail", axum::routing::get(handlers::admin::bot_logs_tail))
         .route("/api-keys", axum::routing::get(handlers::admin::api_keys_list).post(handlers::admin::api_keys_create)) // NEW
-        .route("/api-keys/delete/:id", axum::routing::post(handlers::admin::api_keys_delete)) // NEW
+        .route("/api-keys/delete/{id}", axum::routing::post(handlers::admin::api_keys_delete)) // NEW
         .route("/partials/statusbar", axum::routing::get(handlers::admin::get_statusbar)) // NEW
         .route("/logout", axum::routing::post(handlers::admin::logout))
         
         // Store Management Routes
         .route("/store/categories", axum::routing::get(handlers::admin::get_store_categories_page).post(handlers::admin::create_category))
-        .route("/store/categories/:id", axum::routing::delete(handlers::admin::delete_category))
+        .route("/store/categories/{id}", axum::routing::delete(handlers::admin::delete_category))
         .route("/store/products", axum::routing::get(handlers::admin::get_store_products_page).post(handlers::admin::create_product))
-        .route("/store/products/:id", axum::routing::delete(handlers::admin::delete_product))
+        .route("/store/products/{id}", axum::routing::delete(handlers::admin::delete_product))
         // .route("/store/orders", axum::routing::get(handlers::admin_store::orders_page)) // Handled by analytics/dashboard now
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware));
 
@@ -443,7 +443,7 @@ use tower_http::services::ServeDir;
         .route(&format!("{}/setup", admin_path), axum::routing::get(handlers::setup::get_setup))
         .route(&format!("{}/setup/create_admin", admin_path), axum::routing::post(handlers::setup::create_admin))
         .route(&format!("{}/setup/restore_backup", admin_path), axum::routing::post(handlers::setup::restore_backup))
-        .route("/api/payments/:source", axum::routing::post(handlers::admin::handle_payment))
+        .route("/api/payments/{source}", axum::routing::post(handlers::admin::handle_payment))
         // Agent V2 API
         .route("/api/v2/node/heartbeat", axum::routing::post(api::v2::node::heartbeat))
         .route("/api/v2/node/config", axum::routing::get(api::v2::node::get_config))
@@ -456,14 +456,14 @@ use tower_http::services::ServeDir;
         // Client API
         .nest("/api/client", api::client::routes(state.clone()))
         // Public Subscription URL endpoint
-        .route("/sub/:uuid", axum::routing::get(subscription::subscription_handler))
+        .route("/sub/{uuid}", axum::routing::get(subscription::subscription_handler))
 
         // Frontend API Routes (Must be top level to match /api/admin/frontends)
         .route("/api/admin/frontends", axum::routing::get(handlers::frontend::list_frontends).post(handlers::frontend::create_frontend))
-        .route("/api/admin/frontends/by-region/:region", axum::routing::get(handlers::frontend::get_active_frontends))
-        .route("/api/admin/frontends/:id", axum::routing::delete(handlers::frontend::delete_frontend))
-        .route("/api/admin/frontends/:id/rotate-token", axum::routing::post(handlers::frontend::rotate_token))
-        .route("/api/admin/frontends/:domain/heartbeat", axum::routing::post(handlers::frontend::frontend_heartbeat))
+        .route("/api/admin/frontends/by-region/{region}", axum::routing::get(handlers::frontend::get_active_frontends))
+        .route("/api/admin/frontends/{id}", axum::routing::delete(handlers::frontend::delete_frontend))
+        .route("/api/admin/frontends/{id}/rotate-token", axum::routing::post(handlers::frontend::rotate_token))
+        .route("/api/admin/frontends/{domain}/heartbeat", axum::routing::post(handlers::frontend::frontend_heartbeat))
 
         .nest(&admin_path, admin_routes)
         .with_state(state)
