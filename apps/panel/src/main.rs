@@ -52,6 +52,7 @@ pub struct AppState {
     pub geo_cache: Arc<Mutex<HashMap<String, (f64, f64, Instant)>>>,
     pub session_secret: String,
     pub admin_path: String, // NEW: Store configured admin path
+    pub system_stats: Arc<tokio::sync::Mutex<sysinfo::System>>,
 }
 
 #[derive(Parser)]

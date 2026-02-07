@@ -3,7 +3,7 @@ use axum::{
     response::{IntoResponse, Html},
 };
 use askama::Template;
-use sysinfo::{SystemExt, CpuExt};
+use sysinfo::System;
 use serde::{Deserialize, Serialize};
 use crate::AppState;
 use crate::models::node::Node;
@@ -78,6 +78,8 @@ pub struct SettingsTemplate {
     pub kill_switch_timeout: String,
     pub free_trial_days: i64,
     pub channel_trial_days: i64,
+    pub free_trial_traffic_limit: i64,
+    pub free_trial_device_limit: i64,
     pub required_channel_id: String,
     pub last_export: String,
     pub is_auth: bool,
@@ -255,8 +257,7 @@ pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
     // System Stats
     let (cpu_usage, ram_usage) = {
         let mut sys = state.system_stats.lock().await;
-        sys.refresh_cpu(); // Refresh CPU usage
-        sys.refresh_memory(); // Refresh RAM usage
+        sys.refresh_all();
         
         let cpu = sys.global_cpu_info().cpu_usage();
         let total_ram = sys.total_memory();
@@ -379,21 +380,7 @@ pub struct RecentActivity {
     pub created_at: String,
 }
 
-#[derive(Template)]
-#[template(path = "dashboard.html")]
-pub struct DashboardTemplate {
-    pub active_nodes: i64,
-    pub total_users: i64,
-    pub active_subs: i64,
-    pub total_revenue: String,
-    pub total_traffic: String,
-    pub activities: Vec<RecentActivity>,
-    pub bot_status: String,
-    pub is_auth: bool,
-    pub username: String, // NEW
-    pub admin_path: String,
-    pub active_page: String,
-}
+
 
 #[derive(Template)]
 #[template(path = "login.html")]
@@ -518,80 +505,8 @@ pub async fn get_dashboard(
 
 
 
-#[derive(Template)]
-#[template(path = "partials/statusbar.html")]
-pub struct StatusbarPartial {
-    pub bot_status: String,
-    pub db_status: String,
-    pub redis_status: String,
-    pub admin_path: String,
-    pub sqlite_version: String,
-    pub redis_version: String,
-    pub bot_username: String,
-    pub cpu_usage: String,
-    pub ram_usage: String,
-}
 
-pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
-    let is_running = state.bot_manager.is_running().await;
-    let bot_status = if is_running { "running" } else { "stopped" }.to_string();
-    let bot_username = state.settings.get_or_default("bot_username", "Unknown").await;
-    
-    // Check Redis & Version
-    let (redis_status, redis_version) = match state.redis.get_connection().await {
-        Ok(mut con) => {
-            let info: String = redis::cmd("INFO").arg("server").query_async(&mut *con).await.unwrap_or_default();
-            // Parse redis_version: X.Y.Z
-            let version = info.lines()
-                .find(|l| l.starts_with("redis_version:"))
-                .map(|l| l.replace("redis_version:", "").trim().to_string())
-                .unwrap_or_else(|| "Unknown".to_string());
-            ("Online".to_string(), version)
-        },
-        Err(_) => ("Offline".to_string(), "-".to_string()),
-    };
 
-    // Check DB & Version
-    let (db_status, sqlite_version) = match sqlx::query_scalar::<_, String>("SELECT sqlite_version()").fetch_one(&state.pool).await {
-        Ok(v) => ("Online".to_string(), v),
-        Err(_) => ("Offline".to_string(), "-".to_string()),
-    };
-
-    // System Stats
-    let (cpu_usage, ram_usage) = {
-        let mut sys = state.system_stats.lock().await;
-        sys.refresh_cpu(); // Refresh CPU usage
-        sys.refresh_memory(); // Refresh RAM usage
-        
-        let cpu = sys.global_cpu_info().cpu_usage();
-        let total_ram = sys.total_memory();
-        let used_ram = sys.used_memory();
-        
-        // Format RAM (e.g., "4.5/16 GB")
-        let total_gb = total_ram as f64 / 1024.0 / 1024.0 / 1024.0;
-        let used_gb = used_ram as f64 / 1024.0 / 1024.0 / 1024.0;
-        
-        (
-            format!("{:.1}%", cpu),
-            format!("{:.1}/{:.1} GB", used_gb, total_gb)
-        )
-    };
-
-    let admin_path = state.admin_path.clone();
-
-    let template = StatusbarPartial {
-        bot_status,
-        db_status,
-        redis_status,
-        admin_path,
-        sqlite_version,
-        redis_version,
-        bot_username,
-        cpu_usage,
-        ram_usage,
-    };
-    Html(template.render().unwrap_or_default())
-}
 
 
 pub async fn get_login(
@@ -2517,7 +2432,7 @@ fn format_duration(dur: chrono::Duration) -> String {
     }
 }
 
-async fn is_authenticated(state: &AppState, jar: &CookieJar) -> bool {
+pub async fn is_authenticated(state: &AppState, jar: &CookieJar) -> bool {
     if let Some(cookie) = jar.get("admin_session") {
         let token = cookie.value();
         // Validate existence in Redis to ensure session is still active/valid

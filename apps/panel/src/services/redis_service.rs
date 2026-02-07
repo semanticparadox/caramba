@@ -102,4 +102,7 @@ impl RedisService {
 
         Ok(count <= limit)
     }
+    pub async fn get_connection(&self) -> Result<bb8::PooledConnection<'_, RedisConnectionManager>> {
+        self.pool.get().await.context("Failed to get Redis connection")
+    }
 }

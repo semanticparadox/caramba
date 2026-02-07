@@ -374,4 +374,10 @@ impl OrchestrationService {
         Ok(all_nodes)
     }
 
+    pub async fn notify_node_update(&self, node_id: i64) -> anyhow::Result<()> {
+        info!("🔔 Node {} update notification triggered", node_id);
+        // TODO: Implement actual notification logic (e.g. PubSub or direct push)
+        Ok(())
+    }
+
 }
