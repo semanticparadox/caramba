@@ -142,6 +142,25 @@ install_dependencies() {
     log_info "Installing dependencies..."
     setup_firewall
     
+    # Stop conflicting web servers
+    if command -v systemctl &> /dev/null; then
+        if systemctl is-active --quiet nginx; then
+            log_warn "Stopping Nginx to release ports 80/443..."
+            systemctl stop nginx
+            systemctl disable nginx
+        fi
+        if systemctl is-active --quiet apache2; then
+            log_warn "Stopping Apache2 to release ports 80/443..."
+            systemctl stop apache2
+            systemctl disable apache2
+        fi
+        if systemctl is-active --quiet httpd; then
+            log_warn "Stopping HTTPD to release ports 80/443..."
+            systemctl stop httpd
+            systemctl disable httpd
+        fi
+    fi
+    
     apt-get update -qq
     apt-get install -y curl git build-essential pkg-config libssl-dev sqlite3 redis-server gnupg debian-keyring debian-archive-keyring apt-transport-https -qq
     
@@ -1046,6 +1065,33 @@ EOF
 
     mkdir -p /var/log/caddy
     chown caddy:caddy /var/log/caddy 2>/dev/null || true
+    
+    # Check if port 443 is free before starting
+    if command -v ss &> /dev/null; then
+        if ss -tulpn | grep -q ":443 "; then
+            log_warn "Port 443 seems to be in use!"
+            ss -tulpn | grep ":443 " | while read -r line; do
+                log_warn "Occupant: $line"
+            done
+            
+            # If exarobot-agent (sing-box) is running, warn user
+            if pgrep -f "sing-box" > /dev/null || pgrep -f "exarobot-agent" > /dev/null; then
+                 log_error "Conflict detected: 'sing-box' or 'exarobot-agent' is running."
+                 log_error "REALITY protocol on the Agent requires port 443."
+                 log_error "You cannot run the Frontend (Caddy) and Agent (Reality) on the same server"
+                 log_error "unless you change the Frontend port or disable Reality."
+                 
+                 if [ "$FORCE_INSTALL" != "true" ]; then
+                     log_error "Aborting Caddy start. Use --force to try anyway (may fail)."
+                     return 1
+                 fi
+            fi
+             
+            # Try to stop known web servers again
+            systemctl stop nginx 2>/dev/null || true
+            systemctl stop apache2 2>/dev/null || true
+        fi
+    fi
     
     systemctl enable caddy > /dev/null 2>&1
     systemctl restart caddy
