@@ -980,8 +980,18 @@ $FRONTEND_DOMAIN {
     # Proxy API calls to Panel
     handle /api/* {
         reverse_proxy $PANEL_URL {
+            header_up X-Real-IP {remote}
+        }
+    }
+
+    # Proxy VLESS-HTTPUpgrade to Agent (Port 12345)
+    handle /exarobot* {
+        reverse_proxy localhost:12345 {
             header_up Host {upstream_hostport}
             header_up X-Real-IP {remote}
+            transport http {
+                versions h1 h2c 
+            }
         }
     }
 
@@ -1076,18 +1086,28 @@ EOF
             
             # If exarobot-agent (sing-box) is running, warn user
             if pgrep -f "sing-box" > /dev/null || pgrep -f "exarobot-agent" > /dev/null; then
-                 log_error "Conflict detected: 'sing-box' or 'exarobot-agent' is running."
-                 log_error "REALITY protocol on the Agent requires port 443."
-                 log_error "You cannot run the Frontend (Caddy) and Agent (Reality) on the same server"
-                 log_error "unless you change the Frontend port or disable Reality."
+                 log_error "CONFLICT DETECTED: Port 443 is in use by 'sing-box' (Agent)."
+                 echo ""
+                 log_warn "You are trying to install the Frontend (Caddy) on Port 443,"
+                 log_warn "but the Agent is already using it (likely for REALITY protocol)."
+                 echo ""
+                 log_info "To run BOTH on the same server, you have two options:"
+                 log_info "1. Disable REALITY on this Node via the Panel (Release Port 443)."
+                 log_info "2. Run Frontend on a different port (not supported by auto-installer yet)."
+                 echo ""
                  
                  if [ "$FORCE_INSTALL" != "true" ]; then
-                     log_error "Aborting Caddy start. Use --force to try anyway (may fail)."
+                     log_error "Aborting to prevent breaking the Agent."
+                     log_error "Use --force if you intentionally want to stop the Agent and proceed."
                      return 1
+                 else
+                     log_warn "Force flag detected. Stopping Agent to allow Frontend installation..."
+                     systemctl stop sing-box 2>/dev/null || true
+                     systemctl stop exarobot-agent 2>/dev/null || true
                  fi
             fi
              
-            # Try to stop known web servers again
+            # Try to stop known web servers (Nginx/Apache are usually safe to stop)
             systemctl stop nginx 2>/dev/null || true
             systemctl stop apache2 2>/dev/null || true
         fi
@@ -1200,6 +1220,10 @@ seed_local_tokens() {
     fi
     
     sqlite3 "$db_file" "INSERT OR IGNORE INTO frontend_servers (domain, ip_address, region, auth_token, is_active) VALUES ('$FRONTEND_DOMAIN', '127.0.0.1', 'local', '$FRONTEND_TOKEN', 1);"
+    
+    # Insert VLESS-HTTPUpgrade Inbound (Port 12345, Path /exarobot)
+    # This solves the port 443 conflict by putting Agent behind Caddy.
+    sqlite3 "$db_file" "INSERT OR IGNORE INTO inbounds (node_id, tag, protocol, listen_port, listen_ip, settings, stream_settings, enable) SELECT id, 'vless-xttp', 'vless', 12345, '127.0.0.1', '{\"clients\":[],\"decryption\":\"none\"}', '{\"network\":\"httpupgrade\",\"security\":\"none\",\"http_upgrade_settings\":{\"path\":\"/exarobot\",\"host\":\"$FRONTEND_DOMAIN\"}}', 1 FROM nodes WHERE ip = '127.0.0.1';"
     
     export NODE_TOKEN
     export FRONTEND_TOKEN

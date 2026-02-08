@@ -65,6 +65,30 @@ impl ConfigGenerator {
                          // Regular TLS implementation (placeholder)
                     }
 
+                    // Transport Settings
+                    let mut transport_config = None;
+                    if let Some(network) = &stream_settings.network {
+                        match network.as_str() {
+                            "ws" => {
+                                if let Some(ws) = &stream_settings.ws_settings {
+                                    transport_config = Some(VlessTransportConfig::Ws(WsTransport {
+                                        path: ws.path.clone(),
+                                        headers: ws.headers.clone(),
+                                    }));
+                                }
+                            },
+                            "httpupgrade" => {
+                                if let Some(http) = &stream_settings.http_upgrade_settings {
+                                    transport_config = Some(VlessTransportConfig::HttpUpgrade(HttpUpgradeTransport {
+                                        path: http.path.clone(),
+                                        host: http.host.clone().map(|h| vec![h]),
+                                    }));
+                                }
+                            },
+                            _ => {}
+                        }
+                    }
+
                     // Convert users
                     let users = vless.clients.iter().map(|c| VlessUser {
                         name: c.email.clone(),
@@ -78,6 +102,7 @@ impl ConfigGenerator {
                         listen_port: inbound.listen_port as u16,
                         users,
                         tls: tls_config,
+                        transport: transport_config,
                     }));
                 },
                 InboundType::Hysteria2(hy2) => {

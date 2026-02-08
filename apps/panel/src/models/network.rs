@@ -150,6 +150,20 @@ pub struct StreamSettings {
     pub security: Option<String>, // "none", "tls", "reality"
     pub tls_settings: Option<TlsSettings>,
     pub reality_settings: Option<RealitySettings>,
+    pub ws_settings: Option<WsSettings>,
+    pub http_upgrade_settings: Option<HttpUpgradeSettings>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WsSettings {
+    pub path: String,
+    pub headers: Option<std::collections::HashMap<String, String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpUpgradeSettings {
+    pub path: String,
+    pub host: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -51,6 +51,8 @@ pub struct VlessInbound {
     pub listen_port: u16,
     pub users: Vec<VlessUser>,
     pub tls: Option<VlessTlsConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transport: Option<VlessTransportConfig>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -58,6 +60,27 @@ pub struct VlessUser {
     pub name: String,
     pub uuid: String,
     pub flow: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum VlessTransportConfig {
+    Ws(WsTransport),
+    HttpUpgrade(HttpUpgradeTransport),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct WsTransport {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<std::collections::HashMap<String, String>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct HttpUpgradeTransport {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
