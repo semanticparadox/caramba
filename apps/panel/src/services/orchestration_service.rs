@@ -376,7 +376,7 @@ impl OrchestrationService {
                                     private_key: client_priv,
                                     public_key: client_pub,
                                     preshared_key: None,
-                                    client_ip: format!("10.10.0.{}", 2 + awg.users.len()), // Simple IP allocation
+                                    client_ip: format!("10.10.0.{}", (sub.tg_id % 250) + 2),
                                 });
                             }
                         }

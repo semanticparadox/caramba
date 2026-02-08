@@ -38,7 +38,9 @@ pub struct LogConfig {
 pub enum Inbound {
     Vless(VlessInbound),
     Hysteria2(Hysteria2Inbound),
+    #[serde(rename = "wireguard")]
     AmneziaWg(AmneziaWgInbound),
+    Trojan(TrojanInbound),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -134,18 +136,27 @@ pub struct AmneziaWgInbound {
     pub tag: String,
     pub listen: String,
     pub listen_port: u16,
-    pub users: Vec<AmneziaWgUser>,
+    pub peers: Vec<AmneziaWgUser>,
     pub private_key: String,
     // AmneziaWG specific fields
-    pub jc: u16,
-    pub jmin: u16,
-    pub jmax: u16,
-    pub s1: u16,
-    pub s2: u16,
-    pub h1: u32,
-    pub h2: u32,
-    pub h3: u32,
-    pub h4: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jc: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jmin: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jmax: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub s1: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub s2: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub h1: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub h2: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub h3: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub h4: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -155,6 +166,7 @@ pub struct AmneziaWgUser {
     pub public_key: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preshared_key: Option<String>,
+    pub allowed_ips: Vec<String>,
 }
 
 
@@ -162,6 +174,21 @@ pub struct AmneziaWgUser {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Outbound {
     Direct { tag: String },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TrojanInbound {
+    pub tag: String,
+    pub listen: String,
+    pub listen_port: u16,
+    pub users: Vec<TrojanUser>,
+    pub tls: Option<VlessTlsConfig>, // Can reuse VlessTlsConfig or define TrojanTlsConfig
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TrojanUser {
+    pub name: String,
+    pub password: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -1131,13 +1131,12 @@ impl StoreService {
                                          uuid: uuid.clone(),
                                          flow: Some("xtls-rprx-vision".to_string()),
                                          packet_encoding: Some("xudp".to_string()),
-                                         tls: Some(tls_config),
+                                         tls: tls_config,
                                     }));
                                 }
                             }
                         } else {
                              // Standard TLS or None
-                             let mut tls_config = None;
                              if security == "tls" {
                                  if let Some(tls) = stream.tls_settings {
                                      tls_config = Some(ClientTlsConfig {
@@ -1214,7 +1213,14 @@ impl StoreService {
                         if let Ok(InboundType::AmneziaWg(settings)) = serde_json::from_str::<InboundType>(&inbound.settings) {
                             // Stable client key derivation
                             let client_priv = self.derive_awg_key(&uuid);
-                            let client_ip = format!("10.10.0.{}", 2 + client_outbounds.len());
+                            
+                            let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?")
+                                .bind(user_id)
+                                .fetch_optional(&self.pool)
+                                .await?
+                                .unwrap_or(0);
+                                
+                            let client_ip = format!("10.10.0.{}", (tg_id % 250) + 2);
                             
                             use crate::singbox::client_generator::ClientAmneziaWgOutbound;
                             client_outbounds.push(ClientOutbound::AmneziaWg(ClientAmneziaWgOutbound {
@@ -1236,6 +1242,64 @@ impl StoreService {
                                 h4: settings.h4,
                             }));
                         }
+                    },
+                    "trojan" => {
+                        use crate::singbox::client_generator::ClientTrojanOutbound;
+                        let mut server_name = node.reality_sni.clone().unwrap_or_else(|| "drive.google.com".to_string());
+                        let mut insecure = true;
+                        
+                        if let Some(tls) = stream.tls_settings {
+                            if !tls.server_name.is_empty() {
+                                server_name = tls.server_name.clone();
+                            }
+                            if server_name != "drive.google.com" && server_name != "www.yahoo.com" {
+                                insecure = false;
+                            }
+                        }
+
+                        let mut tls_config = Some(ClientTlsConfig {
+                            enabled: true,
+                            server_name: server_name.clone(),
+                            insecure,
+                            alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                            utls: Some(UtlsConfig {
+                                enabled: true,
+                                fingerprint: "chrome".to_string(),
+                            }),
+                            reality: None,
+                        });
+
+                        if security == "reality" {
+                            if let Some(reality) = stream.reality_settings {
+                                let sni = node.reality_sni.clone()
+                                    .or_else(|| reality.server_names.first().cloned())
+                                    .unwrap_or_default();
+                                
+                                tls_config = Some(ClientTlsConfig {
+                                    enabled: true,
+                                    server_name: sni,
+                                    insecure: false,
+                                    alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                                    utls: Some(UtlsConfig {
+                                        enabled: true,
+                                        fingerprint: "chrome".to_string(),
+                                    }),
+                                    reality: Some(ClientRealityConfig {
+                                        enabled: true,
+                                        public_key: reality.public_key.or(node.reality_pub).unwrap_or_default(),
+                                        short_id: reality.short_ids.first().cloned().unwrap_or_default(),
+                                    }),
+                                });
+                            }
+                        }
+
+                        client_outbounds.push(ClientOutbound::Trojan(ClientTrojanOutbound {
+                            tag,
+                            server: address,
+                            server_port: port,
+                            password: uuid.clone(),
+                            tls: tls_config,
+                        }));
                     },
                     _ => {}
                 }
@@ -1385,6 +1449,29 @@ impl StoreService {
                             let link = format!("awg://{}:{}?{}#{}", address, port, params.join("&"), remark);
                             links.push(link);
                         }
+                    },
+                    "trojan" => {
+                        let mut params = Vec::new();
+                        params.push(format!("security={}", security));
+                        params.push(format!("type={}", network));
+                        
+                        if security == "reality" {
+                            if let Some(reality) = stream.reality_settings {
+                                let sni = node.reality_sni.clone()
+                                    .or_else(|| reality.server_names.first().cloned())
+                                    .unwrap_or_default();
+                                params.push(format!("sni={}", sni));
+                                params.push(format!("pbk={}", reality.public_key.or(node.reality_pub).unwrap_or_default()));
+                                params.push("fp=chrome".to_string());
+                            }
+                        } else if security == "tls" {
+                            if let Some(tls) = stream.tls_settings {
+                                params.push(format!("sni={}", tls.server_name));
+                            }
+                        }
+
+                        let link = format!("trojan://{}@{}:{}?{}#{}", uuid, address, port, params.join("&"), remark);
+                        links.push(link);
                     },
                     _ => {}
                 }

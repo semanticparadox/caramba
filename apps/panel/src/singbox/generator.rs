@@ -150,28 +150,82 @@ impl ConfigGenerator {
                     }));
                 },
                 InboundType::AmneziaWg(awg) => {
-                    let users = awg.users.iter().map(|u| AmneziaWgUser {
+                    let peers = awg.users.iter().enumerate().map(|(i, u)| AmneziaWgUser {
                         name: Some(u.name.clone()),
                         public_key: u.public_key.clone(),
                         preshared_key: u.preshared_key.clone(),
+                        allowed_ips: vec![u.client_ip.clone()], 
                     }).collect();
 
                     generated_inbounds.push(Inbound::AmneziaWg(AmneziaWgInbound {
                         tag: inbound.tag,
                         listen: inbound.listen_ip,
                         listen_port: inbound.listen_port as u16,
-                        users,
+                        peers,
                         private_key: awg.private_key,
                         // AmneziaWG specific fields
-                        jc: awg.jc,
-                        jmin: awg.jmin,
-                        jmax: awg.jmax,
-                        s1: awg.s1,
-                        s2: awg.s2,
-                        h1: awg.h1,
-                        h2: awg.h2,
-                        h3: awg.h3,
-                        h4: awg.h4,
+                        jc: Some(awg.jc),
+                        jmin: Some(awg.jmin),
+                        jmax: Some(awg.jmax),
+                        s1: Some(awg.s1),
+                        s2: Some(awg.s2),
+                        h1: Some(awg.h1),
+                        h2: Some(awg.h2),
+                        h3: Some(awg.h3),
+                        h4: Some(awg.h4),
+                    }));
+                },
+                InboundType::Trojan(trojan) => {
+                    let mut tls_config = None;
+                    
+                    let security = stream_settings.security.as_deref().unwrap_or("none");
+                    if security == "reality" {
+                        if let Some(reality) = stream_settings.reality_settings {
+                             tls_config = Some(VlessTlsConfig {
+                                enabled: true,
+                                server_name: reality.server_names.first().cloned().unwrap_or_default(),
+                                alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                                reality: RealityConfig {
+                                    enabled: true,
+                                    handshake: RealityHandshake {
+                                        server: reality.dest.split(':').next().unwrap_or(&reality.dest).to_string(),
+                                        server_port: reality.dest.split(':').last().and_then(|p| p.parse().ok()).unwrap_or(443),
+                                    },
+                                    private_key: reality.private_key,
+                                    short_id: reality.short_ids,
+                                },
+                             });
+                        }
+                    } else if security == "tls" {
+                        if let Some(tls) = stream_settings.tls_settings {
+                            tls_config = Some(VlessTlsConfig {
+                                enabled: true,
+                                server_name: tls.server_name,
+                                alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                                reality: RealityConfig {
+                                    enabled: false,
+                                    handshake: RealityHandshake {
+                                        server: "".to_string(),
+                                        server_port: 0,
+                                    },
+                                    private_key: "".to_string(),
+                                    short_id: vec![],
+                                },
+                            });
+                        }
+                    }
+
+                    let users = trojan.clients.iter().map(|c| TrojanUser {
+                        name: c.email.clone(),
+                        password: c.password.clone(),
+                    }).collect();
+
+                    generated_inbounds.push(Inbound::Trojan(TrojanInbound {
+                        tag: inbound.tag,
+                        listen: inbound.listen_ip,
+                        listen_port: inbound.listen_port as u16,
+                        users,
+                        tls: tls_config,
                     }));
                 },
 

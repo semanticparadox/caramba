@@ -76,6 +76,8 @@ pub enum ClientOutbound {
     Hysteria2(ClientHysteria2Outbound),
     #[serde(rename = "wireguard")]
     AmneziaWg(ClientAmneziaWgOutbound),
+    #[serde(rename = "trojan")]
+    Trojan(ClientTrojanOutbound),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -109,6 +111,15 @@ pub struct ClientVlessOutbound {
     pub flow: Option<String>,
     pub packet_encoding: Option<String>,
     pub tls: Option<ClientTlsConfig>, 
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ClientTrojanOutbound {
+    pub tag: String,
+    pub server: String,
+    pub server_port: u16,
+    pub password: String,
+    pub tls: Option<ClientTlsConfig>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -183,6 +194,10 @@ impl ClientGenerator {
                     all_proxy_tags.push(a.tag.clone());
                     awg_tags.push(a.tag.clone());
                 },
+                ClientOutbound::Trojan(t) => {
+                    all_proxy_tags.push(t.tag.clone());
+                    reality_tags.push(t.tag.clone()); // Group with Reality for now or direct? 
+                }
                 _ => {}
             }
             outbounds.push(p);
