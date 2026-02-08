@@ -414,6 +414,26 @@ EOF
         cd "$src_dir"
         
         log_info "Compiling Frontend (for downloads)..."
+        
+        # FIX: The frontend requires apps/mini-app/dist to exist for RustEmbed.
+        # Since we don't install Node.js/npm on the server, we create a placeholder if it's missing.
+        MINI_APP_DIST="$src_dir/apps/mini-app/dist"
+        if [ ! -d "$MINI_APP_DIST" ]; then
+            log_warn "Miniapp dist not found (Node.js not installed). Creating placeholder..."
+            mkdir -p "$MINI_APP_DIST"
+            cat > "$MINI_APP_DIST/index.html" <<EOF
+<!DOCTYPE html>
+<html>
+<head><title>ExaRobot MiniApp</title></head>
+<body>
+<h1>MiniApp Not Built</h1>
+<p>The MiniApp was not built during installation (Node.js required).</p>
+<p>Please build locally and upload <code>apps/mini-app/dist</code> if you need the Telegram App.</p>
+</body>
+</html>
+EOF
+        fi
+
         # Compile frontend binary
         cargo build -p exarobot-frontend --release
     fi
