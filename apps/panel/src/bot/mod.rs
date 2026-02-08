@@ -21,7 +21,12 @@ pub async fn run_bot(bot: Bot, mut shutdown_signal: tokio::sync::broadcast::Rece
     // 1. Connectivity Check
     info!("Bot identity check...");
     match bot.get_me().await {
-        Ok(me) => info!("Bot connected as: @{}", me.username.clone().unwrap_or("unknown".into())),
+        Ok(me) => {
+            let username = me.username.clone().unwrap_or("unknown".into());
+            info!("Bot connected as: @{}", username);
+            // Store bot username in settings for the footer
+            let _ = state.settings.set("bot_username", &username).await;
+        },
         Err(e) => {
             error!("CRITICAL: Bot failed to connect to Telegram: {}", e);
             // Don't crash immediately, maybe it's a temp network issue?    

@@ -241,7 +241,7 @@ impl ConfigGenerator {
             // Enable Clash API for device monitoring and limit enforcement
             experimental: Some(ExperimentalConfig {
                 clash_api: ClashApiConfig {
-                    external_controller: "127.0.0.1:9090".to_string(),
+                    external_controller: "0.0.0.0:9090".to_string(),
                     secret: None, // Internal access only, no auth needed
                     external_ui: None,
                 },
