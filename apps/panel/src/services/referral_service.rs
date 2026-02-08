@@ -27,7 +27,7 @@ impl ReferralService {
                 u.username,
                 COUNT(r.id) as referral_count
             FROM users u
-            JOIN users r ON u.id = r.referred_by
+            JOIN users r ON u.id = r.referrer_id
             GROUP BY u.id
             ORDER BY referral_count DESC
             LIMIT ?
@@ -73,9 +73,9 @@ impl ReferralService {
                 u.referrer_id,
                 u.is_banned,
                 u.created_at,
-                COALESCE(CAST(SUM(rb.amount) AS INTEGER), 0) as total_earned
+                COALESCE(CAST(SUM(rb.bonus_value) AS INTEGER), 0) as total_earned
             FROM users u
-            LEFT JOIN referral_bonuses rb ON u.id = rb.referred_id AND rb.referrer_id = ?
+            LEFT JOIN referral_bonuses rb ON u.id = rb.referred_user_id AND rb.user_id = ?
             WHERE u.referrer_id = ?
             GROUP BY u.id
             ORDER BY u.created_at DESC
@@ -89,20 +89,21 @@ impl ReferralService {
     }
 
     pub async fn get_user_referral_earnings(pool: &sqlx::SqlitePool, referrer_id: i64) -> Result<i64> {
-        let total: Option<i64> = sqlx::query_scalar("SELECT CAST(SUM(amount) AS INTEGER) FROM referral_bonuses WHERE referrer_id = ?")
+        let total: Option<i64> = sqlx::query_scalar("SELECT CAST(SUM(bonus_value) AS INTEGER) FROM referral_bonuses WHERE user_id = ?")
             .bind(referrer_id)
-            .fetch_one(pool)
+            .fetch_optional(pool)
             .await
-            .ok()
-            .flatten();
+            .map(|opt| opt.flatten())
+            .unwrap_or(None);
         Ok(total.unwrap_or(0))
     }
 
     pub async fn get_referral_count(pool: &sqlx::SqlitePool, user_id: i64) -> Result<i64> {
-        let count = sqlx::query_scalar!("SELECT COUNT(*) FROM users WHERE referrer_id = ?", user_id)
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE referrer_id = ?")
+            .bind(user_id)
             .fetch_one(pool)
             .await?;
-        Ok(count as i64)
+        Ok(count.0)
     }
 
     pub async fn update_user_referral_code(pool: &sqlx::SqlitePool, user_id: i64, new_code: &str) -> Result<()> {
@@ -119,6 +120,49 @@ impl ReferralService {
             .context("Failed to update referral code. It might already be taken.")?;
 
         Ok(())
+    }
+
+    pub async fn apply_referral_bonus(pool: &mut sqlx::Transaction<'_, sqlx::Sqlite>, user_id: i64, amount_cents: i64, _payment_id: Option<i64>) -> Result<Option<(i64, i64)>> {
+        // 10% bonus for the referrer
+        let user = sqlx::query_as::<_, crate::models::store::User>("SELECT * FROM users WHERE id = ?")
+            .bind(user_id)
+            .fetch_one(&mut **pool)
+            .await?;
+        
+        let referrer_id = user.referrer_id.or(user.referred_by);
+
+        if let Some(r_id) = referrer_id {
+            let bonus = amount_cents / 10;
+            if bonus > 0 {
+                // 1. Update balance
+                sqlx::query("UPDATE users SET balance = balance + ? WHERE id = ?")
+                    .bind(bonus)
+                    .bind(r_id)
+                    .execute(&mut **pool)
+                    .await?;
+                
+                // 2. Log to referral_bonuses
+                sqlx::query("INSERT INTO referral_bonuses (user_id, referred_user_id, bonus_type, bonus_value, status, applied_at) VALUES (?, ?, 'payment', ?, 'completed', CURRENT_TIMESTAMP)")
+                    .bind(r_id)
+                    .bind(user_id)
+                    .bind(bonus as f64)
+                    .execute(&mut **pool)
+                    .await?;
+
+                tracing::info!("Applied referral bonus of {} to user {} (from user {})", bonus, r_id, user_id);
+
+                // Fetch referrer tg_id for notification
+                let referrer_tg_id: Option<i64> = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?")
+                    .bind(r_id)
+                    .fetch_optional(&mut **pool)
+                    .await?;
+                
+                if let Some(tg_id) = referrer_tg_id {
+                    return Ok(Some((tg_id, bonus)));
+                }
+            }
+        }
+        Ok(None)
     }
 
     fn mask_username(username: &str) -> String {

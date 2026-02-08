@@ -453,11 +453,8 @@ async fn get_user_referrals(
         .unwrap_or(None);
 
     if let Some((user_id, code)) = user_info {
-        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE referred_by = ?")
-            .bind(user_id)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap_or(0);
+        use crate::services::referral_service::ReferralService;
+        let count = ReferralService::get_referral_count(&state.pool, user_id).await.unwrap_or(0);
 
         let bot_username = "exarobot_bot"; // TODO: Config
         let link = format!("https://t.me/{}?start={}", bot_username, code);

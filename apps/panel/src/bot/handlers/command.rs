@@ -352,7 +352,16 @@ pub async fn message_handler(
                  let parts: Vec<&str> = text.split_whitespace().collect();
                  if parts.len() > 2 && parts[2] == "logs" {
                      // /admin sni logs
-                     let logs: Vec<(String, String, String, String, String)> = sqlx::query_as(
+                     #[derive(sqlx::FromRow)]
+                     struct SniLogView {
+                         name: String,
+                         old_sni: String,
+                         new_sni: String,
+                         reason: Option<String>,
+                         rotated_at: chrono::DateTime<chrono::Utc>,
+                     }
+
+                     let logs: Vec<SniLogView> = sqlx::query_as(
                          "SELECT n.name, l.old_sni, l.new_sni, l.reason, l.rotated_at 
                           FROM sni_rotation_log l
                           JOIN nodes n ON l.node_id = n.id
@@ -366,10 +375,10 @@ pub async fn message_handler(
                          let _ = bot.send_message(msg.chat.id, "📜 No SNI rotations found.").await;
                      } else {
                          let mut response = "📜 <b>Recent SNI Rotations</b>\n\n".to_string();
-                         for (node, old, new, reason, time) in logs {
-                             response.push_str(&format!("🔄 <b>{}</b> (Node: {})\n", time, node));
-                             response.push_str(&format!("   {} → {}\n", old, new));
-                             response.push_str(&format!("   Reason: {}\n\n", reason));
+                         for log in logs {
+                             response.push_str(&format!("🔄 <b>{}</b> (Node: {})\n", log.rotated_at.format("%Y-%m-%d %H:%M"), log.name));
+                             response.push_str(&format!("   {} → {}\n", log.old_sni, log.new_sni));
+                             response.push_str(&format!("   Reason: {}\n\n", log.reason.unwrap_or_else(|| "none".to_string())));
                          }
                          let _ = bot.send_message(msg.chat.id, response).parse_mode(ParseMode::Html).await;
                      }

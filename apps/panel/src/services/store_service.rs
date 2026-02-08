@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use chrono::{Utc, Duration};
 use tracing::{info, error};
 use uuid::Uuid;
+use crate::services::referral_service::ReferralService;
 
 use crate::models::store::{
     User, Plan, Subscription, GiftCode, PlanDuration, 
@@ -59,20 +60,21 @@ impl StoreService {
         old_sni: &str, 
         new_sni: &str, 
         reason: &str
-    ) -> Result<i64> {
-        let res = sqlx::query(
+    ) -> Result<crate::models::store::SniRotationLog> {
+        let log = sqlx::query_as::<_, crate::models::store::SniRotationLog>(
             "INSERT INTO sni_rotation_log (node_id, old_sni, new_sni, reason)
-             VALUES (?, ?, ?, ?)"
+             VALUES (?, ?, ?, ?)
+             RETURNING id, node_id, old_sni, new_sni, reason, rotated_at"
         )
         .bind(node_id)
         .bind(old_sni)
         .bind(new_sni)
         .bind(reason)
-        .execute(&self.pool)
+        .fetch_one(&self.pool)
         .await
         .context("Failed to log SNI rotation")?;
 
-        Ok(res.last_insert_rowid())
+        Ok(log)
     }
 
     pub async fn get_products_by_category(&self, category_id: i64) -> Result<Vec<crate::models::store::Product>> {
@@ -785,90 +787,19 @@ impl StoreService {
     }
 
     pub async fn apply_referral_bonus(&self, pool: &mut sqlx::Transaction<'_, sqlx::Sqlite>, user_id: i64, amount_cents: i64, payment_id: Option<i64>) -> Result<Option<(i64, i64)>> {
-        // 10% bonus for the referrer
-        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?")
-            .bind(user_id)
-            .fetch_one(&mut **pool)
-            .await?;
-        
-        if let Some(referrer_id) = user.referrer_id {
-            let bonus = amount_cents / 10;
-            if bonus > 0 {
-                // 1. Update balance
-                sqlx::query("UPDATE users SET balance = balance + ? WHERE id = ?")
-                    .bind(bonus)
-                    .bind(referrer_id)
-                    .execute(&mut **pool)
-                    .await?;
-                
-                // 2. Log to referral_bonuses
-                sqlx::query("INSERT INTO referral_bonuses (referrer_id, referred_id, amount, payment_id) VALUES (?, ?, ?, ?)")
-                    .bind(referrer_id)
-                    .bind(user_id)
-                    .bind(bonus)
-                    .bind(payment_id)
-                    .execute(&mut **pool)
-                    .await?;
-
-                info!("Applied referral bonus of {} to user {} (from user {})", bonus, referrer_id, user_id);
-
-                // Fetch referrer tg_id for notification
-                let referrer_tg_id: Option<i64> = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?")
-                    .bind(referrer_id)
-                    .fetch_optional(&mut **pool)
-                    .await?;
-                
-                if let Some(tg_id) = referrer_tg_id {
-                    return Ok(Some((tg_id, bonus)));
-                }
-            }
-        }
-        Ok(None)
+        ReferralService::apply_referral_bonus(pool, user_id, amount_cents, payment_id).await
     }
 
     pub async fn get_user_referrals(&self, referrer_id: i64) -> Result<Vec<DetailedReferral>> {
-        sqlx::query_as::<_, DetailedReferral>(
-            r#"
-            SELECT 
-                u.id,
-                u.tg_id,
-                u.username,
-                u.full_name,
-                u.balance,
-                u.referral_code,
-                u.referrer_id,
-                u.is_banned,
-                u.created_at,
-                COALESCE(CAST(SUM(rb.bonus_value) AS INTEGER), 0) as total_earned
-            FROM users u
-            LEFT JOIN referral_bonuses rb ON u.id = rb.referred_user_id AND rb.user_id = ?
-            WHERE u.referrer_id = ?
-            GROUP BY u.id
-            ORDER BY u.created_at DESC
-            "#
-        )
-        .bind(referrer_id)
-        .bind(referrer_id)
-        .fetch_all(&self.pool)
-        .await
-        .context("Failed to fetch detailed referrals")
+        ReferralService::get_user_referrals(&self.pool, referrer_id).await
     }
 
     pub async fn get_user_referral_earnings(&self, referrer_id: i64) -> Result<i64> {
-        let total: Option<i64> = sqlx::query_scalar("SELECT CAST(SUM(bonus_value) AS INTEGER) FROM referral_bonuses WHERE user_id = ?")
-            .bind(referrer_id)
-            .fetch_one(&self.pool)
-            .await
-            .ok()
-            .flatten();
-        Ok(total.unwrap_or(0))
+        ReferralService::get_user_referral_earnings(&self.pool, referrer_id).await
     }
 
     pub async fn get_referral_count(&self, user_id: i64) -> Result<i64> {
-        let count = sqlx::query_scalar!("SELECT COUNT(*) FROM users WHERE referrer_id = ?", user_id)
-            .fetch_one(&self.pool)
-            .await?;
-        Ok(count as i64)
+        ReferralService::get_referral_count(&self.pool, user_id).await
     }
 
     pub async fn validate_promo(&self, code: &str) -> Result<Option<crate::models::store::PromoCode>> {
@@ -1549,19 +1480,7 @@ impl StoreService {
 
     /// Update user's referral code (alias)
     pub async fn update_user_referral_code(&self, user_id: i64, new_code: &str) -> Result<()> {
-        let clean_code = new_code.trim();
-        if clean_code.is_empty() {
-            return Err(anyhow::anyhow!("Referral code cannot be empty"));
-        }
-
-        sqlx::query("UPDATE users SET referral_code = ? WHERE id = ?")
-            .bind(clean_code)
-            .bind(user_id)
-            .execute(&self.pool)
-            .await
-            .context("Failed to update referral code. It might already be taken.")?;
-
-        Ok(())
+        ReferralService::update_user_referral_code(&self.pool, user_id, new_code).await
     }
 
     /// Set user's referrer by referral code
