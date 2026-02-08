@@ -77,32 +77,42 @@
 
             <div class="grid grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">IP
-                        Address</label>
+                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Miniapp Domain (Optional)</label>
                     <div class="relative">
-                        <i data-lucide="network" class="absolute left-4 top-3.5 w-4 h-4 text-slate-500"></i>
-                        <input type="text" name="ip_address" placeholder="1.2.3.4" required
+                        <i data-lucide="smartphone" class="absolute left-4 top-3.5 w-4 h-4 text-slate-500"></i>
+                        <input type="text" name="miniapp_domain" placeholder="app.example.com"
                             class="w-full bg-slate-950 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
                     </div>
                 </div>
                 <div>
-                    <label
-                        class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Region</label>
+                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Sub Path</label>
                     <div class="relative">
-                        <i data-lucide="map-pin" class="absolute left-4 top-3.5 w-4 h-4 text-slate-500"></i>
-                        <select name="region" required
-                            class="w-full bg-slate-950 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all appearance-none">
-                            <option value="" disabled selected>Select...</option>
-                            <option value="eu">Europe</option>
-                            <option value="us">USA</option>
-                            <option value="asia">Asia</option>
-                            <option value="other">Other</option>
-                        </select>
-                        <i data-lucide="chevron-down"
-                            class="absolute right-4 top-3.5 w-4 h-4 text-slate-500 pointer-events-none"></i>
+                        <i data-lucide="folder" class="absolute left-4 top-3.5 w-4 h-4 text-slate-500"></i>
+                        <input type="text" name="sub_path" placeholder="/sub/" value="/sub/"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
                     </div>
                 </div>
             </div>
+
+            <!-- Advanced / Hidden fields for IP/Region (Optional) -->
+            <details class="group">
+                <summary class="flex items-center gap-2 text-xs font-medium text-slate-500 uppercase tracking-wider cursor-pointer hover:text-indigo-400 transition-colors">
+                    <i data-lucide="chevron-right" class="w-4 h-4 group-open:rotate-90 transition-transform"></i>
+                    <span>Advanced Options (IP / Region)</span>
+                </summary>
+                <div class="grid grid-cols-2 gap-4 mt-3 pl-2 border-l border-white/5 bg-white/5 p-3 rounded-r-xl">
+                    <div>
+                        <label class="block text-[10px] font-medium text-slate-400 uppercase mb-1">IP Address</label>
+                        <input type="text" name="ip_address" placeholder="Auto-detected"
+                            class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:border-indigo-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-medium text-slate-400 uppercase mb-1">Region</label>
+                        <input type="text" name="region" placeholder="global"
+                            class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:border-indigo-500 outline-none">
+                    </div>
+                </div>
+            </details>
 
             <div class="pt-4">
                 <button type="submit" id="createFrontendBtn"
@@ -248,6 +258,9 @@
                         <button title="Test Health" onclick="testFrontend('${f.domain}')" class="p-2 hover:bg-emerald-500/10 text-slate-400 hover:text-emerald-400 rounded-lg transition-colors">
                             <i data-lucide="activity" class="w-4 h-4"></i>
                         </button>
+                        <button title="View Install Command" onclick="viewInstallCommand(${f.id}, '${f.domain}')" class="p-2 hover:bg-indigo-500/10 text-slate-400 hover:text-indigo-400 rounded-lg transition-colors">
+                            <i data-lucide="terminal" class="w-4 h-4"></i>
+                        </button>
                         <button title="Rotate Token" onclick="rotateToken(${f.id})" class="p-2 hover:bg-amber-500/10 text-slate-400 hover:text-amber-400 rounded-lg transition-colors">
                             <i data-lucide="refresh-cw" class="w-4 h-4"></i>
                         </button>
@@ -360,6 +373,31 @@
         }
     }
 
+    // View Install Command (Wrapper around Rotate Token with specific UI flow)
+    async function viewInstallCommand(id, domain) {
+        if (!confirm(`Viewing the install command requires generating a new secure token.\n\nThis will INVALIDATE the previous token. If the server is already running, you will need to re-run the install command.\n\nProceed?`)) return;
+
+        try {
+            const response = await fetch(`/api/admin/frontends/${id}/rotate-token`, {
+                method: 'POST'
+            });
+
+            if (!response.ok) throw new Error('Failed to generate command');
+
+            const data = await response.json();
+            
+            // Re-use the existing Install Modal
+            document.getElementById('installCommand').textContent = data.instructions;
+            document.getElementById('serverIP').textContent = "Server IP";
+            document.getElementById('serverDomain').textContent = domain;
+            document.getElementById('verifyLink').href = `https://${domain}/health`;
+            document.getElementById('installCommandModal').showModal();
+            loadFrontends();
+        } catch (error) {
+            alert('Failed to generate command: ' + error.message);
+        }
+    }
+
     // Rotate token
     async function rotateToken(id) {
         if (!confirm('Warning: Rotating the token will break the connection until you update the frontend server configuration.\n\nContinue?')) return;
@@ -373,8 +411,12 @@
 
             const data = await response.json();
 
-            // Show new token in a simple prompt/alert for now
-            prompt("New Token (Copy immediately):", data.token);
+            // Show instruction instead of just token
+            document.getElementById('installCommand').textContent = data.instructions;
+            document.getElementById('serverIP').textContent = "Server IP";
+            // We don't have domain handy unless we fetch it or pass it. 
+            // The viewInstallCommand handles this better.
+            document.getElementById('installCommandModal').showModal();
             loadFrontends();
         } catch (error) {
             alert('Failed to rotate token: ' + error.message);

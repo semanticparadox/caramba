@@ -8,6 +8,8 @@ pub struct FrontendServer {
     pub domain: String,
     pub ip_address: String,
     pub region: String,
+    pub miniapp_domain: Option<String>,
+    pub sub_path: Option<String>,
     /// Hashed authentication token (bcrypt) - never expose to client
     #[serde(skip_serializing)]  // Never send hash to client
     pub auth_token_hash: Option<String>,
@@ -29,8 +31,10 @@ pub struct FrontendServer {
 #[derive(Debug, Deserialize)]
 pub struct CreateFrontendServer {
     pub domain: String,
-    pub ip_address: String,
-    pub region: String,
+    pub ip_address: Option<String>,
+    pub region: Option<String>,
+    pub miniapp_domain: Option<String>,
+    pub sub_path: Option<String>,
 }
 
 /// Response when creating a new frontend - includes token ONCE
@@ -57,4 +61,5 @@ pub struct TokenRotateResponse {
 pub struct FrontendHeartbeat {
     pub requests_count: u64,
     pub bandwidth_used: u64,
+    pub ip_address: Option<String>,
 }

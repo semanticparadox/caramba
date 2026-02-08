@@ -442,6 +442,8 @@ CREATE TABLE IF NOT EXISTS frontend_servers (
     domain TEXT NOT NULL UNIQUE,
     ip_address TEXT NOT NULL,
     region TEXT NOT NULL,
+    miniapp_domain TEXT,
+    sub_path TEXT DEFAULT '/sub/',
     auth_token TEXT,
     auth_token_hash TEXT,
     token_expires_at TIMESTAMP,

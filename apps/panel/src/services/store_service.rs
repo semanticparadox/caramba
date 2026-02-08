@@ -1055,11 +1055,13 @@ impl StoreService {
             // Copied from links generation logic
             let inbounds = sqlx::query_as::<_, crate::models::network::Inbound>(
                 r#"
-                SELECT i.* FROM inbounds i
-                JOIN plan_inbounds pi ON pi.inbound_id = i.id
-                WHERE pi.plan_id = ? AND i.enable = 1
+                SELECT DISTINCT i.* FROM inbounds i
+                LEFT JOIN plan_inbounds pi ON pi.inbound_id = i.id
+                LEFT JOIN plan_nodes pn ON pn.node_id = i.node_id
+                WHERE (pi.plan_id = ? OR pn.plan_id = ?) AND i.enable = 1
                 "#
             )
+            .bind(sub.sub.plan_id)
             .bind(sub.sub.plan_id)
             .fetch_all(&self.pool)
             .await?;
@@ -1366,11 +1368,13 @@ impl StoreService {
             // 2. Get Inbounds for this Plan
             let inbounds = sqlx::query_as::<_, crate::models::network::Inbound>(
                 r#"
-                SELECT i.* FROM inbounds i
-                JOIN plan_inbounds pi ON pi.inbound_id = i.id
-                WHERE pi.plan_id = ? AND i.enable = 1
+                SELECT DISTINCT i.* FROM inbounds i
+                LEFT JOIN plan_inbounds pi ON pi.inbound_id = i.id
+                LEFT JOIN plan_nodes pn ON pn.node_id = i.node_id
+                WHERE (pi.plan_id = ? OR pn.plan_id = ?) AND i.enable = 1
                 "#
             )
+            .bind(sub.sub.plan_id)
             .bind(sub.sub.plan_id)
             .fetch_all(&self.pool)
             .await?;

@@ -57,14 +57,21 @@ pub async fn create_frontend(
     let (token, token_hash) = generate_frontend_token_with_hash(&payload.domain)?;
     let expires_at = calculate_token_expiration();
     
+    let ip_address = payload.ip_address.unwrap_or_else(|| "0.0.0.0".to_string());
+    let region = payload.region.unwrap_or_else(|| "global".to_string());
+    // Default sub_path to /sub/ if not provided
+    let sub_path = payload.sub_path.unwrap_or_else(|| "/sub/".to_string());
+
     let result = sqlx::query(
         "INSERT INTO frontend_servers 
-         (domain, ip_address, region, auth_token_hash, token_expires_at, created_at, updated_at) 
-         VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+         (domain, ip_address, region, miniapp_domain, sub_path, auth_token_hash, token_expires_at, created_at, updated_at) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
     )
     .bind(&payload.domain)
-    .bind(&payload.ip_address)
-    .bind(&payload.region)
+    .bind(&ip_address)
+    .bind(&region)
+    .bind(&payload.miniapp_domain)
+    .bind(&sub_path)
     .bind(&token_hash)  // Store hash, not plaintext
    .bind(&expires_at)
     .execute(&state.pool)
@@ -88,7 +95,13 @@ pub async fn create_frontend(
     Ok(Json(FrontendCreatedResponse {
         frontend,
         auth_token: token.clone(),  // Clone to use in next line
-        install_command: generate_install_command(&payload.domain, &token, &payload.region),
+        install_command: generate_install_command(
+            &payload.domain, 
+            &token, 
+            &region,
+            payload.miniapp_domain.as_deref(),
+            &sub_path
+        ),
     }))
 }
 
@@ -168,13 +181,24 @@ pub async fn frontend_heartbeat(
         }
     }
     
-    // Token is valid - update heartbeat
-    sqlx::query(
+    // Token is valid - update heartbeat and stats
+    // Optional IP update
+    let ip_update = if let Some(ip) = &data.ip_address {
+        Some(format!(", ip_address = '{}'", ip))
+    } else {
+        None
+    };
+
+    let query = format!(
         "UPDATE frontend_servers 
          SET last_heartbeat = CURRENT_TIMESTAMP,
              traffic_monthly = traffic_monthly + ?
-         WHERE domain = ?"
-    )
+             {}
+         WHERE domain = ?",
+         ip_update.unwrap_or_default()
+    );
+
+    sqlx::query(&query)
     .bind(data.bandwidth_used as i64)
     .bind(&domain)
     .execute(&state.pool)
@@ -241,7 +265,13 @@ pub async fn rotate_token(
     Ok(Json(TokenRotateResponse {
         token: token.clone(),
         expires_at: expires_at,
-        instructions: generate_install_command(&frontend.domain, &token, &frontend.region),
+        instructions: generate_install_command(
+            &frontend.domain, 
+            &token, 
+            &frontend.region,
+            frontend.miniapp_domain.as_deref(),
+            frontend.sub_path.as_deref().unwrap_or("/sub/")
+        ),
     }))
 }
 
@@ -283,7 +313,13 @@ fn calculate_token_expiration() -> chrono::DateTime<chrono::Utc> {
     chrono::Utc::now() + chrono::Duration::days(365)
 }
 
-fn generate_install_command(domain: &str, token: &str, region: &str) -> String {
+fn generate_install_command(
+    domain: &str, 
+    token: &str, 
+    region: &str, 
+    miniapp_domain: Option<&str>,
+    sub_path: &str
+) -> String {
     // Get panel URL from environment (SERVER_DOMAIN) or use fallback
     let panel_url = std::env::var("SERVER_DOMAIN")
         .map(|d| {
@@ -295,10 +331,20 @@ fn generate_install_command(domain: &str, token: &str, region: &str) -> String {
         })
         .unwrap_or_else(|_| "https://panel.example.com".to_string());
     
-    format!(
-        "curl -sSL {}/install.sh | \\\\\\n  sudo bash -s -- \\\\\\n  --role frontend \\\\\\n  --domain {} \\\\\\n  --token {} \\\\\\n  --region {} \\\\\\n  --panel {}",
+    let mut cmd = format!(
+        "curl -sSL {}/install.sh | \\\n  sudo bash -s -- \\\n  --role frontend \\\n  --domain {} \\\n  --token {} \\\n  --region {} \\\n  --panel {}",
         panel_url, domain, token, region, panel_url
-    )
+    );
+
+    if let Some(md) = miniapp_domain {
+        cmd.push_str(&format!(" \\\n  --miniapp-domain {}", md));
+    }
+
+    if sub_path != "/sub/" {
+        cmd.push_str(&format!(" \\\n  --sub-path {}", sub_path));
+    }
+
+    cmd
 }
 
 // Response types

@@ -833,9 +833,11 @@ install_caddy_if_needed() {
 # Helper: Configure Caddy
 configure_caddy_for_frontend() {
     log_info "Configuring Caddy reverse proxy..."
+    
+    # Prepare Caddyfile content
     cat > /etc/caddy/Caddyfile <<EOF
-\$FRONTEND_DOMAIN {
-    reverse_proxy localhost:\${FRONTEND_PORT:-8080}
+$FRONTEND_DOMAIN {
+    reverse_proxy localhost:${FRONTEND_PORT:-8080}
     
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
@@ -851,6 +853,45 @@ configure_caddy_for_frontend() {
     }
 }
 EOF
+
+    # Add Miniapp Domain block if specified
+    if [ -n "$MINIAPP_DOMAIN" ]; then
+        SUB_PATH=${SUB_PATH:-"/sub/"}
+        # Ensure SUB_PATH starts/ends with slash for reliable matching
+        # (Handling simpler case for now)
+        
+        cat >> /etc/caddy/Caddyfile <<EOF
+
+$MINIAPP_DOMAIN {
+    # Proxy subscription path to Panel (Rewrite custom path to /sub/)
+    handle_path ${SUB_PATH}* {
+        rewrite * /sub{path}
+        reverse_proxy $PANEL_URL {
+            header_up Host {upstream_hostport}
+            header_up X-Real-IP {remote}
+        }
+    }
+
+    # Proxy API calls to Panel (Miniapp Backend)
+    handle /api/* {
+        reverse_proxy $PANEL_URL {
+            header_up Host {upstream_hostport}
+            header_up X-Real-IP {remote}
+        }
+    }
+
+    # Proxy everything else to Frontend (Miniapp)
+    handle {
+        reverse_proxy localhost:${FRONTEND_PORT:-8080}
+    }
+
+    log {
+        output file /var/log/caddy/miniapp.log
+        format json
+    }
+}
+EOF
+    fi
 
     mkdir -p /var/log/caddy
     chown caddy:caddy /var/log/caddy 2>/dev/null || true
@@ -903,18 +944,21 @@ register_with_panel() {
     
     sleep 3  # Wait for service to start
     
-    curl -X POST "$PANEL_URL/api/admin/frontend-servers" \
+    # Update IP via heartbeat endpoint since we are already created
+    # Use HTTP 200 check
+    
+    curl -X POST "$PANEL_URL/api/admin/frontends/$FRONTEND_DOMAIN/heartbeat" \
       -H "Authorization: Bearer $FRONTEND_TOKEN" \
       -H "Content-Type: application/json" \
       -d "{
-        \"domain\": \"$FRONTEND_DOMAIN\",
-        \"ip_address\": \"$SERVER_IP\",
-        \"region\": \"$FRONTEND_REGION\"
+        \"requests_count\": 0,
+        \"bandwidth_used\": 0,
+        \"ip_address\": \"$SERVER_IP\"
       }" > /dev/null 2>&1 || {
-        log_warn "Could not register with panel automatically"
-        log_warn "Please register manually from admin dashboard"
+        log_warn "Could not register IP with panel automatically"
+        log_warn "Please verify connection in admin dashboard"
     }
-    log_success "Registration attempt complete"
+    log_success "Registration/Heartbeat attempt complete"
 }
 
 # --------------------------------------------------
@@ -945,6 +989,8 @@ main() {
                 FRONTEND_DOMAIN="$2"
                 shift ;;
             --region) FRONTEND_REGION="$2"; shift ;;
+            --miniapp-domain) MINIAPP_DOMAIN="$2"; shift ;;
+            --sub-path) SUB_PATH="$2"; shift ;;
             --admin-path) ADMIN_PATH="$2"; shift ;;
             --force) FORCE_INSTALL=true ;;
             --skip-gpg-check) SKIP_GPG_CHECK=true ;;  # Security: skip GPG verification
