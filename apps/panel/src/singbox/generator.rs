@@ -248,9 +248,6 @@ impl ConfigGenerator {
                     }));
                 },
 
-                _ => {
-                    warn!("Unsupported protocol for inbound {}", inbound.tag);
-                }
             }
         }
 

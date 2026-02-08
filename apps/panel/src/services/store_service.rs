@@ -1045,7 +1045,7 @@ impl StoreService {
         let subs = self.get_user_subscriptions(user_id).await?;
         let active_subs: Vec<_> = subs.into_iter().filter(|s| s.sub.status == "active").collect();
 
-        use crate::singbox::client_generator::{ClientGenerator, ClientOutbound, ClientVlessOutbound, ClientHysteria2Outbound, ClientTlsConfig, ClientRealityConfig, ClientObfs};
+        use crate::singbox::client_generator::{ClientGenerator, ClientOutbound, ClientVlessOutbound, ClientHysteria2Outbound, ClientTlsConfig, ClientRealityConfig, ClientObfs, UtlsConfig};
         let mut client_outbounds = Vec::new();
 
         for sub in active_subs {
@@ -1131,12 +1131,13 @@ impl StoreService {
                                          uuid: uuid.clone(),
                                          flow: Some("xtls-rprx-vision".to_string()),
                                          packet_encoding: Some("xudp".to_string()),
-                                         tls: tls_config,
+                                         tls: Some(tls_config),
                                     }));
                                 }
                             }
                         } else {
                              // Standard TLS or None
+                             let mut tls_config = None;
                              if security == "tls" {
                                  if let Some(tls) = stream.tls_settings {
                                      tls_config = Some(ClientTlsConfig {
@@ -1473,7 +1474,7 @@ impl StoreService {
                     },
                     "amneziawg" => {
                         if let Ok(InboundType::AmneziaWg(settings)) = serde_json::from_str::<InboundType>(&inbound.settings) {
-                            let client_priv = self.derive_awg_key(&uuid);
+                            let _client_priv = self.derive_awg_key(&uuid);
                             let server_pub = self.priv_to_pub(&settings.private_key);
                             
                             let mut params = Vec::new();
@@ -1535,7 +1536,7 @@ impl StoreService {
                         };
                         params.push(format!("congestion_control={}", congestion));
                         
-                        let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?")
+                        let _tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?")
                              .bind(sub.sub.user_id)
                              .fetch_optional(&self.pool)
                              .await?
