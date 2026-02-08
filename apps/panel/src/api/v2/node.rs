@@ -263,7 +263,7 @@ pub async fn rotate_sni(
 
     // 5. Log Rotation
     let rotation_id = match state.store_service.log_sni_rotation(node_id, &current_sni, &next_sni, reason).await {
-        Ok(id) => id,
+        Ok(log) => log.id,
         Err(e) => {
             warn!("Failed to log SNI rotation: {}", e);
             0 // Continue even if logging fails
