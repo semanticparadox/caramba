@@ -2203,7 +2203,28 @@ pub async fn delete_node(
     
     // Proceed to delete node directly.
 
-    // 3. Delete the node
+    // 2. Manual Cleanup for non-cascading relations
+    
+    // a. Clear SNI Logs (No cascade in schema)
+    if let Err(e) = sqlx::query("DELETE FROM sni_rotation_log WHERE node_id = ?")
+        .bind(id)
+        .execute(&state.pool)
+        .await 
+    {
+        error!("Failed to clear SNI logs for node {}: {}", id, e);
+        // Continue, as this might be acceptable failure
+    }
+
+    // b. Unlink Subscriptions (Set node_id = NULL)
+    if let Err(e) = sqlx::query("UPDATE subscriptions SET node_id = NULL WHERE node_id = ?")
+        .bind(id)
+        .execute(&state.pool)
+        .await
+    {
+        error!("Failed to unlink subscriptions for node {}: {}", id, e);
+    }
+
+    // 3. Delete the node (Cascades to inbounds)
     let res = sqlx::query("DELETE FROM nodes WHERE id = ?")
         .bind(id)
         .execute(&state.pool)

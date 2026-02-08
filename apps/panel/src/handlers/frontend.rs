@@ -192,6 +192,7 @@ pub async fn frontend_heartbeat(
     let query = format!(
         "UPDATE frontend_servers 
          SET last_heartbeat = CURRENT_TIMESTAMP,
+             status = 'online',
              traffic_monthly = traffic_monthly + ?
              {}
          WHERE domain = ?",

@@ -14,34 +14,77 @@ impl MonitoringService {
 
     pub async fn start(&self) {
         info!("Starting background monitoring service...");
-        let mut interval = interval(Duration::from_secs(300)); // Every 5 minutes
-        let mut hour_counter = 0;
+        let mut interval = interval(Duration::from_secs(60)); // Every 1 minute
+        let mut minute_counter = 0;
 
         loop {
             interval.tick().await;
-            hour_counter += 1;
+            minute_counter += 1;
             
-            if let Err(e) = self.check_expirations().await {
-                error!("Monitoring error (expirations): {}", e);
+            // Every minute: Check online status
+            if let Err(e) = self.check_node_status().await {
+                error!("Monitoring error (node status): {}", e);
             }
-            if let Err(e) = self.check_traffic().await {
-                error!("Monitoring error (traffic): {}", e);
+            if let Err(e) = self.check_frontend_status().await {
+                error!("Monitoring error (frontend status): {}", e);
+            }
+
+            // Every 5 minutes: Check expirations
+            if minute_counter % 5 == 0 {
+                if let Err(e) = self.check_expirations().await {
+                    error!("Monitoring error (expirations): {}", e);
+                }
+                if let Err(e) = self.check_traffic().await {
+                    error!("Monitoring error (traffic): {}", e);
+                }
             }
             
-            // Every hour: Check and process auto-renewals
-            if hour_counter % 12 == 0 {
+            // Every hour (60 mins): Check and process auto-renewals
+            if minute_counter % 60 == 0 {
                 if let Err(e) = self.process_auto_renewals().await {
                     error!("Auto-renewal processing error: {}", e);
                 }
             }
             
-            // Every 6 hours: Check for traffic alerts
-            if hour_counter % 72 == 0 {
+            // Every 6 hours (360 mins): Check for traffic alerts
+            if minute_counter % 360 == 0 {
                 if let Err(e) = self.check_traffic_alerts().await {
                     error!("Traffic alerts error: {}", e);
                 }
+                // Reset counter to prevent overflow (though u64 is huge)
+                if minute_counter > 10000 {
+                    minute_counter = 0;
+                }
             }
         }
+    }
+
+    async fn check_node_status(&self) -> anyhow::Result<()> {
+        // Mark nodes as offline if last_seen > 5 minutes ago
+        // Using SQLite datetime modifier
+        let rows_affected = sqlx::query("UPDATE nodes SET status = 'offline' WHERE last_seen < datetime('now', '-5 minutes') AND status != 'offline' AND status != 'new'")
+            .execute(&self.state.pool)
+            .await?
+            .rows_affected();
+
+        if rows_affected > 0 {
+             info!("Marked {} nodes as offline", rows_affected);
+        }
+        Ok(())
+    }
+
+    async fn check_frontend_status(&self) -> anyhow::Result<()> {
+        // Mark frontends as offline if last_heartbeat > 5 minutes ago
+        // Verify 'status' column exists via migration first (safe check: just run query, if fails it logs error)
+        let rows_affected = sqlx::query("UPDATE frontend_servers SET status = 'offline' WHERE last_heartbeat < datetime('now', '-5 minutes') AND status != 'offline'")
+            .execute(&self.state.pool)
+            .await?
+            .rows_affected();
+
+        if rows_affected > 0 {
+             info!("Marked {} frontends as offline", rows_affected);
+        }
+        Ok(())
     }
 
     async fn check_expirations(&self) -> anyhow::Result<()> {
@@ -74,11 +117,7 @@ impl MonitoringService {
     }
 
     async fn check_traffic(&self) -> anyhow::Result<()> {
-        // Placeholder for traffic monitoring. 
-        // In reality, this would query Sing-box API for each node.
-        // For Phase 8, we've planned to query Sing-box API.
-        // Since we don't have a Sing-box client yet, we'll mark this as a future improvement
-        // or implement a basic version that reads from a mock/sqlite if we had traffic counters.
+        // Placeholder...
         Ok(())
     }
 
@@ -86,8 +125,7 @@ impl MonitoringService {
     async fn process_auto_renewals(&self) -> anyhow::Result<()> {
         use crate::models::store::RenewalResult;
         
-        
-       let results = self.state.store_service.process_auto_renewals().await?;
+        let results = self.state.store_service.process_auto_renewals().await?;
         
         if results.is_empty() {
             return Ok(());
@@ -147,7 +185,6 @@ impl MonitoringService {
     /// Check traffic usage and send alerts at 80%, 90%
     async fn check_traffic_alerts(&self) -> anyhow::Result<()> {
         use crate::models::store::AlertType;
-        
         
         let alerts = self.state.store_service.check_traffic_alerts().await?;
         
