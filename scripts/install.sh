@@ -42,6 +42,33 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # --------------------------------------------------
+# Environment Loading
+# --------------------------------------------------
+load_env_settings() {
+    local env_file=$1
+    if [ -f "$env_file" ]; then
+        log_info "Detecting existing configuration in $env_file..."
+        # Extract specific variables if not already set by args
+        while IFS='=' read -r key value || [ -n "$key" ]; do
+            # Skip comments and empty lines
+            [[ "$key" =~ ^#.*$ ]] && continue
+            [[ -z "$key" ]] && continue
+            
+            # Trim whitespace from value (basic trim for shell)
+            value=$(echo "$value" | xargs 2>/dev/null || echo "$value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+            
+            case "$key" in
+                SERVER_DOMAIN) [[ -z "$DOMAIN" ]] && DOMAIN="$value" ;;
+                ADMIN_PATH) [[ -z "$ADMIN_PATH" ]] && ADMIN_PATH="$value" ;;
+                PANEL_PORT) [[ -z "$PANEL_PORT" ]] && PANEL_PORT="$value" ;;
+                PANEL_URL) [[ -z "$PANEL_URL" ]] && PANEL_URL="$value" ;;
+                NODE_TOKEN) [[ -z "$NODE_TOKEN" ]] && NODE_TOKEN="$value" ;;
+            esac
+        done < "$env_file"
+    fi
+}
+
+# --------------------------------------------------
 # GPG Signature Verification (Security)
 # --------------------------------------------------
 verify_gpg_signature() {
@@ -416,7 +443,6 @@ setup_directory() {
 configure_panel() {
     # Interactive Prompts
     if [[ -z "$DOMAIN" ]]; then
-
         if [ -t 0 ]; then
             read -p "Enter server domain (e.g. panel.example.com): " DOMAIN
         else
@@ -426,6 +452,8 @@ configure_panel() {
         # Trim whitespace
         # Sanitize: Keep only alphanumeric, dots, and hyphens. Remove hidden chars.
         DOMAIN=$(echo "$DOMAIN" | tr -cd '[:alnum:].-')
+    else
+        log_info "Using pre-configured domain: $DOMAIN"
     fi
     
     ensure_panel_port
@@ -438,6 +466,8 @@ configure_panel() {
              read -r ADMIN_PATH < /dev/tty
         fi
         ADMIN_PATH=${ADMIN_PATH:-/admin}
+    else
+        log_info "Using pre-configured admin path: $ADMIN_PATH"
     fi
      # Ensure leading slash
     [[ "${ADMIN_PATH}" != /* ]] && ADMIN_PATH="/${ADMIN_PATH}"
@@ -518,22 +548,24 @@ EOF
 
 configure_agent() {
     if [[ -z "$PANEL_URL" ]]; then
-
         if [ -t 0 ]; then
             read -p "Enter Panel URL (e.g. https://panel.example.com): " PANEL_URL
         else
             echo -n "Enter Panel URL (e.g. https://panel.example.com): "
             read -r PANEL_URL < /dev/tty
         fi
+    else
+        log_info "Using pre-configured Panel URL: $PANEL_URL"
     fi
     if [[ -z "$NODE_TOKEN" ]]; then
-
         if [ -t 0 ]; then
              read -p "Enter Node Token: " NODE_TOKEN
         else
              echo -n "Enter Node Token: "
              read -r NODE_TOKEN < /dev/tty
         fi
+    else
+        log_info "Using pre-configured Node Token"
     fi
     
     # Agent Env
@@ -920,6 +952,10 @@ main() {
         esac
         shift
     done
+    
+    # Load existing configuration if available
+    load_env_settings "$INSTALL_DIR/.env"
+    load_env_settings "$INSTALL_DIR/.env.agent"
     
     if [[ -z "$ROLE" ]]; then
         echo "Select installation role:"
