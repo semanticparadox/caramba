@@ -238,7 +238,7 @@ pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
     // Check Redis & Version
     let (redis_status, redis_version) = match state.redis.get_connection().await {
         Ok(mut con) => {
-            let info: String = redis::cmd("INFO").arg("server").query_async::<String>(&mut *con).await.unwrap_or_default();
+            let info: String = redis::cmd("INFO").arg("server").query_async::<String>(&mut con).await.unwrap_or_default();
             // Parse redis_version: X.Y.Z
             let version = info.lines()
                 .find(|l| l.starts_with("redis_version:"))
