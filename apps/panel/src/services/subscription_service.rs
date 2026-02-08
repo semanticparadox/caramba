@@ -3,7 +3,7 @@ use anyhow::{Context, Result};
 use crate::models::store::{Plan, Subscription, SubscriptionWithDetails, GiftCode, PlanDuration, RenewalResult, SubscriptionIpTracking};
 use uuid::Uuid;
 use chrono::{Utc, Duration};
-use tracing::{info, error, warn};
+use tracing::debug;
 
 #[derive(Debug, Clone)]
 pub struct SubscriptionService {

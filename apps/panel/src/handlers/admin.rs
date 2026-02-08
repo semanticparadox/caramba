@@ -6,12 +6,11 @@ use askama::Template;
 use askama_web::WebTemplate;
 use serde::Deserialize;
 use crate::AppState;
-use crate::models::node::Node;
+use crate::models::network::Node;
 use crate::models::store::{Plan, User, Order};
 use crate::services::logging_service::LoggingService;
 use std::collections::HashMap;
 use tracing::{info, error};
-use sysinfo;
 use axum_extra::extract::cookie::{Cookie, CookieJar};
 use axum::extract::Query;
 use time::Duration;
@@ -239,7 +238,7 @@ pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
     // Check Redis & Version
     let (redis_status, redis_version) = match state.redis.get_connection().await {
         Ok(mut con) => {
-            let info: String = redis::cmd("INFO").arg("server").query_async::<_, String>(&mut *con).await.unwrap_or_default();
+            let info: String = redis::cmd("INFO").arg("server").query_async::<String>(&mut *con).await.unwrap_or_default();
             // Parse redis_version: X.Y.Z
             let version = info.lines()
                 .find(|l| l.starts_with("redis_version:"))

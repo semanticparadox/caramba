@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use redis::adapter::RedisConnectionManager;
+use bb8_redis::RedisConnectionManager;
 use tracing::info;
 
 #[derive(Clone)]
