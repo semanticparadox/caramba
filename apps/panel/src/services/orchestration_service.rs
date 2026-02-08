@@ -99,6 +99,8 @@ impl OrchestrationService {
                 short_ids: vec![short_id],
                 max_time_diff: Some(0), 
             }),
+            ws_settings: None,
+            http_upgrade_settings: None,
         };
         let stream_json = serde_json::to_string(&stream_settings)?;
         
@@ -138,6 +140,8 @@ impl OrchestrationService {
                 certificates: None, // Will use auto-generated certs
             }),
             reality_settings: None,
+            ws_settings: None,
+            http_upgrade_settings: None,
         };
         
         sqlx::query("INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable) VALUES (?, ?, 'hysteria2', 8443, ?, ?, 1)")
@@ -248,6 +252,8 @@ impl OrchestrationService {
                 certificates: None,
             }),
             reality_settings: None,
+            ws_settings: None,
+            http_upgrade_settings: None,
         };
 
         sqlx::query("INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable) VALUES (?, ?, 'tuic', 9443, ?, ?, 1)")
