@@ -43,7 +43,7 @@ redis = { version = "1.0.3", features = ["tokio-comp", "tokio-rustls-comp", "bb8
 sha2 = "0.10"
 hmac = "0.12"
 md5 = "0.8"
-sysinfo = "0.33"
+sysinfo = "0.38.1"
 # actually sysinfo 0.30 -> 0.33 is smaller jump. 0.38 is huge.
 # wait, the plan said 0.38. I should probably try to respect the "update to latest" request.
 # But let's verify if sysinfo 0.33 is enough. 
@@ -58,6 +58,10 @@ serde_yaml = "0.9"
 urlencoding = "2.1"
 url = "2.5"
 time = "0.3"
+generic-array = "0.14.9"
+matchit = "0.8.6"
+objc2-core-foundation = "0.3.2"
+objc2-io-kit = "0.3.2"
 
 
 
