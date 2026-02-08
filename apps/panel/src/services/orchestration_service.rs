@@ -23,6 +23,12 @@ impl OrchestrationService {
     pub async fn init_default_inbounds(&self, node_id: i64) -> anyhow::Result<()> {
         info!("Initializing default inbounds for node {}", node_id);
         
+        // Fetch node for SNI defaults
+        let node: Node = sqlx::query_as("SELECT * FROM nodes WHERE id = ?")
+            .bind(node_id)
+            .fetch_one(&self.pool)
+            .await?;
+        
         // 1. VLESS Reality (Vision)
         // Use sing-box native generation for guaranteed compatibility
         let (priv_key, pub_key) = {
@@ -152,7 +158,7 @@ impl OrchestrationService {
         // Pre-generate random values to avoid Send trait issues with ThreadRng
         let (awg_jc, awg_jmin, awg_jmax, awg_s1, awg_s2, awg_h1, awg_h2, awg_h3, awg_h4) = {
             use rand::Rng;
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             (
                 rng.random_range(3..=10),
                 rng.random_range(40..=100),

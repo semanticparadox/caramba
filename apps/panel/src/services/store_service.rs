@@ -1280,25 +1280,11 @@ impl StoreService {
                 let security = stream.security.as_deref().unwrap_or("none");
                 let network = stream.network.as_deref().unwrap_or("tcp");
 
-                let (address, reality_pub) = if inbound.listen_ip == "::" || inbound.listen_ip == "0.0.0.0" {
-                    // We need the Node's public IP and Reality Key
-                    let node_details: Option<(String, Option<String>)> = sqlx::query_as("SELECT ip, reality_pub FROM nodes WHERE id = ?")
-                        .bind(inbound.node_id)
-                        .fetch_optional(&self.pool)
-                        .await?;
-                    
-                    if let Some((ip, pub_key)) = node_details {
-                        (ip, pub_key)
-                    } else {
-                        (inbound.listen_ip.clone(), None)
-                    }
+                let node = self.get_node_by_id(inbound.node_id).await?;
+                let address = if inbound.listen_ip == "::" || inbound.listen_ip == "0.0.0.0" {
+                    node.ip.clone()
                 } else {
-                    // If specifically binding to an IP, we might still need the key if it's on the same node
-                     let pub_key: Option<String> = sqlx::query_scalar("SELECT reality_pub FROM nodes WHERE id = ?")
-                        .bind(inbound.node_id)
-                        .fetch_optional(&self.pool)
-                        .await?;
-                    (inbound.listen_ip.clone(), pub_key)
+                    inbound.listen_ip.clone()
                 };
 
                 let port = inbound.listen_port;
