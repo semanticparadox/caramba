@@ -24,6 +24,14 @@ impl StoreService {
         self.pool.clone()
     }
 
+    pub async fn get_node_by_id(&self, node_id: i64) -> Result<crate::models::node::Node> {
+        sqlx::query_as("SELECT * FROM nodes WHERE id = ?")
+            .bind(node_id)
+            .fetch_one(&self.pool)
+            .await
+            .context("Failed to fetch node")
+    }
+
     pub async fn get_categories(&self) -> Result<Vec<crate::models::store::Category>> {
         sqlx::query_as::<_, crate::models::store::Category>(
             "SELECT id, name, description, is_active, sort_order, created_at FROM categories WHERE is_active = 1 ORDER BY sort_order ASC"
@@ -936,30 +944,11 @@ impl StoreService {
                 let security = stream.security.as_deref().unwrap_or("none");
                 let network = stream.network.as_deref().unwrap_or("tcp");
 
-                let (address, reality_pub, short_id) = if inbound.listen_ip == "::" || inbound.listen_ip == "0.0.0.0" {
-                    // We need the Node's public IP and Reality Key
-                    let node_details: Option<(String, Option<String>, Option<String>)> = sqlx::query_as("SELECT ip, reality_pub, short_id FROM nodes WHERE id = ?")
-                        .bind(inbound.node_id)
-                        .fetch_optional(&self.pool)
-                        .await?;
-                    
-                    if let Some((ip, pub_key, sid)) = node_details {
-                        (ip, pub_key, sid)
-                    } else {
-                        (inbound.listen_ip.clone(), None, None)
-                    }
+                let node = self.get_node_by_id(inbound.node_id).await?;
+                let address = if inbound.listen_ip == "::" || inbound.listen_ip == "0.0.0.0" {
+                    node.ip.clone()
                 } else {
-                    // If specifically binding to an IP, we might still need the key if it's on the same node
-                     let node_details: Option<(Option<String>, Option<String>)> = sqlx::query_as("SELECT reality_pub, short_id FROM nodes WHERE id = ?")
-                        .bind(inbound.node_id)
-                        .fetch_optional(&self.pool)
-                        .await?;
-                     
-                     if let Some((pub_key, sid)) = node_details {
-                         (inbound.listen_ip.clone(), pub_key, sid)
-                     } else {
-                         (inbound.listen_ip.clone(), None, None)
-                     }
+                    inbound.listen_ip.clone()
                 };
 
                 let port = inbound.listen_port;
@@ -973,10 +962,20 @@ impl StoreService {
                         
                         if security == "reality" {
                             if let Some(reality) = stream.reality_settings {
-                                params.push(format!("sni={}", reality.server_names.first().cloned().unwrap_or_default()));
-                                params.push(format!("pbk={}", reality_pub.unwrap_or_default())); 
-                                if let Some(sid) = &short_id {
-                                    params.push(format!("sid={}", sid));
+                                let sni = node.reality_sni.clone().unwrap_or_else(|| {
+                                    reality.server_names.first().cloned().unwrap_or_default()
+                                });
+                                let pub_key = reality.public_key.clone()
+                                    .or_else(|| node.reality_pub.clone())
+                                    .unwrap_or_default();
+                                let short_id = reality.short_ids.first().cloned()
+                                    .or_else(|| node.short_id.clone())
+                                    .unwrap_or_default();
+
+                                params.push(format!("sni={}", sni));
+                                params.push(format!("pbk={}", pub_key)); 
+                                if !short_id.is_empty() {
+                                    params.push(format!("sid={}", short_id));
                                 }
                                 params.push("fp=chrome".to_string());
                             }
@@ -1076,18 +1075,11 @@ impl StoreService {
                 let security = stream.security.as_deref().unwrap_or("none");
                 let _network = stream.network.as_deref().unwrap_or("tcp");
 
-                let (address, reality_pub) = if inbound.listen_ip == "::" || inbound.listen_ip == "0.0.0.0" {
-                    let node_details: Option<(String, Option<String>)> = sqlx::query_as("SELECT ip, reality_pub FROM nodes WHERE id = ?")
-                        .bind(inbound.node_id)
-                        .fetch_optional(&self.pool)
-                        .await?;
-                    if let Some((ip, pub_key)) = node_details { (ip, pub_key) } else { (inbound.listen_ip.clone(), None) }
+                let node = self.get_node_by_id(inbound.node_id).await?;
+                let address = if inbound.listen_ip == "::" || inbound.listen_ip == "0.0.0.0" {
+                    node.ip.clone()
                 } else {
-                     let pub_key: Option<String> = sqlx::query_scalar("SELECT reality_pub FROM nodes WHERE id = ?")
-                        .bind(inbound.node_id)
-                        .fetch_optional(&self.pool)
-                        .await?;
-                    (inbound.listen_ip.clone(), pub_key)
+                    inbound.listen_ip.clone()
                 };
 
                 let port = inbound.listen_port as u16;
@@ -1097,13 +1089,22 @@ impl StoreService {
                     "vless" => {
                         if security == "reality" {
                             if let Some(reality) = stream.reality_settings {
-                                let names = if reality.server_names.is_empty() {
+                                let names = if let Some(sni) = &node.reality_sni {
+                                    vec![sni.clone()]
+                                } else if reality.server_names.is_empty() {
                                     vec!["".to_string()]
                                 } else {
                                     reality.server_names.clone()
                                 };
 
-                                for (_idx, sni) in names.iter().enumerate() {
+                                let pub_key = reality.public_key.clone()
+                                    .or_else(|| node.reality_pub.clone())
+                                    .unwrap_or_default();
+                                let short_id = reality.short_ids.first().cloned()
+                                    .or_else(|| node.short_id.clone())
+                                    .unwrap_or_default();
+
+                                for sni in names {
                                     let display_tag = if names.len() > 1 {
                                         format!("{} ({})", tag, sni)
                                     } else {
@@ -1118,8 +1119,8 @@ impl StoreService {
                                         utls: Some(crate::singbox::client_generator::UtlsConfig { enabled: true, fingerprint: "chrome".to_string() }),
                                         reality: Some(ClientRealityConfig {
                                             enabled: true,
-                                            public_key: reality_pub.clone().unwrap_or_default(),
-                                            short_id: reality.short_ids.first().cloned().unwrap_or_default(),
+                                            public_key: pub_key.clone(),
+                                            short_id: short_id.clone(),
                                         })
                                     };
 

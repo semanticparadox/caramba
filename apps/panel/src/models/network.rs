@@ -154,6 +154,7 @@ pub struct RealitySettings {
     pub xver: i32,
     pub server_names: Vec<String>,
     pub private_key: String,
+    pub public_key: Option<String>,
     pub short_ids: Vec<String>,
     // Optional
     pub max_time_diff: Option<i64>,

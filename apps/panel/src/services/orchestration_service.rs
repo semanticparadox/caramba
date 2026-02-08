@@ -89,6 +89,7 @@ impl OrchestrationService {
                 dest: "drive.google.com:443".to_string(),
                 server_names: vec!["drive.google.com".to_string()],
                 private_key: priv_key,
+                public_key: Some(pub_key),
                 short_ids: vec![short_id],
                 max_time_diff: Some(0), 
             }),
