@@ -1,7 +1,7 @@
 use sqlx::SqlitePool;
 use anyhow::{Context, Result};
 use crate::models::store::User;
-use tracing::info;
+use tracing::{error};
 
 #[derive(Debug, Clone)]
 pub struct UserService {

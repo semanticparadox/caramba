@@ -176,7 +176,7 @@ pub struct UserDetailsTemplate {
     pub user: User,
     pub subscriptions: Vec<SubscriptionWithPlan>,
     pub orders: Vec<UserOrderDisplay>,
-    pub referrals: Vec<crate::services::store_service::DetailedReferral>,
+    pub referrals: Vec<crate::models::store::DetailedReferral>,
     pub total_referral_earnings: String,
     pub available_plans: Vec<Plan>,
     pub is_auth: bool,

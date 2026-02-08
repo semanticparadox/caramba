@@ -1,12 +1,14 @@
 use sqlx::SqlitePool;
 use anyhow::{Context, Result};
-use crate::models::store::{User, Plan, Subscription, GiftCode, PlanDuration};
 use chrono::{Utc, Duration};
 use tracing::{info, error};
 use uuid::Uuid;
 use serde::{Serialize, Deserialize};
 
-use crate::models::store::{User, Plan, Subscription, GiftCode, PlanDuration, RenewalResult, AlertType, DetailedReferral, SubscriptionWithDetails, CartItem};
+use crate::models::store::{
+    User, Plan, Subscription, GiftCode, PlanDuration, 
+    RenewalResult, AlertType, DetailedReferral, SubscriptionWithDetails, CartItem, Order
+};
 
 #[derive(Debug, Clone)]
 pub struct StoreService {
@@ -1933,14 +1935,4 @@ impl StoreService {
         
         Ok(notes)
     }
-}
-
-#[derive(serde::Serialize, sqlx::FromRow)]
-pub struct CartItem {
-    pub id: i64,
-    pub user_id: i64,
-    pub product_id: i64,
-    pub quantity: i64,
-    pub product_name: String,
-    pub price: i64,
 }

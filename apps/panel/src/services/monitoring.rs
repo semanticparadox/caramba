@@ -84,7 +84,7 @@ impl MonitoringService {
 
     /// Process auto-renewals for subscriptions expiring in next 24h
     async fn process_auto_renewals(&self) -> anyhow::Result<()> {
-        use crate::services::store_service::RenewalResult;
+        use crate::models::store::RenewalResult;
         
         
        let results = self.state.store_service.process_auto_renewals().await?;
@@ -146,7 +146,7 @@ impl MonitoringService {
 
     /// Check traffic usage and send alerts at 80%, 90%
     async fn check_traffic_alerts(&self) -> anyhow::Result<()> {
-        use crate::services::store_service::AlertType;
+        use crate::models::store::AlertType;
         
         
         let alerts = self.state.store_service.check_traffic_alerts().await?;

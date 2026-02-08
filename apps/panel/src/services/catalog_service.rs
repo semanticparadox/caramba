@@ -1,8 +1,7 @@
 use sqlx::SqlitePool;
 use anyhow::{Context, Result};
-use crate::models::store::{Category, Product, Order, CartItem, User};
+use crate::models::store::{Category, Product, CartItem};
 use chrono::Utc;
-use tracing::info;
 use sqlx::Row;
 
 #[derive(Debug, Clone)]

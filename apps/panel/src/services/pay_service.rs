@@ -396,7 +396,7 @@ impl PayService {
             ("line_items[0][quantity]", "1"),
         ];
 
-        let resp = client.post("https://api.stripe.com/v1/checkout/sessions")
+        let resp: reqwest::Response = client.post("https://api.stripe.com/v1/checkout/sessions")
             .basic_auth(&self.stripe_secret_key, None::<&str>)
             .form(&params)
             .send()
@@ -487,7 +487,7 @@ impl PayService {
         // Tool said 'get_pay_url' endpoint.
         // The script uses `https://aaio.so/merchant/get_pay_url` and gets a result.
         
-        let resp = client.post("https://aaio.so/merchant/get_pay_url")
+        let resp: reqwest::Response = client.post("https://aaio.so/merchant/get_pay_url")
             .form(&params)
             .send()
             .await?;
@@ -497,6 +497,7 @@ impl PayService {
         // Let's try to get the URL from the API for better UX (it might return a specific session URL).
         
         if let Ok(url_str) = resp.text().await {
+             let url_str: String = url_str;
              // Sometimes it returns just the URL string, sometimes JSON.
              // If URL string starts with http, return it.
              if url_str.starts_with("http") {

@@ -1,6 +1,6 @@
 use sqlx::SqlitePool;
 use serde::Serialize;
-use anyhow::Result;
+use anyhow::{Result, Context};
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct LeaderboardEntry {

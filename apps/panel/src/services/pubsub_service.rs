@@ -40,9 +40,9 @@ impl PubSubService {
             match redis::Client::open(self.redis_url.clone()) {
                 Ok(client) => {
                     #[allow(deprecated)]
-                    match client.get_async_connection().await {
+                    match client.get_multiplexed_async_connection().await {
                         Ok(conn) => {
-                            let mut pubsub = conn.into_pubsub();
+                            let mut pubsub: redis::aio::PubSub = conn.into_pubsub();
                             // Subscribe to all node events
                             if let Err(e) = pubsub.psubscribe("node_events:*").await {
                                 error!("PubSub Subscribe failed: {}", e);
@@ -54,8 +54,9 @@ impl PubSubService {
                             let mut stream = pubsub.on_message();
 
                             while let Some(msg) = stream.next().await {
+                                let msg: redis::Msg = msg;
                                 let channel_name = msg.get_channel_name().to_string(); // e.g. node_events:123
-                                let payload: String = match msg.get_payload() {
+                                let payload: String = match msg.get_payload::<String>() {
                                     Ok(s) => s,
                                     Err(_) => continue,
                                 };
