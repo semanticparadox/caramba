@@ -942,7 +942,52 @@ configure_caddy_for_frontend() {
     
     # Prepare Caddyfile content
     mkdir -p /etc/caddy
-    cat > /etc/caddy/Caddyfile <<EOF
+    # Check if domains are identical to avoid ambiguity
+    if [ "$FRONTEND_DOMAIN" == "$MINIAPP_DOMAIN" ]; then
+        log_info "Frontend and Miniapp domains are identical. Generating combined configuration..."
+        SUB_PATH=${SUB_PATH:-"/sub/"}
+        
+        cat > /etc/caddy/Caddyfile <<EOF
+$FRONTEND_DOMAIN {
+    # Proxy subscription path to Panel
+    handle_path ${SUB_PATH}* {
+        rewrite * /sub{path}
+        reverse_proxy $PANEL_URL {
+            header_up Host {upstream_hostport}
+            header_up X-Real-IP {remote}
+        }
+    }
+
+    # Proxy API calls to Panel
+    handle /api/* {
+        reverse_proxy $PANEL_URL {
+            header_up Host {upstream_hostport}
+            header_up X-Real-IP {remote}
+        }
+    }
+
+    # Proxy everything else to Frontend (Standard UI)
+    handle {
+        reverse_proxy localhost:${FRONTEND_PORT:-8080}
+        
+        header {
+            Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+            X-Content-Type-Options "nosniff"
+            X-Frame-Options "SAMEORIGIN"
+            X-XSS-Protection "1; mode=block"
+            Referrer-Policy "no-referrer-when-downgrade"
+        }
+    }
+
+    log {
+        output file /var/log/caddy/frontend.log
+        format json
+    }
+}
+EOF
+    else
+        # Separate Configs
+        cat > /etc/caddy/Caddyfile <<EOF
 $FRONTEND_DOMAIN {
     reverse_proxy localhost:${FRONTEND_PORT:-8080}
     
@@ -961,16 +1006,14 @@ $FRONTEND_DOMAIN {
 }
 EOF
 
-    # Add Miniapp Domain block if specified
-    if [ -n "$MINIAPP_DOMAIN" ]; then
-        SUB_PATH=${SUB_PATH:-"/sub/"}
-        # Ensure SUB_PATH starts/ends with slash for reliable matching
-        # (Handling simpler case for now)
-        
-        cat >> /etc/caddy/Caddyfile <<EOF
+        # Add Miniapp Domain block if specified (and different)
+        if [ -n "$MINIAPP_DOMAIN" ]; then
+            SUB_PATH=${SUB_PATH:-"/sub/"}
+            
+            cat >> /etc/caddy/Caddyfile <<EOF
 
 $MINIAPP_DOMAIN {
-    # Proxy subscription path to Panel (Rewrite custom path to /sub/)
+    # Proxy subscription path to Panel
     handle_path ${SUB_PATH}* {
         rewrite * /sub{path}
         reverse_proxy $PANEL_URL {
@@ -979,7 +1022,7 @@ $MINIAPP_DOMAIN {
         }
     }
 
-    # Proxy API calls to Panel (Miniapp Backend)
+    # Proxy API calls to Panel
     handle /api/* {
         reverse_proxy $PANEL_URL {
             header_up Host {upstream_hostport}
@@ -987,7 +1030,7 @@ $MINIAPP_DOMAIN {
         }
     }
 
-    # Proxy everything else to Frontend (Miniapp)
+    # Proxy everything else to Frontend
     handle {
         reverse_proxy localhost:${FRONTEND_PORT:-8080}
     }
@@ -998,6 +1041,7 @@ $MINIAPP_DOMAIN {
     }
 }
 EOF
+        fi
     fi
 
     mkdir -p /var/log/caddy
