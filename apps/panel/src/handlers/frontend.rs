@@ -332,8 +332,8 @@ fn generate_install_command(
         .unwrap_or_else(|_| "https://panel.example.com".to_string());
     
     let mut cmd = format!(
-        "curl -sSL {}/install.sh | \\\n  sudo bash -s -- \\\n  --role frontend \\\n  --domain {} \\\n  --token {} \\\n  --region {} \\\n  --panel {}",
-        panel_url, domain, token, region, panel_url
+        "curl -sSL https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/scripts/install.sh | \\\n  sudo bash -s -- \\\n  --role frontend \\\n  --domain {} \\\n  --token {} \\\n  --region {} \\\n  --panel {}",
+        domain, token, region, panel_url
     );
 
     if let Some(md) = miniapp_domain {

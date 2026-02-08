@@ -459,6 +459,8 @@ use tower_http::services::ServeDir;
             move || async move { axum::response::Redirect::to(&format!("{}/dashboard", path)) } // Redirect to dashboard
         }))
         .route(&format!("{}/login", admin_path), axum::routing::get(handlers::admin::get_login).post(handlers::admin::login))
+        // Serve Downloads (for frontend binaries)
+        .nest_service("/downloads", ServeDir::new("apps/panel/downloads"))
         // Setup Routes
         .route(&format!("{}/setup", admin_path), axum::routing::get(handlers::setup::get_setup))
         .route(&format!("{}/setup/create_admin", admin_path), axum::routing::post(handlers::setup::create_admin))
