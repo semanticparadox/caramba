@@ -449,6 +449,7 @@ CREATE TABLE IF NOT EXISTS frontend_servers (
     token_expires_at TIMESTAMP,
     token_rotated_at TIMESTAMP,
     is_active INTEGER DEFAULT 1,
+    status TEXT DEFAULT 'offline',
     last_heartbeat TIMESTAMP,
     traffic_monthly INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
