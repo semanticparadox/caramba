@@ -1315,11 +1315,8 @@ impl StoreService {
                              }
                          }
 
-                         let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?")
-                             .bind(sub.sub.user_id)
-                             .fetch_optional(&self.pool)
-                             .await?
-                             .unwrap_or(0);
+                         // Removed unused tg_id query
+
                         
                          let password = uuid.replace("-", ""); // Using UUID (stripped) as password
 
