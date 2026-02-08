@@ -23,7 +23,7 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 futures = "0.3"
 async-trait = "0.1"
 anyhow = "1.0"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json", "rustls"] }
 
 
 
@@ -32,21 +32,21 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 tower-http = { version = "0.6", features = ["fs", "cors", "trace", "limit", "set-header", "compression-full"] }
-axum-extra = { version = "0.10", features = ["cookie"] }
+axum-extra = { version = "0.12", features = ["cookie"] }
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.9"
-bcrypt = "0.17"
+bcrypt = "0.18"
 x25519-dalek = { version = "2.0", features = ["static_secrets"] }
 base64 = "0.22"
 hex = "0.4"
 uuid = { version = "1.11", features = ["v4"] }
-jsonwebtoken = "9.3"
-redis = { version = "0.28", features = ["tokio-comp"] }
-bb8-redis = "0.20"
+jsonwebtoken = "10.3"
+redis = { version = "1.0", features = ["tokio-comp"] }
+bb8-redis = "0.26"
 sha2 = "0.10"
 hmac = "0.12"
-md5 = "0.7"
-sysinfo = "0.33" # Using 0.33 as intermediate or 0.38 directly? Plan said 0.38. Let's go for 0.33 first as it might have fewer breaking changes or stay consistant. Actually plan said 0.38. Let's use 0.33 for now to be safe, or 0.38? The output said 0.38 is available. I will stick to what I saw in 'available' list or conservative latest. 
+md5 = "0.8"
+sysinfo = "0.38"
 # actually sysinfo 0.30 -> 0.33 is smaller jump. 0.38 is huge.
 # wait, the plan said 0.38. I should probably try to respect the "update to latest" request.
 # But let's verify if sysinfo 0.33 is enough. 

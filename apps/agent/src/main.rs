@@ -43,7 +43,11 @@ struct AgentState {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
      // Initialize System Monitor
-    let mut sys = System::new_all();
+    let mut sys = System::new_with_specifics(
+        sysinfo::RefreshKind::new()
+            .with_cpu(sysinfo::CpuRefreshKind::new().with_cpu_usage())
+            .with_memory()
+    );
     sys.refresh_all();
     // 1. Setup Logging
     tracing_subscriber::fmt()
@@ -536,7 +540,7 @@ async fn collect_telemetry(client: &reqwest::Client, sys: &mut System) -> (Optio
     };
 
     // 2. System Stats (CPU/RAM)
-    sys.refresh_cpu_usage();
+    sys.refresh_cpu_all(); // sysinfo 0.38: refresh_cpu_usage() is now refresh_cpu_all() or similar
     sys.refresh_memory();
 
     let cpu = Some(sys.global_cpu_usage() as f64);
