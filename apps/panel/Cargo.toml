@@ -58,10 +58,6 @@ serde_yaml = "0.9"
 urlencoding = "2.1"
 url = "2.5"
 time = "0.3"
-generic-array = "0.14.9"
-matchit = "0.8.6"
-objc2-core-foundation = "0.3.2"
-objc2-io-kit = "0.3.2"
 
 
 
