@@ -9,6 +9,7 @@ use crate::models::store::{
     User, Plan, Subscription, GiftCode, PlanDuration, 
     RenewalResult, AlertType, DetailedReferral, SubscriptionWithDetails, CartItem
 };
+use crate::models::network::InboundType;
 
 #[derive(Debug, Clone)]
 pub struct StoreService {
@@ -1006,7 +1007,6 @@ impl StoreService {
                     params.push("insecure=1".to_string()); // Self-signed usually
 
                     // Check for OBFS in protocol settings
-                    use crate::models::network::InboundType;
                     if let Ok(InboundType::Hysteria2(settings)) = serde_json::from_str::<InboundType>(&inbound.settings) {
                         if let Some(obfs) = settings.obfs {
                             if obfs.ttype == "salamander" {
@@ -1065,7 +1065,7 @@ impl StoreService {
             .await?;
             
             for inbound in inbounds {
-                use crate::models::network::{StreamSettings, InboundType};
+                use crate::models::network::{StreamSettings};
                 let stream: StreamSettings = serde_json::from_str(&inbound.stream_settings).unwrap_or(StreamSettings {
                     network: Some("tcp".to_string()),
                     security: Some("none".to_string()),
@@ -1344,7 +1344,6 @@ impl StoreService {
                         params.push(format!("insecure={}", if use_insecure { "1" } else { "0" }));
 
                         // Check for OBFS in protocol settings
-                        use crate::models::network::InboundType;
                         if let Ok(InboundType::Hysteria2(settings)) = serde_json::from_str::<InboundType>(&inbound.settings) {
                             if let Some(obfs) = settings.obfs {
                                 if obfs.ttype == "salamander" {
