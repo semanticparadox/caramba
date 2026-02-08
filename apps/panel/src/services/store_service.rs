@@ -1104,7 +1104,7 @@ impl StoreService {
                                     .or_else(|| node.short_id.clone())
                                     .unwrap_or_default();
 
-                                for sni in names {
+                                for sni in &names {
                                     let display_tag = if names.len() > 1 {
                                         format!("{} ({})", tag, sni)
                                     } else {
