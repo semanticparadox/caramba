@@ -6,7 +6,7 @@ use askama::Template;
 use askama_web::WebTemplate;
 use serde::Deserialize;
 use crate::AppState;
-use crate::models::network::Node;
+use crate::models::node::Node;
 use crate::models::store::{Plan, User, Order};
 use crate::services::logging_service::LoggingService;
 use std::collections::HashMap;
