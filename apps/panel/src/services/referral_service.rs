@@ -71,6 +71,7 @@ impl ReferralService {
                 u.balance,
                 u.referral_code,
                 u.referrer_id,
+                u.referred_by,
                 u.is_banned,
                 u.created_at,
                 COALESCE(CAST(SUM(rb.bonus_value) AS INTEGER), 0) as total_earned

@@ -151,7 +151,7 @@ impl StoreService {
                 full_name = COALESCE(excluded.full_name, users.full_name),
                 referrer_id = COALESCE(users.referrer_id, excluded.referrer_id),
                 last_seen = CURRENT_TIMESTAMP
-            RETURNING id, tg_id, username, full_name, balance, referral_code, referrer_id, is_banned, language_code, terms_accepted_at, warning_count, trial_used, trial_used_at, last_bot_msg_id, created_at
+            RETURNING id, tg_id, username, full_name, balance, referral_code, referrer_id, referred_by, is_banned, language_code, terms_accepted_at, warning_count, trial_used, trial_used_at, last_bot_msg_id, created_at
             "#
         )
         .bind(tg_id)
