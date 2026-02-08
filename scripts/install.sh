@@ -579,6 +579,10 @@ EOF
 }
 
 configure_agent() {
+    # Download agent binary from Panel
+    log_info "Downloading agent binary..."
+    
+    # Validate Panel URL first
     if [[ -z "$PANEL_URL" ]]; then
         if [ -t 0 ]; then
             read -p "Enter Panel URL (e.g. https://panel.example.com): " PANEL_URL
@@ -589,6 +593,27 @@ configure_agent() {
     else
         log_info "Using pre-configured Panel URL: $PANEL_URL"
     fi
+    
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "x86_64" ]; then
+        BINARY_URL="${PANEL_URL}/downloads/exarobot-agent-linux-amd64"
+    elif [ "$ARCH" = "aarch64" ]; then
+        BINARY_URL="${PANEL_URL}/downloads/exarobot-agent-linux-arm64"
+    else
+        log_error "Unsupported architecture: $ARCH"
+        exit 1
+    fi
+    
+    mkdir -p "$INSTALL_DIR"
+    wget -q --show-progress -O "$INSTALL_DIR/exarobot-agent" "$BINARY_URL" || {
+        log_error "Failed to download agent binary from: $BINARY_URL"
+        log_error "Make sure the Panel is running and has compiled the Agent binary."
+        exit 1
+    }
+    chmod +x "$INSTALL_DIR/exarobot-agent"
+    log_success "Binary installed"
+    
+    # Get Node Token
     if [[ -z "$NODE_TOKEN" ]]; then
         if [ -t 0 ]; then
              read -p "Enter Node Token: " NODE_TOKEN
@@ -1057,31 +1082,37 @@ main() {
     
     BUILD_SOURCE=""
     
-    if [ "$CLEAN_INSTALL" = true ]; then
-        log_info "Starting Clean Install (No source on server)..."
-        rm -rf "$TEMP_BUILD_DIR"
-        git clone "$REPO_URL" "$TEMP_BUILD_DIR"
-        BUILD_SOURCE="$TEMP_BUILD_DIR"
-    else
-        log_info "Starting Standard Install (Source kept)..."
-        SOURCE_DIR="$INSTALL_DIR/source"
-        if [ ! -d "$SOURCE_DIR" ]; then
-            git clone "$REPO_URL" "$SOURCE_DIR"
+    # Only clone/build for Panel (or both)
+    # Agent and Frontend download pre-compiled binaries from Panel
+    if [[ "$ROLE" == "panel" || "$ROLE" == "both" ]]; then
+        if [ "$CLEAN_INSTALL" = true ]; then
+            log_info "Starting Clean Install (No source on server)..."
+            rm -rf "$TEMP_BUILD_DIR"
+            git clone "$REPO_URL" "$TEMP_BUILD_DIR"
+            BUILD_SOURCE="$TEMP_BUILD_DIR"
         else
-            log_info "Updating source code (Force Reset to origin/main)..."
-            cd "$SOURCE_DIR"
-            git fetch --all
-            git reset --hard origin/main
+            log_info "Starting Standard Install (Source kept)..."
+            SOURCE_DIR="$INSTALL_DIR/source"
+            if [ ! -d "$SOURCE_DIR" ]; then
+                git clone "$REPO_URL" "$SOURCE_DIR"
+            else
+                log_info "Updating source code (Force Reset to origin/main)..."
+                cd "$SOURCE_DIR"
+                git fetch --all
+                git reset --hard origin/main
+            fi
+            BUILD_SOURCE="$SOURCE_DIR"
         fi
-        BUILD_SOURCE="$SOURCE_DIR"
+        
+        # Build binaries (Panel always compiles Panel + Agent + Frontend)
+        build_binaries "$ROLE" "$BUILD_SOURCE"
+        
+        # Stop existing services
+        systemctl stop exarobot &> /dev/null || true
+        systemctl stop exarobot-agent &> /dev/null || true
+    else
+        log_info "Skipping build (Role: $ROLE - will download pre-compiled binary)"
     fi
-    
-    # Build
-    build_binaries "$ROLE" "$BUILD_SOURCE"
-    
-    # Stop existing
-    systemctl stop exarobot &> /dev/null || true
-    systemctl stop exarobot-agent &> /dev/null || true
     
     setup_directory
     
@@ -1141,12 +1172,16 @@ EOF
         configure_panel
     fi
     
-    if [[ "$ROLE" == "agent" || "$ROLE" == "both" ]]; then
+    if [[ "$ROLE" == "agent" ]]; then
+        # Agent downloads binary from Panel in configure_agent
+        configure_agent
+    elif [[ "$ROLE" == "both" ]]; then
+        # Both: agent binary was compiled, just configure it
         cp "$BUILD_SOURCE/target/release/exarobot-agent" "$INSTALL_DIR/"
         chmod +x "$INSTALL_DIR/exarobot-agent"
         configure_agent
     elif [[ "$ROLE" == "frontend" ]]; then
-        # Frontend doesn't need compilation, downloads binary directly
+        # Frontend downloads binary from Panel in configure_frontend
         configure_frontend
     else
         # If we ARE NOT an agent, ensure old agent services are gone
