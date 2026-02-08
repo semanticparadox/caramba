@@ -112,13 +112,11 @@ impl OrchestrationService {
             .await?;
 
         // 2. Hysteria 2
-        // let obfs_pass = uuid::Uuid::new_v4().to_string().replace("-", ""); // Unused when OBFS disabled
-        
         let hy2_settings_struct = Hysteria2Settings {
              users: vec![],
              up_mbps: 100,
              down_mbps: 100,
-             obfs: None, // Disabled by default for better compatibility (matches Blitz)
+             obfs: None, 
              masquerade: Some("file:///opt/exarobot/apps/panel/assets/masquerade".to_string()),
         };
 
@@ -130,7 +128,7 @@ impl OrchestrationService {
             network: Some("udp".to_string()), // Hysteria is UDP based
             security: Some("tls".to_string()),
             tls_settings: Some(TlsSettings {
-                server_name: "drive.google.com".to_string(),
+                server_name: node.reality_sni.clone().unwrap_or_else(|| "drive.google.com".to_string()),
                 certificates: None, // Will use auto-generated certs
             }),
             reality_settings: None,
@@ -144,11 +142,17 @@ impl OrchestrationService {
             .execute(&self.pool)
             .await?;
 
+        // Link to default plan (ID=1)
+        sqlx::query("INSERT OR IGNORE INTO plan_inbounds (plan_id, inbound_id) SELECT 1, id FROM inbounds WHERE node_id = ?")
+            .bind(node_id)
+            .execute(&self.pool)
+            .await?;
+
         // 3. AmneziaWG
         // Pre-generate random values to avoid Send trait issues with ThreadRng
         let (awg_jc, awg_jmin, awg_jmax, awg_s1, awg_s2, awg_h1, awg_h2, awg_h3, awg_h4) = {
             use rand::Rng;
-            let mut rng = rand::rng();
+            let mut rng = rand::thread_rng();
             (
                 rng.random_range(3..=10),
                 rng.random_range(40..=100),
@@ -205,10 +209,16 @@ impl OrchestrationService {
 
         let awg_json = serde_json::to_string(&InboundType::AmneziaWg(awg_settings))?;
         
-        sqlx::query("INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable) VALUES (?, ?, 'amneziawg', 51820, ?, '{}', 0)")
+        sqlx::query("INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable) VALUES (?, ?, 'amneziawg', 51820, ?, '{}', 1)")
             .bind(node_id)
             .bind(format!("amneziawg-{}", node_id))
             .bind(awg_json)
+            .execute(&self.pool)
+            .await?;
+            
+        // Link AWG to default plan too
+        sqlx::query("INSERT OR IGNORE INTO plan_inbounds (plan_id, inbound_id) SELECT 1, id FROM inbounds WHERE node_id = ? AND protocol = 'amneziawg'")
+            .bind(node_id)
             .execute(&self.pool)
             .await?;
             
@@ -344,7 +354,39 @@ impl OrchestrationService {
                             }
                         }
                     },
-                    _ => {}
+                    InboundType::AmneziaWg(awg) => {
+                        use crate::models::network::AmneziaWgUser;
+                        for sub in &active_subs {
+                            if let Some(uuid) = &sub.vless_uuid {
+                                let auth_name = sub.tg_id.to_string();
+                                
+                                // Deterministic Client Key Generation
+                                let client_priv = self.derive_awg_key(uuid);
+                                let client_pub = self.priv_to_pub(&client_priv);
+                                
+                                info!("🔑 Injecting AMNEZIAWG user: {} (Public: {})", auth_name, client_pub);
+                                awg.users.push(AmneziaWgUser {
+                                    name: auth_name,
+                                    private_key: client_priv,
+                                    public_key: client_pub,
+                                    preshared_key: None,
+                                    client_ip: format!("10.10.0.{}", 2 + awg.users.len()), // Simple IP allocation
+                                });
+                            }
+                        }
+                    },
+                    InboundType::Trojan(trojan) => {
+                        use crate::models::network::TrojanClient;
+                        for sub in &active_subs {
+                            if let Some(uuid) = &sub.vless_uuid {
+                                let auth_name = sub.tg_id.to_string();
+                                trojan.clients.push(TrojanClient {
+                                    password: uuid.clone(),
+                                    email: auth_name,
+                                });
+                            }
+                        }
+                    }
                 }
                 inbound.settings = serde_json::to_string(&settings)?;
             },
@@ -381,4 +423,40 @@ impl OrchestrationService {
         Ok(())
     }
 
+    /// Derives a stable X25519 private key from a UUID string
+    fn derive_awg_key(&self, uuid: &str) -> String {
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        hasher.update(uuid.as_bytes());
+        hasher.update(b"amneziawg-key-salt");
+        let result = hasher.finalize();
+        
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&result[..32]);
+        
+        // Clamp the key to be a valid X25519 private key
+        key[0] &= 248;
+        key[31] &= 127;
+        key[31] |= 64;
+        
+        base64::Engine::encode(&base64::prelude::BASE64_STANDARD, key)
+    }
+
+    /// Converts an X25519 private key (base64) to a public key (base64)
+    fn priv_to_pub(&self, priv_b64: &str) -> String {
+        use x25519_dalek::{StaticSecret, PublicKey};
+        
+        let priv_bytes = base64::Engine::decode(&base64::prelude::BASE64_STANDARD, priv_b64).unwrap_or_default();
+        if priv_bytes.len() != 32 {
+            return "".to_string();
+        }
+        
+        let mut key_arr = [0u8; 32];
+        key_arr.copy_from_slice(&priv_bytes);
+        
+        let secret = StaticSecret::from(key_arr);
+        let public = PublicKey::from(&secret);
+        
+        base64::Engine::encode(&base64::prelude::BASE64_STANDARD, public.as_bytes())
+    }
 }

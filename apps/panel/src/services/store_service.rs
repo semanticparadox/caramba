@@ -1163,11 +1163,13 @@ impl StoreService {
                         }
                     },
                     "hysteria2" => {
-                        let mut server_name = "drive.google.com".to_string();
+                        let mut server_name = node.reality_sni.clone().unwrap_or_else(|| "drive.google.com".to_string());
                         let mut insecure = true;
                         
                         if let Some(tls) = stream.tls_settings {
-                            server_name = tls.server_name.clone();
+                            if !tls.server_name.is_empty() {
+                                server_name = tls.server_name.clone();
+                            }
                             if server_name != "drive.google.com" && server_name != "www.yahoo.com" {
                                 insecure = false;
                             }
@@ -1209,47 +1211,19 @@ impl StoreService {
                         }));
                     },
                     "amneziawg" => {
-                        // Parse AmneziaWG settings to get obfuscation params
                         if let Ok(InboundType::AmneziaWg(settings)) = serde_json::from_str::<InboundType>(&inbound.settings) {
-                            // Generate client keypair
-                            let (client_priv, _client_pub) = {
-                                use std::process::Command;
-                                let output = Command::new("sing-box")
-                                    .args(&["generate", "wireguard-keypair"])
-                                    .output();
-                                
-                                if let Ok(output) = output {
-                                    if output.status.success() {
-                                        let output_str = String::from_utf8_lossy(&output.stdout);
-                                        let mut priv_key = String::new();
-                                        let mut pub_key = String::new();
-                                        
-                                        for line in output_str.lines() {
-                                            if let Some(key) = line.strip_prefix("PrivateKey:") {
-                                                priv_key = key.trim().to_string();
-                                            } else if let Some(key) = line.strip_prefix("PublicKey:") {
-                                                pub_key = key.trim().to_string();
-                                            }
-                                        }
-                                        (priv_key, pub_key)
-                                    } else {
-                                        continue;
-                                    }
-                                } else {
-                                    continue;
-                                }
-                            };
-
-                            let client_ip = format!("10.10.0.{}/32", 2 + client_outbounds.len());
+                            // Stable client key derivation
+                            let client_priv = self.derive_awg_key(&uuid);
+                            let client_ip = format!("10.10.0.{}", 2 + client_outbounds.len());
                             
                             use crate::singbox::client_generator::ClientAmneziaWgOutbound;
                             client_outbounds.push(ClientOutbound::AmneziaWg(ClientAmneziaWgOutbound {
                                 tag,
                                 server: address,
                                 server_port: port,
-                                local_address: vec![client_ip],
+                                local_address: vec![format!("{}/32", client_ip)],
                                 private_key: client_priv,
-                                peer_public_key: settings.private_key,
+                                peer_public_key: self.priv_to_pub(&settings.private_key), // Actually Peer is Server, so we need Server's Public Key. settings.private_key is Server's Private Key.
                                 preshared_key: None,
                                 jc: settings.jc,
                                 jmin: settings.jmin,
@@ -1338,8 +1312,11 @@ impl StoreService {
                         
                         if security == "reality" {
                             if let Some(reality) = stream.reality_settings {
-                                params.push(format!("sni={}", reality.server_names.first().cloned().unwrap_or_default()));
-                                params.push(format!("pbk={}", reality_pub.unwrap_or_default())); 
+                                let sni = node.reality_sni.clone()
+                                    .or_else(|| reality.server_names.first().cloned())
+                                    .unwrap_or_default();
+                                params.push(format!("sni={}", sni));
+                                params.push(format!("pbk={}", reality.public_key.or(node.reality_pub).unwrap_or_default())); 
                                 params.push("fp=chrome".to_string());
                             }
                         } else if security == "tls" {
@@ -1363,20 +1340,22 @@ impl StoreService {
                     "hysteria2" => {
                         // hysteria2://user:password@ip:port?sni=...&insecure=1#remark
                         let mut params = Vec::new();
+                        let mut server_name = node.reality_sni.clone().unwrap_or_else(|| "drive.google.com".to_string());
+                        let mut use_insecure = true;
+
                         if security == "tls" {
-                            let mut use_insecure = true;
                             if let Some(tls) = stream.tls_settings {
-                                match tls.server_name.as_str() {
-                                    "drive.google.com" | "www.yahoo.com" => {}, // Do nothing, keep insecure=true
+                                if !tls.server_name.is_empty() {
+                                    server_name = tls.server_name.clone();
+                                }
+                                match server_name.as_str() {
+                                    "drive.google.com" | "www.yahoo.com" => {}, 
                                     _ => { use_insecure = false; }
                                 }
-                                params.push(format!("sni={}", tls.server_name));
                             }
-                            params.push(format!("insecure={}", if use_insecure { "1" } else { "0" }));
-                        } else {
-                            // No TLS? Hysteria2 usually implies TLS/QUIC.
-                            params.push("insecure=1".to_string());
                         }
+                        params.push(format!("sni={}", server_name));
+                        params.push(format!("insecure={}", if use_insecure { "1" } else { "0" }));
 
                         // Check for OBFS in protocol settings
                         use crate::models::network::InboundType;
@@ -1400,6 +1379,27 @@ impl StoreService {
 
                         let link = format!("hysteria2://{}@{}:{}?{}#{}", auth, address, port, params.join("&"), remark);
                         links.push(link);
+                    },
+                    "amneziawg" => {
+                        if let Ok(InboundType::AmneziaWg(settings)) = serde_json::from_str::<InboundType>(&inbound.settings) {
+                            let client_priv = self.derive_awg_key(&uuid);
+                            let server_pub = self.priv_to_pub(&settings.private_key);
+                            
+                            let mut params = Vec::new();
+                            params.push(format!("pk={}", server_pub));
+                            params.push(format!("jc={}", settings.jc));
+                            params.push(format!("jmin={}", settings.jmin));
+                            params.push(format!("jmax={}", settings.jmax));
+                            params.push(format!("s1={}", settings.s1));
+                            params.push(format!("s2={}", settings.s2));
+                            params.push(format!("h1={}", settings.h1));
+                            params.push(format!("h2={}", settings.h2));
+                            params.push(format!("h3={}", settings.h3));
+                            params.push(format!("h4={}", settings.h4));
+
+                            let link = format!("awg://{}:{}?{}#{}", address, port, params.join("&"), remark);
+                            links.push(link);
+                        }
                     },
                     _ => {}
                 }
@@ -1853,5 +1853,39 @@ impl StoreService {
         notes.push("Items will be provisioned shortly.".to_string());
         
         Ok(notes)
+    /// Derives a stable X25519 private key from a UUID string
+    fn derive_awg_key(&self, uuid: &str) -> String {
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        hasher.update(uuid.as_bytes());
+        hasher.update(b"amneziawg-key-salt");
+        let result = hasher.finalize();
+        
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&result[..32]);
+        
+        key[0] &= 248;
+        key[31] &= 127;
+        key[31] |= 64;
+        
+        base64::Engine::encode(&base64::prelude::BASE64_STANDARD, key)
+    }
+
+    /// Converts an X25519 private key (base64) to a public key (base64)
+    fn priv_to_pub(&self, priv_b64: &str) -> String {
+        use x25519_dalek::{StaticSecret, PublicKey};
+        
+        let priv_bytes = base64::Engine::decode(&base64::prelude::BASE64_STANDARD, priv_b64).unwrap_or_default();
+        if priv_bytes.len() != 32 {
+            return "".to_string();
+        }
+        
+        let mut key_arr = [0u8; 32];
+        key_arr.copy_from_slice(&priv_bytes);
+        
+        let secret = StaticSecret::from(key_arr);
+        let public = PublicKey::from(&secret);
+        
+        base64::Engine::encode(&base64::prelude::BASE64_STANDARD, public.as_bytes())
     }
 }
