@@ -3,7 +3,6 @@ use anyhow::{Context, Result};
 use chrono::{Utc, Duration};
 use tracing::{info, error};
 use uuid::Uuid;
-use serde::{Serialize, Deserialize};
 
 use crate::models::store::{
     User, Plan, Subscription, GiftCode, PlanDuration, 
