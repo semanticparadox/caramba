@@ -914,7 +914,7 @@ install_caddy_if_needed() {
     fi
     
     log_info "Installing Caddy..."
-    if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
+    if [ "$ID" = "ubuntu" ] || [ "$ID" = "debian" ]; then
         log_info "Adding Caddy repository..."
         apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
         curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
@@ -922,7 +922,7 @@ install_caddy_if_needed() {
         apt-get update
         log_info "Installing Caddy package..."
         apt-get install -y caddy
-    elif [ "$OS" = "centos" ] || [ "$OS" = "rhel" ]; then
+    elif [ "$ID" = "centos" ] || [ "$ID" = "rhel" ]; then
         yum install yum-plugin-copr -y
         yum copr enable @caddy/caddy -y
         yum install caddy -y
