@@ -344,7 +344,7 @@ impl StoreService {
             r#"
             INSERT INTO subscriptions (user_id, plan_id, vless_uuid, expires_at, status)
             VALUES (?, ?, ?, ?, 'pending')
-            RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, created_at, note
+            RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at
             "#
         )
         .bind(user_id)
@@ -384,7 +384,7 @@ impl StoreService {
             UPDATE subscriptions 
             SET expires_at = ?, status = 'active' 
             WHERE id = ? 
-            RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, created_at, note
+            RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at
             "#
         )
         .bind(new_expires_at)
@@ -465,7 +465,7 @@ impl StoreService {
             r#"
             INSERT INTO subscriptions (user_id, plan_id, vless_uuid, expires_at, status)
             VALUES (?, ?, ?, ?, 'pending')
-            RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, created_at, note
+            RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at
             "#
         )
         .bind(user_id)
@@ -529,7 +529,7 @@ impl StoreService {
             UPDATE subscriptions 
             SET user_id = ? 
             WHERE id = ? 
-            RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, created_at, note
+            RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at
             "#
         )
         .bind(target_user.id)
@@ -606,7 +606,7 @@ impl StoreService {
             r#"
             INSERT INTO subscriptions (user_id, plan_id, node_id, vless_uuid, expires_at, status, created_at)
             VALUES (?, ?, ?, ?, ?, 'active', CURRENT_TIMESTAMP)
-            RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, created_at, note
+            RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at
             "#
         )
         .bind(user_id)
@@ -650,7 +650,7 @@ impl StoreService {
 
         // 4. Check for existing active subscription
         let existing_sub = sqlx::query_as::<_, Subscription>(
-            "SELECT id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, created_at, note FROM subscriptions WHERE user_id = ? AND plan_id = ? AND status = 'active'"
+            "SELECT id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at FROM subscriptions WHERE user_id = ? AND plan_id = ? AND status = 'active'"
         )
         .bind(user_id)
         .bind(duration.plan_id)
@@ -670,7 +670,7 @@ impl StoreService {
                 UPDATE subscriptions 
                 SET expires_at = ? 
                 WHERE id = ? 
-                RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, created_at, note
+                RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at
                 "#
             )
             .bind(new_expires_at)
@@ -688,7 +688,7 @@ impl StoreService {
                 r#"
                 INSERT INTO subscriptions (user_id, plan_id, vless_uuid, expires_at, status)
                 VALUES (?, ?, ?, ?, 'active')
-                RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, created_at, note
+                RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at
                 "#
             )
             .bind(user_id)
@@ -706,7 +706,7 @@ impl StoreService {
     pub async fn get_user_subscriptions(&self, user_id: i64) -> Result<Vec<SubscriptionWithDetails>> {
         // 1. Fetch Subscriptions
         let subs = sqlx::query_as::<_, Subscription>(
-            "SELECT id, user_id, plan_id, node_id, vless_uuid, expires_at, status, created_at, used_traffic, traffic_updated_at, note FROM subscriptions WHERE user_id = ? ORDER BY created_at DESC"
+            "SELECT id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at FROM subscriptions WHERE user_id = ? ORDER BY created_at DESC"
         )
         .bind(user_id)
         .fetch_all(&self.pool)
