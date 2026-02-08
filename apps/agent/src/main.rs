@@ -46,7 +46,7 @@ async fn main() -> anyhow::Result<()> {
     let mut sys = System::new_with_specifics(
         sysinfo::RefreshKind::nothing()
             .with_cpu(sysinfo::CpuRefreshKind::nothing().with_cpu_usage())
-            .with_memory()
+            .with_memory(sysinfo::MemoryRefreshKind::everything())
     );
     sys.refresh_all();
     // 1. Setup Logging
