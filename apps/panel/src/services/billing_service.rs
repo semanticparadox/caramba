@@ -2,7 +2,7 @@ use sqlx::SqlitePool;
 use anyhow::{Context, Result};
 use crate::models::store::{User, PromoCode};
 use chrono::Utc;
-use tracing::error;
+
 
 #[derive(Debug, Clone)]
 pub struct BillingService {

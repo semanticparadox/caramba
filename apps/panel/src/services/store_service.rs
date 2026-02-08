@@ -7,7 +7,7 @@ use serde::{Serialize, Deserialize};
 
 use crate::models::store::{
     User, Plan, Subscription, GiftCode, PlanDuration, 
-    RenewalResult, AlertType, DetailedReferral, SubscriptionWithDetails, CartItem, Order
+    RenewalResult, AlertType, DetailedReferral, SubscriptionWithDetails, CartItem
 };
 
 #[derive(Debug, Clone)]

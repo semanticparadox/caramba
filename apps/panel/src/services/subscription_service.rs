@@ -1,8 +1,8 @@
 use sqlx::SqlitePool;
 use anyhow::{Context, Result};
 use crate::models::store::{Plan, Subscription, SubscriptionWithDetails, GiftCode, PlanDuration, RenewalResult, SubscriptionIpTracking};
-use tracing::{warn};
-use crate::models::network::StreamSettings;
+use uuid::Uuid;
+use chrono::{Utc, Duration};
 
 #[derive(Debug, Clone)]
 pub struct SubscriptionService {
