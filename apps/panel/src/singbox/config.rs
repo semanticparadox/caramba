@@ -41,6 +41,7 @@ pub enum Inbound {
     #[serde(rename = "wireguard")]
     AmneziaWg(AmneziaWgInbound),
     Trojan(TrojanInbound),
+    Tuic(TuicInbound),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -189,6 +190,38 @@ pub struct TrojanInbound {
 pub struct TrojanUser {
     pub name: String,
     pub password: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TuicInbound {
+    pub tag: String,
+    pub listen: String,
+    pub listen_port: u16,
+    pub users: Vec<TuicUser>,
+    pub congestion_control: String,
+    pub auth_timeout: String,
+    pub zero_rtt_handshake: bool,
+    pub heartbeat: String,
+    pub tls: TuicTlsConfig,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TuicUser {
+    pub name: String,
+    pub uuid: String,
+    pub password: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TuicTlsConfig {
+    pub enabled: bool,
+    pub server_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub certificate_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alpn: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

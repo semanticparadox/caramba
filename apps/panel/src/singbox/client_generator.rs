@@ -78,6 +78,8 @@ pub enum ClientOutbound {
     AmneziaWg(ClientAmneziaWgOutbound),
     #[serde(rename = "trojan")]
     Trojan(ClientTrojanOutbound),
+    #[serde(rename = "tuic")]
+    Tuic(ClientTuicOutbound),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -120,6 +122,17 @@ pub struct ClientTrojanOutbound {
     pub server_port: u16,
     pub password: String,
     pub tls: Option<ClientTlsConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ClientTuicOutbound {
+    pub tag: String,
+    pub server: String,
+    pub server_port: u16,
+    pub uuid: String,
+    pub password: String,
+    pub congestion_control: String,
+    pub tls: ClientTlsConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -178,6 +191,7 @@ impl ClientGenerator {
         let mut reality_tags = Vec::new();
         let mut hysteria2_tags = Vec::new();
         let mut awg_tags = Vec::new();
+        let mut tuic_tags = Vec::new();
 
         // 1. Add Actual Proxies + Group by Protocol
         for p in proxies {
@@ -197,6 +211,10 @@ impl ClientGenerator {
                 ClientOutbound::Trojan(t) => {
                     all_proxy_tags.push(t.tag.clone());
                     reality_tags.push(t.tag.clone()); // Group with Reality for now or direct? 
+                },
+                ClientOutbound::Tuic(t) => {
+                    all_proxy_tags.push(t.tag.clone());
+                    tuic_tags.push(t.tag.clone());
                 }
                 _ => {}
             }
@@ -240,6 +258,18 @@ impl ClientGenerator {
             };
             protocol_group_tags.push("⚡ AmneziaWG".to_string());
             outbounds.insert(0, awg_group);
+        }
+
+        if !tuic_tags.is_empty() {
+             let tuic_group = ClientOutbound::UrlTest {
+                tag: "⚡ TUIC".to_string(),
+                outbounds: tuic_tags,
+                url: Some("http://www.gstatic.com/generate_204".to_string()),
+                interval: Some("10m".to_string()),
+                tolerance: Some(50),
+            };
+            protocol_group_tags.push("⚡ TUIC".to_string());
+            outbounds.insert(0, tuic_group);
         }
 
         // 3. Create "Auto Fast" (All Protocols)

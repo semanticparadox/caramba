@@ -40,6 +40,7 @@ pub enum InboundType {
     Trojan(TrojanSettings),
     #[serde(rename = "amneziawg")]
     AmneziaWg(AmneziaWgSettings),
+    Tuic(TuicSettings),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,6 +105,22 @@ pub struct Hysteria2Obfs {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Hysteria2User {
     pub name: String,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TuicSettings {
+    pub users: Vec<TuicUser>,
+    pub congestion_control: String,
+    pub auth_timeout: String,
+    pub zero_rtt_handshake: bool,
+    pub heartbeat: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TuicUser {
+    pub name: String,
+    pub uuid: String,
     pub password: String,
 }
 

@@ -1301,6 +1301,48 @@ impl StoreService {
                             tls: tls_config,
                         }));
                     },
+                    "tuic" => {
+                        use crate::singbox::client_generator::{ClientTuicOutbound};
+                        
+                        // TUIC settings
+                         let mut server_name = node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string());
+                         if let Some(tls) = stream.tls_settings {
+                             if !tls.server_name.is_empty() {
+                                 server_name = tls.server_name.clone();
+                             }
+                         }
+
+                         let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?")
+                             .bind(sub.sub.user_id)
+                             .fetch_optional(&self.pool)
+                             .await?
+                             .unwrap_or(0);
+                        
+                         let password = uuid.replace("-", ""); // Using UUID (stripped) as password
+
+                         let congestion = if let Ok(InboundType::Tuic(settings)) = serde_json::from_str::<InboundType>(&inbound.settings) {
+                             settings.congestion_control
+                         } else {
+                             "cubic".to_string()
+                         };
+
+                         client_outbounds.push(ClientOutbound::Tuic(ClientTuicOutbound {
+                            tag,
+                            server: address,
+                            server_port: port,
+                            uuid: uuid.clone(),
+                            password,
+                            congestion_control: congestion,
+                            tls: ClientTlsConfig {
+                                enabled: true,
+                                server_name,
+                                insecure: false,
+                                alpn: Some(vec!["h3".to_string()]),
+                                utls: None,
+                                reality: None,
+                            },
+                         }));
+                    },
                     _ => {}
                 }
             }
@@ -1471,6 +1513,38 @@ impl StoreService {
                         }
 
                         let link = format!("trojan://{}@{}:{}?{}#{}", uuid, address, port, params.join("&"), remark);
+                        links.push(link);
+                    },
+                    "tuic" => {
+                        // tuic://uuid:password@ip:port?congestion_control=cubic&sni=...&alpn=h3#remark
+                        let mut params = Vec::new();
+                        let mut server_name = node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string());
+                        
+                        if let Some(tls) = stream.tls_settings {
+                             if !tls.server_name.is_empty() {
+                                 server_name = tls.server_name.clone();
+                             }
+                        }
+                        params.push(format!("sni={}", server_name));
+                        params.push("alpn=h3".to_string());
+                        
+                        let congestion = if let Ok(InboundType::Tuic(settings)) = serde_json::from_str::<InboundType>(&inbound.settings) {
+                             settings.congestion_control
+                        } else {
+                             "cubic".to_string()
+                        };
+                        params.push(format!("congestion_control={}", congestion));
+                        
+                        let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?")
+                             .bind(sub.sub.user_id)
+                             .fetch_optional(&self.pool)
+                             .await?
+                             .unwrap_or(0);
+                        
+                        let password = uuid.replace("-", "");
+                        let auth = format!("{}:{}", uuid, password);
+
+                        let link = format!("tuic://{}@{}:{}?{}#{}", auth, address, port, params.join("&"), remark);
                         links.push(link);
                     },
                     _ => {}

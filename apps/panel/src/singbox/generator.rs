@@ -149,30 +149,49 @@ impl ConfigGenerator {
                         tls: tls_config,
                     }));
                 },
-                InboundType::AmneziaWg(awg) => {
-                    let peers = awg.users.iter().enumerate().map(|(i, u)| AmneziaWgUser {
-                        name: Some(u.name.clone()),
-                        public_key: u.public_key.clone(),
-                        preshared_key: u.preshared_key.clone(),
-                        allowed_ips: vec![u.client_ip.clone()], 
+                InboundType::AmneziaWg(_awg) => {
+                    warn!("AmneziaWG is currently disabled/deprecated. Skipping inbound {}", inbound.tag);
+                    continue;
+                },
+                InboundType::Tuic(tuic) => {
+                    let mut tls_config = TuicTlsConfig {
+                        enabled: true,
+                        server_name: "www.google.com".to_string(), // Default
+                        key_path: Some("/etc/sing-box/certs/key.pem".to_string()),
+                        certificate_path: Some("/etc/sing-box/certs/cert.pem".to_string()),
+                        alpn: Some(vec!["h3".to_string()]),
+                    };
+
+                    if let Some(tls) = stream_settings.tls_settings {
+                         tls_config.server_name = tls.server_name;
+                         if let Some(certs) = tls.certificates {
+                             if let Some(first) = certs.first() {
+                                 if !first.key_path.is_empty() {
+                                     tls_config.key_path = Some(first.key_path.clone());
+                                 }
+                                 if !first.certificate_path.is_empty() {
+                                     tls_config.certificate_path = Some(first.certificate_path.clone());
+                                 }
+                             }
+                         }
+                    }
+
+                    let users = tuic.users.iter().map(|u| TuicUser {
+                        name: u.name.clone(),
+                        uuid: u.uuid.clone(),
+                        password: u.password.clone(),
                     }).collect();
 
-                    generated_inbounds.push(Inbound::AmneziaWg(AmneziaWgInbound {
+                    generated_inbounds.push(Inbound::Tuic(TuicInbound {
                         tag: inbound.tag,
                         listen: inbound.listen_ip,
                         listen_port: inbound.listen_port as u16,
-                        peers,
-                        private_key: awg.private_key,
-                        // AmneziaWG specific fields
-                        jc: Some(awg.jc),
-                        jmin: Some(awg.jmin),
-                        jmax: Some(awg.jmax),
-                        s1: Some(awg.s1),
-                        s2: Some(awg.s2),
-                        h1: Some(awg.h1),
-                        h2: Some(awg.h2),
-                        h3: Some(awg.h3),
-                        h4: Some(awg.h4),
+                        users,
+                        congestion_control: tuic.congestion_control,
+                        auth_timeout: tuic.auth_timeout,
+                        zero_rtt_handshake: tuic.zero_rtt_handshake,
+                        heartbeat: tuic.heartbeat,
+                        tls: tls_config,
                     }));
                 },
                 InboundType::Trojan(trojan) => {

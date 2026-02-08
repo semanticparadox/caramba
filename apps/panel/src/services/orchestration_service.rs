@@ -227,6 +227,42 @@ impl OrchestrationService {
             .bind(node_id)
             .execute(&self.pool)
             .await?;
+
+        // 4. TUIC
+        use crate::models::network::TuicSettings;
+        let tuic_settings = TuicSettings {
+             users: vec![],
+             congestion_control: "cubic".to_string(),
+             auth_timeout: "3s".to_string(),
+             zero_rtt_handshake: false,
+             heartbeat: "10s".to_string(),
+        };
+
+        let tuic_json = serde_json::to_string(&InboundType::Tuic(tuic_settings))?;
+        
+        let tuic_stream = StreamSettings {
+            network: Some("udp".to_string()),
+            security: Some("tls".to_string()),
+            tls_settings: Some(TlsSettings {
+                server_name: node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string()),
+                certificates: None,
+            }),
+            reality_settings: None,
+        };
+
+        sqlx::query("INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable) VALUES (?, ?, 'tuic', 9443, ?, ?, 1)")
+            .bind(node_id)
+            .bind(format!("tuic-{}", node_id))
+            .bind(tuic_json)
+            .bind(serde_json::to_string(&tuic_stream)?)
+            .execute(&self.pool)
+            .await?;
+
+        // Link TUIC to default plan
+        sqlx::query("INSERT OR IGNORE INTO plan_inbounds (plan_id, inbound_id) SELECT 1, id FROM inbounds WHERE node_id = ? AND protocol = 'tuic'")
+            .bind(node_id)
+            .execute(&self.pool)
+            .await?;
             
         Ok(())
     }
@@ -381,7 +417,7 @@ impl OrchestrationService {
                             }
                         }
                     },
-                    InboundType::Trojan(trojan) => {
+                InboundType::Trojan(trojan) => {
                         use crate::models::network::TrojanClient;
                         for sub in &active_subs {
                             if let Some(uuid) = &sub.vless_uuid {
@@ -389,6 +425,20 @@ impl OrchestrationService {
                                 trojan.clients.push(TrojanClient {
                                     password: uuid.clone(),
                                     email: auth_name,
+                                });
+                            }
+                        }
+                    },
+                    InboundType::Tuic(tuic) => {
+                         for sub in &active_subs {
+                            if let Some(uuid) = &sub.vless_uuid {
+                                let auth_name = sub.tg_id.to_string();
+                                
+                                info!("🔑 Injecting TUIC user: {} (UUID: {})", auth_name, uuid);
+                                tuic.users.push(crate::models::network::TuicUser {
+                                    name: auth_name,
+                                    uuid: uuid.clone(),
+                                    password: uuid.replace("-", ""), 
                                 });
                             }
                         }
