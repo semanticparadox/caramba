@@ -1853,6 +1853,8 @@ impl StoreService {
         notes.push("Items will be provisioned shortly.".to_string());
         
         Ok(notes)
+    }
+
     /// Derives a stable X25519 private key from a UUID string
     fn derive_awg_key(&self, uuid: &str) -> String {
         use sha2::{Sha256, Digest};
