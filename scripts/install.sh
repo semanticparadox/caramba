@@ -411,6 +411,11 @@ EOF
         cd "$APP_PANEL_DIR"
         cargo build --release --bin exarobot
         cd "$src_dir"
+        cd "$src_dir"
+        
+        log_info "Compiling Frontend (for downloads)..."
+        # Compile frontend binary
+        cargo build -p exarobot-frontend --release
     fi
     
     if [[ "$target_role" == "agent" || "$target_role" == "both" ]]; then
@@ -426,6 +431,8 @@ EOF
 setup_directory() {
     mkdir -p "$INSTALL_DIR"
     # Files are kept in root: /opt/exarobot/{exarobot, exarobot-agent, .env, .env.agent}
+    # Ensure downloads directory exists for frontend binaries
+    mkdir -p "$INSTALL_DIR/apps/panel/downloads"
 }
 
     ensure_panel_port() {
@@ -1077,6 +1084,24 @@ main() {
         # Copy Assets
         mkdir -p "$INSTALL_DIR/apps/panel"
         cp -r "$BUILD_SOURCE/apps/panel/assets" "$INSTALL_DIR/apps/panel/"
+        
+        # Copy Frontend Binary for Downloads
+        ARCH=$(uname -m)
+        if [ "$ARCH" = "x86_64" ]; then
+            FE_SUFFIX="linux-amd64"
+        elif [ "$ARCH" = "aarch64" ]; then
+            FE_SUFFIX="linux-arm64"
+        else
+            FE_SUFFIX="linux-unknown"
+        fi
+        
+        mkdir -p "$INSTALL_DIR/apps/panel/downloads"
+        if [ -f "$BUILD_SOURCE/target/release/exarobot-frontend" ]; then
+            cp "$BUILD_SOURCE/target/release/exarobot-frontend" "$INSTALL_DIR/apps/panel/downloads/exarobot-frontend-$FE_SUFFIX"
+            log_success "Frontend binary placed in downloads: exarobot-frontend-$FE_SUFFIX"
+        else
+            log_warn "Frontend binary not found in build output. Skiping copy."
+        fi
         
         # Create Masquerade content for Hysteria 2
         MASQ_DIR="$INSTALL_DIR/apps/panel/assets/masquerade"
