@@ -468,6 +468,7 @@ CREATE TABLE IF NOT EXISTS frontend_server_stats (
 CREATE INDEX IF NOT EXISTS idx_frontend_domain ON frontend_servers(domain);
 CREATE INDEX IF NOT EXISTS idx_frontend_region ON frontend_servers(region);
 CREATE INDEX IF NOT EXISTS idx_frontend_active ON frontend_servers(is_active);
+CREATE INDEX IF NOT EXISTS idx_frontend_status ON frontend_servers(status);
 CREATE INDEX IF NOT EXISTS idx_frontend_stats_time ON frontend_server_stats(timestamp);
 CREATE INDEX IF NOT EXISTS idx_frontend_stats_server ON frontend_server_stats(frontend_id);
 CREATE INDEX IF NOT EXISTS idx_frontend_token_expiration ON frontend_servers(token_expires_at);
