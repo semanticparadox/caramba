@@ -143,7 +143,7 @@ install_dependencies() {
     setup_firewall
     
     apt-get update -qq
-    apt-get install -y curl git build-essential pkg-config libssl-dev sqlite3 redis-server -qq
+    apt-get install -y curl git build-essential pkg-config libssl-dev sqlite3 redis-server gnupg debian-keyring debian-archive-keyring apt-transport-https -qq
     
     # Configure and start Redis
     if command -v redis-server &> /dev/null; then
@@ -236,6 +236,13 @@ check_conflicts() {
 
     if [[ "$ROLE" == "agent" || "$ROLE" == "both" ]]; then
         if systemctl is-active --quiet exarobot-agent; then
+            clash=true
+        fi
+    fi
+    
+    # For 'all' role, we check if ANY of the services are running to warn about overwrite
+    if [[ "$ROLE" == "all" ]]; then
+        if systemctl is-active --quiet exarobot || systemctl is-active --quiet exarobot-agent || systemctl is-active --quiet exarobot-frontend; then
             clash=true
         fi
     fi
@@ -333,7 +340,7 @@ build_binaries() {
     fi
     
     # Init DB for sqlx compile-time verification
-    if [[ "$target_role" == "panel" || "$target_role" == "both" ]]; then
+    if [[ "$target_role" == "panel" || "$target_role" == "both" || "$target_role" == "all" ]]; then
         local APP_PANEL_DIR="$src_dir/apps/panel"
         
         # Create database with consolidated migration for sqlx macros
@@ -604,14 +611,22 @@ configure_agent() {
         exit 1
     fi
     
-    mkdir -p "$INSTALL_DIR"
-    wget -q --show-progress -O "$INSTALL_DIR/exarobot-agent" "$BINARY_URL" || {
-        log_error "Failed to download agent binary from: $BINARY_URL"
-        log_error "Make sure the Panel is running and has compiled the Agent binary."
-        exit 1
-    }
-    chmod +x "$INSTALL_DIR/exarobot-agent"
-    log_success "Binary installed"
+    if [[ "$ROLE" == "all" || "$ROLE" == "both" ]]; then
+        log_info "Skipping download for '$ROLE' role (using local binary)..."
+        if [ ! -f "$INSTALL_DIR/exarobot-agent" ]; then
+             log_error "Local binary not found at $INSTALL_DIR/exarobot-agent"
+             exit 1
+        fi
+    else
+        mkdir -p "$INSTALL_DIR"
+        wget -q --show-progress -O "$INSTALL_DIR/exarobot-agent" "$BINARY_URL" || {
+            log_error "Failed to download agent binary from: $BINARY_URL"
+            log_error "Make sure the Panel is running and has compiled the Agent binary."
+            exit 1
+        }
+        chmod +x "$INSTALL_DIR/exarobot-agent"
+        log_success "Binary installed"
+    fi
     
     # Get Node Token
     if [[ -z "$NODE_TOKEN" ]]; then
@@ -832,11 +847,34 @@ configure_frontend() {
         exit 1
     fi
     
-    mkdir -p /usr/local/bin
-    wget -q --show-progress -O /usr/local/bin/exarobot-frontend "$BINARY_URL" || {
-        log_error "Failed to download frontend binary"
-        exit 1
-    }
+    if [[ "$ROLE" == "all" ]]; then
+        # Local install: copy from cache to /usr/local/bin
+        if [ "$ARCH" = "x86_64" ]; then 
+            FE_SUFFIX="linux-amd64"
+        elif [ "$ARCH" = "aarch64" ]; then 
+            FE_SUFFIX="linux-arm64" 
+        else
+            log_error "Unsupported architecture: $ARCH"
+            exit 1
+        fi
+        
+        # We assume INSTALL_DIR is set (it is global)
+        LOCAL_SRC="$INSTALL_DIR/apps/panel/downloads/exarobot-frontend-$FE_SUFFIX"
+        if [ -f "$LOCAL_SRC" ]; then
+             log_info "Installing Frontend from local cache ($LOCAL_SRC)..."
+             mkdir -p /usr/local/bin
+             cp "$LOCAL_SRC" /usr/local/bin/exarobot-frontend
+        else
+             log_error "Local frontend binary not found at $LOCAL_SRC"
+             exit 1
+        fi
+    else
+        mkdir -p /usr/local/bin
+        wget -q --show-progress -O /usr/local/bin/exarobot-frontend "$BINARY_URL" || {
+            log_error "Failed to download frontend binary"
+            exit 1
+        }
+    fi
     chmod +x /usr/local/bin/exarobot-frontend
     log_success "Binary installed"
     
@@ -887,7 +925,13 @@ install_caddy_if_needed() {
         yum copr enable @caddy/caddy -y -q
         yum install caddy -y -q
     fi
-    log_success "Caddy installed"
+    
+    if command -v caddy &> /dev/null; then
+        log_success "Caddy installed successfully"
+    else
+        log_error "Caddy installation failed! Please check your package manager settings."
+        exit 1
+    fi
 }
 
 # Helper: Configure Caddy
@@ -895,6 +939,7 @@ configure_caddy_for_frontend() {
     log_info "Configuring Caddy reverse proxy..."
     
     # Prepare Caddyfile content
+    mkdir -p /etc/caddy
     cat > /etc/caddy/Caddyfile <<EOF
 $FRONTEND_DOMAIN {
     reverse_proxy localhost:${FRONTEND_PORT:-8080}
@@ -1021,6 +1066,56 @@ register_with_panel() {
     log_success "Registration/Heartbeat attempt complete"
 }
 
+# Helper: Seed Local Tokens for "All-in-One" install
+seed_local_tokens() {
+    log_info "Seeding local tokens for All-in-One setup..."
+    
+    # Wait for DB to be created by Panel service
+    local max_retries=30
+    local count=0
+    local db_file="$INSTALL_DIR/exarobot.db"
+    
+    while [ ! -f "$db_file" ]; do
+        sleep 1
+        count=$((count+1))
+        if [ $count -ge $max_retries ]; then
+             log_error "Database file not found after waiting. Panel might have failed to start."
+             exit 1
+        fi
+    done
+    
+    # Wait a bit more for migrations
+    sleep 2
+    
+    # Generate Tokens
+    if [ -z "$NODE_TOKEN" ]; then
+        NODE_TOKEN=$(openssl rand -hex 16)
+        log_info "Generated NODE_TOKEN: $NODE_TOKEN"
+    fi
+    
+    if [ -z "$FRONTEND_TOKEN" ]; then
+        FRONTEND_TOKEN=$(openssl rand -hex 16)
+        log_info "Generated FRONTEND_TOKEN: $FRONTEND_TOKEN"
+    fi
+    
+    # Insert Node
+    sqlite3 "$db_file" "INSERT OR IGNORE INTO nodes (name, ip, join_token, status, is_enabled) VALUES ('Local Node', '127.0.0.1', '$NODE_TOKEN', 'active', 1);"
+    
+    # Insert Frontend
+    # Default region 'local', domain from arg or default
+    if [ -z "$FRONTEND_DOMAIN" ]; then
+        FRONTEND_DOMAIN="localhost"
+    fi
+    
+    sqlite3 "$db_file" "INSERT OR IGNORE INTO frontend_servers (domain, ip_address, region, auth_token, is_active) VALUES ('$FRONTEND_DOMAIN', '127.0.0.1', 'local', '$FRONTEND_TOKEN', 1);"
+    
+    export NODE_TOKEN
+    export FRONTEND_TOKEN
+    export PANEL_URL="http://127.0.0.1:3000" # Force local connection
+    
+    log_success "Tokens seeded into database."
+}
+
 # --------------------------------------------------
 # Main Logic
 # --------------------------------------------------
@@ -1084,7 +1179,7 @@ main() {
     
     # Only clone/build for Panel (or both)
     # Agent and Frontend download pre-compiled binaries from Panel
-    if [[ "$ROLE" == "panel" || "$ROLE" == "both" ]]; then
+    if [[ "$ROLE" == "panel" || "$ROLE" == "both" || "$ROLE" == "all" ]]; then
         if [ "$CLEAN_INSTALL" = true ]; then
             log_info "Starting Clean Install (No source on server)..."
             rm -rf "$TEMP_BUILD_DIR"
@@ -1117,7 +1212,7 @@ main() {
     setup_directory
     
     # Copy Binaries
-    if [[ "$ROLE" == "panel" || "$ROLE" == "both" ]]; then
+    if [[ "$ROLE" == "panel" || "$ROLE" == "both" || "$ROLE" == "all" ]]; then
         cp "$BUILD_SOURCE/target/release/exarobot" "$INSTALL_DIR/"
         chmod +x "$INSTALL_DIR/exarobot"
         
@@ -1172,7 +1267,20 @@ EOF
         configure_panel
     fi
     
-    if [[ "$ROLE" == "agent" ]]; then
+    if [[ "$ROLE" == "all" ]]; then
+        seed_local_tokens
+        
+        # Configure Agent (local binary)
+        log_info "Installing Agent for 'all' role..."
+        cp "$BUILD_SOURCE/target/release/exarobot-agent" "$INSTALL_DIR/"
+        chmod +x "$INSTALL_DIR/exarobot-agent"
+        configure_agent
+        
+        # Configure Frontend (local binary)
+        log_info "Installing Frontend for 'all' role..."
+        configure_frontend
+        
+    elif [[ "$ROLE" == "agent" ]]; then
         # Agent downloads binary from Panel in configure_agent
         configure_agent
     elif [[ "$ROLE" == "both" ]]; then
@@ -1183,13 +1291,11 @@ EOF
     elif [[ "$ROLE" == "frontend" ]]; then
         # Frontend downloads binary from Panel in configure_frontend
         configure_frontend
-    else
-        # If we ARE NOT an agent, ensure old agent services are gone
+    elif [[ "$ROLE" == "panel" ]]; then
+        # Only Panel: ensure agent services are gone
         log_info "Ensuring Agent service is disabled (Role: $ROLE)..."
         systemctl stop exarobot-agent &> /dev/null || true
         systemctl disable exarobot-agent &> /dev/null || true
-        # Also stop sing-box if it shouldn't be running as a proxy here
-        # Actually, Panel needs it ONLY for keygen, not as a service
         systemctl stop sing-box &> /dev/null || true
         systemctl disable sing-box &> /dev/null || true
     fi
@@ -1231,10 +1337,14 @@ EOF
 
     
     echo ""
+    echo ""
     log_success "Installation Complete!"
-    if [[ "$ROLE" == "panel" || "$ROLE" == "both" ]]; then
+    if [[ "$ROLE" == "panel" || "$ROLE" == "both" || "$ROLE" == "all" ]]; then
         echo -e "${CYAN}--------------------------------------------------${NC}"
         echo -e "Panel Address : https://${DOMAIN}${ADMIN_PATH}"
+        if [[ "$ROLE" == "all" ]]; then
+            echo -e "All-in-One    : Panel + Agent + Frontend (Local)"
+        fi
         echo -e "Admin Creation: cd ${INSTALL_DIR} && ./exarobot admin reset-password <user> <pass>"
         echo -e "${CYAN}--------------------------------------------------${NC}"
     fi
