@@ -413,7 +413,7 @@ EOF
         cd "$src_dir"
         cd "$src_dir"
         
-        log_info "Compiling Frontend (for downloads)..."
+        log_info "Compiling Frontend (for downloads/distribution)..."
         
         # FIX: The frontend requires apps/mini-app/dist to exist for RustEmbed.
         # Since we don't install Node.js/npm on the server, we create a placeholder if it's missing.
@@ -436,12 +436,17 @@ EOF
 
         # Compile frontend binary
         cargo build -p exarobot-frontend --release
+        
+        log_info "Compiling Agent (for downloads/distribution)..."
+        cargo build -p exarobot-agent --release
     fi
     
     if [[ "$target_role" == "agent" || "$target_role" == "both" ]]; then
-        log_info "Compiling Agent (this may take a few minutes)..."
-        # Removed --quiet
-        cargo build -p exarobot-agent --release
+        # If we are installing agent specifically, we ensure it's built (might be redundant if panel built it, but safe)
+        if [[ "$target_role" != "both" ]]; then
+             log_info "Compiling Agent..."
+             cargo build -p exarobot-agent --release
+        fi
     fi
 }
 
@@ -1033,28 +1038,12 @@ main() {
     load_env_settings "$INSTALL_DIR/.env"
     load_env_settings "$INSTALL_DIR/.env.agent"
     
+    # Determine installation role
+    # If no --role specified, default to Panel (Distribution Hub)
+    # --role agent/frontend are for child nodes (via generated commands)
     if [[ -z "$ROLE" ]]; then
-        echo "Select installation role:"
-        echo "1) Panel"
-        echo "2) Agent"
-        echo "3) Frontend"
-        echo "4) Both (Panel + Agent)"
-        # Robust read
-        set +e
-        if [ -t 0 ]; then
-            read -p "Choice [1-3]: " C
-        else
-            echo -n "Choice [1-3]: "
-            read -r C < /dev/tty
-        fi
-        set -e
-        case $C in
-            1) ROLE="panel" ;;
-            2) ROLE="agent" ;;
-            3) ROLE="frontend" ;;
-            4) ROLE="both" ;;
-            *) exit 1 ;;
-        esac
+        ROLE="panel"
+        log_info "No --role specified, defaulting to Panel installation (Distribution Hub)"
     fi
     
     
@@ -1116,11 +1105,21 @@ main() {
         fi
         
         mkdir -p "$INSTALL_DIR/apps/panel/downloads"
+        
+        # Copy Frontend
         if [ -f "$BUILD_SOURCE/target/release/exarobot-frontend" ]; then
             cp "$BUILD_SOURCE/target/release/exarobot-frontend" "$INSTALL_DIR/apps/panel/downloads/exarobot-frontend-$FE_SUFFIX"
-            log_success "Frontend binary placed in downloads: exarobot-frontend-$FE_SUFFIX"
+            log_success "Frontend binary cached: exarobot-frontend-$FE_SUFFIX"
         else
-            log_warn "Frontend binary not found in build output. Skiping copy."
+            log_warn "Frontend binary not found."
+        fi
+        
+        # Copy Agent (for distribution)
+        if [ -f "$BUILD_SOURCE/target/release/exarobot-agent" ]; then
+            cp "$BUILD_SOURCE/target/release/exarobot-agent" "$INSTALL_DIR/apps/panel/downloads/exarobot-agent-$FE_SUFFIX"
+            log_success "Agent binary cached: exarobot-agent-$FE_SUFFIX"
+        else
+             log_warn "Agent binary not found for cache."
         fi
         
         # Create Masquerade content for Hysteria 2
