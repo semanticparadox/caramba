@@ -44,14 +44,21 @@ pub struct AppState {
     pub export_service: Arc<services::export_service::ExportService>,
     pub channel_trial_service: Arc<services::channel_trial_service::ChannelTrialService>,
     pub notification_service: Arc<services::notification_service::NotificationService>,
-    pub connection_service: Arc<services::connection_service::ConnectionService>, // NEW
-    pub redis: Arc<services::redis_service::RedisService>, // NEW
-    pub pubsub: Arc<services::pubsub_service::PubSubService>, // NEW
+    pub connection_service: Arc<services::connection_service::ConnectionService>,
+    pub redis: Arc<services::redis_service::RedisService>,
+    pub pubsub: Arc<services::pubsub_service::PubSubService>,
+
+    // Enterprise Modular Services
+    pub user_service: Arc<services::user_service::UserService>,
+    pub billing_service: Arc<services::billing_service::BillingService>,
+    pub subscription_service: Arc<services::subscription_service::SubscriptionService>,
+    pub catalog_service: Arc<services::catalog_service::CatalogService>,
+
     pub ssh_public_key: String,
     // Format: IP -> (Lat, Lon, Timestamp)
     pub geo_cache: Arc<Mutex<HashMap<String, (f64, f64, Instant)>>>,
     pub session_secret: String,
-    pub admin_path: String, // NEW: Store configured admin path
+    pub admin_path: String,
     pub system_stats: Arc<tokio::sync::Mutex<sysinfo::System>>,
 }
 
@@ -227,6 +234,12 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         store_service.clone(),
     ));
 
+    // Initialize new modular services
+    let user_service = Arc::new(services::user_service::UserService::new(pool.clone()));
+    let billing_service = Arc::new(services::billing_service::BillingService::new(pool.clone()));
+    let subscription_service = Arc::new(services::subscription_service::SubscriptionService::new(pool.clone()));
+    let catalog_service = Arc::new(services::catalog_service::CatalogService::new(pool.clone()));
+
     // Initialize connection service
     let connection_service = Arc::new(services::connection_service::ConnectionService::new(
         pool.clone(),
@@ -300,6 +313,12 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         notification_service,
         redis: redis_service.clone(),
         pubsub,
+
+        user_service,
+        billing_service,
+        subscription_service,
+        catalog_service,
+
         ssh_public_key,
         geo_cache: Arc::new(Mutex::new(HashMap::new())),
         session_secret: std::env::var("SESSION_SECRET").unwrap_or_else(|_| "secret".to_string()),

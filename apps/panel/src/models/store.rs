@@ -166,8 +166,7 @@ pub struct SniPool {
     pub notes: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct SniRotationLog {
     pub id: i64,
     pub node_id: i64,
@@ -175,4 +174,50 @@ pub struct SniRotationLog {
     pub new_sni: String,
     pub reason: Option<String>,
     pub rotated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RenewalResult {
+    Success { user_id: i64, sub_id: i64, amount: i64, plan_name: String },
+    InsufficientFunds { user_id: i64, sub_id: i64, required: i64, available: i64 },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AlertType {
+    Traffic80,
+    Traffic90,
+    Expiry3Days,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DetailedReferral {
+    pub id: i64,
+    pub tg_id: i64,
+    pub username: Option<String>,
+    pub full_name: Option<String>,
+    pub balance: i64,
+    pub referral_code: Option<String>,
+    pub referrer_id: Option<i64>,
+    pub is_banned: bool,
+    pub created_at: DateTime<Utc>,
+    pub total_earned: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubscriptionWithDetails {
+    #[serde(flatten)]
+    pub sub: Subscription,
+    pub plan_name: String,
+    pub plan_description: Option<String>,
+    pub traffic_limit_gb: Option<i32>,
+}
+
+#[derive(serde::Serialize, sqlx::FromRow)]
+pub struct CartItem {
+    pub id: i64,
+    pub user_id: i64,
+    pub product_id: i64,
+    pub quantity: i64,
+    pub product_name: String,
+    pub price: i64,
 }

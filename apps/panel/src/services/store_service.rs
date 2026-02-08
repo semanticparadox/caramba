@@ -6,42 +6,7 @@ use tracing::{info, error};
 use uuid::Uuid;
 use serde::{Serialize, Deserialize};
 
-// Quick Wins enums
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum RenewalResult {
-    Success { user_id: i64, sub_id: i64, amount: i64, plan_name: String },
-    InsufficientFunds { user_id: i64, sub_id: i64, required: i64, available: i64 },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum AlertType {
-    Traffic80,
-    Traffic90,
-    Expiry3Days,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct DetailedReferral {
-    pub id: i64,
-    pub tg_id: i64,
-    pub username: Option<String>,
-    pub full_name: Option<String>,
-    pub balance: i64,
-    pub referral_code: Option<String>,
-    pub referrer_id: Option<i64>,
-    pub is_banned: bool,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub total_earned: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SubscriptionWithDetails {
-    #[serde(flatten)]
-    pub sub: Subscription,
-    pub plan_name: String,
-    pub plan_description: Option<String>,
-    pub traffic_limit_gb: Option<i32>,
-}
+use crate::models::store::{User, Plan, Subscription, GiftCode, PlanDuration, RenewalResult, AlertType, DetailedReferral, SubscriptionWithDetails, CartItem};
 
 #[derive(Debug, Clone)]
 pub struct StoreService {
