@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::time::Instant;
 use std::io;
+use tracing_appender;
 use db::init_db;
 use settings::SettingsService;
 use bot_manager::BotManager;

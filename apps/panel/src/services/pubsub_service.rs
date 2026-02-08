@@ -39,10 +39,8 @@ impl PubSubService {
             info!("🔄 PubSub: Connecting to Redis...");
             match redis::Client::open(self.redis_url.clone()) {
                 Ok(client) => {
-                    match client.get_async_connection().await {
-                        Ok(conn) => {
-                            let mut conn: redis::aio::Connection = conn;
-                            let mut pubsub = conn.into_pubsub();
+                    match client.get_async_pubsub().await {
+                        Ok(mut pubsub) => {
                             // Subscribe to all node events
                             if let Err(e) = pubsub.psubscribe("node_events:*").await {
                                 error!("PubSub Subscribe failed: {}", e);
