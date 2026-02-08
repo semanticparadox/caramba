@@ -11,6 +11,7 @@ use crate::models::store::{Plan, User, Order};
 use crate::services::logging_service::LoggingService;
 use std::collections::HashMap;
 use tracing::{info, error};
+use sysinfo;
 use axum_extra::extract::cookie::{Cookie, CookieJar};
 use axum::extract::Query;
 use time::Duration;

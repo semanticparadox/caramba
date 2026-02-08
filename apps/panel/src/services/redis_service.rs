@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use bb8_redis::{bb8, RedisConnectionManager};
+use redis::adapter::RedisConnectionManager;
 use tracing::info;
 
 #[derive(Clone)]
@@ -9,14 +9,15 @@ pub struct RedisService {
 
 impl RedisService {
     pub async fn new(redis_url: &str) -> Result<Self> {
-        let manager = RedisConnectionManager::new(redis_url)?;
+        let client = redis::Client::open(redis_url)?;
+        let manager = RedisConnectionManager::new(client);
         let pool = bb8::Pool::builder()
             .max_size(10)
             .build(manager)
             .await
             .context("Failed to create Redis pool")?;
         
-        info!("✅ Redis connected successfully");
+        info!("✅ Redis connected successfully (Built-in bb8)");
         Ok(Self { pool })
     }
 
