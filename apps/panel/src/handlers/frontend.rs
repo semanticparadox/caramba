@@ -57,10 +57,10 @@ pub async fn create_frontend(
     let (token, token_hash) = generate_frontend_token_with_hash(&payload.domain)?;
     let expires_at = calculate_token_expiration();
     
-    let ip_address = payload.ip_address.unwrap_or_else(|| "0.0.0.0".to_string());
-    let region = payload.region.unwrap_or_else(|| "global".to_string());
+    let ip_address = payload.ip_address.filter(|s| !s.is_empty()).unwrap_or_else(|| "0.0.0.0".to_string());
+    let region = payload.region.filter(|s| !s.is_empty()).unwrap_or_else(|| "global".to_string());
     // Default sub_path to /sub/ if not provided
-    let sub_path = payload.sub_path.unwrap_or_else(|| "/sub/".to_string());
+    let sub_path = payload.sub_path.filter(|s| !s.is_empty()).unwrap_or_else(|| "/sub/".to_string());
 
     let result = sqlx::query(
         "INSERT INTO frontend_servers 
@@ -332,16 +332,18 @@ fn generate_install_command(
         .unwrap_or_else(|_| "https://panel.example.com".to_string());
     
     let mut cmd = format!(
-        "curl -sSL https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/scripts/install.sh | \\\n  sudo bash -s -- \\\n  --role frontend \\\n  --domain {} \\\n  --token {} \\\n  --region {} \\\n  --panel {}",
+        "curl -sSL https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/scripts/install.sh | \\\n  sudo bash -s -- \\\n  --role frontend \\\n  --domain \"{}\" \\\n  --token \"{}\" \\\n  --region \"{}\" \\\n  --panel \"{}\"",
         domain, token, region, panel_url
     );
 
     if let Some(md) = miniapp_domain {
-        cmd.push_str(&format!(" \\\n  --miniapp-domain {}", md));
+        if !md.is_empty() {
+            cmd.push_str(&format!(" \\\n  --miniapp-domain \"{}\"", md));
+        }
     }
 
-    if sub_path != "/sub/" {
-        cmd.push_str(&format!(" \\\n  --sub-path {}", sub_path));
+    if sub_path != "/sub/" && !sub_path.is_empty() {
+        cmd.push_str(&format!(" \\\n  --sub-path \"{}\"", sub_path));
     }
 
     cmd

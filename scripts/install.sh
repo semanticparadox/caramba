@@ -750,10 +750,13 @@ configure_frontend() {
     log_info "Installing Frontend Module..."
     
     # Validate required arguments
-    if [[ -z "$FRONTEND_DOMAIN" ]] || [[ -z "$FRONTEND_TOKEN" ]] || [[ -z "$FRONTEND_REGION" ]]; then
-        log_error "Frontend installation requires: --domain, --token, --region"
+    if [[ -z "$FRONTEND_DOMAIN" ]] || [[ -z "$FRONTEND_TOKEN" ]]; then
+        log_error "Frontend installation requires: --domain, --token"
         exit 1
     fi
+    
+    # Default region if missing
+    FRONTEND_REGION=${FRONTEND_REGION:-"global"}
     
     if [[ -z "$PANEL_URL" ]]; then
         log_error "Frontend installation requires: --panel <URL>"
