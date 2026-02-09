@@ -540,36 +540,15 @@ pub async fn login(
         .await
         .unwrap_or(None);
 
-    let mut is_valid = false;
-
-    if let Some((hash,)) = admin_opts {
-        // Verify hash
-        if bcrypt::verify(&form.password, &hash).unwrap_or(false) {
-            is_valid = true;
-        }
+    // Verify password against DB hash (NO fallback for security)
+    let is_valid = if let Some((hash,)) = admin_opts {
+        bcrypt::verify(&form.password, &hash).unwrap_or(false)
     } else {
-        // Fallback to legacy env vars (only if not found in DB, for smooth migration/emergency)
-        let admin_user = std::env::var("ADMIN_USER").unwrap_or_else(|_| "admin".to_string());
-        let admin_pass = std::env::var("ADMIN_PASS").unwrap_or_else(|_| "admin".to_string());
-        
-        if form.username == admin_user && form.password == admin_pass {
-            is_valid = true;
-        }
-    }
+        false
+    };
 
     if is_valid {
         let admin_path = state.admin_path.clone();
-        
-        // Use a secure random session secret or the legacy token logic
-        // For consistency with setup.rs, let's use the session_secret from state
-        // creating a session cookie.
-        let cookie = Cookie::build(("admin_session", state.session_secret.clone()))
-            .path("/")
-            .http_only(true)
-            .build();
-            
-        let _ = cookie; // Suppress unused warning if logic doesn't use it directly here (it uses jar_with_cookie later which takes A cookie, but maybe I constructed logic wrong in previous edit)
-        // The middleware in main.rs checks "admin_session".
         
         let mut headers = axum::http::HeaderMap::new();
         headers.insert("HX-Redirect", format!("{}/dashboard", admin_path).parse().unwrap());

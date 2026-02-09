@@ -348,6 +348,19 @@ pub async fn callback_handler(
                     match state.store_service.activate_subscription(sub_id, u.id).await {
                         Ok(sub) => {
                                 let _ = bot.answer_callback_query(callback_id).text("✅ Activated!").await;
+                            
+                            // Trigger instant config update via PubSub
+                            if let Some(node_id) = sub.node_id {
+                                let pubsub = state.pubsub.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = pubsub.publish(&format!("node_events:{}", node_id), "config_update").await {
+                                        error!("Failed to publish node update: {}", e);
+                                    } else {
+                                        info!("✅ Published instant config update to node {}", node_id);
+                                    }
+                                });
+                            }
+                            
                             if let Some(msg) = q.message {
                                 let _ = bot.send_message(msg.chat().id, format!("🚀 *Subscription Activated!*\nExpires: `{}`", sub.expires_at.format("%Y-%m-%d"))).parse_mode(ParseMode::MarkdownV2).await;
                             }

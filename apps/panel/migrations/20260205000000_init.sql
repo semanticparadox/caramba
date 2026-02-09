@@ -472,7 +472,6 @@ CREATE INDEX IF NOT EXISTS idx_frontend_status ON frontend_servers(status);
 CREATE INDEX IF NOT EXISTS idx_frontend_stats_time ON frontend_server_stats(timestamp);
 CREATE INDEX IF NOT EXISTS idx_frontend_stats_server ON frontend_server_stats(frontend_id);
 CREATE INDEX IF NOT EXISTS idx_frontend_token_expiration ON frontend_servers(token_expires_at);
-CREATE INDEX IF NOT EXISTS idx_frontend_token_expiration ON frontend_servers(token_expires_at);
 CREATE INDEX IF NOT EXISTS idx_frontend_auth_hash ON frontend_servers(auth_token_hash);
 
 -- ================================================
