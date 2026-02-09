@@ -4,3 +4,4 @@ pub mod client;
 pub mod node_control;
 pub mod setup;
 pub mod frontend;
+pub mod local_app;

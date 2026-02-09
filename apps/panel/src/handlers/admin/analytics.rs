@@ -49,6 +49,7 @@ pub struct UserWithTraffic {
 
 #[derive(Template, WebTemplate)]
 #[template(path = "analytics.html")]
+#[allow(dead_code)] // Fields used in template but compiler can't detect
 pub struct AnalyticsTemplate {
     pub total_traffic_30d: String,
     pub active_nodes_count: i64,
@@ -102,17 +103,26 @@ pub async fn get_traffic_analytics(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let total_traffic_30d_bytes = sqlx::query_scalar::<_, i64>("SELECT SUM(total_ingress + total_egress) FROM nodes").fetch_one(&state.pool).await.unwrap_or(0);
-    let total_traffic_30d = format_bytes_str(total_traffic_30d_bytes as u64);
+    // Fetch System Stats from AnalyticsService
+    let stats = state.analytics_service.get_system_stats().await.unwrap_or(crate::services::analytics_service::SystemStats {
+        active_nodes: 0,
+        total_users: 0,
+        active_subs: 0,
+        total_revenue: 0.0,
+        total_traffic_bytes: 0,
+        total_traffic_30d_bytes: 0,
+    });
 
-    let active_nodes_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM nodes WHERE status = 'active'").fetch_one(&state.pool).await.unwrap_or(0);
+    let total_traffic_30d = format_bytes_str(stats.total_traffic_30d_bytes as u64);
+    let active_nodes_count = stats.active_nodes;
 
-    let orders = get_recent_orders(&state.pool).await;
+    let orders = state.billing_service.get_recent_orders(10).await.unwrap_or_default();
 
-    let top_users = sqlx::query_as!(
-        UserWithTraffic,
-        r#"SELECT COALESCE(username, full_name, 'Unknown') as "username!", '0 GB' as "total_traffic_fmt!" FROM users LIMIT 5"#
-    ).fetch_all(&state.pool).await.unwrap_or_default();
+    let top_users_raw = state.analytics_service.get_top_users().await.unwrap_or_default();
+    let top_users: Vec<UserWithTraffic> = top_users_raw.into_iter().map(|u| UserWithTraffic {
+        username: u.username.unwrap_or_else(|| "Unknown".to_string()),
+        total_traffic_fmt: format_bytes_str(u.total_traffic as u64),
+    }).collect();
 
     let admin_path = state.admin_path.clone();
 
@@ -141,40 +151,7 @@ pub async fn get_transactions(
         return axum::response::Redirect::to(&format!("{}/login", state.admin_path)).into_response();
     }
 
-    struct OrderQueryRow {
-        id: i64,
-        username: String,
-        total_amount: i64,
-        status: String,
-        created_at: Option<chrono::NaiveDateTime>,
-    }
-
-    let orders = sqlx::query_as!(
-        OrderQueryRow,
-        r#"
-        SELECT 
-            o.id, 
-            COALESCE(u.username, u.full_name, 'Unknown') as "username!", 
-            o.total_amount as "total_amount!", 
-            o.status as "status!", 
-            o.created_at
-        FROM orders o
-        JOIN users u ON o.user_id = u.id
-        ORDER BY o.created_at DESC
-        "#
-    )
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default()
-    .into_iter()
-    .map(|row| OrderWithUser {
-        id: row.id,
-        username: row.username,
-        total_amount: format!("{:.2}", row.total_amount as f64 / 100.0),
-        status: row.status,
-        created_at: row.created_at.map(|dt| dt.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default(),
-    })
-    .collect();
+    let orders = state.billing_service.get_all_orders().await.unwrap_or_default();
 
     let admin_path = state.admin_path.clone();
 

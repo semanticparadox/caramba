@@ -113,17 +113,9 @@ pub async fn get_users(
 ) -> impl IntoResponse {
     let search = query.get("search").cloned().unwrap_or_default();
     let users = if search.is_empty() {
-        sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY created_at DESC")
-            .fetch_all(&state.pool)
-            .await
-            .unwrap_or_default()
+        state.user_service.get_all().await.unwrap_or_default()
     } else {
-        sqlx::query_as::<_, User>("SELECT * FROM users WHERE username LIKE ? OR full_name LIKE ? ORDER BY created_at DESC")
-            .bind(format!("%{}%", search))
-            .bind(format!("%{}%", search))
-            .fetch_all(&state.pool)
-            .await
-            .unwrap_or_default()
+        state.user_service.search(&search).await.unwrap_or_default()
     };
 
     let template = UsersTemplate { users, search, is_auth: true, username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()), admin_path: state.admin_path.clone(), active_page: "users".to_string() };
@@ -139,19 +131,15 @@ pub async fn admin_gift_subscription(
     State(state): State<AppState>,
     Form(form): Form<AdminGiftForm>,
 ) -> impl IntoResponse {
-    let duration = match sqlx::query_as::<_, crate::models::store::PlanDuration>("SELECT * FROM plan_durations WHERE id = ?")
-        .bind(form.duration_id)
-        .fetch_optional(&state.pool)
-        .await
-    {
+    let duration = match state.store_service.get_plan_duration_by_id(form.duration_id).await {
         Ok(Some(d)) => d,
         Ok(None) => return (axum::http::StatusCode::BAD_REQUEST, "Invalid duration ID").into_response(),
         Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)).into_response(),
     };
 
-    match state.store_service.admin_gift_subscription(user_id, duration.plan_id, duration.duration_days).await {
+    match state.subscription_service.admin_gift_subscription(user_id, duration.plan_id, duration.duration_days).await {
         Ok(sub) => {
-            if let Ok(Some(user)) = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?").bind(user_id).fetch_optional(&state.pool).await {
+            if let Ok(Some(user)) = state.user_service.get_by_id(user_id).await {
                  let msg = format!("🎁 *Gift Received\\!*\\n\\nYou have received a new subscription\\.\\nExpires: {}", sub.expires_at.format("%Y-%m-%d"));
                  let _ = state.bot_manager.send_notification(
                      user.tg_id,
@@ -176,42 +164,14 @@ pub async fn get_user_details(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?")
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await
-        .unwrap_or(None);
+    let user = state.user_service.get_by_id(id).await.unwrap_or(None);
 
     let user = match user {
         Some(u) => u,
         None => return (axum::http::StatusCode::NOT_FOUND, "User not found").into_response(),
     };
 
-    let subscriptions = match sqlx::query_as::<_, SubscriptionWithPlan>(
-        r#"
-        SELECT 
-            s.id, 
-            p.name as plan_name, 
-            s.expires_at, 
-            s.created_at,
-            s.status,
-            0 as price, 
-            COALESCE(
-                (SELECT COUNT(DISTINCT client_ip) 
-                 FROM subscription_ip_tracking 
-                 WHERE subscription_id = s.id 
-                 AND datetime(last_seen_at) > datetime('now', '-15 minutes')),
-                0
-            ) as active_devices,
-            p.device_limit as device_limit
-        FROM subscriptions s
-        JOIN plans p ON s.plan_id = p.id
-        WHERE s.user_id = ?
-        "#
-    )
-    .bind(id)
-    .fetch_all(&state.pool)
-    .await {
+    let subscriptions = match state.subscription_service.get_subscriptions_with_details_for_admin(id).await {
         Ok(subs) => subs,
         Err(e) => {
             error!("Failed to fetch user subscriptions: {}", e);
@@ -219,17 +179,10 @@ pub async fn get_user_details(
         }
     };
 
-    let db_orders = sqlx::query_as::<_, Order>(
-        "SELECT id, user_id, total_amount, status, created_at, paid_at FROM orders WHERE user_id = ? ORDER BY created_at DESC"
-    )
-    .bind(id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
+    let db_orders = state.billing_service.get_user_orders(id).await.map_err(|e| {
          error!("Failed to fetch user orders: {}", e);
          e
-    })
-    .unwrap_or_default();
+    }).unwrap_or_default();
 
     let orders = db_orders.into_iter().map(|o| UserOrderDisplay {
         id: o.id,
@@ -271,19 +224,9 @@ pub async fn update_user(
     State(state): State<AppState>,
     Form(form): Form<UpdateUserForm>,
 ) -> impl IntoResponse {
-    let old_user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?")
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await
-        .unwrap_or(None);
+    let old_user = state.user_service.get_by_id(id).await.unwrap_or(None);
 
-    let res = sqlx::query("UPDATE users SET balance = ?, is_banned = ?, referral_code = ? WHERE id = ?")
-        .bind(form.balance)
-        .bind(form.is_banned)
-        .bind(form.referral_code.as_deref().map(|s| s.trim()))
-        .bind(id)
-        .execute(&state.pool)
-        .await;
+    let res = state.user_service.update_profile(id, form.balance, form.is_banned, form.referral_code.as_deref().map(|s| s.trim())).await;
 
     match res {
         Ok(_) => {
@@ -329,11 +272,7 @@ pub async fn update_user_balance(
     let balance_str = form.get("balance").unwrap_or(&"0".to_string()).clone();
     let balance: i64 = balance_str.parse().unwrap_or(0);
 
-    let res = sqlx::query("UPDATE users SET balance = ? WHERE id = ?")
-        .bind(balance)
-        .bind(id)
-        .execute(&state.pool)
-        .await;
+    let res = state.user_service.set_balance(id, balance).await;
 
     match res {
         Ok(_) => {
@@ -358,7 +297,7 @@ pub async fn delete_user_subscription(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     info!("Request to delete subscription ID: {}", id);
-    match state.store_service.admin_delete_subscription(id).await {
+    match state.subscription_service.admin_delete(id).await {
         Ok(_) => (axum::http::StatusCode::OK, "").into_response(),
         Err(e) => {
              error!("Failed to delete subscripton {}: {}", id, e);
@@ -388,7 +327,7 @@ pub async fn extend_user_subscription(
     Form(form): Form<ExtendForm>,
 ) -> impl IntoResponse {
     info!("Request to extend subscription ID: {} by {} days", id, form.days);
-    match state.store_service.admin_extend_subscription(id, form.days).await {
+    match state.subscription_service.admin_extend(id, form.days).await {
         Ok(_) => ([(("HX-Refresh", "true"))], "Extended").into_response(),
         Err(e) => {
              error!("Failed to extend subscripton {}: {}", id, e);
@@ -406,7 +345,7 @@ pub async fn get_subscription_devices(
         return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    let ips = match state.store_service.get_subscription_active_ips(sub_id).await {
+    let ips = match state.subscription_service.get_active_ips(sub_id).await {
         Ok(ips) => ips,
         Err(e) => {
             error!("Failed to fetch IPs for sub {}: {}", sub_id, e);
@@ -463,10 +402,7 @@ pub async fn admin_kill_subscription_sessions(
         return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    let sub = match sqlx::query!("SELECT vless_uuid FROM subscriptions WHERE id = ?", sub_id)
-        .fetch_optional(&state.pool)
-        .await
-    {
+    let sub = match state.subscription_service.get_by_id(sub_id).await {
         Ok(Some(s)) => s,
         _ => return (axum::http::StatusCode::NOT_FOUND, "Subscription not found").into_response(),
     };

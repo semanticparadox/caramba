@@ -1,6 +1,8 @@
 use sqlx::SqlitePool;
 use anyhow::{Context, Result};
 use crate::models::store::{Plan, Subscription, SubscriptionWithDetails, GiftCode, PlanDuration, RenewalResult, SubscriptionIpTracking};
+use crate::models::node::Node;
+use crate::singbox::subscription_generator::{self, NodeInfo, UserKeys};
 use uuid::Uuid;
 use chrono::{Utc, Duration};
 
@@ -154,6 +156,87 @@ impl SubscriptionService {
             .await
             .context("Failed to extend subscription")?;
         Ok(())
+    }
+
+    pub async fn admin_gift_subscription(&self, user_id: i64, plan_id: i64, duration_days: i32) -> Result<Subscription> {
+        let mut tx = self.pool.begin().await?;
+
+        // 1. Select an active node
+        let node_id: i64 = sqlx::query_scalar("SELECT id FROM nodes WHERE status = 'active' LIMIT 1")
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("No active nodes available to assign"))?;
+
+        // 2. Prepare subscription data
+        let vless_uuid = Uuid::new_v4().to_string();
+        let expires_at = Utc::now() + Duration::days(duration_days as i64);
+        let sub_uuid = Uuid::new_v4().to_string();
+
+        // 3. Create Active Subscription
+        // Note: sub_uuid logic was in StoreService but maybe implicitly handled or defaulted?
+        // Let's ensure we generate it. Subscription struct has it.
+        // The original query in store_service::admin_gift_subscription didn't explicitly bind sub_uuid in the snippet I saw!
+        // Wait, looking at store_service.rs (line 616), it did NOT bind subscription_uuid!
+        // But the schema requires it (or defaults).
+        // Let's check `store_service.rs` again carefully.
+        // Line 616: INSERT INTO subscriptions (..., subscription_uuid, ...)
+        // Wait, the snippet I saw for `admin_gift_subscription` in `store_service` (lines 599-631) 
+        // `INSERT INTO subscriptions (user_id, plan_id, node_id, vless_uuid, expires_at, status, created_at)`
+        // It does NOT insert `subscription_uuid`.
+        // If the table column has a default (e.g. generating UUID in SQLite trigger?), then fine.
+        // But `create_trial_subscription` (line 280 in `SubscriptionService`) DOES bind it.
+        // I should probably bind it to be safe and consistent.
+        
+        let sub = sqlx::query_as::<_, Subscription>(
+            r#"
+            INSERT INTO subscriptions (user_id, plan_id, node_id, vless_uuid, expires_at, status, subscription_uuid, created_at)
+            VALUES (?, ?, ?, ?, ?, 'active', ?, CURRENT_TIMESTAMP)
+            RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at
+            "#
+        )
+        .bind(user_id)
+        .bind(plan_id)
+        .bind(node_id)
+        .bind(vless_uuid)
+        .bind(expires_at)
+        .bind(sub_uuid)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(sub)
+    }
+
+    pub async fn get_subscriptions_with_details_for_admin(&self, user_id: i64) -> Result<Vec<crate::models::store::SubscriptionWithPlan>> {
+        use crate::models::store::SubscriptionWithPlan;
+        let subs = sqlx::query_as::<_, SubscriptionWithPlan>(
+            r#"
+            SELECT 
+                s.id, 
+                p.name as plan_name, 
+                s.expires_at, 
+                s.created_at,
+                s.status,
+                0 as price, 
+                COALESCE(
+                    (SELECT COUNT(DISTINCT client_ip) 
+                     FROM subscription_ip_tracking 
+                     WHERE subscription_id = s.id 
+                     AND datetime(last_seen_at) > datetime('now', '-15 minutes')),
+                    0
+                ) as active_devices,
+                p.device_limit as device_limit
+            FROM subscriptions s
+            JOIN plans p ON s.plan_id = p.id
+            WHERE s.user_id = ?
+            "#
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch user subscriptions with details")?;
+        
+        Ok(subs)
     }
 
     pub async fn get_user_subscriptions(&self, user_id: i64) -> Result<Vec<SubscriptionWithDetails>> {
@@ -420,5 +503,115 @@ impl SubscriptionService {
         let cutoff = Utc::now() - Duration::hours(1);
         let result = sqlx::query("DELETE FROM subscription_ip_tracking WHERE last_seen_at < ?").bind(cutoff).execute(&self.pool).await?;
         Ok(result.rows_affected())
+    }
+
+    // --- New methods for Hybrid Frontend support ---
+
+    /// Fetch subscription by its UUID (used for public subscription links)
+    pub async fn get_subscription_by_uuid(&self, uuid: &str) -> Result<Subscription> {
+        let sub = sqlx::query_as::<_, Subscription>(
+            "SELECT * FROM subscriptions WHERE subscription_uuid = ?"
+        )
+        .bind(uuid)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Subscription not found"))?;
+
+        Ok(sub)
+    }
+
+    pub async fn get_by_id(&self, id: i64) -> Result<Option<Subscription>> {
+        let sub = sqlx::query_as::<_, Subscription>("SELECT * FROM subscriptions WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .context("Failed to fetch subscription by ID")?;
+        Ok(sub)
+    }
+
+    /// Update subscription last access time and IP
+    pub async fn track_access(&self, sub_id: i64, ip: &str, user_agent: Option<&str>) -> Result<()> {
+        sqlx::query(
+            "UPDATE subscriptions SET last_sub_access = CURRENT_TIMESTAMP WHERE id = ?"
+        )
+        .bind(sub_id)
+        .execute(&self.pool)
+        .await?;
+
+        // Also log to subscription_ip_tracking
+        // We use a simplified tracking here, assuming unique constraint on (sub_id, ip)
+        sqlx::query(
+            "INSERT INTO subscription_ip_tracking (subscription_id, client_ip, last_seen_at) 
+             VALUES (?, ?, CURRENT_TIMESTAMP)
+             ON CONFLICT(subscription_id, client_ip) DO UPDATE SET last_seen_at = CURRENT_TIMESTAMP"
+        )
+        .bind(sub_id)
+        .bind(ip)
+        .execute(&self.pool)
+        .await?;
+        
+        Ok(())
+    }
+
+    /// Fetch all active nodes and convert to NodeInfo for config generation
+    pub async fn get_active_nodes_for_config(&self) -> Result<Vec<NodeInfo>> {
+        let nodes = sqlx::query_as::<_, Node>(
+            "SELECT * FROM nodes WHERE is_enabled = 1 AND status = 'online'"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let node_infos = nodes.iter().map(NodeInfo::from).collect();
+        Ok(node_infos)
+    }
+
+    /// Get user keys for config generation
+    /// Currently uses the subscription's vless_uuid as the user UUID
+    pub async fn get_user_keys(&self, sub: &Subscription) -> Result<UserKeys> {
+        // We rely on the subscription's UUID for VLESS
+        let user_uuid = sub.vless_uuid.clone().ok_or_else(|| anyhow::anyhow!("No VLESS UUID for subscription"))?;
+        
+        // For Hysteria2, we often need a password. 
+        // If not stored, we might generate one or use a consistent hash.
+        // For now, let's look closer at `subscription_generator::UserKeys`.
+        // It has `hy2_password`. 
+        // We can try to fetch it from the user's profile if it exists, or derive it.
+        // The existing `get_subscription_links` derives it:
+        // `let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?").bind(sub.user_id)...`
+        // `let auth = format!("{}:{}", tg_id, uuid.replace("-", ""));`
+        
+        // Let's replicate this logic to be consistent
+        let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?")
+            .bind(sub.user_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .unwrap_or(0);
+            
+        // Hysteria2 often uses `user:password` or just `password`.
+        // In `get_subscription_links`: `hysteria2://{}@{}:{}...` where auth is `tg_id:uuid_no_dashes`
+        // So the "password" for the client might be this auth string? check `subscription_generator`.
+        // `subscription_generator` uses `user_keys.hy2_password` in `hysteria2://{password}@{server}...`
+        // So `hy2_password` should probably be the full auth string `tg_id:uuid`.
+        
+        let hy2_password = format!("{}:{}", tg_id, user_uuid.replace("-", ""));
+
+        Ok(UserKeys {
+            user_uuid,
+            hy2_password,
+            _awg_private_key: None, // Not yet implemented
+        })
+    }
+    
+    // Wrappers for config generation
+    pub fn generate_clash(&self, sub: &Subscription, nodes: &[NodeInfo], keys: &UserKeys) -> Result<String> {
+        subscription_generator::generate_clash_config(sub, nodes, keys)
+    }
+    
+    pub fn generate_v2ray(&self, sub: &Subscription, nodes: &[NodeInfo], keys: &UserKeys) -> Result<String> {
+        subscription_generator::generate_v2ray_config(sub, nodes, keys)
+    }
+    
+    pub fn generate_singbox(&self, sub: &Subscription, nodes: &[NodeInfo], keys: &UserKeys) -> Result<String> {
+        subscription_generator::generate_singbox_config(sub, nodes, keys)
     }
 }

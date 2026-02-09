@@ -1,15 +1,17 @@
 {% extends "base.html" %}
 
-{% block title %}Frontend Servers - EXA-ROBOT{% endblock %}
-{% block header_title %}Frontend Servers{% endblock %}
+{% block title %}Distributed Nodes - EXA-ROBOT{% endblock %}
+{% block header_title %}Distributed Nodes{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
     <!-- Header & Actions -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-            <h2 class="text-xl font-bold text-white tracking-tight">Frontend Nodes</h2>
-            <p class="text-slate-400 text-sm mt-1">Manage distributed servers for resilience and load balancing.</p>
+            <h2 class="text-xl font-bold text-white tracking-tight">Distributed Frontend Nodes</h2>
+            <p class="text-slate-400 text-sm mt-1">Manage external frontend servers. For global subscription settings,
+                visit <a href="/admin/settings" class="text-indigo-400 hover:text-indigo-300">Settings > Frontend</a>.
+            </p>
         </div>
         <button onclick="document.getElementById('addFrontendModal').showModal()"
             class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 px-5 rounded-xl transition-all shadow-[0_0_20px_rgba(255,107,53,0.3)] hover:shadow-[0_0_30px_rgba(255,107,53,0.5)] border border-white/10">
@@ -77,7 +79,8 @@
 
             <div class="grid grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Miniapp Domain (Optional)</label>
+                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Miniapp
+                        Domain (Optional)</label>
                     <div class="relative">
                         <i data-lucide="smartphone" class="absolute left-4 top-3.5 w-4 h-4 text-slate-500"></i>
                         <input type="text" name="miniapp_domain" placeholder="app.example.com"
@@ -85,7 +88,8 @@
                     </div>
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Sub Path</label>
+                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Sub
+                        Path</label>
                     <div class="relative">
                         <i data-lucide="folder" class="absolute left-4 top-3.5 w-4 h-4 text-slate-500"></i>
                         <input type="text" name="sub_path" placeholder="/sub/" value="/sub/"
@@ -96,7 +100,8 @@
 
             <!-- Advanced / Hidden fields for IP/Region (Optional) -->
             <details class="group">
-                <summary class="flex items-center gap-2 text-xs font-medium text-slate-500 uppercase tracking-wider cursor-pointer hover:text-indigo-400 transition-colors">
+                <summary
+                    class="flex items-center gap-2 text-xs font-medium text-slate-500 uppercase tracking-wider cursor-pointer hover:text-indigo-400 transition-colors">
                     <i data-lucide="chevron-right" class="w-4 h-4 group-open:rotate-90 transition-transform"></i>
                     <span>Advanced Options (IP / Region)</span>
                 </summary>
@@ -385,7 +390,7 @@
             if (!response.ok) throw new Error('Failed to generate command');
 
             const data = await response.json();
-            
+
             // Re-use the existing Install Modal
             document.getElementById('installCommand').textContent = data.instructions;
             document.getElementById('serverIP').textContent = "Server IP";

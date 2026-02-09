@@ -256,15 +256,30 @@ async fn get_user_subscription(
         // Return UUID and let frontend construct it, OR return full URL.
         // Let's return UUID + formatted URL.
         
-        let domain = env::var("PANEL_URL").unwrap_or_else(|_| "panel.example.com".to_string());
-        // Clean functionality: remove http/https prefix if present for cleaner display, or ensure it for real link
-        // Actually, PANEL_URL usually includes protocol. If not, assume https.
-        let base_url = if domain.starts_with("http") { domain } else { format!("https://{}", domain) };
+        // Check for custom subscription domain
+        let sub_domain = state.settings.get_or_default("subscription_domain", "").await;
+        let frontend_mode = state.settings.get_or_default("frontend_mode", "local").await;
+        
+        // If sub_domain is set, use it. Otherwise use PANEL_URL
+        let base_domain = if !sub_domain.is_empty() {
+             sub_domain
+        } else {
+             env::var("PANEL_URL").unwrap_or_else(|_| "panel.example.com".to_string())
+        };
+
+        // Ensure protocol
+        let base_url = if base_domain.starts_with("http") { 
+            base_domain 
+        } else { 
+            format!("https://{}", base_domain) 
+        };
+        
         let sub_url = format!("{}/sub/{}", base_url, uuid);
         
         Json(serde_json::json!({
             "uuid": uuid,
-            "subscription_url": sub_url
+            "subscription_url": sub_url,
+            "frontend_mode": frontend_mode
         })).into_response()
     } else {
         (StatusCode::NOT_FOUND, "No subscription").into_response()

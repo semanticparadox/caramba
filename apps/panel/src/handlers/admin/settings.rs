@@ -67,6 +67,9 @@ pub struct SettingsTemplate {
     pub is_auth: bool,
     pub admin_path: String,
     pub active_page: String,
+    pub frontend_mode: String,
+    pub miniapp_enabled: bool,
+    pub subscription_domain: String,
 }
 
 #[derive(Template, WebTemplate)]
@@ -110,6 +113,9 @@ pub struct SaveSettingsForm {
     pub decoy_max_interval: Option<String>,
     pub kill_switch_enabled: Option<String>,
     pub kill_switch_timeout: Option<String>,
+    pub frontend_mode: Option<String>,
+    pub miniapp_enabled: Option<String>,
+    pub subscription_domain: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -163,7 +169,12 @@ pub async fn get_settings(
     let free_trial_traffic_limit = state.settings.get_or_default("free_trial_traffic_limit", "10").await.parse().unwrap_or(10);
     let free_trial_device_limit = state.settings.get_or_default("free_trial_device_limit", "1").await.parse().unwrap_or(1);
     let required_channel_id = state.settings.get_or_default("required_channel_id", "").await;
+
     let last_export = state.settings.get_or_default("last_export", "Never").await;
+
+    let frontend_mode = state.settings.get_or_default("frontend_mode", "local").await;
+    let miniapp_enabled = state.settings.get_or_default("miniapp_enabled", "true").await == "true";
+    let subscription_domain = state.settings.get_or_default("subscription_domain", "").await;
 
     let masked_payment_api_key = if !payment_api_key.is_empty() { mask_key(&payment_api_key) } else { "".to_string() };
     let masked_nowpayments_api_key = if !nowpayments_api_key.is_empty() { mask_key(&nowpayments_api_key) } else { "".to_string() };
@@ -218,6 +229,9 @@ pub async fn get_settings(
         is_auth: true,
         admin_path,
         active_page: "settings".to_string(),
+        frontend_mode,
+        miniapp_enabled,
+        subscription_domain,
     };
 
     match template.render() {
@@ -341,14 +355,16 @@ pub async fn save_settings(
     if let Some(v) = form.decoy_max_interval { settings.insert("decoy_max_interval".to_string(), v); }
 
     if let Some(v) = form.kill_switch_enabled { settings.insert("kill_switch_enabled".to_string(), v); }
+
     if let Some(v) = form.kill_switch_timeout { settings.insert("kill_switch_timeout".to_string(), v); }
+
+    if let Some(v) = form.frontend_mode { settings.insert("frontend_mode".to_string(), v); }
+    if let Some(v) = form.miniapp_enabled { settings.insert("miniapp_enabled".to_string(), v); }
+    if let Some(v) = form.subscription_domain { settings.insert("subscription_domain".to_string(), v); }
 
     match state.settings.set_multiple(settings).await {
         Ok(_) => {
-             let active_nodes: Vec<i64> = sqlx::query_scalar("SELECT id FROM nodes WHERE status = 'active'")
-                 .fetch_all(&state.pool)
-                 .await
-                 .unwrap_or_default();
+             let active_nodes = state.store_service.get_active_node_ids().await.unwrap_or_default();
              
              let pubsub = state.pubsub.clone();
              tokio::spawn(async move {
@@ -529,39 +545,11 @@ pub async fn update_trial_config(
     let _ = state.settings.set("free_trial_device_limit", &form.free_trial_device_limit.to_string()).await;
     let _ = state.settings.set("required_channel_id", &form.required_channel_id).await;
     
-    // Update trial plan if exists
-    let trial_plan_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM plans WHERE is_trial = 1)")
-        .fetch_one(&state.pool)
-        .await
-        .unwrap_or(false);
-
-    if trial_plan_exists {
-        let _ = sqlx::query("UPDATE plans SET device_limit = ?, traffic_limit_gb = ? WHERE is_trial = 1")
-            .bind(form.free_trial_device_limit)
-            .bind(form.free_trial_traffic_limit)
-            .execute(&state.pool)
-            .await;
+    if let Err(e) = state.store_service.update_trial_plan_limits(form.free_trial_device_limit, form.free_trial_traffic_limit).await {
+        error!("Failed to update trial plan limits: {}", e);
     }
 
     Redirect::to(&format!("{}/settings", state.admin_path)).into_response()
 }
 
-pub async fn reset_user_trials(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-    info!("Resetting all user trial flags");
 
-    match sqlx::query("UPDATE users SET has_used_trial = 0, has_used_channel_trial = 0")
-        .execute(&state.pool)
-        .await
-    {
-        Ok(_) => {
-            let _ = LoggingService::log_system(&state.pool, "admin_reset_trials", "Admin reset all trial flags").await;
-            (StatusCode::OK, "Trial flags reset successfully").into_response()
-        }
-        Err(e) => {
-            error!("Failed to reset trial flags: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed: {}", e)).into_response()
-        }
-    }
-}

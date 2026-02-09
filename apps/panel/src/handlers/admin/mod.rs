@@ -7,6 +7,7 @@ pub mod plans;
 pub mod settings;
 pub mod analytics;
 pub mod store;
+pub mod frontends;
 
 // Re-export commonly used functions for convenience
 pub use auth::{get_login, login, logout, get_auth_user, is_authenticated};
@@ -17,24 +18,8 @@ pub use plans::{get_plans, add_plan, delete_plan, get_plan_edit, update_plan};
 pub use settings::{get_settings, save_settings, toggle_bot, bot_logs_page, bot_logs_history, bot_logs_tail, update_trial_config};
 pub use analytics::{get_traffic_analytics, get_transactions, get_system_logs_page};
 pub use store::{get_store_categories_page, create_category, delete_category, get_store_products_page, create_product, delete_product};
+pub use frontends::get_frontends;
 
-// Aliases for backward compatibility with main.rs routes
-pub use settings::export_database as db_export_download;
-pub use settings::bot_logs_page as get_bot_page;
-
-// TODO: These functions were not in the original admin.rs or need to be migrated from elsewhere
-// Stub implementations to fix compilation - these should be properly implemented
-pub async fn check_update(axum::extract::State(_state): axum::extract::State<crate::AppState>) -> impl axum::response::IntoResponse {
-    "Update check not yet implemented".to_string()
-}
-
-pub async fn get_node_logs(axum::extract::Path(_id): axum::extract::Path<i64>, axum::extract::State(_state): axum::extract::State<crate::AppState>) -> impl axum::response::IntoResponse {
-    "Node logs not yet implemented".to_string()
-}
-
-pub async fn get_frontends(axum::extract::State(_state): axum::extract::State<crate::AppState>, _jar: axum_extra::extract::cookie::CookieJar) -> impl axum::response::IntoResponse {
-    "Frontends page not yet implemented".to_string()
-}
 
 pub async fn api_keys_list(axum::extract::State(_state): axum::extract::State<crate::AppState>, _jar: axum_extra::extract::cookie::CookieJar) -> impl axum::response::IntoResponse {
     "API keys list not yet implemented".to_string()

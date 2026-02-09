@@ -19,6 +19,10 @@
             class="tab-btn flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white hover:bg-white/5">
             <i data-lucide="credit-card" class="w-4 h-4"></i> Payments
         </button>
+        <button onclick="switchTab('frontend')" id="tab-frontend"
+            class="tab-btn flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white hover:bg-white/5">
+            <i data-lucide="layout" class="w-4 h-4"></i> Frontend
+        </button>
         <button onclick="switchTab('trials')" id="tab-trials"
             class="tab-btn flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white hover:bg-white/5">
             <i data-lucide="gift" class="w-4 h-4"></i> Trials
@@ -100,6 +104,61 @@
 
                 <textarea form="main-settings-form" name="terms_of_service"
                     class="w-full bg-slate-950 border border-white/10 rounded-xl p-4 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm h-48 custom-scrollbar resize-y">{{ terms_of_service }}</textarea>
+            </div>
+        </div>
+
+        <!-- 1.5 FRONTEND TAB -->
+        <div id="content-frontend" class="tab-content hidden space-y-6 animate-fade-in">
+            <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6">
+                <header class="flex items-center gap-3 mb-6">
+                    <div class="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400">
+                        <i data-lucide="layout" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-white">Frontend & Subscription</h3>
+                        <p class="text-xs text-slate-500">Configure how users access their subscriptions</p>
+                    </div>
+                </header>
+
+                <div class="space-y-6">
+                    <!-- Frontend Mode -->
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Frontend Mode</label>
+                        <select form="main-settings-form" name="frontend_mode"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all text-sm appearance-none">
+                            <option value="local" {% if frontend_mode == "local" %}selected{% endif %}>Local (Panel Hosted)</option>
+                            <option value="distributed" {% if frontend_mode == "distributed" %}selected{% endif %}>Distributed (CDN/External)</option>
+                        </select>
+                        <p class="text-[10px] text-slate-500 mt-1.5">Local: Panel serves pages directly. Distributed: Uses external nodes/CDNs.</p>
+                    </div>
+
+                    <!-- Subscription Domain -->
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Subscription Domain (Optional)</label>
+                        <input type="text" form="main-settings-form" name="subscription_domain" value="{{ subscription_domain }}"
+                            placeholder="sub.example.com"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all text-sm">
+                        <p class="text-[10px] text-slate-500 mt-1.5">Custom domain for subscription links. Leave empty to use Panel URL.</p>
+                    </div>
+
+                    <!-- Mini App Toggle -->
+                    <div class="flex items-center justify-between p-4 bg-slate-950/30 border border-white/5 rounded-xl">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400">
+                                <i data-lucide="smartphone" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-sm font-semibold text-white">Telegram Mini App</h4>
+                                <p class="text-xs text-slate-400">Enable the embedded Telegram Mini App</p>
+                            </div>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" form="main-settings-form" name="miniapp_enabled" value="true"
+                                class="sr-only peer" {% if miniapp_enabled %}checked{% endif %}>
+                            <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                        </label>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -554,7 +613,7 @@
 <script>
     function switchTab(tabId) {
         // Build tab IDs
-        const tabs = ['general', 'payments', 'trials', 'system'];
+        const tabs = ['general', 'payments', 'frontend', 'trials', 'system'];
 
         tabs.forEach(t => {
             const btn = document.getElementById(`tab-${t}`);

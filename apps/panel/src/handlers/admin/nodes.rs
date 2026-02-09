@@ -100,49 +100,19 @@ pub async fn install_node(
         info!("Adding pending node: {}", form.name);
     }
 
-    // Generate Token for Smart Setup
-    let token = uuid::Uuid::new_v4().to_string();
-    let auto_configure = form.auto_configure.unwrap_or(false);
-
-    // Handle pending IP with unique placeholder
-    let ip = if let Some(ref i) = form.ip {
-        if i.is_empty() { format!("pending-{}", &token[0..8]) } else { i.clone() }
-    } else {
-        format!("pending-{}", &token[0..8])
-    };
-
-    let res = sqlx::query("INSERT INTO nodes (name, ip, vpn_port, status, join_token, auto_configure) VALUES (?, ?, ?, 'installing', ?, ?) RETURNING id")
-        .bind(&form.name)
-        .bind(&ip)
-        .bind(form.vpn_port)
-        .bind(&token)
-        .bind(auto_configure)
-        .fetch_one(&state.pool)
-        .await;
-
-    match res {
-        Ok(row) => {
-            use sqlx::Row;
-            let id: i64 = row.get(0);
-            
-            // Set status to 'new'
-            let _ = sqlx::query("UPDATE nodes SET status = 'new' WHERE id = ?")
-                .bind(id)
-                .execute(&state.pool)
-                .await;
-            
-            // Initialize default inbounds
-            if let Err(e) = state.orchestration_service.init_default_inbounds(id).await {
-                error!("Failed to initialize inbounds for node {}: {}", id, e);
-            }
-            
+    // Generate Token for Smart Setup (handled inside create_node if we passed token, but create_node generates it internally currently)
+    // Actually create_node generates a token.
+    // Let's rely on create_node's internal logic or update create_node to take overrides if needed?
+    // create_node generates a new token.
+    // form.ip logic is handled in create_node now.
+    
+    match state.orchestration_service.create_node(&form.name, &check_ip, form.vpn_port, form.auto_configure.unwrap_or(false)).await {
+        Ok(_) => {
             let admin_path = state.admin_path.clone();
-            
             let mut headers = HeaderMap::new();
             headers.insert("HX-Redirect", format!("{}/nodes", admin_path).parse().unwrap());
             (axum::http::StatusCode::OK, headers, "Redirecting...").into_response()
         }
-
         Err(e) => {
             error!("Failed to insert node: {}", e);
             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to add node").into_response()
@@ -154,10 +124,7 @@ pub async fn get_node_edit(
     Path(id): Path<i64>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    let node: Node = match sqlx::query_as("SELECT * FROM nodes WHERE id = ?")
-        .bind(id)
-        .fetch_one(&state.pool)
-        .await {
+    let node = match state.orchestration_service.get_node_by_id(id).await {
             Ok(n) => n,
             Err(e) => {
                 error!("Failed to fetch node for edit: {}", e);
@@ -193,12 +160,7 @@ pub async fn update_node(
 ) -> impl IntoResponse {
     info!("Updating node ID: {}", id);
     
-    let query = sqlx::query("UPDATE nodes SET name = ?, ip = ? WHERE id = ?")
-        .bind(&form.name)
-        .bind(&form.ip)
-        .bind(id);
-
-    match query.execute(&state.pool).await {
+    match state.orchestration_service.update_node(id, &form.name, &form.ip).await {
         Ok(_) => {
              let admin_path = state.admin_path.clone();
              
@@ -223,20 +185,9 @@ pub async fn sync_node(
     let pubsub = state.pubsub.clone();
 
     tokio::spawn(async move {
-        // Delete existing inbounds to force regeneration with fresh keys
-        if let Err(e) = sqlx::query("DELETE FROM inbounds WHERE node_id = ?")
-            .bind(id)
-            .execute(&orch.pool)
-            .await 
-        {
-            error!("Failed to delete old inbounds: {}", e);
-        } else {
-            info!("Deleted old inbounds for node {}", id);
-        }
-        
-        // Recreate default inbounds with fresh keys
-        if let Err(e) = orch.init_default_inbounds(id).await {
-            error!("Failed to recreate inbounds for node {}: {}", id, e);
+        // Reset inbounds using orchestration service
+        if let Err(e) = orch.reset_inbounds(id).await {
+            error!("Failed to reset inbounds for node {}: {}", id, e);
         } else {
             info!("Successfully regenerated inbounds with fresh keys for node {}", id);
             
@@ -256,33 +207,8 @@ pub async fn delete_node(
 ) -> impl IntoResponse {
     info!("Request to delete node ID: {}", id);
 
-    // Manual Cleanup for non-cascading relations
-    
-    // Clear SNI Logs
-    if let Err(e) = sqlx::query("DELETE FROM sni_rotation_log WHERE node_id = ?")
-        .bind(id)
-        .execute(&state.pool)
-        .await 
-    {
-        error!("Failed to clear SNI logs for node {}: {}", id, e);
-    }
-
-    // Unlink Subscriptions
-    if let Err(e) = sqlx::query("UPDATE subscriptions SET node_id = NULL WHERE node_id = ?")
-        .bind(id)
-        .execute(&state.pool)
-        .await
-    {
-        error!("Failed to unlink subscriptions for node {}: {}", id, e);
-    }
-
-    // Delete the node (Cascades to inbounds)
-    let res = sqlx::query("DELETE FROM nodes WHERE id = ?")
-        .bind(id)
-        .execute(&state.pool)
-        .await;
-
-    match res {
+    // Delete the node (now handled by service)
+    match state.orchestration_service.delete_node(id).await {
         Ok(_) => {
             info!("Node {} deleted successfully", id);
             (axum::http::StatusCode::OK, "").into_response()
@@ -300,26 +226,8 @@ pub async fn toggle_node_enable(
 ) -> impl IntoResponse {
     info!("Request to toggle enable status for node ID: {}", id);
     
-    // Fetch current status
-    let enabled_res: Result<bool, sqlx::Error> = sqlx::query_scalar("SELECT is_enabled FROM nodes WHERE id = ?")
-        .bind(id)
-        .fetch_one(&state.pool)
-        .await;
-
-    let enabled = match enabled_res {
-        Ok(e) => e,
-        Err(_) => return (axum::http::StatusCode::NOT_FOUND, "Node not found").into_response(),
-    };
-
-    let new_status = !enabled;
-    
-    let res = sqlx::query("UPDATE nodes SET is_enabled = ? WHERE id = ?")
-        .bind(new_status)
-        .bind(id)
-        .execute(&state.pool)
-        .await;
-
-    match res {
+    // Toggle enable status
+    match state.orchestration_service.toggle_node_enable(id).await {
         Ok(_) => {
             let admin_path = state.admin_path.clone();
             ([(("HX-Redirect", format!("{}/nodes", admin_path)))], "Toggled").into_response()
@@ -335,12 +243,7 @@ pub async fn activate_node(
     Path(id): Path<i64>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    let res = sqlx::query("UPDATE nodes SET status = 'active' WHERE id = ?")
-        .bind(id)
-        .execute(&state.pool)
-        .await;
-
-    match res {
+    match state.orchestration_service.activate_node(id).await {
         Ok(_) => {
             let admin_path = state.admin_path.clone();
             ([(("HX-Redirect", format!("{}/nodes", admin_path)))]).into_response()

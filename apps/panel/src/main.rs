@@ -54,6 +54,7 @@ pub struct AppState {
     pub billing_service: Arc<services::billing_service::BillingService>,
     pub subscription_service: Arc<services::subscription_service::SubscriptionService>,
     pub catalog_service: Arc<services::catalog_service::CatalogService>,
+    pub analytics_service: Arc<services::analytics_service::AnalyticsService>,
 
     pub ssh_public_key: String,
     // Format: IP -> (Lat, Lon, Timestamp)
@@ -290,44 +291,49 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     let channel_trial_service = Arc::new(services::channel_trial_service::ChannelTrialService::new(pool.clone()));
     let notification_service = Arc::new(services::notification_service::NotificationService::new(pool.clone()));
 
-    let pubsub = services::pubsub_service::PubSubService::new(redis_url).await.expect("Failed to init PubSub");
+    let pubsub_service = services::pubsub_service::PubSubService::new(redis_url).await.expect("Failed to init PubSub");
 
-    let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path_prefix = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
+    let admin_path_prefix = if admin_path_prefix.starts_with('/') { admin_path_prefix } else { format!("/{}", admin_path_prefix) };
 
     // Initialize System Monitor
     let mut sys = sysinfo::System::new_all();
     sys.refresh_all();
     let system_stats = std::sync::Arc::new(tokio::sync::Mutex::new(sys));
 
+    let analytics_service = Arc::new(services::analytics_service::AnalyticsService::new(pool.clone()));
+
+    let geo_cache = Arc::new(Mutex::new(HashMap::new()));
+    let session_secret = std::env::var("SESSION_SECRET").unwrap_or_else(|_| "secret".to_string());
+
     // App state
     let state = AppState {
         pool: pool.clone(),
-        settings: settings.clone(),
+        settings: settings_service.clone(),
         bot_manager: bot_manager.clone(),
         store_service: store_service.clone(),
         orchestration_service: orchestration_service.clone(),
-        connection_service: connection_service.clone(),
         pay_service: pay_service.clone(),
         export_service: export_service.clone(),
-        channel_trial_service,
-        notification_service,
+        channel_trial_service: channel_trial_service.clone(),
+        notification_service: notification_service.clone(),
+        connection_service: connection_service.clone(),
         redis: redis_service.clone(),
-        pubsub,
-
+        pubsub: pubsub_service.clone(),
+        
         user_service,
         billing_service,
         subscription_service,
         catalog_service,
-
+        analytics_service,
+        
         ssh_public_key,
-        geo_cache: Arc::new(Mutex::new(HashMap::new())),
-        session_secret: std::env::var("SESSION_SECRET").unwrap_or_else(|_| "secret".to_string()),
-        admin_path: admin_path.clone(), // Store it
+        geo_cache,
+        session_secret,
+        admin_path: admin_path_prefix.clone(),
         system_stats,
     };
     
-    // ... rest of function ...
     // Note: I will only replace the top partial block first to fix the match arm, then append function.
     // Actually, let's just do the match arm fix first.
     let _ = state; // prevent unused variable warning if rest of function is cut off (it won't be in real file)
@@ -479,6 +485,10 @@ use tower_http::services::ServeDir;
         .nest("/api/client", api::client::routes(state.clone()))
         // Public Subscription URL endpoint
         .route("/sub/{uuid}", axum::routing::get(subscription::subscription_handler))
+        
+        // Local Mini App Serving
+        .route("/app", axum::routing::get(handlers::local_app::serve_app))
+        .route("/app/{*path}", axum::routing::get(handlers::local_app::serve_app_assets))
 
         // Frontend API Routes (Must be top level to match /api/admin/frontends)
         .route("/api/admin/frontends", axum::routing::get(handlers::frontend::list_frontends).post(handlers::frontend::create_frontend))

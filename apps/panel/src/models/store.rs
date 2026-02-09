@@ -223,3 +223,15 @@ pub struct CartItem {
     pub product_name: String,
     pub price: i64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct SubscriptionWithPlan {
+    pub id: i64,
+    pub plan_name: String,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub status: String,
+    pub price: i64,
+    pub active_devices: i64,
+    pub device_limit: i64,
+}

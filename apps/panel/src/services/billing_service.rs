@@ -84,4 +84,58 @@ impl BillingService {
             .await?;
         Ok(())
     }
+
+    /// Get recent orders for dashboard (limit 10)
+    pub async fn get_recent_orders(&self, limit: i64) -> Result<Vec<crate::handlers::admin::dashboard::OrderWithUser>> {
+        use crate::handlers::admin::dashboard::OrderWithUser;
+        let orders = sqlx::query_as::<_, OrderWithUser>(
+            r#"
+            SELECT o.id, COALESCE(u.username, u.full_name, 'Unknown') as username, 
+                   printf('%.2f', CAST(o.total_amount AS REAL) / 100.0) as total_amount,
+                   o.status, o.created_at
+            FROM orders o
+            LEFT JOIN users u ON o.user_id = u.id
+            ORDER BY o.created_at DESC
+            LIMIT ?
+            "#
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch recent orders")?;
+        
+        Ok(orders)
+    }
+
+    /// Get all orders for transactions page
+    pub async fn get_all_orders(&self) -> Result<Vec<crate::handlers::admin::dashboard::OrderWithUser>> {
+        use crate::handlers::admin::dashboard::OrderWithUser;
+        let orders = sqlx::query_as::<_, OrderWithUser>(
+            r#"
+            SELECT o.id, COALESCE(u.username, u.full_name, 'Unknown') as username, 
+                   printf('%.2f', CAST(o.total_amount AS REAL) / 100.0) as total_amount,
+                   o.status, o.created_at
+            FROM orders o
+            LEFT JOIN users u ON o.user_id = u.id
+            ORDER BY o.created_at DESC
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch all orders")?;
+        
+        Ok(orders)
+    }
+
+    pub async fn get_user_orders(&self, user_id: i64) -> Result<Vec<crate::models::store::Order>> {
+        use crate::models::store::Order;
+        let orders = sqlx::query_as::<_, Order>(
+            "SELECT id, user_id, total_amount, status, created_at, paid_at FROM orders WHERE user_id = ? ORDER BY created_at DESC"
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch user orders")?;
+        Ok(orders)
+    }
 }

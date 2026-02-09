@@ -88,16 +88,7 @@ pub async fn create_category(
 ) -> impl IntoResponse {
     info!("Adding new category: {}", form.name);
 
-    let res = sqlx::query("INSERT INTO categories (name, description, sort_order) VALUES (?, ?, ?)")
-        .bind(&form.name)
-        .bind(&form.description)
-        .bind(form.sort_order)
-        .execute(&state.pool)
-        .await;
-
-    let admin_path = state.admin_path.clone();
-
-    match res {
+    match state.store_service.create_category(&form.name, form.description.as_deref(), form.sort_order).await {
         Ok(_) => [(("HX-Redirect", format!("{}/store/categories", admin_path)))].into_response(),
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)).into_response(),
     }
@@ -107,24 +98,15 @@ pub async fn delete_category(
     Path(id): Path<i64>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM products WHERE category_id = ?")
-        .bind(id)
-        .fetch_one(&state.pool)
-        .await
-        .unwrap_or(0);
-
-    if count > 0 {
-        return (axum::http::StatusCode::BAD_REQUEST, "Cannot delete category with existing products.").into_response();
-    }
-
-    let res = sqlx::query("DELETE FROM categories WHERE id = ?")
-        .bind(id)
-        .execute(&state.pool)
-        .await;
-        
-    match res {
+    match state.store_service.delete_category(id).await {
         Ok(_) => (axum::http::StatusCode::OK, "").into_response(),
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete: {}", e)).into_response(),
+        Err(e) => {
+             // Check if it's a constraint error (existing products)
+             if e.to_string().contains("products") {
+                 return (axum::http::StatusCode::BAD_REQUEST, "Cannot delete category with existing products.").into_response();
+             }
+             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete: {}", e)).into_response()
+        }
     }
 }
 
@@ -132,10 +114,7 @@ pub async fn get_store_products_page(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let products = sqlx::query_as::<_, crate::models::store::Product>("SELECT * FROM products ORDER BY created_at DESC")
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
+    let products = state.store_service.get_all_products().await.unwrap_or_default();
 
     let categories = state.store_service.get_categories().await.unwrap_or_default();
     
@@ -169,21 +148,7 @@ pub async fn create_product(
     let product_type = form.product_type;
     let content = form.content.unwrap_or_default();
 
-    let res = sqlx::query(
-        "INSERT INTO products (category_id, name, description, price, product_type, content) VALUES (?, ?, ?, ?, ?, ?)"
-    )
-    .bind(category_id)
-    .bind(name)
-    .bind(description)
-    .bind(price)
-    .bind(product_type)
-    .bind(content)
-    .execute(&state.pool)
-    .await;
-
-    let admin_path = state.admin_path.clone();
-
-    match res {
+    match state.store_service.create_product(category_id, &name, Some(&description), price, &product_type, Some(&content)).await {
         Ok(_) => [(("HX-Redirect", format!("{}/store/products", admin_path)))].into_response(),
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)).into_response(),
     }
@@ -193,12 +158,7 @@ pub async fn delete_product(
     Path(id): Path<i64>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    let res = sqlx::query("DELETE FROM products WHERE id = ?")
-        .bind(id)
-        .execute(&state.pool)
-        .await;
-        
-    match res {
+    match state.store_service.delete_product(id).await {
         Ok(_) => (axum::http::StatusCode::OK, "").into_response(), 
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete: {}", e)).into_response(),
     }

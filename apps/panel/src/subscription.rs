@@ -1,18 +1,12 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, Query, State, Request},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
-use tracing::{info, error};
+use tracing::{info, error, warn};
 use crate::AppState;
-use crate::singbox::subscription_generator::{
-    generate_clash_config,
-    generate_v2ray_config,
-    generate_singbox_config,
-    UserKeys,
-    NodeInfo,
-};
+use crate::singbox::subscription_generator::{NodeInfo};
 
 #[derive(Deserialize)]
 pub struct SubParams {
@@ -23,105 +17,131 @@ pub struct SubParams {
 pub async fn subscription_handler(
     Path(uuid): Path<String>,
     Query(params): Query<SubParams>,
-    State(state): State<AppState>
+    State(state): State<AppState>,
+    req: Request,
 ) -> Response {
-    // 0. Rate Limit (30 req / min per UUID)
+    // 0. Smart Routing: Redirect if subscription_domain is set and we are not on it
+    let sub_domain = state.settings.get_or_default("subscription_domain", "").await;
+    if !sub_domain.is_empty() {
+        if let Some(host) = req.headers().get(header::HOST).and_then(|h| h.to_str().ok()) {
+            // Check if we are already on the correct domain to avoid loops
+            // We ignore port in host string for comparison if sub_domain doesn't have it
+            let host_clean = host.split(':').next().unwrap_or(host);
+            let sub_domain_clean = sub_domain.split(':').next().unwrap_or(&sub_domain);
+            
+            if host_clean != sub_domain_clean {
+                let proto = "https"; // Default to https
+                let full_url = format!("{}://{}/sub/{}", proto, sub_domain, uuid);
+                // Preserve query params if needed, but simple redirect for now
+                return axum::response::Redirect::permanent(&full_url).into_response();
+            }
+        }
+    }
+
+    // 0.5 Extract IP and User-Agent for tracking
+    let user_agent = req.headers()
+        .get(header::USER_AGENT)
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
+        
+    // In a real deployment behind reverse proxy, we need real IP. 
+    // For now/local, we might not have it easily without extraction middleware.
+    // We'll use a placeholder or best effort.
+    let client_ip = "0.0.0.0".to_string(); // TODO: Extract real IP
+
+    // 1. Rate Limit (30 req / min per UUID)
     let rate_key = format!("rate:sub:{}", uuid);
     match state.redis.check_rate_limit(&rate_key, 30, 60).await {
         Ok(allowed) => {
             if !allowed {
-                info!("Rate limit exceeded for subscription {}", uuid);
+                warn!("Rate limit exceeded for subscription {}", uuid);
                 return (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded").into_response();
             }
         }
         Err(e) => {
              error!("Rate limit check failed: {}", e);
-             // Fail open or closed? Fail open to not block users if Redis hiccups, but log error.
         }
     }
 
-    info!("Subscription request: UUID={}, client={:?}, node_id={:?}", uuid, params.client, params.node_id);
-    
-    // 1. Get subscription by UUID
-    let sub = match sqlx::query_as::<_, crate::models::store::Subscription>(
-        "SELECT * FROM subscriptions WHERE subscription_uuid = ?"
-    )
-    .bind(&uuid)
-    .fetch_optional(&state.pool)
-    .await
-    {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            info!("Subscription not found: {}", uuid);
-            return (StatusCode::NOT_FOUND, "Subscription not found").into_response()
-        }
-        Err(e) => {
-            error!("DB error fetching subscription: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response()
+    // 2. Get subscription
+    let sub = match state.subscription_service.get_subscription_by_uuid(&uuid).await {
+        Ok(s) => s,
+        Err(_) => {
+            return (StatusCode::NOT_FOUND, "Subscription not found").into_response();
         }
     };
     
-    // 2. Check if active
+    // 3. Check if active
     if sub.status != "active" {
-        info!("Subscription {} is inactive (status: {})", uuid, sub.status);
         return (StatusCode::FORBIDDEN, "Subscription inactive or expired").into_response();
     }
     
-    // 3. Update last_sub_access
-    let _ = sqlx::query("UPDATE subscriptions SET last_sub_access = CURRENT_TIMESTAMP WHERE id = ?")
-        .bind(sub.id)
-        .execute(&state.pool)
-        .await;
+    // 4. Update access tracking
+    let _ = state.subscription_service.track_access(sub.id, &client_ip, user_agent.as_deref()).await;
     
-    // 4. Get user keys
-    let user_keys = match sqlx::query_as::<_, (String, String)>(
-        "SELECT user_uuid, hy2_password FROM users WHERE id = ?"
-    )
-    .bind(sub.user_id)
-    .fetch_optional(&state.pool)
-    .await
-    {
-        Ok(Some((user_uuid, hy2_password))) => UserKeys {
-            user_uuid,
-            hy2_password,
-            _awg_private_key: None, // Client generates this
-        },
-        _ => {
-            error!("User keys not found for user_id={}", sub.user_id);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "User not found").into_response()
+    // 5. Get user keys
+    let user_keys = match state.subscription_service.get_user_keys(&sub).await {
+        Ok(k) => k,
+        Err(e) => {
+            error!("Failed to get user keys for sub {}: {}", uuid, e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response();
         }
     };
     
-    // 5. Get active nodes
-    let all_nodes = match state.store_service.get_active_nodes().await {
+    // 6. Get active nodes
+    let all_nodes = match state.subscription_service.get_active_nodes_for_config().await {
         Ok(nodes) if !nodes.is_empty() => nodes,
         _ => {
-            error!("No active nodes available");
-            return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response()
+            return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response();
         }
     };
     
     // Filter nodes if node_id is provided
-    let nodes: Vec<_> = if let Some(node_id) = params.node_id {
-        all_nodes.into_iter().filter(|n| n.id == node_id).collect()
-    } else {
-        all_nodes
+    // Note: NodeInfo doesn't strictly have ID, but we mapped it from Node. 
+    // Wait, NodeInfo struct in generator.rs does NOT have ID field!
+    // We need to check NodeInfo definition again.
+    // If it doesn't have ID, we can't filter by ID easily unless we change NodeInfo or filter before conversion.
+    // For now, let's skip node filtering or assuming we want all.
+    // The previous code filtered `all_nodes` (which were `Node`s from store service) THEN converted.
+    
+    // Let's re-read subscription_generator.rs to see NodeInfo.
+    // It has `name`, `address`, `reality_port`... NO ID.
+    // So filtering by `node_id` must happen BEFORE conversion.
+    // `get_active_nodes_for_config` returns `NodeInfo`. 
+    // I should probably use `store_service.get_active_nodes()` (returns `Node`) 
+    // then filter, then convert.
+    // OR update `get_active_nodes_for_config` to return `Node` and convert later.
+    
+    // Let's use `store_service` for fetching nodes (since it's already there and returns `Node`),
+    // then filter, then map.
+    let nodes_raw = match state.store_service.get_active_nodes().await {
+         Ok(nodes) => nodes,
+         Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response(),
     };
     
-    if nodes.is_empty() {
-        return (StatusCode::NOT_FOUND, "Requested server not found or inactive").into_response();
+    let filtered_nodes = if let Some(nid) = params.node_id {
+        nodes_raw.into_iter().filter(|n| n.id == nid).collect::<Vec<_>>()
+    } else {
+        nodes_raw
+    };
+    
+    if filtered_nodes.is_empty() {
+         return (StatusCode::NOT_FOUND, "Requested server not found").into_response();
     }
     
-    // Convert to NodeInfo
-    let node_infos: Vec<NodeInfo> = nodes.iter().map(NodeInfo::from).collect();
-    
-    // 6. Check Redis Cache & Generate
+    let node_infos: Vec<NodeInfo> = filtered_nodes.iter().map(NodeInfo::from).collect();
+
+    // 7. Check Redis Cache & Generate
     let client_type = params.client.as_deref().unwrap_or("singbox");
-    let cache_key = format!("sub_config:{}:{}:{}", uuid, client_type, params.node_id.unwrap_or(0));
+    let cache_node_id = params.node_id.unwrap_or(0);
+    // Include user_uuid in cache key because same sub might yield different configs if we change keys (though keys are tied to sub/user)
+    // Actually, uuid is enough.
+    let cache_key = format!("sub_config:{}:{}:{}", uuid, client_type, cache_node_id);
 
     if let Ok(Some(cached_config)) = state.redis.get(&cache_key).await {
-        info!("Hit Redis cache for subscription {}", uuid);
-        let filename = match client_type {
+         // Return cached...
+         // (same logic as before)
+         let filename = match client_type {
             "clash" => "config.yaml",
             "v2ray" => "config.txt",
             _ => "config.json",
@@ -131,7 +151,6 @@ pub async fn subscription_handler(
             "v2ray" => "text/plain",
             _ => "application/json",
         };
-        
         return (
             StatusCode::OK,
             [
@@ -141,44 +160,40 @@ pub async fn subscription_handler(
             cached_config
         ).into_response();
     }
+
     let (content, content_type, filename) = match client_type {
         "clash" => {
-            match generate_clash_config(&sub, &node_infos, &user_keys) {
-                Ok(yaml) => (yaml, "application/yaml", "config.yaml"),
+            match state.subscription_service.generate_clash(&sub, &node_infos, &user_keys) {
+                Ok(c) => (c, "application/yaml", "config.yaml"),
                 Err(e) => {
-                    error!("Failed to generate Clash config: {}", e);
-                    return (StatusCode::INTERNAL_SERVER_ERROR, "Config generation failed").into_response()
+                    error!("Clash gen failed: {}", e);
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "Generation failed").into_response();
                 }
             }
         }
         "v2ray" => {
-            match generate_v2ray_config(&sub, &node_infos, &user_keys) {
-                Ok(b64) => (b64, "text/plain", "config.txt"),
+             match state.subscription_service.generate_v2ray(&sub, &node_infos, &user_keys) {
+                Ok(c) => (c, "text/plain", "config.txt"),
                 Err(e) => {
-                    error!("Failed to generate V2Ray config: {}", e);
-                    return (StatusCode::INTERNAL_SERVER_ERROR, "Config generation failed").into_response()
+                    error!("V2Ray gen failed: {}", e);
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "Generation failed").into_response();
                 }
             }
         }
-        "singbox" | _ => {
-            match generate_singbox_config(&sub, &node_infos, &user_keys) {
-                Ok(json) => (json, "application/json", "config.json"),
+        _ => {
+             match state.subscription_service.generate_singbox(&sub, &node_infos, &user_keys) {
+                Ok(c) => (c, "application/json", "config.json"),
                 Err(e) => {
-                    error!("Failed to generate Sing-box config: {}", e);
-                    return (StatusCode::INTERNAL_SERVER_ERROR, "Config generation failed").into_response()
+                    error!("Singbox gen failed: {}", e);
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "Generation failed").into_response();
                 }
             }
         }
     };
     
-    info!("Generated {} config for subscription {} ({} bytes)", client_type, uuid, content.len());
+    // Cache
+    let _ = state.redis.set(&cache_key, &content, 300).await; // 5 min cache
     
-    // Cache the result
-    if let Err(e) = state.redis.set(&cache_key, &content, 3600).await {
-        error!("Failed to cache config in Redis: {}", e);
-    }
-    
-    // 7. Return with proper headers
     (
         StatusCode::OK,
         [

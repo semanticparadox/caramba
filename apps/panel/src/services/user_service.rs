@@ -13,6 +13,50 @@ impl UserService {
         Self { pool }
     }
 
+    pub async fn get_all(&self) -> Result<Vec<User>> {
+        sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY created_at DESC")
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to fetch all users")
+    }
+
+    pub async fn search(&self, query: &str) -> Result<Vec<User>> {
+        sqlx::query_as::<_, User>("SELECT * FROM users WHERE username LIKE ? OR full_name LIKE ? ORDER BY created_at DESC")
+            .bind(format!("%{}%", query))
+            .bind(format!("%{}%", query))
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to search users")
+    }
+
+    pub async fn get_by_id(&self, id: i64) -> Result<Option<User>> {
+        sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .context("Failed to fetch user by ID")
+    }
+
+    pub async fn update_profile(&self, id: i64, balance: i64, is_banned: bool, referral_code: Option<&str>) -> Result<()> {
+        sqlx::query("UPDATE users SET balance = ?, is_banned = ?, referral_code = ? WHERE id = ?")
+            .bind(balance)
+            .bind(is_banned)
+            .bind(referral_code)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn set_balance(&self, id: i64, balance: i64) -> Result<()> {
+        sqlx::query("UPDATE users SET balance = ? WHERE id = ?")
+            .bind(balance)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn get_by_tg_id(&self, tg_id: i64) -> Result<Option<User>> {
         sqlx::query_as::<_, User>("SELECT * FROM users WHERE tg_id = ?")
             .bind(tg_id)

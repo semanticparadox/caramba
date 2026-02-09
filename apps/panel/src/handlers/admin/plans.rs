@@ -48,9 +48,7 @@ pub async fn get_plans(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let mut plans = match sqlx::query_as::<_, Plan>("SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans WHERE is_trial = 0")
-        .fetch_all(&state.pool)
-        .await {
+    let mut plans = match state.store_service.get_plans_admin().await {
             Ok(p) => {
                 info!("Successfully fetched {} plans from DB", p.len());
                 p
@@ -61,18 +59,12 @@ pub async fn get_plans(
             }
         };
 
-    for plan in &mut plans {
-        let durations = sqlx::query_as::<_, crate::models::store::PlanDuration>(
-            "SELECT * FROM plan_durations WHERE plan_id = ? ORDER BY duration_days ASC"
-        )
-        .bind(plan.id)
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
-        plan.durations = durations;
-    }
+    // Durations are already fetched by get_plans_admin
+    // for plan in &mut plans {
+    //     let durations = ...
+    // }
 
-    let nodes = sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE is_enabled = 1").fetch_all(&state.pool).await.unwrap_or_default();
+    let nodes = state.orchestration_service.get_all_nodes().await.unwrap_or_default();
 
     let template = PlansTemplate { 
         plans, 
@@ -138,58 +130,12 @@ pub async fn add_plan(
         return (axum::http::StatusCode::BAD_REQUEST, "Plan name is required").into_response();
     }
 
-    let mut tx = match state.pool.begin().await {
-        Ok(tx) => tx,
-        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)).into_response(),
-    };
-
-    let plan_id: i64 = match sqlx::query("INSERT INTO plans (name, description, is_active, price, traffic_limit_gb, device_limit) VALUES (?, ?, 1, 0, ?, ?) RETURNING id")
-        .bind(&name)
-        .bind(&description)
-        .bind(traffic_limit_gb)
-        .bind(device_limit)
-        .fetch_one(&mut *tx)
-        .await {
-            Ok(row) => {
-                use sqlx::Row;
-                row.get(0)
-            },
-            Err(e) => {
-                error!("Failed to insert plan: {}", e);
-                return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to add plan").into_response();
-            }
-        };
-
-    let count = duration_days.len().min(price.len());
-    for i in 0..count {
-        let days = duration_days[i];
-        let p = price[i];
-
-        if let Err(e) = sqlx::query("INSERT INTO plan_durations (plan_id, duration_days, price) VALUES (?, ?, ?)")
-            .bind(plan_id)
-            .bind(days)
-            .bind(p)
-            .execute(&mut *tx)
-            .await {
-                error!("Failed to insert plan duration {}: {}", i, e);
-                return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to add plan durations").into_response();
-            }
-    }
-
-    for node_id in node_ids {
-        if let Err(e) = sqlx::query("INSERT INTO plan_nodes (plan_id, node_id) VALUES (?, ?)")
-            .bind(plan_id)
-            .bind(node_id)
-            .execute(&mut *tx)
-            .await {
-                error!("Failed to link new plan to node: {}", e);
-                return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to link plan to node").into_response();
-            }
-    }
-
-    if let Err(e) = tx.commit().await {
-         error!("Failed to commit plan transaction: {}", e);
-         return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to create plan").into_response();
+    match state.store_service.create_plan(&name, &description, device_limit, traffic_limit_gb, duration_days, price, node_ids).await {
+        Ok(id) => info!("Created plan with ID: {}", id),
+        Err(e) => {
+            error!("Failed to create plan: {}", e);
+            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to create plan").into_response();
+        }
     }
     
     let _ = crate::services::activity_service::ActivityService::log(&state.pool, "Plan", &format!("New plan created: {}", name)).await;
@@ -207,13 +153,7 @@ pub async fn delete_plan(
 ) -> impl IntoResponse {
     info!("Request to delete plan: {}", id);
     
-    let is_trial: bool = match sqlx::query_scalar("SELECT is_trial FROM plans WHERE id = ?")
-        .bind(id)
-        .fetch_one(&state.pool)
-        .await {
-            Ok(v) => v,
-            Err(_) => return (axum::http::StatusCode::NOT_FOUND, "Plan not found").into_response(),
-        };
+    let is_trial = state.store_service.is_trial_plan(id).await.unwrap_or(false);
 
     if is_trial {
         return (axum::http::StatusCode::BAD_REQUEST, "Cannot delete system trial plan. Disable it instead.").into_response();
@@ -235,31 +175,14 @@ pub async fn get_plan_edit(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    let plan = match sqlx::query_as::<_, Plan>("SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans WHERE id = ?").bind(id).fetch_optional(&state.pool).await {
-        Ok(Some(mut p)) => {
-            let durations = sqlx::query_as::<_, crate::models::store::PlanDuration>(
-                "SELECT * FROM plan_durations WHERE plan_id = ? ORDER BY duration_days ASC"
-            )
-            .bind(p.id)
-            .fetch_all(&state.pool)
-            .await
-            .unwrap_or_default();
-            p.durations = durations;
-            p
-        },
+    let plan = match state.store_service.get_plan_by_id(id).await {
+        Ok(Some(p)) => p,
         _ => return (axum::http::StatusCode::NOT_FOUND, "Plan not found").into_response(),
     };
 
-    let all_nodes = sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE is_enabled = 1")
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
+    let all_nodes = state.orchestration_service.get_all_nodes().await.unwrap_or_default();
 
-    let linked_node_ids: Vec<i64> = sqlx::query_scalar("SELECT node_id FROM plan_nodes WHERE plan_id = ?")
-        .bind(id)
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
+    let linked_node_ids = state.store_service.get_plan_node_ids(id).await.unwrap_or_default();
 
     let admin_path = state.admin_path.clone();
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
@@ -324,70 +247,9 @@ pub async fn update_plan(
         return (axum::http::StatusCode::BAD_REQUEST, "Plan name is required").into_response();
     }
 
-    let mut tx = match state.pool.begin().await {
-        Ok(tx) => tx,
-        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)).into_response(),
-    };
-
-    if let Err(e) = sqlx::query("UPDATE plans SET name = ?, description = ?, device_limit = ?, traffic_limit_gb = ? WHERE id = ?")
-        .bind(&name)
-        .bind(&description)
-        .bind(device_limit)
-        .bind(traffic_limit_gb)
-        .bind(id)
-        .execute(&mut *tx)
-        .await {
-            error!("Failed to update plan: {}", e);
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to update plan").into_response();
-        }
-
-    if let Err(e) = sqlx::query("DELETE FROM plan_durations WHERE plan_id = ?")
-        .bind(id)
-        .execute(&mut *tx)
-        .await {
-            error!("Failed to clear durations: {}", e);
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to clear durations").into_response();
-        }
-
-    let count = duration_days.len().min(price.len());
-
-    for i in 0..count {
-        let days = duration_days[i];
-        let p = price[i];
-
-        if let Err(e) = sqlx::query("INSERT INTO plan_durations (plan_id, duration_days, price) VALUES (?, ?, ?)")
-            .bind(id)
-            .bind(days)
-            .bind(p)
-            .execute(&mut *tx)
-            .await {
-                error!("Failed to insert duration: {}", e);
-                return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to insert duration: {}", e)).into_response();
-            }
-    }
-
-    if let Err(e) = sqlx::query("DELETE FROM plan_nodes WHERE plan_id = ?")
-        .bind(id)
-        .execute(&mut *tx)
-        .await {
-            error!("Failed to clear plan_nodes: {}", e);
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to clear plan bindings").into_response();
-        }
-
-    for node_id in node_ids {
-        if let Err(e) = sqlx::query("INSERT INTO plan_nodes (plan_id, node_id) VALUES (?, ?)")
-            .bind(id)
-            .bind(node_id)
-            .execute(&mut *tx)
-            .await {
-                error!("Failed to link plan to node: {}", e);
-                return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to link plan to node").into_response();
-            }
-    }
-
-    if let Err(e) = tx.commit().await {
-        error!("Failed to commit update transaction: {}", e);
-        return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Transaction failed").into_response();
+    if let Err(e) = state.store_service.update_plan(id, &name, &description, device_limit, traffic_limit_gb, duration_days, price, node_ids).await {
+        error!("Failed to update plan: {}", e);
+        return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to update plan").into_response();
     }
 
     let _ = crate::services::activity_service::ActivityService::log(&state.pool, "Plan", &format!("Plan {} updated: {}", id, name)).await;

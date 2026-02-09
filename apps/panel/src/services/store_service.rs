@@ -630,6 +630,15 @@ impl StoreService {
         Ok(sub)
     }
 
+    pub async fn get_plan_duration_by_id(&self, duration_id: i64) -> Result<Option<PlanDuration>> {
+        let duration = sqlx::query_as::<_, PlanDuration>("SELECT * FROM plan_durations WHERE id = ?")
+            .bind(duration_id)
+            .fetch_optional(&self.pool)
+            .await
+            .context("Failed to fetch plan duration")?;
+        Ok(duration)
+    }
+
 
     pub async fn extend_subscription(&self, user_id: i64, duration_id: i64) -> Result<Subscription> {
         let mut tx = self.pool.begin().await?;
@@ -797,6 +806,239 @@ impl StoreService {
 
     pub async fn apply_referral_bonus(&self, pool: &mut sqlx::Transaction<'_, sqlx::Sqlite>, user_id: i64, amount_cents: i64, payment_id: Option<i64>) -> Result<Option<(i64, i64)>> {
         ReferralService::apply_referral_bonus(pool, user_id, amount_cents, payment_id).await
+    }
+
+    // ========================================================================
+    // Category Management
+    // ========================================================================
+
+    pub async fn create_category(&self, name: &str, description: Option<&str>, sort_order: Option<i32>) -> Result<()> {
+        sqlx::query("INSERT INTO categories (name, description, sort_order) VALUES (?, ?, ?)")
+            .bind(name)
+            .bind(description)
+            .bind(sort_order)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_category(&self, id: i64) -> Result<()> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM products WHERE category_id = ?")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0);
+
+        if count > 0 {
+            return Err(anyhow::anyhow!("Cannot delete category with existing products"));
+        }
+
+        sqlx::query("DELETE FROM categories WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ========================================================================
+    // Product Management
+    // ========================================================================
+
+    pub async fn get_all_products(&self) -> Result<Vec<crate::models::store::Product>> {
+        sqlx::query_as::<_, crate::models::store::Product>("SELECT * FROM products ORDER BY created_at DESC")
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to fetch all products")
+    }
+
+    pub async fn create_product(&self, category_id: i64, name: &str, description: Option<&str>, price: i64, product_type: &str, content: Option<&str>) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO products (category_id, name, description, price, product_type, content) VALUES (?, ?, ?, ?, ?, ?)"
+        )
+        .bind(category_id)
+        .bind(name)
+        .bind(description)
+        .bind(price)
+        .bind(product_type)
+        .bind(content)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_product(&self, id: i64) -> Result<()> {
+        sqlx::query("DELETE FROM products WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ========================================================================
+    // Plan Management
+    // ========================================================================
+
+    pub async fn get_plans_admin(&self) -> Result<Vec<Plan>> {
+        let mut plans = sqlx::query_as::<_, Plan>("SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans WHERE is_trial = 0")
+            .fetch_all(&self.pool)
+            .await?;
+
+        for plan in &mut plans {
+            let durations = sqlx::query_as::<_, crate::models::store::PlanDuration>(
+                "SELECT * FROM plan_durations WHERE plan_id = ? ORDER BY duration_days ASC"
+            )
+            .bind(plan.id)
+            .fetch_all(&self.pool)
+            .await
+            .unwrap_or_default();
+            plan.durations = durations;
+        }
+
+        Ok(plans)
+    }
+
+    pub async fn get_plan_by_id(&self, id: i64) -> Result<Option<Plan>> {
+        let plan_opt = sqlx::query_as::<_, Plan>("SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(mut plan) = plan_opt {
+            let durations = sqlx::query_as::<_, crate::models::store::PlanDuration>(
+                "SELECT * FROM plan_durations WHERE plan_id = ? ORDER BY duration_days ASC"
+            )
+            .bind(plan.id)
+            .fetch_all(&self.pool)
+            .await
+            .unwrap_or_default();
+            plan.durations = durations;
+            Ok(Some(plan))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn get_plan_node_ids(&self, plan_id: i64) -> Result<Vec<i64>> {
+        let ids: Vec<i64> = sqlx::query_scalar("SELECT node_id FROM plan_nodes WHERE plan_id = ?")
+            .bind(plan_id)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(ids)
+    }
+
+    pub async fn create_plan(&self, name: &str, description: &str, device_limit: i32, traffic_limit_gb: i32, duration_days: Vec<i32>, prices: Vec<i64>, node_ids: Vec<i64>) -> Result<i64> {
+        let mut tx = self.pool.begin().await?;
+
+        let plan_id: i64 = sqlx::query("INSERT INTO plans (name, description, is_active, price, traffic_limit_gb, device_limit) VALUES (?, ?, 1, 0, ?, ?) RETURNING id")
+            .bind(name)
+            .bind(description)
+            .bind(traffic_limit_gb)
+            .bind(device_limit)
+            .fetch_one(&mut *tx)
+            .await
+            .context("Failed to insert plan")?
+            .get(0);
+
+        let count = duration_days.len().min(prices.len());
+        for i in 0..count {
+            sqlx::query("INSERT INTO plan_durations (plan_id, duration_days, price) VALUES (?, ?, ?)")
+                .bind(plan_id)
+                .bind(duration_days[i])
+                .bind(prices[i])
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        for node_id in node_ids {
+            sqlx::query("INSERT INTO plan_nodes (plan_id, node_id) VALUES (?, ?)")
+                .bind(plan_id)
+                .bind(node_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await?;
+        Ok(plan_id)
+    }
+
+    pub async fn update_plan(&self, id: i64, name: &str, description: &str, device_limit: i32, traffic_limit_gb: i32, duration_days: Vec<i32>, prices: Vec<i64>, node_ids: Vec<i64>) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query("UPDATE plans SET name = ?, description = ?, device_limit = ?, traffic_limit_gb = ? WHERE id = ?")
+            .bind(name)
+            .bind(description)
+            .bind(device_limit)
+            .bind(traffic_limit_gb)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+
+        sqlx::query("DELETE FROM plan_durations WHERE plan_id = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+
+        let count = duration_days.len().min(prices.len());
+        for i in 0..count {
+            sqlx::query("INSERT INTO plan_durations (plan_id, duration_days, price) VALUES (?, ?, ?)")
+                .bind(id)
+                .bind(duration_days[i])
+                .bind(prices[i])
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        sqlx::query("DELETE FROM plan_nodes WHERE plan_id = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+
+        for node_id in node_ids {
+            sqlx::query("INSERT INTO plan_nodes (plan_id, node_id) VALUES (?, ?)")
+                .bind(id)
+                .bind(node_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn is_trial_plan(&self, id: i64) -> Result<bool> {
+        let is_trial: bool = sqlx::query_scalar("SELECT is_trial FROM plans WHERE id = ?")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(false);
+        Ok(is_trial)
+    }
+
+    // ========================================================================
+    // Settings Helpers (Node/Trial)
+    // ========================================================================
+
+    pub async fn get_active_node_ids(&self) -> Result<Vec<i64>> {
+        let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM nodes WHERE status = 'active'")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(ids)
+    }
+
+    pub async fn update_trial_plan_limits(&self, device_limit: i32, traffic_limit_gb: i32) -> Result<()> {
+        let trial_plan_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM plans WHERE is_trial = 1)")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(false);
+
+        if trial_plan_exists {
+            sqlx::query("UPDATE plans SET device_limit = ?, traffic_limit_gb = ? WHERE is_trial = 1")
+                .bind(device_limit)
+                .bind(traffic_limit_gb)
+                .execute(&self.pool)
+                .await?;
+        }
+        Ok(())
     }
 
     pub async fn get_user_referrals(&self, referrer_id: i64) -> Result<Vec<DetailedReferral>> {

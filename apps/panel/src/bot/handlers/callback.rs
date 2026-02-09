@@ -296,6 +296,19 @@ pub async fn callback_handler(
                                             let _ = bot.send_message(ChatId(user_tg.tg_id), "❌ No connection links available for your subscription yet.").await;
                                         } else {
                                             let mut response = "🔗 *Your Connection Links:*\n\n".to_string();
+                                            
+                                            // Add Subscription Page Link
+                                            let sub_domain = state.settings.get_or_default("subscription_domain", "").await;
+                                            let base_domain = if !sub_domain.is_empty() {
+                                                 sub_domain
+                                            } else {
+                                                 std::env::var("PANEL_URL").unwrap_or_else(|_| "panel.example.com".to_string())
+                                            };
+                                            let base_url = if base_domain.starts_with("http") { base_domain } else { format!("https://{}", base_domain) };
+                                            let sub_url = format!("{}/sub/{}", base_url, _sub.sub.subscription_uuid);
+                                            
+                                            response.push_str(&format!("🌍 *Subscription Page:*\n`{}`\n\n", escape_md(&sub_url)));
+
                                             for link in links {
                                                 response.push_str(&format!("`{}`\n\n", escape_md(&link)));
                                             }

@@ -273,6 +273,17 @@ impl OrchestrationService {
         Ok(())
     }
 
+    pub async fn reset_inbounds(&self, node_id: i64) -> anyhow::Result<()> {
+        // Delete existing inbounds to force regeneration with fresh keys
+        sqlx::query("DELETE FROM inbounds WHERE node_id = ?")
+            .bind(node_id)
+            .execute(&self.pool)
+            .await?;
+            
+        // Recreate default inbounds with fresh keys
+        self.init_default_inbounds(node_id).await
+    }
+
     /// Generates Node Config JSON without applying it (Internal)
     pub async fn generate_node_config_json(&self, node_id: i64) -> anyhow::Result<(crate::models::node::Node, serde_json::Value)> {
         info!("Step 1: Fetching node details for ID: {}", node_id);
@@ -482,6 +493,106 @@ impl OrchestrationService {
     pub async fn notify_node_update(&self, node_id: i64) -> anyhow::Result<()> {
         info!("🔔 Node {} update notification triggered", node_id);
         // TODO: Implement actual notification logic (e.g. PubSub or direct push)
+        Ok(())
+    }
+
+    pub async fn get_node_by_id(&self, node_id: i64) -> anyhow::Result<Node> {
+        let node: Node = sqlx::query_as("SELECT * FROM nodes WHERE id = ?")
+            .bind(node_id)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(node)
+    }
+
+    pub async fn create_node(&self, name: &str, ip: &str, vpn_port: i32, auto_configure: bool) -> anyhow::Result<i64> {
+        let token = uuid::Uuid::new_v4().to_string();
+        
+        // Handle pending IP with unique placeholder if empty
+        let final_ip = if ip.is_empty() { 
+            format!("pending-{}", &token[0..8]) 
+        } else { 
+            ip.to_string() 
+        };
+
+        let id: i64 = sqlx::query_scalar("INSERT INTO nodes (name, ip, vpn_port, status, join_token, auto_configure) VALUES (?, ?, ?, 'new', ?, ?) RETURNING id")
+            .bind(name)
+            .bind(final_ip)
+            .bind(vpn_port)
+            .bind(&token)
+            .bind(auto_configure)
+            .fetch_one(&self.pool)
+            .await?;
+
+        // Initialize default inbounds
+        if let Err(e) = self.init_default_inbounds(id).await {
+            error!("Failed to initialize inbounds for node {}: {}", id, e);
+        }
+
+        Ok(id)
+    }
+
+    pub async fn update_node(&self, id: i64, name: &str, ip: &str) -> anyhow::Result<()> {
+        sqlx::query("UPDATE nodes SET name = ?, ip = ? WHERE id = ?")
+            .bind(name)
+            .bind(ip)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn toggle_node_enable(&self, id: i64) -> anyhow::Result<()> {
+        // Fetch current status
+        let enabled: bool = sqlx::query_scalar("SELECT is_enabled FROM nodes WHERE id = ?")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await?;
+
+        let new_status = !enabled;
+        
+        sqlx::query("UPDATE nodes SET is_enabled = ? WHERE id = ?")
+            .bind(new_status)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn activate_node(&self, id: i64) -> anyhow::Result<()> {
+        sqlx::query("UPDATE nodes SET status = 'active' WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_node(&self, id: i64) -> anyhow::Result<()> {
+        // Manual Cleanup for non-cascading relations
+        
+        // Clear SNI Logs
+        if let Err(e) = sqlx::query("DELETE FROM sni_rotation_log WHERE node_id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await 
+        {
+            error!("Failed to clear SNI logs for node {}: {}", id, e);
+        }
+
+        // Unlink Subscriptions
+        if let Err(e) = sqlx::query("UPDATE subscriptions SET node_id = NULL WHERE node_id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+        {
+            error!("Failed to unlink subscriptions for node {}: {}", id, e);
+        }
+
+        // Delete the node (Cascades to inbounds)
+        sqlx::query("DELETE FROM nodes WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+
         Ok(())
     }
 

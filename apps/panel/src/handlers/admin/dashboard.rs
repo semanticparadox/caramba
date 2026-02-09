@@ -85,22 +85,7 @@ pub struct UserWithTraffic {
 // Helper Functions
 // ============================================================================
 
-pub async fn get_recent_orders(pool: &sqlx::SqlitePool) -> Vec<OrderWithUser> {
-    sqlx::query_as::<_, OrderWithUser>(
-        r#"
-        SELECT o.id, COALESCE(u.username, u.full_name, 'Unknown') as username, 
-               printf('%.2f', CAST(o.total_amount AS REAL) / 100.0) as total_amount,
-               o.status, o.created_at
-        FROM orders o
-        LEFT JOIN users u ON o.user_id = u.id
-        ORDER BY o.created_at DESC
-        LIMIT 10
-        "#
-    )
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default()
-}
+
 
 // ============================================================================
 // Route Handlers
@@ -111,15 +96,23 @@ pub async fn get_dashboard(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let active_nodes = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM nodes WHERE status = 'active'").fetch_one(&state.pool).await.unwrap_or(0);
-    let total_users = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users").fetch_one(&state.pool).await.unwrap_or(0);
-    let active_subs = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM subscriptions WHERE status = 'active'").fetch_one(&state.pool).await.unwrap_or(0);
-    let revenue_cents = sqlx::query_scalar::<_, i64>("SELECT SUM(total_amount) FROM orders WHERE status = 'completed'").fetch_one(&state.pool).await.unwrap_or(0);
-    let total_revenue = format!("{:.2}", revenue_cents as f64 / 100.0);
+    // Fetch System Stats from AnalyticsService
+    let stats = state.analytics_service.get_system_stats().await.unwrap_or(crate::services::analytics_service::SystemStats {
+        active_nodes: 0,
+        total_users: 0,
+        active_subs: 0,
+        total_revenue: 0.0,
+        total_traffic_bytes: 0,
+        total_traffic_30d_bytes: 0,
+    });
+
+    let active_nodes = stats.active_nodes;
+    let total_users = stats.total_users;
+    let active_subs = stats.active_subs;
+    let total_revenue = format!("{:.2}", stats.total_revenue);
     
     // Total traffic across all nodes
-    let total_traffic_bytes = sqlx::query_scalar::<_, i64>("SELECT SUM(total_ingress + total_egress) FROM nodes").fetch_one(&state.pool).await.unwrap_or(0);
-    let total_traffic = format_bytes_str(total_traffic_bytes as u64);
+    let total_traffic = format_bytes_str(stats.total_traffic_bytes as u64);
     let total_traffic_30d = total_traffic.clone(); // Placeholder for 30d specific query if needed
 
     let admin_path = state.admin_path.clone();
@@ -138,11 +131,13 @@ pub async fn get_dashboard(
     }).collect();
 
     // Analytics Data
-    let orders = get_recent_orders(&state.pool).await;
-    let top_users = sqlx::query_as!(
-        UserWithTraffic,
-        r#"SELECT COALESCE(username, full_name, 'Unknown') as "username!", '0 GB' as "total_traffic_fmt!" FROM users LIMIT 5"#
-    ).fetch_all(&state.pool).await.unwrap_or_default();
+    let orders = state.billing_service.get_recent_orders(10).await.unwrap_or_default();
+    
+    let top_users_raw = state.analytics_service.get_top_users().await.unwrap_or_default();
+    let top_users: Vec<UserWithTraffic> = top_users_raw.into_iter().map(|u| UserWithTraffic {
+        username: u.username.unwrap_or_else(|| "Unknown".to_string()),
+        total_traffic_fmt: format_bytes_str(u.total_traffic as u64),
+    }).collect();
 
     let template = DashboardTemplate {
         active_nodes,
