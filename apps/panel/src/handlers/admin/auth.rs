@@ -10,7 +10,7 @@ use askama_web::WebTemplate;
 use axum_extra::extract::cookie::{Cookie, CookieJar};
 use serde::Deserialize;
 use tracing::info;
-use cookie::time::Duration;
+use time::Duration;
 
 use crate::AppState;
 

@@ -82,7 +82,7 @@ pub async fn get_store_categories_page(
     }
 }
 
-pub async fn add_category(
+pub async fn create_category(
     State(state): State<AppState>,
     Form(form): Form<CategoryForm>,
 ) -> impl IntoResponse {
@@ -156,7 +156,7 @@ pub async fn get_store_products_page(
     }
 }
 
-pub async fn add_product(
+pub async fn create_product(
     State(state): State<AppState>,
     Form(form): Form<ProductForm>,
 ) -> impl IntoResponse {

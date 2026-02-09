@@ -6,9 +6,7 @@ use axum::{
     response::{IntoResponse, Html},
     http::{header, StatusCode, HeaderMap},
 };
-use ask
-
-ama::Template;
+use askama::Template;
 use askama_web::WebTemplate;
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;

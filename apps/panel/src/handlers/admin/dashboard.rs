@@ -85,7 +85,7 @@ pub struct UserWithTraffic {
 // Helper Functions
 // ============================================================================
 
-async fn get_recent_orders(pool: &sqlx::SqlitePool) -> Vec<OrderWithUser> {
+pub async fn get_recent_orders(pool: &sqlx::SqlitePool) -> Vec<OrderWithUser> {
     sqlx::query_as::<_, OrderWithUser>(
         r#"
         SELECT o.id, COALESCE(u.username, u.full_name, 'Unknown') as username, 
