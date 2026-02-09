@@ -7,7 +7,7 @@ use rust_embed::RustEmbed;
 use crate::AppState;
 
 #[derive(RustEmbed)]
-#[folder = "assets"]
+#[folder = "../mini-app/dist"]
 struct MiniAppAssets;
 
 pub async fn serve_app(State(state): State<AppState>) -> Response {
