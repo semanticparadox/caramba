@@ -961,8 +961,8 @@ configure_caddy_for_frontend() {
     
     # Prepare Caddyfile content
     mkdir -p /etc/caddy
-    # Check if domains are identical to avoid ambiguity
-    if [ "$FRONTEND_DOMAIN" == "$MINIAPP_DOMAIN" ]; then
+    # Check if domains are identical or if miniapp domain is unset (default combined)
+    if [[ -z "$MINIAPP_DOMAIN" ]] || [[ "$FRONTEND_DOMAIN" == "$MINIAPP_DOMAIN" ]]; then
         log_info "Frontend and Miniapp domains are identical. Generating combined configuration..."
         SUB_PATH=${SUB_PATH:-"/sub/"}
         
@@ -981,6 +981,22 @@ $FRONTEND_DOMAIN {
     handle /api/* {
         reverse_proxy $PANEL_URL {
             header_up X-Real-IP {remote}
+        }
+    }
+
+    # Proxy Downloads (Binaries)
+    handle /downloads* {
+        reverse_proxy $PANEL_URL {
+            header_up X-Real-IP {remote}
+        }
+    }
+
+    # Proxy Admin Panel
+    handle $ADMIN_PATH* {
+        reverse_proxy $PANEL_URL {
+            header_up X-Real-IP {remote}
+            header_up Host {upstream_hostport}
+            # Important for websocket/event streams if used
         }
     }
 
