@@ -556,10 +556,6 @@ impl SubscriptionService {
 
         Ok(())
     }
-        .await?;
-        
-        Ok(())
-    }
 
     /// Fetch all active nodes and convert to NodeInfo for config generation
     pub async fn get_active_nodes_for_config(&self) -> Result<Vec<NodeInfo>> {
