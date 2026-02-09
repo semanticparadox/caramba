@@ -12,18 +12,29 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::collections::HashMap;
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey};
-use std::env;
 use sqlx::Row;
+use std::env;
+
 
 #[derive(Deserialize)]
 pub struct InitDataRequest {
-    #[serde(rename = "initData")]
+    /// Accept both "initData" (from AuthProvider.tsx) and "init_data" (from AuthContext.tsx)
+    #[serde(alias = "initData", alias = "init_data")]
     pub init_data: String,
 }
 
 #[derive(Serialize)]
 pub struct AuthResponse {
     pub token: String,
+    pub user: AuthUserInfo,
+}
+
+#[derive(Serialize)]
+pub struct AuthUserInfo {
+    pub id: i64,
+    pub username: String,
+    pub active_subscriptions: i64,
+    pub balance: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,16 +50,18 @@ pub fn routes(state: AppState) -> Router<AppState> {
         .route("/user/stats", get(get_user_stats).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
         .route("/user/subscription", get(get_user_subscription).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
         .route("/user/payments", get(get_user_payments).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
+        .route("/user/referrals", get(get_user_referrals).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
         .route("/referrals", get(get_user_referrals).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
         .route("/leaderboard", get(get_leaderboard).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
         .route("/servers", get(get_active_servers).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
+        .route("/nodes", get(get_active_servers).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
 }
 
 async fn auth_telegram(
     State(state): State<AppState>,
     Json(payload): Json<InitDataRequest>,
 ) ->  impl IntoResponse {
-    tracing::info!("Received auth request: {}", payload.init_data);
+    tracing::info!("Received auth request");
 
     // 1. Parse initData
     let mut params: HashMap<String, String> = HashMap::new();
@@ -63,8 +76,11 @@ async fn auth_telegram(
         None => return (StatusCode::BAD_REQUEST, "Missing hash").into_response(),
     };
 
-    // 2. Validate Signature
-    let bot_token = env::var("TELOXIDE_TOKEN").expect("TELOXIDE_TOKEN not set");
+    // 2. Validate Signature — get bot_token from settings DB
+    let bot_token = state.settings.get_or_default("bot_token", "").await;
+    if bot_token.is_empty() {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Bot token not configured").into_response();
+    }
     
     // Data-check-string is all keys except hash, sorted alphabetically
     let mut data_check_vec: Vec<String> = params.iter()
@@ -116,27 +132,27 @@ async fn auth_telegram(
         None => return (StatusCode::BAD_REQUEST, "Missing user ID").into_response(),
     };
 
-    // 4. Ensure User Exists (Optional: Auto-create via trial?)
-    // For now, check if user exists in DB. If not, maybe create?
-    // Let's implement: find user by tg_id.
-    let user_exists: bool = sqlx::query_scalar("SELECT count(*) > 0 FROM users WHERE tg_id = ?")
+    // 4. Look up user by tg_id
+    let user_row = sqlx::query("SELECT id, username, balance FROM users WHERE tg_id = ?")
         .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    if user_row.is_none() {
+        return (StatusCode::FORBIDDEN, "User not found. Start the bot first.").into_response();
+    }
+    let user_row = user_row.unwrap();
+    let user_id: i64 = user_row.get("id");
+    let username: String = user_row.try_get("username").unwrap_or_default();
+    let balance: i64 = user_row.try_get("balance").unwrap_or(0);
+
+    // Count active subscriptions
+    let active_subs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM subscriptions WHERE user_id = ? AND status = 'active'")
+        .bind(user_id)
         .fetch_one(&state.pool)
         .await
-        .unwrap_or(false);
-
-    if !user_exists {
-        // Option: Create trial user logic here
-        // For now, return unauthorized if not found (or specialized code)
-        // Actually, allow new users to convert?
-        // Let's return 404/403 or auto-create.
-        // "Trial for Subscribers" - maybe check membership?
-        // Let's keep it simple: if not exists, create with default trial?
-        // Or assume bot flow handles creation.
-        // Let's return error for now.
-        // return (StatusCode::FORBIDDEN, "User not found. Start bot first.").into_response();
-        // EDIT: Auto-create logic might be better for seamless UX.
-    }
+        .unwrap_or(0);
 
     // 5. Generate JWT
     let expiration = chrono::Utc::now()
@@ -153,7 +169,15 @@ async fn auth_telegram(
     let token = encode(&Header::default(), &claims, &EncodingKey::from_secret(state.session_secret.as_bytes()))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR).unwrap();
 
-    Json(AuthResponse { token }).into_response()
+    Json(AuthResponse {
+        token,
+        user: AuthUserInfo {
+            id: user_id,
+            username,
+            active_subscriptions: active_subs,
+            balance: balance as f64 / 100.0,
+        }
+    }).into_response()
 }
 
 // Middleware to verify JWT

@@ -1,16 +1,6 @@
-import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import './Home.css'
-
-interface UserStats {
-    traffic_used: number
-    traffic_limit: number
-    days_left: number
-    plan_name: string
-    total_download: number
-    total_upload: number
-}
 
 function formatBytes(bytes: number, decimals = 2) {
     if (bytes === 0) return '0 B';
@@ -21,110 +11,102 @@ function formatBytes(bytes: number, decimals = 2) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 
-const navigate = useNavigate()
-const { userStats: stats, isLoading: authLoading, error: authError } = useAuth()
+export default function Home() {
+    const navigate = useNavigate()
+    const { userStats: stats, isLoading } = useAuth()
 
-// Legacy state removed, using context directly
+    if (isLoading) {
+        return <div className="loading">Loading...</div>
+    }
 
-// We can rely on authLoading for initial load
+    const percentage = stats && stats.traffic_limit > 0
+        ? Math.min(100, Math.round((stats.traffic_used / stats.traffic_limit) * 100))
+        : 0;
 
-if (authLoading) {
-    return <div className="loading">Loading auth...</div>
-}
+    return (
+        <div className="page home-page">
+            <header className="header">
+                <h1>🚀 EXA-ROBOT</h1>
+                {stats && <div className="plan-badge">{stats.plan_name}</div>}
+            </header>
 
-if (authError) {
-    return <div className="error">{authError}</div>
-}
-
-const percentage = stats && stats.traffic_limit > 0
-    ? Math.min(100, Math.round((stats.traffic_used / stats.traffic_limit) * 100))
-    : 0;
-
-return (
-    <div className="page home-page">
-        <header className="header">
-            <h1>🚀 EXA-ROBOT</h1>
-            <h1>🚀 EXA-ROBOT</h1>
-            {stats && <div className="plan-badge">{stats.plan_name}</div>}
-        </header>
-
-        <div className="traffic-widget">
-            <div className="traffic-header">
-                <span>Traffic Usage</span>
-                <span className="traffic-percentage">{statsLoading ? '...' : `${percentage}%`}</span>
+            <div className="traffic-widget">
+                <div className="traffic-header">
+                    <span>Traffic Usage</span>
+                    <span className="traffic-percentage">{isLoading ? '...' : `${percentage}%`}</span>
+                </div>
+                <div className="progress-bar">
+                    <div className="progress-fill" style={{ width: `${percentage}%` }}></div>
+                </div>
+                <div className="traffic-details">
+                    <span>
+                        {stats ? `${formatBytes(stats.traffic_used)} / ${formatBytes(stats.traffic_limit)}` : 'Loading...'}
+                    </span>
+                    <span>
+                        {stats ? `${stats.days_left} days left` : '...'}
+                    </span>
+                </div>
             </div>
-            <div className="progress-bar">
-                <div className="progress-fill" style={{ width: `${percentage}%` }}></div>
+
+            <div className="quick-actions">
+                <button
+                    className="action-card"
+                    onClick={() => navigate('/subscription')}
+                >
+                    <div className="icon">📱</div>
+                    <div className="title">Subscription</div>
+                    <div className="subtitle">View links & QR codes</div>
+                </button>
+
+                <button
+                    className="action-card"
+                    onClick={() => navigate('/servers')}
+                >
+                    <div className="icon">🌍</div>
+                    <div className="title">Servers</div>
+                    <div className="subtitle">Choose best server</div>
+                </button>
+
+                <button
+                    className="action-card"
+                    onClick={() => navigate('/statistics')}
+                >
+                    <div className="icon">📊</div>
+                    <div className="title">Statistics</div>
+                    <div className="subtitle">View detailed charts</div>
+                </button>
+
+                <button
+                    className="action-card"
+                    onClick={() => navigate('/billing')}
+                >
+                    <div className="icon">💳</div>
+                    <div className="title">Billing</div>
+                    <div className="subtitle">Balance & History</div>
+                </button>
+
+                <button
+                    className="action-card"
+                    onClick={() => navigate('/referral')}
+                >
+                    <div className="icon">🎁</div>
+                    <div className="title">Referral</div>
+                    <div className="subtitle">Invite & Earn</div>
+                </button>
+                <button
+                    className="action-card"
+                    onClick={() => navigate('/support')}
+                >
+                    <div className="icon">❓</div>
+                    <div className="title">Support</div>
+                    <div className="subtitle">FAQ & Chat</div>
+                </button>
             </div>
-            <div className="traffic-details">
-                <span>
-                    {stats ? `${formatBytes(stats.traffic_used)} / ${formatBytes(stats.traffic_limit)}` : 'Loading...'}
-                </span>
-                <span>
-                    {stats ? `${stats.days_left} days left` : '...'}
-                </span>
+
+            <div className="status-indicator">
+                <div className="status-dot active"></div>
+                <span>Connected</span>
             </div>
         </div>
-
-        <div className="quick-actions">
-            <button
-                className="action-card"
-                onClick={() => navigate('/subscription')}
-            >
-                <div className="icon">📱</div>
-                <div className="title">Subscription</div>
-                <div className="subtitle">View links & QR codes</div>
-            </button>
-
-            <button
-                className="action-card"
-                onClick={() => navigate('/servers')}
-            >
-                <div className="icon">🌍</div>
-                <div className="title">Servers</div>
-                <div className="subtitle">Choose best server</div>
-            </button>
-
-            <button
-                className="action-card"
-                onClick={() => navigate('/statistics')}
-            >
-                <div className="icon">📊</div>
-                <div className="title">Statistics</div>
-                <div className="subtitle">View detailed charts</div>
-            </button>
-
-            <button
-                className="action-card"
-                onClick={() => navigate('/billing')}
-            >
-                <div className="icon">💳</div>
-                <div className="title">Billing</div>
-                <div className="subtitle">Balance & History</div>
-            </button>
-
-            <button
-                className="action-card"
-                onClick={() => navigate('/referral')}
-            >
-                <div className="icon">🎁</div>
-                <div className="title">Referral</div>
-                <div className="subtitle">Invite & Earn</div>
-            </button>
-            <button
-                className="action-card"
-                onClick={() => navigate('/support')}
-            >
-                <div className="icon">❓</div>
-                <div className="title">Support</div>
-                <div className="subtitle">FAQ & Chat</div>
-            </button>
-        </div>
-
-        <div className="status-indicator">
-            <div className="status-dot active"></div>
-            <span>Connected</span>
-        </div>
-    </div>
-)
+    )
 }

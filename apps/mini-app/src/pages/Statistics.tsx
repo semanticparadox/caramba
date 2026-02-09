@@ -60,7 +60,7 @@ export default function Statistics() {
     }
 
     const [speeds, setSpeeds] = useState<number[]>(Array(10).fill(0))
-    const [lastTraffic, setLastTraffic] = useState<number>(0)
+    const [_lastTraffic, setLastTraffic] = useState<number>(0)
     const { token } = useAuth()
 
     useEffect(() => {

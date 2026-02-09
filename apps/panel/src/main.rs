@@ -429,13 +429,7 @@ use tower_http::services::ServeDir;
         // Frontend Servers (Page)
         .route("/frontends", axum::routing::get(handlers::admin::get_frontends))
         
-        // Client API (Mini App)
-        .route("/api/client/auth/telegram", axum::routing::post(handlers::client::auth_telegram))
-        .route("/api/client/user/stats", axum::routing::get(handlers::client::get_user_stats))
-        .route("/api/client/user/subscriptions", axum::routing::get(handlers::client::get_user_subscriptions))
-        .route("/api/client/nodes", axum::routing::get(handlers::client::get_client_nodes))
-        .route("/api/client/user/payments", axum::routing::get(handlers::client::get_user_payments))
-        .route("/api/client/user/referrals", axum::routing::get(handlers::client::get_user_referrals))
+        // Client API (Mini App) - served via .nest("/api/client", ...) below
         
         .route("/transactions", axum::routing::get(handlers::admin::get_transactions))
         .route("/bot-logs", axum::routing::get(handlers::admin::bot_logs_page))
