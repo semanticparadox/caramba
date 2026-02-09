@@ -597,6 +597,38 @@ EOF
     systemctl enable exarobot
     systemctl restart exarobot
     log_success "Panel installed. Access: https://$DOMAIN$ADMIN_PATH/login"
+    # Install Caddy
+    install_caddy_if_needed
+    
+    # Configure Caddy for Panel
+    log_info "Configuring Caddy for Panel..."
+    mkdir -p /etc/caddy
+    cat > /etc/caddy/Caddyfile <<EOF
+$DOMAIN {
+    reverse_proxy localhost:$PANEL_PORT
+    
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "no-referrer-when-downgrade"
+    }
+
+    log {
+        output file /var/log/caddy/panel.log
+        format json
+    }
+}
+EOF
+
+    mkdir -p /var/log/caddy
+    chown caddy:caddy /var/log/caddy 2>/dev/null || true
+    
+    systemctl enable caddy > /dev/null 2>&1
+    systemctl restart caddy
+    log_success "Caddy configured for Panel."
+
     echo ""
     echo -e "${YELLOW}IMPORTANT: Create your first Admin User:${NC}"
     echo "  cd $INSTALL_DIR"
