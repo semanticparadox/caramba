@@ -9,11 +9,11 @@ use askama::Template;
 use askama_web::WebTemplate;
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
-use tracing::error;
+
 
 use crate::AppState;
 use super::auth::{get_auth_user, is_authenticated};
-use super::dashboard::get_recent_orders;
+use super::dashboard::{get_recent_orders, OrderWithUser};
 use crate::services::logging_service::LoggingService;
 
 fn format_bytes_str(bytes: u64) -> String {
@@ -45,14 +45,7 @@ pub struct UserWithTraffic {
     pub total_traffic_fmt: String,
 }
 
-#[derive(sqlx::FromRow, serde::Serialize, Clone)]
-pub struct OrderWithUser {
-    pub id: i64,
-    pub username: String,
-    pub total_amount: String,
-    pub status: String,
-    pub created_at: String,
-}
+
 
 #[derive(Template, WebTemplate)]
 #[template(path = "analytics.html")]

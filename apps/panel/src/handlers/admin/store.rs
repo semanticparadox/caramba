@@ -9,7 +9,7 @@ use askama::Template;
 use askama_web::WebTemplate;
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
-use tracing::{info, error};
+use tracing::info;
 
 use crate::AppState;
 use super::auth::get_auth_user;

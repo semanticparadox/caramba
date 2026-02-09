@@ -9,7 +9,7 @@ use axum::{
 use askama::Template;
 use askama_web::WebTemplate;
 use axum_extra::extract::cookie::CookieJar;
-use serde::Deserialize;
+
 use tracing::{info, error};
 
 use crate::AppState;

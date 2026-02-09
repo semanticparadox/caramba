@@ -4,14 +4,14 @@
 use axum::{
     extract::{State, Form},
     response::{IntoResponse, Html},
-    http::{header, StatusCode, HeaderMap},
+    http::{header, StatusCode},
 };
 use askama::Template;
 use askama_web::WebTemplate;
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use std::collections::HashMap;
-use tracing::{info, error};
+use tracing::info;
 
 use crate::AppState;
 use crate::services::{logging_service::LoggingService};
@@ -482,7 +482,8 @@ pub async fn export_database(
 
     info!("Database export requested");
 
-    let export_result = crate::services::database_export::export_database(&state.pool).await;
+    let export_service = crate::services::export_service::ExportService::new(state.pool.clone());
+    let export_result = export_service.create_export().await;
 
     match export_result {
         Ok(data) => {
