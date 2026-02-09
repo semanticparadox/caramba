@@ -79,6 +79,9 @@ pub struct BotLogsTemplate {
     pub username: String,
     pub admin_path: String,
     pub active_page: String,
+    pub bot_status: String,
+    pub bot_username: String,
+    pub subscription_domain: String,
 }
 
 #[derive(Template)]

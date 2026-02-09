@@ -71,9 +71,9 @@
                         </p>
                         <div class="flex items-center justify-between gap-2">
                             <code
-                                class="text-xs font-mono text-emerald-400 truncate select-all">https://{{ subscription_domain if subscription_domain else 'YOUR_DOMAIN' }}/app</code>
+                                class="text-xs font-mono text-emerald-400 truncate select-all">https://{% if !subscription_domain.is_empty() %}{{ subscription_domain }}{% else %}YOUR_DOMAIN{% endif %}/app</code>
                             <button
-                                onclick="navigator.clipboard.writeText('https://{{ subscription_domain if subscription_domain else 'YOUR_DOMAIN' }}/app')"
+                                onclick="navigator.clipboard.writeText('https://{% if !subscription_domain.is_empty() %}{{ subscription_domain }}{% else %}YOUR_DOMAIN{% endif %}/app')"
                                 class="text-slate-400 hover:text-white" title="Copy URL">
                                 <i data-lucide="copy" class="w-3 h-3"></i>
                             </button>
