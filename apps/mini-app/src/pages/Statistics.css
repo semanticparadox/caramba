@@ -1,0 +1,75 @@
+/* ======================================
+   Statistics Page
+   ====================================== */
+
+.stats-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+/* Stat Cards Row */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-sm);
+}
+
+.stat-card {
+    text-align: center;
+    padding: var(--space-md);
+}
+
+.stat-card .stat-label {
+    display: block;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-tertiary);
+    margin-bottom: var(--space-xs);
+}
+
+.stat-card .stat-value {
+    font-size: 22px;
+    font-weight: 700;
+}
+
+/* Chart Cards */
+.chart-card {
+    padding: var(--space-md);
+}
+
+.chart-card h3 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: var(--space-md);
+}
+
+.chart-wrap {
+    height: 200px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.chart-wrap.doughnut {
+    height: 180px;
+}
+
+.chart-footnote {
+    text-align: center;
+    margin-top: var(--space-sm);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+/* Two charts side by side on wider screens, stacked on mobile */
+.charts-row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}

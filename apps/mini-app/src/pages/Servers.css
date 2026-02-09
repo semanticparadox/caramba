@@ -1,118 +1,139 @@
+/* ======================================
+   Servers Page
+   ====================================== */
+
 .servers-page {
-    padding-bottom: 40px;
-}
-
-.test-section {
-    text-align: center;
-    margin-bottom: 24px;
-}
-
-.test-button {
-    padding: 14px 32px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border-radius: 12px;
-    font-size: 16px;
-    font-weight: 600;
-    margin-bottom: 8px;
-}
-
-.hint {
-    font-size: 13px;
-    color: var(--tg-theme-hint-color, #999);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
 }
 
 .servers-list {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    margin-bottom: 24px;
+    gap: var(--space-sm);
 }
 
-.server-card {
-    background: var(--tg-theme-secondary-bg-color, #fff);
-    border-radius: 12px;
-    padding: 16px;
+.server-item {
+    padding: var(--space-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.server-item.best {
+    border-color: rgba(245, 158, 11, 0.3);
+    box-shadow: 0 0 20px rgba(245, 158, 11, 0.08);
+}
+
+.server-row {
     display: flex;
     align-items: center;
-    gap: 12px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    position: relative;
-    transition: transform 0.2s;
-}
-
-.server-card:active {
-    transform: scale(0.98);
-}
-
-.server-card.best {
-    border: 2px solid #667eea;
-    box-shadow: 0 4px 16px rgba(102, 126, 234, 0.3);
+    gap: var(--space-md);
 }
 
 .server-flag {
-    font-size: 32px;
-    min-width: 40px;
+    font-size: 28px;
 }
 
 .server-info {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
 }
 
 .server-name {
     font-weight: 600;
-    font-size: 16px;
-    margin-bottom: 4px;
+    font-size: 15px;
 }
 
-.server-country {
-    font-size: 13px;
-    color: var(--tg-theme-hint-color, #999);
+.server-meta {
+    font-size: 12px;
+    color: var(--text-tertiary);
 }
 
-.server-stats {
+.server-right {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
     gap: 4px;
 }
 
-.latency {
-    font-weight: 600;
-    font-size: 14px;
-    color: #667eea;
-    padding: 4px 8px;
-    background: rgba(102, 126, 234, 0.1);
-    border-radius: 6px;
+.status-indicator {
+    font-size: 12px;
 }
 
-.status {
+.status-indicator.online {
+    color: var(--status-online);
+}
+
+.status-indicator.offline {
+    color: var(--status-offline);
+}
+
+/* Modal extras */
+.modal-content h3 {
+    text-align: center;
+    margin-bottom: var(--space-md);
     font-size: 18px;
 }
 
-.best-badge {
-    position: absolute;
-    top: -8px;
-    right: -8px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    padding: 4px 12px;
-    border-radius: 12px;
+.client-tabs {
+    display: flex;
+    gap: var(--space-xs);
+    margin-bottom: var(--space-md);
+    background: var(--bg-surface);
+    padding: 4px;
+    border-radius: var(--radius-full);
+}
+
+.client-tabs .tab {
+    flex: 1;
+    padding: 8px;
+    border-radius: var(--radius-full);
     font-size: 12px;
-    font-weight: 600;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    font-weight: 500;
+    background: transparent;
+    color: var(--text-secondary);
+    text-align: center;
 }
 
-.info-box {
-    background: rgba(102, 126, 234, 0.1);
-    border-left: 4px solid #667eea;
-    border-radius: 8px;
-    padding: 16px;
-    color: var(--tg-theme-text-color, #000);
+.client-tabs .tab.active {
+    background: var(--accent-gradient);
+    color: white;
 }
 
-.info-box p {
-    margin: 0;
-    font-size: 14px;
-    line-height: 1.5;
+.modal-content .qr-wrapper {
+    background: white;
+    padding: var(--space-sm);
+    border-radius: var(--radius-md);
+    display: inline-flex;
+    margin: 0 auto var(--space-md);
+}
+
+.modal-content {
+    text-align: center;
+}
+
+.config-url-row {
+    display: flex;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+}
+
+.config-url-row input {
+    flex: 1;
+    font-size: 11px;
+    font-family: 'SF Mono', monospace;
+}
+
+.config-url-row .btn-secondary {
+    width: auto;
+    padding: 12px 16px;
+}
+
+.close-btn {
+    margin-top: var(--space-xs);
+    color: var(--text-tertiary) !important;
 }

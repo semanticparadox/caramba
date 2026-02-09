@@ -1,114 +1,66 @@
-.subscription-page {
-    padding-bottom: 40px;
-}
+/* ======================================
+   Subscription Page
+   ====================================== */
 
-.client-selector {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 24px;
-    background: var(--tg-theme-secondary-bg-color, #fff);
-    padding: 8px;
-    border-radius: 12px;
-}
-
-.client-tab {
-    flex: 1;
-    padding: 12px;
-    border-radius: 8px;
-    background: transparent;
-    border: none;
+.sub-page {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 4px;
+    gap: var(--space-md);
+}
+
+.sub-page .page-header {
+    margin-bottom: var(--space-sm);
+}
+
+/* QR Card */
+.qr-card {
+    text-align: center;
+}
+
+.qr-card h3 {
     font-size: 14px;
-    font-weight: 500;
-    color: var(--tg-theme-text-color, #000);
-    transition: all 0.2s;
-}
-
-.client-tab.active {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-}
-
-.client-icon {
-    font-size: 24px;
-}
-
-.subscription-content {
-    display: flex;
-    flex-direction: column;
-    gap: 24px;
-}
-
-.url-section,
-.qr-section {
-    background: var(--tg-theme-secondary-bg-color, #fff);
-    border-radius: 12px;
-    padding: 20px;
-}
-
-.url-section label,
-.qr-section label {
-    display: block;
     font-weight: 600;
-    margin-bottom: 12px;
-    font-size: 14px;
-    color: var(--tg-theme-hint-color, #999);
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: var(--space-md);
 }
 
-.url-input-group {
-    display: flex;
-    gap: 8px;
-}
-
-.url-input-group input {
-    flex: 1;
-    padding: 12px;
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
-    font-size: 14px;
-    font-family: monospace;
-    background: var(--tg-theme-bg-color, #f5f5f5);
-    color: var(--tg-theme-text-color, #000);
-}
-
-.copy-button {
-    padding: 12px 16px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border-radius: 8px;
-    font-size: 18px;
-    min-width: 48px;
-}
-
-.qr-container {
-    display: flex;
-    justify-content: center;
-    padding: 20px;
+.qr-wrapper {
     background: white;
-    border-radius: 12px;
+    padding: var(--space-sm);
+    border-radius: var(--radius-md);
+    display: inline-block;
+    margin-bottom: var(--space-md);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
 }
 
-.instructions {
-    background: var(--tg-theme-secondary-bg-color, #fff);
-    border-radius: 12px;
-    padding: 20px;
+.qr-hint {
+    font-size: 12px;
+    color: var(--text-tertiary);
 }
 
-.instructions h3 {
-    font-size: 16px;
+/* Link Card */
+.link-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.link-card h3 {
+    font-size: 14px;
     font-weight: 600;
-    margin-bottom: 12px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
-.instructions ol {
-    margin: 0;
-    padding-left: 20px;
+.link-input-wrap input {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    text-align: center;
 }
 
-.instructions li {
-    margin-bottom: 8px;
-    line-height: 1.5;
+.btn-primary.copied {
+    background: var(--accent-gradient-green);
 }

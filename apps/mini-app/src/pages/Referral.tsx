@@ -14,65 +14,59 @@ export default function Referral() {
     const navigate = useNavigate()
     const [stats, setStats] = useState<ReferralStats | null>(null)
     const [loading, setLoading] = useState(true)
+    const [copied, setCopied] = useState(false)
 
     useEffect(() => {
         if (!token) return
-
         const fetchStats = async () => {
             try {
-                const response = await fetch('/api/client/user/referrals', {
+                const res = await fetch('/api/client/user/referrals', {
                     headers: { 'Authorization': `Bearer ${token}` }
                 })
-                if (response.ok) {
-                    const data = await response.json()
-                    setStats(data)
-                }
-            } catch (error) {
-                console.error("Failed to fetch referral stats", error)
-            } finally {
-                setLoading(false)
-            }
+                if (res.ok) setStats(await res.json())
+            } catch (e) { console.error(e); }
+            finally { setLoading(false); }
         }
         fetchStats()
     }, [token])
 
-    const copyToClipboard = () => {
+    const copyLink = () => {
         if (stats) {
             navigator.clipboard.writeText(stats.referral_link)
-            alert("Link copied!")
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
         }
     }
 
-    if (loading) return <div className="page referral-page"><div className="loading">Loading...</div></div>
+    if (loading) return <div className="page"><div className="loading">Loading...</div></div>
 
     return (
         <div className="page referral-page">
             <header className="page-header">
-                <button className="back-button" onClick={() => navigate(-1)}>
-                    ← Back
-                </button>
+                <button className="back-button" onClick={() => navigate(-1)}>←</button>
                 <h2>Refer & Earn</h2>
             </header>
 
-            <div className="referral-card">
-                <div className="referral-icon">🎁</div>
+            <div className="referral-hero glass-card">
+                <div className="hero-icon">🎁</div>
                 <h3>Invite Friends</h3>
-                <p className="referral-desc">
-                    Share your link and earn bonuses when your friends subscribe!
+                <p className="hero-desc">
+                    Share your link and earn bonuses when friends subscribe!
                 </p>
-
-                <div className="stats-row">
-                    <div className="stat-box">
-                        <span className="stat-value">{stats?.referred_count || 0}</span>
-                        <span className="stat-label">Friends Invited</span>
+                <div className="referral-stats">
+                    <div className="ref-stat">
+                        <span className="ref-stat-value gradient-text">{stats?.referred_count || 0}</span>
+                        <span className="ref-stat-label">Friends Invited</span>
                     </div>
                 </div>
+            </div>
 
-
-                <div className="link-box">
-                    <input type="text" readOnly value={stats?.referral_link || ''} />
-                    <button onClick={copyToClipboard}>Copy</button>
-                </div>
+            <div className="invite-card glass-card">
+                <h4>Your Invite Link</h4>
+                <input type="text" readOnly value={stats?.referral_link || 'No referral link'} />
+                <button className={`btn-primary ${copied ? 'copied' : ''}`} onClick={copyLink}>
+                    {copied ? '✓ Copied!' : '📋 Copy Link'}
+                </button>
             </div>
         </div>
     )
