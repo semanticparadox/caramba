@@ -185,6 +185,20 @@ install_dependencies() {
     else
         log_success "Rust already installed"
     fi
+    
+    # Install Node.js (required for MiniApp frontend build)
+    if ! command -v node &> /dev/null; then
+        log_info "Installing Node.js 22 LTS..."
+        curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
+        apt-get install -y nodejs -qq
+        if command -v node &> /dev/null; then
+            log_success "Node.js $(node --version) installed"
+        else
+            log_warn "Node.js installation failed — MiniApp will use placeholder"
+        fi
+    else
+        log_success "Node.js $(node --version) already installed"
+    fi
 }
 
 install_singbox() {
@@ -433,32 +447,34 @@ EOF
             export DATABASE_URL="sqlite://$APP_PANEL_DIR/exarobot.db"
         fi
         
+        # Build MiniApp frontend (must happen BEFORE Rust compilation for RustEmbed)
+        MINI_APP_DIR="$src_dir/apps/mini-app"
+        MINI_APP_DIST="$MINI_APP_DIR/dist"
+        if command -v node &> /dev/null && command -v npm &> /dev/null; then
+            log_info "Building MiniApp frontend..."
+            cd "$MINI_APP_DIR"
+            npm install --production=false 2>&1 | tail -3
+            npm run build 2>&1 | tail -5
+            if [ -f "$MINI_APP_DIST/index.html" ]; then
+                log_success "MiniApp frontend built successfully"
+            else
+                log_warn "MiniApp build produced no output — creating placeholder"
+                mkdir -p "$MINI_APP_DIST"
+                echo '<html><body><h1>MiniApp build failed</h1></body></html>' > "$MINI_APP_DIST/index.html"
+            fi
+            cd "$src_dir"
+        else
+            log_warn "Node.js not available — creating MiniApp placeholder"
+            mkdir -p "$MINI_APP_DIST"
+            echo '<html><body><h1>MiniApp Not Built</h1><p>Install Node.js and rebuild.</p></body></html>' > "$MINI_APP_DIST/index.html"
+        fi
+        
         log_info "Compiling Panel (this may take a few minutes)..."
         cd "$APP_PANEL_DIR"
         cargo build --release --bin exarobot
         cd "$src_dir"
-        cd "$src_dir"
         
         log_info "Compiling Frontend (for downloads/distribution)..."
-        
-        # FIX: The frontend requires apps/mini-app/dist to exist for RustEmbed.
-        # Since we don't install Node.js/npm on the server, we create a placeholder if it's missing.
-        MINI_APP_DIST="$src_dir/apps/mini-app/dist"
-        if [ ! -d "$MINI_APP_DIST" ]; then
-            log_warn "Miniapp dist not found (Node.js not installed). Creating placeholder..."
-            mkdir -p "$MINI_APP_DIST"
-            cat > "$MINI_APP_DIST/index.html" <<EOF
-<!DOCTYPE html>
-<html>
-<head><title>ExaRobot MiniApp</title></head>
-<body>
-<h1>MiniApp Not Built</h1>
-<p>The MiniApp was not built during installation (Node.js required).</p>
-<p>Please build locally and upload <code>apps/mini-app/dist</code> if you need the Telegram App.</p>
-</body>
-</html>
-EOF
-        fi
 
         # Compile frontend binary
         cargo build -p exarobot-frontend --release
