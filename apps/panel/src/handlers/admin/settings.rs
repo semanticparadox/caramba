@@ -418,24 +418,7 @@ pub async fn toggle_bot(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-#[derive(Template, WebTemplate)]
-#[template(path = "bot_logs.html")]
-pub struct BotLogsTemplate {
-    pub is_auth: bool,
-    pub username: String,
-    pub admin_path: String,
-    pub active_page: String,
-    pub bot_status: String,
-    pub bot_username: String,
-    pub subscription_domain: String,
-}
 
-#[derive(Template)]
-#[template(path = "partials/bot_status.html")]
-pub struct BotStatusPartial {
-    pub bot_status: String,
-    pub admin_path: String,
-}
 
 pub async fn bot_logs_page(
     State(state): State<AppState>,
