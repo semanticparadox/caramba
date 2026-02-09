@@ -415,6 +415,25 @@ pub async fn toggle_bot(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
+#[derive(Template, WebTemplate)]
+#[template(path = "bot_logs.html")]
+pub struct BotLogsTemplate {
+    pub is_auth: bool,
+    pub username: String,
+    pub admin_path: String,
+    pub active_page: String,
+    pub bot_status: String,
+    pub bot_username: String,
+    pub subscription_domain: String,
+}
+
+#[derive(Template)]
+#[template(path = "partials/bot_status.html")]
+pub struct BotStatusPartial {
+    pub bot_status: String,
+    pub admin_path: String,
+}
+
 pub async fn bot_logs_page(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -422,8 +441,23 @@ pub async fn bot_logs_page(
     if !is_authenticated(&state, &jar).await {
         return axum::response::Redirect::to(&format!("{}/login", state.admin_path)).into_response();
     }
+    
+    let is_running = state.bot_manager.is_running().await;
+    let bot_status = if is_running { "running".to_string() } else { "stopped".to_string() };
+    let bot_username = state.settings.get_or_default("bot_username", "exarobot_bot").await;
+    let subscription_domain = state.settings.get_or_default("subscription_domain", "").await;
+    
     let admin_path = state.admin_path.clone();
-    Html(BotLogsTemplate { is_auth: true, username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()), admin_path, active_page: "settings".to_string() }.render().unwrap()).into_response()
+    
+    Html(BotLogsTemplate { 
+        is_auth: true, 
+        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()), 
+        admin_path, 
+        active_page: "settings".to_string(),
+        bot_status,
+        bot_username,
+        subscription_domain,
+    }.render().unwrap()).into_response()
 }
 
 pub async fn bot_logs_history(
