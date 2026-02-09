@@ -4,7 +4,7 @@ use axum::{
     body::Bytes,
 };
 use axum_extra::extract::cookie::CookieJar;
-use crate::handlers::admin::get_auth_user;
+use crate::handlers::admin::{get_auth_user, is_authenticated};
 use askama::Template;
 use askama_web::WebTemplate;
 use serde::Deserialize;
