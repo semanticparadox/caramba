@@ -47,20 +47,20 @@ impl AnalyticsService {
     }
 
     /// Track a new user registration (increments daily_stats.new_users)
-    pub async fn track_new_user(&self) -> Result<()> {
+    pub async fn track_new_user(pool: &SqlitePool) -> Result<()> {
         let today = Utc::now().format("%Y-%m-%d").to_string();
         sqlx::query(
             "INSERT INTO daily_stats (date, new_users) VALUES (?, 1) 
              ON CONFLICT(date) DO UPDATE SET new_users = new_users + 1, updated_at = CURRENT_TIMESTAMP"
         )
         .bind(today)
-        .execute(&self.pool)
+        .execute(pool)
         .await?;
         Ok(())
     }
 
     /// Track user activity (logins/interactions). Ensures unique DAU count.
-    pub async fn track_active_user(&self, user_id: i64) -> Result<()> {
+    pub async fn track_active_user(pool: &SqlitePool, user_id: i64) -> Result<()> {
         let today = Utc::now().format("%Y-%m-%d").to_string();
         
         // 1. Insert into unique user_daily_activity to ensure uniqueness
@@ -69,7 +69,7 @@ impl AnalyticsService {
         )
         .bind(user_id)
         .bind(&today)
-        .execute(&self.pool)
+        .execute(pool)
         .await?;
         
         // 2. If inserted (rows_affected > 0), increment aggregate daily_stats
@@ -79,7 +79,7 @@ impl AnalyticsService {
                  ON CONFLICT(date) DO UPDATE SET active_users = active_users + 1, updated_at = CURRENT_TIMESTAMP"
             )
             .bind(today)
-            .execute(&self.pool)
+            .execute(pool)
             .await?;
         }
         
@@ -87,7 +87,7 @@ impl AnalyticsService {
     }
 
     /// Track revenue (in cents)
-    pub async fn track_revenue(&self, amount_cents: i64) -> Result<()> {
+    pub async fn track_revenue(pool: &SqlitePool, amount_cents: i64) -> Result<()> {
         let today = Utc::now().format("%Y-%m-%d").to_string();
         sqlx::query(
             "INSERT INTO daily_stats (date, total_revenue) VALUES (?, ?) 
@@ -96,26 +96,26 @@ impl AnalyticsService {
         .bind(&today)
         .bind(amount_cents)
         .bind(amount_cents)
-        .execute(&self.pool)
+        .execute(pool)
         .await?;
         Ok(())
     }
     
     /// Track order count
-    pub async fn track_order(&self) -> Result<()> {
+    pub async fn track_order(pool: &SqlitePool) -> Result<()> {
         let today = Utc::now().format("%Y-%m-%d").to_string();
         sqlx::query(
             "INSERT INTO daily_stats (date, total_orders) VALUES (?, 1) 
              ON CONFLICT(date) DO UPDATE SET total_orders = total_orders + 1, updated_at = CURRENT_TIMESTAMP"
         )
         .bind(today)
-        .execute(&self.pool)
+        .execute(pool)
         .await?;
         Ok(())
     }
 
     /// Update daily traffic usage
-    pub async fn track_traffic(&self, bytes: i64) -> Result<()> {
+    pub async fn track_traffic(pool: &SqlitePool, bytes: i64) -> Result<()> {
         let today = Utc::now().format("%Y-%m-%d").to_string();
         sqlx::query(
             "INSERT INTO daily_stats (date, traffic_used) VALUES (?, ?) 
@@ -124,7 +124,7 @@ impl AnalyticsService {
         .bind(&today)
         .bind(bytes)
         .bind(bytes)
-        .execute(&self.pool)
+        .execute(pool)
         .await?;
         Ok(())
     }

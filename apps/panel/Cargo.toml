@@ -59,6 +59,7 @@ serde_yaml = "0.9"
 urlencoding = "2.1"
 url = "2.5"
 time = "0.3"
+mime_guess = "2.0"
 
 
 

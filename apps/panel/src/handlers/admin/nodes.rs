@@ -230,7 +230,11 @@ pub async fn toggle_node_enable(
     match state.orchestration_service.toggle_node_enable(id).await {
         Ok(_) => {
             let admin_path = state.admin_path.clone();
-            ([(("HX-Redirect", format!("{}/nodes", admin_path)))], "Toggled").into_response()
+            (
+                axum::http::StatusCode::OK,
+                [("HX-Redirect", format!("{}/nodes", admin_path))],
+                "Toggled"
+            ).into_response()
         }
         Err(e) => {
             error!("Failed to toggle node {}: {}", id, e);
@@ -246,7 +250,11 @@ pub async fn activate_node(
     match state.orchestration_service.activate_node(id).await {
         Ok(_) => {
             let admin_path = state.admin_path.clone();
-            ([(("HX-Redirect", format!("{}/nodes", admin_path)))]).into_response()
+            (
+                axum::http::StatusCode::OK,
+                [("HX-Redirect", format!("{}/nodes", admin_path))],
+                "Activated"
+            ).into_response()
         },
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to activate: {}", e)).into_response(),
     }

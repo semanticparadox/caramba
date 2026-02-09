@@ -86,10 +86,14 @@ pub async fn create_category(
     State(state): State<AppState>,
     Form(form): Form<CategoryForm>,
 ) -> impl IntoResponse {
-    info!("Adding new category: {}", form.name);
+    let admin_path = state.admin_path.clone();
 
     match state.store_service.create_category(&form.name, form.description.as_deref(), form.sort_order).await {
-        Ok(_) => [(("HX-Redirect", format!("{}/store/categories", admin_path)))].into_response(),
+        Ok(_) => (
+            axum::http::StatusCode::OK, 
+            [("HX-Redirect", format!("{}/store/categories", admin_path))],
+            "Redirecting..."
+        ).into_response(),
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)).into_response(),
     }
 }
@@ -148,8 +152,14 @@ pub async fn create_product(
     let product_type = form.product_type;
     let content = form.content.unwrap_or_default();
 
+    let admin_path = state.admin_path.clone();
+
     match state.store_service.create_product(category_id, &name, Some(&description), price, &product_type, Some(&content)).await {
-        Ok(_) => [(("HX-Redirect", format!("{}/store/products", admin_path)))].into_response(),
+        Ok(_) => (
+            axum::http::StatusCode::OK, 
+            [("HX-Redirect", format!("{}/store/products", admin_path))],
+            "Redirecting..."
+        ).into_response(),
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)).into_response(),
     }
 }
