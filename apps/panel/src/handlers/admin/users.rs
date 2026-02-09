@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use tracing::{info, error};
 
 use crate::AppState;
-use crate::models::store::{User, Plan, Order};
+use crate::models::store::{User, Plan};
 use crate::services::logging_service::LoggingService;
 use super::auth::{get_auth_user, is_authenticated};
 
@@ -47,17 +47,7 @@ pub struct UserDetailsTemplate {
     pub active_page: String,
 }
 
-#[derive(sqlx::FromRow, Debug, Clone)]
-pub struct SubscriptionWithPlan {
-    pub id: i64,
-    pub plan_name: String,
-    pub expires_at: chrono::DateTime<chrono::Utc>,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub status: String,
-    pub price: i64,
-    pub active_devices: i64,
-    pub device_limit: i64,
-}
+
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct UserOrderDisplay {

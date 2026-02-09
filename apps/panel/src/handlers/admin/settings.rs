@@ -553,3 +553,13 @@ pub async fn update_trial_config(
 }
 
 
+pub async fn check_update(
+    State(_state): State<AppState>,
+) -> impl IntoResponse {
+    // Stub for update check
+    (
+        axum::http::StatusCode::OK,
+        [("HX-Trigger", "update-checked")],
+        "Up to date"
+    ).into_response()
+}

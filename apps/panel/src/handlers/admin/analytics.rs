@@ -13,7 +13,7 @@ use serde::Deserialize;
 
 use crate::AppState;
 use super::auth::{get_auth_user, is_authenticated};
-use super::dashboard::{get_recent_orders, OrderWithUser};
+use super::dashboard::OrderWithUser;
 use crate::services::logging_service::LoggingService;
 
 fn format_bytes_str(bytes: u64) -> String {

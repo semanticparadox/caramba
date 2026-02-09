@@ -282,3 +282,18 @@ pub async fn get_node_raw_install_script(
 ) -> impl IntoResponse {
     get_node_install_script(Path(id), State(state)).await
 }
+
+pub async fn get_node_logs(
+    Path(id): Path<i64>,
+    State(_state): State<AppState>,
+) -> impl IntoResponse {
+    // Stub for node logs
+    Html(format!("<div class='p-4 text-slate-400'>Logs for node {} unavailable (Not implemented)</div>", id)).into_response()
+}
+pub async fn get_node_logs(
+    Path(id): Path<i64>,
+    State(_state): State<AppState>,
+) -> impl IntoResponse {
+    // Stub for node logs
+    Html(format!("<div class='p-4 text-slate-400'>Logs for node {} unavailable (Not implemented)</div>", id)).into_response()
+}

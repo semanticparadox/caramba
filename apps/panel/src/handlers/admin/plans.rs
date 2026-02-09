@@ -48,7 +48,7 @@ pub async fn get_plans(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let mut plans = match state.store_service.get_plans_admin().await {
+    let plans = match state.store_service.get_plans_admin().await {
             Ok(p) => {
                 info!("Successfully fetched {} plans from DB", p.len());
                 p

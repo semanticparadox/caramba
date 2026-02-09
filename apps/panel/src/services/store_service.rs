@@ -1,4 +1,4 @@
-use sqlx::SqlitePool;
+use sqlx::{SqlitePool, Row};
 use anyhow::{Context, Result};
 use chrono::{Utc, Duration};
 use tracing::{info, error};
