@@ -540,14 +540,22 @@ impl SubscriptionService {
 
         // Also log to subscription_ip_tracking
         // We use a simplified tracking here, assuming unique constraint on (sub_id, ip)
+        // If user_agent is provided, update it too
+        let ua = user_agent.unwrap_or("");
+        
         sqlx::query(
-            "INSERT INTO subscription_ip_tracking (subscription_id, client_ip, last_seen_at) 
-             VALUES (?, ?, CURRENT_TIMESTAMP)
-             ON CONFLICT(subscription_id, client_ip) DO UPDATE SET last_seen_at = CURRENT_TIMESTAMP"
+            "INSERT INTO subscription_ip_tracking (subscription_id, client_ip, user_agent, last_seen_at) 
+             VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+             ON CONFLICT(subscription_id, client_ip) DO UPDATE SET last_seen_at = CURRENT_TIMESTAMP, user_agent = excluded.user_agent"
         )
         .bind(sub_id)
         .bind(ip)
+        .bind(ua)
         .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
         .await?;
         
         Ok(())

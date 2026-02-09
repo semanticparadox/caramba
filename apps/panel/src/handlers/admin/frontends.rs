@@ -15,6 +15,7 @@ pub struct FrontendsTemplate {
     pub username: String,
     pub admin_path: String,
     pub active_page: String,
+    #[allow(dead_code)]
     pub frontend_mode: String,
 }
 

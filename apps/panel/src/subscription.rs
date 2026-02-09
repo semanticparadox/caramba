@@ -89,13 +89,7 @@ pub async fn subscription_handler(
         }
     };
     
-    // 6. Get active nodes
-    let all_nodes = match state.subscription_service.get_active_nodes_for_config().await {
-        Ok(nodes) if !nodes.is_empty() => nodes,
-        _ => {
-            return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response();
-        }
-    };
+
     
     // Filter nodes if node_id is provided
     // Note: NodeInfo doesn't strictly have ID, but we mapped it from Node. 
