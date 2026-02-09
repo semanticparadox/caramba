@@ -11,7 +11,7 @@ use askama_web::WebTemplate;
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use std::collections::HashMap;
-use tracing::info;
+use tracing::{info, error};
 
 use crate::AppState;
 use crate::services::{logging_service::LoggingService};

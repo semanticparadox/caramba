@@ -476,7 +476,7 @@ pub async fn toggle_inbound(
 ) -> impl IntoResponse {
     use axum::http::StatusCode;
     
-    if !crate::handlers::admin::is_authenticated(&state, &jar).await {
+    if !is_authenticated(&state, &jar).await {
        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
