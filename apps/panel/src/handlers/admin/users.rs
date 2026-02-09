@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use tracing::{info, error};
 
 use crate::AppState;
-use crate::models::store::{User, Plan};
+use crate::models::store::{User, Plan, SubscriptionWithPlan};
 use crate::services::logging_service::LoggingService;
 use super::auth::{get_auth_user, is_authenticated};
 

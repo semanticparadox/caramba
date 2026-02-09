@@ -309,7 +309,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     // App state
     let state = AppState {
         pool: pool.clone(),
-        settings: settings_service.clone(),
+        settings: settings.clone(),
         bot_manager: bot_manager.clone(),
         store_service: store_service.clone(),
         orchestration_service: orchestration_service.clone(),
