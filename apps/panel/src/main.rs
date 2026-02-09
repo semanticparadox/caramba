@@ -386,10 +386,10 @@ use tower_http::services::ServeDir;
         .route("/settings/bot/toggle", axum::routing::post(handlers::admin::toggle_bot))
         .route("/settings/update/check", axum::routing::post(handlers::admin::check_update)) // NEW
         // New Bot Page
-        .route("/bot", axum::routing::get(handlers::admin::get_bot_page))
+        .route("/bot", axum::routing::get(handlers::admin::bot_logs_page))
         // Tools Logic (Page removed, actions preserved)
         // .route("/tools", axum::routing::get(handlers::admin::get_tools_page)) // Removed
-        .route("/tools/export", axum::routing::get(handlers::admin::db_export_download))
+        .route("/tools/export", axum::routing::get(handlers::admin::export_database))
         .route("/tools/trial-config", axum::routing::post(handlers::admin::update_trial_config))
         // .route("/traffic", axum::routing::get(handlers::admin::get_traffic_analytics)) // Merged into /analytics
         .route("/logs", axum::routing::get(handlers::admin::get_system_logs_page)) // NEW

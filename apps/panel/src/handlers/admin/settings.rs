@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use tracing::{info, error};
 
 use crate::AppState;
-use crate::services::{logging_service::LoggingService};
+
 use super::auth::{get_auth_user, is_authenticated};
 
 // Helper to mask API keys
