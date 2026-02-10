@@ -14,7 +14,7 @@ impl MonitoringService {
 
     pub async fn start(&self) {
         info!("Starting background monitoring service...");
-        let mut interval = interval(Duration::from_secs(60)); // Every 1 minute
+        let mut interval = interval(Duration::from_secs(30)); // Every 30 seconds
         let mut minute_counter = 0;
 
         loop {
@@ -60,9 +60,9 @@ impl MonitoringService {
     }
 
     async fn check_node_status(&self) -> anyhow::Result<()> {
-        // Mark nodes as offline if last_seen > 5 minutes ago
+        // Mark nodes as offline if last_seen > 90 seconds ago
         // Using SQLite datetime modifier
-        let rows_affected = sqlx::query("UPDATE nodes SET status = 'offline' WHERE last_seen < datetime('now', '-5 minutes') AND status != 'offline' AND status != 'new'")
+        let rows_affected = sqlx::query("UPDATE nodes SET status = 'offline' WHERE last_seen < datetime('now', '-90 seconds') AND status != 'offline' AND status != 'new' AND status != 'disabled'")
             .execute(&self.state.pool)
             .await?
             .rows_affected();
@@ -74,9 +74,9 @@ impl MonitoringService {
     }
 
     async fn check_frontend_status(&self) -> anyhow::Result<()> {
-        // Mark frontends as offline if last_heartbeat > 5 minutes ago
+        // Mark frontends as offline if last_heartbeat > 90 seconds ago
         // Verify 'status' column exists via migration first (safe check: just run query, if fails it logs error)
-        let rows_affected = sqlx::query("UPDATE frontend_servers SET status = 'offline' WHERE last_heartbeat < datetime('now', '-5 minutes') AND status != 'offline'")
+        let rows_affected = sqlx::query("UPDATE frontend_servers SET status = 'offline' WHERE last_heartbeat < datetime('now', '-90 seconds') AND status != 'offline'")
             .execute(&self.state.pool)
             .await?
             .rows_affected();

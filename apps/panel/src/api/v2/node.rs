@@ -55,7 +55,7 @@ pub async fn heartbeat(
     // 3. Update Telemetry & Status & IP
     if let Some(lat) = req.latency {
         // Fix: Also update IP here, because if a node sends stats, we still want to fix its IP if it's pending.
-        let _ = sqlx::query("UPDATE nodes SET last_latency = ?, last_cpu = ?, last_ram = ?, current_speed_mbps = ?, last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'new' THEN 'active' ELSE status END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN ? ELSE ip END WHERE id = ?")
+        let _ = sqlx::query("UPDATE nodes SET last_latency = ?, last_cpu = ?, last_ram = ?, current_speed_mbps = ?, last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN ? ELSE ip END WHERE id = ?")
             .bind(lat)
             .bind(req.cpu_usage.unwrap_or(0.0))
             .bind(req.memory_usage.unwrap_or(0.0))
@@ -67,7 +67,7 @@ pub async fn heartbeat(
     } else {
         // Just update last_seen if no telemetry (or older agent)
         // Also update IP if it was a pending placeholder
-        let _ = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'new' THEN 'active' ELSE status END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN ? ELSE ip END WHERE id = ?")
+        let _ = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN ? ELSE ip END WHERE id = ?")
             .bind(&remote_ip)
             .bind(node_id)
             .execute(&state.pool)
