@@ -9,11 +9,25 @@ export interface UserStats {
     balance: number;
     total_download: number;
     total_upload: number;
-    traffic_limit: number;  // alias for total_traffic
+    traffic_limit: number;
 }
 
 export interface UserSubscription {
-    uuid: string;
+    id: number;
+    plan_name: string;
+    plan_description: string | null;
+    status: string;
+    used_traffic_bytes: number;
+    used_traffic_gb: string;
+    traffic_limit_gb: number;
+    expires_at: string;
+    created_at: string;
+    days_left: number;
+    duration_days: number;
+    note: string | null;
+    auto_renew: boolean;
+    is_trial: boolean;
+    subscription_uuid: string;
     subscription_url: string;
 }
 
@@ -29,7 +43,7 @@ interface AuthContextType {
     user: User | null;
     token: string | null;
     userStats: UserStats | null;
-    subscription: UserSubscription | null;
+    subscriptions: UserSubscription[];
     isLoading: boolean;
     error: string | null;
     refreshData: () => Promise<void>;
@@ -40,7 +54,7 @@ const AuthContext = createContext<AuthContextType>({
     user: null,
     token: null,
     userStats: null,
-    subscription: null,
+    subscriptions: [],
     isLoading: true,
     error: null,
     refreshData: async () => { },
@@ -52,7 +66,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [user, setUser] = useState<User | null>(null);
     const [token, setToken] = useState<string | null>(localStorage.getItem('jwt_token'));
     const [userStats, setUserStats] = useState<UserStats | null>(null);
-    const [subscription, setSubscription] = useState<UserSubscription | null>(null);
+    const [subscriptions, setSubscriptions] = useState<UserSubscription[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -60,7 +74,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     useEffect(() => {
         const initAuth = async () => {
             try {
-                // Expand Telegram WebApp
                 WebApp.expand();
                 const initData = WebApp.initData;
 
@@ -102,7 +115,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (token) {
             refreshData();
         } else {
-            // Wait for auth to complete or fail
             const timer = setTimeout(() => setIsLoading(false), 1000);
             return () => clearTimeout(timer);
         }
@@ -112,9 +124,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!token) return;
         setIsLoading(true);
         try {
-            const [statsRes, subRes] = await Promise.all([
+            const [statsRes, subsRes] = await Promise.all([
                 fetch('/api/client/user/stats', { headers: { Authorization: `Bearer ${token}` } }),
-                fetch('/api/client/user/subscription', { headers: { Authorization: `Bearer ${token}` } })
+                fetch('/api/client/user/subscriptions', { headers: { Authorization: `Bearer ${token}` } })
             ]);
 
             if (statsRes.ok) {
@@ -126,8 +138,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     total_upload: s.total_upload || 0,
                 });
             }
-            if (subRes.ok) {
-                setSubscription(await subRes.json());
+            if (subsRes.ok) {
+                const data = await subsRes.json();
+                // API now returns an array
+                setSubscriptions(Array.isArray(data) ? data : [data]);
             }
         } catch (e: any) {
             console.error("Data fetch error:", e);
@@ -143,7 +157,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             user,
             token,
             userStats,
-            subscription,
+            subscriptions,
             isLoading,
             error,
             refreshData

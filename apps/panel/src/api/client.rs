@@ -48,10 +48,13 @@ pub fn routes(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/auth/telegram", post(auth_telegram))
         .route("/user/stats", get(get_user_stats).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
-        .route("/user/subscription", get(get_user_subscription).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
+        .route("/user/subscriptions", get(get_user_subscriptions).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
+        .route("/user/subscription", get(get_user_subscriptions).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
         .route("/user/payments", get(get_user_payments).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
+        .route("/user/profile", get(get_user_profile).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
         .route("/user/referrals", get(get_user_referrals).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
         .route("/referrals", get(get_user_referrals).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
+        .route("/plans", get(get_plans).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
         .route("/leaderboard", get(get_leaderboard).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
         .route("/servers", get(get_active_servers).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
         .route("/nodes", get(get_active_servers).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
@@ -254,59 +257,155 @@ async fn get_user_stats(
     }
 }
 
-// Subscription Endpoint
-async fn get_user_subscription(
+// Subscriptions Endpoint — returns ALL user subscriptions with full details
+async fn get_user_subscriptions(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<Claims>,
 ) -> impl IntoResponse {
     let tg_id: i64 = claims.sub.parse().unwrap_or(0);
 
-    let sub = sqlx::query(r#"
-        SELECT s.uuid 
-        FROM subscriptions s
-        JOIN users u ON s.user_id = u.id
-        WHERE u.tg_id = ? AND s.status = 'active'
-        LIMIT 1
-    "#)
-    .bind(tg_id)
-    .fetch_optional(&state.pool)
-    .await
-    .unwrap_or(None);
+    // Get user_id from tg_id
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = ?")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
 
-    if let Some(row) = sub {
-        let uuid: String = row.get("uuid");
-        // Construct full URL (this should be in config, but we'll use a placeholder or derived)
-        // The frontend knows the base URL usually.
-        // Return UUID and let frontend construct it, OR return full URL.
-        // Let's return UUID + formatted URL.
-        
-        // Check for custom subscription domain
-        let sub_domain = state.settings.get_or_default("subscription_domain", "").await;
-        let frontend_mode = state.settings.get_or_default("frontend_mode", "local").await;
-        
-        // If sub_domain is set, use it. Otherwise use PANEL_URL
-        let base_domain = if !sub_domain.is_empty() {
-             sub_domain
-        } else {
-             env::var("PANEL_URL").unwrap_or_else(|_| "panel.example.com".to_string())
-        };
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
 
-        // Ensure protocol
-        let base_url = if base_domain.starts_with("http") { 
-            base_domain 
-        } else { 
-            format!("https://{}", base_domain) 
-        };
-        
-        let sub_url = format!("{}/sub/{}", base_url, uuid);
-        
-        Json(serde_json::json!({
-            "uuid": uuid,
+    // Use store_service for consistency with bot
+    let subs = match state.store_service.get_user_subscriptions(user_id).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("Failed to fetch subscriptions: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch subscriptions").into_response();
+        }
+    };
+
+    // Build subscription URL base
+    let sub_domain = state.settings.get_or_default("subscription_domain", "").await;
+    let base_domain = if !sub_domain.is_empty() {
+        sub_domain
+    } else {
+        env::var("PANEL_URL").unwrap_or_else(|_| "panel.example.com".to_string())
+    };
+    let base_url = if base_domain.starts_with("http") {
+        base_domain
+    } else {
+        format!("https://{}", base_domain)
+    };
+
+    // Map to JSON-friendly format
+    let result: Vec<serde_json::Value> = subs.iter().map(|s| {
+        let used_gb = s.sub.used_traffic as f64 / 1024.0 / 1024.0 / 1024.0;
+        let traffic_limit_gb = s.traffic_limit_gb.unwrap_or(0);
+        let sub_url = format!("{}/sub/{}", base_url, s.sub.subscription_uuid);
+        let days_left = (s.sub.expires_at - chrono::Utc::now()).num_days().max(0);
+        let duration_days = (s.sub.expires_at - s.sub.created_at).num_days();
+
+        serde_json::json!({
+            "id": s.sub.id,
+            "plan_name": s.plan_name,
+            "plan_description": s.plan_description,
+            "status": s.sub.status,
+            "used_traffic_bytes": s.sub.used_traffic,
+            "used_traffic_gb": format!("{:.2}", used_gb),
+            "traffic_limit_gb": traffic_limit_gb,
+            "expires_at": s.sub.expires_at.to_rfc3339(),
+            "created_at": s.sub.created_at.to_rfc3339(),
+            "days_left": days_left,
+            "duration_days": duration_days,
+            "note": s.sub.note,
+            "auto_renew": s.sub.auto_renew.unwrap_or(false),
+            "is_trial": s.sub.is_trial.unwrap_or(false),
+            "subscription_uuid": s.sub.subscription_uuid,
             "subscription_url": sub_url,
-            "frontend_mode": frontend_mode
+        })
+    }).collect();
+
+    Json(result).into_response()
+}
+
+// User Profile Endpoint
+async fn get_user_profile(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+
+    let row = sqlx::query("SELECT id, username, tg_id, balance, referral_code FROM users WHERE tg_id = ?")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    if let Some(r) = row {
+        let balance: i64 = r.try_get("balance").unwrap_or(0);
+        let referral_code: String = r.try_get("referral_code").unwrap_or_default();
+
+        // Count active + pending subs
+        let user_id: i64 = r.get("id");
+        let active_subs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM subscriptions WHERE user_id = ? AND status = 'active'")
+            .bind(user_id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or(0);
+        let pending_subs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM subscriptions WHERE user_id = ? AND status = 'pending'")
+            .bind(user_id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or(0);
+
+        Json(serde_json::json!({
+            "id": user_id,
+            "tg_id": tg_id,
+            "username": r.try_get::<String, _>("username").unwrap_or_default(),
+            "balance": balance as f64 / 100.0,
+            "referral_code": referral_code,
+            "active_subscriptions": active_subs,
+            "pending_subscriptions": pending_subs,
         })).into_response()
     } else {
-        (StatusCode::NOT_FOUND, "No subscription").into_response()
+        (StatusCode::NOT_FOUND, "User not found").into_response()
+    }
+}
+
+// Plans Endpoint — list available plans
+async fn get_plans(
+    State(state): State<AppState>,
+    axum::Extension(_claims): axum::Extension<Claims>,
+) -> impl IntoResponse {
+    match state.store_service.get_active_plans().await {
+        Ok(plans) => {
+            let result: Vec<serde_json::Value> = plans.iter().map(|p| {
+                let durations: Vec<serde_json::Value> = p.durations.iter().map(|d| {
+                    serde_json::json!({
+                        "id": d.id,
+                        "duration_days": d.duration_days,
+                        "price": d.price as f64 / 100.0,
+                        "price_cents": d.price,
+                    })
+                }).collect();
+
+                serde_json::json!({
+                    "id": p.id,
+                    "name": p.name,
+                    "description": p.description,
+                    "traffic_limit_gb": p.traffic_limit_gb,
+                    "device_limit": p.device_limit,
+                    "is_trial": p.is_trial.unwrap_or(false),
+                    "durations": durations,
+                })
+            }).collect();
+            Json(result).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch plans: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch plans").into_response()
+        }
     }
 }
 

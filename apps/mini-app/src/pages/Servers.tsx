@@ -16,7 +16,8 @@ interface ServerInfo {
 
 export default function Servers() {
     const navigate = useNavigate()
-    const { token, subscription } = useAuth()
+    const { token, subscriptions } = useAuth()
+    const activeSub = subscriptions.find(s => s.status === 'active')
     const [servers, setServers] = useState<ServerInfo[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedServer, setSelectedServer] = useState<ServerInfo | null>(null)
@@ -39,14 +40,14 @@ export default function Servers() {
     }, [token]);
 
     const handleGetConfig = (server: ServerInfo) => {
-        if (!subscription) return;
+        if (!activeSub) return;
         setSelectedServer(server);
         updateConfigUrl(server.id, clientType);
     }
 
     const updateConfigUrl = (nodeId: number, type: string) => {
-        if (!subscription) return;
-        let base = subscription.subscription_url;
+        if (!activeSub) return;
+        let base = activeSub.subscription_url;
         const sep = base.includes('?') ? '&' : '?';
         setConfigUrl(`${base}${sep}client=${type}&node_id=${nodeId}`);
     }

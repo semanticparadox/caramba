@@ -12,7 +12,7 @@ function formatBytes(bytes: number, decimals = 2): string {
 }
 
 const MENU_ITEMS = [
-    { path: '/subscription', icon: '🔑', title: 'Subscription', subtitle: 'Links & QR codes', gradient: 'var(--accent-gradient)' },
+    { path: '/subscription', icon: '🔐', title: 'My Services', subtitle: 'Subscriptions & config', gradient: 'var(--accent-gradient)' },
     { path: '/servers', icon: '🌐', title: 'Servers', subtitle: 'Choose location', gradient: 'var(--accent-gradient-green)' },
     { path: '/statistics', icon: '📊', title: 'Statistics', subtitle: 'Usage charts', gradient: 'var(--accent-gradient-pink)' },
     { path: '/billing', icon: '💎', title: 'Billing', subtitle: 'Balance & Top up', gradient: 'var(--accent-gradient-warm)' },
