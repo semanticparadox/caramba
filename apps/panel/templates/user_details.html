@@ -62,8 +62,7 @@
                     <div>
                         <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Parent (Family)</label>
                         <input type="number" name="parent_id"
-                            value="{{ user.parent_id.map(|id| id.to_string()).unwrap_or(String::new()) }}"
-                            placeholder="User ID"
+                            value="{% if let Some(pid) = user.parent_id %}{{ pid }}{% endif %}" placeholder="User ID"
                             class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
                     </div>
                 </div>
@@ -188,7 +187,7 @@
                                     <span class="text-sm text-slate-300">{{ sub.expires_at.format("%Y-%m-%d") }}</span>
                                     <button
                                         class="w-6 h-6 flex items-center justify-center rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-                                        onclick="openExtendModal({{ sub.id }})" title="Extend">
+                                        onclick="openExtendModal( {{ sub.id }} )" title="Extend">
                                         <i data-lucide="plus" class="w-3 h-3"></i>
                                     </button>
                                 </div>
@@ -200,7 +199,7 @@
                                             class="text-slate-600">/</span><span class="text-slate-400">{% if
                                             sub.device_limit == 0 %}∞{% else %}{{ sub.device_limit }}{% endif %}</span>
                                     </div>
-                                    <button onclick="openDevicesModal({{ sub.id }})"
+                                    <button onclick="openDevicesModal( {{ sub.id }} )"
                                         class="p-1 hover:bg-white/10 rounded transition-colors text-slate-500 hover:text-indigo-400"
                                         title="View Devices">
                                         <i data-lucide="monitor-smartphone" class="w-4 h-4"></i>
@@ -210,7 +209,7 @@
                             <td class="px-6 py-4 text-right">
                                 <div class="flex items-center justify-end gap-2">
                                     <button
-                                        onclick="openRefundModal({{ sub.id }}, {{ sub.price }}, {{ sub.created_at.timestamp_millis() }}, {{ sub.expires_at.timestamp_millis() }})"
+                                        onclick="openRefundModal( {{ sub.id }}, {{ sub.price }}, {{ sub.created_at.timestamp_millis() }}, {{ sub.expires_at.timestamp_millis() }} )"
                                         class="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-amber-500/10 text-amber-500/80 hover:text-amber-400 text-xs font-medium transition-colors">
                                         Refund
                                     </button>

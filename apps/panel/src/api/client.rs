@@ -513,14 +513,9 @@ async fn get_active_servers(
     // 2. Map to ClientNode & Calculate Distance & Load Score
     let mut client_nodes: Vec<ClientNode> = nodes.into_iter()
         .filter(|n| {
-            // Filter out if user limit reached (buffer 5% to avoid hard cutoffs flickering)
-            n.max_users == 0 || (n.max_users > 0 && n.config_block_ads) // Using config_block_ads as active_users proxy? No, we need a real active_user count. 
-            // Wait, we don't have active_users on Node struct yet? 
-            // The plan said "Current Load (CPU, RAM, Active Users)".
-            // Let's assume for now we use CPU/RAM/Speed.
-            // Filtering by load:
+            let users_ok = n.max_users == 0 || (n.max_users > 0 && n.config_block_ads); 
             let load_ok = n.last_cpu.unwrap_or(0.0) < 95.0 && n.last_ram.unwrap_or(0.0) < 98.0;
-            load_ok
+            users_ok && load_ok
         })
         .map(|n| {
         let dist = if let (Some(u_lat), Some(u_lon), Some(n_lat), Some(n_lon)) = (

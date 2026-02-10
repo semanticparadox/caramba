@@ -134,7 +134,32 @@ CREATE TABLE IF NOT EXISTS users (
     -- Bot History Tracking
     last_bot_msg_id INTEGER,
     
+    -- Enterprise Organizations (Phase 3)
+    current_org_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+    
     FOREIGN KEY (referrer_id) REFERENCES users(id)
+);
+
+-- ================================================
+-- ENTERPRISE ORGANIZATIONS
+-- ================================================
+
+CREATE TABLE IF NOT EXISTS organizations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    slug TEXT UNIQUE,
+    balance INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS organization_members (
+    organization_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    role TEXT NOT NULL DEFAULT 'member', -- 'owner', 'admin', 'member'
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (organization_id, user_id),
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_tg_id ON users (tg_id);
@@ -236,8 +261,12 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     -- Subscription URLs (010_subscription_urls)
     last_sub_access TIMESTAMP NULL,
     
+    -- Enterprise Organizations
+    organization_id INTEGER,
+    
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (plan_id) REFERENCES plans(id)
+    FOREIGN KEY (plan_id) REFERENCES plans(id),
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions (user_id);

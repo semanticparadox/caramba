@@ -1,9 +1,7 @@
 mod db;
 mod settings;
-mod handlers;
 mod bot;
 mod bot_manager;
-
 mod scripts;
 mod singbox;
 mod cli;
@@ -13,7 +11,7 @@ mod api;
 mod subscription;
 mod utils;
 mod repositories;
-pub mod handlers; // Make handlers public to allow access to admin_orgs if needed or via handlers::...
+pub mod handlers;
 
 
 

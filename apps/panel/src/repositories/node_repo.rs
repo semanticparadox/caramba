@@ -1,7 +1,8 @@
 use sqlx::SqlitePool;
 use anyhow::{Context, Result};
-use crate::models::node::{Node, Inbound, HelperNode};
-use crate::models::groups::{Group, GroupNode};
+use crate::models::node::{Node};
+use crate::models::network::{Inbound};
+use crate::models::groups::{NodeGroup, NodeGroupMember};
 
 #[derive(Clone)]
 pub struct NodeRepository {
@@ -178,16 +179,6 @@ impl NodeRepository {
         q.fetch_all(&self.pool).await.context("Failed to fetch nodes by groups")
     }
     
-    // ==================== HELPER NODES (DYNAMIC) ====================
-    // This table seemed recently added or used in dynamic inbounds
-    
-    pub async fn get_helper_nodes(&self) -> Result<Vec<HelperNode>> {
-        sqlx::query_as::<_, HelperNode>("SELECT * FROM helper_nodes WHERE is_active = 1")
-            .fetch_all(&self.pool)
-            .await
-            .context("Failed to fetch helper nodes")
-    }
-
     // ==================== BUSINESS LOGIC queries ====================
 
     pub async fn get_nodes_for_plan(&self, plan_id: i64) -> Result<Vec<Node>> {

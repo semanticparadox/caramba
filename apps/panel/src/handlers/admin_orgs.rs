@@ -30,7 +30,8 @@ pub async fn get_organizations(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let username = get_auth_user(&state, &jar).await.unwrap_or_else(|_| "Admin".to_string());
+    let username = crate::handlers::admin::auth::get_auth_user(&state, &jar).await
+        .unwrap_or_else(|| "Admin".to_string());
     let admin_path = state.admin_path.clone();
 
     // Fetch all for admin view for now

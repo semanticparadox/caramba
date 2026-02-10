@@ -403,6 +403,8 @@ impl StoreService {
     }
 
     pub async fn ban_user(&self, user_id: i64) -> Result<()> {
+        let user = self.user_repo.get_by_id(user_id).await?
+            .ok_or_else(|| anyhow::anyhow!("User not found"))?;
         self.user_repo.update_profile(user_id, user.balance, true, user.referral_code.as_deref()).await?;
         Ok(())
     }
@@ -954,21 +956,8 @@ impl StoreService {
     }
 
     pub async fn get_user_subscriptions(&self, user_id: i64) -> Result<Vec<SubscriptionWithDetails>> {
-        // 1. Fetch Subscriptions
-    pub async fn get_user_subscriptions(&self, user_id: i64) -> Result<Vec<SubscriptionWithDetails>> {
         // 1. Fetch Subscriptions using Repo
-        // Note: The repo method returns SubscriptionWithDetails directly (with joined plan name).
-        // But the original code here fetched Subscriptions, then manually joined with Plans in memory.
-        // We can switch to the repo's efficient JOIN query if the return type matches.
-        // Repo returns `SubscriptionWithDetails` which has `plan_name`, `node_name`.
-        // The original code returned `SubscriptionWithDetails` constructed manually.
-        // So this is a perfect drop-in if we map it correctly.
-        
-        // Wait, original signature returns `Vec<SubscriptionWithDetails>`.
-        // Repo returns `Vec<SubscriptionWithDetails>`.
-        // So we can just delegate!
-        
-        self.sub_repo.get_all_by_user(user_id).await
+        let subs = self.sub_repo.get_all_by_user(user_id).await?;
 
         if subs.is_empty() {
             return Ok(Vec::new());
@@ -979,7 +968,8 @@ impl StoreService {
 
         let mut result = Vec::new();
 
-        for sub in subs {
+        for sub_with_details in subs {
+            let sub = &sub_with_details.sub;
             let plan = plans.iter().find(|p| p.id == sub.plan_id);
             
             let (name, desc, limit) = if let Some(p) = plan {
@@ -993,11 +983,11 @@ impl StoreService {
                 
                 (p.name.clone(), p.description.clone(), limit)
             } else {
-                ("Unknown Plan".to_string(), None, None)
+                (sub_with_details.plan_name.clone(), None, None)
             };
 
             result.push(SubscriptionWithDetails {
-                sub,
+                sub: sub.clone(),
                 plan_name: name,
                 plan_description: desc,
                 traffic_limit_gb: limit,
@@ -2012,12 +2002,6 @@ impl StoreService {
         let limit = self.sub_repo.get_device_limit(subscription_id).await?;
         Ok(limit.unwrap_or(0))
     }
-
-        let limit = limit.unwrap_or(0); // Handle nulls if any
-
-        Ok(limit)
-    }
-
     /// Update the list of active IPs for a subscription
     pub async fn update_subscription_ips(&self, subscription_id: i64, ip_list: Vec<String>) -> Result<()> {
         let mut tx = self.pool.begin().await?;

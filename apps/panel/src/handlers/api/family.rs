@@ -7,7 +7,7 @@ use axum_extra::extract::cookie::CookieJar;
 use tracing::error;
 
 use crate::AppState;
-use crate::handlers::auth::get_auth_user_id;
+use crate::handlers::admin::auth::get_auth_user_id;
 
 #[derive(Serialize)]
 pub struct InviteResponse {
