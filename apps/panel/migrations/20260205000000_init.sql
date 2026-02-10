@@ -64,7 +64,20 @@ CREATE TABLE IF NOT EXISTS nodes (
     config_qos_enabled BOOLEAN DEFAULT 0,
     config_block_torrent BOOLEAN DEFAULT 0,
     config_block_ads BOOLEAN DEFAULT 0,
-    config_block_porn BOOLEAN DEFAULT 0
+    config_block_porn BOOLEAN DEFAULT 0,
+
+    -- Display & Metadata
+    country TEXT,
+    city TEXT,
+    flag TEXT,
+    load_stats TEXT,
+    check_stats_json TEXT,
+    sort_order INTEGER DEFAULT 0,
+
+    -- Limits & Load Balancing
+    speed_limit_mbps INTEGER DEFAULT 0,
+    max_users INTEGER DEFAULT 0,
+    current_speed_mbps INTEGER DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_nodes_ip ON nodes (ip);

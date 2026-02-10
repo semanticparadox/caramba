@@ -463,6 +463,9 @@ use tower_http::services::ServeDir;
         .route("/groups/{id}/members/{node_id}", axum::routing::delete(handlers::admin_groups::remove_group_member))
         .route("/groups/{id}/rotate", axum::routing::post(handlers::admin_groups::rotate_group_inbounds))
         
+        // Templates Management
+        .route("/templates", axum::routing::get(handlers::admin_templates::get_templates_page).post(handlers::admin_templates::create_template))
+        .route("/templates/{id}", axum::routing::delete(handlers::admin_templates::delete_template))
         .route("/templates/{id}/sync", axum::routing::post(handlers::admin_templates::sync_template))
         
         // Organization Management (Phase 3)

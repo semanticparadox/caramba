@@ -127,6 +127,40 @@ pub async fn patch_database_schema(pool: &Pool<Sqlite>) {
              warn!("Failed to add join_token column: {}", e);
         }
     }
+    // 10. Patch all missing node columns added in recent features
+    let node_columns: Vec<(&str, &str)> = vec![
+        ("sort_order", "ALTER TABLE nodes ADD COLUMN sort_order INTEGER DEFAULT 0"),
+        ("country", "ALTER TABLE nodes ADD COLUMN country TEXT"),
+        ("city", "ALTER TABLE nodes ADD COLUMN city TEXT"),
+        ("flag", "ALTER TABLE nodes ADD COLUMN flag TEXT"),
+        ("load_stats", "ALTER TABLE nodes ADD COLUMN load_stats TEXT"),
+        ("check_stats_json", "ALTER TABLE nodes ADD COLUMN check_stats_json TEXT"),
+        ("speed_limit_mbps", "ALTER TABLE nodes ADD COLUMN speed_limit_mbps INTEGER DEFAULT 0"),
+        ("max_users", "ALTER TABLE nodes ADD COLUMN max_users INTEGER DEFAULT 0"),
+        ("current_speed_mbps", "ALTER TABLE nodes ADD COLUMN current_speed_mbps INTEGER DEFAULT 0"),
+    ];
+
+    for (col, alter_sql) in &node_columns {
+        let query = format!(
+            "SELECT count(*) > 0 FROM pragma_table_info('nodes') WHERE name='{}'",
+            col
+        );
+        let exists: bool = sqlx::query_scalar(&query)
+            .fetch_one(pool)
+            .await
+            .unwrap_or(false);
+
+        if !exists {
+            warn!("⚠️ Missing column '{}' in 'nodes'. Patching...", col);
+            if let Err(e) = sqlx::query(alter_sql).execute(pool).await {
+                if !e.to_string().contains("duplicate column") {
+                    error!("Failed to add '{}' column: {}", col, e);
+                }
+            } else {
+                info!("✅ Added '{}' column to 'nodes'", col);
+            }
+        }
+    }
 
     info!("✅ Database schema check complete.");
 }
