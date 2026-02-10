@@ -153,6 +153,15 @@ pub struct StreamSettings {
     pub reality_settings: Option<RealitySettings>,
     pub ws_settings: Option<WsSettings>,
     pub http_upgrade_settings: Option<HttpUpgradeSettings>,
+    pub xhttp_settings: Option<XhttpSettings>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XhttpSettings {
+    pub path: String,
+    pub host: String,
+    pub mode: Option<String>,
+    pub extra: Option<std::collections::HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

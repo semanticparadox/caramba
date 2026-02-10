@@ -497,7 +497,8 @@ use tower_http::services::ServeDir;
         
         // Templates Management
         .route("/templates", axum::routing::get(handlers::admin_templates::get_templates_page).post(handlers::admin_templates::create_template))
-        .route("/templates/{id}", axum::routing::delete(handlers::admin_templates::delete_template))
+        .route("/templates/{id}", axum::routing::delete(handlers::admin_templates::delete_template).post(handlers::admin_templates::update_template))
+        .route("/templates/{id}/edit", axum::routing::get(handlers::admin_templates::get_template_edit))
         .route("/templates/{id}/sync", axum::routing::post(handlers::admin_templates::sync_template))
         
         // Organization Management (Phase 3)

@@ -193,3 +193,100 @@ pub async fn sync_template(
         (StatusCode::BAD_REQUEST, "Template has no target group").into_response()
     }
 }
+
+// --- Edit Template ---
+
+#[derive(Template, WebTemplate)]
+#[template(path = "admin_template_edit_modal.html")]
+pub struct AdminTemplateEditModalTemplate {
+    pub tpl: InboundTemplate,
+    pub groups: Vec<NodeGroup>,
+    pub admin_path: String,
+}
+
+pub async fn get_template_edit(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    use axum::http::StatusCode;
+    if !is_authenticated(&state, &jar).await {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    let tpl = match sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await {
+            Ok(Some(t)) => t,
+            Ok(None) => return (StatusCode::NOT_FOUND, "Template not found").into_response(),
+            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)).into_response(),
+        };
+
+    let groups = sqlx::query_as::<_, NodeGroup>("SELECT * FROM node_groups ORDER BY name ASC")
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+
+    let template = AdminTemplateEditModalTemplate {
+        tpl,
+        groups,
+        admin_path: state.admin_path.clone(),
+    };
+    Html(template.render().unwrap_or_default()).into_response()
+}
+
+pub async fn update_template(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(id): Path<i64>,
+    Form(form): Form<CreateTemplateForm>,
+) -> impl IntoResponse {
+    use axum::http::StatusCode;
+    if !is_authenticated(&state, &jar).await {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    // Basic validation of JSON & Inject Protocol if missing
+    let mut settings_json: serde_json::Value = match serde_json::from_str(&form.settings_template) {
+        Ok(v) => v,
+        Err(e) => return (StatusCode::BAD_REQUEST, format!("Invalid Settings JSON: {}", e)).into_response(),
+    };
+
+    if let Some(obj) = settings_json.as_object_mut() {
+        if !obj.contains_key("protocol") {
+            obj.insert("protocol".to_string(), serde_json::Value::String(form.protocol.clone()));
+        }
+    }
+    let final_settings = settings_json.to_string();
+
+    if let Err(e) = serde_json::from_str::<serde_json::Value>(&form.stream_settings_template) {
+         return (StatusCode::BAD_REQUEST, format!("Invalid Stream Settings JSON: {}", e)).into_response();
+    }
+
+    let res = sqlx::query(
+        r#"
+        UPDATE inbound_templates 
+        SET name = ?, protocol = ?, target_group_id = ?, settings_template = ?, stream_settings_template = ?, port_range_start = ?, port_range_end = ?
+        WHERE id = ?
+        "#
+    )
+        .bind(&form.name)
+        .bind(&form.protocol)
+        .bind(form.target_group_id)
+        .bind(&final_settings)
+        .bind(&form.stream_settings_template)
+        .bind(form.port_range_start)
+        .bind(form.port_range_end)
+        .bind(id)
+        .execute(&state.pool)
+        .await;
+
+    match res {
+        Ok(_) => {
+            let admin_path = state.admin_path.clone();
+            axum::response::Redirect::to(&format!("{}/templates", admin_path)).into_response()
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update template: {}", e)).into_response(),
+    }
+}

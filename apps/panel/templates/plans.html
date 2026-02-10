@@ -81,10 +81,7 @@
                         onclick="document.getElementById('edit-plan-modal').showModal()">
                         Edit Details
                     </button>
-                    <a href="{{ admin_path }}/plans/{{ plan.id }}/bindings"
-                        class="py-2 px-3 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 hover:text-indigo-300 text-sm font-medium transition-colors border border-indigo-500/10 text-center">
-                        Bindings
-                    </a>
+
                     <button
                         class="py-2 px-3 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 text-sm font-medium transition-colors border border-red-500/10"
                         hx-delete="{{ admin_path }}/plans/{{ plan.id }}"

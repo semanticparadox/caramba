@@ -126,6 +126,7 @@ pub struct AdminGroupEditTemplate {
     pub group: NodeGroup,
     pub members: Vec<Node>,
     pub available_nodes: Vec<Node>,
+    pub inbounds: Vec<InboundTemplate>,
     pub is_auth: bool,
     pub admin_path: String,
     pub active_page: String,
@@ -166,13 +167,30 @@ pub async fn get_group_edit(
     )
     .bind(id)
     .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
+    .fetch_all(&state.pool)
+    .await;
+
+    let available_nodes = match available_nodes {
+        Ok(nodes) => nodes,
+        Err(e) => {
+            error!("Failed to fetch available nodes for group {}: {}", id, e);
+            Vec::new()
+        }
+        }
+    };
+
+    // Get inbounds for this group
+    let inbounds = sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE target_group_id = ?")
+        .bind(id)
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
 
     let template = AdminGroupEditTemplate {
         group,
         members,
         available_nodes,
+        inbounds,
         is_auth: true,
         admin_path: state.admin_path.clone(),
         active_page: "groups".to_string(),

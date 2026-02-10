@@ -85,6 +85,16 @@ impl ConfigGenerator {
                                     }));
                                 }
                             },
+                            "xhttp" => {
+                                if let Some(xhttp) = &stream_settings.xhttp_settings {
+                                    transport_config = Some(VlessTransportConfig::Xhttp(XhttpTransport {
+                                        path: xhttp.path.clone(),
+                                        host: xhttp.host.clone(),
+                                        mode: xhttp.mode.clone(),
+                                        extra: xhttp.extra.clone(),
+                                    }));
+                                }
+                            },
                             _ => {}
                         }
                     }

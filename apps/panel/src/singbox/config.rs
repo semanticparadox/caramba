@@ -67,6 +67,18 @@ pub struct VlessUser {
 pub enum VlessTransportConfig {
     Ws(WsTransport),
     HttpUpgrade(HttpUpgradeTransport),
+    #[serde(rename = "xhttp")]
+    Xhttp(XhttpTransport),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct XhttpTransport {
+    pub path: String,
+    pub host: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra: Option<std::collections::HashMap<String, String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
