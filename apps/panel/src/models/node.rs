@@ -20,7 +20,13 @@ pub struct Node {
     pub auto_configure: bool,
     pub is_enabled: bool, // Added in migration 004
     pub country_code: Option<String>,
+    pub country: Option<String>,
+    pub city: Option<String>,
+    pub flag: Option<String>,
     pub reality_sni: Option<String>,
+    pub load_stats: Option<String>,
+    pub check_stats_json: Option<String>,
+    pub sort_order: i32,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
 

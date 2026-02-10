@@ -222,6 +222,7 @@ pub async fn remove_group_member(
     axum::response::Redirect::to(&format!("{}/groups/{}", admin_path, group_id)).into_response()
 }
 
+#[derive(Deserialize)]
 pub struct MemberForm {
     pub node_id: i64,
 }

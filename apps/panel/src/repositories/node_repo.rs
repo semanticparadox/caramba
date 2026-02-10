@@ -4,7 +4,7 @@ use crate::models::node::{Node};
 use crate::models::network::{Inbound};
 use crate::models::groups::{NodeGroup, NodeGroupMember};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct NodeRepository {
     pool: SqlitePool,
 }
@@ -115,25 +115,25 @@ impl NodeRepository {
     pub async fn upsert_inbound(&self, inbound: &Inbound) -> Result<()> {
         sqlx::query(
             r#"
-            INSERT INTO inbounds (node_id, tag, protocol, port, settings, stream_settings, enable, listen)
+            INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable, listen_ip)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(node_id, tag) DO UPDATE SET
                 protocol=excluded.protocol,
-                port=excluded.port,
+                listen_port=excluded.listen_port,
                 settings=excluded.settings,
                 stream_settings=excluded.stream_settings,
                 enable=excluded.enable,
-                listen=excluded.listen
+                listen_ip=excluded.listen_ip
             "#
         )
         .bind(inbound.node_id)
         .bind(&inbound.tag)
         .bind(&inbound.protocol)
-        .bind(inbound.port)
+        .bind(inbound.listen_port)
         .bind(&inbound.settings)
         .bind(&inbound.stream_settings)
         .bind(inbound.enable)
-        .bind(&inbound.listen)
+        .bind(&inbound.listen_ip)
         .execute(&self.pool)
         .await?;
         
@@ -142,15 +142,15 @@ impl NodeRepository {
 
     // ==================== GROUPS (NODES) ====================
 
-    pub async fn get_all_groups(&self) -> Result<Vec<Group>> {
-        sqlx::query_as::<_, Group>("SELECT * FROM groups ORDER BY id ASC")
+    pub async fn get_all_groups(&self) -> Result<Vec<NodeGroup>> {
+        sqlx::query_as::<_, NodeGroup>("SELECT * FROM node_groups ORDER BY id ASC")
             .fetch_all(&self.pool)
             .await
-            .context("Failed to fetch groups")
+            .context("Failed to fetch node groups")
     }
 
     pub async fn get_group_nodes(&self, group_id: i64) -> Result<Vec<i64>> {
-        sqlx::query_scalar("SELECT node_id FROM group_nodes WHERE group_id = ?")
+        sqlx::query_scalar("SELECT node_id FROM node_group_members WHERE group_id = ?")
             .bind(group_id)
             .fetch_all(&self.pool)
             .await
@@ -165,7 +165,7 @@ impl NodeRepository {
         
         let query = format!(
             "SELECT DISTINCT n.* FROM nodes n
-             JOIN group_nodes gn ON gn.node_id = n.id
+             JOIN node_group_members gn ON gn.node_id = n.id
              WHERE n.status = 'active' AND gn.group_id IN ({})
              ORDER BY n.sort_order ASC",
             group_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")

@@ -749,7 +749,7 @@ impl StoreService {
     }
 
     pub async fn delete_subscription(&self, sub_id: i64, user_id: i64) -> Result<()> {
-        let sub = self.get_subscription(sub_id, user_id).await?;
+        let _sub = self.get_subscription(sub_id, user_id).await?;
         self.sub_repo.delete(sub_id).await?;
         Ok(())
     }
@@ -947,7 +947,6 @@ impl StoreService {
              self.sub_repo.get_by_id(id).await?.unwrap()
         };
 
-        tx.commit().await?;
 
         // Sync family members
         let _ = self.sync_family_subscriptions(user_id).await.map_err(|e| error!("Failed to sync family subs: {}", e));
@@ -2161,7 +2160,7 @@ impl StoreService {
     
     /// Toggle auto-renewal for a subscription
     pub async fn toggle_auto_renewal(&self, subscription_id: i64) -> Result<bool> {
-        self.sub_repo.toggle_auto_renewal(subscription_id).await
+        self.sub_repo.toggle_auto_renew(subscription_id).await
     }
     
     /// Process all auto-renewals for subscriptions expiring in next 24h

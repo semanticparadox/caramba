@@ -4,6 +4,7 @@ use crate::services::payment::PaymentAdapter;
 use anyhow::Result;
 use chrono::Utc;
 use serde_json::json;
+use base64::Engine;
 
 pub struct CryptomusAdapter {
     merchant_id: String,

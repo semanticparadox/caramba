@@ -1,6 +1,6 @@
 use sqlx::SqlitePool;
 use anyhow::{Result, Context};
-use crate::models::groups::{NodeGroup, InboundTemplate};
+use crate::models::groups::InboundTemplate;
 use crate::models::node::Node;
 use tracing::{info, warn};
 
@@ -138,10 +138,10 @@ impl GeneratorService {
         // Simple random trial
         // In production, might want a smarter allocator
         use rand::Rng;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         
         for _ in 0..100 {
-            let p = rng.gen_range(start..=end);
+            let p = rng.random_range(start..=end);
             if !used_ports.contains(&p) {
                 return Ok(p);
             }

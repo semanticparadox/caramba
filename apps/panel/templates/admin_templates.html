@@ -109,7 +109,8 @@
   "decryption": "none",
   "fallbacks": []
 }</textarea>
-                        <div class="form-text">Use <code>{{uuid}}</code>, <code>{{email}}</code> placeholders if needed.
+                        <div class="form-text">Use <code>{{ "{{" }}uuid{{ "}}" }}</code>,
+                            <code>{{ "{{" }}email{{ "}}" }}</code> placeholders if needed.
                         </div>
                     </div>
 
@@ -122,11 +123,12 @@
     "show": false,
     "dest": "www.google.com:443",
     "serverNames": ["www.google.com"],
-    "privateKey": "{{reality_private}}",
+    "privateKey": "{{ "{{" }}reality_private{{ "}}" }}",
     "shortIds": [""]
   }
 }</textarea>
-                        <div class="form-text">Use <code>{{reality_private}}</code>, <code>{{sni}}</code> placeholders.
+                        <div class="form-text">Use <code>{{ "{{" }}reality_private{{ "}}" }}</code>,
+                            <code>{{ "{{" }}sni{{ "}}" }}</code> placeholders.
                         </div>
                     </div>
                 </div>

@@ -217,7 +217,7 @@ pub struct DetailedReferral {
     pub total_earned: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct SubscriptionWithDetails {
     #[serde(flatten)]
     pub sub: Subscription,

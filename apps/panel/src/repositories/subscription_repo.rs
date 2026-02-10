@@ -4,7 +4,7 @@ use crate::models::store::{Subscription, SubscriptionWithDetails};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SubscriptionRepository {
     pool: SqlitePool,
 }
@@ -160,6 +160,16 @@ impl SubscriptionRepository {
         Ok(())
     }
 
+    pub async fn update_status_and_expiry(&self, id: i64, status: &str, expires_at: DateTime<Utc>) -> Result<()> {
+        sqlx::query("UPDATE subscriptions SET status = ?, expires_at = ? WHERE id = ?")
+            .bind(status)
+            .bind(expires_at)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn toggle_auto_renew(&self, id: i64) -> Result<bool> {
         let current: bool = sqlx::query_scalar::<_, Option<i32>>("SELECT auto_renew FROM subscriptions WHERE id = ?")
             .bind(id)
@@ -177,6 +187,10 @@ impl SubscriptionRepository {
             .await?;
             
         Ok(new_value)
+    }
+
+    pub async fn toggle_auto_renewal(&self, id: i64) -> Result<bool> {
+        self.toggle_auto_renew(id).await
     }
 
     pub async fn update_alerts_sent(&self, id: i64, alerts_json: &str) -> Result<()> {

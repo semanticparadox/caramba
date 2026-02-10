@@ -7,7 +7,6 @@ use chrono::Utc;
 use crate::services::store_service::StoreService;
 use crate::bot_manager::BotManager;
 use anyhow::anyhow;
-use base64::Engine;
 use crate::services::payment::{PaymentAdapter, cryptomus::CryptomusAdapter};
 use crate::models::payment::PaymentType;
 use std::collections::HashMap;
@@ -75,6 +74,7 @@ pub struct PayService {
     aaio_merchant_id: String,
     aaio_secret_1: String,
     aaio_secret_2: String,
+    lava_project_id: String,
     lava_secret_key: String,
     is_testnet: bool,
     adapters: HashMap<String, Box<dyn PaymentAdapter>>,

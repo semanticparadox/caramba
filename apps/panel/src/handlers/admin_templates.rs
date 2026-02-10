@@ -20,6 +20,11 @@ pub struct AdminTemplatesTemplate {
     pub admin_path: String,
     pub active_page: String,
     pub username: String,
+    // Placeholders for template (literal strings)
+    pub uuid: String,
+    pub email: String,
+    pub reality_private: String,
+    pub sni: String,
 }
 
 pub struct TemplateWithGroup {
