@@ -14,6 +14,11 @@ struct PendingRotation {
     renew_interval_hours: i64,
 }
 
+pub struct RotationService {
+    pool: SqlitePool,
+    generator: Arc<GeneratorService>,
+}
+
 impl RotationService {
     pub fn new(pool: SqlitePool, generator: Arc<GeneratorService>) -> Self {
         Self { pool, generator }

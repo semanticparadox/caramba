@@ -106,7 +106,7 @@
                                 onclick="this.classList.toggle('bg-emerald-500/10'); this.classList.toggle('text-emerald-400'); this.classList.toggle('bg-slate-500/10'); this.classList.toggle('text-slate-400')">
                                 <span
                                     class="w-1.5 h-1.5 rounded-full {% if item.is_active %}bg-emerald-500 animate-pulse{% else %}bg-slate-500{% endif %}"></span>
-                                {{ if item.is_active { "Active" } else { "Disabled" } }}
+                                {% if item.is_active %}Active{% else %}Disabled{% endif %}
                             </button>
                         </td>
                         <td class="px-6 py-4 text-right">
