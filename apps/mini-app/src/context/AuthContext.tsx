@@ -137,11 +137,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     total_download: s.total_download || s.traffic_used || 0,
                     total_upload: s.total_upload || 0,
                 });
+            } else {
+                console.warn("Stats fetch failed:", statsRes.status, await statsRes.text().catch(() => ''));
             }
             if (subsRes.ok) {
                 const data = await subsRes.json();
+                console.log("Subscriptions fetched:", data?.length || 0, "items");
                 // API now returns an array
                 setSubscriptions(Array.isArray(data) ? data : [data]);
+            } else {
+                console.error("Subscriptions fetch failed:", subsRes.status, await subsRes.text().catch(() => ''));
             }
         } catch (e: any) {
             console.error("Data fetch error:", e);

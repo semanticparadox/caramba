@@ -50,7 +50,7 @@ export default function Subscription() {
                     <div className="empty-icon">🔒</div>
                     <h3>No Subscriptions</h3>
                     <p>Start a subscription to access premium VPN servers.</p>
-                    <button className="btn-primary" onClick={() => window.open('https://t.me/exarobot_bot', '_blank')}>
+                    <button className="btn-primary" onClick={() => navigate('/plans')}>
                         🛒 Buy Subscription
                     </button>
                 </div>

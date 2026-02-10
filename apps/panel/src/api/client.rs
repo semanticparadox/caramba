@@ -64,6 +64,8 @@ pub fn routes(state: AppState) -> Router<AppState> {
         .route("/store/cart", get(get_cart).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
         .route("/store/cart/add", post(add_to_cart).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
         .route("/store/checkout", post(checkout_cart).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
+        // Purchase
+        .route("/plans/purchase", post(purchase_plan).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
 }
 
 async fn auth_telegram(
@@ -762,6 +764,48 @@ async fn checkout_cart(
     match state.catalog_service.checkout_cart(user_id).await {
         Ok(order_id) => Json(serde_json::json!({"ok": true, "order_id": order_id})).into_response(),
         Err(e) => {
+            (StatusCode::BAD_REQUEST, format!("{}", e)).into_response()
+        }
+    }
+}
+
+// ============================================================
+// Purchase Plan Endpoint
+// ============================================================
+
+#[derive(Deserialize)]
+struct PurchaseReq {
+    duration_id: i64,
+}
+
+async fn purchase_plan(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Json(body): Json<PurchaseReq>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = ?")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    match state.store_service.purchase_plan(user_id, body.duration_id).await {
+        Ok(sub) => {
+            Json(serde_json::json!({
+                "ok": true,
+                "subscription_id": sub.id,
+                "status": sub.status,
+                "message": "Purchase successful! Your subscription is now pending."
+            })).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Purchase failed for user {}: {}", user_id, e);
             (StatusCode::BAD_REQUEST, format!("{}", e)).into_response()
         }
     }
