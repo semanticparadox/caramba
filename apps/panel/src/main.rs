@@ -460,7 +460,6 @@ use tower_http::services::ServeDir;
         .route("/groups", axum::routing::get(handlers::admin_groups::get_groups_page).post(handlers::admin_groups::create_group))
         .route("/groups/{id}", axum::routing::get(handlers::admin_groups::get_group_edit).delete(handlers::admin_groups::delete_group))
         .route("/groups/{id}/members", axum::routing::post(handlers::admin_groups::add_group_member))
-        .route("/groups/{id}/members", axum::routing::post(handlers::admin_groups::add_group_member))
         .route("/groups/{id}/members/{node_id}", axum::routing::delete(handlers::admin_groups::remove_group_member))
         .route("/groups/{id}/rotate", axum::routing::post(handlers::admin_groups::rotate_group_inbounds))
         
