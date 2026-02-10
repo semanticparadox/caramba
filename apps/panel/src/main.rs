@@ -470,8 +470,8 @@ use tower_http::services::ServeDir;
         .route("/bot-logs", axum::routing::get(handlers::admin::bot_logs_page))
         .route("/bot-logs/history", axum::routing::get(handlers::admin::bot_logs_history))
         .route("/bot-logs/tail", axum::routing::get(handlers::admin::bot_logs_tail))
-        .route("/api-keys", axum::routing::get(handlers::admin::api_keys_list).post(handlers::admin::api_keys_create)) // NEW
-        .route("/api-keys/delete/{id}", axum::routing::post(handlers::admin::api_keys_delete)) // NEW
+        .route("/api-keys", axum::routing::get(handlers::admin::list_api_keys).post(handlers::admin::create_api_key))
+        .route("/api-keys/delete/{id}", axum::routing::post(handlers::admin::delete_api_key))
         
         // SNI Pool Management
         .route("/sni", axum::routing::get(handlers::admin_sni::get_sni_page))

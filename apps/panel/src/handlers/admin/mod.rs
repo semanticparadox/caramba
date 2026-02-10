@@ -8,6 +8,7 @@ pub mod settings;
 pub mod analytics;
 pub mod store;
 pub mod frontends;
+pub mod api_keys;
 
 // Re-export commonly used functions for convenience
 pub use auth::{get_login, login, logout, get_auth_user, is_authenticated};
@@ -19,19 +20,11 @@ pub use settings::{get_settings, save_settings, toggle_bot, bot_logs_page, bot_l
 pub use analytics::{get_traffic_analytics, get_transactions, get_system_logs_page};
 pub use store::{get_store_categories_page, create_category, delete_category, get_store_products_page, create_product, delete_product};
 pub use frontends::get_frontends;
+pub use api_keys::{list_api_keys, create_api_key, delete_api_key};
 
 
-pub async fn api_keys_list(axum::extract::State(_state): axum::extract::State<crate::AppState>, _jar: axum_extra::extract::cookie::CookieJar) -> impl axum::response::IntoResponse {
-    "API keys list not yet implemented".to_string()
-}
+// Stubs removed
 
-pub async fn api_keys_create(axum::extract::State(_state): axum::extract::State<crate::AppState>) -> impl axum::response::IntoResponse {
-    "API key creation not yet implemented".to_string()
-}
-
-pub async fn api_keys_delete(axum::extract::Path(_id): axum::extract::Path<i64>, axum::extract::State(_state): axum::extract::State<crate::AppState>) -> impl axum::response::IntoResponse {
-    "API key deletion not yet implemented".to_string()
-}
 
 pub async fn handle_payment(axum::extract::Path(_source): axum::extract::Path<String>, axum::extract::State(_state): axum::extract::State<crate::AppState>, _body: axum::body::Bytes) -> impl axum::response::IntoResponse {
     axum::http::StatusCode::NOT_IMPLEMENTED

@@ -13,13 +13,15 @@ use crate::models::network::InboundType;
 use crate::repositories::user_repo::UserRepository;
 use crate::repositories::subscription_repo::SubscriptionRepository;
 use crate::repositories::node_repo::NodeRepository;
+use crate::repositories::api_key_repo::ApiKeyRepository;
 
 #[derive(Debug, Clone)]
 pub struct StoreService {
     pool: SqlitePool,
     user_repo: UserRepository,
-    sub_repo: SubscriptionRepository,
-    node_repo: NodeRepository,
+    pub sub_repo: SubscriptionRepository,
+    pub node_repo: NodeRepository,
+    pub api_key_repo: ApiKeyRepository,
 }
 
 impl StoreService {
@@ -27,7 +29,8 @@ impl StoreService {
         let user_repo = UserRepository::new(pool.clone());
         let sub_repo = SubscriptionRepository::new(pool.clone());
         let node_repo = NodeRepository::new(pool.clone());
-        Self { pool, user_repo, sub_repo, node_repo }
+        let api_key_repo = ApiKeyRepository::new(pool.clone());
+        Self { pool, user_repo, sub_repo, node_repo, api_key_repo }
     }
 
     pub fn get_pool(&self) -> SqlitePool {
@@ -104,6 +107,18 @@ impl StoreService {
 
     pub async fn get_active_nodes(&self) -> Result<Vec<crate::models::node::Node>> {
         self.node_repo.get_active_nodes().await
+    }
+
+    pub async fn get_api_keys(&self) -> Result<Vec<crate::models::api_key::ApiKey>> {
+        self.api_key_repo.get_all().await
+    }
+
+    pub async fn create_api_key(&self, name: &str, key: &str, max_uses: Option<i64>) -> Result<crate::models::api_key::ApiKey> {
+        self.api_key_repo.create(name, key, max_uses).await
+    }
+
+    pub async fn delete_api_key(&self, id: i64) -> Result<()> {
+        self.api_key_repo.delete(id).await
     }
 
     /// Public wrapper for SubscriptionRepository::get_active_subs_by_plans

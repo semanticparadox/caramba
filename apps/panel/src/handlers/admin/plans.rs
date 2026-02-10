@@ -26,7 +26,7 @@ use super::auth::get_auth_user;
 #[template(path = "plans.html")]
 pub struct PlansTemplate {
     pub plans: Vec<Plan>,
-    pub nodes: Vec<Node>,
+    pub groups: Vec<NodeGroup>,
     pub is_auth: bool,
     pub username: String,
     pub admin_path: String,
@@ -65,11 +65,12 @@ pub async fn get_plans(
     //     let durations = ...
     // }
 
-    let nodes = state.orchestration_service.get_all_nodes().await.unwrap_or_default();
+    // let nodes = state.orchestration_service.get_all_nodes().await.unwrap_or_default();
+    let groups = state.orchestration_service.node_repo.get_all_groups().await.unwrap_or_default();
 
     let template = PlansTemplate { 
         plans, 
-        nodes,
+        groups,
         is_auth: true, 
         username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
         admin_path: state.admin_path.clone(), 

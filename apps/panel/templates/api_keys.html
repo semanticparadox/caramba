@@ -36,7 +36,11 @@
                     </div>
                 </div>
                 <div class="flex gap-2">
-                    <button onclick="copyToClipboard('{{ key.key }}')"
+                    <button onclick="copyInstallCommand('{{ key.key }}')" title="Copy Install Command"
+                        class="p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-emerald-400 transition-colors">
+                        <i data-lucide="terminal-square" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="copyToClipboard('{{ key.key }}')" title="Copy Key"
                         class="p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors">
                         <i data-lucide="copy" class="w-4 h-4"></i>
                     </button>
@@ -114,7 +118,16 @@
     function copyToClipboard(text) {
         navigator.clipboard.writeText(text).then(() => {
             // Optional: Show toast
-            // alert('Copied!'); 
+            alert('Key copied!');
+        });
+    }
+
+    function copyInstallCommand(key) {
+        const origin = window.location.origin;
+        // Use the same script URL as in node_manual_install.html
+        const cmd = `curl -fsSL https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/scripts/install.sh | sudo bash -s -- --role agent --panel "${origin}" --token "${key}"`;
+        navigator.clipboard.writeText(cmd).then(() => {
+            alert('Install command copied to clipboard!');
         });
     }
 </script>
