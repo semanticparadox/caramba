@@ -832,14 +832,47 @@ impl StoreService {
     }
 
 
+    pub async fn extend_subscription(&self, user_id: i64, duration_id: i64) -> Result<Subscription> {
+        let mut tx = self.pool.begin().await?;
+
+        // 1. Get user and duration
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?")
+            .bind(user_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        
+        let duration = sqlx::query_as::<_, crate::models::store::PlanDuration>("SELECT * FROM plan_durations WHERE id = ?")
+            .bind(duration_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+        // 2. Check balance
+        if user.balance < duration.price {
+            return Err(anyhow::anyhow!("Insufficient balance"));
+        }
+
+        // 3. Deduct balance
+        sqlx::query("UPDATE users SET balance = balance - ? WHERE id = ?")
+            .bind(duration.price)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+
         // 4. Check for existing active subscription
-        let sub = self.extend_subscription_with_duration(user_id, &duration).await?;
+        let sub = self.extend_subscription_with_duration_internal(user_id, &duration, &mut tx).await?;
 
         tx.commit().await?;
         Ok(sub)
     }
 
     pub async fn extend_subscription_with_duration(&self, user_id: i64, duration: &crate::models::store::PlanDuration) -> Result<Subscription> {
+        let mut tx = self.pool.begin().await?;
+        let sub = self.extend_subscription_with_duration_internal(user_id, duration, &mut tx).await?;
+        tx.commit().await?;
+        Ok(sub)
+    }
+
+    async fn extend_subscription_with_duration_internal(&self, user_id: i64, duration: &crate::models::store::PlanDuration, tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>) -> Result<Subscription> {
 
         // 1. Check for existing active subscription
         let existing_sub = self.sub_repo.get_active_by_user(user_id).await?;
