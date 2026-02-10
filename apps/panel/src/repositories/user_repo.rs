@@ -193,4 +193,12 @@ impl UserRepository {
             .await?;
         Ok(())
     }
+
+    pub async fn get_by_parent_id(&self, parent_id: i64) -> Result<Vec<User>> {
+        sqlx::query_as::<_, User>("SELECT * FROM users WHERE parent_id = ?")
+            .bind(parent_id)
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to fetch users by parent ID")
+    }
 }

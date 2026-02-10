@@ -158,24 +158,11 @@ impl StoreService {
 
              // Free Tier / Auto-Trial Logic
              // Check if there is an active "is_trial" plan
-             let trial_plan = sqlx::query_as::<_, crate::models::store::Plan>(
-                 "SELECT * FROM plans WHERE COALESCE(is_trial, 0) = 1 AND is_active = 1 LIMIT 1"
-             )
-             .fetch_optional(&self.pool)
-             .await
-             .ok()
-             .flatten();
+             let trial_plan = self.sub_repo.get_trial_plan().await?;
 
              if let Some(plan) = trial_plan {
                  // Get default duration (shortest)
-                 let duration = sqlx::query_as::<_, crate::models::store::PlanDuration>(
-                     "SELECT * FROM plan_durations WHERE plan_id = ? ORDER BY duration_days ASC LIMIT 1"
-                 )
-                 .bind(plan.id)
-                 .fetch_optional(&self.pool)
-                 .await
-                 .ok()
-                 .flatten();
+                 let duration = plan.durations.first().cloned();
 
                  if let Some(d) = duration {
                      // Create active subscription
@@ -329,12 +316,7 @@ impl StoreService {
 
     pub async fn sync_family_subscriptions(&self, parent_id: i64) -> Result<()> {
         // 1. Get Parent's Active Subscription
-        let parent_sub = sqlx::query_as::<_, Subscription>(
-            "SELECT * FROM subscriptions WHERE user_id = ? AND status = 'active' ORDER BY expires_at DESC LIMIT 1"
-        )
-        .bind(parent_id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let parent_sub = self.sub_repo.get_active_by_user(parent_id).await?;
 
         // 2. Get Children
         let children = self.get_family_members(parent_id).await?;
@@ -350,12 +332,7 @@ impl StoreService {
                 // If they have a sub with different plan or no note, maybe skip?
                 // For simplified Phase 2: Overwrite/Extend child's active sub if it exists, or create new.
                 // Better: Check for ANY active sub.
-                let child_sub = sqlx::query_as::<_, Subscription>(
-                    "SELECT * FROM subscriptions WHERE user_id = ? AND status = 'active'"
-                )
-                .bind(child.id)
-                .fetch_optional(&mut *tx)
-                .await?;
+                let child_sub = self.sub_repo.get_active_by_user(child.id).await?;
 
                 if let Some(csub) = child_sub {
                     // Update existing
@@ -370,20 +347,16 @@ impl StoreService {
                     // Create new Family Sub
                     let vless_uuid = Uuid::new_v4().to_string();
                     let sub_uuid = Uuid::new_v4().to_string();
-                    sqlx::query(
-                        r#"
-                        INSERT INTO subscriptions (user_id, plan_id, node_id, vless_uuid, subscription_uuid, expires_at, status, note, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, 'active', 'Family', CURRENT_TIMESTAMP)
-                        "#
-                    )
-                    .bind(child.id)
-                    .bind(psub.plan_id)
-                    .bind(psub.node_id)
-                    .bind(vless_uuid)
-                    .bind(sub_uuid)
-                    .bind(psub.expires_at)
-                    .execute(&mut *tx)
-                    .await?;
+                    self.sub_repo.create(
+                        child.id,
+                        psub.plan_id,
+                        &vless_uuid,
+                        &sub_uuid,
+                        psub.expires_at,
+                        "active",
+                        Some("Family"),
+                        false
+                    ).await?;
                 }
             }
         } else {

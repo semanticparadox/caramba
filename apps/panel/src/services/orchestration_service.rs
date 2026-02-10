@@ -9,25 +9,27 @@ use crate::singbox::{ConfigGenerator};
 use crate::services::store_service::StoreService;
 
 
+use crate::repositories::node_repo::NodeRepository;
+
 pub struct OrchestrationService {
     pub pool: SqlitePool,
+    pub node_repo: NodeRepository,
     #[allow(dead_code)]
     store_service: Arc<StoreService>,
 }
 
 impl OrchestrationService {
     pub fn new(pool: SqlitePool, store_service: Arc<StoreService>) -> Self {
-        Self { pool, store_service }
+        let node_repo = NodeRepository::new(pool.clone());
+        Self { pool, node_repo, store_service }
     }
     /// Initializes default inbounds (VLESS Reality & Hysteria 2) for a fresh node
     pub async fn init_default_inbounds(&self, node_id: i64) -> anyhow::Result<()> {
         info!("Initializing default inbounds for node {}", node_id);
         
         // Fetch node for SNI defaults
-        let node: Node = sqlx::query_as("SELECT * FROM nodes WHERE id = ?")
-            .bind(node_id)
-            .fetch_one(&self.pool)
-            .await?;
+        let node = self.node_repo.get_node_by_id(node_id).await?
+            .ok_or_else(|| anyhow::anyhow!("Node not found"))?;
         
         // 1. VLESS Reality (Vision)
         // Use sing-box native generation for guaranteed compatibility
@@ -65,13 +67,11 @@ impl OrchestrationService {
         let short_id = hex::encode(&rand::random::<[u8; 8]>());
         
         // Save keys to node
-        sqlx::query("UPDATE nodes SET reality_priv = ?, reality_pub = ?, short_id = ? WHERE id = ?")
-            .bind(&priv_key)
-            .bind(&pub_key)
-            .bind(&short_id)
-            .bind(node_id)
-            .execute(&self.pool)
-            .await?;
+        let mut updated_node = node.clone();
+        updated_node.reality_priv = Some(priv_key);
+        updated_node.reality_pub = Some(pub_key);
+        updated_node.short_id = Some(short_id);
+        self.node_repo.update_node(&updated_node).await?;
             
         use crate::models::network::{InboundType, VlessSettings, RealitySettings, Hysteria2Settings};
         // Removed DestOverride if not in models
@@ -104,20 +104,21 @@ impl OrchestrationService {
         };
         let stream_json = serde_json::to_string(&stream_settings)?;
         
-        sqlx::query("INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable) VALUES (?, ?, 'vless', 443, ?, ?, 1)")
-            .bind(node_id)
-            .bind(format!("vless-reality-{}", node_id))
-            .bind(vless_json) // This might be wrong if InboundType wrapper is used inside "settings". 
-            // Usually "settings" column stores the Inner object OR the Typed object?
-            // "settings" usually stores the protocol settings.
-            // Let's assume we store the "VlessSettings" JSON, not "InboundType::Vless".
-            // But ConfigGenerator needs to know.
-            // Let's assume we store pure VlessSettings JSON inside 'settings' column.
-            // Re-check Sync logic: `match serde_json::from_str::<InboundType>(&inbound.settings)`
-            // So it expects the Enum wrapper! Okay.
-            .bind(stream_json)
-            .execute(&self.pool)
-            .await?;
+        use crate::models::network::Inbound;
+        let vless_inbound = Inbound {
+            id: 0, // Generated
+            node_id,
+            tag: format!("vless-reality-{}", node_id),
+            protocol: "vless".to_string(),
+            listen_port: 443,
+            listen_ip: "0.0.0.0".to_string(),
+            settings: vless_json,
+            stream_settings: stream_json,
+            remark: None,
+            enable: true,
+            created_at: None,
+        };
+        self.node_repo.upsert_inbound(&vless_inbound).await?;
 
         // 2. Hysteria 2
         let hy2_settings_struct = Hysteria2Settings {
@@ -144,19 +145,23 @@ impl OrchestrationService {
             http_upgrade_settings: None,
         };
         
-        sqlx::query("INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable) VALUES (?, ?, 'hysteria2', 8443, ?, ?, 1)")
-            .bind(node_id)
-            .bind(format!("hysteria2-{}", node_id))
-            .bind(hy2_json)
-            .bind(serde_json::to_string(&hy2_stream)?)
-            .execute(&self.pool)
-            .await?;
+        let hy2_inbound = Inbound {
+            id: 0,
+            node_id,
+            tag: format!("hysteria2-{}", node_id),
+            protocol: "hysteria2".to_string(),
+            listen_port: 8443,
+            listen_ip: "0.0.0.0".to_string(),
+            settings: hy2_json,
+            stream_settings: serde_json::to_string(&hy2_stream)?,
+            remark: None,
+            enable: true,
+            created_at: None,
+        };
+        self.node_repo.upsert_inbound(&hy2_inbound).await?;
 
         // Link to default plan (ID=1)
-        sqlx::query("INSERT OR IGNORE INTO plan_inbounds (plan_id, inbound_id) SELECT 1, id FROM inbounds WHERE node_id = ?")
-            .bind(node_id)
-            .execute(&self.pool)
-            .await?;
+        self.node_repo.link_node_inbounds_to_plan(1, node_id).await?;
 
         // 3. AmneziaWG
         // Pre-generate random values to avoid Send trait issues with ThreadRng
@@ -219,18 +224,24 @@ impl OrchestrationService {
 
         let awg_json = serde_json::to_string(&InboundType::AmneziaWg(awg_settings))?;
         
-        sqlx::query("INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable) VALUES (?, ?, 'amneziawg', 51820, ?, '{}', 1)")
-            .bind(node_id)
-            .bind(format!("amneziawg-{}", node_id))
-            .bind(awg_json)
-            .execute(&self.pool)
-            .await?;
+        let awg_inbound = Inbound {
+            id: 0,
+            node_id,
+            tag: format!("amneziawg-{}", node_id),
+            protocol: "amneziawg".to_string(),
+            listen_port: 51820,
+            listen_ip: "0.0.0.0".to_string(),
+            settings: awg_json,
+            stream_settings: "{}".to_string(),
+            remark: None,
+            enable: true,
+            created_at: None,
+        };
+        self.node_repo.upsert_inbound(&awg_inbound).await?;
             
-        // Link AWG to default plan too
-        sqlx::query("INSERT OR IGNORE INTO plan_inbounds (plan_id, inbound_id) SELECT 1, id FROM inbounds WHERE node_id = ? AND protocol = 'amneziawg'")
-            .bind(node_id)
-            .execute(&self.pool)
-            .await?;
+        // Link AWG to default plan too - already linked via link_node_inbounds_to_plan above if generic
+        // but let's be safe if we want specific protocols.
+        // Actually link_node_inbounds_to_plan links ALL inbounds of the node.
 
         // 4. TUIC
         use crate::models::network::TuicSettings;
@@ -256,19 +267,20 @@ impl OrchestrationService {
             http_upgrade_settings: None,
         };
 
-        sqlx::query("INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable) VALUES (?, ?, 'tuic', 9443, ?, ?, 1)")
-            .bind(node_id)
-            .bind(format!("tuic-{}", node_id))
-            .bind(tuic_json)
-            .bind(serde_json::to_string(&tuic_stream)?)
-            .execute(&self.pool)
-            .await?;
-
-        // Link TUIC to default plan
-        sqlx::query("INSERT OR IGNORE INTO plan_inbounds (plan_id, inbound_id) SELECT 1, id FROM inbounds WHERE node_id = ? AND protocol = 'tuic'")
-            .bind(node_id)
-            .execute(&self.pool)
-            .await?;
+        let tuic_inbound = Inbound {
+            id: 0,
+            node_id,
+            tag: format!("tuic-{}", node_id),
+            protocol: "tuic".to_string(),
+            listen_port: 9443,
+            listen_ip: "0.0.0.0".to_string(),
+            settings: tuic_json,
+            stream_settings: serde_json::to_string(&tuic_stream)?,
+            remark: None,
+            enable: true,
+            created_at: None,
+        };
+        self.node_repo.upsert_inbound(&tuic_inbound).await?;
             
         Ok(())
     }
@@ -299,10 +311,7 @@ impl OrchestrationService {
 
         info!("Step 2: Fetching inbounds for node {}", node_id);
         // 2. Fetch Inbounds for this node
-        let mut inbounds: Vec<crate::models::network::Inbound> = sqlx::query_as("SELECT * FROM inbounds WHERE node_id = ?")
-            .bind(node_id)
-            .fetch_all(&self.pool)
-            .await?;
+        let mut inbounds = self.node_repo.get_inbounds_by_node(node_id).await?;
 
         // Dynamic SNI Override (for Auto Rotation)
         if let Some(new_sni) = &node.reality_sni {
@@ -331,46 +340,14 @@ impl OrchestrationService {
         for inbound in &mut inbounds {
             // Find plans linked to this inbound
             // Find plans linked to this inbound OR to the parent node Generally
-            let linked_plans: Vec<i64> = sqlx::query_scalar(
-                r#"
-                SELECT plan_id FROM plan_inbounds WHERE inbound_id = ?
-                UNION
-                SELECT plan_id FROM plan_nodes WHERE node_id = ?
-                "#
-            )
-                .bind(inbound.id)
-                .bind(node.id)
-                .fetch_all(&self.pool)
-                .await?;
+            let linked_plans = self.node_repo.get_linked_plans(node.id, inbound.id).await?;
 
             if linked_plans.is_empty() {
                 continue;
             }
 
     
-        // Helper struct for query
-        #[derive(sqlx::FromRow)]
-        struct SubWithUser {
-            vless_uuid: Option<String>,
-            tg_id: i64,
-            username: Option<String>,
-        }
-
-        let plan_ids_str = linked_plans.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
-        
-        let query = format!(
-            r#"
-            SELECT s.vless_uuid, u.tg_id, u.username
-            FROM subscriptions s
-            JOIN users u ON s.user_id = u.id
-            WHERE LOWER(s.status) = 'active' AND s.plan_id IN ({})
-            "#, 
-            plan_ids_str
-        );
-        
-        let active_subs: Vec<SubWithUser> = sqlx::query_as(&query)
-            .fetch_all(&self.pool)
-            .await?;
+        let active_subs = self.store_service.sub_repo.get_active_subs_by_plans(&linked_plans).await?;
             
         info!("Found {} active subscriptions for inbound {}", active_subs.len(), inbound.tag);
 
@@ -483,11 +460,7 @@ impl OrchestrationService {
 
     /// Get all nodes (for admin UI)
     pub async fn get_all_nodes(&self) -> anyhow::Result<Vec<Node>> {
-        let all_nodes: Vec<Node> = sqlx::query_as("SELECT * FROM nodes ORDER BY created_at DESC")
-            .fetch_all(&self.pool)
-            .await?;
-
-        Ok(all_nodes)
+        self.node_repo.get_all_nodes().await.map_err(|e| e.into())
     }
 
     pub async fn notify_node_update(&self, node_id: i64) -> anyhow::Result<()> {
@@ -497,11 +470,8 @@ impl OrchestrationService {
     }
 
     pub async fn get_node_by_id(&self, node_id: i64) -> anyhow::Result<Node> {
-        let node: Node = sqlx::query_as("SELECT * FROM nodes WHERE id = ?")
-            .bind(node_id)
-            .fetch_one(&self.pool)
-            .await?;
-        Ok(node)
+        self.node_repo.get_node_by_id(node_id).await?
+            .ok_or_else(|| anyhow::anyhow!("Node not found"))
     }
 
     pub async fn create_node(&self, name: &str, ip: &str, vpn_port: i32, auto_configure: bool) -> anyhow::Result<i64> {
@@ -514,14 +484,15 @@ impl OrchestrationService {
             ip.to_string() 
         };
 
-        let id: i64 = sqlx::query_scalar("INSERT INTO nodes (name, ip, vpn_port, status, join_token, auto_configure) VALUES (?, ?, ?, 'new', ?, ?) RETURNING id")
-            .bind(name)
-            .bind(final_ip)
-            .bind(vpn_port)
-            .bind(&token)
-            .bind(auto_configure)
-            .fetch_one(&self.pool)
-            .await?;
+        let mut node = Node::default();
+        node.name = name.to_string();
+        node.ip = final_ip;
+        node.vpn_port = vpn_port;
+        node.status = "new".to_string();
+        node.join_token = Some(token);
+        node.auto_configure = auto_configure;
+
+        let id = self.node_repo.create_node(&node).await?;
 
         // Initialize default inbounds
         if let Err(e) = self.init_default_inbounds(id).await {
@@ -542,58 +513,31 @@ impl OrchestrationService {
     }
 
     pub async fn toggle_node_enable(&self, id: i64) -> anyhow::Result<()> {
-        // Fetch current status
-        let enabled: bool = sqlx::query_scalar("SELECT is_enabled FROM nodes WHERE id = ?")
-            .bind(id)
-            .fetch_one(&self.pool)
-            .await?;
-
-        let new_status = !enabled;
-        
-        sqlx::query("UPDATE nodes SET is_enabled = ? WHERE id = ?")
-            .bind(new_status)
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        self.node_repo.toggle_enabled(id).await?;
         Ok(())
     }
 
     pub async fn activate_node(&self, id: i64) -> anyhow::Result<()> {
-        sqlx::query("UPDATE nodes SET status = 'active' WHERE id = ?")
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
+        self.node_repo.update_status(id, "active").await.map_err(|e| e.into())
     }
 
     pub async fn delete_node(&self, id: i64) -> anyhow::Result<()> {
         // Manual Cleanup for non-cascading relations
         
         // Clear SNI Logs
-        if let Err(e) = sqlx::query("DELETE FROM sni_rotation_log WHERE node_id = ?")
+        let _ = sqlx::query("DELETE FROM sni_rotation_log WHERE node_id = ?")
             .bind(id)
             .execute(&self.pool)
-            .await 
-        {
-            error!("Failed to clear SNI logs for node {}: {}", id, e);
-        }
+            .await;
 
         // Unlink Subscriptions
-        if let Err(e) = sqlx::query("UPDATE subscriptions SET node_id = NULL WHERE node_id = ?")
+        let _ = sqlx::query("UPDATE subscriptions SET node_id = NULL WHERE node_id = ?")
             .bind(id)
             .execute(&self.pool)
-            .await
-        {
-            error!("Failed to unlink subscriptions for node {}: {}", id, e);
-        }
+            .await;
 
         // Delete the node (Cascades to inbounds)
-        sqlx::query("DELETE FROM nodes WHERE id = ?")
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
-
-        Ok(())
+        self.node_repo.delete_node(id).await.map_err(|e| e.into())
     }
 
     /// Derives a stable X25519 private key from a UUID string

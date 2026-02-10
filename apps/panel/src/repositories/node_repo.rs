@@ -233,4 +233,69 @@ impl NodeRepository {
         .await
         .context("Failed to fetch inbounds for plan")
     }
+
+    pub async fn delete_node(&self, id: i64) -> Result<()> {
+        sqlx::query("DELETE FROM nodes WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn update_status(&self, id: i64, status: &str) -> Result<()> {
+        sqlx::query("UPDATE nodes SET status = ? WHERE id = ?")
+            .bind(status)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn toggle_enabled(&self, id: i64) -> Result<bool> {
+        let current: bool = sqlx::query_scalar("SELECT is_enabled FROM nodes WHERE id = ?")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await?;
+        
+        let new_val = !current;
+        sqlx::query("UPDATE nodes SET is_enabled = ? WHERE id = ?")
+            .bind(new_val)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(new_val)
+    }
+
+    pub async fn get_linked_plans(&self, node_id: i64, inbound_id: i64) -> Result<Vec<i64>> {
+        let plans: Vec<i64> = sqlx::query_scalar(
+            r#"
+            SELECT plan_id FROM plan_inbounds WHERE inbound_id = ?
+            UNION
+            SELECT plan_id FROM plan_nodes WHERE node_id = ?
+            "#
+        )
+        .bind(inbound_id)
+        .bind(node_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(plans)
+    }
+
+    pub async fn link_inbound_to_plan(&self, plan_id: i64, inbound_id: i64) -> Result<()> {
+        sqlx::query("INSERT OR IGNORE INTO plan_inbounds (plan_id, inbound_id) VALUES (?, ?)")
+            .bind(plan_id)
+            .bind(inbound_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn link_node_inbounds_to_plan(&self, plan_id: i64, node_id: i64) -> Result<()> {
+        sqlx::query("INSERT OR IGNORE INTO plan_inbounds (plan_id, inbound_id) SELECT ?, id FROM inbounds WHERE node_id = ?")
+            .bind(plan_id)
+            .bind(node_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }

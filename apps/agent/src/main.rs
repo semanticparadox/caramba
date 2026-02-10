@@ -85,6 +85,7 @@ async fn main() -> anyhow::Result<()> {
         kill_switch_enabled: false,
         kill_switch_timeout: 300,
         vpn_stopped_by_kill_switch: false,
+        cached_speed_mbps: None,
     };
 
     // Initialize HTTP Client

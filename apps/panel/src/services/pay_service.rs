@@ -69,8 +69,6 @@ pub struct PayService {
     crystalpay_login: String,
     crystalpay_secret: String,
     stripe_secret_key: String,
-    cryptomus_merchant_id: String,
-    cryptomus_payment_api_key: String,
     aaio_merchant_id: String,
     aaio_secret_1: String,
     aaio_secret_2: String,
@@ -121,10 +119,6 @@ impl PayService {
 
             crystalpay_secret,
             stripe_secret_key,
-            cryptomus_merchant_id,
-            cryptomus_payment_api_key,
-            aaio_merchant_id,
-            aaio_secret_1,
             aaio_secret_2,
             lava_project_id,
             lava_secret_key,
@@ -396,6 +390,7 @@ impl PayService {
 
     pub async fn create_cryptomus_invoice(&self, user_id: i64, amount_usd: f64, payment_type: PaymentType) -> Result<String> {
         if let Some(adapter) = self.adapters.get("cryptomus") {
+            info!("Redirecting to {} adapter", adapter.name());
             adapter.create_invoice(user_id, amount_usd, payment_type).await
         } else {
             Err(anyhow::anyhow!("Cryptomus adapter not initialized"))

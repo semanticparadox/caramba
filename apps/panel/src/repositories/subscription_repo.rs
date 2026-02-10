@@ -255,7 +255,43 @@ impl SubscriptionRepository {
          Ok(())
     }
     
-    // Create Simplified (e.g. for trial or family where some fields are default)
-    // Actually the generic create above is fine, just maybe make args Option?
-    // Let's stick to explicit args for now.
+    pub async fn get_trial_plan(&self) -> Result<Option<crate::models::store::Plan>> {
+        let mut plan = sqlx::query_as::<_, crate::models::store::Plan>(
+            "SELECT * FROM plans WHERE COALESCE(is_trial, 0) = 1 AND is_active = 1 LIMIT 1"
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        
+        if let Some(ref mut p) = plan {
+            p.durations = sqlx::query_as::<_, crate::models::store::PlanDuration>(
+                "SELECT * FROM plan_durations WHERE plan_id = ? ORDER BY duration_days ASC"
+            )
+            .bind(p.id)
+            .fetch_all(&self.pool)
+            .await?;
+        }
+        Ok(plan)
+    }
+
+    pub async fn get_active_subs_by_plans(&self, plan_ids: &[i64]) -> Result<Vec<(Option<String>, i64, Option<String>)>> {
+        if plan_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        
+        let placeholders = plan_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let query = format!(
+            "SELECT s.vless_uuid, u.tg_id, u.username
+             FROM subscriptions s
+             JOIN users u ON s.user_id = u.id
+             WHERE LOWER(s.status) = 'active' AND s.plan_id IN ({})",
+            placeholders
+        );
+        
+        let mut q = sqlx::query_as::<_, (Option<String>, i64, Option<String>)>(&query);
+        for id in plan_ids {
+            q = q.bind(id);
+        }
+        
+        q.fetch_all(&self.pool).await.context("Failed to fetch active subs by plans")
+    }
 }
