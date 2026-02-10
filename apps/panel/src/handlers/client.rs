@@ -130,6 +130,15 @@ fn verify_token(token: &str, secret: &str) -> Option<i64> {
     }
 }
 
+pub async fn get_auth_user_id(state: &AppState, req: &axum::extract::Request) -> Option<i64> {
+    let auth_header = req.headers().get("Authorization")?
+        .to_str().ok()?
+        .strip_prefix("Bearer ")?;
+        
+    let bot_token = state.settings.get_or_default("bot_token", "").await;
+    verify_token(auth_header, &bot_token)
+}
+
 pub async fn auth_telegram(
     State(state): State<AppState>,
     Json(payload): Json<TelegramAuthRequest>,

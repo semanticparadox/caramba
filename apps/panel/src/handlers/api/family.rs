@@ -7,7 +7,7 @@ use axum_extra::extract::cookie::CookieJar;
 use tracing::error;
 
 use crate::AppState;
-use crate::handlers::admin::auth::get_auth_user;
+use crate::handlers::client::get_auth_user_id;
 
 #[derive(Serialize)]
 pub struct InviteResponse {
@@ -30,10 +30,10 @@ pub struct RedeemInviteRequest {
 
 pub async fn generate_invite(
     State(state): State<AppState>,
-    jar: CookieJar,
+    req: axum::extract::Request,
     Json(payload): Json<GenerateInviteRequest>,
 ) -> impl IntoResponse {
-    let user_id = match get_auth_user_id(&state, &jar).await {
+    let user_id = match get_auth_user_id(&state, &req).await {
         Some(id) => id,
         None => return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response(),
     };
@@ -64,10 +64,10 @@ pub async fn generate_invite(
 
 pub async fn redeem_invite(
     State(state): State<AppState>,
-    jar: CookieJar,
+    req: axum::extract::Request,
     Json(payload): Json<RedeemInviteRequest>,
 ) -> impl IntoResponse {
-    let user_id = match get_auth_user_id(&state, &jar).await {
+    let user_id = match get_auth_user_id(&state, &req).await {
         Some(id) => id,
         None => return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response(),
     };

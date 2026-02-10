@@ -573,7 +573,7 @@ impl StoreService {
     }
 
     pub async fn activate_subscription(&self, sub_id: i64, user_id: i64) -> Result<Subscription> {
-        let mut tx = self.pool.begin().await?;
+        let tx = self.pool.begin().await?;
 
         let sub = self.get_subscription(sub_id, user_id).await?;
 
@@ -874,7 +874,7 @@ impl StoreService {
         Ok(sub)
     }
 
-    async fn extend_subscription_with_duration_internal(&self, user_id: i64, duration: &crate::models::store::PlanDuration, tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>) -> Result<Subscription> {
+    async fn extend_subscription_with_duration_internal(&self, user_id: i64, duration: &crate::models::store::PlanDuration, _tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>) -> Result<Subscription> {
 
         // 1. Check for existing active subscription
         let existing_sub = self.sub_repo.get_active_by_user(user_id).await?;

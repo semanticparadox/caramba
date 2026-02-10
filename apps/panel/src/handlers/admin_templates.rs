@@ -68,6 +68,10 @@ pub async fn get_templates_page(
         admin_path: state.admin_path.clone(),
         active_page: "templates".to_string(),
         username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
+        uuid: "{{uuid}}".to_string(),
+        email: "{{email}}".to_string(),
+        reality_private: "{{reality_private}}".to_string(),
+        sni: "{{sni}}".to_string(),
     };
     Html(template.render().unwrap_or_default()).into_response()
 }

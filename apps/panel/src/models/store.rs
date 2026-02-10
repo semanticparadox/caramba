@@ -220,6 +220,7 @@ pub struct DetailedReferral {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct SubscriptionWithDetails {
     #[serde(flatten)]
+    #[sqlx(flatten)]
     pub sub: Subscription,
     pub plan_name: String,
     pub plan_description: Option<String>,

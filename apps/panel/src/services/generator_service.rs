@@ -199,7 +199,7 @@ impl GeneratorService {
         inbound.listen_port = new_port; // Updated by query above? Actually doing it in two steps is safer.
         // Let's just update the JSON fields now.
         
-        if let Ok(mut settings) = serde_json::from_str::<serde_json::Value>(&inbound.settings) {
+        if let Ok(_settings) = serde_json::from_str::<serde_json::Value>(&inbound.settings) {
             // Update port in settings if it exists? VLESS usually doesn't have port in 'settings', just 'stream_settings' or 'listen_port' column.
             // But let's check.
         }

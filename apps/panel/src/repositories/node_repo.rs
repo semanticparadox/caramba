@@ -2,7 +2,7 @@ use sqlx::SqlitePool;
 use anyhow::{Context, Result};
 use crate::models::node::{Node};
 use crate::models::network::{Inbound};
-use crate::models::groups::{NodeGroup, NodeGroupMember};
+use crate::models::groups::NodeGroup;
 
 #[derive(Debug, Clone)]
 pub struct NodeRepository {

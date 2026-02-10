@@ -2,7 +2,6 @@ use sqlx::SqlitePool;
 use anyhow::{Context, Result};
 use crate::models::store::{Subscription, SubscriptionWithDetails};
 use chrono::{DateTime, Utc};
-use serde_json::Value;
 
 #[derive(Debug, Clone)]
 pub struct SubscriptionRepository {

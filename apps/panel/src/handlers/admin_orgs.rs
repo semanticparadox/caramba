@@ -7,7 +7,6 @@ use askama::Template;
 use askama_web::WebTemplate;
 use axum_extra::extract::cookie::CookieJar;
 use crate::AppState;
-use crate::handlers::admin::get_auth_user;
 use crate::models::orgs::Organization;
 
 #[derive(Template, WebTemplate)]

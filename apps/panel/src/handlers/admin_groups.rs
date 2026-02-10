@@ -8,9 +8,9 @@ use askama::Template;
 use askama_web::WebTemplate;
 use serde::Deserialize;
 use crate::AppState;
-use crate::models::groups::{NodeGroup, NodeGroupMember};
+use crate::models::groups::NodeGroup;
 use crate::models::node::Node;
-use tracing::{info, error};
+use tracing::error;
 
 #[derive(Template, WebTemplate)]
 #[template(path = "admin_groups.html")]
