@@ -111,6 +111,21 @@ impl StoreService {
         self.sub_repo.get_active_subs_by_plans(plan_ids).await
     }
 
+    /// Public wrapper for SubscriptionRepository::get_by_uuid
+    pub async fn get_subscription_by_uuid(&self, uuid: &str) -> Result<Option<crate::models::store::Subscription>> {
+        self.sub_repo.get_by_uuid(uuid).await
+    }
+
+    /// Public wrapper for SubscriptionRepository::update_status
+    pub async fn update_subscription_status(&self, sub_id: i64, status: &str) -> Result<()> {
+        self.sub_repo.update_status(sub_id, status).await
+    }
+
+    /// Reset warning count for a user (admin action)
+    pub async fn reset_warning_count(&self, user_id: i64) -> Result<()> {
+        self.user_repo.update_warning_count(user_id, 0).await
+    }
+
     /// Get nodes available to a user based on their active subscription plan's groups
     pub async fn get_user_nodes(&self, user_id: i64) -> Result<Vec<crate::models::node::Node>> {
         // 1. Get active plan_id for user
@@ -301,11 +316,7 @@ impl StoreService {
     }
 
     pub async fn get_family_members(&self, parent_id: i64) -> Result<Vec<User>> {
-        sqlx::query_as::<_, User>("SELECT * FROM users WHERE parent_id = ?")
-            .bind(parent_id)
-            .fetch_all(&self.pool)
-            .await
-            .context("Failed to fetch family members")
+        self.user_repo.get_by_parent_id(parent_id).await
     }
 
     pub async fn set_user_parent(&self, user_id: i64, parent_id: Option<i64>) -> Result<()> {
@@ -2138,7 +2149,7 @@ impl StoreService {
     
     /// Toggle auto-renewal for a subscription
     pub async fn toggle_auto_renewal(&self, subscription_id: i64) -> Result<bool> {
-        self.sub_repo.toggle_auto_renew(subscription_id).await
+        self.sub_repo.toggle_auto_renewal(subscription_id).await
     }
     
     /// Process all auto-renewals for subscriptions expiring in next 24h

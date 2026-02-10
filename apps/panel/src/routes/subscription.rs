@@ -26,13 +26,7 @@ pub async fn subscription_handler(
     info!("Subscription request: UUID={}, client={:?}", uuid, params.client);
     
     // 1. Get subscription by UUID
-    let sub = match sqlx::query_as::<_, crate::models::store::Subscription>(
-        "SELECT * FROM subscriptions WHERE subscription_uuid = ?"
-    )
-    .bind(&uuid)
-    .fetch_optional(&state.pool)
-    .await
-    {
+    let sub = match state.store_service.get_subscription_by_uuid(&uuid).await {
         Ok(Some(s)) => s,
         Ok(None) => {
             info!("Subscription not found: {}", uuid);

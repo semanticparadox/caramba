@@ -477,7 +477,7 @@ impl OrchestrationService {
             ip.to_string() 
         };
 
-        let mut node = Node {
+        let node = Node {
             id: 0,
             name: name.to_string(),
             ip: final_ip,

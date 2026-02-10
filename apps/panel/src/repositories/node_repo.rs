@@ -2,7 +2,7 @@ use sqlx::SqlitePool;
 use anyhow::{Context, Result};
 use crate::models::node::{Node};
 use crate::models::network::{Inbound};
-use crate::models::groups::NodeGroup;
+use crate::models::groups::{NodeGroup, NodeGroupMember, PlanGroup};
 
 #[derive(Debug, Clone)]
 pub struct NodeRepository {
@@ -155,6 +155,24 @@ impl NodeRepository {
             .fetch_all(&self.pool)
             .await
             .context("Failed to fetch group nodes")
+    }
+
+    /// Get full membership records for a group
+    pub async fn get_group_members(&self, group_id: i64) -> Result<Vec<NodeGroupMember>> {
+        sqlx::query_as::<_, NodeGroupMember>("SELECT * FROM node_group_members WHERE group_id = ?")
+            .bind(group_id)
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to fetch group members")
+    }
+
+    /// Get plan-group associations for a plan
+    pub async fn get_plan_groups(&self, plan_id: i64) -> Result<Vec<PlanGroup>> {
+        sqlx::query_as::<_, PlanGroup>("SELECT * FROM plan_groups WHERE plan_id = ?")
+            .bind(plan_id)
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to fetch plan groups")
     }
     
     /// Get distinct active nodes belonging to a set of group IDs
