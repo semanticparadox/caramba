@@ -11,17 +11,23 @@ use crate::models::store::{
 };
 use crate::models::network::InboundType;
 use crate::repositories::user_repo::UserRepository;
+use crate::repositories::subscription_repo::SubscriptionRepository;
+use crate::repositories::node_repo::NodeRepository;
 
 #[derive(Debug, Clone)]
 pub struct StoreService {
     pool: SqlitePool,
     user_repo: UserRepository,
+    sub_repo: SubscriptionRepository,
+    node_repo: NodeRepository,
 }
 
 impl StoreService {
     pub fn new(pool: SqlitePool) -> Self {
         let user_repo = UserRepository::new(pool.clone());
-        Self { pool, user_repo }
+        let sub_repo = SubscriptionRepository::new(pool.clone());
+        let node_repo = NodeRepository::new(pool.clone());
+        Self { pool, user_repo, sub_repo, node_repo }
     }
 
     pub fn get_pool(&self) -> SqlitePool {
@@ -29,11 +35,8 @@ impl StoreService {
     }
 
     pub async fn get_node_by_id(&self, node_id: i64) -> Result<crate::models::node::Node> {
-        sqlx::query_as("SELECT * FROM nodes WHERE id = ?")
-            .bind(node_id)
-            .fetch_one(&self.pool)
-            .await
-            .context("Failed to fetch node")
+        self.node_repo.get_node_by_id(node_id).await?
+            .ok_or_else(|| anyhow::anyhow!("Node not found"))
     }
 
     pub async fn get_categories(&self) -> Result<Vec<crate::models::store::Category>> {
@@ -100,23 +103,13 @@ impl StoreService {
     }
 
     pub async fn get_active_nodes(&self) -> Result<Vec<crate::models::node::Node>> {
-        sqlx::query_as::<_, crate::models::node::Node>(
-            "SELECT * FROM nodes WHERE status = 'active'"
-        )
-        .fetch_all(&self.pool)
-        .await
-        .context("Failed to fetch active nodes")
+        self.node_repo.get_active_nodes().await
     }
 
     /// Get nodes available to a user based on their active subscription plan's groups
     pub async fn get_user_nodes(&self, user_id: i64) -> Result<Vec<crate::models::node::Node>> {
         // 1. Get active plan_id for user
-        let plan_id: Option<i64> = sqlx::query_scalar(
-            "SELECT plan_id FROM subscriptions WHERE user_id = ? AND status = 'active' LIMIT 1"
-        )
-        .bind(user_id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let plan_id: Option<i64> = self.sub_repo.get_active_plan_id_by_user(user_id).await?;
 
         let plan_id = match plan_id {
             Some(id) => id,
@@ -124,38 +117,9 @@ impl StoreService {
         };
 
         // 2. Get nodes via Plan -> Groups -> Nodes
-        // If plan has NO groups, maybe we fallback to "Default" group? 
-        // For now, let's assume if no groups, use Default (ID 1) as per migration.
+        // The repository handles the logic: Groups -> Nodes, Fallback -> All Active
+        let nodes = self.node_repo.get_nodes_for_plan(plan_id).await?;
         
-        let nodes = sqlx::query_as::<_, crate::models::node::Node>(
-            r#"
-            SELECT DISTINCT n.* 
-            FROM nodes n
-            JOIN node_group_members ngm ON n.id = ngm.node_id
-            JOIN plan_groups pg ON ngm.group_id = pg.group_id
-            WHERE pg.plan_id = ? AND n.status = 'active'
-            "#
-        )
-        .bind(plan_id)
-        .fetch_all(&self.pool)
-        .await?;
-        
-        // Fallback: If no nodes found via groups (maybe migration pending or refactor in progress),
-        // try fetching ALL nodes if plan exists (Legacy behavior safety net)
-        if nodes.is_empty() {
-             // Check if plan_groups has ANY entries for this plan.
-             let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_groups WHERE plan_id = ?")
-                .bind(plan_id)
-                .fetch_one(&self.pool)
-                .await?;
-                
-             if count == 0 {
-                 // Legacy behavior: If no groups assigned, give all active nodes (or check legacy plan_nodes)
-                 // Let's just give all active nodes for now to ensure no downtime during transition.
-                 return self.get_active_nodes().await;
-             }
-        }
-
         Ok(nodes)
     }
 
@@ -191,8 +155,6 @@ impl StoreService {
         // Analytics Hooks
         if existing.is_none() {
              let _ = crate::services::analytics_service::AnalyticsService::track_new_user(&self.pool).await;
-        if existing.is_none() {
-             let _ = crate::services::analytics_service::AnalyticsService::track_new_user(&self.pool).await;
 
              // Free Tier / Auto-Trial Logic
              // Check if there is an active "is_trial" plan
@@ -221,19 +183,16 @@ impl StoreService {
                      let sub_uuid = Uuid::new_v4().to_string();
                      let expires_at = Utc::now() + Duration::days(d.duration_days as i64);
 
-                     let _ = sqlx::query(
-                         r#"
-                         INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, expires_at, status, note, created_at, is_trial)
-                         VALUES (?, ?, ?, ?, ?, 'active', 'Free Tier', CURRENT_TIMESTAMP, 1)
-                         "#
-                     )
-                     .bind(user.id)
-                     .bind(plan.id)
-                     .bind(vless_uuid)
-                     .bind(sub_uuid)
-                     .bind(expires_at)
-                     .execute(&self.pool)
-                     .await;
+                     let _ = self.sub_repo.create(
+                         user.id,
+                         plan.id,
+                         &vless_uuid,
+                         &sub_uuid,
+                         expires_at,
+                         "active",
+                         Some("Free Tier"),
+                         true
+                     ).await;
                      
                      info!("Assigned Free Tier plan {} to new user {}", plan.name, user.id);
                  }
@@ -405,13 +364,7 @@ impl StoreService {
                     // But if plan_id is same, sync expiry.
                     // Actually, let's mark family subs with note="Family".
                     if csub.note.as_deref() == Some("Family") || csub.plan_id == psub.plan_id {
-                        sqlx::query("UPDATE subscriptions SET expires_at = ?, plan_id = ?, node_id = ?, status = 'active', note = 'Family' WHERE id = ?")
-                            .bind(psub.expires_at)
-                            .bind(psub.plan_id)
-                            .bind(psub.node_id)
-                            .bind(csub.id)
-                            .execute(&mut *tx)
-                            .await?;
+                        self.sub_repo.update_family_sub(csub.id, psub.expires_at, psub.plan_id, psub.node_id).await?;
                     }
                 } else {
                     // Create new Family Sub
@@ -436,10 +389,7 @@ impl StoreService {
         } else {
             // Parent has NO active sub -> Expire family subs for children
             for child in children {
-                sqlx::query("UPDATE subscriptions SET status = 'expired' WHERE user_id = ? AND note = 'Family' AND status = 'active'")
-                    .bind(child.id)
-                    .execute(&mut *tx)
-                    .await?;
+                self.sub_repo.expire_family_subs(child.id).await?;
             }
         }
 
@@ -623,11 +573,7 @@ impl StoreService {
     pub async fn activate_subscription(&self, sub_id: i64, user_id: i64) -> Result<Subscription> {
         let mut tx = self.pool.begin().await?;
 
-        let sub = sqlx::query_as::<_, Subscription>("SELECT * FROM subscriptions WHERE id = ? AND user_id = ?")
-            .bind(sub_id)
-            .bind(user_id)
-            .fetch_one(&mut *tx)
-            .await?;
+        let sub = self.get_subscription(sub_id, user_id).await?;
 
         if sub.status != "pending" {
             return Err(anyhow::anyhow!("Subscription is not pending"));
@@ -637,37 +583,32 @@ impl StoreService {
         let duration = sub.expires_at - sub.created_at;
         let new_expires_at = Utc::now() + duration;
 
-        let updated_sub = sqlx::query_as::<_, Subscription>(
-            r#"
-            UPDATE subscriptions 
-            SET expires_at = ?, status = 'active' 
-            WHERE id = ? 
-            RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at
-            "#
-        )
-        .bind(new_expires_at)
-        .bind(sub_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        self.sub_repo.update_status_and_expiry(sub_id, "active", new_expires_at).await?;
+        let updated_sub = self.sub_repo.get_by_id(sub_id).await?.unwrap();
 
         tx.commit().await?;
 
         // Sync family members
         let _ = self.sync_family_subscriptions(user_id).await.map_err(|e| error!("Failed to sync family subs: {}", e));
-
         Ok(updated_sub)
+    }
+
+    pub async fn get_subscription(&self, sub_id: i64, user_id: i64) -> Result<Subscription> {
+        let sub = self.sub_repo.get_by_id(sub_id).await?
+            .ok_or_else(|| anyhow::anyhow!("Subscription not found"))?;
+            
+        if sub.user_id != user_id {
+            return Err(anyhow::anyhow!("Unauthorized access to subscription"));
+        }
+        
+        Ok(sub)
     }
 
     pub async fn convert_subscription_to_gift(&self, sub_id: i64, user_id: i64) -> Result<String> {
         let mut tx = self.pool.begin().await?;
 
         // 1. Fetch Subscription
-        let sub = sqlx::query_as::<_, Subscription>("SELECT * FROM subscriptions WHERE id = ? AND user_id = ?")
-            .bind(sub_id)
-            .bind(user_id)
-            .fetch_one(&mut *tx)
-            .await
-            .context("Subscription not found")?;
+        let sub = self.get_subscription(sub_id, user_id).await?;
 
         if sub.status != "pending" {
             return Err(anyhow::anyhow!("Only pending subscriptions can be converted to gifts"));
@@ -679,10 +620,7 @@ impl StoreService {
         let duration_days = duration.num_days() as i32;
 
         // 3. Delete Subscription
-        sqlx::query("DELETE FROM subscriptions WHERE id = ?")
-            .bind(sub_id)
-            .execute(&mut *tx)
-            .await?;
+        self.sub_repo.delete(sub_id).await?;
 
         // 4. Generate Code
         let code = format!("EXA-GIFT-{}", Uuid::new_v4().to_string().split('-').next().unwrap_or("CODE").to_uppercase());
@@ -804,11 +742,13 @@ impl StoreService {
     }
 
     pub async fn admin_delete_subscription(&self, sub_id: i64) -> Result<()> {
-        sqlx::query("DELETE FROM subscriptions WHERE id = ?")
-            .bind(sub_id)
-            .execute(&self.pool)
-            .await
-            .context("Failed to delete subscription")?;
+        self.sub_repo.delete(sub_id).await?;
+        Ok(())
+    }
+
+    pub async fn delete_subscription(&self, sub_id: i64, user_id: i64) -> Result<()> {
+        let sub = self.get_subscription(sub_id, user_id).await?;
+        self.sub_repo.delete(sub_id).await?;
         Ok(())
     }
 
@@ -816,17 +756,11 @@ impl StoreService {
         let mut tx = self.pool.begin().await?;
 
         // 1. Get Sub to find user
-        let sub = sqlx::query_as::<_, Subscription>("SELECT * FROM subscriptions WHERE id = ?")
-            .bind(sub_id)
-            .fetch_one(&mut *tx)
-            .await
+        let sub = self.sub_repo.get_by_id(sub_id).await?
             .context("Subscription not found")?;
 
         // 2. Delete Sub
-        sqlx::query("DELETE FROM subscriptions WHERE id = ?")
-            .bind(sub_id)
-            .execute(&mut *tx)
-            .await?;
+        self.sub_repo.delete(sub_id).await?;
 
         // 3. Credit User
         sqlx::query("UPDATE users SET balance = balance + ? WHERE id = ?")
@@ -856,9 +790,8 @@ impl StoreService {
 
         // 1. Select an active node
         // Simple strategy: pick the first available active node. 
-        let node_id: i64 = sqlx::query_scalar("SELECT id FROM nodes WHERE status = 'active' LIMIT 1")
-            .fetch_optional(&mut *tx)
-            .await?
+        let active_nodes = self.node_repo.get_active_node_ids().await?;
+        let node_id = active_nodes.first().cloned()
             .ok_or_else(|| anyhow::anyhow!("No active nodes available to assign"))?;
 
         // 2. Prepare subscription data
@@ -926,54 +859,76 @@ impl StoreService {
             .await?;
 
         // 4. Check for existing active subscription
-        let existing_sub = sqlx::query_as::<_, Subscription>(
-            "SELECT id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at FROM subscriptions WHERE user_id = ? AND plan_id = ? AND status = 'active'"
-        )
-        .bind(user_id)
-        .bind(duration.plan_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+    pub async fn extend_subscription_with_duration(&self, user_id: i64, duration: &crate::models::store::PlanDuration) -> Result<Subscription> {
+        // 1. Check for existing active subscription
+        let existing_sub = self.sub_repo.get_active_by_user(user_id).await?;
 
+        // Logic check: The original query filtered by plan_id too.
+        // "WHERE user_id = ? AND plan_id = ? AND status = 'active'"
+        // Repo `get_active_by_user` returns ANY active sub.
+        // If the user attempts to extend a DIFFERENT plan, we should probably support that or fail?
+        // Original logic implies we look for specific plan match. 
+        // Let's rely on repo but manually check plan_id if needed, or update repo.
+        // Actually, let's keep it simple: if there is an active sub, we extend it.
+        // But wait, what if they have active Plan A and buy Plan B?
+        // The original code filtered by `duration.plan_id`.
+        // So we strictly only extended if the SAME plan was active.
+        
         let sub = if let Some(active_sub) = existing_sub {
-            // Extend existing
-            let new_expires_at = if active_sub.expires_at > Utc::now() {
-                active_sub.expires_at + Duration::days(duration.duration_days as i64)
+            if active_sub.plan_id != duration.plan_id {
+                 // Different plan, treat as new? Or error?
+                 // Original Code: "WHERE ... plan_id = ?"
+                 // So if they had Plan A active, and bought Plan B, existing_sub would be None.
+                 // And we would create a NEW subscription (line 945).
+                 // So they would have TWO active subscriptions?
+                 // That seems to be the logic.
+                 
+                 // Fallback to create new
+                 let expires_at = Utc::now() + Duration::days(duration.duration_days as i64);
+                 let vless_uuid = Uuid::new_v4().to_string();
+                 let sub_uuid = Uuid::new_v4().to_string();
+                 
+                  let id = self.sub_repo.create(
+                     user_id,
+                     duration.plan_id,
+                     &vless_uuid,
+                     &sub_uuid,
+                     expires_at,
+                     "active",
+                     None,
+                     false
+                 ).await?;
+                 
+                 self.sub_repo.get_by_id(id).await?.unwrap()
             } else {
-                Utc::now() + Duration::days(duration.duration_days as i64)
-            };
+                // Extend existing
+                let new_expires_at = if active_sub.expires_at > Utc::now() {
+                    active_sub.expires_at + Duration::days(duration.duration_days as i64)
+                } else {
+                    Utc::now() + Duration::days(duration.duration_days as i64)
+                };
 
-            let updated_sub = sqlx::query_as::<_, Subscription>(
-                r#"
-                UPDATE subscriptions 
-                SET expires_at = ? 
-                WHERE id = ? 
-                RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at
-                "#
-            )
-            .bind(new_expires_at)
-            .bind(active_sub.id)
-            .fetch_one(&mut *tx)
-            .await?;
-            
-            updated_sub
+                self.sub_repo.update_expiry(active_sub.id, new_expires_at).await?;
+                self.sub_repo.get_by_id(active_sub.id).await?.unwrap()
+            }
         } else {
-            // Create new if none found (fallback)
-            let expires_at = Utc::now() + Duration::days(duration.duration_days as i64);
-            let vless_uuid = Uuid::new_v4().to_string();
-
-            sqlx::query_as::<_, Subscription>(
-                r#"
-                INSERT INTO subscriptions (user_id, plan_id, vless_uuid, expires_at, status)
-                VALUES (?, ?, ?, ?, 'active')
-                RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at
-                "#
-            )
-            .bind(user_id)
-            .bind(duration.plan_id)
-            .bind(vless_uuid)
-            .bind(expires_at)
-            .fetch_one(&mut *tx)
-            .await?
+             // Create new if none active
+             let expires_at = Utc::now() + Duration::days(duration.duration_days as i64);
+             let vless_uuid = Uuid::new_v4().to_string();
+             let sub_uuid = Uuid::new_v4().to_string();
+             
+             let id = self.sub_repo.create(
+                 user_id,
+                 duration.plan_id,
+                 &vless_uuid,
+                 &sub_uuid,
+                 expires_at,
+                 "active",
+                 None,
+                 false
+             ).await?;
+             
+             self.sub_repo.get_by_id(id).await?.unwrap()
         };
 
         tx.commit().await?;
@@ -986,13 +941,20 @@ impl StoreService {
 
     pub async fn get_user_subscriptions(&self, user_id: i64) -> Result<Vec<SubscriptionWithDetails>> {
         // 1. Fetch Subscriptions
-        let subs = sqlx::query_as::<_, Subscription>(
-            "SELECT id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at FROM subscriptions WHERE user_id = ? ORDER BY created_at DESC"
-        )
-        .bind(user_id)
-        .fetch_all(&self.pool)
-        .await
-        .context("Failed to fetch user subscriptions")?;
+    pub async fn get_user_subscriptions(&self, user_id: i64) -> Result<Vec<SubscriptionWithDetails>> {
+        // 1. Fetch Subscriptions using Repo
+        // Note: The repo method returns SubscriptionWithDetails directly (with joined plan name).
+        // But the original code here fetched Subscriptions, then manually joined with Plans in memory.
+        // We can switch to the repo's efficient JOIN query if the return type matches.
+        // Repo returns `SubscriptionWithDetails` which has `plan_name`, `node_name`.
+        // The original code returned `SubscriptionWithDetails` constructed manually.
+        // So this is a perfect drop-in if we map it correctly.
+        
+        // Wait, original signature returns `Vec<SubscriptionWithDetails>`.
+        // Repo returns `Vec<SubscriptionWithDetails>`.
+        // So we can just delegate!
+        
+        self.sub_repo.get_all_by_user(user_id).await
 
         if subs.is_empty() {
             return Ok(Vec::new());
@@ -1293,10 +1255,7 @@ impl StoreService {
     // ========================================================================
 
     pub async fn get_active_node_ids(&self) -> Result<Vec<i64>> {
-        let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM nodes WHERE status = 'active'")
-            .fetch_all(&self.pool)
-            .await?;
-        Ok(ids)
+        self.node_repo.get_active_node_ids().await
     }
 
     pub async fn update_trial_plan_limits(&self, device_limit: i32, traffic_limit_gb: i32) -> Result<()> {
@@ -1425,25 +1384,13 @@ impl StoreService {
         let mut links = Vec::new();
 
         // 1. Get subscription
-        let sub: Option<Subscription> = sqlx::query_as("SELECT * FROM subscriptions WHERE id = ?")
-            .bind(sub_id)
-            .fetch_optional(&self.pool)
-            .await?;
+        let sub = self.sub_repo.get_by_id(sub_id).await?;
         
         if let Some(sub) = sub {
             let uuid = sub.vless_uuid.clone().unwrap_or_default();
             
             // 2. Get Inbounds for this Plan
-            let inbounds = sqlx::query_as::<_, crate::models::network::Inbound>(
-                r#"
-                SELECT i.* FROM inbounds i
-                JOIN plan_inbounds pi ON pi.inbound_id = i.id
-                WHERE pi.plan_id = ? AND i.enable = 1
-                "#
-            )
-            .bind(sub.plan_id)
-            .fetch_all(&self.pool)
-            .await?;
+            let inbounds = self.node_repo.get_inbounds_for_plan(sub.plan_id).await?;
             
             for inbound in inbounds {
                 // Parse stream settings to find SNI/Security
@@ -1531,14 +1478,9 @@ impl StoreService {
                     }
 
                     // Fetch TG ID for auth name
-                    // We need to fetch it inside the loop or pre-fetch it. Pre-fetching is better but we are inside a loop over inbounds which is inside...
-                    // Actually sub.user_id is available. Ideally we fetch tg_id once.
-                    // Let's do a quick scalar query here (caching would be better but this is fine for now)
-                    let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?")
-                        .bind(sub.user_id)
-                        .fetch_optional(&self.pool)
-                        .await?
-                        .unwrap_or(0); // Fallback to 0 if not found (shouldn't happen)
+                    let user = self.user_repo.get_by_id(sub.user_id).await?
+                        .ok_or_else(|| anyhow::anyhow!("User not found"))?;
+                    let tg_id = user.tg_id;
 
                     let auth = format!("{}:{}", tg_id, uuid.replace("-", ""));
 
@@ -1567,18 +1509,7 @@ impl StoreService {
             
             // 2. Get Inbounds for this Plan
             // Copied from links generation logic
-            let inbounds = sqlx::query_as::<_, crate::models::network::Inbound>(
-                r#"
-                SELECT DISTINCT i.* FROM inbounds i
-                LEFT JOIN plan_inbounds pi ON pi.inbound_id = i.id
-                LEFT JOIN plan_nodes pn ON pn.node_id = i.node_id
-                WHERE (pi.plan_id = ? OR pn.plan_id = ?) AND i.enable = 1
-                "#
-            )
-            .bind(sub.sub.plan_id)
-            .bind(sub.sub.plan_id)
-            .fetch_all(&self.pool)
-            .await?;
+            let inbounds = self.node_repo.get_inbounds_for_plan(sub.sub.plan_id).await?;
             
             for inbound in inbounds {
                 use crate::models::network::{StreamSettings};
@@ -1592,6 +1523,11 @@ impl StoreService {
                 });
                 let security = stream.security.as_deref().unwrap_or("none");
                 let _network = stream.network.as_deref().unwrap_or("tcp");
+
+                // Fetch User once if needed (e.g. for hysteria2/amneziawg)
+                let user = self.user_repo.get_by_id(sub.sub.user_id).await?
+                    .ok_or_else(|| anyhow::anyhow!("User not found"))?;
+                let tg_id = user.tg_id;
 
                 let node = self.get_node_by_id(inbound.node_id).await?;
                 let address = if inbound.listen_ip == "::" || inbound.listen_ip == "0.0.0.0" {
@@ -1693,11 +1629,7 @@ impl StoreService {
                             }
                         }
 
-                        let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?")
-                            .bind(sub.sub.user_id)
-                            .fetch_optional(&self.pool)
-                            .await?
-                            .unwrap_or(0);
+                        let tg_id = tg_id; // Just for clarity as we pre-fetched it
                         
                         // Auth is "user:pass"
                         let password = format!("{}:{}", tg_id, uuid.replace("-", ""));
@@ -1733,11 +1665,7 @@ impl StoreService {
                             // Stable client key derivation
                             let client_priv = self.derive_awg_key(&uuid);
                             
-                            let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?")
-                                .bind(user_id)
-                                .fetch_optional(&self.pool)
-                                .await?
-                                .unwrap_or(0);
+                            let tg_id = tg_id; // Just for clarity as we pre-fetched it
                                 
                             let client_ip = format!("10.10.0.{}", (tg_id % 250) + 2);
                             
@@ -1879,18 +1807,7 @@ impl StoreService {
             let uuid = sub.sub.vless_uuid.clone().unwrap_or_default();
             
             // 2. Get Inbounds for this Plan
-            let inbounds = sqlx::query_as::<_, crate::models::network::Inbound>(
-                r#"
-                SELECT DISTINCT i.* FROM inbounds i
-                LEFT JOIN plan_inbounds pi ON pi.inbound_id = i.id
-                LEFT JOIN plan_nodes pn ON pn.node_id = i.node_id
-                WHERE (pi.plan_id = ? OR pn.plan_id = ?) AND i.enable = 1
-                "#
-            )
-            .bind(sub.sub.plan_id)
-            .bind(sub.sub.plan_id)
-            .fetch_all(&self.pool)
-            .await?;
+            let inbounds = self.node_repo.get_inbounds_for_plan(sub.sub.plan_id).await?;
             
             for inbound in inbounds {
                 // Parse stream settings to find SNI/Security
@@ -2078,13 +1995,9 @@ impl StoreService {
 
     /// Get the device limit for a specific subscription
     pub async fn get_subscription_device_limit(&self, subscription_id: i64) -> Result<i32> {
-        let limit: Option<i32> = sqlx::query_scalar(
-            "SELECT p.device_limit FROM subscriptions s JOIN plans p ON s.plan_id = p.id WHERE s.id = ?"
-        )
-            .bind(subscription_id)
-            .fetch_one(&self.pool)
-            .await
-            .context("Failed to fetch device limit for subscription")?;
+        let limit = self.sub_repo.get_device_limit(subscription_id).await?;
+        Ok(limit.unwrap_or(0))
+    }
 
         let limit = limit.unwrap_or(0); // Handle nulls if any
 
@@ -2179,12 +2092,7 @@ impl StoreService {
         let mut tx = self.pool.begin().await?;
         
         // 1. Get all active subscriptions for this plan
-        let active_subs = sqlx::query_as::<_, Subscription>(
-            "SELECT * FROM subscriptions WHERE plan_id = ? AND status = 'active'"
-        )
-        .bind(plan_id)
-        .fetch_all(&mut *tx)
-        .await?;
+        let active_subs = self.sub_repo.get_active_by_plan(plan_id).await?;
 
         let mut refunded_users = 0;
         let mut total_refunded_cents = 0;
@@ -2226,10 +2134,7 @@ impl StoreService {
         }
 
         // 2. Delete Subscriptions (Active and Inactive)
-        sqlx::query("DELETE FROM subscriptions WHERE plan_id = ?")
-            .bind(plan_id)
-            .execute(&mut *tx)
-            .await?;
+        self.sub_repo.delete_by_plan_id(plan_id).await?;
 
         // 3. Delete Plan Durations
         sqlx::query("DELETE FROM plan_durations WHERE plan_id = ?")
@@ -2258,37 +2163,12 @@ impl StoreService {
     
     /// Toggle auto-renewal for a subscription
     pub async fn toggle_auto_renewal(&self, subscription_id: i64) -> Result<bool> {
-        let current: bool = sqlx::query_scalar::<_, Option<i32>>("SELECT auto_renew FROM subscriptions WHERE id = ?")
-            .bind(subscription_id)
-            .fetch_one(&self.pool)
-            .await?
-            .map(|v| v != 0)
-            .unwrap_or(false);
-        
-        let new_value = !current;
-        
-        sqlx::query("UPDATE subscriptions SET auto_renew = ? WHERE id = ?")
-            .bind(new_value as i32)
-            .bind(subscription_id)
-            .execute(&self.pool)
-            .await?;
-        
-        Ok(new_value)
+        self.sub_repo.toggle_auto_renewal(subscription_id).await
     }
     
     /// Process all auto-renewals for subscriptions expiring in next 24h
     pub async fn process_auto_renewals(&self) -> Result<Vec<RenewalResult>> {
-        let subs = sqlx::query_as::<_, (i64, i64, i64, String, i64)>(
-            "SELECT s.id, s.user_id, s.plan_id, p.name, u.balance 
-             FROM subscriptions s
-             JOIN users u ON s.user_id = u.id
-             JOIN plans p ON s.plan_id = p.id
-             WHERE COALESCE(s.auto_renew, 0) = 1
-             AND s.status = 'active'
-             AND datetime(s.expires_at) BETWEEN datetime('now') AND datetime('now', '+1 day')"
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let subs = self.sub_repo.get_expiring_auto_renewals().await?;
         
         let mut results = vec![];
         
@@ -2301,10 +2181,7 @@ impl StoreService {
             .await?;
             
             if balance >= price {
-                sqlx::query("UPDATE subscriptions SET expires_at = datetime(expires_at, '+30 days') WHERE id = ?")
-                    .bind(sub_id)
-                    .execute(&self.pool)
-                    .await?;
+                self.sub_repo.extend_expiry_days(sub_id, 30).await?;
                 
                 self.user_repo.adjust_balance(user_id, -price).await?;
                 
@@ -2345,17 +2222,20 @@ impl StoreService {
     
     /// Create a trial subscription
     pub async fn create_trial_subscription(&self, user_id: i64, plan_id: i64, duration_days: i64) -> Result<i64> {
-        let sub_id: i64 = sqlx::query_scalar(
-            "INSERT INTO subscriptions 
-             (user_id, plan_id, status, expires_at, used_traffic, is_trial, created_at) 
-             VALUES (?, ?, 'active', datetime('now', '+' || ? || ' days'), 0, 1, CURRENT_TIMESTAMP) 
-             RETURNING id"
-        )
-        .bind(user_id)
-        .bind(plan_id)
-        .bind(duration_days)
-        .fetch_one(&self.pool)
-        .await?;
+        let vless_uuid = Uuid::new_v4().to_string();
+        let sub_uuid = Uuid::new_v4().to_string();
+        let expires_at = Utc::now() + Duration::days(duration_days);
+
+        let sub_id = self.sub_repo.create(
+            user_id,
+            plan_id,
+            &vless_uuid,
+            &sub_uuid,
+            expires_at,
+            "active",
+            None,
+            true
+        ).await?;
         
         info!("Created trial subscription {} for user {} ({} days)", sub_id, user_id, duration_days);
         Ok(sub_id)
@@ -2365,14 +2245,7 @@ impl StoreService {
     pub async fn check_traffic_alerts(&self) -> Result<Vec<(i64, AlertType, i64)>> {
         let mut alerts_to_send = vec![];
         
-        let subs = sqlx::query_as::<_, (i64, i64, i64, i64, String)>(
-            "SELECT s.id, s.user_id, s.used_traffic, pd.traffic_gb, COALESCE(s.alerts_sent, '[]') 
-             FROM subscriptions s
-             JOIN plan_durations pd ON s.plan_id = pd.plan_id
-             WHERE s.status = 'active' AND pd.traffic_gb > 0"
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let subs = self.sub_repo.get_active_with_traffic_limit().await?;
         
         for (sub_id, user_id, used_bytes, traffic_gb, alerts_json) in subs {
             if traffic_gb == 0 { continue; }
@@ -2394,11 +2267,7 @@ impl StoreService {
             
             if !alerts.is_empty() {
                 let alerts_json = serde_json::to_string(&alerts)?;
-                sqlx::query("UPDATE subscriptions SET alerts_sent = ? WHERE id = ?")
-                    .bind(&alerts_json)
-                    .bind(sub_id)
-                    .execute(&self.pool)
-                    .await?;
+                self.sub_repo.update_alerts_sent(sub_id, &alerts_json).await?;
             }
         }
         

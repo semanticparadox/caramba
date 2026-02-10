@@ -13,6 +13,8 @@ mod api;
 mod subscription;
 mod utils;
 mod repositories;
+pub mod handlers; // Make handlers public to allow access to admin_orgs if needed or via handlers::...
+
 
 
 
@@ -59,6 +61,7 @@ pub struct AppState {
     pub catalog_service: Arc<services::catalog_service::CatalogService>,
     pub analytics_service: Arc<services::analytics_service::AnalyticsService>,
     pub generator_service: Arc<services::generator_service::GeneratorService>, // Phase 1.8
+    pub org_service: Arc<services::org_service::OrganizationService>, // Phase 3
 
     pub ssh_public_key: String,
     // Format: IP -> (Lat, Lon, Timestamp)
@@ -246,6 +249,8 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     let subscription_service = Arc::new(services::subscription_service::SubscriptionService::new(pool.clone()));
     let catalog_service = Arc::new(services::catalog_service::CatalogService::new(pool.clone()));
     let generator_service = Arc::new(services::generator_service::GeneratorService::new(pool.clone())); // Phase 1.8
+    let org_repo = repositories::org_repo::OrganizationRepository::new(pool.clone());
+    let org_service = Arc::new(services::org_service::OrganizationService::new(org_repo));
 
     // Initialize connection service
     let connection_service = Arc::new(services::connection_service::ConnectionService::new(
@@ -332,6 +337,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         catalog_service,
         analytics_service,
         generator_service,
+        org_service,
         
         ssh_public_key,
         geo_cache,
@@ -460,10 +466,11 @@ use tower_http::services::ServeDir;
         .route("/groups/{id}/members/{node_id}", axum::routing::delete(handlers::admin_groups::remove_group_member))
         .route("/groups/{id}/rotate", axum::routing::post(handlers::admin_groups::rotate_group_inbounds))
         
-        // Inbound Templates (Phase 1.8)
-        .route("/templates", axum::routing::get(handlers::admin_templates::get_templates_page).post(handlers::admin_templates::create_template))
-        .route("/templates/{id}", axum::routing::delete(handlers::admin_templates::delete_template))
         .route("/templates/{id}/sync", axum::routing::post(handlers::admin_templates::sync_template))
+        
+        // Organization Management (Phase 3)
+        .route("/orgs", axum::routing::get(handlers::admin_orgs::get_organizations).post(handlers::admin_orgs::create_organization))
+        
         // .route("/store/orders", axum::routing::get(handlers::admin_store::orders_page)) // Handled by analytics/dashboard now
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware));
 

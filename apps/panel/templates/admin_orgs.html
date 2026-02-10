@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Organizations{% endblock %}
+{% block header_title %}Organizations (B2B){% endblock %}
+
+{% block content %}
+<!-- Header Actions -->
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+    <div>
+        <p class="text-slate-400 text-sm mt-1">Manage corporate groups and shared billing.</p>
+    </div>
+    <div class="flex items-center gap-3">
+        <button onclick="document.getElementById('createOrgModal').classList.remove('hidden')"
+            class="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium transition-all shadow-lg shadow-indigo-500/25">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            Create Organization
+        </button>
+    </div>
+</div>
+
+<!-- Organizations Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+    {% for org in orgs %}
+    <div class="glass rounded-3xl p-6 transition-all hover:border-indigo-500/40 group">
+        <div class="flex items-start justify-between mb-4">
+            <div
+                class="h-12 w-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 group-hover:scale-110 transition-transform">
+                <i data-lucide="building-2" class="w-6 h-6"></i>
+            </div>
+            <div class="flex gap-2">
+                <span
+                    class="px-2 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 text-[10px] font-bold uppercase tracking-wider">Active</span>
+            </div>
+        </div>
+
+        <h3 class="text-lg font-semibold text-white mb-1">{{ org.name }}</h3>
+        <p class="text-slate-500 text-xs mb-4">Slug: <code
+                class="text-indigo-400">{{ org.slug.as_deref().unwrap_or("-") }}</code></p>
+
+        <div class="space-y-3 mb-6">
+            <div class="flex items-center justify-between text-sm">
+                <span class="text-slate-400">Balance</span>
+                <span class="text-white font-mono">{{ org.balance }} <span
+                        class="text-[10px] text-slate-500">RUB</span></span>
+            </div>
+            <div class="flex items-center justify-between text-sm">
+                <span class="text-slate-400">Created</span>
+                <span class="text-slate-300">{{ org.created_at.format("%Y-%m-%d") }}</span>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2 pt-4 border-t border-white/5">
+            <a href="{{ admin_path }}/orgs/{{ org.id }}"
+                class="flex-1 text-center py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm font-medium transition-colors">
+                Manage
+            </a>
+            <button class="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Create Org Modal -->
+<div id="createOrgModal"
+    class="fixed inset-0 z-[100] hidden items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+    <div class="glass w-full max-w-md rounded-3xl shadow-2xl overflow-hidden scale-in">
+        <div class="p-6 border-b border-white/5 flex items-center justify-between">
+            <h3 class="text-xl font-bold text-white">New Organization</h3>
+            <button onclick="document.getElementById('createOrgModal').classList.add('hidden')"
+                class="text-slate-400 hover:text-white transition-colors">
+                <i data-lucide="x" class="w-6 h-6"></i>
+            </button>
+        </div>
+        <form action="{{ admin_path }}/orgs" method="POST" class="p-6 space-y-6">
+            <div class="space-y-2">
+                <label class="text-sm font-medium text-slate-300">Organization Name</label>
+                <input type="text" name="name" required placeholder="ExaCorp Inc."
+                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500/50 focus:ring-4 focus:ring-indigo-500/10 transition-all outline-none">
+            </div>
+            <div class="space-y-2">
+                <label class="text-sm font-medium text-slate-300">Slug (Unique Name)</label>
+                <input type="text" name="slug" placeholder="exacorp"
+                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500/50 focus:ring-4 focus:ring-indigo-500/10 transition-all outline-none">
+                <p class="text-[11px] text-slate-500">Used for API and subdomains.</p>
+            </div>
+
+            <div class="flex items-center gap-3 pt-4">
+                <button type="button" onclick="document.getElementById('createOrgModal').classList.add('hidden')"
+                    class="flex-1 py-3 px-4 rounded-xl bg-white/5 hover:bg-white/10 text-sm font-medium text-slate-300 transition-colors">
+                    Cancel
+                </button>
+                <button type="submit"
+                    class="flex-1 py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm font-bold text-white transition-all shadow-lg shadow-indigo-500/20">
+                    Create Org
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -8,6 +8,9 @@ use crate::services::store_service::StoreService;
 use crate::bot_manager::BotManager;
 use anyhow::anyhow;
 use base64::Engine;
+use crate::services::payment::{PaymentAdapter, cryptomus::CryptomusAdapter};
+use crate::models::payment::PaymentType;
+use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[allow(dead_code)]
@@ -52,22 +55,9 @@ pub struct NowPaymentResponse {
     pub invoice_url: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub enum PaymentType {
-    BalanceTopup,
-    OrderPurchase(i64), // order_id
-    SubscriptionPurchase(i64), // plan_id
-}
+// Redundant PaymentType removed - now in models/payment.rs
 
-impl PaymentType {
-    pub fn to_payload_string(&self, user_id: i64) -> String {
-        match self {
-            PaymentType::BalanceTopup => format!("{}:bal:0", user_id),
-            PaymentType::OrderPurchase(order_id) => format!("{}:ord:{}", user_id, order_id),
-            PaymentType::SubscriptionPurchase(plan_id) => format!("{}:sub:{}", user_id, plan_id),
-        }
-    }
-}
+// Redundant PaymentType implementation removed
 
 pub struct PayService {
     pool: SqlitePool,
@@ -85,9 +75,9 @@ pub struct PayService {
     aaio_merchant_id: String,
     aaio_secret_1: String,
     aaio_secret_2: String,
-    lava_project_id: String,
     lava_secret_key: String,
     is_testnet: bool,
+    adapters: HashMap<String, Box<dyn PaymentAdapter>>,
 }
 
 impl PayService {
@@ -111,6 +101,15 @@ impl PayService {
         lava_secret_key: String,
         is_testnet: bool
     ) -> Self {
+        let mut adapters: HashMap<String, Box<dyn PaymentAdapter>> = HashMap::new();
+        
+        if !cryptomus_merchant_id.is_empty() && !cryptomus_payment_api_key.is_empty() {
+            adapters.insert("cryptomus".to_string(), Box::new(CryptomusAdapter::new(
+                cryptomus_merchant_id.clone(),
+                cryptomus_payment_api_key.clone(),
+            )));
+        }
+
         Self { 
             pool, 
             store_service, 
@@ -129,7 +128,8 @@ impl PayService {
             aaio_secret_2,
             lava_project_id,
             lava_secret_key,
-            is_testnet 
+            is_testnet,
+            adapters
         }
     }
 
@@ -230,25 +230,8 @@ impl PayService {
     }
 
 
-    /// Verify Cryptomus signature (MD5(base64(body) + key))
-    fn verify_cryptomus_signature(&self, payload: &str, signature: Option<&str>) -> Result<()> {
-        let sig = signature.ok_or_else(|| anyhow!("Missing sign header for Cryptomus"))?;
-        let encoded = base64::engine::general_purpose::STANDARD.encode(payload);
-        let to_hash = format!("{}{}", encoded, self.cryptomus_payment_api_key);
-        let expected = format!("{:x}", md5::compute(to_hash.as_bytes()));
-        
-        if sig == expected {
-            Ok(())
-        } else {
-            Err(anyhow!("Invalid Cryptomus signature"))
-        }
-    }
+    // Cryptomus verification delegated to adapter
 
-    fn generate_cryptomus_signature(&self, payload: &str) -> String {
-        let encoded = base64::engine::general_purpose::STANDARD.encode(payload);
-        let to_hash = format!("{}{}", encoded, self.cryptomus_payment_api_key);
-        format!("{:x}", md5::compute(to_hash.as_bytes()))
-    }
 
     /// Verify Aaio signature (SHA256(merchant_id:amount:currency:secret_2:order_id))
     fn verify_aaio_signature(&self, merchant_id: &str, amount: &str, currency: &str, order_id: &str, sign: &str) -> Result<()> {
@@ -412,44 +395,11 @@ impl PayService {
     }
 
     pub async fn create_cryptomus_invoice(&self, user_id: i64, amount_usd: f64, payment_type: PaymentType) -> Result<String> {
-        info!("Creating Cryptomus invoice for user {}: ${}", user_id, amount_usd);
-        
-        // Setup payload
-        let payload_str = payment_type.to_payload_string(user_id);
-        let order_id = format!("{}_{}", user_id, Utc::now().timestamp());
-        
-        let body_json = serde_json::json!({
-            "amount": amount_usd.to_string(), // Cryptomus often expects string for amount
-            "currency": "USD",
-            "order_id": order_id,
-            "url_callback": "https://api.exa.robot/api/payments/cryptomus",
-            "url_return": "https://t.me/exarobot_bot", // Redirect user back to bot
-            "additional_data": payload_str // Pass metadata here
-        });
-        
-        let body_str = serde_json::to_string(&body_json)?;
-        let sign = self.generate_cryptomus_signature(&body_str);
-        
-        let client = reqwest::Client::new();
-        let resp = client.post("https://api.cryptomus.com/v1/payment")
-            .header("merchant", &self.cryptomus_merchant_id)
-            .header("sign", sign)
-            .header("Content-Type", "application/json")
-            .body(body_str)
-            .send()
-            .await?;
-            
-        let resp_json: serde_json::Value = resp.json().await?;
-        // Cryptomus response: { state: 0, result: { url: "...", ... } }
-        // Note: Check docs or common key names. result.url is common.
-        
-        if let Some(result) = resp_json.get("result") {
-            if let Some(url) = result.get("url").and_then(|u| u.as_str()) {
-                 return Ok(url.to_string());
-            }
+        if let Some(adapter) = self.adapters.get("cryptomus") {
+            adapter.create_invoice(user_id, amount_usd, payment_type).await
+        } else {
+            Err(anyhow::anyhow!("Cryptomus adapter not initialized"))
         }
-        
-        Err(anyhow::anyhow!("Cryptomus Error: {:?}", resp_json))
     }
 
     pub async fn create_aaio_invoice(&self, user_id: i64, amount_usd: f64, payment_type: PaymentType) -> Result<String> {
@@ -689,8 +639,11 @@ impl PayService {
             },
 
              "cryptomus" => {
-                 // Verify signature 
-                 self.verify_cryptomus_signature(payload, cryptomus_sig)?;
+                 if let Some(adapter) = self.adapters.get("cryptomus") {
+                     adapter.verify_signature(payload, cryptomus_sig)?;
+                 } else {
+                     return Err(anyhow::anyhow!("Cryptomus adapter not initialized"));
+                 }
 
                  // Check status
                  // Payload structure from Cryptomus Webhook: { type: "payment", status: "paid", amount, order_id, additional_data, ... }

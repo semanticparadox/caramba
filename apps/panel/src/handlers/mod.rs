@@ -1,8 +1,10 @@
 pub mod admin;
 pub mod admin_network;
-pub mod node_control;
+pub mod admin_groups;
+pub mod admin_templates;
+pub mod admin_orgs;
 pub mod setup;
 pub mod frontend;
 pub mod local_app;
-pub mod admin_groups; // Phase 1.8
-pub mod admin_templates; // Phase 1.8
+pub mod node_control;
+pub mod api;
