@@ -2,7 +2,7 @@ use sqlx::SqlitePool;
 use anyhow::{Result, Context};
 use crate::models::api_key::ApiKey;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ApiKeyRepository {
     pool: SqlitePool,
 }
@@ -18,7 +18,7 @@ impl ApiKeyRepository {
             r#"
             INSERT INTO api_keys (name, key, type, max_uses)
             VALUES (?, ?, 'enrollment', ?)
-            RETURNING *
+            RETURNING id, key, name, type as key_type, max_uses, current_uses, is_active, expires_at, created_at, created_by
             "#,
             name,
             key,
@@ -35,7 +35,8 @@ impl ApiKeyRepository {
         let recs = sqlx::query_as!(
             ApiKey,
             r#"
-            SELECT * FROM api_keys
+            SELECT id, key, name, type as key_type, max_uses, current_uses, is_active, expires_at, created_at, created_by 
+            FROM api_keys
             ORDER BY created_at DESC
             "#
         )

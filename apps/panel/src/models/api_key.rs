@@ -13,7 +13,7 @@ pub struct ApiKey {
     pub max_uses: Option<i64>,
     pub current_uses: i64,
     pub is_active: bool,
-    pub expires_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
+    pub expires_at: Option<chrono::NaiveDateTime>,
+    pub created_at: chrono::NaiveDateTime,
     pub created_by: Option<i64>,
 }
