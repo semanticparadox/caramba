@@ -335,4 +335,13 @@ impl NodeRepository {
             .await?;
         Ok(())
     }
+
+    /// Get all inbound templates for a specific group
+    pub async fn get_templates_for_group(&self, group_id: i64) -> Result<Vec<crate::models::groups::InboundTemplate>> {
+        sqlx::query_as::<_, crate::models::groups::InboundTemplate>("SELECT * FROM inbound_templates WHERE target_group_id = ? AND is_active = 1")
+            .bind(group_id)
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to fetch templates for group")
+    }
 }

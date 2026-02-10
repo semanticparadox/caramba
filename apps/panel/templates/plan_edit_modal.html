@@ -36,20 +36,20 @@
     </div>
 
     <div class="bg-slate-950/50 rounded-xl border border-white/5 p-4">
-        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Available Nodes</label>
+        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Available Node
+            Groups</label>
         <div class="space-y-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
-            {% for (node, is_checked) in nodes %}
+            {% for (group, is_checked) in groups %}
             <label
                 class="flex items-center p-3 rounded-lg border border-white/5 bg-slate-900 hover:bg-white/5 cursor-pointer transition-colors">
-                <input type="checkbox" name="node_ids" value="{{ node.id }}" {% if is_checked %}checked{% endif %}
+                <input type="checkbox" name="group_ids" value="{{ group.id }}" {% if is_checked %}checked{% endif %}
                     class="w-4 h-4 rounded border-slate-600 text-indigo-600 focus:ring-indigo-500 bg-slate-800">
-                <span class="ml-3 text-sm text-slate-200">{{ node.name }} <span class="text-slate-500">({{ node.ip
-                        }})</span></span>
+                <span class="ml-3 text-sm text-slate-200">{{ group.name }}</span>
             </label>
             {% endfor %}
-            {% if nodes.is_empty() %}
+            {% if groups.is_empty() %}
             <div class="text-sm text-amber-500 flex items-center gap-2">
-                <i data-lucide="alert-triangle" class="w-4 h-4"></i> No active nodes found. Add a node first.
+                <i data-lucide="alert-triangle" class="w-4 h-4"></i> No groups found. Create a group first.
             </div>
             {% endif %}
         </div>

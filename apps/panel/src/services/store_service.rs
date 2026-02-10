@@ -1146,15 +1146,15 @@ impl StoreService {
         }
     }
 
-    pub async fn get_plan_node_ids(&self, plan_id: i64) -> Result<Vec<i64>> {
-        let ids: Vec<i64> = sqlx::query_scalar("SELECT node_id FROM plan_nodes WHERE plan_id = ?")
+    pub async fn get_plan_group_ids(&self, plan_id: i64) -> Result<Vec<i64>> {
+        let ids: Vec<i64> = sqlx::query_scalar("SELECT group_id FROM plan_groups WHERE plan_id = ?")
             .bind(plan_id)
             .fetch_all(&self.pool)
             .await?;
         Ok(ids)
     }
 
-    pub async fn create_plan(&self, name: &str, description: &str, device_limit: i32, traffic_limit_gb: i32, duration_days: Vec<i32>, prices: Vec<i64>, node_ids: Vec<i64>) -> Result<i64> {
+    pub async fn create_plan(&self, name: &str, description: &str, device_limit: i32, traffic_limit_gb: i32, duration_days: Vec<i32>, prices: Vec<i64>, group_ids: Vec<i64>) -> Result<i64> {
         let mut tx = self.pool.begin().await?;
 
         let plan_id: i64 = sqlx::query("INSERT INTO plans (name, description, is_active, price, traffic_limit_gb, device_limit) VALUES (?, ?, 1, 0, ?, ?) RETURNING id")
@@ -1177,10 +1177,10 @@ impl StoreService {
                 .await?;
         }
 
-        for node_id in node_ids {
-            sqlx::query("INSERT INTO plan_nodes (plan_id, node_id) VALUES (?, ?)")
+        for group_id in group_ids {
+            sqlx::query("INSERT INTO plan_groups (plan_id, group_id) VALUES (?, ?)")
                 .bind(plan_id)
-                .bind(node_id)
+                .bind(group_id)
                 .execute(&mut *tx)
                 .await?;
         }
@@ -1189,7 +1189,7 @@ impl StoreService {
         Ok(plan_id)
     }
 
-    pub async fn update_plan(&self, id: i64, name: &str, description: &str, device_limit: i32, traffic_limit_gb: i32, duration_days: Vec<i32>, prices: Vec<i64>, node_ids: Vec<i64>) -> Result<()> {
+    pub async fn update_plan(&self, id: i64, name: &str, description: &str, device_limit: i32, traffic_limit_gb: i32, duration_days: Vec<i32>, prices: Vec<i64>, group_ids: Vec<i64>) -> Result<()> {
         let mut tx = self.pool.begin().await?;
 
         sqlx::query("UPDATE plans SET name = ?, description = ?, device_limit = ?, traffic_limit_gb = ? WHERE id = ?")
@@ -1216,15 +1216,15 @@ impl StoreService {
                 .await?;
         }
 
-        sqlx::query("DELETE FROM plan_nodes WHERE plan_id = ?")
+        sqlx::query("DELETE FROM plan_groups WHERE plan_id = ?")
             .bind(id)
             .execute(&mut *tx)
             .await?;
 
-        for node_id in node_ids {
-            sqlx::query("INSERT INTO plan_nodes (plan_id, node_id) VALUES (?, ?)")
+        for group_id in group_ids {
+            sqlx::query("INSERT INTO plan_groups (plan_id, group_id) VALUES (?, ?)")
                 .bind(id)
-                .bind(node_id)
+                .bind(group_id)
                 .execute(&mut *tx)
                 .await?;
         }

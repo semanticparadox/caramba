@@ -15,6 +15,7 @@ use tracing::{info, error};
 use crate::AppState;
 use crate::models::store::Plan;
 use crate::models::node::Node;
+use crate::models::groups::NodeGroup;
 use super::auth::get_auth_user;
 
 // ============================================================================
@@ -36,7 +37,7 @@ pub struct PlansTemplate {
 #[template(path = "plan_edit_modal.html")]
 struct PlanEditModalTemplate {
     plan: Plan,
-    nodes: Vec<(Node, bool)>,
+    groups: Vec<(NodeGroup, bool)>,
     admin_path: String,
 }
 
@@ -90,7 +91,7 @@ pub async fn add_plan(
     let mut duration_days: Vec<i32> = Vec::new();
     let mut price: Vec<i64> = Vec::new();
     let mut traffic_limit_gb: i32 = 0;
-    let mut node_ids: Vec<i64> = Vec::new();
+    let mut group_ids: Vec<i64> = Vec::new();
 
     for (key, value) in raw_form {
         match key.as_str() {
@@ -116,9 +117,9 @@ pub async fn add_plan(
                     traffic_limit_gb = v;
                 }
             },
-            "node_ids" => {
+            "group_ids" => {
                 if let Ok(v) = value.parse() {
-                    node_ids.push(v);
+                    group_ids.push(v);
                 }
             },
             _ => {}
@@ -130,7 +131,7 @@ pub async fn add_plan(
         return (axum::http::StatusCode::BAD_REQUEST, "Plan name is required").into_response();
     }
 
-    match state.store_service.create_plan(&name, &description, device_limit, traffic_limit_gb, duration_days, price, node_ids).await {
+    match state.store_service.create_plan(&name, &description, device_limit, traffic_limit_gb, duration_days, price, group_ids).await {
         Ok(id) => info!("Created plan with ID: {}", id),
         Err(e) => {
             error!("Failed to create plan: {}", e);
@@ -180,19 +181,19 @@ pub async fn get_plan_edit(
         _ => return (axum::http::StatusCode::NOT_FOUND, "Plan not found").into_response(),
     };
 
-    let all_nodes = state.orchestration_service.get_all_nodes().await.unwrap_or_default();
+    let all_groups = state.node_repo.get_all_groups().await.unwrap_or_default();
 
-    let linked_node_ids = state.store_service.get_plan_node_ids(id).await.unwrap_or_default();
+    let linked_group_ids = state.store_service.get_plan_group_ids(id).await.unwrap_or_default();
 
     let admin_path = state.admin_path.clone();
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
 
-    let nodes_with_status: Vec<(Node, bool)> = all_nodes.into_iter().map(|n| {
-        let is_linked = linked_node_ids.contains(&n.id);
-        (n, is_linked)
+    let groups_with_status: Vec<(NodeGroup, bool)> = all_groups.into_iter().map(|g| {
+        let is_linked = linked_group_ids.contains(&g.id);
+        (g, is_linked)
     }).collect();
 
-    Html(PlanEditModalTemplate { plan, nodes: nodes_with_status, admin_path }.render().unwrap_or_default()).into_response()
+    Html(PlanEditModalTemplate { plan, groups: groups_with_status, admin_path }.render().unwrap_or_default()).into_response()
 }
 
 pub async fn update_plan(
@@ -208,7 +209,7 @@ pub async fn update_plan(
     let mut duration_days: Vec<i32> = Vec::new();
     let mut price: Vec<i64> = Vec::new();
     let mut traffic_limit_gb: i32 = 0;
-    let mut node_ids: Vec<i64> = Vec::new();
+    let mut group_ids: Vec<i64> = Vec::new();
 
     for (key, value) in raw_form {
         match key.as_str() {
@@ -234,9 +235,9 @@ pub async fn update_plan(
                     traffic_limit_gb = v;
                 }
             },
-            "node_ids" => {
+            "group_ids" => {
                 if let Ok(v) = value.parse() {
-                    node_ids.push(v);
+                    group_ids.push(v);
                 }
             },
             _ => {}
@@ -247,7 +248,7 @@ pub async fn update_plan(
         return (axum::http::StatusCode::BAD_REQUEST, "Plan name is required").into_response();
     }
 
-    if let Err(e) = state.store_service.update_plan(id, &name, &description, device_limit, traffic_limit_gb, duration_days, price, node_ids).await {
+    if let Err(e) = state.store_service.update_plan(id, &name, &description, device_limit, traffic_limit_gb, duration_days, price, group_ids).await {
         error!("Failed to update plan: {}", e);
         return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to update plan").into_response();
     }

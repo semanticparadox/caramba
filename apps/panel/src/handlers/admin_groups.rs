@@ -197,6 +197,11 @@ pub async fn add_group_member(
         .bind(form.node_id)
         .execute(&state.pool)
         .await;
+
+    // Trigger sync to ensure new member gets templates
+    if let Err(e) = state.generator_service.sync_group_inbounds(group_id).await {
+        error!("Failed to sync group inbounds: {}", e);
+    }
         
     let admin_path = state.admin_path.clone();
     axum::response::Redirect::to(&format!("{}/groups/{}", admin_path, group_id)).into_response()
