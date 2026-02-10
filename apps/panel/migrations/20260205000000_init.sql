@@ -390,6 +390,7 @@ CREATE TABLE IF NOT EXISTS subscription_ip_tracking (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     subscription_id INTEGER NOT NULL,
     client_ip TEXT NOT NULL,
+    user_agent TEXT,
     last_seen_at DATETIME NOT NULL,
     FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE
 );

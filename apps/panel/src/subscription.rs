@@ -41,7 +41,13 @@ pub async fn subscription_handler(
         .get(header::USER_AGENT)
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
-    let client_ip = "0.0.0.0".to_string(); // TODO: Extract real IP
+    let client_ip = req.headers()
+        .get("cf-connecting-ip")
+        .or_else(|| req.headers().get("x-forwarded-for"))
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .unwrap_or("0.0.0.0")
+        .to_string();
 
     // 1. Rate Limit (30 req / min per UUID)
     let rate_key = format!("rate:sub:{}", uuid);
@@ -68,6 +74,21 @@ pub async fn subscription_handler(
     // 3. Check if active
     if sub.status != "active" {
         return (StatusCode::FORBIDDEN, "Subscription inactive or expired").into_response();
+    }
+    
+    // 3.5 Enforce device limit (Phase 7)
+    let active_ips = state.subscription_service.get_active_ips(sub.id).await.unwrap_or_default();
+    let current_ip = &client_ip;
+    
+    // Check if this is a new IP or if we're already at the limit
+    let is_new_device = !active_ips.iter().any(|rec| rec.client_ip == *current_ip);
+    
+    if is_new_device {
+        let device_limit = state.subscription_service.get_subscription_device_limit(sub.id).await.unwrap_or(0);
+        if device_limit > 0 && active_ips.len() >= device_limit as usize {
+            warn!("Device limit reached for subscription {}. Limit: {}, Active: {}", uuid, device_limit, active_ips.len());
+            return (StatusCode::FORBIDDEN, "Device limit reached").into_response();
+        }
     }
     
     // 4. Update access tracking

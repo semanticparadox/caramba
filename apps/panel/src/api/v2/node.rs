@@ -99,7 +99,22 @@ pub async fn heartbeat(
     }
 
     
-    // 4. Check if config update is needed (hash mismatch)
+    // 4. Process Per-User Traffic Usage
+    if let Some(usage_map) = req.user_usage {
+        for (tag, bytes) in usage_map {
+            if tag.starts_with("user_") {
+                if let Ok(sub_id) = tag[5..].parse::<i64>() {
+                    // Increment used_traffic and update timestamp
+                    let _ = sqlx::query("UPDATE subscriptions SET used_traffic = used_traffic + ?, traffic_updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+                        .bind(bytes as i64)
+                        .bind(sub_id)
+                        .execute(&state.pool)
+                        .await;
+                }
+            }
+        }
+    }
+
     // 5. Check for Agent Update
     let latest_version: String = state.settings.get_or_default("agent_latest_version", "0.0.0").await;
     

@@ -48,8 +48,13 @@ impl NodeRepository {
     pub async fn create_node(&self, node: &Node) -> Result<i64> {
         let id = sqlx::query_scalar(
             r#"
-            INSERT INTO nodes (name, ip, domain, country, city, flag, status, load_stats, check_stats_json, sort_order)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO nodes (
+                name, ip, domain, country, city, flag, 
+                status, load_stats, check_stats_json, sort_order,
+                join_token, vpn_port, auto_configure, is_enabled,
+                reality_pub, reality_priv, short_id, reality_sni
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id
             "#
         )
@@ -63,6 +68,14 @@ impl NodeRepository {
         .bind(&node.load_stats)
         .bind(&node.check_stats_json)
         .bind(node.sort_order)
+        .bind(&node.join_token)
+        .bind(node.vpn_port)
+        .bind(node.auto_configure)
+        .bind(node.is_enabled)
+        .bind(&node.reality_pub)
+        .bind(&node.reality_priv)
+        .bind(&node.short_id)
+        .bind(&node.reality_sni)
         .fetch_one(&self.pool)
         .await?;
         
@@ -73,7 +86,8 @@ impl NodeRepository {
         sqlx::query(
             r#"
             UPDATE nodes 
-            SET name=?, ip=?, domain=?, country=?, city=?, flag=?, status=?, load_stats=?, check_stats_json=?, sort_order=?
+            SET name=?, ip=?, domain=?, country=?, city=?, flag=?, status=?, load_stats=?, check_stats_json=?, sort_order=?,
+                join_token=?, vpn_port=?, auto_configure=?, is_enabled=?, reality_sni=?
             WHERE id=?
             "#
         )
@@ -87,6 +101,11 @@ impl NodeRepository {
         .bind(&node.load_stats)
         .bind(&node.check_stats_json)
         .bind(node.sort_order)
+        .bind(&node.join_token)
+        .bind(node.vpn_port)
+        .bind(node.auto_configure)
+        .bind(node.is_enabled)
+        .bind(&node.reality_sni)
         .bind(node.id)
         .execute(&self.pool)
         .await?;

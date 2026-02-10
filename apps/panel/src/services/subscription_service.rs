@@ -529,6 +529,32 @@ impl SubscriptionService {
         Ok(sub)
     }
 
+    /// Helper to convert User-Agent to a readable device name
+    pub fn parse_device_name(&self, ua: &str) -> String {
+        let ua_lower = ua.to_lowercase();
+        
+        if ua_lower.contains("iphone") { return "iPhone".to_string(); }
+        if ua_lower.contains("ipad") { return "iPad".to_string(); }
+        if ua_lower.contains("android") { return "Android Device".to_string(); }
+        if ua_lower.contains("windows") { return "Windows PC".to_string(); }
+        if ua_lower.contains("macintosh") || ua_lower.contains("mac os x") { return "MacBook/iMac".to_string(); }
+        if ua_lower.contains("linux") { return "Linux Device".to_string(); }
+        if ua_lower.contains("sing-box") { return "Sing-box Client".to_string(); }
+        if ua_lower.contains("clash") { return "Clash Client".to_string(); }
+        if ua_lower.contains("v2ray") || ua_lower.contains("xray") { return "Xray/V2Ray Client".to_string(); }
+        if ua_lower.contains("streisand") { return "Streisand (iOS)".to_string(); }
+        if ua_lower.contains("shadowrocket") { return "Shadowrocket (iOS)".to_string(); }
+        if ua_lower.contains("v2box") { return "V2Box".to_string(); }
+        
+        if ua.len() > 20 {
+            format!("{}...", &ua[0..17])
+        } else if ua.is_empty() {
+            "Unknown Device".to_string()
+        } else {
+            ua.to_string()
+        }
+    }
+
     /// Update subscription last access time and IP
     pub async fn track_access(&self, sub_id: i64, ip: &str, user_agent: Option<&str>) -> Result<()> {
         sqlx::query(
@@ -542,6 +568,7 @@ impl SubscriptionService {
         // We use a simplified tracking here, assuming unique constraint on (sub_id, ip)
         // If user_agent is provided, update it too
         let ua = user_agent.unwrap_or("");
+        let device_name = self.parse_device_name(ua);
         
         sqlx::query(
             "INSERT INTO subscription_ip_tracking (subscription_id, client_ip, user_agent, last_seen_at) 
@@ -550,7 +577,7 @@ impl SubscriptionService {
         )
         .bind(sub_id)
         .bind(ip)
-        .bind(ua)
+        .bind(device_name) // Store the parsed name or raw? Let's store parsed for now to make UI easier
         .execute(&self.pool)
         .await?;
 

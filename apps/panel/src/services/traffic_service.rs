@@ -34,9 +34,10 @@ impl TrafficService {
             .await?;
 
         for node in active_nodes {
-            // TODO: Implement traffic fetching via Agent API
-            // For now, traffic is tracked via Clash API directly
-            info!("Node {} traffic sync skipped (Agent API not implemented yet)", node.id);
+            // Note: Per-user traffic usage is now reported via node heartbeats 
+            // and processed in api/v2/node.rs. Aggregate node stats could be 
+            // fetched here in the future if needed.
+            info!("Node {} traffic sync handled via heartbeat reporting", node.id);
         }
 
         // After syncing, enforce quotas

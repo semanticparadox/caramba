@@ -378,13 +378,14 @@ pub async fn get_subscription_devices(
 
     html.push_str("<div class='overflow-hidden rounded-2xl border border-white/5 bg-slate-950/30 shadow-inner'>");
     html.push_str("<table class='w-full text-left border-collapse'>");
-    html.push_str("<thead><tr class='text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-white/5'><th class='px-6 py-3'>Client IP Address</th><th class='px-6 py-3'>Activity</th></tr></thead>");
+    html.push_str("<thead><tr class='text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-white/5'><th class='px-6 py-3'>Device / Client</th><th class='px-6 py-3'>Address</th><th class='px-6 py-3'>Activity</th></tr></thead>");
     html.push_str("<tbody class='divide-y divide-white/5'>");
     for ip_record in ips {
         let time_ago = format_duration(chrono::Utc::now() - ip_record.last_seen_at);
+        let device = ip_record.user_agent.unwrap_or_else(|| "Unknown".to_string());
         html.push_str(&format!(
-            "<tr class='hover:bg-white/5 transition-colors'><td class='px-6 py-4'><div class='flex items-center gap-2'><i data-lucide='globe' class='w-3 h-3 text-indigo-500 opacity-50'></i><code class='text-sm text-indigo-400 font-mono'>{}</code></div></td><td class='px-6 py-4 text-xs text-slate-400 font-medium'>{} ago</td></tr>",
-            ip_record.client_ip, time_ago
+            "<tr class='hover:bg-white/5 transition-colors'><td class='px-6 py-4 text-xs font-semibold text-white'>{}</td><td class='px-6 py-4 text-xs text-indigo-400 font-mono'>{}</td><td class='px-6 py-4 text-[10px] text-slate-400 font-medium'>{} ago</td></tr>",
+            device, ip_record.client_ip, time_ago
         ));
     }
     html.push_str("</tbody></table></div>");

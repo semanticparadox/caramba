@@ -164,6 +164,7 @@ pub struct SubscriptionIpTracking {
     pub id: i64,
     pub subscription_id: i64,
     pub client_ip: String,
+    pub user_agent: Option<String>,
     pub last_seen_at: DateTime<Utc>,
 }
 

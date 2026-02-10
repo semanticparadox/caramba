@@ -17,6 +17,8 @@ pub mod api {
         pub cpu_usage: Option<f64>,
         pub memory_usage: Option<f64>,
         pub speed_mbps: Option<i32>,
+        /// Per-user traffic usage. Key is User Tag (e.g. "user_123"), value is bytes used.
+        pub user_usage: Option<std::collections::HashMap<String, u64>>,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
