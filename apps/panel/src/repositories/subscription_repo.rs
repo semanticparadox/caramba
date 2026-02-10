@@ -51,7 +51,7 @@ impl SubscriptionRepository {
     
     pub async fn get_all_by_user(&self, user_id: i64) -> Result<Vec<SubscriptionWithDetails>> {
         sqlx::query_as::<_, SubscriptionWithDetails>(
-            "SELECT s.*, p.name as plan_name, n.name as node_name 
+            "SELECT s.*, p.name as plan_name, p.description as plan_description, p.traffic_limit_gb 
              FROM subscriptions s 
              JOIN plans p ON s.plan_id = p.id
              LEFT JOIN nodes n ON s.node_id = n.id

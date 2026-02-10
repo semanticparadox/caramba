@@ -223,6 +223,7 @@
                     (Template)</label>
                 <textarea name="settings_template" id="tpl_settings" rows="5" required
                     class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-xs placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all resize-y">{
+  "protocol": "vless",
   "clients": [],
   "decryption": "none",
   "fallbacks": []
@@ -287,6 +288,7 @@
             protocol: 'vless',
             portStart: 10000, portEnd: 20000,
             settings: JSON.stringify({
+                protocol: "vless",
                 clients: [], decryption: "none", fallbacks: []
             }, null, 2),
             stream: JSON.stringify({
@@ -306,6 +308,7 @@
             protocol: 'vless',
             portStart: 20000, portEnd: 30000,
             settings: JSON.stringify({
+                protocol: "vless",
                 clients: [], decryption: "none", fallbacks: []
             }, null, 2),
             stream: JSON.stringify({
@@ -326,6 +329,7 @@
             protocol: 'vmess',
             portStart: 30000, portEnd: 40000,
             settings: JSON.stringify({
+                protocol: "vmess",
                 clients: [{ id: "{{uuid}}", alterId: 0 }]
             }, null, 2),
             stream: JSON.stringify({
@@ -346,6 +350,7 @@
             protocol: 'trojan',
             portStart: 40000, portEnd: 50000,
             settings: JSON.stringify({
+                protocol: "trojan",
                 clients: [{ password: "{{uuid}}" }],
                 fallbacks: []
             }, null, 2),
@@ -367,6 +372,7 @@
             protocol: 'shadowsocks',
             portStart: 50000, portEnd: 55000,
             settings: JSON.stringify({
+                protocol: "shadowsocks",
                 method: "2022-blake3-aes-128-gcm",
                 password: "{{uuid}}",
                 network: "tcp,udp"
@@ -381,6 +387,7 @@
             protocol: 'hysteria2',
             portStart: 55000, portEnd: 60000,
             settings: JSON.stringify({
+                protocol: "hysteria2",
                 password: "{{uuid}}",
                 up_mbps: 100,
                 down_mbps: 100

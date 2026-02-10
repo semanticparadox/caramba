@@ -357,7 +357,18 @@ impl OrchestrationService {
 
         use crate::models::network::{InboundType, VlessClient, Hysteria2User};
 
-        match serde_json::from_str::<InboundType>(&inbound.settings) {
+        // Parse as Value first to handle missing 'protocol' tag in legacy/broken data
+        let mut settings_value: serde_json::Value = serde_json::from_str(&inbound.settings).unwrap_or(serde_json::Value::Null);
+        
+        if let Some(obj) = settings_value.as_object_mut() {
+            if !obj.contains_key("protocol") {
+                // Determine protocol from inbound.protocol if missing in JSON
+                // InboundType expects lowercase tags matching the protocol name
+                obj.insert("protocol".to_string(), serde_json::Value::String(inbound.protocol.clone().to_lowercase()));
+            }
+        }
+
+        match serde_json::from_value::<InboundType>(settings_value) {
             Ok(mut settings) => {
                 match &mut settings {
                     InboundType::Vless(vless) => {

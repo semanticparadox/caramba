@@ -97,10 +97,19 @@ pub async fn create_template(
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
     
-    // Basic validation of JSON
-    if let Err(e) = serde_json::from_str::<serde_json::Value>(&form.settings_template) {
-         return (StatusCode::BAD_REQUEST, format!("Invalid Settings JSON: {}", e)).into_response();
+    // Basic validation of JSON & Inject Protocol if missing
+    let mut settings_json: serde_json::Value = match serde_json::from_str(&form.settings_template) {
+        Ok(v) => v,
+        Err(e) => return (StatusCode::BAD_REQUEST, format!("Invalid Settings JSON: {}", e)).into_response(),
+    };
+
+    if let Some(obj) = settings_json.as_object_mut() {
+        if !obj.contains_key("protocol") {
+            obj.insert("protocol".to_string(), serde_json::Value::String(form.protocol.clone()));
+        }
     }
+    let final_settings = settings_json.to_string();
+
     if let Err(e) = serde_json::from_str::<serde_json::Value>(&form.stream_settings_template) {
          return (StatusCode::BAD_REQUEST, format!("Invalid Stream Settings JSON: {}", e)).into_response();
     }
@@ -115,7 +124,7 @@ pub async fn create_template(
         .bind(&form.name)
         .bind(&form.protocol)
         .bind(form.target_group_id)
-        .bind(&form.settings_template)
+        .bind(&final_settings)
         .bind(&form.stream_settings_template)
         .bind(form.port_range_start)
         .bind(form.port_range_end)
