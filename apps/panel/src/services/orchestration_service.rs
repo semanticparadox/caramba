@@ -68,9 +68,9 @@ impl OrchestrationService {
         
         // Save keys to node
         let mut updated_node = node.clone();
-        updated_node.reality_priv = Some(priv_key);
-        updated_node.reality_pub = Some(pub_key);
-        updated_node.short_id = Some(short_id);
+        updated_node.reality_priv = Some(priv_key.clone());
+        updated_node.reality_pub = Some(pub_key.clone());
+        updated_node.short_id = Some(short_id.clone());
         self.node_repo.update_node(&updated_node).await?;
             
         use crate::models::network::{InboundType, VlessSettings, RealitySettings, Hysteria2Settings};
@@ -347,7 +347,7 @@ impl OrchestrationService {
             }
 
     
-        let active_subs = self.store_service.sub_repo.get_active_subs_by_plans(&linked_plans).await?;
+        let active_subs: Vec<(Option<String>, i64, Option<String>)> = self.store_service.get_active_subs_by_plans(&linked_plans).await?;
             
         info!("Found {} active subscriptions for inbound {}", active_subs.len(), inbound.tag);
 
@@ -358,15 +358,9 @@ impl OrchestrationService {
                 match &mut settings {
                     InboundType::Vless(vless) => {
                         for sub in &active_subs {
-                            if let Some(uuid) = &sub.vless_uuid {
-                                // Logic: Use TG ID as clean identifier (most stable). 
-                                // Alternatively use username if requested, but TG ID is safer for auth.
-                                // User asked for "ID telegram or username without @"
-                                // Let's use TG ID as primary auth name to avoid breakage if they change username.
-                                let auth_name = sub.tg_id.to_string();
-                                
-                                // Clean username for logging/comments (optional)
-                                let _display_name = sub.username.clone().unwrap_or_default().replace("@", "");
+                            if let (Some(uuid), tg_id, username) = (&sub.0, sub.1, &sub.2) {
+                                let auth_name = tg_id.to_string();
+                                let _display_name = username.clone().unwrap_or_default().replace("@", "");
 
                                 info!("🔑 Injecting VLESS user: {} (UUID: {})", auth_name, uuid);
                                 vless.clients.push(VlessClient {
@@ -379,8 +373,8 @@ impl OrchestrationService {
                     },
                     InboundType::Hysteria2(hy2) => {
                          for sub in &active_subs {
-                            if let Some(uuid) = &sub.vless_uuid {
-                                let auth_name = sub.tg_id.to_string();
+                            if let (Some(uuid), tg_id, _) = (&sub.0, sub.1, &sub.2) {
+                                let auth_name = tg_id.to_string();
                                 
                                 info!("🔑 Injecting HYSTERIA user: {} (Pass: {})", auth_name, uuid);
                                 hy2.users.push(Hysteria2User {
@@ -393,10 +387,9 @@ impl OrchestrationService {
                     InboundType::AmneziaWg(awg) => {
                         use crate::models::network::AmneziaWgUser;
                         for sub in &active_subs {
-                            if let Some(uuid) = &sub.vless_uuid {
-                                let auth_name = sub.tg_id.to_string();
+                            if let (Some(uuid), tg_id, _) = (&sub.0, sub.1, &sub.2) {
+                                let auth_name = tg_id.to_string();
                                 
-                                // Deterministic Client Key Generation
                                 let client_priv = self.derive_awg_key(uuid);
                                 let client_pub = self.priv_to_pub(&client_priv);
                                 
@@ -406,7 +399,7 @@ impl OrchestrationService {
                                     private_key: client_priv,
                                     public_key: client_pub,
                                     preshared_key: None,
-                                    client_ip: format!("10.10.0.{}", (sub.tg_id % 250) + 2),
+                                    client_ip: format!("10.10.0.{}", (tg_id % 250) + 2),
                                 });
                             }
                         }
@@ -414,8 +407,8 @@ impl OrchestrationService {
                 InboundType::Trojan(trojan) => {
                         use crate::models::network::TrojanClient;
                         for sub in &active_subs {
-                            if let Some(uuid) = &sub.vless_uuid {
-                                let auth_name = sub.tg_id.to_string();
+                            if let (Some(uuid), tg_id, _) = (&sub.0, sub.1, &sub.2) {
+                                let auth_name = tg_id.to_string();
                                 trojan.clients.push(TrojanClient {
                                     password: uuid.clone(),
                                     email: auth_name,
@@ -425,8 +418,8 @@ impl OrchestrationService {
                     },
                     InboundType::Tuic(tuic) => {
                          for sub in &active_subs {
-                            if let Some(uuid) = &sub.vless_uuid {
-                                let auth_name = sub.tg_id.to_string();
+                            if let (Some(uuid), tg_id, _) = (&sub.0, sub.1, &sub.2) {
+                                let auth_name = tg_id.to_string();
                                 
                                 info!("🔑 Injecting TUIC user: {} (UUID: {})", auth_name, uuid);
                                 tuic.users.push(crate::models::network::TuicUser {
@@ -484,13 +477,25 @@ impl OrchestrationService {
             ip.to_string() 
         };
 
-        let mut node = Node::default();
-        node.name = name.to_string();
-        node.ip = final_ip;
-        node.vpn_port = vpn_port;
-        node.status = "new".to_string();
-        node.join_token = Some(token);
-        node.auto_configure = auto_configure;
+        let mut node = Node {
+            id: 0,
+            name: name.to_string(),
+            ip: final_ip,
+            vpn_port,
+            status: "new".to_string(),
+            join_token: Some(token),
+            auto_configure,
+            is_enabled: true,
+            reality_priv: None,
+            reality_pub: None,
+            reality_sni: None,
+            short_id: None,
+            speed_limit_mbps: None,
+            user_limit: None,
+            created_at: None,
+            current_users: None,
+            current_speed_mbps: None,
+        };
 
         let id = self.node_repo.create_node(&node).await?;
 

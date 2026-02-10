@@ -106,6 +106,11 @@ impl StoreService {
         self.node_repo.get_active_nodes().await
     }
 
+    /// Public wrapper for SubscriptionRepository::get_active_subs_by_plans
+    pub async fn get_active_subs_by_plans(&self, plan_ids: &[i64]) -> Result<Vec<(Option<String>, i64, Option<String>)>> {
+        self.sub_repo.get_active_subs_by_plans(plan_ids).await
+    }
+
     /// Get nodes available to a user based on their active subscription plan's groups
     pub async fn get_user_nodes(&self, user_id: i64) -> Result<Vec<crate::models::node::Node>> {
         // 1. Get active plan_id for user
@@ -322,7 +327,7 @@ impl StoreService {
         let children = self.get_family_members(parent_id).await?;
         if children.is_empty() { return Ok(()); }
 
-        let mut tx = self.pool.begin().await?;
+        let tx = self.pool.begin().await?;
 
         if let Some(psub) = parent_sub {
             // Parent has active sub -> Grant/Update for children

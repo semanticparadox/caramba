@@ -119,6 +119,8 @@ impl PayService {
 
             crystalpay_secret,
             stripe_secret_key,
+            aaio_merchant_id,
+            aaio_secret_1,
             aaio_secret_2,
             lava_project_id,
             lava_secret_key,
