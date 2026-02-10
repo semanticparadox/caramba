@@ -40,7 +40,7 @@ impl SniMonitor {
         for mut sni in snis {
             let is_healthy = self.check_domain(&sni.domain).await;
             
-            let mut health_change = if is_healthy { 5 } else { -20 };
+            let health_change = if is_healthy { 5 } else { -20 };
             sni.health_score = (sni.health_score + health_change).clamp(0, 100);
             
             // Auto-disable if health is too low

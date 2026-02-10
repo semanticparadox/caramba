@@ -17,6 +17,7 @@ use tracing::{info, error};
 pub struct AdminSniTemplate {
     pub snis: Vec<SniPoolItem>,
     pub logs: Vec<SniRotationLog>,
+    pub active_sni_count: usize,
     pub is_auth: bool,
     pub admin_path: String,
     pub active_page: String,
@@ -34,12 +35,14 @@ pub async fn get_sni_page(
 
     let snis = state.sni_repo.get_all_snis().await.unwrap_or_default();
     let logs = state.sni_repo.get_recent_logs(10).await.unwrap_or_default();
+    let active_sni_count = snis.iter().filter(|s| s.is_active).count();
     
     let username = state.settings.get_or_default("admin_username", "admin").await;
 
     let template = AdminSniTemplate {
         snis,
         logs,
+        active_sni_count,
         is_auth: true,
         admin_path: state.admin_path.clone(),
         active_page: "sni".to_string(),

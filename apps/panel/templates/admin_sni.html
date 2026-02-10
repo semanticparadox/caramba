@@ -44,7 +44,7 @@
             <div>
                 <p class="text-xs text-slate-500 uppercase font-bold tracking-wider">Active Pool</p>
                 <p class="text-2xl font-black text-white">
-                    {{ snis.iter().filter(|s| s.is_active).count() }}
+                    {{ active_sni_count }}
                 </p>
             </div>
         </div>

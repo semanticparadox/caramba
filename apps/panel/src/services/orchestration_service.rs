@@ -116,6 +116,7 @@ impl OrchestrationService {
             stream_settings: stream_json,
             remark: None,
             enable: true,
+            last_rotated_at: None,
             created_at: None,
         };
         self.node_repo.upsert_inbound(&vless_inbound).await?;
@@ -156,6 +157,7 @@ impl OrchestrationService {
             stream_settings: serde_json::to_string(&hy2_stream)?,
             remark: None,
             enable: true,
+            last_rotated_at: None,
             created_at: None,
         };
         self.node_repo.upsert_inbound(&hy2_inbound).await?;
@@ -235,6 +237,7 @@ impl OrchestrationService {
             stream_settings: "{}".to_string(),
             remark: None,
             enable: true,
+            last_rotated_at: None,
             created_at: None,
         };
         self.node_repo.upsert_inbound(&awg_inbound).await?;
@@ -278,6 +281,7 @@ impl OrchestrationService {
             stream_settings: serde_json::to_string(&tuic_stream)?,
             remark: None,
             enable: true,
+            last_rotated_at: None,
             created_at: None,
         };
         self.node_repo.upsert_inbound(&tuic_inbound).await?;

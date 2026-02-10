@@ -41,7 +41,7 @@
                 <span class="text-sm font-semibold text-white">Node Members</span>
                 <span
                     class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">{{
-                    members|length }}</span>
+                    members.len() }}</span>
             </div>
             {% if !available_nodes.is_empty() %}
             <button onclick="document.getElementById('addMemberModal').showModal()"

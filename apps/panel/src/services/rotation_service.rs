@@ -1,14 +1,17 @@
 use std::sync::Arc;
 use std::time::Duration;
 use sqlx::SqlitePool;
-use anyhow::{Result, Context};
+use anyhow::Result;
 use crate::services::generator_service::GeneratorService;
 use tracing::{info, error};
-use chrono::{Utc, DateTime};
+use chrono::{Utc, DateTime, NaiveDateTime};
 
-pub struct RotationService {
-    pool: SqlitePool,
-    generator: Arc<GeneratorService>,
+#[derive(sqlx::FromRow)]
+struct PendingRotation {
+    id: i64,
+    last_rotated_at: Option<NaiveDateTime>,
+    created_at: Option<NaiveDateTime>,
+    renew_interval_hours: i64,
 }
 
 impl RotationService {
@@ -31,7 +34,7 @@ impl RotationService {
     async fn check_and_rotate_all(&self) -> Result<()> {
         // Find inbounds that need rotation
         // Join with templates to get renewal interval
-        let pending = sqlx::query!(
+        let pending = sqlx::query_as::<_, PendingRotation>(
             r#"
             SELECT i.id, i.last_rotated_at, i.created_at, t.renew_interval_hours
             FROM inbounds i

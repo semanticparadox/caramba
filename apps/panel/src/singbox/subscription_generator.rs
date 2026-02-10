@@ -186,8 +186,9 @@ pub fn generate_v2ray_config(
             for inbound in &node.inbounds {
                 if !inbound.enable { continue; }
                 let si = parse_stream_settings(&inbound.stream_settings, node);
-                let label = urlencoding::encode(&format!("{} - {}",
-                    node.name, inbound.remark.as_deref().unwrap_or("Auto")));
+                let label_raw = format!("{} - {}", 
+                    node.name, inbound.remark.as_deref().unwrap_or("Auto"));
+                let label = urlencoding::encode(&label_raw);
 
                 match inbound.protocol.as_str() {
                     "vless" => {
