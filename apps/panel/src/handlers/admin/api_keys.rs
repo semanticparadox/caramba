@@ -5,11 +5,14 @@ use axum::{
 };
 use askama::Template;
 use askama_web::WebTemplate;
-use tracing::{info, error};
+// use tracing::{info, error}; // Removed info
+use tracing::error;
 use uuid::Uuid;
+use axum_extra::extract::cookie::CookieJar;
 
 use crate::AppState;
 use crate::models::api_key::ApiKey;
+use super::auth::get_auth_user;
 
 #[derive(Template, WebTemplate)]
 #[template(path = "api_keys.html")]
@@ -17,10 +20,13 @@ pub struct ApiKeysTemplate {
     pub keys: Vec<ApiKey>,
     pub admin_path: String,
     pub active_page: String,
+    pub is_auth: bool,
+    pub username: String,
 }
 
 pub async fn list_api_keys(
     State(state): State<AppState>,
+    jar: CookieJar,
 ) -> impl IntoResponse {
     let keys = state.store_service.get_api_keys().await.unwrap_or_default();
     
@@ -28,6 +34,8 @@ pub async fn list_api_keys(
         keys,
         admin_path: state.admin_path.clone(),
         active_page: "api_keys".to_string(),
+        is_auth: true,
+        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
     };
     
     match template.render() {
