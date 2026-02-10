@@ -98,6 +98,12 @@ if [ "$BUILD_AGENT" = true ]; then
     chmod +x "$INSTALL_DIR/exarobot-agent"
 fi
 
+# Fix migration checksums (in case init.sql was modified since last apply)
+if [ "$BUILD_PANEL" = true ] && [ -f "$INSTALL_DIR/exarobot.db" ]; then
+    log_info "Resetting migration checksums..."
+    sqlite3 "$INSTALL_DIR/exarobot.db" "DELETE FROM _sqlx_migrations;" 2>/dev/null || true
+fi
+
 # Restart
 log_info "Restarting services..."
 if [ "$BUILD_PANEL" = true ]; then systemctl start exarobot-panel; fi
