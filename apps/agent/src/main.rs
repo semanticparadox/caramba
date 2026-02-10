@@ -329,6 +329,7 @@ async fn send_heartbeat(
         cpu_usage: cpu,
         memory_usage: ram,
         speed_mbps: state.cached_speed_mbps,
+        user_usage: None,
     };
     
     let resp = client.post(&url)
