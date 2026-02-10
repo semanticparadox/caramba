@@ -97,10 +97,13 @@ pub async fn subscription_handler(
         let duration_days = (sub.expires_at - sub.created_at).num_days();
 
         // Build base URL for config links
+        let panel_url_setting = state.settings.get_or_default("panel_url", "").await;
         let base_url = if !sub_domain.is_empty() {
             if sub_domain.starts_with("http") { sub_domain.clone() } else { format!("https://{}", sub_domain) }
+        } else if !panel_url_setting.is_empty() {
+            if panel_url_setting.starts_with("http") { panel_url_setting } else { format!("https://{}", panel_url_setting) }
         } else {
-            let panel = std::env::var("PANEL_URL").unwrap_or_else(|_| "panel.example.com".to_string());
+            let panel = std::env::var("PANEL_URL").unwrap_or_else(|_| "localhost".to_string());
             if panel.starts_with("http") { panel } else { format!("https://{}", panel) }
         };
         let sub_url = format!("{}/sub/{}", base_url, uuid);

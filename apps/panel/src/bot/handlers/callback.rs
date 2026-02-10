@@ -302,7 +302,8 @@ pub async fn callback_handler(
                                             let base_domain = if !sub_domain.is_empty() {
                                                  sub_domain
                                             } else {
-                                                 std::env::var("PANEL_URL").unwrap_or_else(|_| "panel.example.com".to_string())
+                                                 let panel = state.settings.get_or_default("panel_url", "").await;
+                                                 if !panel.is_empty() { panel } else { std::env::var("PANEL_URL").unwrap_or_else(|_| "localhost".to_string()) }
                                             };
                                             let base_url = if base_domain.starts_with("http") { base_domain } else { format!("https://{}", base_domain) };
                                             let sub_url = format!("{}/sub/{}", base_url, _sub.sub.subscription_uuid);

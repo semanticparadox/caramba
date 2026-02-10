@@ -2,7 +2,7 @@ use axum::{
     routing::{post, get},
     Router,
     response::{IntoResponse, Json},
-    extract::{State, Request},
+    extract::{State, Request, Path},
     http::{StatusCode, header},
     middleware::{self, Next},
 };
@@ -58,6 +58,12 @@ pub fn routes(state: AppState) -> Router<AppState> {
         .route("/leaderboard", get(get_leaderboard).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
         .route("/servers", get(get_active_servers).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
         .route("/nodes", get(get_active_servers).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
+        // Store endpoints
+        .route("/store/categories", get(get_store_categories).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
+        .route("/store/products/{category_id}", get(get_store_products).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
+        .route("/store/cart", get(get_cart).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
+        .route("/store/cart/add", post(add_to_cart).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
+        .route("/store/checkout", post(checkout_cart).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
 }
 
 async fn auth_telegram(
@@ -290,7 +296,8 @@ async fn get_user_subscriptions(
     let base_domain = if !sub_domain.is_empty() {
         sub_domain
     } else {
-        env::var("PANEL_URL").unwrap_or_else(|_| "panel.example.com".to_string())
+        let panel = state.settings.get_or_default("panel_url", "").await;
+        if !panel.is_empty() { panel } else { env::var("PANEL_URL").unwrap_or_else(|_| "localhost".to_string()) }
     };
     let base_url = if base_domain.starts_with("http") {
         base_domain
@@ -619,6 +626,143 @@ async fn get_leaderboard(
         Err(e) => {
             tracing::error!("Failed to fetch leaderboard: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch leaderboard").into_response()
+        }
+    }
+}
+
+// ============================================================
+// Store Endpoints
+// ============================================================
+
+async fn get_store_categories(
+    State(state): State<AppState>,
+    axum::Extension(_claims): axum::Extension<Claims>,
+) -> impl IntoResponse {
+    match state.catalog_service.get_categories().await {
+        Ok(cats) => Json(cats).into_response(),
+        Err(e) => {
+            tracing::error!("Failed to fetch categories: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch categories").into_response()
+        }
+    }
+}
+
+async fn get_store_products(
+    State(state): State<AppState>,
+    axum::Extension(_claims): axum::Extension<Claims>,
+    Path(category_id): Path<i64>,
+) -> impl IntoResponse {
+    match state.catalog_service.get_products_by_category(category_id).await {
+        Ok(products) => {
+            let result: Vec<serde_json::Value> = products.iter().map(|p| {
+                serde_json::json!({
+                    "id": p.id,
+                    "name": p.name,
+                    "description": p.description,
+                    "price": p.price as f64 / 100.0,
+                    "price_raw": p.price,
+                    "product_type": p.product_type,
+                })
+            }).collect();
+            Json(result).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch products: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch products").into_response()
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct AddToCartReq {
+    product_id: i64,
+    quantity: Option<i64>,
+}
+
+async fn add_to_cart(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Json(body): Json<AddToCartReq>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = ?")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    match state.catalog_service.add_to_cart(user_id, body.product_id, body.quantity.unwrap_or(1)).await {
+        Ok(_) => Json(serde_json::json!({"ok": true})).into_response(),
+        Err(e) => {
+            tracing::error!("Failed to add to cart: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed: {}", e)).into_response()
+        }
+    }
+}
+
+async fn get_cart(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = ?")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    match state.catalog_service.get_user_cart(user_id).await {
+        Ok(items) => {
+            let result: Vec<serde_json::Value> = items.iter().map(|i| {
+                serde_json::json!({
+                    "id": i.id,
+                    "product_id": i.product_id,
+                    "product_name": i.product_name,
+                    "quantity": i.quantity,
+                    "price": i.price as f64 / 100.0,
+                    "price_raw": i.price,
+                    "total": (i.price * i.quantity) as f64 / 100.0,
+                })
+            }).collect();
+            Json(result).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch cart: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch cart").into_response()
+        }
+    }
+}
+
+async fn checkout_cart(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = ?")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    match state.catalog_service.checkout_cart(user_id).await {
+        Ok(order_id) => Json(serde_json::json!({"ok": true, "order_id": order_id})).into_response(),
+        Err(e) => {
+            (StatusCode::BAD_REQUEST, format!("{}", e)).into_response()
         }
     }
 }
