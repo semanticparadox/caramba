@@ -18,7 +18,7 @@ impl ApiKeyRepository {
             r#"
             INSERT INTO api_keys (name, key, type, max_uses)
             VALUES (?, ?, 'enrollment', ?)
-            RETURNING id, key, name, type as key_type, max_uses, current_uses, is_active, expires_at, created_at, created_by
+            RETURNING id, key, name, type as "key_type!", max_uses, current_uses as "current_uses!", is_active as "is_active!", expires_at, created_at as "created_at!", created_by
             "#,
             name,
             key,
@@ -35,7 +35,7 @@ impl ApiKeyRepository {
         let recs = sqlx::query_as!(
             ApiKey,
             r#"
-            SELECT id, key, name, type as key_type, max_uses, current_uses, is_active, expires_at, created_at, created_by 
+            SELECT id, key, name, type as "key_type!", max_uses, current_uses as "current_uses!", is_active as "is_active!", expires_at, created_at as "created_at!", created_by 
             FROM api_keys
             ORDER BY created_at DESC
             "#
