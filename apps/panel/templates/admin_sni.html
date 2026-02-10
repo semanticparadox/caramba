@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+
+{% block title %}SNI Pool Management - EXA-ROBOT{% endblock %}
+{% block header_title %}SNI Pool Management{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header & Actions -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+            <h2 class="text-xl font-bold text-white tracking-tight">SNI Pool</h2>
+            <p class="text-slate-400 text-sm mt-1">Manage domains used for Reality and TLS masking. Diversifying SNIs
+                helps evade DPI blocks.</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <button onclick="document.getElementById('bulkSniModal').showModal()"
+                class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-medium py-2.5 px-5 rounded-xl transition-all border border-white/10">
+                <i data-lucide="upload-cloud" class="w-5 h-5"></i>
+                <span>Bulk Import</span>
+            </button>
+            <button onclick="document.getElementById('addSniModal').showModal()"
+                class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 px-5 rounded-xl transition-all shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_30px_rgba(99,102,241,0.5)] border border-white/10">
+                <i data-lucide="plus-circle" class="w-5 h-5"></i>
+                <span>Add Domain</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- SNI Stats / Info -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-4 rounded-2xl flex items-center gap-4">
+            <div class="p-3 bg-indigo-500/10 rounded-xl text-indigo-400">
+                <i data-lucide="globe" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <p class="text-xs text-slate-500 uppercase font-bold tracking-wider">Total Domains</p>
+                <p class="text-2xl font-black text-white">{{ snis.len() }}</p>
+            </div>
+        </div>
+        <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-4 rounded-2xl flex items-center gap-4">
+            <div class="p-3 bg-emerald-500/10 rounded-xl text-emerald-400">
+                <i data-lucide="shield-check" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <p class="text-xs text-slate-500 uppercase font-bold tracking-wider">Active Pool</p>
+                <p class="text-2xl font-black text-white">
+                    {{ snis.iter().filter(|s| s.is_active).count() }}
+                </p>
+            </div>
+        </div>
+        <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-4 rounded-2xl flex items-center gap-4">
+            <div class="p-3 bg-amber-500/10 rounded-xl text-amber-400">
+                <i data-lucide="help-circle" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <p class="text-xs text-slate-500 uppercase font-bold tracking-wider">Usage Tip</p>
+                <p class="text-sm text-slate-300">Use <code
+                        class="text-indigo-400 font-mono">{{ "{{" }}pool_sni{{ "}}" }}</code> in templates.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- SNI Table -->
+    <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                        <th class="px-6 py-4">Domain</th>
+                        <th class="px-6 py-4">Tier / Notes</th>
+                        <th class="px-6 py-4">Status</th>
+                        <th class="px-6 py-4 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5 text-sm">
+                    {% if snis.is_empty() %}
+                    <tr>
+                        <td colspan="4" class="px-6 py-16 text-center text-slate-500">No SNIs in pool. Add some to get
+                            started!</td>
+                    </tr>
+                    {% else %}
+                    {% for item in snis %}
+                    <tr class="hover:bg-white/5 transition-colors group" id="sni-row-{{ item.id }}">
+                        <td class="px-6 py-4 font-mono text-indigo-400">{{ item.domain }}</td>
+                        <td class="px-6 py-4">
+                            <div class="flex flex-col">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-white">{{ item.notes.as_deref().unwrap_or("-") }}</span>
+                                    <span
+                                        class="text-[10px] bg-white/5 px-1 rounded border border-white/5 text-slate-400">T{{
+                                        item.tier }}</span>
+                                </div>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <div class="w-16 h-1 bg-slate-800 rounded-full overflow-hidden">
+                                        <div class="h-full {% if item.health_score > 70 %}bg-emerald-500{% else if item.health_score > 40 %}bg-amber-500{% else %}bg-rose-500{% endif %}"
+                                            style="width: {{ item.health_score }}%"></div>
+                                    </div>
+                                    <span class="text-[10px] text-slate-500">{{ item.health_score }}%</span>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4">
+                            <button hx-post="{{ admin_path }}/sni/toggle/{{ item.id }}" hx-swap="none"
+                                class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors 
+                                {% if item.is_active %}bg-emerald-500/10 text-emerald-400 border border-emerald-500/20{% else %}bg-slate-500/10 text-slate-400 border border-slate-500/20{% endif %}"
+                                onclick="this.classList.toggle('bg-emerald-500/10'); this.classList.toggle('text-emerald-400'); this.classList.toggle('bg-slate-500/10'); this.classList.toggle('text-slate-400')">
+                                <span
+                                    class="w-1.5 h-1.5 rounded-full {% if item.is_active %}bg-emerald-500 animate-pulse{% else %}bg-slate-500{% endif %}"></span>
+                                {{ if item.is_active { "Active" } else { "Disabled" } }}
+                            </button>
+                        </td>
+                        <td class="px-6 py-4 text-right">
+                            <button hx-delete="{{ admin_path }}/sni/delete/{{ item.id }}"
+                                hx-confirm="Remove this domain from the pool?" hx-target="#sni-row-{{ item.id }}"
+                                hx-swap="outerHTML"
+                                class="p-2 hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 rounded-lg transition-colors opacity-0 group-hover:opacity-100">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Rotation Logs -->
+    <div class="space-y-4 pt-6">
+        <div>
+            <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                <i data-lucide="history" class="w-5 h-5 text-indigo-400"></i>
+                Recent Rotation Events
+            </h3>
+            <p class="text-slate-400 text-xs">History of port and SNI changes across nodes.</p>
+        </div>
+        <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr
+                            class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                            <th class="px-6 py-4">Node</th>
+                            <th class="px-6 py-4">Transition</th>
+                            <th class="px-6 py-4">Time</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-white/5 text-sm">
+                        {% if logs.is_empty() %}
+                        <tr>
+                            <td colspan="3" class="px-6 py-8 text-center text-slate-500 italic text-xs">No recent
+                                rotation events logged.</td>
+                        </tr>
+                        {% else %}
+                        {% for log in logs %}
+                        <tr class="hover:bg-white/5 transition-colors group">
+                            <td class="px-6 py-4">
+                                <span class="text-white font-medium">{{ log.node_name.as_deref().unwrap_or("Unknown
+                                    Node") }}</span>
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="flex items-center gap-2 text-xs">
+                                    <span class="text-slate-500 font-mono">{{ log.old_sni }}</span>
+                                    <i data-lucide="arrow-right" class="w-3 h-3 text-indigo-500"></i>
+                                    <span class="text-indigo-400 font-mono">{{ log.new_sni }}</span>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 text-slate-500 text-xs text-right">
+                                {{ log.rotated_at.format("%Y-%m-%d %H:%M:%S") }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Import Modal -->
+<dialog id="bulkSniModal"
+    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50">
+    <div
+        class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4 ring-1 ring-white/10">
+        <header class="flex justify-between items-center mb-6 border-b border-white/5 pb-4">
+            <h3 class="text-xl font-bold text-white">Bulk Import Domains</h3>
+            <button onclick="document.getElementById('bulkSniModal').close()"
+                class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+        </header>
+
+        <form action="{{ admin_path }}/sni/bulk" method="POST" class="space-y-4">
+            <div>
+                <label class="block text-xs font-medium text-slate-400 uppercase mb-1.5">Domains (One per line)</label>
+                <textarea name="domains" rows="8" required placeholder="example.com&#10;test.net&#10;google.com"
+                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-sm placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all"></textarea>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-400 uppercase mb-1.5">Tier (Priority)</label>
+                <select name="tier"
+                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500 outline-none transition-all">
+                    <option value="1">Tier 1 (CDN / Common Infrastructure)</option>
+                    <option value="0">Tier 0 (Highest Trust)</option>
+                    <option value="2">Tier 2 (Gaming / Entertainment)</option>
+                </select>
+            </div>
+
+            <div class="pt-2 flex justify-end gap-3">
+                <button type="button" onclick="document.getElementById('bulkSniModal').close()"
+                    class="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-xl transition-colors">Cancel</button>
+                <button type="submit"
+                    class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 px-6 rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02]">
+                    Import All
+                </button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+<!-- Add SNI Modal -->
+<dialog id="addSniModal"
+    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50">
+    <div
+        class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4 ring-1 ring-white/10">
+        <header class="flex justify-between items-center mb-6 border-b border-white/5 pb-4">
+            <h3 class="text-xl font-bold text-white">Add SNI to Pool</h3>
+            <button onclick="document.getElementById('addSniModal').close()"
+                class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+        </header>
+
+        <form action="{{ admin_path }}/sni/add" method="POST" class="space-y-4">
+            <div>
+                <label class="block text-xs font-medium text-slate-400 uppercase mb-1.5">Domain Name</label>
+                <input type="text" name="domain" required placeholder="e.g. ya.ru"
+                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-400 uppercase mb-1.5">Tier (Priority)</label>
+                <select name="tier"
+                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500 outline-none transition-all">
+                    <option value="0">Tier 0 (Highest Trust - Government/Banking)</option>
+                    <option value="1">Tier 1 (CDN / Common Infrastructure)</option>
+                    <option value="2">Tier 2 (Gaming / Entertainment)</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-400 uppercase mb-1.5">Notes</label>
+                <input type="text" name="notes" placeholder="e.g. Yandex Core"
+                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all">
+            </div>
+
+            <div class="pt-2 flex justify-end gap-3">
+                <button type="button" onclick="document.getElementById('addSniModal').close()"
+                    class="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-xl transition-colors">Cancel</button>
+                <button type="submit"
+                    class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 px-6 rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02]">
+                    Add Domain
+                </button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+<script>
+    document.getElementById('addSniModal')?.addEventListener('click', function (e) {
+        if (e.target === this) this.close();
+    });
+</script>
+{% endblock %}

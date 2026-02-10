@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS inbounds (
     stream_settings TEXT NOT NULL DEFAULT '{}',
     remark TEXT,
     enable BOOLEAN DEFAULT 1,
+    last_rotated_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
     UNIQUE(node_id, listen_port)
@@ -619,14 +620,74 @@ INSERT OR IGNORE INTO admins (username, password_hash)
 VALUES ('admin', '$2b$12$K.z2iBv.m6.h7.8.9.a.bcdefghijklmno.pqrstuvwxyz');
 
 -- Seed SNI Pool
-INSERT OR IGNORE INTO sni_pool (domain, tier, health_score) VALUES
-    ('steampowered.com', 0, 100),
-    ('epicgames.com', 0, 100),
-    ('aws.amazon.com', 0, 100),
-    ('digitalocean.com', 1, 100),
-    ('drive.google.com', 1, 100),
-    ('github.com', 1, 100),
-    ('steamcommunity.com', 2, 100);
+-- Russian Legacy & Essential Services
+INSERT OR IGNORE INTO sni_pool (domain, tier, notes) VALUES
+    ('gosuslugi.ru', 0, 'Public Services'),
+    ('nalog.gov.ru', 0, 'Tax Service'),
+    ('sberbank.ru', 0, 'Banking'),
+    ('online.sberbank.ru', 0, 'Banking'),
+    ('tinkoff.ru', 0, 'Banking'),
+    ('vtb.ru', 0, 'Banking'),
+    ('yandex.ru', 0, 'Search/Portal'),
+    ('ya.ru', 0, 'Search/Portal'),
+    ('yandex.net', 0, 'Yandex Infrastructure'),
+    ('yastatic.net', 0, 'Yandex CDN'),
+    ('vk.com', 0, 'Social Network'),
+    ('vk-cdn.net', 0, 'VK CDN'),
+    ('mail.ru', 0, 'Email/Portal'),
+    ('ok.ru', 0, 'Social Network'),
+    ('wildberries.ru', 0, 'E-commerce'),
+    ('ozon.ru', 0, 'E-commerce'),
+    ('avito.ru', 0, 'Classifieds'),
+    ('rt.ru', 0, 'Rostelecom'),
+    ('rbc.ru', 0, 'News');
+
+-- Regional / CIS Variations
+INSERT OR IGNORE INTO sni_pool (domain, tier, notes) VALUES
+    ('yandex.kz', 1, 'Yandex Kazakhstan'),
+    ('ozon.kz', 1, 'Ozon Kazakhstan'),
+    ('kaspi.kz', 1, 'Kaspi Kazakhstan'),
+    ('kolesa.kz', 1, 'Classifieds Kazakhstan'),
+    ('olx.kz', 1, 'Classifieds Kazakhstan'),
+    ('yandex.by', 1, 'Yandex Belarus'),
+    ('onliner.by', 1, 'Portal Belarus');
+
+-- System & Hardware Updates (High Trust)
+INSERT OR IGNORE INTO sni_pool (domain, tier, notes) VALUES
+    ('swscan.apple.com', 0, 'Apple Software Update'),
+    ('swcdn.apple.com', 0, 'Apple software distribution'),
+    ('updates.cdn-apple.com', 0, 'Apple update CDN'),
+    ('windowsupdate.microsoft.com', 0, 'Windows Update'),
+    ('download.microsoft.com', 0, 'Microsoft Downloads'),
+    ('office.com', 0, 'Microsoft Office'),
+    ('update.googleapis.com', 0, 'Android/Google Updates'),
+    ('dl.google.com', 0, 'Google Downloads'),
+    ('samsung.com', 0, 'Samsung'),
+    ('samsungcloud.com', 0, 'Samsung Cloud'),
+    ('xiaomi.com', 0, 'Xiaomi'),
+    ('miui.com', 0, 'Xiaomi MIUI'),
+    ('play.google.com', 0, 'Google Play Store');
+
+-- Global CDN & Infrastructure
+INSERT OR IGNORE INTO sni_pool (domain, tier, notes) VALUES
+    ('cdnjs.cloudflare.com', 1, 'Cloudflare CDN'),
+    ('ajax.googleapis.com', 1, 'Google APIs'),
+    ('fonts.googleapis.com', 1, 'Google Fonts'),
+    ('cdn.jsdelivr.net', 1, 'jsDelivr CDN'),
+    ('static.doubleclick.net', 2, 'Google Ads Static'),
+    ('github.com', 1, 'GitHub'),
+    ('bitbucket.org', 1, 'Bitbucket'),
+    ('gitlab.com', 1, 'GitLab'),
+    ('docker.com', 1, 'Docker'),
+    ('visualstudio.com', 1, 'Visual Studio');
+
+-- Media & Entertainment (Low Tier fallbacks)
+INSERT OR IGNORE INTO sni_pool (domain, tier, notes) VALUES
+    ('steampowered.com', 2, 'Steam'),
+    ('steamcommunity.com', 2, 'Steam Community'),
+    ('epicgames.com', 2, 'Epic Games'),
+    ('playstation.com', 2, 'PlayStation'),
+    ('xbox.com', 2, 'Xbox');
 
 -- Create Free Trial Plan (Fixed INSERT with traffic_limit_gb)
 INSERT OR IGNORE INTO plans (name, description, traffic_limit_gb, price, is_active, is_trial)

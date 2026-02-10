@@ -100,6 +100,22 @@ impl GeneratorService {
         }
         
         // SNI
+        if stream_settings.contains("{{pool_sni}}") {
+            let pool_sni: Option<String> = sqlx::query_scalar(
+                "SELECT domain FROM sni_pool WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1"
+            )
+            .fetch_optional(&self.pool)
+            .await?;
+            
+            if let Some(sni) = pool_sni {
+                stream_settings = stream_settings.replace("{{pool_sni}}", &sni);
+            } else {
+                // Fallback to node SNI if pool is empty
+                let fallback = node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string());
+                stream_settings = stream_settings.replace("{{pool_sni}}", &fallback);
+            }
+        }
+
         if let Some(sni) = &node.reality_sni {
             stream_settings = stream_settings.replace("{{sni}}", sni);
         } else {
@@ -157,54 +173,112 @@ impl GeneratorService {
             .await
             .context("Inbound not found")?;
 
-        // Find the template settings to know the port range
-        // For now, we assume a default range if we can't link back to a template easily, 
-        // OR we can parse the tag "tpl_{id}" to find the template.
-        let port_range = if inbound.tag.starts_with("tpl_") {
-            if let Ok(tpl_id) = inbound.tag[4..].parse::<i64>() {
-                sqlx::query_as::<_, (i64, i64)>("SELECT port_range_start, port_range_end FROM inbound_templates WHERE id = ?")
-                    .bind(tpl_id)
-                    .fetch_optional(&self.pool)
-                    .await?
-            } else {
-                None
-            }
+        let node = sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE id = ?")
+            .bind(inbound.node_id)
+            .fetch_one(&self.pool)
+            .await
+            .context("Node not found")?;
+
+        // 1. Find Template
+        if !inbound.tag.starts_with("tpl_") {
+            return Err(anyhow::anyhow!("Inbound is not tied to a template"));
+        }
+        let tpl_id = inbound.tag[4..].parse::<i64>().context("Invalid template ID in tag")?;
+        let template = sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE id = ?")
+            .bind(tpl_id)
+            .fetch_one(&self.pool)
+            .await
+            .context("Template not found for rotation")?;
+
+        // 2. Resolve New Values
+        let new_port = self.allocate_port(inbound.node_id, template.port_range_start, template.port_range_end).await?;
+        
+        let mut settings = template.settings_template.clone();
+        let mut stream_settings = template.stream_settings_template.clone();
+        
+        // We probably want to keep the same UUID if it's already in the inbound settings 
+        // to avoid breaking active connections immediately, 
+        // OR we just use the same logic as ensure_inbound_exists.
+        // Actually, for rotation, we usually ONLY want to change Port and SNI (the "outer" layers).
+        
+        // Extract old SNI for logging
+        let old_sni = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&inbound.stream_settings) {
+            json["reality_settings"]["server_names"][0]
+                .as_str()
+                .or_else(|| json["tls_settings"]["server_name"].as_str())
+                .unwrap_or("unknown")
+                .to_string()
         } else {
-            None
+            "unknown".to_string()
         };
 
-        let (start, end) = port_range.unwrap_or((10000, 60000)); // Default fallback
-
-        let new_port = self.allocate_port(inbound.node_id, start, end).await?;
-        
-        // Update Port
-        sqlx::query("UPDATE inbounds SET listen_port = ?, stream_settings = replace(stream_settings, ?, ?) WHERE id = ?")
-            .bind(new_port)
-            .bind(inbound.listen_port.to_string()) // Replace old port in JSON? strict replacement might be risky if port is common number
-            .bind(new_port.to_string())
-            .bind(inbound_id)
-            .execute(&self.pool)
+        // Re-interpolate
+        // Re-use ensure_inbound_exists logic for substitution (simplified here or refactored into helper)
+        if stream_settings.contains("{{pool_sni}}") {
+            let pool_sni: Option<String> = sqlx::query_scalar(
+                "SELECT domain FROM sni_pool WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1"
+            )
+            .fetch_optional(&self.pool)
             .await?;
-
-        // Updating JSON content via string replace is risky but might work for simple templates.
-        // Better: Parse JSON, update field, Serialize.
-        // Let's do the robust way for settings.
+            if let Some(sni) = pool_sni {
+                stream_settings = stream_settings.replace("{{pool_sni}}", &sni);
+            }
+        }
         
-        // Re-fetch to get fresh
-        let mut inbound = sqlx::query_as::<_, crate::models::network::Inbound>("SELECT * FROM inbounds WHERE id = ?")
-            .bind(inbound_id)
-            .fetch_one(&self.pool)
-            .await?;
-            
-        inbound.listen_port = new_port; // Updated by query above? Actually doing it in two steps is safer.
-        // Let's just update the JSON fields now.
-        
-        if let Ok(_settings) = serde_json::from_str::<serde_json::Value>(&inbound.settings) {
-            // Update port in settings if it exists? VLESS usually doesn't have port in 'settings', just 'stream_settings' or 'listen_port' column.
-            // But let's check.
+        if let Some(sni) = &node.reality_sni {
+            stream_settings = stream_settings.replace("{{sni}}", sni);
+        } else {
+            stream_settings = stream_settings.replace("{{sni}}", "www.google.com");
         }
 
-        info!("Rotated inbound {} (Node {}) to port {}", inbound_id, inbound.node_id, new_port);
+        if let Some(priv_key) = &node.reality_priv {
+            stream_settings = stream_settings.replace("{{reality_private}}", priv_key);
+        }
+
+        // We use a fixed string replacement for UUID for now if we don't have the original one easily.
+        // Better: maybe store the "resolved_uuid" somewhere or just generate a new one.
+        // For now, let's just generate a new one like in ensure_inbound_exists 
+        // UNLESS we want to stick to the old one. 
+        // Let's stick to a NEW one for MAXIMUM rotation/obfuscation (security policy).
+        let new_uuid = uuid::Uuid::new_v4().to_string();
+        settings = settings.replace("{{uuid}}", &new_uuid);
+        settings = settings.replace("{{port}}", &new_port.to_string());
+
+        // 3. Update DB
+        sqlx::query(
+            "UPDATE inbounds SET listen_port = ?, settings = ?, stream_settings = ?, last_rotated_at = datetime('now') WHERE id = ?"
+        )
+        .bind(new_port)
+        .bind(settings)
+        .bind(&stream_settings)
+        .bind(inbound_id)
+        .execute(&self.pool)
+        .await?;
+
+        // 4. Log Rotation
+        let new_sni = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stream_settings) {
+             json["reality_settings"]["server_names"][0]
+                .as_str()
+                .or_else(|| json["tls_settings"]["server_name"].as_str())
+                .unwrap_or("unknown")
+                .to_string()
+        } else {
+            "unknown".to_string()
+        };
+
+        if old_sni != new_sni {
+            let _ = sqlx::query(
+                "INSERT INTO sni_rotation_log (node_id, old_sni, new_sni, reason) VALUES (?, ?, ?, ?)"
+            )
+            .bind(node.id)
+            .bind(old_sni)
+            .bind(new_sni)
+            .bind("Periodic rotation")
+            .execute(&self.pool)
+            .await;
+        }
+
+        info!("Rotated inbound {} (Node {}) to port {} and updated SNI/UUID", inbound_id, node.id, new_port);
         Ok(())
     }
 

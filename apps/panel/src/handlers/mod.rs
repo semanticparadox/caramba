@@ -9,3 +9,4 @@ pub mod local_app;
 pub mod node_control;
 pub mod client;
 pub mod api;
+pub mod admin_sni;

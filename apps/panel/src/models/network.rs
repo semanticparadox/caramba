@@ -18,6 +18,7 @@ pub struct Inbound {
 
     pub remark: Option<String>,
     pub enable: bool,
+    pub last_rotated_at: Option<DateTime<Utc>>,
     pub created_at: Option<DateTime<Utc>>,
 }
 

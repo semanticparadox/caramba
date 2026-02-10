@@ -60,6 +60,7 @@ pub struct AppState {
     pub analytics_service: Arc<services::analytics_service::AnalyticsService>,
     pub generator_service: Arc<services::generator_service::GeneratorService>, // Phase 1.8
     pub org_service: Arc<services::org_service::OrganizationService>, // Phase 3
+    pub sni_repo: Arc<repositories::sni_repo::SniRepository>,
 
     pub ssh_public_key: String,
     // Format: IP -> (Lat, Lon, Timestamp)
@@ -249,6 +250,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     let generator_service = Arc::new(services::generator_service::GeneratorService::new(pool.clone())); // Phase 1.8
     let org_repo = repositories::org_repo::OrganizationRepository::new(pool.clone());
     let org_service = Arc::new(services::org_service::OrganizationService::new(org_repo));
+    let sni_repo = Arc::new(repositories::sni_repo::SniRepository::new(pool.clone()));
 
     // Initialize connection service
     let connection_service = Arc::new(services::connection_service::ConnectionService::new(
@@ -336,6 +338,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         analytics_service,
         generator_service,
         org_service,
+        sni_repo,
         
         ssh_public_key,
         geo_cache,
@@ -382,6 +385,28 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
             connection_store,
         );
         connection_svc.start_monitoring().await;
+    });
+    
+    // Start Inbound Rotation Scheduler (Phase 5)
+    let rotation_state = state.clone();
+    let rotation_generator = state.generator_service.clone();
+    tokio::spawn(async move {
+        let rotation_svc = services::rotation_service::RotationService::new(
+            rotation_state.pool.clone(),
+            rotation_generator,
+        );
+        rotation_svc.start().await;
+    });
+
+    // Start SNI Health Monitor (Phase 5)
+    let sni_monitor_state = state.clone();
+    let sni_monitor_repo = (*state.sni_repo).clone();
+    tokio::spawn(async move {
+        let sni_monitor = services::sni_monitor::SniMonitor::new(
+            sni_monitor_state.pool.clone(),
+            sni_monitor_repo,
+        );
+        sni_monitor.start().await;
     });
 
 
@@ -447,6 +472,13 @@ use tower_http::services::ServeDir;
         .route("/bot-logs/tail", axum::routing::get(handlers::admin::bot_logs_tail))
         .route("/api-keys", axum::routing::get(handlers::admin::api_keys_list).post(handlers::admin::api_keys_create)) // NEW
         .route("/api-keys/delete/{id}", axum::routing::post(handlers::admin::api_keys_delete)) // NEW
+        
+        // SNI Pool Management
+        .route("/sni", axum::routing::get(handlers::admin_sni::get_sni_page))
+        .route("/sni/add", axum::routing::post(handlers::admin_sni::add_sni))
+        .route("/sni/bulk", axum::routing::post(handlers::admin_sni::bulk_add_sni))
+        .route("/sni/delete/{id}", axum::routing::delete(handlers::admin_sni::delete_sni))
+        .route("/sni/toggle/{id}", axum::routing::post(handlers::admin_sni::toggle_sni))
         .route("/partials/statusbar", axum::routing::get(handlers::admin::get_statusbar)) // NEW
         .route("/logout", axum::routing::post(handlers::admin::logout))
         

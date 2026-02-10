@@ -7,3 +7,5 @@ pub mod api_key;
 pub mod activity;
 pub mod frontend;
 pub mod payment;
+pub mod sni;
+pub mod sni_log;
