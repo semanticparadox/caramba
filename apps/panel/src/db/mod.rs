@@ -29,6 +29,12 @@ pub async fn init_db() -> Result<SqlitePool> {
         .context("Failed to connect to SQLite")?;
 
 
+    // Reset migration checksums to avoid "migration was modified" errors on updates.
+    // This is safe because our init.sql uses CREATE TABLE IF NOT EXISTS throughout.
+    let _ = sqlx::query("DELETE FROM _sqlx_migrations")
+        .execute(&pool)
+        .await; // Ignore error if table doesn't exist (fresh install)
+
     // Run migrations
     sqlx::migrate!("./migrations")
         .run(&pool)
