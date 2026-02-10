@@ -127,7 +127,27 @@ pub async fn patch_database_schema(pool: &Pool<Sqlite>) {
              warn!("Failed to add join_token column: {}", e);
         }
     }
-    // 10. Patch all missing node columns added in recent features
+
+    // 10. Check for 'parent_id' in 'users' (Family Plans)
+    let has_parent_id: bool = sqlx::query_scalar(
+        "SELECT count(*) > 0 FROM pragma_table_info('users') WHERE name='parent_id'"
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(false);
+
+    if !has_parent_id {
+        warn!("⚠️ Missing column 'parent_id' in 'users'. Patching...");
+        if let Err(e) = sqlx::query("ALTER TABLE users ADD COLUMN parent_id INTEGER DEFAULT NULL REFERENCES users(id)").execute(pool).await {
+            if !e.to_string().contains("duplicate column") {
+                error!("Failed to add 'parent_id' column: {}", e);
+            }
+        } else {
+            info!("✅ Added 'parent_id' column to 'users'");
+        }
+    }
+
+    // 11. Patch all missing node columns added in recent features
     let node_columns: Vec<(&str, &str)> = vec![
         ("sort_order", "ALTER TABLE nodes ADD COLUMN sort_order INTEGER DEFAULT 0"),
         ("country", "ALTER TABLE nodes ADD COLUMN country TEXT"),

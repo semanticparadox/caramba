@@ -147,11 +147,16 @@ CREATE TABLE IF NOT EXISTS users (
     -- Bot History Tracking
     last_bot_msg_id INTEGER,
     
+    -- Family Plans
+    parent_id INTEGER DEFAULT NULL REFERENCES users(id),
+    
     -- Enterprise Organizations (Phase 3)
     current_org_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
     
     FOREIGN KEY (referrer_id) REFERENCES users(id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_users_parent_id ON users(parent_id);
 
 -- ================================================
 -- ENTERPRISE ORGANIZATIONS
@@ -537,6 +542,68 @@ CREATE TABLE IF NOT EXISTS api_keys (
 CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);
 
 -- ================================================
+-- NODE GROUPS & TEMPLATES (Phase 1.8)
+-- ================================================
+
+CREATE TABLE IF NOT EXISTS node_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    slug TEXT UNIQUE,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS node_group_members (
+    node_id INTEGER NOT NULL,
+    group_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(node_id, group_id),
+    FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+    FOREIGN KEY(group_id) REFERENCES node_groups(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS plan_groups (
+    plan_id INTEGER NOT NULL,
+    group_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(plan_id, group_id),
+    FOREIGN KEY(plan_id) REFERENCES plans(id) ON DELETE CASCADE,
+    FOREIGN KEY(group_id) REFERENCES node_groups(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS inbound_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    protocol TEXT NOT NULL,
+    settings_template TEXT NOT NULL,
+    stream_settings_template TEXT NOT NULL,
+    target_group_id INTEGER,
+    port_range_start INTEGER DEFAULT 10000,
+    port_range_end INTEGER DEFAULT 60000,
+    renew_interval_hours INTEGER DEFAULT 0,
+    is_active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(target_group_id) REFERENCES node_groups(id) ON DELETE SET NULL
+);
+
+-- ================================================
+-- FAMILY PLANS
+-- ================================================
+
+CREATE TABLE IF NOT EXISTS family_invites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE,
+    parent_id INTEGER NOT NULL REFERENCES users(id),
+    max_uses INTEGER NOT NULL DEFAULT 1,
+    used_count INTEGER NOT NULL DEFAULT 0,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_family_invites_code ON family_invites(code);
+CREATE INDEX IF NOT EXISTS idx_family_invites_parent_id ON family_invites(parent_id);
+
+-- ================================================
 -- INITIAL DATA
 -- ================================================
 
@@ -569,6 +636,9 @@ VALUES ('Free Trial', '24h trial with 10GB traffic', 10, 0, 1, 1);
 INSERT OR IGNORE INTO plan_durations (plan_id, duration_days, traffic_gb, price, is_default)
 SELECT id, 1, 10, 0, 1
 FROM plans WHERE is_trial = 1;
+
+-- Seed default group
+INSERT OR IGNORE INTO node_groups (id, name, slug, description) VALUES (1, 'Default', 'default', 'Default Node Group');
 
 -- ================================================
 -- CLEANUP / SAFETY
