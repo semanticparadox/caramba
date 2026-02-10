@@ -1,13 +1,13 @@
 use axum::{
     extract::{Path, Query, State, Request},
     http::{header, StatusCode},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Response, Html},
 };
 use serde::Deserialize;
 use tracing::{error, warn};
 
 use crate::AppState;
-use crate::singbox::subscription_generator::{NodeInfo};
+use crate::singbox::subscription_generator::NodeInfo;
 
 #[derive(Deserialize)]
 pub struct SubParams {
@@ -25,15 +25,12 @@ pub async fn subscription_handler(
     let sub_domain = state.settings.get_or_default("subscription_domain", "").await;
     if !sub_domain.is_empty() {
         if let Some(host) = req.headers().get(header::HOST).and_then(|h| h.to_str().ok()) {
-            // Check if we are already on the correct domain to avoid loops
-            // We ignore port in host string for comparison if sub_domain doesn't have it
             let host_clean = host.split(':').next().unwrap_or(host);
             let sub_domain_clean = sub_domain.split(':').next().unwrap_or(&sub_domain);
             
             if host_clean != sub_domain_clean {
-                let proto = "https"; // Default to https
+                let proto = "https";
                 let full_url = format!("{}://{}/sub/{}", proto, sub_domain, uuid);
-                // Preserve query params if needed, but simple redirect for now
                 return axum::response::Redirect::permanent(&full_url).into_response();
             }
         }
@@ -44,10 +41,6 @@ pub async fn subscription_handler(
         .get(header::USER_AGENT)
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
-        
-    // In a real deployment behind reverse proxy, we need real IP. 
-    // For now/local, we might not have it easily without extraction middleware.
-    // We'll use a placeholder or best effort.
     let client_ip = "0.0.0.0".to_string(); // TODO: Extract real IP
 
     // 1. Rate Limit (30 req / min per UUID)
@@ -80,6 +73,220 @@ pub async fn subscription_handler(
     // 4. Update access tracking
     let _ = state.subscription_service.track_access(sub.id, &client_ip, user_agent.as_deref()).await;
     
+    // ===================================================================
+    // If no ?client= param, serve the HTML subscription info page
+    // ===================================================================
+    if params.client.is_none() {
+        // Get subscription details for the HTML page
+        let plan_name = match state.store_service.get_user_subscriptions(sub.user_id).await {
+            Ok(subs) => {
+                subs.iter()
+                    .find(|s| s.sub.id == sub.id)
+                    .map(|s| (s.plan_name.clone(), s.traffic_limit_gb.unwrap_or(0)))
+                    .unwrap_or(("VPN Plan".to_string(), 0))
+            }
+            Err(_) => ("VPN Plan".to_string(), 0)
+        };
+
+        let used_gb = sub.used_traffic as f64 / 1024.0 / 1024.0 / 1024.0;
+        let limit_gb = plan_name.1;
+        let traffic_pct = if limit_gb > 0 {
+            ((used_gb / limit_gb as f64) * 100.0).min(100.0) as i32
+        } else { 0 };
+        let days_left = (sub.expires_at - chrono::Utc::now()).num_days().max(0);
+        let duration_days = (sub.expires_at - sub.created_at).num_days();
+
+        // Build base URL for config links
+        let base_url = if !sub_domain.is_empty() {
+            if sub_domain.starts_with("http") { sub_domain.clone() } else { format!("https://{}", sub_domain) }
+        } else {
+            let panel = std::env::var("PANEL_URL").unwrap_or_else(|_| "panel.example.com".to_string());
+            if panel.starts_with("http") { panel } else { format!("https://{}", panel) }
+        };
+        let sub_url = format!("{}/sub/{}", base_url, uuid);
+
+        let expires_display = if duration_days == 0 {
+            "No expiration (Traffic Plan)".to_string()
+        } else {
+            format!("{} ({} days left)", sub.expires_at.format("%Y-%m-%d"), days_left)
+        };
+
+        let traffic_display = if limit_gb > 0 {
+            format!("{:.2} GB / {} GB", used_gb, limit_gb)
+        } else {
+            format!("{:.2} GB / ∞", used_gb)
+        };
+
+        let html = format!(r##"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EXA-ROBOT — Subscription</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+body{{
+  font-family:'Inter',system-ui,sans-serif;
+  background:#0D0D1A;
+  color:#E8E8F0;
+  min-height:100vh;
+  display:flex;
+  justify-content:center;
+  padding:24px 16px;
+}}
+.container{{max-width:460px;width:100%}}
+.logo{{text-align:center;margin-bottom:32px}}
+.logo h1{{
+  font-size:28px;font-weight:800;
+  background:linear-gradient(135deg,#7C3AED 0%,#3B82F6 50%,#06B6D4 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}}
+.logo p{{color:rgba(255,255,255,0.4);font-size:13px;margin-top:4px}}
+.card{{
+  background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.08);
+  border-radius:16px;
+  padding:20px;
+  margin-bottom:16px;
+  backdrop-filter:blur(20px);
+}}
+.plan-name{{font-size:20px;font-weight:700}}
+.badge{{
+  display:inline-block;
+  padding:4px 12px;border-radius:20px;
+  font-size:11px;font-weight:600;text-transform:uppercase;
+}}
+.badge-active{{background:rgba(16,185,129,0.15);color:#10B981}}
+.header-row{{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}}
+.stat-row{{display:flex;justify-content:space-between;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:8px}}
+.progress{{height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;margin:8px 0 16px}}
+.progress-fill{{height:100%;border-radius:3px;background:linear-gradient(90deg,#7C3AED,#3B82F6)}}
+.section-label{{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,0.3);margin-bottom:12px}}
+.config-grid{{display:flex;flex-direction:column;gap:10px}}
+.config-btn{{
+  display:flex;align-items:center;gap:12px;
+  background:rgba(255,255,255,0.04);
+  border:1px solid rgba(255,255,255,0.08);
+  border-radius:12px;padding:14px 16px;
+  color:#E8E8F0;font-size:14px;font-weight:500;
+  cursor:pointer;text-decoration:none;
+  transition:all 0.2s;
+}}
+.config-btn:hover{{background:rgba(255,255,255,0.08);border-color:rgba(124,58,237,0.3)}}
+.config-btn .icon{{font-size:20px;width:32px;text-align:center}}
+.config-btn .label{{flex:1}}
+.config-btn .dl{{color:rgba(255,255,255,0.3);font-size:12px}}
+.copy-section{{margin-top:16px}}
+.link-input{{
+  width:100%;padding:12px 14px;
+  background:rgba(255,255,255,0.04);
+  border:1px solid rgba(255,255,255,0.08);
+  border-radius:10px;
+  color:#E8E8F0;font-family:'SF Mono','Fira Code',monospace;
+  font-size:11px;outline:none;
+}}
+.link-input:focus{{border-color:rgba(124,58,237,0.4)}}
+.copy-btn{{
+  width:100%;margin-top:10px;padding:14px;
+  background:linear-gradient(135deg,#7C3AED 0%,#3B82F6 100%);
+  border:none;border-radius:12px;
+  color:white;font-size:14px;font-weight:600;
+  cursor:pointer;transition:opacity 0.2s;
+}}
+.copy-btn:active{{opacity:0.8}}
+.copy-btn.copied{{background:linear-gradient(135deg,#10B981 0%,#059669 100%)}}
+.qr-wrap{{
+  display:flex;justify-content:center;
+  margin:16px 0;
+  padding:16px;background:white;border-radius:12px;
+}}
+.footer{{text-align:center;margin-top:24px;font-size:11px;color:rgba(255,255,255,0.2)}}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="logo">
+    <h1>🚀 EXA-ROBOT</h1>
+    <p>Your VPN Subscription</p>
+  </div>
+
+  <div class="card">
+    <div class="header-row">
+      <span class="plan-name">{plan_name}</span>
+      <span class="badge badge-active">✅ Active</span>
+    </div>
+    <div class="stat-row"><span>📊 Traffic</span><span>{traffic_display}</span></div>
+    {progress_bar}
+    <div class="stat-row"><span>⏳ Expires</span><span>{expires_display}</span></div>
+  </div>
+
+  <div class="card">
+    <div class="section-label">Download Config</div>
+    <div class="config-grid">
+      <a href="{sub_url}?client=singbox" class="config-btn">
+        <span class="icon">📦</span>
+        <span class="label">Sing-box / Hiddify</span>
+        <span class="dl">JSON →</span>
+      </a>
+      <a href="{sub_url}?client=v2ray" class="config-btn">
+        <span class="icon">⚡</span>
+        <span class="label">V2Ray / Xray</span>
+        <span class="dl">Base64 →</span>
+      </a>
+      <a href="{sub_url}?client=clash" class="config-btn">
+        <span class="icon">🔥</span>
+        <span class="label">Clash / Clash Meta</span>
+        <span class="dl">YAML →</span>
+      </a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-label">Subscription Link</div>
+    <div class="qr-wrap">
+      <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={sub_url_encoded}" width="180" height="180" alt="QR Code" />
+    </div>
+    <div class="copy-section">
+      <input type="text" class="link-input" id="subLink" value="{sub_url}" readonly onclick="this.select()" />
+      <button class="copy-btn" id="copyBtn" onclick="copyLink()">📋 Copy Link</button>
+    </div>
+  </div>
+
+  <div class="footer">EXA-ROBOT VPN Panel · Powered by Xray</div>
+</div>
+<script>
+function copyLink(){{
+  const btn=document.getElementById('copyBtn');
+  const input=document.getElementById('subLink');
+  navigator.clipboard.writeText(input.value).then(()=>{{
+    btn.textContent='✓ Copied!';
+    btn.classList.add('copied');
+    setTimeout(()=>{{btn.textContent='📋 Copy Link';btn.classList.remove('copied')}},2000);
+  }});
+}}
+</script>
+</body>
+</html>"##,
+            plan_name = plan_name.0,
+            traffic_display = traffic_display,
+            expires_display = expires_display,
+            sub_url = sub_url,
+            sub_url_encoded = urlencoding::encode(&sub_url),
+            progress_bar = if limit_gb > 0 {
+                format!(r#"<div class="progress"><div class="progress-fill" style="width:{}%"></div></div>"#, traffic_pct)
+            } else {
+                String::new()
+            },
+        );
+
+        return Html(html).into_response();
+    }
+
+    // ===================================================================
+    // Raw config mode: ?client=clash|v2ray|singbox
+    // ===================================================================
+
     // 5. Get user keys
     let user_keys = match state.subscription_service.get_user_keys(&sub).await {
         Ok(k) => k,
@@ -88,27 +295,8 @@ pub async fn subscription_handler(
             return (StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response();
         }
     };
-    
 
-    
-    // Filter nodes if node_id is provided
-    // Note: NodeInfo doesn't strictly have ID, but we mapped it from Node. 
-    // Wait, NodeInfo struct in generator.rs does NOT have ID field!
-    // We need to check NodeInfo definition again.
-    // If it doesn't have ID, we can't filter by ID easily unless we change NodeInfo or filter before conversion.
-    // For now, let's skip node filtering or assuming we want all.
-    // The previous code filtered `all_nodes` (which were `Node`s from store service) THEN converted.
-    
-    // Let's re-read subscription_generator.rs to see NodeInfo.
-    // It has `name`, `address`, `reality_port`... NO ID.
-    // So filtering by `node_id` must happen BEFORE conversion.
-    // `get_active_nodes_for_config` returns `NodeInfo`. 
-    // I should probably use `store_service.get_active_nodes()` (returns `Node`) 
-    // then filter, then convert.
-    // OR update `get_active_nodes_for_config` to return `Node` and convert later.
-    
-    // Let's use `store_service` for fetching nodes (since it's already there and returns `Node`),
-    // then filter, then map.
+    // Fetch and filter nodes
     let nodes_raw = match state.store_service.get_active_nodes().await {
          Ok(nodes) => nodes,
          Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response(),
@@ -126,16 +314,12 @@ pub async fn subscription_handler(
     
     let node_infos: Vec<NodeInfo> = filtered_nodes.iter().map(NodeInfo::from).collect();
 
-    // 7. Check Redis Cache & Generate
+    // Check Redis Cache & Generate
     let client_type = params.client.as_deref().unwrap_or("singbox");
     let cache_node_id = params.node_id.unwrap_or(0);
-    // Include user_uuid in cache key because same sub might yield different configs if we change keys (though keys are tied to sub/user)
-    // Actually, uuid is enough.
     let cache_key = format!("sub_config:{}:{}:{}", uuid, client_type, cache_node_id);
 
     if let Ok(Some(cached_config)) = state.redis.get(&cache_key).await {
-         // Return cached...
-         // (same logic as before)
          let filename = match client_type {
             "clash" => "config.yaml",
             "v2ray" => "config.txt",

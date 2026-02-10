@@ -235,7 +235,7 @@ async fn get_user_stats(
     let stats_opt: Option<UserStats> = sqlx::query_as(r#"
         SELECT 
             s.used_traffic as traffic_used, 
-            s.total_traffic as total_traffic,
+            CAST(p.traffic_limit_gb AS INTEGER) * 1073741824 as total_traffic,
             CAST((strftime('%s', s.expires_at) - strftime('%s', 'now')) / 86400 AS INTEGER) as days_left,
             p.name as plan_name,
             u.balance as balance
