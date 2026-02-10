@@ -130,8 +130,8 @@ fn verify_token(token: &str, secret: &str) -> Option<i64> {
     }
 }
 
-pub async fn get_auth_user_id(state: &AppState, req: &axum::extract::Request) -> Option<i64> {
-    let auth_header = req.headers().get("Authorization")?
+pub async fn get_auth_user_id(state: &AppState, headers: &axum::http::HeaderMap) -> Option<i64> {
+    let auth_header = headers.get("Authorization")?
         .to_str().ok()?
         .strip_prefix("Bearer ")?;
         
@@ -188,20 +188,9 @@ pub async fn auth_telegram(
 
 pub async fn get_user_stats(
     State(state): State<AppState>,
-    req: axum::extract::Request,
+    headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    // Extract Bearer token
-    let auth_header = req.headers().get("Authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|h| h.strip_prefix("Bearer "));
-        
-    let token = match auth_header {
-        Some(t) => t,
-        None => return (StatusCode::UNAUTHORIZED, "Missing token").into_response(),
-    };
-    
-    let bot_token = state.settings.get_or_default("bot_token", "").await;
-    let user_id = match verify_token(token, &bot_token) {
+    let user_id = match get_auth_user_id(&state, &headers).await {
         Some(uid) => uid,
         None => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
     };
@@ -272,20 +261,9 @@ pub struct SubInfo {
 
 pub async fn get_user_subscriptions(
     State(state): State<AppState>,
-    req: axum::extract::Request,
+    headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    // Extract Bearer token
-    let auth_header = req.headers().get("Authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|h| h.strip_prefix("Bearer "));
-        
-    let token = match auth_header {
-        Some(t) => t,
-        None => return (StatusCode::UNAUTHORIZED, "Missing token").into_response(),
-    };
-    
-    let bot_token = state.settings.get_or_default("bot_token", "").await;
-    let user_id = match verify_token(token, &bot_token) {
+    let user_id = match get_auth_user_id(&state, &headers).await {
         Some(uid) => uid,
         None => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
     };
@@ -342,20 +320,9 @@ pub struct ClientNode {
 
 pub async fn get_client_nodes(
     State(state): State<AppState>,
-    req: axum::extract::Request,
+    headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    // Extract Bearer token
-    let auth_header = req.headers().get("Authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|h| h.strip_prefix("Bearer "));
-        
-    let token = match auth_header {
-        Some(t) => t,
-        None => return (StatusCode::UNAUTHORIZED, "Missing token").into_response(),
-    };
-    
-    let bot_token = state.settings.get_or_default("bot_token", "").await;
-    match verify_token(token, &bot_token) {
+    match get_auth_user_id(&state, &headers).await {
         Some(_) => {},
         None => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
     };
@@ -410,20 +377,9 @@ pub struct PaymentHistoryItem {
 
 pub async fn get_user_payments(
     State(state): State<AppState>,
-    req: axum::extract::Request,
+    headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    // Extract Bearer token
-    let auth_header = req.headers().get("Authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|h| h.strip_prefix("Bearer "));
-        
-    let token = match auth_header {
-        Some(t) => t,
-        None => return (StatusCode::UNAUTHORIZED, "Missing token").into_response(),
-    };
-    
-    let bot_token = state.settings.get_or_default("bot_token", "").await;
-    let user_id = match verify_token(token, &bot_token) {
+    let user_id = match get_auth_user_id(&state, &headers).await {
         Some(uid) => uid,
         None => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
     };
@@ -457,20 +413,9 @@ pub struct ReferralStats {
 
 pub async fn get_user_referrals(
     State(state): State<AppState>,
-    req: axum::extract::Request,
+    headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    // Extract Bearer token
-    let auth_header = req.headers().get("Authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|h| h.strip_prefix("Bearer "));
-        
-    let token = match auth_header {
-        Some(t) => t,
-        None => return (StatusCode::UNAUTHORIZED, "Missing token").into_response(),
-    };
-    
-    let bot_token = state.settings.get_or_default("bot_token", "").await;
-    let user_id = match verify_token(token, &bot_token) {
+    let user_id = match get_auth_user_id(&state, &headers).await {
         Some(uid) => uid,
         None => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
     };

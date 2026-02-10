@@ -3,7 +3,7 @@ use axum::{
     response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
-use axum_extra::extract::cookie::CookieJar;
+use serde::{Deserialize, Serialize};
 use tracing::error;
 
 use crate::AppState;
@@ -30,10 +30,10 @@ pub struct RedeemInviteRequest {
 
 pub async fn generate_invite(
     State(state): State<AppState>,
-    req: axum::extract::Request,
+    headers: axum::http::HeaderMap,
     Json(payload): Json<GenerateInviteRequest>,
 ) -> impl IntoResponse {
-    let user_id = match get_auth_user_id(&state, &req).await {
+    let user_id = match get_auth_user_id(&state, &headers).await {
         Some(id) => id,
         None => return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response(),
     };
@@ -64,10 +64,10 @@ pub async fn generate_invite(
 
 pub async fn redeem_invite(
     State(state): State<AppState>,
-    req: axum::extract::Request,
+    headers: axum::http::HeaderMap,
     Json(payload): Json<RedeemInviteRequest>,
 ) -> impl IntoResponse {
-    let user_id = match get_auth_user_id(&state, &req).await {
+    let user_id = match get_auth_user_id(&state, &headers).await {
         Some(id) => id,
         None => return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response(),
     };
