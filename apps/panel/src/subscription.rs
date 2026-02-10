@@ -299,14 +299,16 @@ function copyLink(){{
         }
     };
 
-    // Fetch and filter nodes
-    let nodes_raw = match state.store_service.get_active_nodes().await {
+    // Fetch and filter nodes (Refactored Phase 1.8: Use Plan Groups)
+    let nodes_raw = match state.store_service.get_user_nodes(sub.user_id).await {
          Ok(nodes) => nodes,
          Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response(),
     };
     
     let filtered_nodes = if let Some(nid) = params.node_id {
         nodes_raw.into_iter().filter(|n| n.id == nid).collect::<Vec<_>>()
+    } else if let Some(pinned_id) = sub.node_id {
+        nodes_raw.into_iter().filter(|n| n.id == pinned_id).collect::<Vec<_>>()
     } else {
         nodes_raw
     };

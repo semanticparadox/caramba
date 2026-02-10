@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Edit Group: {{ group.name }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0 gap-2">
+        <form action="/admin/groups/{{ group.id }}/rotate" method="POST" class="d-inline"
+            onsubmit="return confirm('Rotate all dynamic inbounds in this group? This will briefly disconnect users.');">
+            <button type="submit" class="btn btn-sm btn-warning">
+                <i class="bi bi-arrow-repeat"></i> Rotate Inbounds
+            </button>
+        </form>
+        <a href="/admin/groups" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Back to Groups
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Group Details -->
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header">Details</div>
+            <div class="card-body">
+                <p><strong>Name:</strong> {{ group.name }}</p>
+                <p><strong>Slug:</strong> <code>{{ group.slug.as_deref().unwrap_or("-") }}</code></p>
+                <p><strong>Description:</strong> {{ group.description.as_deref().unwrap_or("-") }}</p>
+                <div class="alert alert-info py-2 small">
+                    <i class="bi bi-info-circle"></i> Use the slug in API calls or client configs if needed.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Members Management -->
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Node Members</span>
+                <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal"
+                    data-bs-target="#addMemberModal">
+                    <i class="bi bi-plus-lg"></i> Add Node
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-striped table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Node Name</th>
+                                <th>IP</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for node in members %}
+                            <tr>
+                                <td>{{ node.id }}</td>
+                                <td>{{ node.name }}</td>
+                                <td><code>{{ node.ip }}</code></td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-danger"
+                                        hx-delete="/admin/groups/{{ group.id }}/members/{{ node.id }}"
+                                        hx-confirm="Remove this node from the group?" hx-target="closest tr"
+                                        hx-swap="outerHTML">
+                                        <i class="bi bi-dash-lg"></i> Remove
+                                    </button>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="4" class="text-center text-muted py-3">No nodes in this group yet.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Member Modal -->
+<div class="modal fade" id="addMemberModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form action="/admin/groups/{{ group.id }}/members" method="POST">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Node to Group</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    {% if available_nodes.is_empty() %}
+                    <p class="text-muted">All active nodes are already in this group.</p>
+                    {% else %}
+                    <div class="mb-3">
+                        <label class="form-label">Select Node</label>
+                        <select class="form-select" name="node_id" required>
+                            {% for node in available_nodes %}
+                            <option value="{{ node.id }}">{{ node.name }} ({{ node.ip }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    {% if !available_nodes.is_empty() %}
+                    <button type="submit" class="btn btn-primary">Add Node</button>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

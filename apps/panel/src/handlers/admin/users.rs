@@ -67,6 +67,7 @@ pub struct UpdateUserForm {
     pub balance: i64,
     pub is_banned: bool,
     pub referral_code: Option<String>,
+    pub parent_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -217,6 +218,14 @@ pub async fn update_user(
     let old_user = state.user_service.get_by_id(id).await.unwrap_or(None);
 
     let res = state.user_service.update_profile(id, form.balance, form.is_banned, form.referral_code.as_deref().map(|s| s.trim())).await;
+    
+    // Update parent if changed
+    let pid = form.parent_id.as_deref()
+        .filter(|s| !s.is_empty())
+        .and_then(|s| s.parse::<i64>().ok())
+        .filter(|&id| id > 0);
+
+    let _ = state.store_service.set_user_parent(id, pid).await;
 
     match res {
         Ok(_) => {

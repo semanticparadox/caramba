@@ -12,6 +12,9 @@ mod services;
 mod api;
 mod subscription;
 mod utils;
+mod repositories;
+
+
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -55,6 +58,7 @@ pub struct AppState {
     pub subscription_service: Arc<services::subscription_service::SubscriptionService>,
     pub catalog_service: Arc<services::catalog_service::CatalogService>,
     pub analytics_service: Arc<services::analytics_service::AnalyticsService>,
+    pub generator_service: Arc<services::generator_service::GeneratorService>, // Phase 1.8
 
     pub ssh_public_key: String,
     // Format: IP -> (Lat, Lon, Timestamp)
@@ -241,6 +245,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     let billing_service = Arc::new(services::billing_service::BillingService::new(pool.clone()));
     let subscription_service = Arc::new(services::subscription_service::SubscriptionService::new(pool.clone()));
     let catalog_service = Arc::new(services::catalog_service::CatalogService::new(pool.clone()));
+    let generator_service = Arc::new(services::generator_service::GeneratorService::new(pool.clone())); // Phase 1.8
 
     // Initialize connection service
     let connection_service = Arc::new(services::connection_service::ConnectionService::new(
@@ -326,6 +331,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         subscription_service,
         catalog_service,
         analytics_service,
+        generator_service,
         
         ssh_public_key,
         geo_cache,
@@ -445,6 +451,19 @@ use tower_http::services::ServeDir;
         .route("/store/categories/{id}", axum::routing::delete(handlers::admin::delete_category))
         .route("/store/products", axum::routing::get(handlers::admin::get_store_products_page).post(handlers::admin::create_product))
         .route("/store/products/{id}", axum::routing::delete(handlers::admin::delete_product))
+        
+        // Groups Management (Phase 1.8)
+        .route("/groups", axum::routing::get(handlers::admin_groups::get_groups_page).post(handlers::admin_groups::create_group))
+        .route("/groups/{id}", axum::routing::get(handlers::admin_groups::get_group_edit).delete(handlers::admin_groups::delete_group))
+        .route("/groups/{id}/members", axum::routing::post(handlers::admin_groups::add_group_member))
+        .route("/groups/{id}/members", axum::routing::post(handlers::admin_groups::add_group_member))
+        .route("/groups/{id}/members/{node_id}", axum::routing::delete(handlers::admin_groups::remove_group_member))
+        .route("/groups/{id}/rotate", axum::routing::post(handlers::admin_groups::rotate_group_inbounds))
+        
+        // Inbound Templates (Phase 1.8)
+        .route("/templates", axum::routing::get(handlers::admin_templates::get_templates_page).post(handlers::admin_templates::create_template))
+        .route("/templates/{id}", axum::routing::delete(handlers::admin_templates::delete_template))
+        .route("/templates/{id}/sync", axum::routing::post(handlers::admin_templates::sync_template))
         // .route("/store/orders", axum::routing::get(handlers::admin_store::orders_page)) // Handled by analytics/dashboard now
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware));
 
@@ -466,6 +485,9 @@ use tower_http::services::ServeDir;
         .route(&format!("{}/setup/create_admin", admin_path), axum::routing::post(handlers::setup::create_admin))
         .route(&format!("{}/setup/restore_backup", admin_path), axum::routing::post(handlers::setup::restore_backup))
         .route("/api/payments/{source}", axum::routing::post(handlers::admin::handle_payment))
+        // Family API
+        .route("/api/family/invite", axum::routing::post(handlers::api::family::generate_invite))
+        .route("/api/family/join", axum::routing::post(handlers::api::family::redeem_invite))
         // Agent V2 API
         .route("/api/v2/node/heartbeat", axum::routing::post(api::v2::node::heartbeat))
         .route("/api/v2/node/config", axum::routing::get(api::v2::node::get_config))

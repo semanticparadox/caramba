@@ -54,15 +54,38 @@ impl TrafficService {
                     if let Some(bytes) = bytes_val.as_u64() {
                         if user_tag.starts_with("user_") {
                             if let Ok(sub_id) = user_tag[5..].parse::<i64>() {
-                                sqlx::query("UPDATE subscriptions SET used_traffic = used_traffic + ?, traffic_updated_at = ? WHERE id = ?")
-                                    .bind(bytes as i64)
-                                    .bind(Utc::now())
-                                    .bind(sub_id)
-                                    .execute(&mut *tx)
-                                    .await?;
+                                let sub_details = sqlx::query_as::<_, (i64, String, i64)>(
+                                    "UPDATE subscriptions SET used_traffic = used_traffic + ?, traffic_updated_at = ? WHERE id = ? RETURNING user_id, COALESCE(note, ''), plan_id"
+                                )
+                                .bind(bytes as i64)
+                                .bind(Utc::now())
+                                .bind(sub_id)
+                                .fetch_optional(&mut *tx)
+                                .await?;
                                 
-                                // Track traffic in analytics
+                                // Simple analytics
                                 let _ = AnalyticsService::track_traffic(&self.state.pool, bytes as i64).await;
+
+                                // Family Plan Logic: Trickle up to parent
+                                if let Some((user_id, note, plan_id)) = sub_details {
+                                    if note == "Family" {
+                                        // Find parent
+                                        let parent_id: Option<i64> = sqlx::query_scalar("SELECT parent_id FROM users WHERE id = ?")
+                                            .bind(user_id)
+                                            .fetch_optional(&mut *tx)
+                                            .await?;
+                                        
+                                        if let Some(pid) = parent_id {
+                                            // Update parent's active subscription of same plan
+                                            sqlx::query("UPDATE subscriptions SET used_traffic = used_traffic + ? WHERE user_id = ? AND plan_id = ? AND status = 'active'")
+                                                .bind(bytes as i64)
+                                                .bind(pid)
+                                                .bind(plan_id)
+                                                .execute(&mut *tx)
+                                                .await?;
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

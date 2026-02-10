@@ -20,6 +20,7 @@ pub struct NodeInfo {
     pub reality_short_id: Option<String>,
     pub hy2_port: Option<i32>,
     pub hy2_sni: Option<String>,
+    pub inbounds: Vec<crate::models::network::Inbound>,
 }
 
 // Convert from actual Node model
@@ -35,6 +36,24 @@ impl From<&crate::models::node::Node> for NodeInfo {
             // TODO: Add HY2 fields when they're added to Node model
             hy2_port: None,
             hy2_sni: None,
+            inbounds: vec![],
+        }
+    }
+}
+
+// Convert from Node + Inbounds
+impl NodeInfo {
+    pub fn new(node: &crate::models::node::Node, inbounds: Vec<crate::models::network::Inbound>) -> Self {
+        Self {
+            name: node.name.clone(),
+            address: node.ip.clone(),
+            reality_port: Some(node.vpn_port as i32),
+            reality_sni: node.domain.clone(),
+            reality_public_key: node.reality_pub.clone(),
+            reality_short_id: node.short_id.clone(),
+            hy2_port: None,
+            hy2_sni: None,
+            inbounds,
         }
     }
 }
@@ -48,8 +67,68 @@ pub fn generate_clash_config(
     let mut proxies = Vec::new();
     
     for node in nodes {
-        // VLESS + Reality
-        if node.reality_port.is_some() {
+        // Priority: Use Inbounds if available
+        if !node.inbounds.is_empty() {
+            for inbound in &node.inbounds {
+                if !inbound.enable { continue; }
+                
+                // Parse settings (simplified for now, ideally use strongly typed structs from network.rs)
+                // VLESS
+                if inbound.protocol == "vless" {
+                     let sni = if let Ok(s) = serde_json::from_str::<serde_json::Value>(&inbound.stream_settings) {
+                        s.get("reality_settings")
+                         .and_then(|r| r.get("server_names"))
+                         .and_then(|v| v.as_array())
+                         .and_then(|a| a.first())
+                         .and_then(|s| s.as_str())
+                         .map(|s| s.to_string())
+                         .unwrap_or(node.reality_sni.clone().unwrap_or("www.google.com".to_string()))
+                     } else {
+                        node.reality_sni.clone().unwrap_or("www.google.com".to_string())
+                     };
+
+                     let pbk = if let Ok(s) = serde_json::from_str::<serde_json::Value>(&inbound.stream_settings) {
+                        s.get("reality_settings")
+                         .and_then(|r| r.get("public_key"))
+                         .and_then(|s| s.as_str())
+                         .map(|s| s.to_string())
+                         .unwrap_or(node.reality_public_key.clone().unwrap_or_default())
+                     } else {
+                        node.reality_public_key.clone().unwrap_or_default()
+                     };
+
+                     let sid = if let Ok(s) = serde_json::from_str::<serde_json::Value>(&inbound.stream_settings) {
+                        s.get("reality_settings")
+                         .and_then(|r| r.get("short_ids"))
+                         .and_then(|v| v.as_array())
+                         .and_then(|a| a.first())
+                         .and_then(|s| s.as_str())
+                         .map(|s| s.to_string())
+                         .unwrap_or(node.reality_short_id.clone().unwrap_or_default())
+                     } else {
+                        node.reality_short_id.clone().unwrap_or_default()
+                     };
+
+                     proxies.push(json!({
+                        "name": format!("{} - {}", node.name, inbound.remark.as_deref().unwrap_or("Auto")),
+                        "type": "vless",
+                        "server": node.address,
+                        "port": inbound.listen_port,
+                        "uuid": user_keys.user_uuid,
+                        "network": "tcp",
+                        "tls": true,
+                        "servername": sni,
+                        "reality-opts": {
+                            "public-key": pbk,
+                            "short-id": sid
+                        },
+                        "client-fingerprint": "chrome"
+                    }));
+                }
+            }
+        } 
+        // Fallback to legacy fields if no inbounds
+        else if node.reality_port.is_some() {
             proxies.push(json!({
                 "name": format!("{} VLESS", node.name),
                 "type": "vless",
@@ -109,8 +188,62 @@ pub fn generate_v2ray_config(
     let mut links = Vec::new();
     
     for node in nodes {
-        // VLESS Reality link
-        if let Some(port) = node.reality_port {
+        // Priority: Use Inbounds if available
+        if !node.inbounds.is_empty() {
+            for inbound in &node.inbounds {
+                if !inbound.enable { continue; }
+                
+                if inbound.protocol == "vless" {
+                     let sni = if let Ok(s) = serde_json::from_str::<serde_json::Value>(&inbound.stream_settings) {
+                        s.get("reality_settings")
+                         .and_then(|r| r.get("server_names"))
+                         .and_then(|v| v.as_array())
+                         .and_then(|a| a.first())
+                         .and_then(|s| s.as_str())
+                         .map(|s| s.to_string())
+                         .unwrap_or(node.reality_sni.clone().unwrap_or("www.google.com".to_string()))
+                     } else {
+                        node.reality_sni.clone().unwrap_or("www.google.com".to_string())
+                     };
+
+                     let pbk = if let Ok(s) = serde_json::from_str::<serde_json::Value>(&inbound.stream_settings) {
+                        s.get("reality_settings")
+                         .and_then(|r| r.get("public_key"))
+                         .and_then(|s| s.as_str())
+                         .map(|s| s.to_string())
+                         .unwrap_or(node.reality_public_key.clone().unwrap_or_default())
+                     } else {
+                        node.reality_public_key.clone().unwrap_or_default()
+                     };
+
+                     let sid = if let Ok(s) = serde_json::from_str::<serde_json::Value>(&inbound.stream_settings) {
+                        s.get("reality_settings")
+                         .and_then(|r| r.get("short_ids"))
+                         .and_then(|v| v.as_array())
+                         .and_then(|a| a.first())
+                         .and_then(|s| s.as_str())
+                         .map(|s| s.to_string())
+                         .unwrap_or(node.reality_short_id.clone().unwrap_or_default())
+                     } else {
+                        node.reality_short_id.clone().unwrap_or_default()
+                     };
+
+                    let vless_link = format!(
+                        "vless://{}@{}:{}?encryption=none&flow=xtls-rprx-vision&security=reality&sni={}&fp=chrome&pbk={}&sid={}&type=tcp#{}",
+                        user_keys.user_uuid,
+                        node.address,
+                        inbound.listen_port,
+                        sni,
+                        pbk,
+                        sid,
+                        urlencoding::encode(&format!("{} - {}", node.name, inbound.remark.as_deref().unwrap_or("Auto")))
+                    );
+                    links.push(vless_link);
+                }
+            }
+        }
+        // Fallback
+        else if let Some(port) = node.reality_port {
             let vless_link = format!(
                 "vless://{}@{}:{}?encryption=none&flow=xtls-rprx-vision&security=reality&sni={}&fp=chrome&pbk={}&sid={}&type=tcp#{}",
                 user_keys.user_uuid,
@@ -154,7 +287,66 @@ pub fn generate_singbox_config(
     let mut outbounds = vec![];
     
     for node in nodes {
-        if let Some(port) = node.reality_port {
+        if !node.inbounds.is_empty() {
+             for inbound in &node.inbounds {
+                if !inbound.enable { continue; }
+                // Implement VLESS for sing-box
+                if inbound.protocol == "vless" {
+                     let sni = if let Ok(s) = serde_json::from_str::<serde_json::Value>(&inbound.stream_settings) {
+                        s.get("reality_settings")
+                         .and_then(|r| r.get("server_names"))
+                         .and_then(|v| v.as_array())
+                         .and_then(|a| a.first())
+                         .and_then(|s| s.as_str())
+                         .map(|s| s.to_string())
+                         .unwrap_or(node.reality_sni.clone().unwrap_or("www.google.com".to_string()))
+                     } else {
+                        node.reality_sni.clone().unwrap_or("www.google.com".to_string())
+                     };
+
+                     let pbk = if let Ok(s) = serde_json::from_str::<serde_json::Value>(&inbound.stream_settings) {
+                        s.get("reality_settings")
+                         .and_then(|r| r.get("public_key"))
+                         .and_then(|s| s.as_str())
+                         .map(|s| s.to_string())
+                         .unwrap_or(node.reality_public_key.clone().unwrap_or_default())
+                     } else {
+                        node.reality_public_key.clone().unwrap_or_default()
+                     };
+
+                     let sid = if let Ok(s) = serde_json::from_str::<serde_json::Value>(&inbound.stream_settings) {
+                        s.get("reality_settings")
+                         .and_then(|r| r.get("short_ids"))
+                         .and_then(|v| v.as_array())
+                         .and_then(|a| a.first())
+                         .and_then(|s| s.as_str())
+                         .map(|s| s.to_string())
+                         .unwrap_or(node.reality_short_id.clone().unwrap_or_default())
+                     } else {
+                        node.reality_short_id.clone().unwrap_or_default()
+                     };
+
+                    outbounds.push(json!({
+                        "type": "vless",
+                        "tag": format!("{}_{}", node.name, inbound.tag),
+                        "server": node.address,
+                        "server_port": inbound.listen_port,
+                        "uuid": user_keys.user_uuid,
+                        "flow": "xtls-rprx-vision",
+                        "tls": {
+                            "enabled": true,
+                            "server_name": sni,
+                            "reality": {
+                                "enabled": true,
+                                "public_key": pbk,
+                                "short_id": sid
+                            }
+                        }
+                    }));
+                }
+             }
+        }
+        else if let Some(port) = node.reality_port {
             outbounds.push(json!({
                 "type": "vless",
                 "tag": format!("{}_vless", node.name),

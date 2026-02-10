@@ -16,6 +16,7 @@ pub mod api {
         pub latency: Option<f64>,
         pub cpu_usage: Option<f64>,
         pub memory_usage: Option<f64>,
+        pub speed_mbps: Option<i32>,
     }
 
     #[derive(Debug, Serialize, Deserialize)]

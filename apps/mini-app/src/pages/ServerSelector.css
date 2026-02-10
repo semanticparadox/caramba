@@ -1,0 +1,142 @@
+.server-page {
+    /* reuse common page styles */
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    padding: 16px;
+    box-sizing: border-box;
+    overflow-y: auto;
+}
+
+.subtitle {
+    display: block;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.5);
+    margin-top: 4px;
+}
+
+.server-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.server-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    cursor: pointer;
+    transition: transform 0.2s, background 0.2s;
+}
+
+.server-card:active {
+    transform: scale(0.98);
+}
+
+.server-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.server-flag {
+    font-size: 24px;
+}
+
+.server-details {
+    display: flex;
+    flex-direction: column;
+}
+
+.server-name {
+    font-weight: 600;
+    font-size: 15px;
+    color: white;
+}
+
+.server-country {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.server-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+.server-dist {
+    font-size: 12px;
+    font-family: monospace;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.server-dist.good {
+    color: #10B981;
+}
+
+.server-dist.ok {
+    color: #F59E0B;
+}
+
+.btn-select {
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: none;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.btn-select:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.info-box {
+    margin-top: 24px;
+    padding: 12px;
+    background: rgba(59, 130, 246, 0.1);
+    border-radius: 8px;
+    font-size: 12px;
+    color: #93C5FD;
+    line-height: 1.4;
+}
+
+.msg-banner {
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    font-weight: 500;
+    animation: fadeIn 0.3s ease;
+}
+
+.msg-banner.success {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10B981;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.msg-banner.error {
+    background: rgba(239, 68, 68, 0.15);
+    color: #EF4444;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

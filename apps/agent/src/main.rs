@@ -37,6 +37,7 @@ struct AgentState {
     kill_switch_enabled: bool,
     kill_switch_timeout: u64,
     vpn_stopped_by_kill_switch: bool,
+    cached_speed_mbps: Option<i32>,
 }
 
 
@@ -98,6 +99,16 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => {
             error!("⚠️ Failed to fetch initial config: {}. Will retry in mainloop.", e);
         }
+    }
+    
+    // 4.5. Run Initial Speed Test
+    info!("🚀 Running initial speed test (this may take a moment)...");
+    let speed = run_speed_test(&client).await;
+    if let Some(s) = speed {
+        info!("✅ Speed test result: {} Mbps", s);
+        state.cached_speed_mbps = Some(s);
+    } else {
+        warn!("⚠️ Speed test failed or timed out.");
     }
     
     // 5. Start Decoy Service (Background)
@@ -316,6 +327,7 @@ async fn send_heartbeat(
         latency,
         cpu_usage: cpu,
         memory_usage: ram,
+        speed_mbps: state.cached_speed_mbps,
     };
     
     let resp = client.post(&url)
@@ -553,4 +565,37 @@ async fn collect_telemetry(client: &reqwest::Client, sys: &mut System) -> (Optio
     };
 
     (latency, cpu, ram)
+}
+
+async fn run_speed_test(client: &reqwest::Client) -> Option<i32> {
+    // Download 25MB from Cloudflare
+    let url = "http://speed.cloudflare.com/__down?bytes=25000000"; 
+    let start = std::time::Instant::now();
+    
+    match client.get(url)
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await 
+    {
+        Ok(resp) => {
+            if !resp.status().is_success() {
+                return None;
+            }
+            // Stream the body to avoid loading all in RAM? 
+            // Or just check time to first byte + transfer time.
+            // For simple bandwidth check, reading bytes is better.
+            if let Ok(bytes) = resp.bytes().await {
+                let duration = start.elapsed().as_secs_f64();
+                if duration < 0.1 { return None; } // Too fast?
+                
+                let bits = bytes.len() as f64 * 8.0;
+                let mbps = (bits / duration) / 1_000_000.0;
+                return Some(mbps as i32);
+            }
+        },
+        Err(e) => {
+             warn!("Speedtest download failed: {}", e);
+        }
+    }
+    None
 }

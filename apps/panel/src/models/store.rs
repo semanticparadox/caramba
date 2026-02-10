@@ -20,6 +20,7 @@ pub struct User {
     pub trial_used_at: Option<DateTime<Utc>>,
     pub last_bot_msg_id: Option<i32>,
     pub created_at: DateTime<Utc>,
+    pub parent_id: Option<i64>,
 }
 
 
@@ -77,6 +78,17 @@ pub struct PromoCode {
     pub max_uses: i32,
     pub current_uses: i32,
     pub expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct FamilyInvite {
+    pub id: i64,
+    pub code: String,
+    pub parent_id: i64,
+    pub max_uses: i32,
+    pub used_count: i32,
+    pub expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
 }
 

@@ -5,6 +5,7 @@ import Subscription from './pages/Subscription'
 import Servers from './pages/Servers'
 import Store from './pages/Store'
 import Plans from './pages/Plans'
+import ServerSelector from './pages/ServerSelector'
 import Statistics from './pages/Statistics'
 import Billing from './pages/Billing'
 import Referral from './pages/Referral'
@@ -22,6 +23,7 @@ function App() {
                         <Route path="/servers" element={<Servers />} />
                         <Route path="/store" element={<Store />} />
                         <Route path="/plans" element={<Plans />} />
+                        <Route path="/servers/:subId" element={<ServerSelector />} />
                         <Route path="/statistics" element={<Statistics />} />
                         <Route path="/billing" element={<Billing />} />
                         <Route path="/referral" element={<Referral />} />

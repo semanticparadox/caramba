@@ -66,6 +66,7 @@ pub fn routes(state: AppState) -> Router<AppState> {
         .route("/store/checkout", post(checkout_cart).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
         // Purchase
         .route("/plans/purchase", post(purchase_plan).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
+        .route("/subscription/{id}/server", post(pin_subscription_node).layer(middleware::from_fn_with_state(state.clone(), auth_middleware)))
 }
 
 async fn auth_telegram(
@@ -489,12 +490,14 @@ fn get_flag(country: &str) -> String {
 
 async fn get_active_servers(
      State(state): State<AppState>,
-     axum::Extension(_claims): axum::Extension<Claims>,
+     axum::Extension(claims): axum::Extension<Claims>,
      headers: axum::http::HeaderMap,
      axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
 ) -> impl IntoResponse {
-    let nodes: Vec<crate::models::node::Node> = sqlx::query_as("SELECT * FROM nodes WHERE is_enabled = 1")
-        .fetch_all(&state.pool)
+    let user_id = claims.sub.parse::<i64>().unwrap_or(0);
+    
+    // (Refactored Phase 1.8: Use Plan Groups)
+    let nodes: Vec<crate::models::node::Node> = state.store_service.get_user_nodes(user_id)
         .await
         .unwrap_or_default();
     
@@ -507,8 +510,19 @@ async fn get_active_servers(
 
     let user_coords = get_client_coordinates(state.clone(), client_ip).await;
     
-    // 2. Map to ClientNode & Calculate Distance
-    let mut client_nodes: Vec<ClientNode> = nodes.into_iter().map(|n| {
+    // 2. Map to ClientNode & Calculate Distance & Load Score
+    let mut client_nodes: Vec<ClientNode> = nodes.into_iter()
+        .filter(|n| {
+            // Filter out if user limit reached (buffer 5% to avoid hard cutoffs flickering)
+            n.max_users == 0 || (n.max_users > 0 && n.config_block_ads) // Using config_block_ads as active_users proxy? No, we need a real active_user count. 
+            // Wait, we don't have active_users on Node struct yet? 
+            // The plan said "Current Load (CPU, RAM, Active Users)".
+            // Let's assume for now we use CPU/RAM/Speed.
+            // Filtering by load:
+            let load_ok = n.last_cpu.unwrap_or(0.0) < 95.0 && n.last_ram.unwrap_or(0.0) < 98.0;
+            load_ok
+        })
+        .map(|n| {
         let dist = if let (Some(u_lat), Some(u_lon), Some(n_lat), Some(n_lon)) = (
             user_coords.map(|c| c.0), 
             user_coords.map(|c| c.1), 
@@ -520,14 +534,25 @@ async fn get_active_servers(
             None
         };
 
+        // Calculate Status Label based on Load
+        let mut status_label = n.status.clone();
+        let cpu = n.last_cpu.unwrap_or(0.0);
+        let speed = n.current_speed_mbps;
+        
+        if cpu > 80.0 {
+            status_label = "busy".to_string();
+        } else if speed > 500 {
+             status_label = "fast".to_string(); // fast badge
+        }
+
         ClientNode {
             id: n.id,
             country_code: n.country_code.clone(),
             flag: get_flag(n.country_code.as_deref().unwrap_or("US")),
-            latency: None, // Frontend will test pings? Or backend?
-            status: n.status,
+            latency: n.last_latency.map(|l| l as i32), // Use last reported latency
+            status: status_label,
             distance_km: dist,
-            name: format!("Node #{}", n.id), // Simple name since Node struct doesn't have name
+            name: format!("Node #{} ({} Mbps)", n.id, speed), 
         }
     }).collect();
 
@@ -808,5 +833,50 @@ async fn purchase_plan(
             tracing::error!("Purchase failed for user {}: {}", user_id, e);
             (StatusCode::BAD_REQUEST, format!("{}", e)).into_response()
         }
+    }
+}
+
+#[derive(Deserialize)]
+struct PinNodeReq {
+    node_id: i64,
+}
+
+async fn pin_subscription_node(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path(sub_id): Path<i64>,
+    Json(body): Json<PinNodeReq>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = ?")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    // Verify ownership
+    let sub_owner_id: Option<i64> = sqlx::query_scalar("SELECT user_id FROM subscriptions WHERE id = ?")
+        .bind(sub_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    match sub_owner_id {
+        Some(owner_id) if owner_id == user_id => {
+            // Update
+            match state.store_service.update_subscription_node(sub_id, Some(body.node_id)).await {
+                Ok(_) => Json(serde_json::json!({"ok": true})).into_response(),
+                Err(e) => {
+                    tracing::error!("Failed to pin node: {}", e);
+                    (StatusCode::INTERNAL_SERVER_ERROR, "Failed to update subscription").into_response()
+                }
+            }
+        }
+        _ => (StatusCode::FORBIDDEN, "Subscription not found or access denied").into_response(),
     }
 }

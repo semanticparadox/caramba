@@ -32,5 +32,17 @@ pub struct Node {
     #[sqlx(default)]
     pub config_block_ads: bool,
     #[sqlx(default)]
+    #[sqlx(default)]
     pub config_block_porn: bool,
+    
+    // Telemetry & Load Balancing (Added Phase 1.5)
+    pub last_latency: Option<f64>,
+    pub last_cpu: Option<f64>,
+    pub last_ram: Option<f64>,
+    #[sqlx(default)]
+    pub speed_limit_mbps: i32,
+    #[sqlx(default)]
+    pub max_users: i32,
+    #[sqlx(default)]
+    pub current_speed_mbps: i32,
 }

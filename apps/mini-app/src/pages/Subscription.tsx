@@ -109,6 +109,18 @@ export default function Subscription() {
                                 </div>
                             )}
 
+                            {/* Actions Row */}
+                            {sub.status === 'active' && (
+                                <div className="sub-actions">
+                                    <button
+                                        className="btn-text"
+                                        onClick={(e) => { e.stopPropagation(); navigate(`/servers/${sub.id}`); }}
+                                    >
+                                        ⚙️ Optimize Connection
+                                    </button>
+                                </div>
+                            )}
+
                             {/* Expanded: QR + Link */}
                             {expandedId === sub.id && sub.status === 'active' && (
                                 <div className="sub-expanded">

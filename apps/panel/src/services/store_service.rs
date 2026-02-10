@@ -10,15 +10,18 @@ use crate::models::store::{
     RenewalResult, AlertType, DetailedReferral, SubscriptionWithDetails, CartItem
 };
 use crate::models::network::InboundType;
+use crate::repositories::user_repo::UserRepository;
 
 #[derive(Debug, Clone)]
 pub struct StoreService {
     pool: SqlitePool,
+    user_repo: UserRepository,
 }
 
 impl StoreService {
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        let user_repo = UserRepository::new(pool.clone());
+        Self { pool, user_repo }
     }
 
     pub fn get_pool(&self) -> SqlitePool {
@@ -105,24 +108,63 @@ impl StoreService {
         .context("Failed to fetch active nodes")
     }
 
-    pub async fn get_user_by_tg_id(&self, tg_id: i64) -> Result<Option<User>> {
-        sqlx::query_as::<_, User>(
-            "SELECT * FROM users WHERE tg_id = ?"
+    /// Get nodes available to a user based on their active subscription plan's groups
+    pub async fn get_user_nodes(&self, user_id: i64) -> Result<Vec<crate::models::node::Node>> {
+        // 1. Get active plan_id for user
+        let plan_id: Option<i64> = sqlx::query_scalar(
+            "SELECT plan_id FROM subscriptions WHERE user_id = ? AND status = 'active' LIMIT 1"
         )
-        .bind(tg_id)
+        .bind(user_id)
         .fetch_optional(&self.pool)
-        .await
-        .context("Failed to fetch user by TG ID")
+        .await?;
+
+        let plan_id = match plan_id {
+            Some(id) => id,
+            None => return Ok(vec![]), // No active plan = no nodes
+        };
+
+        // 2. Get nodes via Plan -> Groups -> Nodes
+        // If plan has NO groups, maybe we fallback to "Default" group? 
+        // For now, let's assume if no groups, use Default (ID 1) as per migration.
+        
+        let nodes = sqlx::query_as::<_, crate::models::node::Node>(
+            r#"
+            SELECT DISTINCT n.* 
+            FROM nodes n
+            JOIN node_group_members ngm ON n.id = ngm.node_id
+            JOIN plan_groups pg ON ngm.group_id = pg.group_id
+            WHERE pg.plan_id = ? AND n.status = 'active'
+            "#
+        )
+        .bind(plan_id)
+        .fetch_all(&self.pool)
+        .await?;
+        
+        // Fallback: If no nodes found via groups (maybe migration pending or refactor in progress),
+        // try fetching ALL nodes if plan exists (Legacy behavior safety net)
+        if nodes.is_empty() {
+             // Check if plan_groups has ANY entries for this plan.
+             let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_groups WHERE plan_id = ?")
+                .bind(plan_id)
+                .fetch_one(&self.pool)
+                .await?;
+                
+             if count == 0 {
+                 // Legacy behavior: If no groups assigned, give all active nodes (or check legacy plan_nodes)
+                 // Let's just give all active nodes for now to ensure no downtime during transition.
+                 return self.get_active_nodes().await;
+             }
+        }
+
+        Ok(nodes)
+    }
+
+    pub async fn get_user_by_tg_id(&self, tg_id: i64) -> Result<Option<User>> {
+        self.user_repo.get_by_tg_id(tg_id).await
     }
 
     pub async fn get_user_by_referral_code(&self, code: &str) -> Result<Option<User>> {
-        sqlx::query_as::<_, User>(
-            "SELECT * FROM users WHERE referral_code = ?"
-        )
-        .bind(code)
-        .fetch_optional(&self.pool)
-        .await
-        .context("Failed to fetch user by referral code")
+        self.user_repo.get_by_referral_code(code).await
     }
 
     pub async fn resolve_referrer_id(&self, code: &str) -> Result<Option<i64>> {
@@ -142,77 +184,287 @@ impl StoreService {
     }
 
     pub async fn upsert_user(&self, tg_id: i64, username: Option<&str>, full_name: Option<&str>, referrer_id: Option<i64>) -> Result<User> {
-        // First check if user exists to avoid overwriting referrer_id if it's already set
-        let existing = self.get_user_by_tg_id(tg_id).await?;
+        let existing = self.user_repo.get_by_tg_id(tg_id).await?;
         
-        let final_referrer_id = if let Some(ref u) = existing {
-            u.referrer_id
-        } else {
-            referrer_id
-        };
-
-        let user = sqlx::query_as::<_, User>(
-            r#"
-            INSERT INTO users (tg_id, username, full_name, referral_code, referrer_id)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(tg_id) DO UPDATE SET
-                username = COALESCE(excluded.username, users.username),
-                full_name = COALESCE(excluded.full_name, users.full_name),
-                referrer_id = COALESCE(users.referrer_id, excluded.referrer_id),
-                last_seen = CURRENT_TIMESTAMP
-            RETURNING id, tg_id, username, full_name, balance, referral_code, referrer_id, referred_by, is_banned, language_code, terms_accepted_at, warning_count, trial_used, trial_used_at, last_bot_msg_id, created_at
-            "#
-        )
-        .bind(tg_id)
-        .bind(username)
-        .bind(full_name)
-        .bind(tg_id.to_string()) // Default referral code is just the TG ID
-        .bind(final_referrer_id)
-        .fetch_one(&self.pool)
-        .await
-        .context("Failed to upsert user")?;
+        let user = self.user_repo.upsert(tg_id, username, full_name, referrer_id).await?;
 
         // Analytics Hooks
         if existing.is_none() {
              let _ = crate::services::analytics_service::AnalyticsService::track_new_user(&self.pool).await;
+        if existing.is_none() {
+             let _ = crate::services::analytics_service::AnalyticsService::track_new_user(&self.pool).await;
+
+             // Free Tier / Auto-Trial Logic
+             // Check if there is an active "is_trial" plan
+             let trial_plan = sqlx::query_as::<_, crate::models::store::Plan>(
+                 "SELECT * FROM plans WHERE COALESCE(is_trial, 0) = 1 AND is_active = 1 LIMIT 1"
+             )
+             .fetch_optional(&self.pool)
+             .await
+             .ok()
+             .flatten();
+
+             if let Some(plan) = trial_plan {
+                 // Get default duration (shortest)
+                 let duration = sqlx::query_as::<_, crate::models::store::PlanDuration>(
+                     "SELECT * FROM plan_durations WHERE plan_id = ? ORDER BY duration_days ASC LIMIT 1"
+                 )
+                 .bind(plan.id)
+                 .fetch_optional(&self.pool)
+                 .await
+                 .ok()
+                 .flatten();
+
+                 if let Some(d) = duration {
+                     // Create active subscription
+                     let vless_uuid = Uuid::new_v4().to_string();
+                     let sub_uuid = Uuid::new_v4().to_string();
+                     let expires_at = Utc::now() + Duration::days(d.duration_days as i64);
+
+                     let _ = sqlx::query(
+                         r#"
+                         INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, expires_at, status, note, created_at, is_trial)
+                         VALUES (?, ?, ?, ?, ?, 'active', 'Free Tier', CURRENT_TIMESTAMP, 1)
+                         "#
+                     )
+                     .bind(user.id)
+                     .bind(plan.id)
+                     .bind(vless_uuid)
+                     .bind(sub_uuid)
+                     .bind(expires_at)
+                     .execute(&self.pool)
+                     .await;
+                     
+                     info!("Assigned Free Tier plan {} to new user {}", plan.name, user.id);
+                 }
+             }
         }
         let _ = crate::services::analytics_service::AnalyticsService::track_active_user(&self.pool, user.id).await;
 
+        // Sync family if this user is a child (referrer logic might be separate, but if parent_id was set...)
+        // Note: upsert_user doesn't set parent_id yet. We'll need a separate method for that.
+        
         Ok(user)
     }
 
-    pub async fn increment_warning_count(&self, user_id: i64) -> Result<()> {
-        sqlx::query("UPDATE users SET warning_count = warning_count + 1 WHERE id = ?")
+    // ========================================================================
+    // Family Invites
+    // ========================================================================
+
+    pub async fn create_family_invite(&self, parent_id: i64, max_uses: i32, duration_days: i32) -> Result<crate::models::store::FamilyInvite> {
+        // Generate a random code. Format: FAMILY-XXXXXX (6 chars)
+        let random_part = Uuid::new_v4().to_string().replace("-", "").chars().take(6).collect::<String>().to_uppercase();
+        let code = format!("FAMILY-{}", random_part);
+        
+        let expires_at = Utc::now() + Duration::days(duration_days as i64);
+
+        let invite = sqlx::query_as::<_, crate::models::store::FamilyInvite>(
+            r#"
+            INSERT INTO family_invites (code, parent_id, max_uses, expires_at)
+            VALUES (?, ?, ?, ?)
+            RETURNING *
+            "#
+        )
+        .bind(code)
+        .bind(parent_id)
+        .bind(max_uses)
+        .bind(expires_at)
+        .fetch_one(&self.pool)
+        .await
+        .context("Failed to create family invite")?;
+
+        Ok(invite)
+    }
+
+    pub async fn get_valid_invite(&self, code: &str) -> Result<Option<crate::models::store::FamilyInvite>> {
+        let invite = sqlx::query_as::<_, crate::models::store::FamilyInvite>(
+            r#"
+            SELECT * FROM family_invites 
+            WHERE code = ? 
+            AND expires_at > datetime('now')
+            AND used_count < max_uses
+            "#
+        )
+        .bind(code)
+        .fetch_optional(&self.pool)
+        .await?;
+        
+        Ok(invite)
+    }
+
+    pub async fn redeem_family_invite(&self, user_id: i64, code: &str) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+
+        // 1. Get and Lock Invite
+        let invite = sqlx::query_as::<_, crate::models::store::FamilyInvite>(
+            "SELECT * FROM family_invites WHERE code = ? AND expires_at > datetime('now') AND used_count < max_uses LIMIT 1"
+        )
+        .bind(code)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let invite = match invite {
+            Some(i) => i,
+            None => return Err(anyhow::anyhow!("Invalid or expired invite code")),
+        };
+
+        // 2. Initial Checks
+        if invite.parent_id == user_id {
+            return Err(anyhow::anyhow!("You cannot invite yourself"));
+        }
+
+        // Check if user is already a child of someone? 
+        // Policy: Overwrite parent? Or fail? Let's fail if they already have a parent to prevent abuse/accidents.
+        let current_user: User = sqlx::query_as("SELECT * FROM users WHERE id = ?")
             .bind(user_id)
-            .execute(&self.pool)
+            .fetch_one(&mut *tx)
             .await?;
+            
+        if let Some(pid) = current_user.parent_id {
+            if pid == invite.parent_id {
+                return Err(anyhow::anyhow!("You are already in this family"));
+            }
+            return Err(anyhow::anyhow!("You are already a member of another family"));
+        }
+
+        // 3. Link User to Parent
+        sqlx::query("UPDATE users SET parent_id = ? WHERE id = ?")
+            .bind(invite.parent_id)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // 4. Increment usage
+        sqlx::query("UPDATE family_invites SET used_count = used_count + 1 WHERE id = ?")
+            .bind(invite.id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+
+        // 5. Sync Subscriptions (Auto-grant access)
+        // We do this outside the tx to reuse the existing method logic which might start its own tx or be complex
+        self.sync_family_subscriptions(invite.parent_id).await?;
+
+        Ok(())
+    }
+
+    pub async fn get_family_members(&self, parent_id: i64) -> Result<Vec<User>> {
+        sqlx::query_as::<_, User>("SELECT * FROM users WHERE parent_id = ?")
+            .bind(parent_id)
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to fetch family members")
+    }
+
+    pub async fn set_user_parent(&self, user_id: i64, parent_id: Option<i64>) -> Result<()> {
+        // Update parent_id for this user
+        self.user_repo.set_parent_id(user_id, parent_id).await?;
+            
+        // If parent set, sync immediately
+        if let Some(pid) = parent_id {
+            self.sync_family_subscriptions(pid).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn sync_family_subscriptions(&self, parent_id: i64) -> Result<()> {
+        // 1. Get Parent's Active Subscription
+        let parent_sub = sqlx::query_as::<_, Subscription>(
+            "SELECT * FROM subscriptions WHERE user_id = ? AND status = 'active' ORDER BY expires_at DESC LIMIT 1"
+        )
+        .bind(parent_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        // 2. Get Children
+        let children = self.get_family_members(parent_id).await?;
+        if children.is_empty() { return Ok(()); }
+
+        let mut tx = self.pool.begin().await?;
+
+        if let Some(psub) = parent_sub {
+            // Parent has active sub -> Grant/Update for children
+            for child in children {
+                // Check if child has their OWN paid subscription (not a family one)
+                // We assume 'note' = 'Family Plan' implies it's a synced sub.
+                // If they have a sub with different plan or no note, maybe skip?
+                // For simplified Phase 2: Overwrite/Extend child's active sub if it exists, or create new.
+                // Better: Check for ANY active sub.
+                let child_sub = sqlx::query_as::<_, Subscription>(
+                    "SELECT * FROM subscriptions WHERE user_id = ? AND status = 'active'"
+                )
+                .bind(child.id)
+                .fetch_optional(&mut *tx)
+                .await?;
+
+                if let Some(csub) = child_sub {
+                    // Update existing
+                    // Only update if it looks like a family sub or if we force it (Policy: Family overrides? Or Child Paid overrides?)
+                    // Let's say: If child sub plan_id != parent plan_id, assume independent.
+                    // But if plan_id is same, sync expiry.
+                    // Actually, let's mark family subs with note="Family".
+                    if csub.note.as_deref() == Some("Family") || csub.plan_id == psub.plan_id {
+                        sqlx::query("UPDATE subscriptions SET expires_at = ?, plan_id = ?, node_id = ?, status = 'active', note = 'Family' WHERE id = ?")
+                            .bind(psub.expires_at)
+                            .bind(psub.plan_id)
+                            .bind(psub.node_id)
+                            .bind(csub.id)
+                            .execute(&mut *tx)
+                            .await?;
+                    }
+                } else {
+                    // Create new Family Sub
+                    let vless_uuid = Uuid::new_v4().to_string();
+                    let sub_uuid = Uuid::new_v4().to_string();
+                    sqlx::query(
+                        r#"
+                        INSERT INTO subscriptions (user_id, plan_id, node_id, vless_uuid, subscription_uuid, expires_at, status, note, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, 'active', 'Family', CURRENT_TIMESTAMP)
+                        "#
+                    )
+                    .bind(child.id)
+                    .bind(psub.plan_id)
+                    .bind(psub.node_id)
+                    .bind(vless_uuid)
+                    .bind(sub_uuid)
+                    .bind(psub.expires_at)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+            }
+        } else {
+            // Parent has NO active sub -> Expire family subs for children
+            for child in children {
+                sqlx::query("UPDATE subscriptions SET status = 'expired' WHERE user_id = ? AND note = 'Family' AND status = 'active'")
+                    .bind(child.id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn increment_warning_count(&self, user_id: i64) -> Result<()> {
+        self.user_repo.increment_warning_count(user_id).await?;
         Ok(())
     }
 
     pub async fn ban_user(&self, user_id: i64) -> Result<()> {
-        sqlx::query("UPDATE users SET is_banned = 1 WHERE id = ?")
-            .bind(user_id)
-            .execute(&self.pool)
-            .await?;
+        self.user_repo.update_profile(user_id, user.balance, true, user.referral_code.as_deref()).await?;
         Ok(())
     }
 
     pub async fn update_user_language(&self, user_id: i64, lang: &str) -> Result<()> {
-        sqlx::query("UPDATE users SET language_code = ? WHERE id = ?")
-            .bind(lang)
-            .bind(user_id)
-            .execute(&self.pool)
-            .await?;
+        self.user_repo.update_language(user_id, lang).await?;
         Ok(())
     }
 
     pub async fn update_last_bot_msg_id(&self, user_id: i64, msg_id: i32) -> Result<()> {
         // Legacy: kept for compatibility but superseded by history tracking
-        sqlx::query("UPDATE users SET last_bot_msg_id = ? WHERE id = ?")
-            .bind(msg_id)
-            .bind(user_id)
-            .execute(&self.pool)
-            .await?;
+        self.user_repo.update_last_bot_msg_id(user_id, msg_id).await?;
         Ok(())
     }
 
@@ -254,10 +506,7 @@ impl StoreService {
     }
 
     pub async fn update_user_terms(&self, user_id: i64) -> Result<()> {
-        sqlx::query("UPDATE users SET terms_accepted_at = CURRENT_TIMESTAMP WHERE id = ?")
-            .bind(user_id)
-            .execute(&self.pool)
-            .await?;
+        self.user_repo.update_terms_accepted(user_id).await?;
         Ok(())
     }
 
@@ -402,6 +651,10 @@ impl StoreService {
         .await?;
 
         tx.commit().await?;
+
+        // Sync family members
+        let _ = self.sync_family_subscriptions(user_id).await.map_err(|e| error!("Failed to sync family subs: {}", e));
+
         Ok(updated_sub)
     }
 
@@ -587,12 +840,14 @@ impl StoreService {
     }
 
     pub async fn admin_extend_subscription(&self, sub_id: i64, days: i32) -> Result<()> {
-        sqlx::query("UPDATE subscriptions SET expires_at = datetime(expires_at, '+' || ? || ' days') WHERE id = ?")
+        let user_id: i64 = sqlx::query_scalar("UPDATE subscriptions SET expires_at = datetime(expires_at, '+' || ? || ' days') WHERE id = ? RETURNING user_id")
             .bind(days)
             .bind(sub_id)
-            .execute(&self.pool)
+            .fetch_one(&self.pool)
             .await
             .context("Failed to extend subscription")?;
+
+        let _ = self.sync_family_subscriptions(user_id).await.map_err(|e| error!("Failed to sync family subs: {}", e));
         Ok(())
     }
 
@@ -627,6 +882,10 @@ impl StoreService {
         .await?;
 
         tx.commit().await?;
+
+        // Sync family members
+        let _ = self.sync_family_subscriptions(user_id).await.map_err(|e| error!("Failed to sync family subs: {}", e));
+
         Ok(sub)
     }
 
@@ -718,6 +977,10 @@ impl StoreService {
         };
 
         tx.commit().await?;
+
+        // Sync family members
+        let _ = self.sync_family_subscriptions(user_id).await.map_err(|e| error!("Failed to sync family subs: {}", e));
+
         Ok(sub)
     }
 
@@ -787,6 +1050,17 @@ impl StoreService {
             .context("Failed to update subscription note")?;
         Ok(())
     }
+
+    pub async fn update_subscription_node(&self, sub_id: i64, node_id: Option<i64>) -> Result<()> {
+        sqlx::query("UPDATE subscriptions SET node_id = ? WHERE id = ?")
+            .bind(node_id)
+            .bind(sub_id)
+            .execute(&self.pool)
+            .await
+            .context("Failed to update subscription node")?;
+        Ok(())
+    }
+
 
 
     pub async fn log_payment(&self, user_id: i64, method: &str, amount_cents: i64, external_id: Option<&str>, status: &str) -> Result<()> {
@@ -1097,11 +1371,7 @@ impl StoreService {
         }
 
         // 4. Deduct Balance
-        sqlx::query("UPDATE users SET balance = balance - ? WHERE id = ?")
-            .bind(product.price)
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
+        self.user_repo.adjust_balance(user_id, product.price).await?;
 
         // 5. Create Order
         use sqlx::Row;
@@ -1899,11 +2169,7 @@ impl StoreService {
             return Err(anyhow::anyhow!("Referrer is already set and cannot be changed"));
         }
 
-        sqlx::query("UPDATE users SET referrer_id = ? WHERE id = ?")
-            .bind(referrer.id)
-            .bind(user_id)
-            .execute(&self.pool)
-            .await?;
+        self.user_repo.set_referrer_id(user_id, referrer.id).await?;
 
         Ok(())
     }
@@ -1946,11 +2212,7 @@ impl StoreService {
                  
                  if refund_amount_cents > 0 {
                      // Credit User
-                     sqlx::query("UPDATE users SET balance = balance + ? WHERE id = ?")
-                        .bind(refund_amount_cents)
-                        .bind(sub.user_id)
-                        .execute(&mut *tx)
-                        .await?;
+                     self.user_repo.adjust_balance(sub.user_id, refund_amount_cents).await?;
                         
                      // Log Transaction/Activity
                      // We don't have a transaction log table for "refunds" specifically yet in schema shown, 
@@ -2044,11 +2306,7 @@ impl StoreService {
                     .execute(&self.pool)
                     .await?;
                 
-                sqlx::query("UPDATE users SET balance = balance - ? WHERE id = ?")
-                    .bind(price)
-                    .bind(user_id)
-                    .execute(&self.pool)
-                    .await?;
+                self.user_repo.adjust_balance(user_id, -price).await?;
                 
                 info!("Auto-renewed subscription {} for user {}", sub_id, user_id);
                 results.push(RenewalResult::Success { user_id, sub_id, amount: price, plan_name });
@@ -2081,10 +2339,7 @@ impl StoreService {
     
     /// Mark user as having used their free trial
     pub async fn mark_trial_used(&self, user_id: i64) -> Result<()> {
-        sqlx::query("UPDATE users SET trial_used = 1, trial_used_at = CURRENT_TIMESTAMP WHERE id = ?")
-            .bind(user_id)
-            .execute(&self.pool)
-            .await?;
+        self.user_repo.mark_trial_used(user_id).await?;
         Ok(())
     }
     
@@ -2211,11 +2466,7 @@ impl StoreService {
         }
 
         // Deduct balance
-        sqlx::query("UPDATE users SET balance = balance - ? WHERE id = ?")
-            .bind(total_price)
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
+        self.user_repo.adjust_balance(user_id, total_price).await?;
 
         // Create order
         let order_id: i64 = sqlx::query_scalar("INSERT INTO orders (user_id, total_amount, status) VALUES (?, ?, 'completed') RETURNING id")

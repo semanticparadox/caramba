@@ -564,8 +564,31 @@ impl SubscriptionService {
         )
         .fetch_all(&self.pool)
         .await?;
+        
+        // Fetch all active inbounds for these nodes
+        let node_ids: Vec<i64> = nodes.iter().map(|n| n.id).collect();
+        let inbounds_map = if node_ids.is_empty() {
+            std::collections::HashMap::new()
+        } else {
+            let ids_str = node_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
+            let query = format!("SELECT * FROM inbounds WHERE enable = 1 AND node_id IN ({})", ids_str);
+            
+            let inbounds = sqlx::query_as::<_, crate::models::network::Inbound>(&query)
+                .fetch_all(&self.pool)
+                .await?;
+                
+            let mut map = std::collections::HashMap::new();
+            for inbound in inbounds {
+                map.entry(inbound.node_id).or_insert_with(Vec::new).push(inbound);
+            }
+            map
+        };
 
-        let node_infos = nodes.iter().map(NodeInfo::from).collect();
+        let node_infos = nodes.iter().map(|n| {
+            let node_inbounds = inbounds_map.get(&n.id).cloned().unwrap_or_default();
+            NodeInfo::new(n, node_inbounds)
+        }).collect();
+        
         Ok(node_infos)
     }
 

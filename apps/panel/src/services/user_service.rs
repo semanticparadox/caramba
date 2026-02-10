@@ -1,76 +1,47 @@
 use sqlx::SqlitePool;
 use anyhow::{Context, Result};
 use crate::models::store::User;
+use crate::repositories::user_repo::UserRepository;
 
 
 #[derive(Debug, Clone)]
 pub struct UserService {
     pool: SqlitePool,
+    user_repo: UserRepository,
 }
 
 impl UserService {
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        let user_repo = UserRepository::new(pool.clone());
+        Self { pool, user_repo }
     }
 
     pub async fn get_all(&self) -> Result<Vec<User>> {
-        sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY created_at DESC")
-            .fetch_all(&self.pool)
-            .await
-            .context("Failed to fetch all users")
+        self.user_repo.get_all().await
     }
 
     pub async fn search(&self, query: &str) -> Result<Vec<User>> {
-        sqlx::query_as::<_, User>("SELECT * FROM users WHERE username LIKE ? OR full_name LIKE ? ORDER BY created_at DESC")
-            .bind(format!("%{}%", query))
-            .bind(format!("%{}%", query))
-            .fetch_all(&self.pool)
-            .await
-            .context("Failed to search users")
+        self.user_repo.search(query).await
     }
 
     pub async fn get_by_id(&self, id: i64) -> Result<Option<User>> {
-        sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?")
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await
-            .context("Failed to fetch user by ID")
+        self.user_repo.get_by_id(id).await
     }
 
     pub async fn update_profile(&self, id: i64, balance: i64, is_banned: bool, referral_code: Option<&str>) -> Result<()> {
-        sqlx::query("UPDATE users SET balance = ?, is_banned = ?, referral_code = ? WHERE id = ?")
-            .bind(balance)
-            .bind(is_banned)
-            .bind(referral_code)
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
+        self.user_repo.update_profile(id, balance, is_banned, referral_code).await
     }
 
     pub async fn set_balance(&self, id: i64, balance: i64) -> Result<()> {
-        sqlx::query("UPDATE users SET balance = ? WHERE id = ?")
-            .bind(balance)
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
+        self.user_repo.update_balance(id, balance).await
     }
 
     pub async fn get_by_tg_id(&self, tg_id: i64) -> Result<Option<User>> {
-        sqlx::query_as::<_, User>("SELECT * FROM users WHERE tg_id = ?")
-            .bind(tg_id)
-            .fetch_optional(&self.pool)
-            .await
-            .context("Failed to fetch user by TG ID")
+        self.user_repo.get_by_tg_id(tg_id).await
     }
 
     pub async fn get_by_referral_code(&self, code: &str) -> Result<Option<User>> {
-        sqlx::query_as::<_, User>("SELECT * FROM users WHERE referral_code = ?")
-            .bind(code)
-            .fetch_optional(&self.pool)
-            .await
-            .context("Failed to fetch user by referral code")
+        self.user_repo.get_by_referral_code(code).await
     }
 
     pub async fn resolve_referrer_id(&self, code: &str) -> Result<Option<i64>> {
@@ -88,34 +59,9 @@ impl UserService {
     }
 
     pub async fn upsert(&self, tg_id: i64, username: Option<&str>, full_name: Option<&str>, referrer_id: Option<i64>) -> Result<User> {
-        let existing = self.get_by_tg_id(tg_id).await?;
+        let existing = self.user_repo.get_by_tg_id(tg_id).await?;
         
-        let final_referrer_id = if let Some(ref u) = existing {
-            u.referrer_id
-        } else {
-            referrer_id
-        };
-
-        let user = sqlx::query_as::<_, User>(
-            r#"
-            INSERT INTO users (tg_id, username, full_name, referral_code, referrer_id)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(tg_id) DO UPDATE SET
-                username = COALESCE(excluded.username, users.username),
-                full_name = COALESCE(excluded.full_name, users.full_name),
-                referrer_id = COALESCE(users.referrer_id, excluded.referrer_id),
-                last_seen = CURRENT_TIMESTAMP
-            RETURNING id, tg_id, username, full_name, balance, referral_code, referrer_id, referred_by, is_banned, language_code, terms_accepted_at, warning_count, trial_used, trial_used_at, last_bot_msg_id, created_at
-            "#
-        )
-        .bind(tg_id)
-        .bind(username)
-        .bind(full_name)
-        .bind(tg_id.to_string())
-        .bind(final_referrer_id)
-        .fetch_one(&self.pool)
-        .await
-        .context("Failed to upsert user")?;
+        let user = self.user_repo.upsert(tg_id, username, full_name, referrer_id).await?;
 
         if existing.is_none() {
              let _ = crate::services::analytics_service::AnalyticsService::track_new_user(&self.pool).await;
@@ -126,37 +72,26 @@ impl UserService {
     }
 
     pub async fn increment_warning_count(&self, user_id: i64) -> Result<()> {
-        sqlx::query("UPDATE users SET warning_count = warning_count + 1 WHERE id = ?")
-            .bind(user_id)
-            .execute(&self.pool)
-            .await?;
+        self.user_repo.increment_warning_count(user_id).await?;
         Ok(())
     }
 
     pub async fn ban(&self, user_id: i64) -> Result<()> {
-        sqlx::query("UPDATE users SET is_banned = 1 WHERE id = ?")
-            .bind(user_id)
-            .execute(&self.pool)
-            .await?;
+        // We reuse update_profile but we need current profile info...
+        // Ah, this is where Repo shines. Maybe Repo should have specific `ban` method?
+        // Let's use get_by_id first
+        if let Some(user) = self.user_repo.get_by_id(user_id).await? {
+            self.user_repo.update_profile(user_id, user.balance, true, user.referral_code.as_deref()).await?;
+        }
         Ok(())
     }
 
     pub async fn update_language(&self, user_id: i64, lang: &str) -> Result<()> {
-        sqlx::query("UPDATE users SET language_code = ? WHERE id = ?")
-            .bind(lang)
-            .bind(user_id)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
+        self.user_repo.update_language(user_id, lang).await
     }
 
     pub async fn update_last_bot_msg_id(&self, user_id: i64, msg_id: i32) -> Result<()> {
-        sqlx::query("UPDATE users SET last_bot_msg_id = ? WHERE id = ?")
-            .bind(msg_id)
-            .bind(user_id)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
+        self.user_repo.update_last_bot_msg_id(user_id, msg_id).await
     }
 
     pub async fn add_bot_message_to_history(&self, user_id: i64, chat_id: i64, message_id: i32) -> Result<()> {
@@ -193,11 +128,7 @@ impl UserService {
     }
 
     pub async fn update_terms(&self, user_id: i64) -> Result<()> {
-        sqlx::query("UPDATE users SET terms_accepted_at = CURRENT_TIMESTAMP WHERE id = ?")
-            .bind(user_id)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
+        self.user_repo.update_terms_accepted(user_id).await
     }
 
     pub async fn set_referrer(&self, user_id: i64, referrer_code: &str) -> Result<()> {

@@ -52,10 +52,20 @@
                     </div>
                 </div>
 
-                <div>
-                    <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Referral Code</label>
-                    <input type="text" name="referral_code" value="{{ user.referral_code.as_deref().unwrap_or("") }}"
-                        class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Referral Code</label>
+                        <input type="text" name="referral_code"
+                            value="{{ user.referral_code.as_deref().unwrap_or("") }}"
+                            class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Parent (Family)</label>
+                        <input type="number" name="parent_id"
+                            value="{{ user.parent_id.map(|id| id.to_string()).unwrap_or(String::new()) }}"
+                            placeholder="User ID"
+                            class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
+                    </div>
                 </div>
 
                 <div class="h-px bg-white/5 my-4"></div>
