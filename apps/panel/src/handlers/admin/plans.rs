@@ -181,7 +181,7 @@ pub async fn get_plan_edit(
         _ => return (axum::http::StatusCode::NOT_FOUND, "Plan not found").into_response(),
     };
 
-    let all_groups = state.node_repo.get_all_groups().await.unwrap_or_default();
+    let all_groups = state.orchestration_service.node_repo.get_all_groups().await.unwrap_or_default();
 
     let linked_group_ids = state.store_service.get_plan_group_ids(id).await.unwrap_or_default();
 
