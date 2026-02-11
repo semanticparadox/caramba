@@ -139,9 +139,9 @@ impl NodeRepository {
             r#"
             INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable, listen_ip)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(node_id, tag) DO UPDATE SET
+            ON CONFLICT(node_id, listen_port) DO UPDATE SET
+                tag=excluded.tag,
                 protocol=excluded.protocol,
-                listen_port=excluded.listen_port,
                 settings=excluded.settings,
                 stream_settings=excluded.stream_settings,
                 enable=excluded.enable,
