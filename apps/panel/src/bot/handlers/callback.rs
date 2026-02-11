@@ -23,7 +23,8 @@ pub async fn callback_handler(
                 let _ = bot.answer_callback_query(callback_id).await;
 
                 // Fetch user to get ID
-                if let Some(u) = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten() {
+                let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                if let Some(u) = user_db {
                     let _ = state.store_service.update_user_language(u.id, lang).await;
                     
                     // Immediately show terms
@@ -45,7 +46,8 @@ pub async fn callback_handler(
 
             "accept_terms" => {
                 let _ = bot.answer_callback_query(callback_id).await;
-                if let Some(u) = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten() {
+                let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                if let Some(u) = user_db {
                         let _ = state.store_service.update_user_terms(u.id).await;
                         
                         if let Some(msg) = q.message {
@@ -181,7 +183,7 @@ pub async fn callback_handler(
             // Handlers
             cb if cb.starts_with("cb_") => {
                 let amount = cb.strip_prefix("cb_").unwrap_or("0").parse::<f64>().unwrap_or(0.0);
-                let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                 if let Some(u) = user_db {
                     match state.pay_service.create_cryptobot_invoice(u.id, amount, PaymentType::BalanceTopup).await {
                         Ok(url) => {
@@ -199,7 +201,7 @@ pub async fn callback_handler(
             }
             np if np.starts_with("np_") => {
                 let amount = np.strip_prefix("np_").unwrap_or("0").parse::<f64>().unwrap_or(0.0);
-                let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                 if let Some(u) = user_db {
                     match state.pay_service.create_nowpayments_invoice(u.id, amount, PaymentType::BalanceTopup).await {
                         Ok(url) => {
@@ -217,7 +219,7 @@ pub async fn callback_handler(
             }
             cp if cp.starts_with("cp_") => {
                 let amount = cp.strip_prefix("cp_").unwrap_or("0").parse::<f64>().unwrap_or(0.0);
-                let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                 if let Some(u) = user_db {
                     match state.pay_service.create_crystalpay_invoice(u.id, amount, PaymentType::BalanceTopup).await {
                         Ok(url) => {
@@ -235,7 +237,7 @@ pub async fn callback_handler(
             }
             str_pay if str_pay.starts_with("str_") => {
                 let amount = str_pay.strip_prefix("str_").unwrap_or("0").parse::<f64>().unwrap_or(0.0);
-                let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                 if let Some(u) = user_db {
                     match state.pay_service.create_stripe_session(u.id, amount, PaymentType::BalanceTopup).await {
                         Ok(url) => {
@@ -259,7 +261,7 @@ pub async fn callback_handler(
                 // Let's charge 50 XTR per $1 USD balance.
                 let xtr_amount = (amount_usd * 50.0) as u32; 
                 
-                let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                 if let Some(u) = user_db {
                     let payload = PaymentType::BalanceTopup.to_payload_string(u.id);
                     let prices = vec![LabeledPrice { label: "Top-up".to_string(), amount: xtr_amount as u32 }];
@@ -282,7 +284,7 @@ pub async fn callback_handler(
 
             get_links if get_links.starts_with("get_links_") => {
                     let sub_id = get_links.strip_prefix("get_links_").unwrap_or("0").parse::<i64>().unwrap_or(0);
-                    let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                    let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                     if let Some(user_tg) = user_db {
                     // Fetch specific subscription
                         if let Ok(subs) = state.store_service.get_user_subscriptions(user_tg.id).await {
@@ -332,7 +334,7 @@ pub async fn callback_handler(
                 let _sub_id = get_config.strip_prefix("get_config_").unwrap_or("0");
                 let _ = bot.answer_callback_query(callback_id).text("Generating profile...").await;
                 
-                let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                 if let Some(u) = user_db {
                     match state.store_service.generate_subscription_file(u.id).await {
                         Ok(json_content) => {
@@ -356,7 +358,7 @@ pub async fn callback_handler(
 
             activate if activate.starts_with("activate_") => {
                 let sub_id = activate.strip_prefix("activate_").unwrap_or("0").parse::<i64>().unwrap_or(0);
-                let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                 
                 if let Some(u) = user_db {
                     match state.store_service.activate_subscription(sub_id, u.id).await {
@@ -388,7 +390,7 @@ pub async fn callback_handler(
             }
 
             "my_gifts" => {
-                let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                 if let Some(u) = user_db {
                     let _ = bot.answer_callback_query(callback_id).await;
                     match state.store_service.get_user_gift_codes(u.id).await {
@@ -646,7 +648,7 @@ pub async fn callback_handler(
 
             gift if gift.starts_with("gift_init_") => {
                     let sub_id = gift.strip_prefix("gift_init_").unwrap_or("0").parse::<i64>().unwrap_or(0);
-                    let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                    let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                     
                     if let Some(u) = user_db {
                         match state.store_service.convert_subscription_to_gift(sub_id, u.id).await {
@@ -677,7 +679,7 @@ pub async fn callback_handler(
             buy_dur if buy_dur.starts_with("buy_dur_") => {
                 let id_str = buy_dur.strip_prefix("buy_dur_").unwrap();
                 if let Ok(duration_id) = id_str.parse::<i64>() {
-                    let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                    let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                     if let Some(u) = user_db {
                         match state.store_service.purchase_plan(u.id, duration_id).await {
                             Ok(_sub) => {
@@ -700,7 +702,7 @@ pub async fn callback_handler(
             ext_dur if ext_dur.starts_with("ext_dur_") => {
                 let id_str = ext_dur.strip_prefix("ext_dur_").unwrap();
                 if let Ok(duration_id) = id_str.parse::<i64>() {
-                    let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                    let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                     if let Some(u) = user_db {
                         match state.store_service.extend_subscription(u.id, duration_id).await {
                             Ok(sub) => {
@@ -725,7 +727,7 @@ pub async fn callback_handler(
             // Store Product Purchase
             buyprod if buyprod.starts_with("buyprod_") => {
                     let prod_id = buyprod.strip_prefix("buyprod_").unwrap().parse::<i64>().unwrap_or(0);
-                    let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                    let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                     
                     if let Some(u) = user_db {
                         match state.store_service.purchase_product_with_balance(u.id, prod_id).await {

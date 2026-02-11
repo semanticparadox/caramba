@@ -240,6 +240,10 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     // Initialize store service
     let store_service = Arc::new(services::store_service::StoreService::new(pool.clone()));
 
+    // Initialize infrastructure & security services (Moved up for dependency injection)
+    let infrastructure_service = Arc::new(services::infrastructure_service::InfrastructureService::new(pool.clone()));
+    let security_service = Arc::new(services::security_service::SecurityService::new(pool.clone()));
+
     // Initialize orchestration service
     let orchestration_service = Arc::new(services::orchestration_service::OrchestrationService::new(
         pool.clone(),
@@ -256,9 +260,6 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     let org_repo = repositories::org_repo::OrganizationRepository::new(pool.clone());
     let org_service = Arc::new(services::org_service::OrganizationService::new(org_repo));
     let sni_repo = Arc::new(repositories::sni_repo::SniRepository::new(pool.clone()));
-    
-    let infrastructure_service = Arc::new(services::infrastructure_service::InfrastructureService::new(pool.clone()));
-    let security_service = Arc::new(services::security_service::SecurityService::new(pool.clone()));
 
     // Initialize connection service
     let connection_service = Arc::new(services::connection_service::ConnectionService::new(

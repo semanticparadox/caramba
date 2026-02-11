@@ -81,7 +81,7 @@ pub struct ExtendForm {
 }
 
 // Helper function
-fn format_duration(duration: chrono::Duration) -> String {
+fn format_duration(duration: chrono::TimeDelta) -> String {
     if duration.num_seconds() < 60 {
         format!("{} sec", duration.num_seconds())
     } else if duration.num_minutes() < 60 {

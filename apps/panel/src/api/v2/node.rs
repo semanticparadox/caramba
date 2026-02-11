@@ -222,7 +222,7 @@ pub async fn get_config(
     // 3. Generate Config
     match state.orchestration_service.generate_node_config_json(node_id_scalar).await {
         Ok((_, config_value)) => {
-            let config_str = config_value.to_string();
+            let config_str: String = config_value.to_string();
             let hash = format!("{:x}", md5::compute(config_str.as_bytes()));
             
             (StatusCode::OK, Json(ConfigResponse {
@@ -269,7 +269,7 @@ pub async fn rotate_sni(
     
     // 3. Get Next SNI
     // Assume Tier 1 for now, or fetch from node settings
-    let next_sni = match state.store_service.get_next_sni(&current_sni, 1).await {
+    let next_sni: String = match state.store_service.get_next_sni(&current_sni, 1).await {
         Ok(s) => s,
         Err(e) => {
             error!("Failed to get next SNI: {}", e);

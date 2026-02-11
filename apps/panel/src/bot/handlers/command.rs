@@ -45,7 +45,7 @@ pub async fn message_handler(
         // 1. Resolve User (Handle /start upsert or fetch existing)
         let user_res = if text.starts_with("/start") {
             let start_param = text.strip_prefix("/start ").unwrap_or("");
-            let referrer_id = if !start_param.is_empty() {
+            let referrer_id: Option<i64> = if !start_param.is_empty() {
                 state.store_service.resolve_referrer_id(start_param).await.ok().flatten()
             } else {
                 None
@@ -83,7 +83,8 @@ pub async fn message_handler(
                 }
             }
         } else {
-            state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten()
+            let user: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+            user
         };
 
         // 2. State Machine Checks
@@ -113,7 +114,7 @@ pub async fn message_handler(
                             return Ok(());
                         }
                 }
-                let terms_text = state.store_service.get_setting("terms_of_service").await.ok().flatten()
+                let terms_text: String = state.store_service.get_setting("terms_of_service").await.ok().flatten()
                     .unwrap_or_else(|| "Terms of Service...".to_string());
                 
                 let _ = bot.send_message(msg.chat.id, format!("📜 <b>Terms of Service</b>\n\n{}\n\nPlease accept the terms to continue.", terms_text))
@@ -214,7 +215,8 @@ pub async fn message_handler(
                         let rest = &reply_text[start + "Subscription #".len()..];
                         let id_str = rest.split_whitespace().next().unwrap_or("0");
                         if let Ok(sub_id) = id_str.parse::<i64>() {
-                            if let Some(u) = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten() {
+                            let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                            if let Some(u) = user_db {
                                 match state.store_service.transfer_subscription(sub_id, u.id, text).await {
                                     Ok(_) => { let _ = bot.send_message(msg.chat.id, format!("✅ Subscription \\#{} transferred to {} successfully\\!", sub_id, escape_md(text))).parse_mode(ParseMode::MarkdownV2).await; }
                                     Err(e) => { let _ = bot.send_message(msg.chat.id, format!("❌ Transfer failed: {}", escape_md(&e.to_string()))).parse_mode(ParseMode::MarkdownV2).await; }
@@ -228,7 +230,8 @@ pub async fn message_handler(
                     // Gift Code
                     if reply_text.contains("🎟 Enter your Gift Code") || reply_text.contains("🎟 Enter your Promo Code") {
                         let code = text.trim();
-                        if let Some(u) = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten() {
+                        let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                        if let Some(u) = user_db {
                             if code.starts_with("EXA-GIFT-") {
                                 match state.store_service.redeem_gift_code(u.id, code).await {
                                     Ok(_sub) => { let _ = bot.send_message(msg.chat.id, "✅ *Code Redeemed\\!*\n\nCheck *My Services*\\.").parse_mode(ParseMode::MarkdownV2).await; },
@@ -256,7 +259,8 @@ pub async fn message_handler(
                             return Ok(());
                         }
 
-                        if let Some(u) = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten() {
+                        let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                        if let Some(u) = user_db {
                             match state.store_service.update_user_referral_code(u.id, new_code).await {
                                 Ok(_) => { 
                                     let bot_me = bot.get_me().await.ok();
@@ -286,7 +290,8 @@ pub async fn message_handler(
                     // Enter Referrer Code
                     if reply_text.contains("Enter Referrer Code") {
                          let ref_code = text.trim();
-                         if let Some(u) = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten() {
+                         let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                         if let Some(u) = user_db {
                              match state.store_service.set_user_referrer(u.id, ref_code).await {
                                  Ok(_) => { let _ = bot.send_message(msg.chat.id, "✅ *Referrer Linked\\!*\n\nYou've successfully set your referrer\\.").parse_mode(ParseMode::MarkdownV2).await; },
                                  Err(e) => { let _ = bot.send_message(msg.chat.id, format!("❌ Linking Failed: {}", escape_md(&e.to_string()))).parse_mode(ParseMode::MarkdownV2).await; }
@@ -368,7 +373,7 @@ pub async fn message_handler(
         match text {
             // /start is already handled above in flow
             "📦 Digital Store" => {
-                        let categories = state.store_service.get_categories().await.unwrap_or_default();
+                        let categories: Vec<crate::models::store::StoreCategory> = state.store_service.get_categories().await.unwrap_or_default();
                     if categories.is_empty() {
                         let _ = bot.send_message(msg.chat.id, "❌ The store is currently empty.")
                             .reply_markup(main_menu())
@@ -390,9 +395,8 @@ pub async fn message_handler(
                     }
             }
             "🛒 My Cart" | "/cart" => {
-                  let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
-                 if let Some(user) = user_db {
-                     let cart_items = state.store_service.get_user_cart(user.id).await.unwrap_or_default();
+                  if let Ok(Some(user)) = state.store_service.get_user_by_tg_id(tg_id).await {
+                     let cart_items: Vec<crate::models::store::CartItem> = state.store_service.get_user_cart(user.id).await.unwrap_or_default();
                      
                      if cart_items.is_empty() {
                          let _ = bot.send_message(msg.chat.id, "🛒 Your cart is empty.").await;
@@ -439,8 +443,8 @@ pub async fn message_handler(
             }
 
             "🛍 Buy Subscription" | "/plans" => {
-                let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
-                let plans = state.store_service.get_active_plans().await.unwrap_or_default();
+                let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                let plans: Vec<crate::models::store::Plan> = state.store_service.get_active_plans().await.unwrap_or_default();
                 
                 if plans.is_empty() {
                     let _ = bot.send_message(msg.chat.id, "❌ No active plans available at the moment.")
@@ -507,9 +511,7 @@ pub async fn message_handler(
             }
 
             "👤 My Profile" | "/profile" => {
-                let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
-                
-                if let Some(user) = user_db {
+                if let Ok(Some(user)) = state.store_service.get_user_by_tg_id(tg_id).await {
                     let price_major = user.balance / 100;
                     let price_minor = user.balance % 100;
                     
@@ -540,9 +542,7 @@ pub async fn message_handler(
             }
 
             "🔐 My Services" | "/services" => {
-                let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
-                
-                if let Some(user) = user_db {
+                if let Ok(Some(user)) = state.store_service.get_user_by_tg_id(tg_id).await {
                     let mut response = "🔐 *MY SERVICES*\n\n".to_string();
 
                     // 1. Subscriptions
@@ -681,8 +681,7 @@ pub async fn message_handler(
             }
 
             "🎁 Bonuses / Referral" | "/referral" => {
-                let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
-                if let Some(user) = user_db {
+                if let Ok(Some(user)) = state.store_service.get_user_by_tg_id(tg_id).await {
                     let bot_me = bot.get_me().await.ok();
                     let bot_username = bot_me.and_then(|m| m.username.clone()).unwrap_or_else(|| "bot".to_string());
                     
@@ -690,8 +689,8 @@ pub async fn message_handler(
                     let ref_code = user.referral_code.clone().unwrap_or_else(|| user.tg_id.to_string());
                     let ref_link = format!("https://t.me/{}?start={}", bot_username, ref_code);
                     
-                    let ref_count = state.store_service.get_referral_count(user.id).await.unwrap_or(0);
-                    let ref_earnings = state.store_service.get_user_referral_earnings(user.id).await.unwrap_or(0);
+                    let ref_count: i64 = state.store_service.get_referral_count(user.id).await.unwrap_or(0);
+                    let ref_earnings: i64 = state.store_service.get_user_referral_earnings(user.id).await.unwrap_or(0);
                     let earnings_major = ref_earnings / 100;
                     let earnings_minor = ref_earnings % 100;
                     
@@ -759,11 +758,10 @@ pub async fn message_handler(
             }
 
             "/devices" | "📱 My Devices" => {
-                  let user_db = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
-                 if let Some(u) = user_db {
+                  if let Ok(Some(u)) = state.store_service.get_user_by_tg_id(tg_id).await {
                       // Get all subs
-                      if let Ok(subs) = state.store_service.get_user_subscriptions(u.id).await {
-                           let active_subs: Vec<_> = subs.into_iter().filter(|s| s.sub.status == "active").collect();
+                       if let Ok(subs) = state.store_service.get_user_subscriptions(u.id).await {
+                           let active_subs: Vec<crate::models::store::SubscriptionWithDetails> = subs.into_iter().filter(|s| s.sub.status == "active").collect();
                            
                            if active_subs.is_empty() {
                                let _ = bot.send_message(msg.chat.id, "❌ You have no active subscriptions.")
@@ -776,8 +774,8 @@ pub async fn message_handler(
                                // Simpler to just send message with "View Devices" button or replicate logic.
                                // Replicating logic is cleaner here to avoid hacking callback structure.
                                
-                               let ips = state.store_service.get_subscription_active_ips(sub.sub.id).await.unwrap_or_default();
-                               let limit = state.store_service.get_subscription_device_limit(sub.sub.id).await.unwrap_or(0);
+                               let ips: Vec<crate::models::store::SubscriptionIpTracking> = state.store_service.get_subscription_active_ips(sub.sub.id).await.unwrap_or_default();
+                               let limit: i64 = state.store_service.get_subscription_device_limit(sub.sub.id).await.unwrap_or(0);
                                
                                let mut text = format!("📱 *Active Devices for Subscription \\#{:?}*\n", sub.sub.id);
                                text.push_str(&format!("Limit: `{}/{}` devices\n\n", ips.len(), if limit == 0 { "∞".to_string() } else { limit.to_string() }));

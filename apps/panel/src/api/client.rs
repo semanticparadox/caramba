@@ -644,7 +644,7 @@ async fn get_leaderboard(
     use crate::services::referral_service::ReferralService;
 
     match ReferralService::get_leaderboard(&state.pool, 10).await {
-        Ok(leaderboard) => Json(leaderboard).into_response(),
+        Ok(leaderboard) => Json::<Vec<crate::services::referral_service::LeaderboardEntry>>(leaderboard).into_response(),
         Err(e) => {
             tracing::error!("Failed to fetch leaderboard: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch leaderboard").into_response()
@@ -661,7 +661,7 @@ async fn get_store_categories(
     axum::Extension(_claims): axum::Extension<Claims>,
 ) -> impl IntoResponse {
     match state.catalog_service.get_categories().await {
-        Ok(cats) => Json(cats).into_response(),
+        Ok(cats) => Json::<Vec<crate::models::store::StoreCategory>>(cats).into_response(),
         Err(e) => {
             tracing::error!("Failed to fetch categories: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch categories").into_response()
