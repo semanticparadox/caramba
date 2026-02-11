@@ -96,9 +96,10 @@
                         <td class="px-6 py-4 text-right">
                             <div
                                 class="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                class="p-2 hover:bg-emerald-500/10 text-slate-400 hover:text-emerald-400 rounded-lg
-                                transition-colors">
-                                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                                <button title="Sync" hx-post="{{ admin_path }}/templates/{{ item.tpl.id }}/sync"
+                                    hx-target="#template-row-{{ item.tpl.id }}" hx-swap="none"
+                                    class="p-2 hover:bg-emerald-500/10 text-slate-400 hover:text-emerald-400 rounded-lg transition-colors">
+                                    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
                                 </button>
                                 <button title="Edit" hx-get="{{ admin_path }}/templates/{{ item.tpl.id }}/edit"
                                     hx-target="#edit-modal-container" hx-swap="innerHTML"

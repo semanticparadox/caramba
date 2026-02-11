@@ -309,9 +309,15 @@ impl NodeRepository {
             SELECT plan_id FROM plan_inbounds WHERE inbound_id = ?
             UNION
             SELECT plan_id FROM plan_nodes WHERE node_id = ?
+            UNION
+            SELECT pg.plan_id 
+            FROM plan_groups pg
+            JOIN node_group_members ngm ON pg.group_id = ngm.group_id
+            WHERE ngm.node_id = ?
             "#
         )
         .bind(inbound_id)
+        .bind(node_id)
         .bind(node_id)
         .fetch_all(&self.pool)
         .await?;
