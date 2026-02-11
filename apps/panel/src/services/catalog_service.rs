@@ -1,6 +1,6 @@
 use sqlx::SqlitePool;
 use anyhow::{Context, Result};
-use crate::models::store::{Category, Product, CartItem};
+use crate::models::store::{StoreCategory, Product, CartItem};
 use chrono::Utc;
 use sqlx::Row;
 
@@ -14,8 +14,8 @@ impl CatalogService {
         Self { pool }
     }
 
-    pub async fn get_categories(&self) -> Result<Vec<Category>> {
-        sqlx::query_as::<_, Category>("SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order ASC")
+    pub async fn get_categories(&self) -> Result<Vec<StoreCategory>> {
+        sqlx::query_as::<_, StoreCategory>("SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order ASC")
             .fetch_all(&self.pool)
             .await
             .context("Failed to fetch categories")

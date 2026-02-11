@@ -27,5 +27,3 @@ pub mod org_service;
 pub mod payment;
 pub mod rotation_service;
 pub mod sni_monitor;
-pub mod infrastructure_service;
-pub mod security_service;

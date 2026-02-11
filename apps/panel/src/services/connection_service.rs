@@ -93,7 +93,7 @@ impl ConnectionService {
         info!("Running device limit enforcement cycle...");
 
         // Get all active nodes
-        let nodes = self.orchestration.get_all_nodes().await?;
+        let nodes: Vec<crate::models::node::Node> = self.orchestration.node_repo.get_all_nodes().await?;
         
         if nodes.is_empty() {
             warn!("No active nodes found, skipping device limit check");
@@ -208,7 +208,7 @@ impl ConnectionService {
 
     /// Kill all active connections for a specific subscription across all nodes
     pub async fn kill_subscription_connections(&self, uuid: &str) -> Result<()> {
-        let nodes = self.orchestration.get_all_nodes().await?;
+        let nodes: Vec<crate::models::node::Node> = self.orchestration.node_repo.get_all_nodes().await?;
         
         for node in nodes {
              // 1. Fetch connections again to get IDs (IDs change)

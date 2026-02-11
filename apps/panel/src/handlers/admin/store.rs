@@ -21,7 +21,7 @@ use super::auth::get_auth_user;
 #[derive(Template, WebTemplate)]
 #[template(path = "store_categories.html")]
 pub struct StoreCategoriesTemplate {
-    pub categories: Vec<crate::models::store::Category>,
+    pub categories: Vec<crate::models::store::StoreCategory>,
     pub is_auth: bool,
     pub username: String,
     pub admin_path: String,
@@ -32,7 +32,7 @@ pub struct StoreCategoriesTemplate {
 #[template(path = "store_products.html")]
 pub struct StoreProductsTemplate {
     pub products: Vec<crate::models::store::Product>,
-    pub categories: Vec<crate::models::store::Category>,
+    pub categories: Vec<crate::models::store::StoreCategory>,
     pub is_auth: bool,
     pub username: String,
     pub admin_path: String,
@@ -64,7 +64,7 @@ pub async fn get_store_categories_page(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let categories = state.store_service.get_categories().await.unwrap_or_default();
+    let categories: Vec<crate::models::store::StoreCategory> = state.catalog_service.get_categories().await.unwrap_or_default();
     
     let admin_path = state.admin_path.clone();
 
@@ -88,7 +88,7 @@ pub async fn create_category(
 ) -> impl IntoResponse {
     let admin_path = state.admin_path.clone();
 
-    match state.store_service.create_category(&form.name, form.description.as_deref(), form.sort_order).await {
+    match state.catalog_service.create_category(&form.name, form.description.as_deref(), form.sort_order).await {
         Ok(_) => (
             axum::http::StatusCode::OK, 
             [("HX-Redirect", format!("{}/store/categories", admin_path))],
@@ -102,7 +102,7 @@ pub async fn delete_category(
     Path(id): Path<i64>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    match state.store_service.delete_category(id).await {
+    match state.catalog_service.delete_category(id).await {
         Ok(_) => (axum::http::StatusCode::OK, "").into_response(),
         Err(e) => {
              // Check if it's a constraint error (existing products)
@@ -118,9 +118,9 @@ pub async fn get_store_products_page(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let products = state.store_service.get_all_products().await.unwrap_or_default();
+    let products = state.catalog_service.get_all_products().await.unwrap_or_default();
 
-    let categories = state.store_service.get_categories().await.unwrap_or_default();
+    let categories: Vec<crate::models::store::StoreCategory> = state.catalog_service.get_categories().await.unwrap_or_default();
     
     let admin_path = state.admin_path.clone();
 
@@ -154,7 +154,7 @@ pub async fn create_product(
 
     let admin_path = state.admin_path.clone();
 
-    match state.store_service.create_product(category_id, &name, Some(&description), price, &product_type, Some(&content)).await {
+    match state.catalog_service.create_product(category_id, &name, Some(&description), price, &product_type, Some(&content)).await {
         Ok(_) => (
             axum::http::StatusCode::OK, 
             [("HX-Redirect", format!("{}/store/products", admin_path))],
@@ -168,7 +168,7 @@ pub async fn delete_product(
     Path(id): Path<i64>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    match state.store_service.delete_product(id).await {
+    match state.catalog_service.delete_product(id).await {
         Ok(_) => (axum::http::StatusCode::OK, "").into_response(), 
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete: {}", e)).into_response(),
     }

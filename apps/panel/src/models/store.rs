@@ -117,7 +117,7 @@ pub struct Payment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct Category {
+pub struct StoreCategory {
     pub id: i64,
     pub name: String,
     pub description: Option<String>,

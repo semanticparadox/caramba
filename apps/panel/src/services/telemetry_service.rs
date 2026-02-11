@@ -1,4 +1,4 @@
-use sqlx::MySqlPool;
+use sqlx::SqlitePool;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -8,7 +8,7 @@ use crate::bot_manager::BotManager;
 
 #[derive(Clone)]
 pub struct TelemetryService {
-    pool: MySqlPool,
+    pool: SqlitePool,
     security_service: Arc<SecurityService>,
     notification_service: Arc<NotificationService>,
     bot_manager: Arc<BotManager>,
@@ -16,7 +16,7 @@ pub struct TelemetryService {
 
 impl TelemetryService {
     pub fn new(
-        pool: MySqlPool,
+        pool: SqlitePool,
         security_service: Arc<SecurityService>,
         notification_service: Arc<NotificationService>,
         bot_manager: Arc<BotManager>,

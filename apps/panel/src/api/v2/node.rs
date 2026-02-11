@@ -269,7 +269,7 @@ pub async fn rotate_sni(
     
     // 3. Get Next SNI
     // Assume Tier 1 for now, or fetch from node settings
-    let next_sni: String = match state.store_service.get_next_sni(&current_sni, 1).await {
+    let next_sni: String = match state.security_service.get_next_sni(&current_sni, 1).await {
         Ok(s) => s,
         Err(e) => {
             error!("Failed to get next SNI: {}", e);
@@ -293,7 +293,7 @@ pub async fn rotate_sni(
     }
 
     // 5. Log Rotation
-    let rotation_id = match state.store_service.log_sni_rotation(node_id, &current_sni, &next_sni, reason).await {
+    let rotation_id = match state.security_service.log_sni_rotation(node_id, &current_sni, &next_sni, reason).await {
         Ok(log) => log.id,
         Err(e) => {
             warn!("Failed to log SNI rotation: {}", e);

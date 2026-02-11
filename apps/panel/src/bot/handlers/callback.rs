@@ -890,7 +890,7 @@ pub async fn callback_handler(
                             }
                         }
                 } else if store == "store_home" {
-                        let categories = state.store_service.get_categories().await.unwrap_or_default();
+                        let categories: Vec<crate::models::store::StoreCategory> = state.catalog_service.get_categories().await.unwrap_or_default();
                         let mut buttons = Vec::new();
                         for cat in categories {
                             buttons.push(vec![InlineKeyboardButton::callback(cat.name, format!("store_cat_{}", cat.id))]);

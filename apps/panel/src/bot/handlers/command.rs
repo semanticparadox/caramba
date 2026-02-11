@@ -373,7 +373,7 @@ pub async fn message_handler(
         match text {
             // /start is already handled above in flow
             "📦 Digital Store" => {
-                        let categories: Vec<crate::models::store::StoreCategory> = state.store_service.get_categories().await.unwrap_or_default();
+                        let categories: Vec<crate::models::store::StoreCategory> = state.catalog_service.get_categories().await.unwrap_or_default();
                     if categories.is_empty() {
                         let _ = bot.send_message(msg.chat.id, "❌ The store is currently empty.")
                             .reply_markup(main_menu())
@@ -775,7 +775,7 @@ pub async fn message_handler(
                                // Replicating logic is cleaner here to avoid hacking callback structure.
                                
                                let ips: Vec<crate::models::store::SubscriptionIpTracking> = state.store_service.get_subscription_active_ips(sub.sub.id).await.unwrap_or_default();
-                               let limit: i64 = state.store_service.get_subscription_device_limit(sub.sub.id).await.unwrap_or(0);
+                               let limit: i64 = state.store_service.get_subscription_device_limit(sub.sub.id).await.unwrap_or(0).into();
                                
                                let mut text = format!("📱 *Active Devices for Subscription \\#{:?}*\n", sub.sub.id);
                                text.push_str(&format!("Limit: `{}/{}` devices\n\n", ips.len(), if limit == 0 { "∞".to_string() } else { limit.to_string() }));

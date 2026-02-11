@@ -617,7 +617,7 @@ pub fn generate_singbox_config(
 ) -> Result<String> {
     let mut outbounds = vec![];
     let mut outbound_tags = vec![];
-    let mut generated_relays = std::collections::HashMap::new();
+    let mut generated_relays: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
     for node in nodes {
         if !node.inbounds.is_empty() {

@@ -644,7 +644,7 @@ async fn get_leaderboard(
     use crate::services::referral_service::ReferralService;
 
     match ReferralService::get_leaderboard(&state.pool, 10).await {
-        Ok(leaderboard) => Json::<Vec<crate::services::referral_service::LeaderboardEntry>>(leaderboard).into_response(),
+        Ok(leaderboard) => Json::<Vec<crate::services::referral_service::LeaderboardDisplayEntry>>(leaderboard).into_response(),
         Err(e) => {
             tracing::error!("Failed to fetch leaderboard: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch leaderboard").into_response()
