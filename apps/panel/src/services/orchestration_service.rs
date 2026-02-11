@@ -26,7 +26,7 @@ impl OrchestrationService {
         infrastructure_service: Arc<crate::services::infrastructure_service::InfrastructureService>,
     ) -> Self {
         let node_repo = NodeRepository::new(pool.clone());
-        Self { pool, node_repo, store_service, infrastructure_service }
+        Self { pool, node_repo, store_service, _infrastructure_service: infrastructure_service }
     }
     /// Initializes default inbounds (VLESS Reality & Hysteria 2) for a fresh node
     pub async fn init_default_inbounds(&self, node_id: i64) -> anyhow::Result<()> {
