@@ -176,7 +176,6 @@ pub async fn get_group_edit(
             error!("Failed to fetch available nodes for group {}: {}", id, e);
             Vec::new()
         }
-        }
     };
 
     // Get inbounds for this group
