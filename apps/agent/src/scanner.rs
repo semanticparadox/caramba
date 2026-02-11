@@ -1,7 +1,8 @@
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 use tokio::net::TcpStream;
-use tokio_rustls::rustls::{ClientConfig, RootCertStore, server::VerifyingServerCertVerifier};
+use tokio_rustls::rustls::{ClientConfig, RootCertStore};
+use tokio_rustls::rustls::pki_types::ServerName;
 use tokio_rustls::TlsConnector;
 use std::sync::Arc;
 use exarobot_shared::DiscoveredSni;
@@ -62,7 +63,7 @@ impl NeighborScanner {
         
         // We try to connect with a generic name (e.g. "www.google.com") just to see what the server gives back
         // RealTLScanner technique
-        let domain_name = "www.google.com".try_into().unwrap();
+        let domain_name = ServerName::try_from("www.google.com")?.to_owned();
         
         // This is a bit complex in rustls without a full cert parser.
         // For the MVP, we assume the agent can use `openssl` or similar if needed, 
