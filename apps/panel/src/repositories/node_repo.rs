@@ -261,9 +261,12 @@ impl NodeRepository {
             SELECT DISTINCT i.* FROM inbounds i
             LEFT JOIN plan_inbounds pi ON pi.inbound_id = i.id
             LEFT JOIN plan_nodes pn ON pn.node_id = i.node_id
-            WHERE (pi.plan_id = ? OR pn.plan_id = ?) AND i.enable = 1
+            LEFT JOIN node_group_members ngm ON ngm.node_id = i.node_id
+            LEFT JOIN plan_groups pg ON pg.group_id = ngm.group_id
+            WHERE (pi.plan_id = ? OR pn.plan_id = ? OR pg.plan_id = ?) AND i.enable = 1
             "#
         )
+        .bind(plan_id)
         .bind(plan_id)
         .bind(plan_id)
         .fetch_all(&self.pool)

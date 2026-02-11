@@ -133,6 +133,10 @@ pub async fn create_template(
 
     match res {
         Ok(_) => {
+            // Auto-sync if group is specified
+            if let Some(gid) = form.target_group_id {
+                 let _ = state.generator_service.sync_group_inbounds(gid).await;
+            }
             let admin_path = state.admin_path.clone();
             axum::response::Redirect::to(&format!("{}/templates", admin_path)).into_response()
         },
@@ -284,6 +288,10 @@ pub async fn update_template(
 
     match res {
         Ok(_) => {
+            // Auto-sync
+             if let Some(gid) = form.target_group_id {
+                 let _ = state.generator_service.sync_group_inbounds(gid).await;
+            }
             let admin_path = state.admin_path.clone();
             axum::response::Redirect::to(&format!("{}/templates", admin_path)).into_response()
         },

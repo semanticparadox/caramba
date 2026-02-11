@@ -49,7 +49,12 @@
                     {% for inbound in inbounds %}
                     <tr class="hover:bg-white/5 transition-colors group">
                         <td class="px-6 py-4">
-                            <span class="font-medium text-white">{{ inbound.tag }}</span>
+                            <div class="flex flex-col">
+                                <span class="font-medium text-white">{{ inbound.tag }}</span>
+                                {% if inbound.tag is starting_with("tpl_") %}
+                                <span class="text-[10px] text-indigo-400">Group Managed</span>
+                                {% endif %}
+                            </div>
                         </td>
                         <td class="px-6 py-4">
                             <span
@@ -77,6 +82,11 @@
                         </td>
                         <td class="px-6 py-4 text-right">
                             <div class="flex items-center justify-end gap-2">
+                                {% if inbound.tag is starting_with("tpl_") %}
+                                <span class="text-xs text-slate-500 font-medium italic mr-2 flex items-center gap-1">
+                                    <i data-lucide="lock" class="w-3 h-3"></i> Managed
+                                </span>
+                                {% else %}
                                 <button
                                     class="p-2 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 hover:text-indigo-300 transition-colors border border-indigo-500/10"
                                     hx-get="{{ admin_path }}/nodes/{{ node.id }}/inbounds/{{ inbound.id }}"
@@ -91,6 +101,7 @@
                                     hx-swap="outerHTML">
                                     <i data-lucide="trash-2" class="w-4 h-4"></i>
                                 </button>
+                                {% endif %}
                             </div>
                         </td>
                     </tr>

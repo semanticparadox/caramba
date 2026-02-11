@@ -54,36 +54,80 @@ impl GeneratorService {
     async fn ensure_inbound_exists(&self, node: &Node, template: &InboundTemplate) -> Result<()> {
         let tag = format!("tpl_{}", template.id);
 
-        let exists: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM inbounds WHERE node_id = ? AND tag = ?"
+        let existing_inbound: Option<(i64, i64)> = sqlx::query_as(
+            "SELECT id, listen_port FROM inbounds WHERE node_id = ? AND tag = ?"
         )
         .bind(node.id)
         .bind(&tag)
         .fetch_optional(&self.pool)
         .await?;
 
-        if exists.is_some() {
-            // Inbound exists. Maybe update it? For now, skip.
-            // TODO: dynamic rotation logic would go here (updating port/sni)
-            return Ok(());
-        }
-
-        info!("Generating inbound '{}' for node {}", template.name, node.id);
-
-        // 3. Resolve Placeholders
-        // Simple port allocation: Random within range, check collision.
-        let port = self.allocate_port(node.id, template.port_range_start, template.port_range_end).await?;
+        // Variables for generation (used for both Insert and Update)
+        let mut port = template.port_range_start; // default, will be overwritten
         
+        // 3. Resolve Placeholders
         let mut settings = template.settings_template.clone();
         let mut stream_settings = template.stream_settings_template.clone();
         
-        // Replace {{uuid}} - Assuming template generates a server-side UUID, 
-        // but VLESS usually relies on User's UUID. 
-        // If the template needs a server-side distinct UUID (e.g. for Reality private key?), 
-        // we should handle it. existing {{uuid}} usually means "generate one now".
         let new_uuid = uuid::Uuid::new_v4().to_string();
-        
         settings = settings.replace("{{uuid}}", &new_uuid);
+        
+         if let Some((id, existing_port)) = existing_inbound {
+            // Inbound exists. Update it to match template!
+            // We preserve the existing port to avoid breaking clients, 
+            // unless we want to force re-allocation (which we don't).
+            port = existing_port;
+            settings = settings.replace("{{port}}", &port.to_string());
+            
+             // Reality Key Generation / SNI Logic (Re-run to ensure consistency or updates)
+             if stream_settings.contains("{{reality_private}}") {
+                 if let Some(priv_key) = &node.reality_priv {
+                     stream_settings = stream_settings.replace("{{reality_private}}", priv_key);
+                 } else {
+                     warn!("Node {} missing Reality keys for template", node.id);
+                 }
+             }
+             
+             // SNI
+            if stream_settings.contains("{{pool_sni}}") {
+                let pool_sni: Option<String> = sqlx::query_scalar(
+                    "SELECT domain FROM sni_pool WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1"
+                )
+                .fetch_optional(&self.pool)
+                .await?;
+                
+                if let Some(sni) = pool_sni {
+                    stream_settings = stream_settings.replace("{{pool_sni}}", &sni);
+                } else {
+                    let fallback = node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string());
+                    stream_settings = stream_settings.replace("{{pool_sni}}", &fallback);
+                }
+            }
+    
+            if let Some(sni) = &node.reality_sni {
+                stream_settings = stream_settings.replace("{{sni}}", sni);
+            } else {
+                stream_settings = stream_settings.replace("{{sni}}", "www.google.com");
+            }
+
+            // Update DB
+            sqlx::query(
+                "UPDATE inbounds SET protocol = ?, settings = ?, stream_settings = ?, remark = ? WHERE id = ?"
+            )
+            .bind(&template.protocol)
+            .bind(&settings)
+            .bind(&stream_settings)
+            .bind(&template.name)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+            
+            // info!("Updated inbound '{}' (ID {}) for node {}", template.name, id, node.id);
+            return Ok(());
+        }
+
+        // New Inbound Logic
+        port = self.allocate_port(node.id, template.port_range_start, template.port_range_end).await?;
         settings = settings.replace("{{port}}", &port.to_string());
         
         // Reality Key Generation if needed (placeholder {{reality_private}})
