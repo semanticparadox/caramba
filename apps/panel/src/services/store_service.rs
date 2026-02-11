@@ -95,6 +95,35 @@ impl StoreService {
         Ok(log)
     }
 
+    pub async fn rotate_node_sni(&self, node_id: i64, reason: &str) -> Result<(String, String, i64)> {
+        // 1. Get current SNI
+        let current_sni: Option<String> = sqlx::query_scalar("SELECT reality_sni FROM nodes WHERE id = ?")
+            .bind(node_id)
+            .fetch_optional(&self.pool)
+            .await?;
+            
+        let current_sni = current_sni.unwrap_or_else(|| "www.google.com".to_string());
+
+        // 2. Get Next SNI
+        let next_sni = self.get_next_sni(&current_sni, 1).await?;
+        
+        if next_sni == current_sni {
+            return Err(anyhow::anyhow!("No other SNI available"));
+        }
+
+        // 3. Update Node
+        sqlx::query("UPDATE nodes SET reality_sni = ? WHERE id = ?")
+            .bind(&next_sni)
+            .bind(node_id)
+            .execute(&self.pool)
+            .await?;
+
+        // 4. Log
+        let log = self.log_sni_rotation(node_id, &current_sni, &next_sni, reason).await?;
+        
+        Ok((current_sni, next_sni, log.id))
+    }
+
     pub async fn get_products_by_category(&self, category_id: i64) -> Result<Vec<crate::models::store::Product>> {
         sqlx::query_as::<_, crate::models::store::Product>(
             "SELECT id, category_id, name, description, price, product_type, content, is_active, created_at FROM products WHERE category_id = ? AND is_active = 1"

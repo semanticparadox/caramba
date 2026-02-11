@@ -315,7 +315,7 @@ async fn send_heartbeat(
     let url = format!("{}/api/v2/node/heartbeat", panel_url);
     
     // Collect Telemetry
-    let (latency, cpu, ram) = collect_telemetry(client, sys).await;
+    let (latency, cpu, ram, connections) = collect_telemetry(client, sys).await;
 
     let payload = HeartbeatRequest {
         version: "0.2.0".to_string(),
@@ -329,6 +329,7 @@ async fn send_heartbeat(
         cpu_usage: cpu,
         memory_usage: ram,
         speed_mbps: state.cached_speed_mbps,
+        active_connections: connections, // Added Phase 3
         user_usage: None,
     };
     
@@ -541,7 +542,7 @@ async fn fetch_global_settings(
     Ok(())
 }
 
-async fn collect_telemetry(client: &reqwest::Client, sys: &mut System) -> (Option<f64>, Option<f64>, Option<f64>) {
+async fn collect_telemetry(client: &reqwest::Client, sys: &mut System) -> (Option<f64>, Option<f64>, Option<f64>, Option<u32>) {
     // 1. Latency Check (HTTP HEAD to Google)
     let start = std::time::Instant::now();
     let latency = match client.head("https://www.google.com")
@@ -566,7 +567,41 @@ async fn collect_telemetry(client: &reqwest::Client, sys: &mut System) -> (Optio
         None
     };
 
-    (latency, cpu, ram)
+    let connections = count_active_connections();
+
+    (latency, cpu, ram, connections)
+}
+
+fn count_active_connections() -> Option<u32> {
+    // Try using `ss` (Socket Statistics) - Linux standard
+    // ss -t -a state established
+    if let Ok(output) = std::process::Command::new("ss")
+        .args(&["-t", "-a", "state", "established"])
+        .output() 
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            // First line is header, count remaining lines
+            let count = stdout.lines().count().saturating_sub(1);
+            return Some(count as u32);
+        }
+    }
+    
+    // Fallback: Read /proc/net/tcp (More robust if ss missing)
+    if let Ok(content) = std::fs::read_to_string("/proc/net/tcp") {
+        // State is 4th column (hex). 01 = ESTABLISHED.
+        // sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+        let count = content.lines().skip(1).filter(|line| {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 4 {
+                return parts[3] == "01";
+            }
+            false
+        }).count();
+        return Some(count as u32);
+    }
+
+    None
 }
 
 async fn run_speed_test(client: &reqwest::Client) -> Option<i32> {

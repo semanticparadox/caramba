@@ -115,6 +115,20 @@ pub async fn heartbeat(
         }
     }
 
+    // 6. Process Telemetry (Phase 3)
+    // Run in background to not block heartbeat response
+    let telemetry_svc = state.telemetry_service.clone();
+    let active_conns = req.active_connections;
+    let traffic_up = req.traffic_up;
+    let traffic_down = req.traffic_down;
+    let speed = req.speed_mbps;
+    
+    tokio::spawn(async move {
+        if let Err(e) = telemetry_svc.process_heartbeat(node_id, active_conns, traffic_up, traffic_down, speed).await {
+            error!("Telemetry processing failed for node {}: {}", node_id, e);
+        }
+    });
+
     // 5. Check for Agent Update
     let latest_version: String = state.settings.get_or_default("agent_latest_version", "0.0.0").await;
     

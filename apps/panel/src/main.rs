@@ -61,6 +61,8 @@ pub struct AppState {
     pub generator_service: Arc<services::generator_service::GeneratorService>, // Phase 1.8
     pub org_service: Arc<services::org_service::OrganizationService>, // Phase 3
     pub sni_repo: Arc<repositories::sni_repo::SniRepository>,
+    pub telemetry_service: Arc<services::telemetry_service::TelemetryService>, // Phase 3
+
 
     pub ssh_public_key: String,
     // Format: IP -> (Lat, Lon, Timestamp)
@@ -251,6 +253,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     let org_repo = repositories::org_repo::OrganizationRepository::new(pool.clone());
     let org_service = Arc::new(services::org_service::OrganizationService::new(org_repo));
     let sni_repo = Arc::new(repositories::sni_repo::SniRepository::new(pool.clone()));
+    let sni_repo = Arc::new(repositories::sni_repo::SniRepository::new(pool.clone()));
 
     // Initialize connection service
     let connection_service = Arc::new(services::connection_service::ConnectionService::new(
@@ -300,6 +303,14 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     let export_service = Arc::new(services::export_service::ExportService::new(pool.clone()));
     let channel_trial_service = Arc::new(services::channel_trial_service::ChannelTrialService::new(pool.clone()));
     let notification_service = Arc::new(services::notification_service::NotificationService::new(pool.clone()));
+    
+    // Telemetry Service (Phase 3) - Depends on Store, Notification, BotManager
+    let telemetry_service = Arc::new(services::telemetry_service::TelemetryService::new(
+        pool.clone(),
+        store_service.clone(),
+        notification_service.clone(),
+        bot_manager.clone(),
+    ));
 
     let pubsub_service = services::pubsub_service::PubSubService::new(redis_url).await.expect("Failed to init PubSub");
 
@@ -339,6 +350,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         generator_service,
         org_service,
         sni_repo,
+        telemetry_service, // Phase 3
         
         ssh_public_key,
         geo_cache,

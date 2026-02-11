@@ -20,6 +20,7 @@ pub struct NodeInfo {
     pub reality_short_id: Option<String>,
     pub hy2_port: Option<i32>,
     pub hy2_sni: Option<String>,
+    pub frontend_url: Option<String>, // Added for Frontend Masquerading
     pub inbounds: Vec<crate::models::network::Inbound>,
 }
 
@@ -35,6 +36,7 @@ impl From<&crate::models::node::Node> for NodeInfo {
             reality_short_id: node.short_id.clone(),
             hy2_port: None,
             hy2_sni: None,
+            frontend_url: None, // Default to None until DB schema update
             inbounds: vec![],
         }
     }
@@ -52,6 +54,7 @@ impl NodeInfo {
             reality_short_id: node.short_id.clone(),
             hy2_port: None,
             hy2_sni: None,
+            frontend_url: None, 
             inbounds,
         }
     }
@@ -264,8 +267,14 @@ pub fn generate_v2ray_config(
                             }
                             _ => {}
                         }
+                        // Frontend Masquerading Logic
+                        let host = node.frontend_url.as_deref().unwrap_or(&node.address);
+                        // If masquerading, we MUST use the real SNI in the header/TLS config
+                        // which is already handled by `si.sni` (streams settings)
+                        // But the connection address (host/ip) in the link should be the frontend.
+                        
                         links.push(format!("vless://{}@{}:{}?{}#{}",
-                            user_keys.user_uuid, node.address, inbound.listen_port,
+                            user_keys.user_uuid, host, inbound.listen_port, // Use host (frontend or node IP)
                             params.join("&"), label));
                     }
                     "vmess" => {
@@ -273,7 +282,7 @@ pub fn generate_v2ray_config(
                         let mut vmess_obj = json!({
                             "v": "2",
                             "ps": format!("{} - {}", node.name, inbound.remark.as_deref().unwrap_or("Auto")),
-                            "add": node.address,
+                            "add": node.frontend_url.as_deref().unwrap_or(&node.address), // Masquerading
                             "port": inbound.listen_port.to_string(),
                             "id": user_keys.user_uuid,
                             "aid": "0",
@@ -313,8 +322,9 @@ pub fn generate_v2ray_config(
                             _ => {}
                         }
                         // Trojan uses user_uuid as password
+                        let host = node.frontend_url.as_deref().unwrap_or(&node.address);
                         links.push(format!("trojan://{}@{}:{}?{}#{}",
-                            user_keys.user_uuid, node.address, inbound.listen_port,
+                            user_keys.user_uuid, host, inbound.listen_port, // Masquerading
                             params.join("&"), label));
                     }
                     "shadowsocks" | "ss" => {
@@ -340,8 +350,10 @@ pub fn generate_v2ray_config(
                             params.push(format!("obfs-password={}", obfs));
                         }
                         
+                        
+                        let host = node.frontend_url.as_deref().unwrap_or(&node.address);
                         links.push(format!("hysteria2://{}@{}:{}?{}#{}",
-                            user_keys.hy2_password, node.address, inbound.listen_port,
+                            user_keys.hy2_password, host, inbound.listen_port, // Masquerading
                             params.join("&"), label));
                     }
                     _ => {
@@ -786,29 +798,20 @@ pub fn generate_singbox_config(
                                 "alpn": ["h3"]
                             }
                         });
-                        
+
+                        // Add Obfuscation
+                        if let Some(obfs_pass) = &si.hy2_obfs {
+                            ob["obfs"] = json!({
+                                "type": "salamander",
+                                "password": obfs_pass
+                            });
+                        }
+
                         // Port Hopping
                         if let Some(ports) = &si.hy2_ports {
-                             // Sing-box Hysteria2 outbound supports "server_ports" as a string (e.g. "20000-50000") is not directly in standard schema 
-                             // BUT it might be "mport" in URL. 
-                             // Wait, standard Sing-box outbound `hysteria2` has `server_ports`? 
-                             // Checking docs: usually it's just `server_port`. 
-                             // However, for *client* implementation (Sing-box), it supports port hopping via `server_ports` (plural) or just handling it if server pushes it.
-                             // We'll trust the "todo/second.md" suggestion to use it if available in client config.
-                             // Actually, let's keep standard `server_port` but if we want hopping we might need to rely on server side instructions or multiple outbounds.
-                             // Re-reading todo: "Hysteria 2: Requires hopInterval and server-side setup".
-                             // Client config just needs to know the range? 
-                             // Code in todo/second.md shows: "server_ports": "20000-40000" (string)
                              ob["server_ports"] = json!(ports);
-                        } else {
-                             // Obfuscation
-                             if let Some(obfs) = &si.hy2_obfs {
-                                 ob["obfs"] = json!({
-                                     "type": "salamander",
-                                     "password": obfs
-                                 });
-                             }
                         }
+                        
                         outbound_tags.push(tag);
                         outbounds.push(ob);
                     }

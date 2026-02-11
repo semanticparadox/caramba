@@ -12,7 +12,8 @@ pub mod traffic_service;
 pub mod connection_service;
 pub mod channel_trial_service;  // NEW: Channel membership trial management
 pub mod export_service;  // NEW: Database and settings export/backup
-pub mod notification_service;
+pub module notification_service;
+pub mod telemetry_service; // Added Phase 3
 
 // Enterprise Modular Services
 pub mod user_service;

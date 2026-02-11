@@ -87,7 +87,7 @@ mod tests {
     }
 
     #[test]
-    fn test_hysteria2_port_hopping() {
+    fn test_hysteria2_generation() {
         let user_keys = UserKeys {
             user_uuid: "uuid".to_string(),
             hy2_password: "pass".to_string(),
@@ -113,6 +113,8 @@ mod tests {
             .expect("Hysteria2 outbound not found");
 
         assert_eq!(outbound["server_ports"], "20000-50000");
+        assert_eq!(outbound["obfs"]["type"], "salamander");
+        assert_eq!(outbound["obfs"]["password"], "myobfspassword");
     }
 
     // Helper stub
@@ -158,6 +160,36 @@ mod tests {
         assert_eq!(mux["enabled"], true);
         assert_eq!(mux["max_connections"], 4);
         assert_eq!(mux["padding"], true);
+    }
+
+    // Helper stub
+    #[test]
+    fn test_frontend_masquerading() {
+        let user_keys = UserKeys {
+            user_uuid: "uuid".to_string(),
+            hy2_password: "pass".to_string(),
+            _awg_private_key: None,
+        };
+        let stream_settings = json!({
+            "network": "ws", 
+            "security": "tls",
+            "tlsSettings": { "serverName": "backend.real-node.com" },
+            "wsSettings": { "path": "/" }
+        });
+        
+        let mut node = create_mock_node("vless", stream_settings);
+        node.address = "1.2.3.4".to_string(); // Real IP
+        node.frontend_url = Some("frontend.fake-shop.com".to_string()); // Masquerade Domain
+
+        // Test VLESS Link (v2ray config)
+        let links_base64 = generate_v2ray_config(&match_any_sub(), &[node], &user_keys).unwrap();
+        use base64::Engine;
+        let links_str = String::from_utf8(base64::engine::general_purpose::STANDARD.decode(links_base64).unwrap()).unwrap();
+        
+        // Assert: Link host should be frontend, but SNI should be backend
+        assert!(links_str.contains("@frontend.fake-shop.com:443")); 
+        assert!(links_str.contains("sni=backend.real-node.com"));
+        assert!(!links_str.contains("@1.2.3.4")); // Real IP should NOT be visible in the address part
     }
 
     fn match_any_sub() -> crate::models::store::Subscription {
