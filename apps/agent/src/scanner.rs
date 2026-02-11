@@ -45,7 +45,7 @@ impl NeighborScanner {
         let timeout = Duration::from_millis(500);
 
         // 1. TCP Connect
-        let stream = tokio::time::timeout(timeout, TcpStream::connect(addr)).await??;
+        let _stream = tokio::time::timeout(timeout, TcpStream::connect(addr)).await??;
         let start = std::time::Instant::now();
 
         // 2. TLS Handshake (Insecure/Blind)
@@ -59,11 +59,11 @@ impl NeighborScanner {
             .with_root_certificates(root_store)
             .with_no_client_auth();
             
-        let connector = TlsConnector::from(Arc::new(config));
+        let _connector = TlsConnector::from(Arc::new(config));
         
         // We try to connect with a generic name (e.g. "www.google.com") just to see what the server gives back
         // RealTLScanner technique
-        let domain_name = ServerName::try_from("www.google.com")?.to_owned();
+        let _domain_name = ServerName::try_from("www.google.com")?.to_owned();
         
         // This is a bit complex in rustls without a full cert parser.
         // For the MVP, we assume the agent can use `openssl` or similar if needed, 
