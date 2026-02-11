@@ -167,8 +167,18 @@
                 </button>
                 <button type="button" onclick="applyPreset('hysteria2')"
                     class="px-3 py-1.5 text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-lg hover:bg-rose-500/20 transition-colors">
-                    Hysteria2
-                </button>
+                    <button type="button" onclick="applyPreset('hysteria2')"
+                        class="px-3 py-1.5 text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-lg hover:bg-rose-500/20 transition-colors">
+                        Hysteria2
+                    </button>
+                    <button type="button" onclick="applyPreset('tuic')"
+                        class="px-3 py-1.5 text-xs font-medium bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded-lg hover:bg-orange-500/20 transition-colors">
+                        TUIC v5
+                    </button>
+                    <button type="button" onclick="applyPreset('naive')"
+                        class="px-3 py-1.5 text-xs font-medium bg-teal-500/10 text-teal-400 border border-teal-500/20 rounded-lg hover:bg-teal-500/20 transition-colors">
+                        NaiveProxy
+                    </button>
             </div>
         </div>
 
@@ -206,6 +216,8 @@
                         <option value="trojan">Trojan</option>
                         <option value="shadowsocks">Shadowsocks</option>
                         <option value="hysteria2">Hysteria2</option>
+                        <option value="tuic">TUIC v5</option>
+                        <option value="naive">NaiveProxy</option>
                     </select>
                 </div>
                 <div>
@@ -407,6 +419,44 @@
             }, null, 2),
             stream: JSON.stringify({
                 network: "quic",
+                security: "tls",
+                tlsSettings: {
+                    serverName: "{{sni}}",
+                    certificates: [{ certificateFile: "/etc/ssl/certs/cert.pem", keyFile: "/etc/ssl/private/key.pem" }]
+                }
+            }, null, 2)
+        },
+        tuic: {
+            name: 'TUIC v5',
+            protocol: 'tuic',
+            portStart: 60000, portEnd: 65000,
+            settings: JSON.stringify({
+                protocol: "tuic",
+                users: [{ uuid: "{{uuid}}", password: "{{uuid}}" }],
+                congestion_control: "bbr",
+                heartbeat: "10s"
+            }, null, 2),
+            stream: JSON.stringify({
+                network: "tuic",
+                security: "tls",
+                tlsSettings: {
+                    serverName: "{{sni}}",
+                    certificates: [{ certificateFile: "/etc/ssl/certs/cert.pem", keyFile: "/etc/ssl/private/key.pem" }],
+                    alpn: ["h3"]
+                }
+            }, null, 2)
+        },
+        naive: {
+            name: 'NaiveProxy',
+            protocol: 'naive',
+            portStart: 5000, portEnd: 6000,
+            settings: JSON.stringify({
+                protocol: "naive",
+                users: [{ username: "{{uuid}}", password: "{{uuid}}" }],
+                network: "tcp"
+            }, null, 2),
+            stream: JSON.stringify({
+                network: "tcp",
                 security: "tls",
                 tlsSettings: {
                     serverName: "{{sni}}",
