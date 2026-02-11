@@ -8,7 +8,7 @@ use tokio_rustls::rustls::DigitallySignedStruct;
 use tokio_rustls::TlsConnector;
 use std::sync::Arc;
 use exarobot_shared::DiscoveredSni;
-use tracing::{info, debug};
+use tracing::info;
 use x509_parser::prelude::*;
 
 #[derive(Debug)]

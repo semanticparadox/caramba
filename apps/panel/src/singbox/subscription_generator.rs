@@ -23,6 +23,11 @@ pub struct NodeInfo {
     pub frontend_url: Option<String>, 
     pub inbounds: Vec<crate::models::network::Inbound>,
     pub relay_info: Option<Box<NodeInfo>>, // Chaining support (Phase 8)
+    
+    // Policies (Phase 11)
+    pub config_block_ads: bool,
+    pub config_block_porn: bool,
+    pub config_block_torrent: bool,
 }
 
 // Convert from actual Node model
@@ -40,6 +45,9 @@ impl From<&crate::models::node::Node> for NodeInfo {
             frontend_url: None, 
             inbounds: vec![],
             relay_info: None,
+            config_block_ads: node.config_block_ads,
+            config_block_porn: node.config_block_porn,
+            config_block_torrent: node.config_block_torrent,
         }
     }
 }
@@ -59,6 +67,9 @@ impl NodeInfo {
             frontend_url: None, 
             inbounds,
             relay_info: None,
+            config_block_ads: node.config_block_ads,
+            config_block_porn: node.config_block_porn,
+            config_block_torrent: node.config_block_torrent,
         }
     }
 }
@@ -986,6 +997,35 @@ pub fn generate_singbox_config(
     ];
     all_outbounds.extend(outbounds);
 
+    // ─── Dynamic Rules Generation ────────────────────────────────────────────
+    let mut rules_list = vec![
+        json!({ "protocol": "dns", "outbound": "dns-out" }),
+        json!({ 
+            "domain_suffix": ["github.com", "githubusercontent.com", "google.com", "youtube.com"], 
+            "action": "route-options",
+            "tls_fragment": true,
+            "tls_fragment_fallback_delay": "100ms"
+        })
+    ];
+
+    // Apply Policies (Phase 11)
+    // We use the policy of the first available node as the global policy for this subscription profile.
+    if let Some(node) = nodes.first() {
+        if node.config_block_ads {
+            rules_list.push(json!({ "geosite": "category-ads-all", "outbound": "block" }));
+        }
+        if node.config_block_porn {
+            rules_list.push(json!({ "geosite": "category-porn", "outbound": "block" }));
+        }
+        if node.config_block_torrent {
+             rules_list.push(json!({ "protocol": "bittorrent", "outbound": "block" }));
+        }
+    }
+
+    // Default Geo-routing
+    rules_list.push(json!({ "geosite": ["ru", "category-gov-ru", "yandex", "vk"], "outbound": "direct" }));
+    rules_list.push(json!({ "geoip": ["ru"], "outbound": "direct" }));
+
     let config = json!({
         "log": { "level": "info" },
         "dns": {
@@ -1003,17 +1043,7 @@ pub fn generate_singbox_config(
         }],
         "outbounds": all_outbounds,
         "route": {
-            "rules": [
-                { "protocol": "dns", "outbound": "dns-out" },
-                { 
-                    "domain_suffix": ["github.com", "githubusercontent.com", "google.com", "youtube.com"], 
-                    "action": "route-options",
-                    "tls_fragment": true,
-                    "tls_fragment_fallback_delay": "100ms"
-                },
-                { "geosite": ["ru", "category-gov-ru", "yandex", "vk"], "outbound": "direct" },
-                { "geoip": ["ru"], "outbound": "direct" }
-            ],
+            "rules": rules_list,
             "final": "proxy",
             "auto_detect_interface": true
         }

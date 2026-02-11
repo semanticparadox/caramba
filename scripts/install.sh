@@ -878,7 +878,200 @@ EOF
         log_warning "Config not found. Agent may need more time to connect to Panel."
     fi
     
+    # ----------------------------------------------------------------
+    # 5. Corporate Mimicry (Economic Shield) - Nginx Integration
+    # ----------------------------------------------------------------
+    log_info "Setting up Corporate Mimicry (Nginx)..."
+    
+    # Check if Nginx is already running or installed
+    if ! command -v nginx &> /dev/null; then
+        if [ "$ID" = "ubuntu" ] || [ "$ID" = "debian" ]; then
+             apt-get install -y nginx -qq
+        elif [ "$ID" = "centos" ] || [ "$ID" = "rhel" ]; then
+             yum install nginx -y
+        fi
+    fi
+    
+    # Download Mimicry Template
+    mkdir -p /usr/share/nginx/html
+    rm -f /usr/share/nginx/html/index.nginx-debian.html
+    rm -f /usr/share/nginx/html/index.html
+
+    log_info "Downloading Corporate Identity..."
+    # Reuse PANEL_URL
+    curl -sL "$PANEL_URL/assets/corporate_mimicry.html" -o /usr/share/nginx/html/corporate_mimicry.html || {
+        log_warn "Failed to download corporate mimicry template. Creating fallback."
+        echo "<h1>Access Denied</h1>" > /usr/share/nginx/html/corporate_mimicry.html
+    }
+
+    # Apply Nginx Config (Multiplexer)
+    # We back up existing config just in case
+    if [ -f /etc/nginx/nginx.conf ]; then
+        cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
+    fi
+
+    cat > /etc/nginx/nginx.conf <<EOF
+user  www-data;
+worker_processes  auto;
+
+error_log  /var/log/nginx/error.log notice;
+pid        /var/run/nginx.pid;
+
+events {
+    worker_connections  1024;
+}
+
+stream {
+    # 1. Inspect SNI (Server Name Indication) without terminating SSL
+    map \$ssl_preread_server_name \$backend_name {
+        hostnames;
+        
+        # Sing-box Reality/Hysteria port (Default 10000)
+        # Ensure Sing-box is listening on 10000 for VLESS/Reality or Hysteria
+        default                singbox_backend;
+    }
+
+    upstream singbox_backend {
+        server 127.0.0.1:10000; 
+    }
+
+    # 443 Multiplexer (SNI Routing)
+    server {
+        listen 443 reuseport;
+        listen [::]:443 reuseport;
+        
+        proxy_pass \$backend_name;
+        ssl_preread on; 
+    }
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    
+    # Hide Nginx Version
+    server_tokens off;
+
+    server {
+        listen 80 default_server;
+        server_name _;
+        
+        # Decoy "Corporate VPN" site for unauthorized scanners
+        location / {
+            root   /usr/share/nginx/html;
+            index  corporate_mimicry.html;
+            try_files \$uri \$uri/ /corporate_mimicry.html;
+        }
+    }
+}
+EOF
+
+    # Restart Nginx
+    if command -v systemctl &> /dev/null; then
+        systemctl unmask nginx 2>/dev/null || true
+        systemctl enable nginx 2>/dev/null || true
+        systemctl restart nginx
+        log_success "Corporate Mimicry Active (Port 80/443 Multiplexed)"
+    else
+        log_warn "Systemd not found, could not restart Nginx automatically."
+    fi
+
+    # ----------------------------------------------------------------
+    # 6. Doomsday Protocol (Optional Download)
+    # ----------------------------------------------------------------
+    if [ -n "$PANEL_URL" ]; then
+        mkdir -p "$INSTALL_DIR/scripts"
+        install_doomsday_script "$INSTALL_DIR/scripts/setup_hans.sh"
+        chmod +x "$INSTALL_DIR/scripts/setup_hans.sh"
+        log_info "Doomsday Protocol: Script available at $INSTALL_DIR/scripts/setup_hans.sh"
+    fi
+
     log_success "Agent installed."
+}
+
+# Helper: Embed Doomsday Protocol Script
+install_doomsday_script() {
+    local target_path=$1
+    cat > "$target_path" <<'EOF'
+#!/bin/bash
+# EXA ROBOT Doomsday Protocol (Hans ICMP Tunnel)
+# Usage: ./setup_hans.sh --password <PASSWORD>
+
+PASSWORD=""
+
+for i in "$@"
+do
+case $i in
+    -p=*|--password=*)
+    PASSWORD="${i#*=}"
+    shift
+    ;;
+    *)
+    ;;
+esac
+done
+
+if [ -z "$PASSWORD" ]; then
+    echo "Usage: ./setup_hans.sh --password=<PASSWORD>"
+    exit 1
+fi
+
+echo "🚀 Setting up ICMP Tunnel (Hans)..."
+
+# 1. Install Build Dependencies
+if command -v apt-get &> /dev/null; then
+    apt-get update -qq
+    apt-get install -y build-essential git net-tools -qq
+fi
+
+# 2. Clone and Build
+if [ -d "/opt/hans" ]; then
+    echo "Hans already installed."
+else
+    git clone https://github.com/friedrich/hans.git /opt/hans
+    cd /opt/hans
+    make
+fi
+
+# 3. Create Service
+echo "⚙️ Creating Systemd Service..."
+cat > /etc/systemd/system/hans.service <<EOF
+[Unit]
+Description=Hans ICMP Tunnel
+After=network.target
+
+[Service]
+# Server mode, IP range 10.1.2.0
+ExecStart=/opt/hans/hans -s 10.1.2.0 -p $PASSWORD -r -u nobody -v
+Restart=always
+User=root
+# Capability needed for raw sockets
+AmbientCapabilities=CAP_NET_RAW
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable hans
+systemctl restart hans
+
+# 4. Enable IP Forwarding
+echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+sysctl -p
+
+# 5. NAT Rules (iptables)
+# Assuming eth0 is interface
+IFACE=$(ip route get 8.8.8.8 | grep -oP 'dev \K\S+')
+iptables -t nat -A POSTROUTING -s 10.1.2.0/24 -o $IFACE -j MASQUERADE
+
+echo "✅ Hans ICMP Tunnel Active!"
+echo "---------------------------------------------------"
+echo "Server IP: $(curl -s ifconfig.me)"
+echo "Password:  $PASSWORD"
+echo "Client Command (Linux): sudo hans -c <SERVER_IP> -p $PASSWORD"
+echo "---------------------------------------------------"
+EOF
 }
 # Frontend installation helper functions - to be inserted into install.sh
 

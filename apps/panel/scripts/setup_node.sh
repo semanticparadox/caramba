@@ -1,6 +1,11 @@
 #!/bin/bash
 # EXA ROBOT Node Setup Script
-# This script is served by the panel to bootstrap new nodes.
+# DEPRECATED: Use install.sh --role agent instead.
+# This script is served by the panel to bootstrap new nodes (Legacy).
+
+echo "⚠️  WARNING: This script is deprecated. Please use the universal installer:"
+echo "   curl .../install.sh | bash -s -- --role agent --panel ... --token ..."
+sleep 3
 
 set -e
 
@@ -69,3 +74,88 @@ else
     echo "⚠️ Agent binary not found. Please install the agent using the universal installer first."
     echo "Run: curl .../install.sh | sudo bash"
 fi
+
+# 4. Install & Configure Nginx (Corporate Mimicry - Economic Shield)
+echo "🔒 Setting up Corporate Mimicry (Nginx)..."
+
+# Detect OS/Distro for apt vs yum (Assuming apt given existing code uses apt-get)
+if command -v apt-get &> /dev/null; then
+    apt-get install -y nginx -qq
+fi
+
+# Download Mimicry Template
+mkdir -p /usr/share/nginx/html
+# Remove default index to verify mimics work
+rm -f /usr/share/nginx/html/index.nginx-debian.html
+rm -f /usr/share/nginx/html/index.html
+
+echo "📥 Downloading Corporate Identity..."
+curl -sL "$PANEL_URL/assets/corporate_mimicry.html" -o /usr/share/nginx/html/corporate_mimicry.html
+
+# Apply Nginx Config
+# Note: This config assumes Sing-box/Xray listens on 10000 locally
+cat > /etc/nginx/nginx.conf <<EOF
+user  www-data;
+worker_processes  auto;
+
+error_log  /var/log/nginx/error.log notice;
+pid        /var/run/nginx.pid;
+
+events {
+    worker_connections  1024;
+}
+
+stream {
+    # 1. Inspect SNI (Server Name Indication) without terminating SSL
+    map \$ssl_preread_server_name \$backend_name {
+        hostnames;
+        
+        # Sing-box Reality/Hysteria port
+        default                singbox_backend;
+    }
+
+    upstream singbox_backend {
+        server 127.0.0.1:10000; 
+    }
+
+    # 443 Multiplexer (SNI Routing)
+    server {
+        listen 443 reuseport;
+        listen [::]:443 reuseport;
+        
+        proxy_pass \$backend_name;
+        ssl_preread on; 
+    }
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    
+    # Hide Nginx Version
+    server_tokens off;
+
+    server {
+        listen 80 default_server;
+        server_name _;
+        
+        # Redirect all HTTP to HTTPS or show Mimicry?
+        # Standard Corp VPNs redirect to HTTPS.
+        # But here we show the decoy on HTTP 80 directly to avoid SSL complication on port 80
+        # OR we can serve it on a fallback port if 443 stream fails? 
+        # Stream block handles 443. This HTTP block handles 80.
+        
+        # Decoy "Corporate VPN" site for unauthorized scanners
+        location / {
+            root   /usr/share/nginx/html;
+            index  corporate_mimicry.html;
+            try_files \$uri \$uri/ /corporate_mimicry.html;
+        }
+    }
+}
+EOF
+
+# Restart Nginx
+systemctl restart nginx
+echo "✅ Corporate Mimicry Active (Port 80/443 Multiplexed)!"
+
