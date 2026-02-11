@@ -2,7 +2,7 @@
 mod tests {
     // use super::*; // Unused
     use crate::models::network::Inbound;
-    use crate::models::store::Subscription;
+    // use crate::models::store::Subscription; // Unused
     use crate::singbox::subscription_generator::{NodeInfo, UserKeys, generate_singbox_config, generate_v2ray_config};
     use serde_json::json;
 

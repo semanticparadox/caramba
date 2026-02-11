@@ -145,8 +145,8 @@ struct AffectedUser {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_message_formatting() {
+    #[tokio::test]
+    async fn test_message_formatting() {
         let service = NotificationService::new(
             sqlx::SqlitePool::connect_lazy("sqlite::memory:").unwrap()
         );
