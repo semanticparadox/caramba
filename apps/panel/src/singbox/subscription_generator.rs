@@ -250,8 +250,8 @@ pub fn generate_v2ray_config(
                         } else if si.network == "xhttp" || si.network == "httpupgrade" {
                              // Default randomization
                              use rand::Rng;
-                             let mut rng = rand::thread_rng();
-                             let pad_len = rng.gen_range(500..=1200);
+                             let mut rng = rand::rng();
+                             let pad_len = rng.random_range(500..=1200);
                              params.push(format!("xPaddingBytes={}", pad_len));
                         }
 
@@ -775,7 +775,7 @@ pub fn generate_singbox_config(
                         outbounds.push(ob);
                     }
                     "hysteria2" | "hy2" => {
-                        let ob = json!({
+                        let mut ob = json!({
                             "type": "hysteria2",
                             "tag": tag,
                             "server": node.address,

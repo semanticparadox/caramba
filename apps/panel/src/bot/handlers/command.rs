@@ -2,7 +2,7 @@ use teloxide::prelude::*;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ForceReply, ParseMode};
 use tracing::{info, error};
 use crate::AppState;
-use crate::bot::utils::{escape_md, check_channel_membership, get_trial_days, register_bot_message};
+use crate::bot::utils::{escape_md, register_bot_message};
 use crate::bot::keyboards::{main_menu, language_keyboard, terms_keyboard};
 use crate::services::logging_service::LoggingService;
 
