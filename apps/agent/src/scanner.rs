@@ -51,12 +51,10 @@ impl NeighborScanner {
         // We need to see the certificate to get its SANs.
         // We use a custom verifier that doesn't care about the name, just captures it.
         
-        let mut root_store = RootCertStore::empty();
-        // Add some root certs or just use native certs if possible
-        // For simplicity in agent, we skip full verification and just extract the cert
+        let root_store = RootCertStore::empty();
         
+        // Use default builder pattern for rustls 0.23
         let config = ClientConfig::builder()
-            .with_safe_defaults()
             .with_root_certificates(root_store)
             .with_no_client_auth();
             
