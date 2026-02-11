@@ -846,7 +846,7 @@ pub fn generate_singbox_config(
                     "shadowsocks" | "ss" => {
                         let method = parse_ss_method(&inbound.settings);
                         let password = parse_ss_password(&inbound.settings);
-                        let ob = json!({
+                        let mut ob = json!({
                             "type": "shadowsocks",
                             "tag": tag,
                             "server": node.address,

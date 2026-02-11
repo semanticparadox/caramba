@@ -29,12 +29,62 @@ impl CatalogService {
             .context("Failed to fetch products")
     }
 
+    pub async fn get_all_products(&self) -> Result<Vec<Product>> {
+         sqlx::query_as::<_, Product>("SELECT * FROM products WHERE is_active = 1")
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to fetch all products")
+    }
+
     pub async fn get_product(&self, product_id: i64) -> Result<Product> {
         sqlx::query_as::<_, Product>("SELECT * FROM products WHERE id = ?")
             .bind(product_id)
             .fetch_one(&self.pool)
             .await
             .context("Product not found")
+    }
+
+    pub async fn create_category(&self, name: &str, description: Option<&str>, sort_order: Option<i32>) -> Result<i64> {
+        let id = sqlx::query_scalar(
+            "INSERT INTO categories (name, description, sort_order, is_active) VALUES (?, ?, ?, 1) RETURNING id"
+        )
+        .bind(name)
+        .bind(description)
+        .bind(sort_order.unwrap_or(0))
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    pub async fn delete_category(&self, id: i64) -> Result<()> {
+        sqlx::query("DELETE FROM categories WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn create_product(&self, category_id: i64, name: &str, description: Option<&str>, price: i64, product_type: &str, content: Option<&str>) -> Result<i64> {
+        let id = sqlx::query_scalar(
+            "INSERT INTO products (category_id, name, description, price, product_type, content, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP) RETURNING id"
+        )
+        .bind(category_id)
+        .bind(name)
+        .bind(description)
+        .bind(price)
+        .bind(product_type)
+        .bind(content)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    pub async fn delete_product(&self, id: i64) -> Result<()> {
+        sqlx::query("DELETE FROM products WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn process_order_payment(&self, order_id: i64) -> Result<()> {

@@ -1356,7 +1356,8 @@ impl StoreService {
                 let security = stream.security.as_deref().unwrap_or("none");
                 let network = stream.network.as_deref().unwrap_or("tcp");
 
-                let node = self.node_repo.get_node_by_id(inbound.node_id).await?;
+                let node = self.node_repo.get_node_by_id(inbound.node_id).await?
+                    .ok_or_else(|| anyhow::anyhow!("Node not found"))?;
                 let address = if inbound.listen_ip == "::" || inbound.listen_ip == "0.0.0.0" {
                     node.ip.clone()
                 } else {
@@ -1480,7 +1481,8 @@ impl StoreService {
                     .ok_or_else(|| anyhow::anyhow!("User not found"))?;
                 let tg_id = user.tg_id;
 
-                let node = self.node_repo.get_node_by_id(inbound.node_id).await?;
+                let node = self.node_repo.get_node_by_id(inbound.node_id).await?
+                    .ok_or_else(|| anyhow::anyhow!("Node not found"))?;
                 let address = if inbound.listen_ip == "::" || inbound.listen_ip == "0.0.0.0" {
                     node.ip.clone()
                 } else {
@@ -1775,7 +1777,8 @@ impl StoreService {
                 let security = stream.security.as_deref().unwrap_or("none");
                 let network = stream.network.as_deref().unwrap_or("tcp");
 
-                let node = self.node_repo.get_node_by_id(inbound.node_id).await?;
+                let node = self.node_repo.get_node_by_id(inbound.node_id).await?
+                    .ok_or_else(|| anyhow::anyhow!("Node not found"))?;
                 let address = if inbound.listen_ip == "::" || inbound.listen_ip == "0.0.0.0" {
                     node.ip.clone()
                 } else {

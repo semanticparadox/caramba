@@ -1,8 +1,7 @@
 use sqlx::SqlitePool;
-use anyhow::{Result, Context};
+use anyhow::Result;
 use crate::repositories::node_repo::NodeRepository;
 use crate::models::node::Node;
-use tracing::{info, error};
 
 #[derive(Debug, Clone)]
 pub struct InfrastructureService {
@@ -25,7 +24,7 @@ impl InfrastructureService {
         self.node_repo.get_active_nodes().await
     }
 
-    pub async fn get_user_nodes(&self, user_id: i64) -> Result<Vec<Node>> {
+    pub async fn get_user_nodes(&self, _user_id: i64) -> Result<Vec<Node>> {
         self.node_repo.get_active_nodes().await
     }
 
