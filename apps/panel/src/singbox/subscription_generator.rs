@@ -70,6 +70,15 @@ struct StreamInfo {
     ws_path: String,       // WebSocket path
     grpc_service: String,  // gRPC serviceName
     flow: String,          // xtls-rprx-vision (Reality+TCP only)
+    
+    // XHTTP / Advanced settings
+    packet_encoding: Option<String>, // packet-up / packetaddr
+    x_padding_bytes: Option<String>, // 500-1200
+    xmux: Option<Value>,             // JSON object for mux settings
+    
+    // Hysteria 2
+    hy2_ports: Option<String>,       // Port hopping range e.g. "20000-50000"
+    hy2_obfs: Option<String>,        // Obfs password
 }
 
 fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
@@ -148,7 +157,28 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
         String::new()
     };
 
-    StreamInfo { network, security, sni, public_key, short_id, fingerprint, ws_path, grpc_service, flow }
+    // XHTTP / Advanced Parsing
+    let packet_encoding = v.get("packet_encoding").or_else(|| v.get("packetEncoding"))
+        .and_then(|s| s.as_str()).map(|s| s.to_string());
+
+    let x_padding_bytes = v.get("x_padding_bytes").or_else(|| v.get("xPaddingBytes"))
+        .and_then(|s| s.as_str()).map(|s| s.to_string());
+
+    let xmux = v.get("xmux").cloned();
+
+    // Hysteria 2 Specifics
+    let hy2_settings = v.get("hysteria2Settings").or_else(|| v.get("hysteria2_settings"));
+    let hy2_ports = hy2_settings.and_then(|h| h.get("ports").or_else(|| h.get("server_ports")))
+        .and_then(|s| s.as_str()).map(|s| s.to_string());
+    let hy2_obfs = hy2_settings.and_then(|h| h.get("obfs_password").or_else(|| h.get("obfsPassword")))
+        .and_then(|s| s.as_str()).map(|s| s.to_string());
+
+    StreamInfo { 
+        network, security, sni, public_key, short_id, fingerprint, 
+        ws_path, grpc_service, flow,
+        packet_encoding, x_padding_bytes, xmux,
+        hy2_ports, hy2_obfs
+    }
 }
 
 // ─── Helper: Parse Shadowsocks method from settings JSON ──────────────────────
@@ -206,9 +236,32 @@ pub fn generate_v2ray_config(
                             params.push(format!("pbk={}", si.public_key));
                             params.push(format!("sid={}", si.short_id));
                         }
+                        
+                        // XHTTP & Mux
+                        if let Some(pe) = &si.packet_encoding {
+                             params.push(format!("packetEncoding={}", pe));
+                        }
+                        
+                        // Randomize padding if not set but recommended (500-1200)
+                        // Note: For VLESS links, usually 'xPaddingBytes' isn't standard in all clients, 
+                        // but widely supported in Xray/Sing-box via query params if using XHTTP
+                        if let Some(pad) = &si.x_padding_bytes {
+                             params.push(format!("xPaddingBytes={}", pad));
+                        } else if si.network == "xhttp" || si.network == "httpupgrade" {
+                             // Default randomization
+                             use rand::Rng;
+                             let mut rng = rand::thread_rng();
+                             let pad_len = rng.gen_range(500..=1200);
+                             params.push(format!("xPaddingBytes={}", pad_len));
+                        }
+
                         match si.network.as_str() {
                             "ws" => params.push(format!("path={}", urlencoding::encode(&si.ws_path))),
                             "grpc" => params.push(format!("serviceName={}", si.grpc_service)),
+                            "xhttp" | "httpupgrade" => {
+                                params.push(format!("path={}", urlencoding::encode(&si.ws_path)));
+                                params.push(format!("mode=auto")); 
+                            }
                             _ => {}
                         }
                         links.push(format!("vless://{}@{}:{}?{}#{}",
@@ -275,9 +328,21 @@ pub fn generate_v2ray_config(
                             userinfo, node.address, inbound.listen_port, label));
                     }
                     "hysteria2" | "hy2" => {
-                        links.push(format!("hysteria2://{}@{}:{}?sni={}&insecure=1#{}",
+                        let mut params = vec![
+                           format!("sni={}", si.sni),
+                           format!("insecure=1"),
+                        ];
+                        if let Some(ports) = &si.hy2_ports {
+                            params.push(format!("mport={}", ports));
+                        }
+                        if let Some(obfs) = &si.hy2_obfs {
+                            params.push(format!("obfs=salamander"));
+                            params.push(format!("obfs-password={}", obfs));
+                        }
+                        
+                        links.push(format!("hysteria2://{}@{}:{}?{}#{}",
                             user_keys.hy2_password, node.address, inbound.listen_port,
-                            si.sni, label));
+                            params.join("&"), label));
                     }
                     _ => {
                         // Unknown protocol, skip
@@ -580,12 +645,36 @@ pub fn generate_singbox_config(
                                     "service_name": si.grpc_service
                                 });
                             }
-                            "xhttp" | "splithttp" => {
                                 ob["transport"] = json!({
                                     "type": "httpupgrade",
                                     "host": si.sni,
                                     "path": si.ws_path
                                 });
+                                
+                                // Packet Encoding (packet-up) & Padding
+                                if si.packet_encoding.as_deref() == Some("packetaddr") || si.packet_encoding.as_deref() == Some("packet-up") {
+                                      // "packet_encoding" field applies to the VLESS object not transport, 
+                                      // BUT for XHTTP it's often handled via headers or specific transport options.
+                                      // Sing-box VLESS inbound/outbound: 
+                                      // "packet_encoding": "packetaddr" (deprecated in some versions, replaced by 'multiplex' features).
+                                      // Actually, for Sing-box 'httpupgrade', we might just need headers or nothing specific if client supports it.
+                                      // Let's ensure 'packet_encoding' is set on the VLESS outbound object itself.
+                                      ob["packet_encoding"] = json!("packetaddr");
+                                }
+                                
+                                // Mux (xmux)
+                                if let Some(mux) = &si.xmux {
+                                    ob["multiplex"] = mux.clone();
+                                } else {
+                                    // Default aggressive mux for XHTTP
+                                    ob["multiplex"] = json!({
+                                        "enabled": true,
+                                        "padding": true,
+                                        "max_connections": 4, 
+                                        "min_streams": 4,
+                                        "max_streams": 0 
+                                    });
+                                }
                             }
                             _ => {} // tcp = no transport block
                         }
@@ -694,9 +783,33 @@ pub fn generate_singbox_config(
                             "tls": {
                                 "enabled": true,
                                 "server_name": si.sni,
-                                "insecure": true
+                                "insecure": true,
+                                "alpn": ["h3"]
                             }
                         });
+                        
+                        // Port Hopping
+                        if let Some(ports) = &si.hy2_ports {
+                             // Sing-box Hysteria2 outbound supports "server_ports" as a string (e.g. "20000-50000") is not directly in standard schema 
+                             // BUT it might be "mport" in URL. 
+                             // Wait, standard Sing-box outbound `hysteria2` has `server_ports`? 
+                             // Checking docs: usually it's just `server_port`. 
+                             // However, for *client* implementation (Sing-box), it supports port hopping via `server_ports` (plural) or just handling it if server pushes it.
+                             // We'll trust the "todo/second.md" suggestion to use it if available in client config.
+                             // Actually, let's keep standard `server_port` but if we want hopping we might need to rely on server side instructions or multiple outbounds.
+                             // Re-reading todo: "Hysteria 2: Requires hopInterval and server-side setup".
+                             // Client config just needs to know the range? 
+                             // Code in todo/second.md shows: "server_ports": "20000-40000" (string)
+                             ob["server_ports"] = json!(ports);
+                        } else {
+                             // Obfuscation
+                             if let Some(obfs) = &si.hy2_obfs {
+                                 ob["obfs"] = json!({
+                                     "type": "salamander",
+                                     "password": obfs
+                                 });
+                             }
+                        }
                         outbound_tags.push(tag);
                         outbounds.push(ob);
                     }

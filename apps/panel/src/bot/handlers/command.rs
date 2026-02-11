@@ -71,46 +71,9 @@ pub async fn message_handler(
                         None
                     ).await;
                     
-                    // Trial system: check channel membership and grant trial if new user
-                    if !u.trial_used.unwrap_or(false) {
-                        info!("New user {} - checking trial eligibility", tg_id);
-                        
-                        // Check channel membership (uses REQUIRED_CHANNEL_ID env var)
-                        let is_member = check_channel_membership(&bot, tg_id).await.unwrap_or(false);
-                        let trial_days = get_trial_days(is_member);
-                        
-                        info!("User {} channel member: {}, trial days: {}", tg_id, is_member, trial_days);
-                        
-                        // Update user with trial info (mark as used, set source)
-                        let trial_source = if is_member { "channel_member" } else { "free" };
-                        let _ = sqlx::query(
-                            "UPDATE users SET trial_used = 1, trial_used_at = CURRENT_TIMESTAMP, channel_member_verified = ?, channel_verified_at = CURRENT_TIMESTAMP, trial_source = ? WHERE id = ?"
-                        )
-                        .bind(is_member)
-                        .bind(trial_source)
-                        .bind(u.id)
-                        .execute(&state.pool)
-                        .await;
-                        
-                        // Create actual trial subscription
-                        let plans = state.store_service.get_active_plans().await.unwrap_or_default();
-                        if let Some(first_plan) = plans.first() {
-                             match state.store_service.create_trial_subscription(u.id, first_plan.id, trial_days).await {
-                                 Ok(_) => info!("Trial subscription activated for user {}", u.id),
-                                 Err(e) => error!("Failed to create trial subscription: {}", e),
-                             }
-                        } else {
-                             error!("No active plans found for trial creation!");
-                        }
-
-                        let _ = LoggingService::log_user(
-                            &state.pool,
-                            Some(tg_id),
-                            "trial_granted",
-                            &format!("Trial granted: {} days (source: {})", trial_days, trial_source),
-                            None
-                        ).await;
-                    }
+                    // Trial system auto-creation REMOVED.
+                    // Users must explicitly request a trial via specific command or UI.
+                    // if !u.trial_used.unwrap_or(false) { ... } logic removed.
                     
                     Some(u)
                 },
