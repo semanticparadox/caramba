@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // use super::*; // Unused
     use crate::models::network::Inbound;
+    use crate::models::store::Subscription;
     use crate::singbox::subscription_generator::{NodeInfo, UserKeys, generate_singbox_config, generate_v2ray_config};
     use serde_json::json;
 
@@ -80,7 +81,7 @@ mod tests {
         assert_eq!(mux["padding"], true);
 
         // 2. Test VLESS Link
-        let links_base64 = generate_v2ray_config(&match_any_sub(), &[node], &user_keys).unwrap();
+        let _links_base64 = generate_v2ray_config(&match_any_sub(), &[node], &user_keys).unwrap();
         // Since it's base64, we'd need to decode it to verify fully, but let's assume if it generated, logic ran.
         // For unit test simplicity in this environment, checking the JSON structure is the critical part for Sing-box.
     }
@@ -137,6 +138,17 @@ mod tests {
              "used_traffic": 0,
              "is_trial": false,
              "subscription_uuid": "uuid",
-         })).unwrap_or_else(|_| unsafe { std::mem::zeroed() }) // Fallback (dangerous but works if unused)
+         serde_json::from_value(json!({
+             "id": 1,
+             "user_id": 1,
+             "plan_id": 1,
+             "status": "active",
+             "created_at": "2023-01-01T00:00:00Z",
+             "updated_at": "2023-01-01T00:00:00Z",
+             "expires_at": "2024-01-01T00:00:00Z", // Requires non-null NaiveDate
+             "used_traffic": 0,
+             "is_trial": false,
+             "subscription_uuid": "uuid",
+         })).expect("Failed to create mock subscription")
     }
 }
