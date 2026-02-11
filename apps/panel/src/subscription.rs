@@ -338,7 +338,13 @@ function copyLink(){{
          return (StatusCode::NOT_FOUND, "Requested server not found").into_response();
     }
     
-    let node_infos: Vec<NodeInfo> = filtered_nodes.iter().map(NodeInfo::from).collect();
+    let node_infos = match state.subscription_service.get_node_infos_with_relays(&filtered_nodes).await {
+        Ok(infos) => infos,
+        Err(e) => {
+            error!("Failed to generate node infos: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to process nodes").into_response();
+        }
+    };
 
     // Check Redis Cache & Generate
     let client_type = params.client.as_deref().unwrap_or("singbox");

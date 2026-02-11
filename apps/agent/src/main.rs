@@ -8,7 +8,8 @@ use exarobot_shared::config::ConfigResponse;
 
 mod sni_check;
 mod self_update;
-mod decoy_service; // NEW
+mod decoy_service; 
+mod scanner; // NEW
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -38,6 +39,7 @@ struct AgentState {
     kill_switch_timeout: u64,
     vpn_stopped_by_kill_switch: bool,
     cached_speed_mbps: Option<i32>,
+    recent_discoveries: std::sync::Arc<tokio::sync::Mutex<Vec<exarobot_shared::DiscoveredSni>>>,
 }
 
 
@@ -86,6 +88,7 @@ async fn main() -> anyhow::Result<()> {
         kill_switch_timeout: 300,
         vpn_stopped_by_kill_switch: false,
         cached_speed_mbps: None,
+        recent_discoveries: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
     };
 
     // Initialize HTTP Client
@@ -116,6 +119,12 @@ async fn main() -> anyhow::Result<()> {
     let decoy_svc = decoy_service::DecoyService::new(panel_url.clone(), token.clone());
     tokio::spawn(async move {
         decoy_svc.run_loop().await;
+    });
+
+    // 5.5 Start Neighbor Sniper (Phase 7)
+    let discoveries = state.recent_discoveries.clone();
+    tokio::spawn(async move {
+        start_neighbor_sniper(discoveries).await;
     });
 
     // 6. Main Loop
@@ -331,6 +340,16 @@ async fn send_heartbeat(
         speed_mbps: state.cached_speed_mbps,
         active_connections: connections, // Added Phase 3
         user_usage: None,
+        discovered_snis: {
+            let mut lock = state.recent_discoveries.lock().await;
+            if lock.is_empty() { 
+                None 
+            } else {
+                let items = lock.clone();
+                lock.clear(); // Clear after sending
+                Some(items)
+            }
+        },
     };
     
     let resp = client.post(&url)
@@ -635,4 +654,40 @@ async fn run_speed_test(client: &reqwest::Client) -> Option<i32> {
         }
     }
     None
+}
+
+async fn start_neighbor_sniper(discoveries: std::sync::Arc<tokio::sync::Mutex<Vec<exarobot_shared::DiscoveredSni>>>) {
+    info!("🚀 Neighbor Sniper background loop started.");
+    
+    let local_ip = match get_local_ip() {
+        Some(ip) => ip,
+        None => {
+            error!("❌ Could not determine local IP. Neighbor Sniper disabled.");
+            return;
+        }
+    };
+
+    let scanner = scanner::NeighborScanner::new(local_ip);
+
+    loop {
+        info!("🔍 Neighbor Sniper: Starting scan cycle...");
+        let results = scanner.scan_subnet().await;
+        
+        if !results.is_empty() {
+             let mut lock = discoveries.lock().await;
+             lock.extend(results);
+             info!("✨ Neighbor Sniper: Found {} potential SNIs.", lock.len());
+        }
+
+        // Scan once an hour - it's a background task, don't be aggressive
+        tokio::time::sleep(Duration::from_secs(3600)).await;
+    }
+}
+
+fn get_local_ip() -> Option<std::net::IpAddr> {
+    // Try using UdpSocket trick
+    use std::net::UdpSocket;
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    socket.local_addr().ok().map(|addr| addr.ip())
 }

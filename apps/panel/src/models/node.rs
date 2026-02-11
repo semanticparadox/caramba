@@ -51,4 +51,8 @@ pub struct Node {
     pub max_users: i32,
     #[sqlx(default)]
     pub current_speed_mbps: i32,
+    
+    // Relay Support (Phase 8)
+    #[sqlx(default)]
+    pub relay_id: Option<i64>,
 }

@@ -2,14 +2,14 @@ use sqlx::MySqlPool;
 use std::sync::Arc;
 use tracing::{info, warn};
 
-use crate::services::store_service::StoreService;
+use crate::services::security_service::SecurityService;
 use crate::services::notification_service::NotificationService;
 use crate::bot_manager::BotManager;
 
 #[derive(Clone)]
 pub struct TelemetryService {
     pool: MySqlPool,
-    store_service: Arc<StoreService>,
+    security_service: Arc<SecurityService>,
     notification_service: Arc<NotificationService>,
     bot_manager: Arc<BotManager>,
 }
@@ -17,13 +17,13 @@ pub struct TelemetryService {
 impl TelemetryService {
     pub fn new(
         pool: MySqlPool,
-        store_service: Arc<StoreService>,
+        security_service: Arc<SecurityService>,
         notification_service: Arc<NotificationService>,
         bot_manager: Arc<BotManager>,
     ) -> Self {
         Self { 
             pool, 
-            store_service, 
+            security_service, 
             notification_service,
             bot_manager 
         }
@@ -36,6 +36,7 @@ impl TelemetryService {
         traffic_up: u64,
         traffic_down: u64,
         _speed_mbps: Option<i32>,
+        discovered_snis: Option<Vec<exarobot_shared::DiscoveredSni>>,
     ) -> Result<(), sqlx::Error> {
         // 1. Store the metrics (if we had a time-series DB, but for now just log or check anomalies)
         // We might want to store 'active_connections' in the nodes table for real-time dashboard
@@ -56,6 +57,20 @@ impl TelemetryService {
                  // Trigger Self-Healing
                  let _ = self.trigger_mitigation(node_id).await;
              }
+        
+        // 3. Process Discovered SNIs (Phase 7 - Neighbor Sniper)
+        if let Some(snis) = discovered_snis {
+            for sni in snis {
+                // Insert into snis table if doesn't exist, tagging as discovered
+                let _ = sqlx::query("INSERT INTO snis (domain, tier, description, is_active) VALUES (?, 1, ?, 1) ON CONFLICT(domain) DO UPDATE SET description = EXCLUDED.description")
+                    .bind(&sni.domain)
+                    .bind(format!("Discovered by Node {} (Sniper)", node_id))
+                    .execute(&self.pool)
+                    .await;
+                
+                info!("💎 Neighbor Sniper: Persisted discovered SNI {} from Node {}", sni.domain, node_id);
+            }
+        }
         }
 
         Ok(())
@@ -65,7 +80,7 @@ impl TelemetryService {
         // 1. Rotate SNI
         info!("🔧 Triggering SNI Rotation for Node {} due to detected censorship.", node_id);
         
-        match self.store_service.rotate_node_sni(node_id, "Auto-Heal: Connection Freezing").await {
+        match self.security_service.rotate_node_sni(node_id, "Auto-Heal: Connection Freezing").await {
             Ok((old_sni, new_sni, rotation_id)) => {
                  info!("✅ Auto-Healed Node {}: {} -> {}", node_id, old_sni, new_sni);
                  

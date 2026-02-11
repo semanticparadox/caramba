@@ -619,6 +619,78 @@ impl SubscriptionService {
         Ok(node_infos)
     }
 
+    /// Fetch node infos with their associated relay nodes recursively (1 level deep)
+    pub async fn get_node_infos_with_relays(&self, nodes: &[Node]) -> Result<Vec<NodeInfo>> {
+        if nodes.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // 1. Fetch all inbounds for the main nodes
+        let node_ids: Vec<i64> = nodes.iter().map(|n| n.id).collect();
+        let inbounds_map = self.fetch_inbounds_for_nodes(&node_ids).await?;
+
+        // 2. Identify and fetch unique relay nodes
+        let relay_ids: Vec<i64> = nodes.iter()
+            .filter_map(|n| n.relay_id)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        let relays_map = if relay_ids.is_empty() {
+            std::collections::HashMap::new()
+        } else {
+            let ids_str = relay_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
+            let query = format!("SELECT * FROM nodes WHERE id IN ({})", ids_str);
+            let relay_nodes = sqlx::query_as::<_, Node>(&query).fetch_all(&self.pool).await?;
+            
+            // Fetch inbounds for relays too
+            let relay_inbounds_map = self.fetch_inbounds_for_nodes(&relay_ids).await?;
+            
+            let mut map = std::collections::HashMap::new();
+            for r in relay_nodes {
+                let r_id = r.id;
+                let r_inbounds = relay_inbounds_map.get(&r_id).cloned().unwrap_or_default();
+                map.insert(r_id, NodeInfo::new(&r, r_inbounds));
+            }
+            map
+        };
+
+        // 3. Build NodeInfo list
+        let mut node_infos = Vec::new();
+        for n in nodes {
+            let n_inbounds = inbounds_map.get(&n.id).cloned().unwrap_or_default();
+            let mut ni = NodeInfo::new(n, n_inbounds);
+            
+            if let Some(r_id) = n.relay_id {
+                if let Some(r_info) = relays_map.get(&r_id) {
+                    ni.relay_info = Some(Box::new(r_info.clone()));
+                }
+            }
+            node_infos.push(ni);
+        }
+
+        Ok(node_infos)
+    }
+
+    async fn fetch_inbounds_for_nodes(&self, node_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<crate::models::network::Inbound>>> {
+        if node_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let ids_str = node_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
+        let query = format!("SELECT * FROM inbounds WHERE enable = 1 AND node_id IN ({})", ids_str);
+        debug_assert!(!ids_str.is_empty());
+
+        let inbounds = sqlx::query_as::<_, crate::models::network::Inbound>(&query)
+            .fetch_all(&self.pool)
+            .await?;
+            
+        let mut map = std::collections::HashMap::new();
+        for inbound in inbounds {
+            map.entry(inbound.node_id).or_insert_with(Vec::new).push(inbound);
+        }
+        Ok(map)
+    }
+
     /// Get user keys for config generation
     /// Currently uses the subscription's vless_uuid as the user UUID
     pub async fn get_user_keys(&self, sub: &Subscription) -> Result<UserKeys> {

@@ -41,6 +41,7 @@ pub struct NodesRowsPartial {
 #[template(path = "node_edit_modal.html")]
 pub struct NodeEditModalTemplate {
     pub node: Node,
+    pub all_nodes: Vec<Node>, // Added for relay selection
     pub admin_path: String,
 }
 
@@ -56,6 +57,7 @@ pub struct InstallNodeForm {
 pub struct UpdateNodeForm {
     pub name: String,
     pub ip: String,
+    pub relay_id: Option<i64>, // Added Phase 8
 }
 
 // ============================================================================
@@ -67,7 +69,7 @@ pub async fn get_nodes(
     headers: HeaderMap,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let nodes = state.orchestration_service.get_all_nodes().await.unwrap_or_default();
+    let nodes = state.infrastructure_service.get_active_nodes().await.unwrap_or_default();
     
     let admin_path = state.admin_path.clone();
 
@@ -106,8 +108,13 @@ pub async fn install_node(
     // create_node generates a new token.
     // form.ip logic is handled in create_node now.
     
-    match state.orchestration_service.create_node(&form.name, &check_ip, form.vpn_port, form.auto_configure.unwrap_or(false)).await {
-        Ok(_) => {
+    match state.infrastructure_service.create_node(&form.name, &check_ip, form.vpn_port, form.auto_configure.unwrap_or(false)).await {
+        Ok(id) => {
+            // Trigger default inbounds via orchestration
+            if let Err(e) = state.orchestration_service.init_default_inbounds(id).await {
+                error!("Failed to initialize inbounds for new node {}: {}", id, e);
+            }
+            
             let admin_path = state.admin_path.clone();
             let mut headers = HeaderMap::new();
             headers.insert("HX-Redirect", format!("{}/nodes", admin_path).parse().unwrap());
@@ -124,7 +131,7 @@ pub async fn get_node_edit(
     Path(id): Path<i64>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    let node = match state.orchestration_service.get_node_by_id(id).await {
+    let node = match state.infrastructure_service.get_node_by_id(id).await {
             Ok(n) => n,
             Err(e) => {
                 error!("Failed to fetch node for edit: {}", e);
@@ -146,7 +153,9 @@ pub async fn get_node_edit(
     let admin_path = state.admin_path.clone();
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
 
-    let template = NodeEditModalTemplate { node, admin_path };
+    let all_nodes = state.infrastructure_service.get_active_nodes().await.unwrap_or_default();
+
+    let template = NodeEditModalTemplate { node, all_nodes, admin_path };
      match template.render() {
         Ok(html) => Html(html).into_response(),
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Template error: {}", e)).into_response(),
@@ -158,9 +167,9 @@ pub async fn update_node(
     State(state): State<AppState>,
     Form(form): Form<UpdateNodeForm>,
 ) -> impl IntoResponse {
-    info!("Updating node ID: {}", id);
+    info!("Updating node ID: {} (Relay: {:?})", id, form.relay_id);
     
-    match state.orchestration_service.update_node(id, &form.name, &form.ip).await {
+    match state.infrastructure_service.update_node(id, &form.name, &form.ip, form.relay_id).await {
         Ok(_) => {
              let admin_path = state.admin_path.clone();
              
@@ -208,7 +217,7 @@ pub async fn delete_node(
     info!("Request to delete node ID: {}", id);
 
     // Delete the node (now handled by service)
-    match state.orchestration_service.delete_node(id).await {
+    match state.infrastructure_service.delete_node(id).await {
         Ok(_) => {
             info!("Node {} deleted successfully", id);
             (axum::http::StatusCode::OK, "").into_response()
@@ -227,7 +236,7 @@ pub async fn toggle_node_enable(
     info!("Request to toggle enable status for node ID: {}", id);
     
     // Toggle enable status
-    match state.orchestration_service.toggle_node_enable(id).await {
+    match state.infrastructure_service.toggle_node_enable(id).await {
         Ok(_) => {
             let admin_path = state.admin_path.clone();
             (
@@ -247,7 +256,7 @@ pub async fn activate_node(
     Path(id): Path<i64>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    match state.orchestration_service.activate_node(id).await {
+    match state.infrastructure_service.activate_node(id).await {
         Ok(_) => {
             let admin_path = state.admin_path.clone();
             (

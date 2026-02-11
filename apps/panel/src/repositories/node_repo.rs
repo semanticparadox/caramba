@@ -52,9 +52,10 @@ impl NodeRepository {
                 name, ip, domain, country, city, flag, 
                 status, load_stats, check_stats_json, sort_order,
                 join_token, vpn_port, auto_configure, is_enabled,
-                reality_pub, reality_priv, short_id, reality_sni
+                reality_pub, reality_priv, short_id, reality_sni,
+                relay_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id
             "#
         )
@@ -76,6 +77,7 @@ impl NodeRepository {
         .bind(&node.reality_priv)
         .bind(&node.short_id)
         .bind(&node.reality_sni)
+        .bind(node.relay_id)
         .fetch_one(&self.pool)
         .await?;
         
@@ -87,7 +89,7 @@ impl NodeRepository {
             r#"
             UPDATE nodes 
             SET name=?, ip=?, domain=?, country=?, city=?, flag=?, status=?, load_stats=?, check_stats_json=?, sort_order=?,
-                join_token=?, vpn_port=?, auto_configure=?, is_enabled=?, reality_sni=?
+                join_token=?, vpn_port=?, auto_configure=?, is_enabled=?, reality_sni=?, relay_id=?
             WHERE id=?
             "#
         )
@@ -106,6 +108,7 @@ impl NodeRepository {
         .bind(node.auto_configure)
         .bind(node.is_enabled)
         .bind(&node.reality_sni)
+        .bind(node.relay_id)
         .bind(node.id)
         .execute(&self.pool)
         .await?;

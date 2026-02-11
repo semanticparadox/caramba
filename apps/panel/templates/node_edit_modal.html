@@ -28,6 +28,28 @@
         </div>
     </div>
 
+    <div>
+        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Domestic Relay</label>
+        <div class="relative">
+            <select name="relay_id"
+                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 pl-11 text-white appearance-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                <option value="">None (Direct Connection)</option>
+                {% for r in all_nodes %}
+                {% if r.id != node.id %}
+                <option value="{{ r.id }}" {% if node.relay_id.is_some() && node.relay_id.unwrap()==r.id %}selected{%
+                    endif %}>
+                    {{ r.name }} ({{ r.ip }})
+                </option>
+                {% endif %}
+                {% endfor %}
+            </select>
+            <i data-lucide="link" class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"></i>
+            <i data-lucide="chevron-down"
+                class="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"></i>
+        </div>
+        <p class="mt-1 text-[10px] text-slate-500">Chain this node through a domestic relay for better connectivity</p>
+    </div>
+
     <!-- Smart Bandwidth Policies -->
     <div class="pt-6 border-t border-white/5">
         <h4 class="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">

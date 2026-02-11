@@ -20,8 +20,9 @@ pub struct NodeInfo {
     pub reality_short_id: Option<String>,
     pub hy2_port: Option<i32>,
     pub hy2_sni: Option<String>,
-    pub frontend_url: Option<String>, // Added for Frontend Masquerading
+    pub frontend_url: Option<String>, 
     pub inbounds: Vec<crate::models::network::Inbound>,
+    pub relay_info: Option<Box<NodeInfo>>, // Chaining support (Phase 8)
 }
 
 // Convert from actual Node model
@@ -36,8 +37,9 @@ impl From<&crate::models::node::Node> for NodeInfo {
             reality_short_id: node.short_id.clone(),
             hy2_port: None,
             hy2_sni: None,
-            frontend_url: None, // Default to None until DB schema update
+            frontend_url: None, 
             inbounds: vec![],
+            relay_info: None,
         }
     }
 }
@@ -56,6 +58,7 @@ impl NodeInfo {
             hy2_sni: None,
             frontend_url: None, 
             inbounds,
+            relay_info: None,
         }
     }
 }
@@ -82,6 +85,10 @@ struct StreamInfo {
     // Hysteria 2
     hy2_ports: Option<String>,       // Port hopping range e.g. "20000-50000"
     hy2_obfs: Option<String>,        // Obfs password
+    
+    // TUIC v5
+    tuic_congestion_control: Option<String>,
+    tuic_zero_rtt_handshake: Option<bool>,
 }
 
 fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
@@ -134,7 +141,7 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
     let fingerprint = reality
         .and_then(|r| r.get("fingerprint"))
         .and_then(|s| s.as_str())
-        .unwrap_or("chrome")
+        .unwrap_or("chrome_random")
         .to_string();
 
     // WebSocket settings
@@ -176,11 +183,18 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
     let hy2_obfs = hy2_settings.and_then(|h| h.get("obfs_password").or_else(|| h.get("obfsPassword")))
         .and_then(|s| s.as_str()).map(|s| s.to_string());
 
+    // TUIC Specifics
+    let tuic_settings = v.get("tuicSettings").or_else(|| v.get("tuic_settings"));
+    let tuic_congestion_control = tuic_settings.and_then(|t| t.get("congestion_control")).and_then(|v| v.as_str()).map(|s| s.to_string());
+    let tuic_zero_rtt_handshake = tuic_settings.and_then(|t| t.get("zero_rtt_handshake")).and_then(|v| v.as_bool());
+
     StreamInfo { 
         network, security, sni, public_key, short_id, fingerprint, 
         ws_path, grpc_service, flow,
         packet_encoding, x_padding_bytes, xmux,
-        hy2_ports, hy2_obfs
+        hy2_ports, hy2_obfs,
+        tuic_congestion_control,
+        tuic_zero_rtt_handshake,
     }
 }
 
@@ -603,11 +617,64 @@ pub fn generate_singbox_config(
 ) -> Result<String> {
     let mut outbounds = vec![];
     let mut outbound_tags = vec![];
+    let mut generated_relays = std::collections::HashMap::new();
 
     for node in nodes {
         if !node.inbounds.is_empty() {
             for inbound in &node.inbounds {
                 if !inbound.enable { continue; }
+                
+                let mut detour_tag: Option<String> = None;
+
+                // ─── Relay Chaining (Phase 8) ────────────────────────────────
+                if let Some(relay) = &node.relay_info {
+                    let relay_key = format!("relay_{}", relay.address);
+                    if let Some(existing_tag) = generated_relays.get(&relay_key) {
+                        detour_tag = Some(existing_tag.clone());
+                    } else if let Some(ri) = relay.inbounds.iter().find(|i| i.enable) {
+                        let r_tag = format!("relay_{}", relay.name);
+                        let r_si = parse_stream_settings(&ri.stream_settings, relay);
+                        
+                        let r_ob = match ri.protocol.as_str() {
+                            "shadowsocks" | "ss" => {
+                                let method = parse_ss_method(&ri.settings);
+                                let password = parse_ss_password(&ri.settings);
+                                Some(json!({
+                                    "type": "shadowsocks",
+                                    "tag": &r_tag,
+                                    "server": relay.address,
+                                    "server_port": ri.listen_port,
+                                    "method": method,
+                                    "password": password,
+                                }))
+                            },
+                            "hysteria2" | "hy2" => {
+                                Some(json!({
+                                    "type": "hysteria2",
+                                    "tag": &r_tag,
+                                    "server": relay.address,
+                                    "server_port": ri.listen_port,
+                                    "password": user_keys.hy2_password,
+                                    "tls": { 
+                                        "enabled": true, 
+                                        "server_name": r_si.sni, 
+                                        "insecure": true, 
+                                        "alpn": ["h3"] 
+                                    }
+                                }))
+                            },
+                            _ => None
+                        };
+
+                        if let Some(r_ob) = r_ob {
+                            outbounds.push(r_ob);
+                            generated_relays.insert(relay_key, r_tag.clone());
+                            detour_tag = Some(r_tag);
+                        }
+                    }
+                }
+                // ─────────────────────────────────────────────────────────────
+
                 let si = parse_stream_settings(&inbound.stream_settings, node);
                 let tag = format!("{}_{}", node.name, inbound.tag);
 
@@ -620,6 +687,9 @@ pub fn generate_singbox_config(
                             "server_port": inbound.listen_port,
                             "uuid": user_keys.user_uuid,
                         });
+                        if let Some(dt) = &detour_tag {
+                            ob["detour"] = json!(dt);
+                        }
                         if !si.flow.is_empty() {
                             ob["flow"] = json!(si.flow);
                         }
@@ -736,6 +806,9 @@ pub fn generate_singbox_config(
                             "server_port": inbound.listen_port,
                             "password": user_keys.user_uuid,
                         });
+                        if let Some(dt) = &detour_tag {
+                            ob["detour"] = json!(dt);
+                        }
                         if si.security == "tls" || si.security == "reality" {
                             let mut tls = json!({
                                 "enabled": true,
@@ -781,6 +854,9 @@ pub fn generate_singbox_config(
                             "method": method,
                             "password": password,
                         });
+                        if let Some(dt) = &detour_tag {
+                            ob["detour"] = json!(dt);
+                        }
                         outbound_tags.push(tag);
                         outbounds.push(ob);
                     }
@@ -794,10 +870,13 @@ pub fn generate_singbox_config(
                             "tls": {
                                 "enabled": true,
                                 "server_name": si.sni,
-                                "insecure": true,
+                                "insecure": true, // User request/Policy: insecure for HY2 often default in these environments
                                 "alpn": ["h3"]
                             }
                         });
+                        if let Some(dt) = &detour_tag {
+                            ob["detour"] = json!(dt);
+                        }
 
                         // Add Obfuscation
                         if let Some(obfs_pass) = &si.hy2_obfs {
@@ -812,6 +891,48 @@ pub fn generate_singbox_config(
                              ob["server_ports"] = json!(ports);
                         }
                         
+                        outbound_tags.push(tag);
+                        outbounds.push(ob);
+                    }
+                    "tuic" => {
+                        let mut ob = json!({
+                            "type": "tuic",
+                            "tag": tag,
+                            "server": node.address,
+                            "server_port": inbound.listen_port,
+                            "uuid": user_keys.user_uuid,
+                            "password": user_keys.hy2_password, // Reusing hy2_password as general 'proxy_pass'
+                            "congestion_control": si.tuic_congestion_control.as_deref().unwrap_or("bbr"),
+                            "zero_rtt_handshake": si.tuic_zero_rtt_handshake.unwrap_or(true),
+                            "tls": {
+                                "enabled": true,
+                                "server_name": si.sni,
+                                "alpn": ["h3"]
+                            }
+                        });
+                        if let Some(dt) = &detour_tag {
+                            ob["detour"] = json!(dt);
+                        }
+                        outbound_tags.push(tag);
+                        outbounds.push(ob);
+                    }
+                    "naive" => {
+                        let mut ob = json!({
+                            "type": "naive",
+                            "tag": tag,
+                            "server": node.address,
+                            "server_port": inbound.listen_port,
+                            "username": user_keys.user_uuid,
+                            "password": user_keys.hy2_password,
+                            "tls": {
+                                "enabled": true,
+                                "server_name": si.sni,
+                                "utls": { "enabled": true, "fingerprint": "chrome" }
+                            }
+                        });
+                        if let Some(dt) = &detour_tag {
+                            ob["detour"] = json!(dt);
+                        }
                         outbound_tags.push(tag);
                         outbounds.push(ob);
                     }
@@ -884,6 +1005,12 @@ pub fn generate_singbox_config(
         "route": {
             "rules": [
                 { "protocol": "dns", "outbound": "dns-out" },
+                { 
+                    "domain_suffix": ["github.com", "githubusercontent.com", "google.com", "youtube.com"], 
+                    "action": "route-options",
+                    "tls_fragment": true,
+                    "tls_fragment_fallback_delay": "100ms"
+                },
                 { "geosite": ["ru", "category-gov-ru", "yandex", "vk"], "outbound": "direct" },
                 { "geoip": ["ru"], "outbound": "direct" }
             ],

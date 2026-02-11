@@ -1,5 +1,14 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DiscoveredSni {
+    pub domain: String,
+    pub ip: String,
+    pub latency_ms: u32,
+    pub h2: bool,
+    pub h3: bool,
+}
+
 pub mod api {
     use super::*;
 
@@ -20,6 +29,7 @@ pub mod api {
         pub active_connections: Option<u32>, // Added for Telemetry (Phase 3)
         /// Per-user traffic usage. Key is User Tag (e.g. "user_123"), value is bytes used.
         pub user_usage: Option<std::collections::HashMap<String, u64>>,
+        pub discovered_snis: Option<Vec<DiscoveredSni>>,
     }
 
     #[derive(Debug, Serialize, Deserialize)]

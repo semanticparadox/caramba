@@ -117,6 +117,81 @@ mod tests {
         assert_eq!(outbound["obfs"]["password"], "myobfspassword");
     }
 
+    #[test]
+    fn test_tuic_generation() {
+        let user_keys = UserKeys {
+            user_uuid: "uuid".to_string(),
+            hy2_password: "pass".to_string(),
+            _awg_private_key: None,
+        };
+
+        let stream_settings = json!({
+            "network": "quic",
+            "security": "tls",
+            "tuicSettings": {
+                "congestion_control": "bbr",
+                "zero_rtt_handshake": true
+            }
+        });
+
+        let node = create_mock_node("tuic", stream_settings);
+
+        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
+        
+        let outbound = parsed["outbounds"].as_array().unwrap().iter()
+            .find(|o| o["type"] == "tuic")
+            .expect("TUIC outbound not found");
+
+        assert_eq!(outbound["congestion_control"], "bbr");
+        assert_eq!(outbound["zero_rtt_handshake"], true);
+    }
+
+    #[test]
+    fn test_naive_generation() {
+        let user_keys = UserKeys {
+            user_uuid: "uuid".to_string(),
+            hy2_password: "pass".to_string(),
+            _awg_private_key: None,
+        };
+
+        let stream_settings = json!({
+            "network": "tcp",
+            "security": "tls"
+        });
+
+        let node = create_mock_node("naive", stream_settings);
+
+        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
+        
+        let outbound = parsed["outbounds"].as_array().unwrap().iter()
+            .find(|o| o["type"] == "naive")
+            .expect("Naive outbound not found");
+
+        assert_eq!(outbound["username"], "uuid");
+        assert_eq!(outbound["tls"]["utls"]["fingerprint"], "chrome");
+    }
+
+    #[test]
+    fn test_tls_fragmentation_rule() {
+        let user_keys = UserKeys {
+            user_uuid: "uuid".to_string(),
+            hy2_password: "pass".to_string(),
+            _awg_private_key: None,
+        };
+
+        let node = create_mock_node("vless", json!({"network":"tcp","security":"reality"}));
+        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
+        
+        let rule = parsed["route"]["rules"].as_array().unwrap().iter()
+            .find(|r| r.get("tls_fragment") == Some(&json!(true)))
+            .expect("TLS fragmentation rule missing");
+
+        assert!(rule["domain_suffix"].as_array().unwrap().contains(&json!("github.com")));
+    }
+
     // Helper stub
     #[test]
     fn test_smart_routing_generation() {

@@ -156,8 +156,8 @@ pub async fn patch_database_schema(pool: &Pool<Sqlite>) {
         ("load_stats", "ALTER TABLE nodes ADD COLUMN load_stats TEXT"),
         ("check_stats_json", "ALTER TABLE nodes ADD COLUMN check_stats_json TEXT"),
         ("speed_limit_mbps", "ALTER TABLE nodes ADD COLUMN speed_limit_mbps INTEGER DEFAULT 0"),
-        ("max_users", "ALTER TABLE nodes ADD COLUMN max_users INTEGER DEFAULT 0"),
         ("current_speed_mbps", "ALTER TABLE nodes ADD COLUMN current_speed_mbps INTEGER DEFAULT 0"),
+        ("relay_id", "ALTER TABLE nodes ADD COLUMN relay_id INTEGER"),
     ];
 
     for (col, alter_sql) in &node_columns {
