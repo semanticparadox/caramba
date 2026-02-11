@@ -116,6 +116,50 @@ mod tests {
     }
 
     // Helper stub
+    #[test]
+    fn test_smart_routing_generation() {
+        let user_keys = UserKeys {
+            user_uuid: "uuid".to_string(),
+            hy2_password: "pass".to_string(),
+            _awg_private_key: None,
+        };
+        // Setup XHTTP node to trigger mux logic
+        let stream_settings = json!({
+            "network": "xhttp",
+            "security": "reality",
+            "wsSettings": { "path": "/path" } // Using wsSettings key as parser supports it for path fallback or expected xhttp path
+        });
+        let node = create_mock_node("vless", stream_settings);
+        
+        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
+        
+        // 1. Check Route Rules
+        let rules = parsed["route"]["rules"].as_array().expect("Route rules missing");
+        
+        // Find GeoSite rule
+        let geosite_rule = rules.iter().find(|r| {
+            r.get("geosite").map(|v| v.as_array().unwrap().contains(&json!("ru"))).unwrap_or(false)
+        }).expect("GeoSite:ru rule missing");
+        assert_eq!(geosite_rule["outbound"], "direct");
+        
+        // Find GeoIP rule
+        let geoip_rule = rules.iter().find(|r| {
+            r.get("geoip").map(|v| v.as_array().unwrap().contains(&json!("ru"))).unwrap_or(false)
+        }).expect("GeoIP:ru rule missing");
+        assert_eq!(geoip_rule["outbound"], "direct");
+        
+        // 2. Check multiplex enforcement
+        let outbound = parsed["outbounds"].as_array().unwrap().iter()
+            .find(|o| o["tag"].as_str().unwrap().contains("test_inbound"))
+            .expect("Outbound missing");
+            
+        let mux = &outbound["multiplex"];
+        assert_eq!(mux["enabled"], true);
+        assert_eq!(mux["max_connections"], 4);
+        assert_eq!(mux["padding"], true);
+    }
+
     fn match_any_sub() -> crate::models::store::Subscription {
          // Create a dummy subscription with minimal fields populated
          // Using unsafe/transmute or just a minimal struct construction if visible

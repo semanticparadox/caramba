@@ -663,19 +663,17 @@ pub fn generate_singbox_config(
                                       ob["packet_encoding"] = json!("packetaddr");
                                 }
                                 
-                                // Mux (xmux)
-                                if let Some(mux) = &si.xmux {
-                                    ob["multiplex"] = mux.clone();
-                                } else {
-                                    // Default aggressive mux for XHTTP
-                                    ob["multiplex"] = json!({
-                                        "enabled": true,
-                                        "padding": true,
-                                        "max_connections": 4, 
-                                        "min_streams": 4,
-                                        "max_streams": 0 
-                                    });
+                                // Mux (xmux) - Enforce Browser Mimicry
+                                let mut mux = si.xmux.clone().unwrap_or(json!({}));
+                                if !mux.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                    // If not explicitly enabled, enable it with safe defaults
+                                    mux["enabled"] = json!(true);
                                 }
+                                // Enforce concurrency for anti-freezing
+                                mux["max_connections"] = json!(4);
+                                mux["min_streams"] = json!(2);
+                                mux["padding"] = json!(true);
+                                ob["multiplex"] = mux;
                             }
                             _ => {} // tcp = no transport block
                         }
@@ -882,7 +880,9 @@ pub fn generate_singbox_config(
         "outbounds": all_outbounds,
         "route": {
             "rules": [
-                { "protocol": "dns", "outbound": "dns-out" }
+                { "protocol": "dns", "outbound": "dns-out" },
+                { "geosite": ["ru", "category-gov-ru", "yandex", "vk"], "outbound": "direct" },
+                { "geoip": ["ru"], "outbound": "direct" }
             ],
             "final": "proxy",
             "auto_detect_interface": true
