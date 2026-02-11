@@ -161,6 +161,8 @@
                                 class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500 outline-none appearance-none">
                                 <option value="vless">VLESS</option>
                                 <option value="hysteria2">Hysteria 2</option>
+                                <option value="tuic">TUIC v5</option>
+                                <option value="naive">NaiveProxy</option>
                                 <option value="trojan">Trojan</option>
                             </select>
                             <i data-lucide="chevron-down"
@@ -278,6 +280,38 @@
             settings: {
                 "clients": [],
                 "fallback": null
+            },
+            stream_settings: {
+                "network": "tcp",
+                "security": "tls",
+                "tls_settings": {
+                    "server_name": "drive.google.com",
+                    "certificates": []
+                }
+            }
+        },
+        tuic: {
+            settings: {
+                "users": [],
+                "congestion_control": "bbr",
+                "auth_timeout": "3s",
+                "zero_rtt_handshake": false,
+                "heartbeat": "10s"
+            },
+            stream_settings: {
+                "network": "udp",
+                "security": "tls",
+                "tls_settings": {
+                    "server_name": "drive.google.com",
+                    "certificates": [],
+                    "alpn": ["h3"]
+                }
+            }
+        },
+        naive: {
+            settings: {
+                "users": [],
+                "network": "https"
             },
             stream_settings: {
                 "network": "tcp",

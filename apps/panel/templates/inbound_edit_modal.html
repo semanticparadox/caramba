@@ -32,6 +32,8 @@
                         <option value="vless" {% if inbound.protocol=="vless" %}selected{% endif %}>VLESS</option>
                         <option value="hysteria2" {% if inbound.protocol=="hysteria2" %}selected{% endif %}>Hysteria 2
                         </option>
+                        <option value="tuic" {% if inbound.protocol=="tuic" %}selected{% endif %}>TUIC v5</option>
+                        <option value="naive" {% if inbound.protocol=="naive" %}selected{% endif %}>NaiveProxy</option>
                         <option value="trojan" {% if inbound.protocol=="trojan" %}selected{% endif %}>Trojan</option>
                     </select>
                     <i data-lucide="chevron-down"

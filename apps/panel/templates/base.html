@@ -285,6 +285,33 @@
                             </ul>
                         </div>
                     </div>
+
+                    <!-- Configuration Section -->
+                     <div>
+                        <div
+                            class="px-2 mb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-80">
+                            Configuration</div>
+                        <div class="space-y-1">
+                            <a href="{{ admin_path }}/settings" class="flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 group
+                                {% if active_page==" settings" %} bg-gradient-to-r from-indigo-500/10 to-indigo-500/5
+                                text-indigo-400 border border-indigo-500/10 shadow-[0_4px_20px_-4px_rgba(255,107,53,0.1)] {%
+                                else %} text-slate-400 hover:text-indigo-300 hover:bg-white/5 {% endif %}">
+                                <i data-lucide="settings" class="w-4 h-4 mr-3 {% if active_page==" settings"
+                                    %}text-indigo-500{% else %}text-slate-500 group-hover:text-indigo-400{% endif %}
+                                    transition-colors duration-300"></i>
+                                Settings
+                            </a>
+                            <a href="{{ admin_path }}/bot" class="flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 group
+                                {% if active_page==" bot_logs" %} bg-gradient-to-r from-indigo-500/10 to-indigo-500/5
+                                text-indigo-400 border border-indigo-500/10 shadow-[0_4px_20px_-4px_rgba(255,107,53,0.1)] {%
+                                else %} text-slate-400 hover:text-indigo-300 hover:bg-white/5 {% endif %}">
+                                <i data-lucide="bot" class="w-4 h-4 mr-3 {% if active_page==" bot_logs"
+                                    %}text-indigo-500{% else %}text-slate-500 group-hover:text-indigo-400{% endif %}
+                                    transition-colors duration-300"></i>
+                                Bot Logs
+                            </a>
+                        </div>
+                    </div>
             </nav>
 
             <!-- Footer -->

@@ -61,8 +61,8 @@ impl TelemetryService {
         // 3. Process Discovered SNIs (Phase 7 - Neighbor Sniper)
         if let Some(snis) = discovered_snis {
             for sni in snis {
-                // Insert into snis table if doesn't exist, tagging as discovered
-                let _ = sqlx::query("INSERT INTO snis (domain, tier, description, is_active) VALUES (?, 1, ?, 1) ON CONFLICT(domain) DO UPDATE SET description = EXCLUDED.description")
+                // Insert into sni_pool table if doesn't exist, tagging as discovered
+                let _ = sqlx::query("INSERT INTO sni_pool (domain, tier, notes, is_active) VALUES (?, 1, ?, 1) ON CONFLICT(domain) DO UPDATE SET notes = EXCLUDED.notes")
                     .bind(&sni.domain)
                     .bind(format!("Discovered by Node {} (Sniper)", node_id))
                     .execute(&self.pool)

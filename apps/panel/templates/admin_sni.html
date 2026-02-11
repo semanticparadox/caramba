@@ -84,10 +84,24 @@
                         <td class="px-6 py-4 font-mono text-indigo-400">{{ item.domain }}</td>
                         <td class="px-6 py-4">
                             <div class="flex flex-col">
-                                <div class="flex items-center gap-2">
+                                <div class="flex flex-col gap-1">
+                                    {% if item.notes.as_deref().unwrap_or("").contains("Discovered") %}
+                                    <div class="flex items-center gap-2">
+                                        <span
+                                            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                                            <i data-lucide="scan-line" class="w-3 h-3"></i>
+                                            Auto
+                                        </span>
+                                        <span class="text-xs text-slate-400 truncate max-w-[150px]"
+                                            title="{{ item.notes.as_deref().unwrap_or("") }}">{{
+                                            item.notes.as_deref().unwrap_or("") }}</span>
+                                    </div>
+                                    {% else %}
                                     <span class="text-white">{{ item.notes.as_deref().unwrap_or("-") }}</span>
+                                    {% endif %}
+
                                     <span
-                                        class="text-[10px] bg-white/5 px-1 rounded border border-white/5 text-slate-400">T{{
+                                        class="text-[10px] bg-white/5 px-1 rounded border border-white/5 text-slate-400 w-fit">T{{
                                         item.tier }}</span>
                                 </div>
                                 <div class="flex items-center gap-2 mt-1">
