@@ -645,6 +645,7 @@ pub fn generate_singbox_config(
                                     "service_name": si.grpc_service
                                 });
                             }
+                            "xhttp" | "splithttp" => {
                                 ob["transport"] = json!({
                                     "type": "httpupgrade",
                                     "host": si.sni,
