@@ -1409,6 +1409,7 @@ impl StoreService {
                     reality_settings: None,
                     ws_settings: None,
                     http_upgrade_settings: None,
+                    xhttp_settings: None,
                 });
                 let security = stream.security.as_deref().unwrap_or("none");
                 let network = stream.network.as_deref().unwrap_or("tcp");
@@ -1527,6 +1528,7 @@ impl StoreService {
                     reality_settings: None,
                     ws_settings: None,
                     http_upgrade_settings: None,
+                    xhttp_settings: None,
                 });
                 let security = stream.security.as_deref().unwrap_or("none");
                 let _network = stream.network.as_deref().unwrap_or("tcp");
@@ -1826,6 +1828,7 @@ impl StoreService {
                     reality_settings: None,
                     ws_settings: None,
                     http_upgrade_settings: None,
+                    xhttp_settings: None,
                 });
                 let security = stream.security.as_deref().unwrap_or("none");
                 let network = stream.network.as_deref().unwrap_or("tcp");

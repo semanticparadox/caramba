@@ -8,7 +8,7 @@ use askama::Template;
 use askama_web::WebTemplate;
 use serde::Deserialize;
 use crate::AppState;
-use crate::models::groups::NodeGroup;
+use crate::models::groups::{NodeGroup, InboundTemplate};
 use crate::models::node::Node;
 use tracing::error;
 
@@ -166,7 +166,6 @@ pub async fn get_group_edit(
         "SELECT * FROM nodes WHERE id NOT IN (SELECT node_id FROM node_group_members WHERE group_id = ?)"
     )
     .bind(id)
-    .fetch_all(&state.pool)
     .fetch_all(&state.pool)
     .await;
 

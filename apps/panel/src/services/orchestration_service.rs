@@ -101,6 +101,7 @@ impl OrchestrationService {
             }),
             ws_settings: None,
             http_upgrade_settings: None,
+            xhttp_settings: None,
         };
         let stream_json = serde_json::to_string(&stream_settings)?;
         
@@ -144,6 +145,7 @@ impl OrchestrationService {
             reality_settings: None,
             ws_settings: None,
             http_upgrade_settings: None,
+            xhttp_settings: None,
         };
         
         let hy2_inbound = Inbound {
@@ -268,6 +270,7 @@ impl OrchestrationService {
             reality_settings: None,
             ws_settings: None,
             http_upgrade_settings: None,
+            xhttp_settings: None,
         };
 
         let tuic_inbound = Inbound {
