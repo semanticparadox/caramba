@@ -5,7 +5,7 @@ use tokio_rustls::rustls::{ClientConfig, RootCertStore, server::VerifyingServerC
 use tokio_rustls::TlsConnector;
 use std::sync::Arc;
 use exarobot_shared::DiscoveredSni;
-use tracing::{info, debug, warn};
+use tracing::info;
 
 pub struct NeighborScanner {
     local_ip: IpAddr,

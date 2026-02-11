@@ -15,7 +15,7 @@ use crate::repositories::node_repo::NodeRepository;
 pub struct OrchestrationService {
     pub pool: SqlitePool,
     pub node_repo: NodeRepository,
-    infrastructure_service: Arc<crate::services::infrastructure_service::InfrastructureService>,
+    _infrastructure_service: Arc<crate::services::infrastructure_service::InfrastructureService>,
     store_service: Arc<StoreService>,
 }
 

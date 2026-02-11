@@ -7,7 +7,6 @@ use serde::Deserialize;
 use tracing::{error, warn};
 
 use crate::AppState;
-use crate::singbox::subscription_generator::NodeInfo;
 
 #[derive(Deserialize)]
 pub struct SubParams {

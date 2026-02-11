@@ -20,3 +20,4 @@ md5 = "0.8"
 rand = "0.9"
 sysinfo = "0.38" # Telemetry
 sha2 = "0.10"
+tokio-rustls = "0.26"
