@@ -62,9 +62,6 @@ impl GeneratorService {
         .fetch_optional(&self.pool)
         .await?;
 
-        // Variables for generation (used for both Insert and Update)
-        let mut port = template.port_range_start; // default, will be overwritten
-        
         // 3. Resolve Placeholders
         let mut settings = template.settings_template.clone();
         let mut stream_settings = template.stream_settings_template.clone();
@@ -74,9 +71,8 @@ impl GeneratorService {
         
          if let Some((id, existing_port)) = existing_inbound {
             // Inbound exists. Update it to match template!
-            // We preserve the existing port to avoid breaking clients, 
-            // unless we want to force re-allocation (which we don't).
-            port = existing_port;
+            // We preserve the existing port to avoid breaking clients.
+            let port = existing_port;
             settings = settings.replace("{{port}}", &port.to_string());
             
              // Reality Key Generation / SNI Logic (Re-run to ensure consistency or updates)
@@ -127,7 +123,7 @@ impl GeneratorService {
         }
 
         // New Inbound Logic
-        port = self.allocate_port(node.id, template.port_range_start, template.port_range_end).await?;
+        let port = self.allocate_port(node.id, template.port_range_start, template.port_range_end).await?;
         settings = settings.replace("{{port}}", &port.to_string());
         
         // Reality Key Generation if needed (placeholder {{reality_private}})
