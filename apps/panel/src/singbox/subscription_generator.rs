@@ -381,8 +381,30 @@ pub fn generate_v2ray_config(
                             user_keys.hy2_password, host, inbound.listen_port, // Masquerading
                             params.join("&"), label));
                     }
-                    _ => {
-                        // Unknown protocol, skip
+                    "amneziawg" => {
+                        let client_id = user_keys.hy2_password.split(':').next().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
+                        let local_address = format!("10.10.0.{}/32", (client_id % 250) + 2);
+                        
+                        // wireguard://private_key@server:port?public_key=...&preshared_key=...#label
+                        // Note: Some clients use 'address' param for local address
+                        let mut params = vec![
+                            format!("public_key={}", si.public_key),
+                            format!("address={}", urlencoding::encode(&local_address)),
+                        ];
+                        
+                        // Add AmneziaWG obfuscation as non-standard params (supported by some clients/converted by users)
+                        if let Ok(awg_obj) = serde_json::from_str::<serde_json::Value>(&inbound.settings) {
+                            for field in ["jc", "jmin", "jmax", "s1", "s2", "h1", "h2", "h3", "h4"] {
+                                if let Some(v) = awg_obj.get(field) {
+                                    params.push(format!("{}={}", field, v));
+                                }
+                            }
+                        }
+
+                        links.push(format!("wireguard://{}@{}:{}?{}#{}",
+                            user_keys._awg_private_key.clone().unwrap_or_default(),
+                            node.address, inbound.listen_port,
+                            params.join("&"), label));
                     }
                 }
             }
@@ -553,6 +575,34 @@ pub fn generate_clash_config(
                             "sni": si.sni,
                             "skip-cert-verify": true,
                         }));
+                    }
+                    "amneziawg" => {
+                        let client_id = user_keys.hy2_password.split(':').next().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
+                        let local_address = format!("10.10.0.{}/32", (client_id % 250) + 2);
+                        
+                        let mut proxy = json!({
+                            "name": name,
+                            "type": "wireguard",
+                            "server": node.address,
+                            "port": inbound.listen_port,
+                            "ip": local_address,
+                            "private-key": user_keys._awg_private_key.clone().unwrap_or_default(),
+                            "public-key": si.public_key,
+                            "udp": true,
+                            "mtu": 1280,
+                        });
+                        
+                        // Clash Meta amnezia-wg opts
+                        if let Ok(awg_obj) = serde_json::from_str::<serde_json::Value>(&inbound.settings) {
+                             let mut opts = json!({});
+                             for field in ["jc", "jmin", "jmax", "s1", "s2", "h1", "h2", "h3", "h4"] {
+                                 if let Some(v) = awg_obj.get(field) {
+                                     opts[field] = v.clone();
+                                 }
+                             }
+                             proxy["amnezia-wg"] = opts;
+                        }
+                        proxies.push(proxy);
                     }
                     _ => {}
                 }
@@ -928,24 +978,20 @@ pub fn generate_singbox_config(
                         outbounds.push(ob);
                     }
                     "amneziawg" => {
-                        use crate::models::network::AmneziaWgSettings;
-                        let settings: AmneziaWgSettings = serde_json::from_str(&inbound.settings).unwrap_or_default();
-                        
+                        let client_id = user_keys.hy2_password.split(':').next().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
+                        let local_address = format!("10.10.0.{}/32", (client_id % 250) + 2);
+
                         let mut ob = json!({
                             "type": "wireguard",
                             "tag": tag,
                             "server": node.address,
                             "server_port": inbound.listen_port,
-                            "local_address": [format!("10.10.0.{}", (user_keys.hy2_password.split(':').next().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0) % 250) + 2)],
+                            "local_address": local_address, // String per Hiddify error
                             "private_key": user_keys._awg_private_key.clone().unwrap_or_default(),
-                            "peer_public_key": settings.public_key, 
+                            "peer_public_key": "", // Placeholder, will be replaced below
                         });
                         
-                        // We need the server's public key. 
-                        // In orchestration_service, when instantiating AWG, we generate keys.
-                        // But where is the server's PUBLIC key stored? 
-                        // It seems we should have it in the inbound settings after instantiation.
-                        
+                        // Fetch server's public key from inbound settings
                         if let Ok(awg_obj) = serde_json::from_str::<serde_json::Value>(&inbound.settings) {
                             if let Some(pub_key) = awg_obj.get("public_key").and_then(|v| v.as_str()) {
                                 ob["peer_public_key"] = json!(pub_key);
@@ -965,13 +1011,17 @@ pub fn generate_singbox_config(
                         outbounds.push(ob);
                     }
                     "naive" => {
+                        let parts: Vec<&str> = user_keys.hy2_password.split(':').collect();
+                        let username = parts.get(0).copied().unwrap_or("0");
+                        let password = parts.get(1).copied().unwrap_or("");
+                        
                         let mut ob = json!({
                             "type": "http",
                             "tag": tag,
                             "server": node.address,
                             "server_port": inbound.listen_port,
-                            "username": user_keys.user_uuid,
-                            "password": user_keys.hy2_password,
+                            "username": username,
+                            "password": password,
                             "tls": {
                                 "enabled": true,
                                 "server_name": si.sni,
