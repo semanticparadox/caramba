@@ -66,6 +66,10 @@ pub enum ClientOutbound {
         interval: Option<String>,
         tolerance: Option<u16>,
     },
+    #[serde(rename = "dns")]
+    Dns {
+        tag: String,
+    },
     #[serde(rename = "direct")]
     Direct {
         tag: String,
@@ -215,7 +219,8 @@ impl ClientGenerator {
                 ClientOutbound::Tuic(t) => {
                     all_proxy_tags.push(t.tag.clone());
                     tuic_tags.push(t.tag.clone());
-                }
+                },
+                ClientOutbound::Dns { .. } | ClientOutbound::Direct { .. } => {}
                 _ => {}
             }
             outbounds.push(p);
@@ -294,8 +299,9 @@ impl ClientGenerator {
         };
         outbounds.insert(0, select_group);
 
-        // Direct
+        // Direct & DNS
         outbounds.push(ClientOutbound::Direct { tag: "direct".to_string() });
+        outbounds.push(ClientOutbound::Dns { tag: "dns-out".to_string() });
 
         // 3. DNS (Optimized for RU)
         let dns = if country_code == "ru" {
@@ -337,17 +343,12 @@ impl ClientGenerator {
             log: LogConfig { level: "warn".to_string(), timestamp: true },
             dns,
             inbounds: vec![
-               // Default TUN or Mixed?
-               // For "Link" export, we don't usually define Inbounds (client app handles it).
-               // But if we export FULL PROFILE (JSON), we often include a TUN inbound for desktop users.
-               // Let's assume this is for "Import Profile" feature.
-               ClientInbound::Tun {
-                   tag: "tun-in".to_string(),
-                   interface_name: "tun0".to_string(),
-                   inet4_address: "172.19.0.1/30".to_string(),
-                   auto_route: true,
-                   strict_route: true,
-               }
+                // Mixed inbound is safer for all platforms than TUN
+                ClientInbound::Mixed {
+                    tag: "mixed-in".to_string(),
+                    listen: "127.0.0.1".to_string(),
+                    listen_port: 2080,
+                }
             ],
             outbounds,
             route,

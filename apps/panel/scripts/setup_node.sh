@@ -98,6 +98,9 @@ cat > /etc/nginx/nginx.conf <<EOF
 user  www-data;
 worker_processes  auto;
 
+# Load dynamic modules (Required for stream)
+include /etc/nginx/modules-enabled/*.conf;
+
 error_log  /var/log/nginx/error.log notice;
 pid        /var/run/nginx.pid;
 

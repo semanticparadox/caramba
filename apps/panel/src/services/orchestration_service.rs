@@ -82,7 +82,7 @@ impl OrchestrationService {
         // VLESS Reality
         let vless_settings = r#"{"clients":[],"decryption":"none"}"#;
         let vless_stream = r#"{"network":"tcp","security":"reality","reality_settings":{"show":false,"xver":0,"dest":"drive.google.com:443","server_names":["drive.google.com"]}}"#;
-        self.create_template("VLESS Reality", "vless", vless_settings, vless_stream, group_id, 443).await?;
+        self.create_template("VLESS Reality", "vless", vless_settings, vless_stream, group_id, 10000).await?;
 
         // Hysteria 2
         let hy2_settings = r#"{"users":[],"up_mbps":100,"down_mbps":100,"masquerade":"file:///opt/exarobot/apps/panel/assets/masquerade"}"#;
@@ -101,8 +101,8 @@ impl OrchestrationService {
         Ok(())
     }
 
-    async fn create_template(&self, name: &str, protocol: &str, settings: &str, stream: &str, group_id: i64, port: i64) -> anyhow::Result<()> {
-        sqlx::query("INSERT INTO inbound_templates (name, protocol, settings_template, stream_settings_template, target_group_id, port_range_start, port_range_end, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)")
+    async fn create_template(&self, name: &str, protocol: &str, settings: &str, stream: &str, group_id: i64, port: i64) -> anyhow::Result<i64> {
+        let res = sqlx::query("INSERT INTO inbound_templates (name, protocol, settings_template, stream_settings_template, target_group_id, port_range_start, port_range_end, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)")
             .bind(name)
             .bind(protocol)
             .bind(settings)
@@ -112,7 +112,7 @@ impl OrchestrationService {
             .bind(port) 
             .execute(&self.pool)
             .await?;
-        Ok(())
+        Ok(res.last_insert_rowid())
     }
 
     async fn instantiate_inbound_from_template(&self, node: &Node, template: &crate::models::groups::InboundTemplate) -> anyhow::Result<()> {
@@ -170,7 +170,7 @@ impl OrchestrationService {
         let inbound = crate::models::network::Inbound {
             id: 0,
             node_id: node.id,
-            tag: format!("tpl_{}_{}", template.protocol, node.id),
+            tag: format!("tpl_{}", template.id),
             protocol: template.protocol.clone(),
             listen_port: port,
             listen_ip: "0.0.0.0".to_string(),
