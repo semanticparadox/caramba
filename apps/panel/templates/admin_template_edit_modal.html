@@ -1,11 +1,6 @@
-<dialog id="editTemplateModal" open
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50 fixed inset-0 w-full h-full flex items-center justify-center">
-    <!-- Overlay to close -->
-    <div class="absolute inset-0" onclick="this.parentElement.remove()"></div>
-
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-2xl p-6 m-4 ring-1 ring-white/10 relative z-10"
-        onclick="event.stopPropagation()">
-        <header class="flex justify-between items-center mb-6 border-b border-white/5 pb-4">
+<dialog id="editTemplateModal" open>
+    <div class="modal-container max-w-2xl" onclick="event.stopPropagation()">
+        <header class="modal-header">
             <div class="flex items-center gap-3">
                 <div class="p-2 bg-indigo-500/10 rounded-lg text-indigo-400">
                     <i data-lucide="file-json" class="w-6 h-6"></i>
@@ -18,89 +13,99 @@
             </button>
         </header>
 
-        <form action="{{ admin_path }}/templates/{{ tpl.id }}" method="POST" class="space-y-5">
-            <!-- Row 1: Name & Group -->
-            <div class="grid grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Template
-                        Name</label>
-                    <input type="text" name="name" value="{{ tpl.name }}" required
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+        <form action="{{ admin_path }}/templates/{{ tpl.id }}" method="POST">
+            <div class="modal-body space-y-6">
+                <!-- Row 1: Name & Group -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Template
+                            Name</label>
+                        <input type="text" name="name" value="{{ tpl.name }}" required class="input-field">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Target
+                            Group</label>
+                        <div class="relative">
+                            <select name="target_group_id" class="input-field appearance-none">
+                                <option value="">-- All Groups --</option>
+                                {% for g in groups %}
+                                <option value="{{ g.id }}" {% if g.id==tpl.target_group_id.unwrap_or(0) %}selected{%
+                                    endif %}>{{ g.name }}</option>
+                                {% endfor %}
+                            </select>
+                            <i data-lucide="chevron-down"
+                                class="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"></i>
+                        </div>
+                    </div>
                 </div>
-                <div>
-                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Target
-                        Group</label>
-                    <select name="target_group_id"
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                        <option value="">-- All Groups --</option>
-                        {% for g in groups %}
-                        <option value="{{ g.id }}" {% if g.id==tpl.target_group_id.unwrap_or(0) %}selected{% endif %}>{{
-                            g.name }}</option>
-                        {% endfor %}
-                    </select>
+
+                <!-- Row 2: Protocol & Ports -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div>
+                        <label
+                            class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Protocol</label>
+                        <div class="relative">
+                            <select name="protocol" class="input-field appearance-none">
+                                <option value="vless" {% if tpl.protocol=="vless" %}selected{% endif %}>VLESS</option>
+                                <option value="vmess" {% if tpl.protocol=="vmess" %}selected{% endif %}>VMess</option>
+                                <option value="trojan" {% if tpl.protocol=="trojan" %}selected{% endif %}>Trojan
+                                </option>
+                                <option value="shadowsocks" {% if tpl.protocol=="shadowsocks" %}selected{% endif %}>
+                                    Shadowsocks</option>
+                                <option value="hysteria2" {% if tpl.protocol=="hysteria2" %}selected{% endif %}>
+                                    Hysteria2</option>
+                                <option value="tuic" {% if tpl.protocol=="tuic" %}selected{% endif %}>TUIC v5</option>
+                                <option value="naive" {% if tpl.protocol=="naive" %}selected{% endif %}>NaiveProxy
+                                </option>
+                            </select>
+                            <i data-lucide="chevron-down"
+                                class="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"></i>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Port
+                            Start</label>
+                        <input type="number" name="port_range_start" value="{{ tpl.port_range_start }}" required
+                            class="input-field font-mono">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Port
+                            End</label>
+                        <input type="number" name="port_range_end" value="{{ tpl.port_range_end }}" required
+                            class="input-field font-mono">
+                    </div>
+                </div>
+
+                <!-- Settings JSON -->
+                <div class="space-y-3">
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest">Inbound Settings
+                        (JSON Template)</label>
+                    <div class="relative group overflow-hidden rounded-2xl border border-white/5 bg-[#0d1117]">
+                        <div class="absolute top-0 left-0 right-0 h-1 bg-indigo-500/30"></div>
+                        <textarea name="settings_template" rows="5" required
+                            class="w-full bg-transparent p-4 text-xs text-indigo-300 font-mono focus:outline-none resize-none leading-relaxed transition-all">{{ tpl.settings_template }}</textarea>
+                    </div>
+                </div>
+
+                <!-- Stream Settings JSON -->
+                <div class="space-y-3">
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest">Stream Settings
+                        (JSON Template)</label>
+                    <div class="relative group overflow-hidden rounded-2xl border border-white/5 bg-[#0d1117]">
+                        <div class="absolute top-0 left-0 right-0 h-1 bg-purple-500/30"></div>
+                        <textarea name="stream_settings_template" rows="8" required
+                            class="w-full bg-transparent p-4 text-xs text-purple-300 font-mono focus:outline-none resize-none leading-relaxed transition-all">{{ tpl.stream_settings_template }}</textarea>
+                    </div>
                 </div>
             </div>
 
-            <!-- Row 2: Protocol & Ports -->
-            <div class="grid grid-cols-3 gap-4">
-                <div>
-                    <label
-                        class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Protocol</label>
-                    <select name="protocol"
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                        <option value="vless" {% if tpl.protocol=="vless" %}selected{% endif %}>VLESS</option>
-                        <option value="vmess" {% if tpl.protocol=="vmess" %}selected{% endif %}>VMess</option>
-                        <option value="trojan" {% if tpl.protocol=="trojan" %}selected{% endif %}>Trojan</option>
-                        <option value="shadowsocks" {% if tpl.protocol=="shadowsocks" %}selected{% endif %}>Shadowsocks
-                        </option>
-                        <option value="hysteria2" {% if tpl.protocol=="hysteria2" %}selected{% endif %}>Hysteria2
-                        </option>
-                        <option value="tuic" {% if tpl.protocol=="tuic" %}selected{% endif %}>TUIC v5</option>
-                        <option value="naive" {% if tpl.protocol=="naive" %}selected{% endif %}>NaiveProxy</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Port Range
-                        Start</label>
-                    <input type="number" name="port_range_start" value="{{ tpl.port_range_start }}" required
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                </div>
-                <div>
-                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Port Range
-                        End</label>
-                    <input type="number" name="port_range_end" value="{{ tpl.port_range_end }}" required
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                </div>
-            </div>
-
-            <!-- Settings JSON -->
-            <div>
-                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Settings JSON
-                    (Template)</label>
-                <textarea name="settings_template" rows="5" required
-                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-xs placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all resize-y">{{ tpl.settings_template }}</textarea>
-            </div>
-
-            <!-- Stream Settings JSON -->
-            <div>
-                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Stream Settings
-                    JSON (Template)</label>
-                <textarea name="stream_settings_template" rows="8" required
-                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-xs placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all resize-y">{{ tpl.stream_settings_template }}</textarea>
-            </div>
-
-            <!-- Submit -->
-            <div class="pt-2 flex justify-end gap-3">
-                <button type="button" onclick="document.getElementById('editTemplateModal').remove()"
-                    class="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-xl transition-colors">
-                    Cancel
+            <footer class="modal-footer">
+                <button type="button" class="btn-secondary"
+                    onclick="document.getElementById('editTemplateModal').remove()">Cancel</button>
+                <button type="submit" class="btn-primary">
+                    <i data-lucide="save" class="w-4 h-4 mr-2 inline-block"></i>Save Template Changes
                 </button>
-                <button type="submit"
-                    class="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-bold py-2.5 px-6 rounded-xl shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.02]">
-                    <i data-lucide="save" class="w-4 h-4"></i>
-                    Save Changes
-                </button>
-            </div>
+            </footer>
         </form>
     </div>
 </dialog>

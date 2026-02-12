@@ -37,26 +37,67 @@ impl TelemetryService {
         traffic_down: u64,
         _speed_mbps: Option<i32>,
         discovered_snis: Option<Vec<exarobot_shared::DiscoveredSni>>,
+        uptime: u64,
     ) -> Result<(), sqlx::Error> {
-        // 1. Store the metrics (if we had a time-series DB, but for now just log or check anomalies)
-        // We might want to store 'active_connections' in the nodes table for real-time dashboard
-        
-        if let Some(conns) = active_connections {
-             // Update node status
-             sqlx::query("UPDATE nodes SET active_connections = ? WHERE id = ?")
-                 .bind(conns)
-                 .bind(node_id)
-                 .execute(&self.pool)
-                 .await?;
+        // 1. Fetch current totals and previous session counters
+        let node_data: Option<(i64, i64, i64, i64)> = sqlx::query_as(
+            "SELECT total_ingress, total_egress, last_session_ingress, last_session_egress FROM nodes WHERE id = ?"
+        )
+        .bind(node_id)
+        .fetch_optional(&self.pool)
+        .await?;
 
-             // 2. Anomaly Detection (Simple Heuristic for "Connection Freezing")
-             if conns > 50 && (traffic_up + traffic_down) < 1024 {
-                 warn!("⚠️ Potential Censorship Detected on Node {}: {} connections but only {} bytes traffic.", 
-                     node_id, conns, traffic_up + traffic_down);
-                 
-                 // Trigger Self-Healing
-                 let _ = self.trigger_mitigation(node_id).await;
-             }
+        if let Some((mut total_in, mut total_eq, last_sess_in, last_sess_eg)) = node_data {
+            // Logic: traffic_up/down are CUMULATIVE for the agent session
+            // If they are smaller than last seen, the agent restarted.
+            
+            let diff_in = if traffic_up >= last_sess_in as u64 {
+                traffic_up - last_sess_in as u64
+            } else {
+                traffic_up // Restarted
+            };
+
+            let diff_eg = if traffic_down >= last_sess_eg as u64 {
+                traffic_down - last_sess_eg as u64
+            } else {
+                traffic_down // Restarted
+            };
+
+            total_in += diff_in as i64;
+            total_eq += diff_eg as i64;
+
+            // Update node
+            sqlx::query(
+                "UPDATE nodes SET 
+                    active_connections = ?, 
+                    total_ingress = ?, 
+                    total_egress = ?, 
+                    last_session_ingress = ?, 
+                    last_session_egress = ?,
+                    uptime = ?
+                 WHERE id = ?"
+            )
+            .bind(active_connections)
+            .bind(total_in)
+            .bind(total_eq)
+            .bind(traffic_up as i64)
+            .bind(traffic_down as i64)
+            .bind(uptime as i64)
+            .bind(node_id)
+            .execute(&self.pool)
+            .await?;
+
+            // 2. Anomaly Detection (Simple Heuristic for "Connection Freezing")
+            if let Some(conns) = active_connections {
+                 if conns > 50 && (diff_in + diff_eg) < 1024 {
+                     warn!("⚠️ Potential Censorship Detected on Node {}: {} connections but only {} bytes traffic.", 
+                         node_id, conns, diff_in + diff_eg);
+                     
+                     // Trigger Self-Healing
+                     let _ = self.trigger_mitigation(node_id).await;
+                 }
+            }
+        }
         
         // 3. Process Discovered SNIs (Phase 7 - Neighbor Sniper)
         if let Some(snis) = discovered_snis {
@@ -70,7 +111,6 @@ impl TelemetryService {
                 
                 info!("💎 Neighbor Sniper: Persisted discovered SNI {} from Node {}", sni.domain, node_id);
             }
-        }
         }
 
         Ok(())

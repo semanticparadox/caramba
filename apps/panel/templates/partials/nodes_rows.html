@@ -55,45 +55,90 @@
     </td>
     <td class="px-6 py-5">
         {% if node.status == "active" %}
-        <div class="flex flex-col gap-1.5 w-max">
-            <!-- CPU & RAM -->
-            <div class="flex items-center gap-3 text-[10px] font-mono text-slate-400">
-                <div class="flex items-center gap-1">
-                    <i data-lucide="cpu" class="w-3 h-3 text-slate-500"></i>
-                    <span>{{ node.cpu_rounded() }}%</span>
+        <div class="grid grid-cols-2 gap-x-8 gap-y-3 min-w-[320px]">
+            <!-- System Health -->
+            <div class="space-y-1.5">
+                <div
+                    class="flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-500 font-bold">
+                    <span>Resources</span>
+                    <span class="text-slate-400 font-mono">{{ node.latency_rounded() }}ms</span>
                 </div>
-                <div class="flex items-center gap-1">
-                    <i data-lucide="memory-stick" class="w-3 h-3 text-slate-500"></i>
-                    <span>{{ node.ram_rounded() }}%</span>
-                </div>
-                <div class="flex items-center gap-1">
-                    <i data-lucide="users" class="w-3 h-3 text-indigo-400 opacity-70"></i>
-                    <span>{{ node.active_connections.unwrap_or(0) }}</span>
+                <div class="flex items-center gap-4 text-xs font-mono">
+                    <div class="flex items-center gap-1.5 group/stat" title="CPU Usage">
+                        <i data-lucide="cpu" class="w-3.5 h-3.5 text-indigo-400"></i>
+                        <span class="text-slate-200">{{ node.cpu_rounded() }}%</span>
+                    </div>
+                    <div class="flex items-center gap-1.5 group/stat" title="Memory Usage">
+                        <i data-lucide="memory-stick" class="w-3.5 h-3.5 text-purple-400"></i>
+                        <span class="text-slate-200">{{ node.ram_rounded() }}%</span>
+                    </div>
+                    <div class="flex items-center gap-1.5 group/stat" title="Uptime">
+                        <i data-lucide="clock" class="w-3.5 h-3.5 text-emerald-400"></i>
+                        <span class="text-slate-200">{{ node.format_uptime() }}</span>
+                    </div>
                 </div>
             </div>
-            <!-- Latency -->
-            <div class="flex items-center gap-1 text-[10px] font-mono">
-                {% let lat = node.last_latency.unwrap_or(0.0) %}
-                <i data-lucide="activity"
-                    class="w-3 h-3 {% if lat < 100.0 %}text-emerald-400{% else if lat < 300.0 %}text-amber-400{% else %}text-red-400{% endif %}"></i>
-                <span
-                    class="{% if lat < 100.0 %}text-emerald-400{% else if lat < 300.0 %}text-amber-400{% else %}text-red-400{% endif %}">
-                    {{ node.latency_rounded() }}ms
-                </span>
+
+            <!-- Network Usage -->
+            <div class="space-y-1.5">
+                <div
+                    class="flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-500 font-bold">
+                    <span>Performance</span>
+                    <span class="text-slate-400 font-mono">{{ node.current_speed_mbps }} Mbps</span>
+                </div>
+                <div class="flex items-center gap-4 text-xs font-mono">
+                    <div class="flex items-center gap-1.5 group/stat" title="Active Connections">
+                        <i data-lucide="users" class="w-3.5 h-3.5 text-blue-400"></i>
+                        <span class="text-slate-200">{{ node.active_connections.unwrap_or(0) }}</span>
+                    </div>
+                    <div class="flex items-center gap-1.5 group/stat" title="Total Inbound">
+                        <i data-lucide="arrow-down-circle" class="w-3.5 h-3.5 text-sky-400"></i>
+                        <span class="text-slate-200">{{ node.format_traffic_ingress() }}</span>
+                    </div>
+                    <div class="flex items-center gap-1.5 group/stat" title="Total Outbound">
+                        <i data-lucide="arrow-up-circle" class="w-3.5 h-3.5 text-orange-400"></i>
+                        <span class="text-slate-200">{{ node.format_traffic_egress() }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Routing/Disguise -->
+            <div class="col-span-2 pt-1.5 border-t border-white/5 flex items-center justify-between">
+                <div class="flex items-center gap-2 text-[10px] text-slate-500 font-medium">
+                    <i data-lucide="shield-check" class="w-3.5 h-3.5 text-slate-600"></i>
+                    <span>Mimicry:</span>
+                    <span class="text-indigo-400/80 font-mono">{{
+                        node.reality_sni.clone().unwrap_or("www.google.com".to_string()) }}</span>
+                </div>
+                <div class="flex items-center gap-2 text-[10px] text-slate-500 font-medium">
+                    <i data-lucide="map-pin" class="w-3.5 h-3.5 text-slate-600"></i>
+                    <span>Location:</span>
+                    <span class="text-slate-300">{{ node.city.clone().unwrap_or("Unknown".to_string()) }}, {{
+                        node.country.clone().unwrap_or("Earth".to_string()) }}</span>
+                </div>
             </div>
         </div>
         {% else %}
-        <span class="text-[10px] text-slate-600 font-mono">-</span>
+        <div class="flex items-center gap-2 text-slate-600 italic text-xs">
+            <i data-lucide="monitor-off" class="w-4 h-4 opacity-50"></i>
+            Metrics unavailable while offline
+        </div>
         {% endif %}
     </td>
     <td class="px-6 py-5">
         {% if let Some(ls) = node.last_seen %}
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1 items-end">
             <span class="text-xs text-slate-300 font-medium time-ago" data-time="{{ ls }}">{{ ls }}</span>
-            <span class="text-[10px] text-slate-500 font-mono opacity-50">{{ ls.format("%H:%M") }}</span>
+            <div
+                class="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono opacity-50 uppercase tracking-tighter">
+                <i data-lucide="calendar" class="w-3 h-3"></i>
+                {{ ls.format("%H:%M %d/%m") }}
+            </div>
         </div>
         {% else %}
-        <span class="text-xs text-slate-600 font-medium">Never connected</span>
+        <div class="flex flex-col items-end opacity-40">
+            <span class="text-xs text-slate-600 font-medium">Never connected</span>
+        </div>
         {% endif %}
     </td>
     <td class="px-6 py-5 text-right">

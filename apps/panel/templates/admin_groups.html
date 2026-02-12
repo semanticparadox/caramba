@@ -94,54 +94,48 @@
 </div>
 
 <!-- Create Group Modal -->
-<dialog id="createGroupModal"
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4 ring-1 ring-white/10 overflow-y-auto max-h-[90vh]"
-        onclick="event.stopPropagation()">
-        <header class="flex justify-between items-center mb-6 border-b border-white/5 pb-4">
-            <div class="flex items-center gap-3">
-                <div class="p-2 bg-indigo-500/10 rounded-lg text-indigo-400">
-                    <i data-lucide="layers" class="w-6 h-6"></i>
-                </div>
-                <h3 class="text-xl font-bold text-white">Create Node Group</h3>
-            </div>
+<dialog id="createGroupModal">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <header class="modal-header">
+            <h3 class="text-xl font-bold text-white flex items-center gap-3">
+                <i data-lucide="layers" class="w-6 h-6 text-indigo-400"></i>
+                Create Node Group
+            </h3>
             <button onclick="document.getElementById('createGroupModal').close()"
                 class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
                 <i data-lucide="x" class="w-5 h-5"></i>
             </button>
         </header>
 
-        <form action="{{ admin_path }}/groups" method="POST" class="space-y-5">
-            <div>
-                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Group
-                    Name</label>
-                <input type="text" name="name" required placeholder="e.g. Premium Tier"
-                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-            </div>
-            <div>
-                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Slug</label>
-                <input type="text" name="slug" placeholder="e.g. premium"
-                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                <p class="text-[10px] text-slate-500 mt-1.5 ml-1">Unique slug for API/config usage.</p>
-            </div>
-            <div>
-                <label
-                    class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Description</label>
-                <textarea name="description" rows="2"
-                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all resize-y"></textarea>
+        <form action="{{ admin_path }}/groups" method="POST">
+            <div class="modal-body space-y-5">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Group
+                        Name</label>
+                    <input type="text" name="name" required placeholder="e.g. Premium Tier" class="input-field">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Slug</label>
+                    <input type="text" name="slug" placeholder="e.g. premium"
+                        class="input-field uppercase font-mono text-xs">
+                    <p class="text-[10px] text-slate-500 mt-2 font-medium italic">Unique slug for API/config usage.</p>
+                </div>
+                <div>
+                    <label
+                        class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Description</label>
+                    <textarea name="description" rows="3" placeholder="Describe the purpose of this group..."
+                        class="input-field resize-none"></textarea>
+                </div>
             </div>
 
-            <div class="pt-2 flex justify-end gap-3">
-                <button type="button" onclick="document.getElementById('createGroupModal').close()"
-                    class="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-xl transition-colors">
-                    Cancel
-                </button>
-                <button type="submit"
-                    class="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold py-2.5 px-6 rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02]">
+            <footer class="modal-footer">
+                <button type="button" class="btn-secondary"
+                    onclick="document.getElementById('createGroupModal').close()">Cancel</button>
+                <button type="submit" class="btn-primary">
                     <i data-lucide="plus" class="w-4 h-4"></i>
                     Create Group
                 </button>
-            </div>
+            </footer>
         </form>
     </div>
 </dialog>

@@ -58,6 +58,13 @@ pub struct Node {
 
     #[sqlx(default)]
     pub active_connections: Option<i32>,
+
+    #[sqlx(default)]
+    pub total_ingress: i64,
+    #[sqlx(default)]
+    pub total_egress: i64,
+    #[sqlx(default)]
+    pub uptime: i64,
 }
 
 impl Node {
@@ -69,5 +76,30 @@ impl Node {
     }
     pub fn latency_rounded(&self) -> String {
         format!("{:.0}", self.last_latency.unwrap_or(0.0))
+    }
+
+    pub fn format_uptime(&self) -> String {
+        let total_seconds = self.uptime;
+        if total_seconds == 0 { return "0s".to_string(); }
+        
+        let days = total_seconds / 86400;
+        let hours = (total_seconds % 86400) / 3600;
+        let minutes = (total_seconds % 3600) / 60;
+        
+        if days > 0 {
+            format!("{}d {}h", days, hours)
+        } else if hours > 0 {
+            format!("{}h {}m", hours, minutes)
+        } else {
+            format!("{}m", minutes)
+        }
+    }
+
+    pub fn format_traffic_ingress(&self) -> String {
+        crate::utils::format_bytes_str(self.total_ingress as u64)
+    }
+
+    pub fn format_traffic_egress(&self) -> String {
+        crate::utils::format_bytes_str(self.total_egress as u64)
     }
 }

@@ -1,78 +1,91 @@
-<header class="flex justify-between items-center mb-6 sticky top-0 bg-slate-900 z-10 pb-4 border-b border-white/5">
-    <h3 class="text-xl font-bold text-white flex items-center gap-2">
-        <i data-lucide="terminal" class="w-5 h-5 text-indigo-400"></i>
+<header class="modal-header">
+    <h3 class="text-xl font-bold text-white flex items-center gap-3">
+        <i data-lucide="terminal" class="w-6 h-6 text-indigo-400"></i>
         Manual Setup: <span class="text-indigo-400 font-mono text-base">{{ node.name }}</span>
     </h3>
     <button onclick="document.getElementById('manual-install-modal').close()"
-        class="text-slate-400 hover:text-white transition-colors">
-        <i data-lucide="x" class="w-6 h-6"></i>
+        class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+        <i data-lucide="x" class="w-5 h-5"></i>
     </button>
 </header>
 
-<div class="space-y-6">
+<div class="modal-body space-y-8">
     <!-- One Liner -->
-    <div>
-        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Quick One-Liner</label>
+    <div class="space-y-3">
+        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest">Quick Installation
+            Command</label>
         <div class="relative group">
+            <div class="absolute inset-0 bg-emerald-500/5 rounded-2xl pointer-events-none"></div>
             <input type="text" id="one-liner" value="Calculating..." readonly
-                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3.5 pr-24 text-emerald-400 font-mono text-xs focus:border-indigo-500 outline-none">
+                class="w-full bg-[#0a0a0a] border border-emerald-500/20 rounded-2xl px-5 py-4 pr-28 text-emerald-400 font-mono text-xs focus:border-emerald-500 outline-none leading-relaxed transition-all">
 
             <button onclick="copyToClipboard('one-liner')"
-                class="absolute right-2 top-2 bottom-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg transition-colors border border-white/5 flex items-center gap-1.5">
+                class="absolute right-3 top-3 bottom-3 px-4 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-bold uppercase tracking-wider rounded-xl transition-all border border-emerald-500/20 flex items-center gap-2 active:scale-95">
                 <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy
             </button>
         </div>
-        <p class="text-[10px] text-slate-500 mt-2 flex items-center gap-1.5">
-            <i data-lucide="info" class="w-3 h-3 text-indigo-400"></i>
-            Run this command on your server (as root) to auto-install and join the node.
-        </p>
+        <div class="flex gap-3 px-1">
+            <i data-lucide="info" class="w-4 h-4 text-indigo-400 shrink-0 mt-0.5"></i>
+            <p class="text-[11px] text-slate-500 leading-relaxed font-medium italic">
+                Paste this command into your SSH terminal (running as root) to automatically install the agent,
+                configure requirements, and link to this panel.
+            </p>
+        </div>
     </div>
 
     <!-- Full Script -->
-    <div>
-        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Full Script
-            Preview</label>
-        <div class="relative group">
-            <textarea id="full-script" rows="8" readonly
-                class="w-full bg-[#0d1117] border border-white/10 rounded-xl p-4 text-xs text-slate-400 font-mono focus:border-indigo-500 outline-none leading-relaxed custom-scrollbar resize-none">{{ script }}</textarea>
+    <div class="space-y-3">
+        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest">Direct Installation
+            Script</label>
+        <div class="relative group overflow-hidden rounded-2xl border border-white/5 bg-[#0d1117]">
+            <div
+                class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500/50 via-purple-500/50 to-indigo-500/50 opacity-30">
+            </div>
+            <textarea id="full-script" rows="10" readonly
+                class="w-full bg-transparent p-5 text-xs text-slate-400 font-mono focus:outline-none leading-relaxed custom-scrollbar resize-none font-fira">{{ script }}</textarea>
 
             <button onclick="copyToClipboard('full-script')"
-                class="absolute right-4 top-4 px-2 py-1.5 bg-slate-800/80 hover:bg-slate-700/80 backdrop-blur text-slate-300 text-xs rounded-lg transition-colors border border-white/5 flex items-center gap-1.5 opacity-0 group-hover:opacity-100">
-                <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy
+                class="absolute right-4 top-4 p-2 bg-slate-800/90 hover:bg-slate-700 backdrop-blur rounded-xl text-slate-300 transition-all border border-white/10 opacity-0 group-hover:opacity-100 shadow-xl active:scale-90"
+                title="Copy Script">
+                <i data-lucide="copy" class="w-4 h-4"></i>
             </button>
         </div>
     </div>
 </div>
 
-<div class="pt-6 border-t border-white/5 flex justify-end">
-    <button
-        class="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-xl transition-colors border border-white/5"
-        onclick="document.getElementById('manual-install-modal').close()">
-        Close Window
-    </button>
-</div>
+<footer class="modal-footer">
+    <button class="btn-secondary" onclick="document.getElementById('manual-install-modal').close()">Close
+        Window</button>
+</footer>
 
 <script>
     // Dynamically update the origin in the input value
     const origin = window.location.origin;
     const token = "{{ node.join_token.clone().unwrap_or_default() }}";
-    // Point to the panel's embedded (and patched) script
     document.getElementById('one-liner').value = `curl -fsSL ${origin}{{ admin_path }}/nodes/{{ node.id }}/script | sudo bash -s -- --role agent --panel "${origin}" --token "${token}"`;
 
     function copyToClipboard(elementId) {
         const el = document.getElementById(elementId);
-        el.select();
-        el.setSelectionRange(0, 99999);
-        navigator.clipboard.writeText(el.value).then(() => {
-            // Show toast or temporary success state
+        const originalValue = el.value;
+
+        navigator.clipboard.writeText(originalValue).then(() => {
             const btn = el.parentElement.querySelector('button');
-            const originalHtml = btn.innerHTML;
+            const originalContent = btn.innerHTML;
+
             btn.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5"></i> Copied!';
-            btn.classList.add('text-emerald-400');
+            if (btn.classList.contains('text-emerald-400')) {
+                btn.classList.replace('text-emerald-400', 'text-white');
+                btn.classList.replace('bg-emerald-500/10', 'bg-emerald-500');
+            }
+
             setTimeout(() => {
-                btn.innerHTML = originalHtml;
-                btn.classList.remove('text-emerald-400');
-                lucide.createIcons(); // re-init icon
+                btn.innerHTML = originalContent;
+                if (btn.innerHTML.includes('Copied')) { // fallback
+                    btn.innerHTML = '<i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy';
+                }
+                btn.classList.replace('text-white', 'text-emerald-400');
+                btn.classList.replace('bg-emerald-500', 'bg-emerald-500/10');
+                lucide.createIcons();
             }, 2000);
             lucide.createIcons();
         });

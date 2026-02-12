@@ -40,104 +40,105 @@
 </section>
 
 <!-- Add Node Modal -->
-<dialog id="add-node-modal"
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4 overflow-y-auto max-h-[90vh]"
-        onclick="event.stopPropagation()">
-        <header class="flex justify-between items-center mb-6">
-            <h3 class="text-xl font-bold text-white">Add New VPN Node</h3>
+<dialog id="add-node-modal">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <header class="modal-header">
+            <h3 class="text-xl font-bold text-white flex items-center gap-3">
+                <i data-lucide="server" class="w-6 h-6 text-indigo-400"></i>
+                Add New VPN Node
+            </h3>
             <button onclick="document.getElementById('add-node-modal').close()"
-                class="text-slate-400 hover:text-white transition-colors">
-                <i data-lucide="x" class="w-6 h-6"></i>
+                class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+                <i data-lucide="x" class="w-5 h-5"></i>
             </button>
         </header>
 
-        <div class="mb-6">
-            <div class="flex p-1 bg-slate-950 rounded-xl border border-white/10">
-                <button id="btn-mode-smart" onclick="setMode('smart')"
-                    class="flex-1 py-2 text-sm font-medium rounded-lg transition-all bg-indigo-600 text-white shadow-lg">
-                    Smart Setup
-                </button>
-                <button id="btn-mode-manual" onclick="setMode('manual')"
-                    class="flex-1 py-2 text-sm font-medium rounded-lg text-slate-400 hover:text-white transition-all">
-                    Manual
-                </button>
-            </div>
-        </div>
+        <form hx-post="{{ admin_path }}/nodes/install" hx-target="#manual-install-modal-content" hx-swap="innerHTML">
+            <div class="modal-body space-y-6">
+                <!-- Setup Mode Switcher -->
+                <div class="flex p-1.5 bg-slate-950 rounded-2xl border border-white/5 shadow-inner">
+                    <button type="button" id="btn-mode-smart" onclick="setMode('smart')"
+                        class="flex-1 py-2.5 text-xs font-bold rounded-xl transition-all bg-indigo-600 text-white shadow-lg border border-white/10">
+                        Smart Setup
+                    </button>
+                    <button type="button" id="btn-mode-manual" onclick="setMode('manual')"
+                        class="flex-1 py-2.5 text-xs font-bold rounded-xl text-slate-500 hover:text-slate-300 transition-all">
+                        Manual Mode
+                    </button>
+                </div>
 
-        <form hx-post="{{ admin_path }}/nodes/install" hx-target="#manual-install-modal-content" hx-swap="innerHTML"
-            class="space-y-4">
-            <div>
-                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Friendly
-                    Name</label>
-                <input type="text" id="name" name="name" placeholder="Germany-1" required
-                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-            </div>
-
-            <div id="advanced-fields" style="display: none;" class="space-y-4 animate-fade-in">
-                <div class="grid grid-cols-2 gap-4">
+                <div class="space-y-4">
                     <div>
-                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">IP
-                            Address</label>
-                        <input type="text" id="ip" name="ip" placeholder="1.2.3.4"
-                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Friendly
+                            Name</label>
+                        <input type="text" id="name" name="name" placeholder="Germany-1" required class="input-field">
                     </div>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">SSH
-                            Port</label>
-                        <input type="number" id="port" name="port" placeholder="22" value="22" required
-                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+
+                    <div id="advanced-fields" style="display: none;" class="space-y-4 animate-fade-in fade-in">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">IP
+                                    Address</label>
+                                <input type="text" id="ip" name="ip" placeholder="1.2.3.4" class="input-field">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">SSH
+                                    Port</label>
+                                <input type="number" id="port" name="port" placeholder="22" value="22" required
+                                    class="input-field">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">VPN
+                                    Port</label>
+                                <input type="number" id="vpn_port" name="vpn_port" placeholder="443" value="443"
+                                    required class="input-field">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">SSH
+                                    Username</label>
+                                <input type="text" id="username" name="username" placeholder="root" value="root"
+                                    required class="input-field">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">SSH
+                                Password (Optional)</label>
+                            <input type="password" id="password" name="password"
+                                placeholder="Root password if no SSH keys" class="input-field">
+                        </div>
                     </div>
-                </div>
 
-                <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">VPN
-                            Port</label>
-                        <input type="number" id="vpn_port" name="vpn_port" placeholder="443" value="443" required
-                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                    <input type="hidden" id="auto_configure" name="auto_configure" value="true">
+
+                    <div id="smart-info" class="p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-2xl">
+                        <div class="flex gap-4">
+                            <div
+                                class="w-10 h-10 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-400 shrink-0">
+                                <i data-lucide="terminal" class="w-5 h-5"></i>
+                            </div>
+                            <div class="text-xs text-slate-400 space-y-2 leading-relaxed">
+                                <p class="font-bold text-slate-300">Quick Installation Flow:</p>
+                                <p>• Enter a friendly name for identification</p>
+                                <p>• Generate the one-line install command</p>
+                                <p>• Paste it into your SSH terminal and wait ~1 min</p>
+                            </div>
+                        </div>
                     </div>
-                </div>
-
-                <div>
-                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">SSH
-                        Username</label>
-                    <input type="text" id="username" name="username" placeholder="root" value="root" required
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                </div>
-
-                <div>
-                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Password
-                        (Optional)</label>
-                    <input type="password" id="password" name="password" placeholder="Root password if no key"
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
                 </div>
             </div>
 
-            <!-- Smart Mode Hidden defaults -->
-            <input type="hidden" id="auto_configure" name="auto_configure" value="true">
-
-            <div id="smart-info" class="p-4 bg-slate-950 border border-white/5 rounded-xl">
-                <div class="flex gap-3">
-                    <i data-lucide="info" class="w-5 h-5 text-indigo-400 flex-shrink-0"></i>
-                    <div class="text-sm text-slate-400 space-y-1">
-                        <p>1. Enter a Name.</p>
-                        <p>2. Click "Generate Command".</p>
-                        <p>3. Run the command on your empty VPS.</p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="pt-4 flex gap-3">
-                <button type="button"
-                    class="flex-1 py-3.5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors font-medium"
+            <footer class="modal-footer">
+                <button type="button" class="btn-secondary"
                     onclick="document.getElementById('add-node-modal').close()">Cancel</button>
-                <button type="submit" id="submit-btn"
-                    class="flex-[2] bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02]"
+                <button type="submit" id="submit-btn" class="btn-primary"
                     onclick="setTimeout(()=>document.getElementById('add-node-modal').close(), 500)">
                     Generate Command
                 </button>
-            </div>
+            </footer>
         </form>
     </div>
 </dialog>
@@ -152,13 +153,16 @@
         const ipInput = document.getElementById('ip');
         const autoConfig = document.getElementById('auto_configure');
 
+        const activeClasses = ['bg-indigo-600', 'text-white', 'shadow-lg', 'border', 'border-white/10'];
+        const inactiveClasses = ['text-slate-500', 'hover:text-slate-300'];
+
         if (mode === 'manual') {
             advanced.style.display = 'block';
             smart.style.display = 'none';
-            btnSmart.classList.remove('bg-indigo-600', 'text-white', 'shadow-lg');
-            btnSmart.classList.add('text-slate-400', 'hover:text-white');
-            btnManual.classList.add('bg-indigo-600', 'text-white', 'shadow-lg');
-            btnManual.classList.remove('text-slate-400', 'hover:text-white');
+            btnSmart.classList.remove(...activeClasses);
+            btnSmart.classList.add(...inactiveClasses);
+            btnManual.classList.add(...activeClasses);
+            btnManual.classList.remove(...inactiveClasses);
 
             submitBtn.innerText = "Add Node";
             ipInput.required = true;
@@ -166,10 +170,10 @@
         } else {
             advanced.style.display = 'none';
             smart.style.display = 'block';
-            btnSmart.classList.add('bg-indigo-600', 'text-white', 'shadow-lg');
-            btnSmart.classList.remove('text-slate-400', 'hover:text-white');
-            btnManual.classList.remove('bg-indigo-600', 'text-white', 'shadow-lg');
-            btnManual.classList.add('text-slate-400', 'hover:text-white');
+            btnSmart.classList.add(...activeClasses);
+            btnSmart.classList.remove(...inactiveClasses);
+            btnManual.classList.remove(...activeClasses);
+            btnManual.classList.add(...inactiveClasses);
 
             submitBtn.innerText = "Generate Command";
             ipInput.required = false;
@@ -181,53 +185,49 @@
 </script>
 
 <!-- Edit Node Modal -->
-<dialog id="edit-node-modal"
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
-    <div id="edit-node-modal-content"
-        class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4 overflow-y-auto max-h-[90vh]"
-        onclick="event.stopPropagation()">
+<dialog id="edit-node-modal">
+    <div id="edit-node-modal-content" class="modal-container" onclick="event.stopPropagation()">
         <!-- Content loaded via HTMX -->
-        <div class="flex items-center justify-center p-12 text-slate-500">
-            <i data-lucide="loader-2" class="w-6 h-6 animate-spin mr-3"></i> Loading...
+        <div class="flex items-center justify-center p-20 text-slate-500">
+            <i data-lucide="loader-2" class="w-8 h-8 animate-spin mr-3"></i>
+            <span class="font-medium">Loading...</span>
         </div>
     </div>
 </dialog>
 
 <!-- Manual Install Modal -->
-<dialog id="manual-install-modal"
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
-    <div id="manual-install-modal-content"
-        class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-4xl p-6 m-4 overflow-y-auto max-h-[90vh]"
-        onclick="event.stopPropagation()">
+<dialog id="manual-install-modal">
+    <div id="manual-install-modal-content" class="modal-container max-w-4xl" onclick="event.stopPropagation()">
         <!-- Content loaded via HTMX -->
-        <div class="flex items-center justify-center p-12 text-slate-500">
-            <i data-lucide="loader-2" class="w-6 h-6 animate-spin mr-3"></i> Loading script...
+        <div class="flex items-center justify-center p-20 text-slate-500">
+            <i data-lucide="loader-2" class="w-8 h-8 animate-spin mr-3"></i>
+            <span class="font-medium">Loading script...</span>
         </div>
     </div>
 </dialog>
 
 <!-- Config Preview Modal -->
-<dialog id="preview-modal"
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-4xl p-6 m-4 flex flex-col max-h-[90vh]"
-        onclick="event.stopPropagation()">
-        <header class="flex justify-between items-center mb-6 flex-shrink-0">
-            <h3 class="text-xl font-bold text-white">Generated Config Preview</h3>
+<dialog id="preview-modal">
+    <div class="modal-container max-w-4xl" onclick="event.stopPropagation()">
+        <header class="modal-header">
+            <h3 class="text-xl font-bold text-white flex items-center gap-3">
+                <i data-lucide="code" class="w-6 h-6 text-emerald-400"></i>
+                Generated Config Preview
+            </h3>
             <button onclick="document.getElementById('preview-modal').close()"
-                class="text-slate-400 hover:text-white transition-colors">
-                <i data-lucide="x" class="w-6 h-6"></i>
+                class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+                <i data-lucide="x" class="w-5 h-5"></i>
             </button>
         </header>
 
-        <div class="flex-1 overflow-auto no-scrollbar bg-[#0a0a0a] rounded-xl border border-white/5 p-4">
+        <div class="modal-body bg-[#0a0a0a] !p-0">
             <pre id="preview-content"
-                class="text-emerald-400 font-mono text-xs leading-relaxed whitespace-pre-wrap font-fira"></pre>
+                class="text-emerald-400 font-mono text-xs leading-relaxed p-6 whitespace-pre-wrap font-fira bg-[#0a0a0a] min-h-[400px]"></pre>
         </div>
 
-        <footer class="mt-6 flex justify-end flex-shrink-0">
-            <button
-                class="px-6 py-2.5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors font-medium"
-                onclick="document.getElementById('preview-modal').close()">Close</button>
+        <footer class="modal-footer">
+            <button class="btn-secondary" onclick="document.getElementById('preview-modal').close()">Close
+                Preview</button>
         </footer>
     </div>
 </dialog>
@@ -261,79 +261,84 @@
 </script>
 
 <!-- Logs Modal -->
-<dialog id="logs-modal"
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-5xl p-6 m-4 flex flex-col max-h-[90vh] overflow-y-auto"
-        onclick="event.stopPropagation()">
-        <header class="flex justify-between items-center mb-6 flex-shrink-0">
-            <h3 class="text-xl font-bold text-white flex items-center gap-2">
-                <i data-lucide="file-text" class="w-5 h-5 text-indigo-400"></i> Node Logs
+<dialog id="logs-modal">
+    <div class="modal-container max-w-5xl" onclick="event.stopPropagation()">
+        <header class="modal-header">
+            <h3 class="text-xl font-bold text-white flex items-center gap-3">
+                <i data-lucide="terminal" class="w-6 h-6 text-indigo-400"></i>
+                Node Terminal Logs
             </h3>
             <button onclick="document.getElementById('logs-modal').close()"
-                class="text-slate-400 hover:text-white transition-colors">
-                <i data-lucide="x" class="w-6 h-6"></i>
+                class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+                <i data-lucide="x" class="w-5 h-5"></i>
             </button>
         </header>
 
         <div id="logs-modal-content"
-            class="flex-1 overflow-auto no-scrollbar bg-[#0a0a0a] rounded-xl border border-white/5 p-4 font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">
-            Loading logs...
+            class="modal-body bg-[#0a0a0a] font-mono text-xs text-slate-400 whitespace-pre-wrap leading-relaxed min-h-[500px]">
+            <div class="flex items-center justify-center h-full text-slate-600 italic">
+                Fetching logs from remote node...
+            </div>
         </div>
 
-        <footer class="mt-6 flex justify-end flex-shrink-0">
-            <button
-                class="px-6 py-2.5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors font-medium"
-                onclick="document.getElementById('logs-modal').close()">Close</button>
+        <footer class="modal-footer">
+            <button class="btn-secondary" onclick="document.getElementById('logs-modal').close()">Close Console</button>
         </footer>
     </div>
 </dialog>
 
 <!-- Connect Node Modal -->
-<dialog id="connect-node-modal"
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-3xl p-6 m-4 overflow-y-auto max-h-[90vh]"
-        onclick="event.stopPropagation()">
-        <header class="flex justify-between items-center mb-6">
-            <h3 class="text-xl font-bold text-white flex items-center gap-2">
-                <i data-lucide="plug" class="w-5 h-5 text-indigo-400"></i> Connect Node
+<dialog id="connect-node-modal">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <header class="modal-header">
+            <h3 class="text-xl font-bold text-white flex items-center gap-3">
+                <i data-lucide="plug" class="w-6 h-6 text-indigo-400"></i>
+                Connect Node
             </h3>
             <button onclick="document.getElementById('connect-node-modal').close()"
-                class="text-slate-400 hover:text-white transition-colors">
-                <i data-lucide="x" class="w-6 h-6"></i>
+                class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+                <i data-lucide="x" class="w-5 h-5"></i>
             </button>
         </header>
 
-        <p class="text-slate-300 mb-4">Run the following command on your <strong><span id="connect-node-name"
-                    class="text-white font-bold"></span></strong> server:</p>
+        <div class="modal-body space-y-6">
+            <p class="text-slate-400 text-sm leading-relaxed">
+                Run the standard install command on your <span id="connect-node-name"
+                    class="text-white font-bold bg-white/5 px-1.5 py-0.5 rounded"></span> server to link it to this
+                panel:
+            </p>
 
-        <div class="bg-[#0a0a0a] rounded-xl border border-white/10 p-4 relative group">
-            <code id="connect-command" class="block font-mono text-sm text-indigo-300 break-all pr-12">Loading...</code>
-            <button onclick="copyConnectCommand()" id="btn-copy-connect"
-                class="absolute top-2 right-2 p-2 bg-white/10 hover:bg-white/20 rounded-lg text-slate-300 transition-colors"
-                title="Copy">
-                <i data-lucide="copy" class="w-4 h-4"></i>
-            </button>
-        </div>
+            <div class="bg-[#0a0a0a] rounded-2xl border border-indigo-500/20 p-5 relative group overflow-hidden">
+                <div class="absolute inset-0 bg-indigo-500/5 pointer-events-none"></div>
+                <code id="connect-command"
+                    class="block font-mono text-sm text-indigo-300 break-all pr-12 relative z-10 leading-relaxed">Loading command...</code>
+                <button onclick="copyConnectCommand()" id="btn-copy-connect"
+                    class="absolute top-4 right-4 p-2 bg-indigo-500/20 hover:bg-indigo-500/40 rounded-xl text-indigo-300 transition-all active:scale-90 border border-indigo-500/30"
+                    title="Copy">
+                    <i data-lucide="copy" class="w-4 h-4"></i>
+                </button>
+            </div>
 
-        <div class="flex justify-end mt-6">
-            <button
-                class="px-6 py-2.5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors font-medium"
-                onclick="document.getElementById('connect-node-modal').close()">Close</button>
-        </div>
-
-        <div class="mt-6 pt-6 border-t border-white/5">
-            <div class="flex gap-3">
-                <i data-lucide="alert-circle" class="w-5 h-5 text-amber-500/80 flex-shrink-0"></i>
-                <div class="text-xs text-slate-500 space-y-1">
-                    <p class="font-bold text-slate-400">Troubleshooting:</p>
-                    <p>• Ensure your server is running Debian 12+ or Ubuntu 22.04+</p>
-                    <p>• Ensure ports 80/443 are not blocked</p>
-                    <p>• If you see "Setup Required" after running this, check the logs on the server: <code
-                            class="bg-white/10 px-1 py-0.5 rounded text-slate-400">journalctl -u exarobot-agent -f</code>
-                    </p>
+            <div class="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/10 space-y-3">
+                <div class="flex gap-3">
+                    <i data-lucide="alert-circle" class="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5"></i>
+                    <p class="text-[11px] font-bold text-amber-500 uppercase tracking-widest">Requirements &
+                        Troubleshooting</p>
                 </div>
+                <ul class="text-[11px] text-slate-500 space-y-1.5 list-disc list-inside px-1">
+                    <li>Debian 12+ or Ubuntu 22.04+ (Clean OS recommended)</li>
+                    <li>Ensure ports 80 and 443 are open in your VPS firewall</li>
+                    <li>Command must be run as <span class="text-slate-400 font-bold">root</span> or via <span
+                            class="text-slate-400 font-bold">sudo</span></li>
+                    <li>If installation fails, run: <code
+                            class="bg-white/5 px-1 rounded text-slate-400">journalctl -u exarobot-agent -f</code></li>
+                </ul>
             </div>
         </div>
+
+        <footer class="modal-footer">
+            <button class="btn-secondary" onclick="document.getElementById('connect-node-modal').close()">Close</button>
+        </footer>
     </div>
 </dialog>
 

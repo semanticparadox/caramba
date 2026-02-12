@@ -149,17 +149,13 @@
 </div>
 
 <!-- Add Node Modal -->
-<dialog id="addMemberModal"
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-md p-6 m-4 ring-1 ring-white/10"
-        onclick="event.stopPropagation()">
-        <header class="flex justify-between items-center mb-6 border-b border-white/5 pb-4">
-            <div class="flex items-center gap-3">
-                <div class="p-2 bg-indigo-500/10 rounded-lg text-indigo-400">
-                    <i data-lucide="server" class="w-6 h-6"></i>
-                </div>
-                <h3 class="text-xl font-bold text-white">Add Node to Group</h3>
-            </div>
+<dialog id="addMemberModal">
+    <div class="modal-container max-w-md" onclick="event.stopPropagation()">
+        <header class="modal-header">
+            <h3 class="text-xl font-bold text-white flex items-center gap-3">
+                <i data-lucide="server" class="w-6 h-6 text-indigo-400"></i>
+                Add Node to Group
+            </h3>
             <button onclick="document.getElementById('addMemberModal').close()"
                 class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
                 <i data-lucide="x" class="w-5 h-5"></i>
@@ -167,34 +163,42 @@
         </header>
 
         {% if available_nodes.is_empty() %}
-        <div class="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4 flex gap-3">
-            <i data-lucide="info" class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5"></i>
-            <p class="text-sm text-amber-100/80">All active nodes are already in this group.</p>
+        <div class="modal-body">
+            <div class="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 flex gap-3">
+                <i data-lucide="info" class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5"></i>
+                <p class="text-sm text-amber-100/80 font-medium italic">All active nodes are already members of this
+                    group.</p>
+            </div>
         </div>
+        <footer class="modal-footer">
+            <button type="button" class="btn-secondary"
+                onclick="document.getElementById('addMemberModal').close()">Close</button>
+        </footer>
         {% else %}
-        <form action="{{ admin_path }}/groups/{{ group.id }}/members" method="POST" class="space-y-5">
-            <div>
-                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Select
-                    Node</label>
-                <select name="node_id" required
-                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                    {% for node in available_nodes %}
-                    <option value="{{ node.id }}">{{ node.name }} ({{ node.ip }})</option>
-                    {% endfor %}
-                </select>
+        <form action="{{ admin_path }}/groups/{{ group.id }}/members" method="POST">
+            <div class="modal-body space-y-5">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Select
+                        Node</label>
+                    <div class="relative">
+                        <select name="node_id" required class="input-field appearance-none">
+                            {% for node in available_nodes %}
+                            <option value="{{ node.id }}">{{ node.name }} ({{ node.ip }})</option>
+                            {% endfor %}
+                        </select>
+                        <i data-lucide="chevron-down"
+                            class="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"></i>
+                    </div>
+                </div>
             </div>
 
-            <div class="pt-2 flex justify-end gap-3">
-                <button type="button" onclick="document.getElementById('addMemberModal').close()"
-                    class="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-xl transition-colors">
-                    Cancel
+            <footer class="modal-footer">
+                <button type="button" class="btn-secondary"
+                    onclick="document.getElementById('addMemberModal').close()">Cancel</button>
+                <button type="submit" class="btn-primary">
+                    <i data-lucide="plus" class="w-4 h-4 mr-2 inline-block"></i>Add to Group
                 </button>
-                <button type="submit"
-                    class="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold py-2.5 px-6 rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02]">
-                    <i data-lucide="plus" class="w-4 h-4"></i>
-                    Add Node
-                </button>
-            </div>
+            </footer>
         </form>
         {% endif %}
     </div>

@@ -123,9 +123,10 @@ pub async fn heartbeat(
     let traffic_down = req.traffic_down;
     let speed = req.speed_mbps;
     let discoveries = req.discovered_snis;
+    let uptime = req.uptime;
     
     tokio::spawn(async move {
-        if let Err(e) = telemetry_svc.process_heartbeat(node_id, active_conns, traffic_up, traffic_down, speed, discoveries).await {
+        if let Err(e) = telemetry_svc.process_heartbeat(node_id, active_conns, traffic_up, traffic_down, speed, discoveries, uptime).await {
             error!("Telemetry processing failed for node {}: {}", node_id, e);
         }
     });

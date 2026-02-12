@@ -124,138 +124,151 @@
 </div>
 
 <!-- Create Template Modal -->
-<dialog id="createTemplateModal"
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-2xl p-6 m-4 ring-1 ring-white/10 overflow-y-auto max-h-[90vh]"
-        onclick="event.stopPropagation()">
-        <header class="flex justify-between items-center mb-6 border-b border-white/5 pb-4">
-            <div class="flex items-center gap-3">
-                <div class="p-2 bg-indigo-500/10 rounded-lg text-indigo-400">
-                    <i data-lucide="file-json" class="w-6 h-6"></i>
-                </div>
-                <h3 class="text-xl font-bold text-white">Create Inbound Template</h3>
-            </div>
+<dialog id="createTemplateModal">
+    <div class="modal-container max-w-2xl" onclick="event.stopPropagation()">
+        <header class="modal-header">
+            <h3 class="text-xl font-bold text-white flex items-center gap-3">
+                <i data-lucide="file-json" class="w-6 h-6 text-indigo-400"></i>
+                Create Inbound Template
+            </h3>
             <button onclick="document.getElementById('createTemplateModal').close()"
                 class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
                 <i data-lucide="x" class="w-5 h-5"></i>
             </button>
         </header>
 
-        <!-- Preset Buttons -->
-        <div class="mb-5">
-            <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Quick Presets</label>
-            <div class="flex flex-wrap gap-2">
-                <button type="button" onclick="applyPreset('vless_reality_xhttp')"
-                    class="px-3 py-1.5 text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg hover:bg-emerald-500/20 transition-colors">
-                    VLESS Reality XHTTP
-                </button>
-                <button type="button" onclick="applyPreset('vless_ws_tls')"
-                    class="px-3 py-1.5 text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-lg hover:bg-blue-500/20 transition-colors">
-                    VLESS WS+TLS
-                </button>
-                <button type="button" onclick="applyPreset('vmess_ws_tls')"
-                    class="px-3 py-1.5 text-xs font-medium bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-lg hover:bg-violet-500/20 transition-colors">
-                    VMess WS+TLS
-                </button>
-                <button type="button" onclick="applyPreset('trojan_ws_tls')"
-                    class="px-3 py-1.5 text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-lg hover:bg-amber-500/20 transition-colors">
-                    Trojan WS+TLS
-                </button>
-                <button type="button" onclick="applyPreset('shadowsocks')"
-                    class="px-3 py-1.5 text-xs font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-lg hover:bg-cyan-500/20 transition-colors">
-                    Shadowsocks
-                </button>
-                <button type="button" onclick="applyPreset('hysteria2')"
-                    class="px-3 py-1.5 text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-lg hover:bg-rose-500/20 transition-colors">
+        <div class="modal-body space-y-6">
+            <!-- Preset Buttons -->
+            <div>
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Quick
+                    Presets</label>
+                <div class="flex flex-wrap gap-2">
+                    <button type="button" onclick="applyPreset('vless_reality_xhttp')"
+                        class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl hover:bg-emerald-500 border-emerald-500/20 hover:text-white transition-all active:scale-95">
+                        Reality XHTTP
+                    </button>
+                    <button type="button" onclick="applyPreset('vless_ws_tls')"
+                        class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-xl hover:bg-blue-500/20 hover:text-white transition-all active:scale-95">
+                        VLESS WS+TLS
+                    </button>
+                    <button type="button" onclick="applyPreset('vmess_ws_tls')"
+                        class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-xl hover:bg-violet-500/20 hover:text-white transition-all active:scale-95">
+                        VMess WS+TLS
+                    </button>
+                    <button type="button" onclick="applyPreset('trojan_ws_tls')"
+                        class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-xl hover:bg-amber-500/20 hover:text-white transition-all active:scale-95">
+                        Trojan WS+TLS
+                    </button>
+                    <button type="button" onclick="applyPreset('shadowsocks')"
+                        class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-xl hover:bg-cyan-500/20 hover:text-white transition-all active:scale-95">
+                        Shadowsocks
+                    </button>
                     <button type="button" onclick="applyPreset('hysteria2')"
-                        class="px-3 py-1.5 text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-lg hover:bg-rose-500/20 transition-colors">
+                        class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-xl hover:bg-rose-500/20 hover:text-white transition-all active:scale-95">
                         Hysteria2
                     </button>
                     <button type="button" onclick="applyPreset('tuic')"
-                        class="px-3 py-1.5 text-xs font-medium bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded-lg hover:bg-orange-500/20 transition-colors">
+                        class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded-xl hover:bg-orange-500/20 hover:text-white transition-all active:scale-95">
                         TUIC v5
                     </button>
                     <button type="button" onclick="applyPreset('naive')"
-                        class="px-3 py-1.5 text-xs font-medium bg-teal-500/10 text-teal-400 border border-teal-500/20 rounded-lg hover:bg-teal-500/20 transition-colors">
+                        class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider bg-teal-500/10 text-teal-400 border border-teal-500/20 rounded-xl hover:bg-teal-500/20 hover:text-white transition-all active:scale-95">
                         NaiveProxy
                     </button>
-            </div>
-        </div>
-
-        <form id="tplForm" action="{{ admin_path }}/templates" method="POST" class="space-y-5">
-            <!-- Row 1: Name & Group -->
-            <div class="grid grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Template
-                        Name</label>
-                    <input type="text" name="name" id="tpl_name" required placeholder="e.g. VLESS Reality"
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                </div>
-                <div>
-                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Target
-                        Group</label>
-                    <select name="target_group_id"
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                        <option value="">-- All Groups --</option>
-                        {% for g in groups %}
-                        <option value="{{ g.id }}">{{ g.name }}</option>
-                        {% endfor %}
-                    </select>
                 </div>
             </div>
 
-            <!-- Row 2: Protocol & Ports -->
-            <div class="grid grid-cols-3 gap-4">
-                <div>
-                    <label
-                        class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Protocol</label>
-                    <select name="protocol" id="tpl_protocol"
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                        <option value="vless">VLESS</option>
-                        <option value="vmess">VMess</option>
-                        <option value="trojan">Trojan</option>
-                        <option value="shadowsocks">Shadowsocks</option>
-                        <option value="hysteria2">Hysteria2</option>
-                        <option value="tuic">TUIC v5</option>
-                        <option value="naive">NaiveProxy</option>
-                    </select>
+            <form id="tplForm" action="{{ admin_path }}/templates" method="POST" class="space-y-6">
+                <!-- Row 1: Name & Group -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Template
+                            Name</label>
+                        <input type="text" name="name" id="tpl_name" required placeholder="e.g. VLESS Reality"
+                            class="input-field">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Target
+                            Group</label>
+                        <div class="relative">
+                            <select name="target_group_id" class="input-field appearance-none">
+                                <option value="">-- All Groups --</option>
+                                {% for g in groups %}
+                                <option value="{{ g.id }}">{{ g.name }}</option>
+                                {% endfor %}
+                            </select>
+                            <i data-lucide="chevron-down"
+                                class="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"></i>
+                        </div>
+                    </div>
                 </div>
-                <div>
-                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Port Range
-                        Start</label>
-                    <input type="number" name="port_range_start" id="tpl_port_start" value="10000" required
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                </div>
-                <div>
-                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Port Range
-                        End</label>
-                    <input type="number" name="port_range_end" id="tpl_port_end" value="20000" required
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                </div>
-            </div>
 
-            <!-- Settings JSON -->
-            <div>
-                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Settings JSON
-                    (Template)</label>
-                <textarea name="settings_template" id="tpl_settings" rows="5" required
-                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-xs placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all resize-y">{
+                <!-- Row 2: Protocol & Ports -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div>
+                        <label
+                            class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Protocol</label>
+                        <div class="relative">
+                            <select name="protocol" id="tpl_protocol" class="input-field appearance-none">
+                                <option value="vless">VLESS</option>
+                                <option value="vmess">VMess</option>
+                                <option value="trojan">Trojan</option>
+                                <option value="shadowsocks">Shadowsocks</option>
+                                <option value="hysteria2">Hysteria2</option>
+                                <option value="tuic">TUIC v5</option>
+                                <option value="naive">NaiveProxy</option>
+                            </select>
+                            <i data-lucide="chevron-down"
+                                class="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"></i>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Port
+                            Start</label>
+                        <input type="number" name="port_range_start" id="tpl_port_start" value="10000" required
+                            class="input-field font-mono">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Port
+                            End</label>
+                        <input type="number" name="port_range_end" id="tpl_port_end" value="20000" required
+                            class="input-field font-mono">
+                    </div>
+                </div>
+
+                <!-- Settings JSON -->
+                <div class="space-y-3">
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest">Inbound Settings
+                        (JSON Template)</label>
+                    <div class="relative group overflow-hidden rounded-2xl border border-white/5 bg-[#0d1117]">
+                        <div class="absolute top-0 left-0 right-0 h-1 bg-indigo-500/30"></div>
+                        <textarea name="settings_template" id="tpl_settings" rows="5" required
+                            class="w-full bg-transparent p-4 text-xs text-indigo-300 font-mono focus:outline-none resize-none leading-relaxed transition-all">
+{
   "protocol": "vless",
   "clients": [],
   "decryption": "none",
   "fallbacks": []
 }</textarea>
-                <p class="text-[10px] text-slate-500 mt-1.5 ml-1">Placeholders: <code
-                        class="text-indigo-400 bg-white/5 px-1 rounded">{{ "{{" }}uuid{{ "}}" }}</code>, <code
-                        class="text-indigo-400 bg-white/5 px-1 rounded">{{ "{{" }}email{{ "}}" }}</code></p>
-            </div>
+                    </div>
+                    <div class="flex gap-2 px-1">
+                        <span class="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Variables:</span>
+                        <code
+                            class="text-[9px] text-indigo-400 bg-indigo-500/10 px-1 rounded">{{ "{{" }}uuid{{ "}}" }}</code>
+                        <code
+                            class="text-[9px] text-indigo-400 bg-indigo-500/10 px-1 rounded">{{ "{{" }}email{{ "}}" }}</code>
+                    </div>
+                </div>
 
-            <!-- Stream Settings JSON -->
-            <div>
-                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Stream Settings
-                    JSON (Template)</label>
-                <textarea name="stream_settings_template" id="tpl_stream" rows="8" required
-                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-xs placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all resize-y">{
+                <!-- Stream Settings JSON -->
+                <div class="space-y-3">
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest">Stream Settings
+                        (JSON Template)</label>
+                    <div class="relative group overflow-hidden rounded-2xl border border-white/5 bg-[#0d1117]">
+                        <div class="absolute top-0 left-0 right-0 h-1 bg-purple-500/30"></div>
+                        <textarea name="stream_settings_template" id="tpl_stream" rows="8" required
+                            class="w-full bg-transparent p-4 text-xs text-purple-300 font-mono focus:outline-none resize-none leading-relaxed transition-all">
+{
   "network": "tcp",
   "security": "reality",
   "realitySettings": {
@@ -266,26 +279,27 @@
     "shortIds": [""]
   }
 }</textarea>
-                <p class="text-[10px] text-slate-500 mt-1.5 ml-1">Placeholders: <code
-                        class="text-indigo-400 bg-white/5 px-1 rounded">{{ "{{" }}reality_private{{ "}}" }}</code>,
-                    <code class="text-indigo-400 bg-white/5 px-1 rounded">{{ "{{" }}sni{{ "}}" }}</code>,
-                    <code class="text-indigo-400 bg-white/5 px-1 rounded">{{ "{{" }}pool_sni{{ "}}" }}</code>
-                </p>
-            </div>
+                    </div>
+                    <div class="flex flex-wrap gap-2 px-1">
+                        <span class="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Variables:</span>
+                        <code
+                            class="text-[9px] text-purple-400 bg-purple-500/10 px-1 rounded">{{ "{{" }}reality_private{{ "}}" }}</code>
+                        <code
+                            class="text-[9px] text-purple-400 bg-purple-500/10 px-1 rounded">{{ "{{" }}sni{{ "}}" }}</code>
+                        <code
+                            class="text-[9px] text-purple-400 bg-purple-500/10 px-1 rounded">{{ "{{" }}pool_sni{{ "}}" }}</code>
+                    </div>
+                </div>
+            </form>
+        </div>
 
-            <!-- Submit -->
-            <div class="pt-2 flex justify-end gap-3">
-                <button type="button" onclick="document.getElementById('createTemplateModal').close()"
-                    class="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-xl transition-colors">
-                    Cancel
-                </button>
-                <button type="submit"
-                    class="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold py-2.5 px-6 rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02]">
-                    <i data-lucide="plus" class="w-4 h-4"></i>
-                    Create Template
-                </button>
-            </div>
-        </form>
+        <footer class="modal-footer">
+            <button type="button" class="btn-secondary"
+                onclick="document.getElementById('createTemplateModal').close()">Cancel</button>
+            <button type="submit" form="tplForm" class="btn-primary">
+                <i data-lucide="plus" class="w-4 h-4 mr-2 inline-block"></i>Create Template
+            </button>
+        </footer>
     </div>
 </dialog>
 

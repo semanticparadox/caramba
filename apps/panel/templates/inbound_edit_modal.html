@@ -1,111 +1,126 @@
 <!-- Modal Header -->
-<div class="flex justify-between items-center mb-6 pb-4 border-b border-white/5 sticky top-0 bg-slate-900 z-10">
-    <div>
-        <h3 class="text-xl font-bold text-white flex items-center gap-2">
-            <i data-lucide="settings-2" class="w-5 h-5 text-indigo-400"></i>
-            Edit Inbound
-        </h3>
-        <p class="text-sm text-slate-400 mt-1">Tag: <span class="font-mono text-indigo-300">{{ inbound.tag }}</span></p>
-    </div>
-    <form method="dialog">
-        <button class="text-slate-400 hover:text-white transition-colors p-1"
-            onclick="document.getElementById('edit-inbound-modal').close()">
-            <i data-lucide="x" class="w-6 h-6"></i>
-        </button>
-    </form>
-</div>
-
-<form hx-post="{{ admin_path }}/nodes/{{ node_id }}/inbounds/{{ inbound.id }}" hx-swap="none" class="space-y-6">
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <!-- Basic Settings -->
-        <div class="space-y-4">
-            <div>
-                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Tag</label>
-                <input type="text" id="edit_tag" name="tag" value="{{ inbound.tag }}" required
-                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-indigo-500 outline-none transition-all">
-            </div>
-            <div>
-                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Protocol</label>
-                <div class="relative">
-                    <select id="edit_protocol" name="protocol" required
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-indigo-500 outline-none appearance-none">
-                        <option value="vless" {% if inbound.protocol=="vless" %}selected{% endif %}>VLESS</option>
-                        <option value="hysteria2" {% if inbound.protocol=="hysteria2" %}selected{% endif %}>Hysteria 2
-                        </option>
-                        <option value="tuic" {% if inbound.protocol=="tuic" %}selected{% endif %}>TUIC v5</option>
-                        <option value="naive" {% if inbound.protocol=="naive" %}selected{% endif %}>NaiveProxy</option>
-                        <option value="trojan" {% if inbound.protocol=="trojan" %}selected{% endif %}>Trojan</option>
-                    </select>
-                    <i data-lucide="chevron-down"
-                        class="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"></i>
-                </div>
-            </div>
+<header class="modal-header">
+    <div class="flex items-center gap-4">
+        <div class="p-2.5 bg-indigo-500/10 rounded-xl text-indigo-400">
+            <i data-lucide="settings-2" class="w-6 h-6"></i>
         </div>
+        <div>
+            <h3 class="text-xl font-bold text-white tracking-tight">Edit Inbound</h3>
+            <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">
+                Tag: <span class="text-indigo-400 font-mono">{{ inbound.tag }}</span>
+            </p>
+        </div>
+    </div>
+    <button onclick="document.getElementById('edit-inbound-modal').close()"
+        class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+        <i data-lucide="x" class="w-5 h-5"></i>
+    </button>
+</header>
 
-        <div class="space-y-4">
-            <div class="grid grid-cols-2 gap-4">
+<form hx-post="{{ admin_path }}/nodes/{{ node_id }}/inbounds/{{ inbound.id }}" hx-swap="none">
+    <div class="modal-body space-y-8">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Basic Settings -->
+            <div class="space-y-6">
                 <div>
-                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Listen
-                        Port</label>
-                    <input type="number" id="edit_listen_port" name="listen_port" value="{{ inbound.listen_port }}"
-                        required
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-indigo-500 outline-none font-mono">
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Tag</label>
+                    <input type="text" id="edit_tag" name="tag" value="{{ inbound.tag }}" required class="input-field">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Listen
-                        IP</label>
-                    <input type="text" id="edit_listen_ip" name="listen_ip" value="{{ inbound.listen_ip }}" required
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-indigo-500 outline-none font-mono">
+                    <label
+                        class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Protocol</label>
+                    <div class="relative">
+                        <select id="edit_protocol" name="protocol" required class="input-field appearance-none">
+                            <option value="vless" {% if inbound.protocol=="vless" %}selected{% endif %}>VLESS</option>
+                            <option value="hysteria2" {% if inbound.protocol=="hysteria2" %}selected{% endif %}>Hysteria
+                                2</option>
+                            <option value="tuic" {% if inbound.protocol=="tuic" %}selected{% endif %}>TUIC v5</option>
+                            <option value="naive" {% if inbound.protocol=="naive" %}selected{% endif %}>NaiveProxy
+                            </option>
+                            <option value="trojan" {% if inbound.protocol=="trojan" %}selected{% endif %}>Trojan
+                            </option>
+                        </select>
+                        <i data-lucide="chevron-down"
+                            class="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="space-y-6">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label
+                            class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Port</label>
+                        <input type="number" id="edit_listen_port" name="listen_port" value="{{ inbound.listen_port }}"
+                            required class="input-field font-mono">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Listen
+                            IP</label>
+                        <input type="text" id="edit_listen_ip" name="listen_ip" value="{{ inbound.listen_ip }}" required
+                            class="input-field font-mono">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SNI Helper -->
+        <div class="bg-indigo-500/5 border border-indigo-500/10 rounded-2xl p-4">
+            <label class="block text-[10px] font-bold text-indigo-400 uppercase tracking-[0.2em] mb-3">Quick Edit:
+                Server Name (SNI)</label>
+            <div class="flex gap-3">
+                <input type="text" id="edit_sni_input" placeholder="e.g. drive.google.com"
+                    oninput="updateEditSniFromJson()"
+                    class="flex-1 bg-slate-950/50 border border-indigo-500/20 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all text-sm font-medium">
+                <button type="button" onclick="syncEditSniInput()"
+                    class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold uppercase tracking-wider transition-all border border-white/5 whitespace-nowrap">
+                    Reset
+                </button>
+            </div>
+            <p class="text-[10px] text-indigo-400/60 mt-2 font-medium italic">Synchronizes with the JSON configuration
+                below.</p>
+        </div>
+
+        <!-- JSON Settings -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="space-y-3">
+                <div class="flex justify-between items-center px-1">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Protocol
+                        Settings</label>
+                    <span
+                        class="text-[9px] text-emerald-500/50 font-mono font-bold uppercase tracking-widest bg-emerald-500/5 px-1.5 py-0.5 rounded border border-emerald-500/10">JSON</span>
+                </div>
+                <div class="relative group overflow-hidden rounded-2xl border border-white/5 bg-[#0d1117]">
+                    <div class="absolute top-0 left-0 right-0 h-1 bg-indigo-500/30"></div>
+                    <textarea id="edit_settings" name="settings" rows="8"
+                        class="w-full bg-transparent p-4 text-xs text-indigo-300 font-mono focus:outline-none resize-none leading-relaxed transition-all">{{ inbound.settings }}</textarea>
+                </div>
+            </div>
+
+            <div class="space-y-3">
+                <div class="flex justify-between items-center px-1">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Stream
+                        Settings</label>
+                    <span
+                        class="text-[9px] text-purple-500/50 font-mono font-bold uppercase tracking-widest bg-purple-500/5 px-1.5 py-0.5 rounded border border-purple-500/10">JSON</span>
+                </div>
+                <div class="relative group overflow-hidden rounded-2xl border border-white/5 bg-[#0d1117]">
+                    <div class="absolute top-0 left-0 right-0 h-1 bg-purple-500/30"></div>
+                    <textarea id="edit_stream_settings" name="stream_settings" rows="8" oninput="syncEditSniInput()"
+                        class="w-full bg-transparent p-4 text-xs text-purple-300 font-mono focus:outline-none resize-none leading-relaxed transition-all">{{ inbound.stream_settings }}</textarea>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- SNI Helper -->
-    <div class="bg-indigo-500/5 border border-indigo-500/10 rounded-xl p-4">
-        <label class="block text-xs font-medium text-indigo-300 uppercase tracking-wider mb-2">QUICK EDIT: Server Name
-            (SNI)</label>
-        <div class="flex gap-3">
-            <input type="text" id="edit_sni_input" placeholder="e.g. drive.google.com" oninput="updateEditSniFromJson()"
-                class="flex-1 bg-slate-950 border border-indigo-500/20 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:border-indigo-500 outline-none text-sm">
-            <button type="button" onclick="syncEditSniInput()"
-                class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium transition-colors border border-white/5">
-                Reset
-            </button>
-        </div>
-        <p class="text-[10px] text-indigo-400/60 mt-1.5">Updates the JSON configuration below.</p>
-    </div>
-
-    <!-- JSON Settings -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div>
-            <div class="flex justify-between items-center mb-1.5">
-                <label class="text-xs font-medium text-slate-400 uppercase tracking-wider">Protocol Settings</label>
-                <span class="text-[10px] text-slate-600 font-mono">JSON</span>
-            </div>
-            <textarea id="edit_settings" name="settings" rows="6"
-                class="w-full bg-[#0d1117] border border-white/10 rounded-xl p-3 text-xs text-emerald-400 font-mono focus:border-indigo-500 outline-none transition-all leading-relaxed resize-y custom-scrollbar">{{ inbound.settings }}</textarea>
-        </div>
-
-        <div>
-            <div class="flex justify-between items-center mb-1.5">
-                <label class="text-xs font-medium text-slate-400 uppercase tracking-wider">Stream Settings</label>
-                <span class="text-[10px] text-slate-600 font-mono">JSON</span>
-            </div>
-            <textarea id="edit_stream_settings" name="stream_settings" rows="8" oninput="syncEditSniInput()"
-                class="w-full bg-[#0d1117] border border-white/10 rounded-xl p-3 text-xs text-emerald-400 font-mono focus:border-indigo-500 outline-none transition-all leading-relaxed resize-y custom-scrollbar">{{ inbound.stream_settings }}</textarea>
-        </div>
-    </div>
-
-    <div class="pt-6 border-t border-white/5 flex gap-3 justify-end">
-        <button type="button"
-            class="px-5 py-2.5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors font-medium text-sm"
+    <footer class="modal-footer">
+        <button type="button" class="btn-secondary"
             onclick="document.getElementById('edit-inbound-modal').close()">Cancel</button>
         <button type="submit" onclick="setTimeout(()=>document.getElementById('edit-inbound-modal').close(), 500)"
-            class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02] text-sm">
-            Save Changes
+            class="btn-primary">
+            <i data-lucide="save" class="w-4 h-4 mr-2 inline-block"></i>Save Inbound Updates
         </button>
-    </div>
+    </footer>
 </form>
 
 <script>

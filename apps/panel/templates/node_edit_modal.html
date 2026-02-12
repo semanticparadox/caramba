@@ -1,137 +1,146 @@
-<header class="flex justify-between items-center mb-6 sticky top-0 bg-slate-900 z-10 pb-4 border-b border-white/5">
-    <h3 class="text-xl font-bold text-white flex items-center gap-2">
-        <i data-lucide="server" class="w-5 h-5 text-indigo-400"></i>
-        Edit Node
+<header class="modal-header">
+    <h3 class="text-xl font-bold text-white flex items-center gap-3">
+        <i data-lucide="server" class="w-6 h-6 text-indigo-400"></i>
+        Edit VPN Node
     </h3>
     <button onclick="document.getElementById('edit-node-modal').close()"
-        class="text-slate-400 hover:text-white transition-colors">
-        <i data-lucide="x" class="w-6 h-6"></i>
+        class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+        <i data-lucide="x" class="w-5 h-5"></i>
     </button>
 </header>
 
-<form hx-post="{{ admin_path }}/nodes/{{ node.id }}/update" hx-swap="none" class="space-y-6">
-    <div>
-        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Friendly Name</label>
-        <div class="relative">
-            <input type="text" name="name" value="{{ node.name }}" required
-                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 pl-11 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-            <i data-lucide="tag" class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"></i>
+<form hx-post="{{ admin_path }}/nodes/{{ node.id }}/update" hx-swap="none">
+    <div class="modal-body space-y-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Friendly
+                    Name</label>
+                <input type="text" name="name" value="{{ node.name }}" required class="input-field">
+            </div>
+
+            <div>
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">IP Address</label>
+                <input type="text" name="ip" value="{{ node.ip }}" required class="input-field font-mono">
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Domestic Relay</label>
+            <div class="relative">
+                <select name="relay_id" class="input-field appearance-none">
+                    <option value="">None (Direct Connection)</option>
+                    {% for r in all_nodes %}
+                    {% if r.id != node.id %}
+                    <option value="{{ r.id }}" {% if node.relay_id.is_some() && node.relay_id.unwrap()==r.id
+                        %}selected{% endif %}>
+                        {{ r.name }} ({{ r.ip }})
+                    </option>
+                    {% endif %}
+                    {% endfor %}
+                </select>
+                <i data-lucide="chevron-down"
+                    class="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"></i>
+            </div>
+            <p class="mt-2 text-[10px] text-slate-500 font-medium italic">Chain this node through a domestic relay for
+                improved latency.</p>
+        </div>
+
+        <!-- Traffic Policies -->
+        <div class="pt-6 border-t border-white/5">
+            <h4 class="text-xs font-bold text-slate-300 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <i data-lucide="shield-check" class="w-4 h-4 text-indigo-400"></i>
+                Security & Traffic Policies
+            </h4>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <!-- QoS -->
+                <label
+                    class="flex items-center gap-3 p-4 rounded-2xl border border-white/5 bg-slate-950/40 hover:bg-indigo-500/5 transition-all cursor-pointer group">
+                    <div class="relative flex items-center">
+                        <input type="checkbox" name="config_qos_enabled" class="peer sr-only" {% if
+                            node.config_qos_enabled %}checked{% endif %}>
+                        <div
+                            class="w-9 h-5 bg-slate-800 rounded-full peer peer-checked:bg-emerald-500 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full">
+                        </div>
+                    </div>
+                    <div>
+                        <span
+                            class="block text-sm font-bold text-slate-200 group-hover:text-white transition-colors">QoS
+                            Optimization</span>
+                        <span
+                            class="block text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">Gaming
+                            & VoIP priority boosting</span>
+                    </div>
+                </label>
+
+                <!-- Block Torrent -->
+                <label
+                    class="flex items-center gap-3 p-4 rounded-2xl border border-white/5 bg-slate-950/40 hover:bg-red-500/5 transition-all cursor-pointer group">
+                    <div class="relative flex items-center">
+                        <input type="checkbox" name="config_block_torrent" class="peer sr-only" {% if
+                            node.config_block_torrent %}checked{% endif %}>
+                        <div
+                            class="w-9 h-5 bg-slate-800 rounded-full peer peer-checked:bg-red-500 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full">
+                        </div>
+                    </div>
+                    <div>
+                        <span
+                            class="block text-sm font-bold text-slate-200 group-hover:text-white transition-colors">Anti-P2P</span>
+                        <span
+                            class="block text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">Aggressive
+                            torrent/P2P blocking</span>
+                    </div>
+                </label>
+
+                <!-- Block Ads -->
+                <label
+                    class="flex items-center gap-3 p-4 rounded-2xl border border-white/5 bg-slate-950/40 hover:bg-blue-500/5 transition-all cursor-pointer group">
+                    <div class="relative flex items-center">
+                        <input type="checkbox" name="config_block_ads" class="peer sr-only" {% if node.config_block_ads
+                            %}checked{% endif %}>
+                        <div
+                            class="w-9 h-5 bg-slate-800 rounded-full peer peer-checked:bg-blue-500 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full">
+                        </div>
+                    </div>
+                    <div>
+                        <span class="block text-sm font-bold text-slate-200 group-hover:text-white transition-colors">Ad
+                            Filtering</span>
+                        <span
+                            class="block text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">DNS-level
+                            ad & tracker blocking</span>
+                    </div>
+                </label>
+
+                <!-- Block Porn -->
+                <label
+                    class="flex items-center gap-3 p-4 rounded-2xl border border-white/5 bg-slate-950/40 hover:bg-orange-500/5 transition-all cursor-pointer group">
+                    <div class="relative flex items-center">
+                        <input type="checkbox" name="config_block_porn" class="peer sr-only" {% if
+                            node.config_block_porn %}checked{% endif %}>
+                        <div
+                            class="w-9 h-5 bg-slate-800 rounded-full peer peer-checked:bg-orange-500 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full">
+                        </div>
+                    </div>
+                    <div>
+                        <span
+                            class="block text-sm font-bold text-slate-200 group-hover:text-white transition-colors">Safety
+                            Filter</span>
+                        <span
+                            class="block text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">Block
+                            adult content domains</span>
+                    </div>
+                </label>
+            </div>
         </div>
     </div>
 
-    <div>
-        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">IP Address</label>
-        <div class="relative">
-            <input type="text" name="ip" value="{{ node.ip }}" required
-                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 pl-11 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all font-mono">
-            <i data-lucide="globe" class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"></i>
-        </div>
-    </div>
-
-    <div>
-        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Domestic Relay</label>
-        <div class="relative">
-            <select name="relay_id"
-                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 pl-11 text-white appearance-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                <option value="">None (Direct Connection)</option>
-                {% for r in all_nodes %}
-                {% if r.id != node.id %}
-                <option value="{{ r.id }}" {% if node.relay_id.is_some() && node.relay_id.unwrap()==r.id %}selected{%
-                    endif %}>
-                    {{ r.name }} ({{ r.ip }})
-                </option>
-                {% endif %}
-                {% endfor %}
-            </select>
-            <i data-lucide="link" class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"></i>
-            <i data-lucide="chevron-down"
-                class="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"></i>
-        </div>
-        <p class="mt-1 text-[10px] text-slate-500">Chain this node through a domestic relay for better connectivity</p>
-    </div>
-
-    <!-- Smart Bandwidth Policies -->
-    <div class="pt-6 border-t border-white/5">
-        <h4 class="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
-            <i data-lucide="shield" class="w-4 h-4 text-purple-400"></i>
-            Traffic Policies
-        </h4>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <!-- QoS -->
-            <label
-                class="col-span-1 flex items-center gap-3 p-3 rounded-xl border border-white/5 bg-slate-900/50 hover:bg-slate-900/80 transition-colors cursor-pointer group">
-                <div class="relative flex items-center">
-                    <input type="checkbox" name="config_qos_enabled" class="peer sr-only" {% if node.config_qos_enabled
-                        %}checked{% endif %}>
-                    <div
-                        class="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-purple-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600">
-                    </div>
-                </div>
-                <div>
-                    <span class="block text-sm font-medium text-slate-200">QoS Priority</span>
-                    <span class="block text-[10px] text-slate-500">Gaming/VoIP Boost</span>
-                </div>
-            </label>
-
-            <!-- Block Torrent -->
-            <label
-                class="col-span-1 flex items-center gap-3 p-3 rounded-xl border border-white/5 bg-slate-900/50 hover:bg-slate-900/80 transition-colors cursor-pointer group">
-                <div class="relative flex items-center">
-                    <input type="checkbox" name="config_block_torrent" class="peer sr-only" {% if
-                        node.config_block_torrent %}checked{% endif %}>
-                    <div
-                        class="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-red-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-red-600">
-                    </div>
-                </div>
-                <div>
-                    <span class="block text-sm font-medium text-slate-200">Block Torrents</span>
-                    <span class="block text-[10px] text-slate-500">Prevent P2P Abuse</span>
-                </div>
-            </label>
-
-            <!-- Block Ads -->
-            <label
-                class="col-span-1 flex items-center gap-3 p-3 rounded-xl border border-white/5 bg-slate-900/50 hover:bg-slate-900/80 transition-colors cursor-pointer group">
-                <div class="relative flex items-center">
-                    <input type="checkbox" name="config_block_ads" class="peer sr-only" {% if node.config_block_ads
-                        %}checked{% endif %}>
-                    <div
-                        class="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600">
-                    </div>
-                </div>
-                <div>
-                    <span class="block text-sm font-medium text-slate-200">Block Ads</span>
-                    <span class="block text-[10px] text-slate-500">Reduce Bandwidth</span>
-                </div>
-            </label>
-
-            <!-- Block Porn -->
-            <label
-                class="col-span-1 flex items-center gap-3 p-3 rounded-xl border border-white/5 bg-slate-900/50 hover:bg-slate-900/80 transition-colors cursor-pointer group">
-                <div class="relative flex items-center">
-                    <input type="checkbox" name="config_block_porn" class="peer sr-only" {% if node.config_block_porn
-                        %}checked{% endif %}>
-                    <div
-                        class="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-orange-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-orange-600">
-                    </div>
-                </div>
-                <div>
-                    <span class="block text-sm font-medium text-slate-200">Block Porn</span>
-                    <span class="block text-[10px] text-slate-500">Child Safety</span>
-                </div>
-            </label>
-        </div>
-    </div>
-
-    <div class="pt-6 border-t border-white/5 flex gap-3">
-        <button type="button"
-            class="flex-1 py-3 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors font-medium"
+    <footer class="modal-footer">
+        <button type="button" class="btn-secondary"
             onclick="document.getElementById('edit-node-modal').close()">Cancel</button>
-        <button type="submit" onclick="setTimeout(()=>document.getElementById('edit-node-modal').close(), 500)"
-            class="flex-[2] bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02]">
-            Save Changes
+        <button type="submit" class="btn-primary"
+            onclick="setTimeout(()=>document.getElementById('edit-node-modal').close(), 500)">
+            Apply Node Configuration
         </button>
-    </div>
+    </footer>
 </form>
 
 <script>
