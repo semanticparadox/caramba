@@ -184,9 +184,30 @@ impl ConfigGenerator {
                         tls: tls_config,
                     }));
                 },
-                InboundType::AmneziaWg(_awg) => {
-                    warn!("AmneziaWG is currently disabled/deprecated. Skipping inbound {}", inbound.tag);
-                    continue;
+                InboundType::AmneziaWg(awg) => {
+                    let peers = awg.users.iter().map(|u| AmneziaWgUser {
+                        name: Some(u.name.clone()),
+                        public_key: u.public_key.clone(),
+                        preshared_key: u.preshared_key.clone(),
+                        allowed_ips: vec![u.client_ip.clone()],
+                    }).collect();
+
+                    generated_inbounds.push(Inbound::AmneziaWg(AmneziaWgInbound {
+                        tag: inbound.tag,
+                        listen: inbound.listen_ip,
+                        listen_port: inbound.listen_port as u16,
+                        peers,
+                        private_key: awg.private_key,
+                        jc: Some(awg.jc),
+                        jmin: Some(awg.jmin),
+                        jmax: Some(awg.jmax),
+                        s1: Some(awg.s1),
+                        s2: Some(awg.s2),
+                        h1: Some(awg.h1),
+                        h2: Some(awg.h2),
+                        h3: Some(awg.h3),
+                        h4: Some(awg.h4),
+                    }));
                 },
                 InboundType::Tuic(tuic) => {
                     let mut tls_config = TuicTlsConfig {

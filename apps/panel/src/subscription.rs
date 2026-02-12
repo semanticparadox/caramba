@@ -93,20 +93,33 @@ pub async fn subscription_handler(
     // 4. Update access tracking
     let _ = state.subscription_service.track_access(sub.id, &client_ip, user_agent.as_deref()).await;
     
+    // 4.5 Prepare Usage Headers (for Hiddify/Sing-box)
+    let plan_details = match state.store_service.get_user_subscriptions(sub.user_id).await {
+        Ok(subs) => {
+            subs.iter()
+                .find(|s| s.sub.id == sub.id)
+                .map(|s| (s.plan_name.clone(), s.traffic_limit_gb.unwrap_or(0)))
+                .unwrap_or(("VPN Plan".to_string(), 0))
+        }
+        Err(_) => ("VPN Plan".to_string(), 0)
+    };
+    
+    let total_traffic_bytes = (plan_details.1 as i64) * 1024 * 1024 * 1024;
+    let used_traffic_bytes = sub.used_traffic as i64;
+    let expire_timestamp = sub.expires_at.timestamp();
+    
+    // upload=0; download=used; total=limit; expire=timestamp
+    let user_info_header = format!(
+        "upload=0; download={}; total={}; expire={}",
+        used_traffic_bytes, total_traffic_bytes, expire_timestamp
+    );
+
     // ===================================================================
     // If no ?client= param, serve the HTML subscription info page
     // ===================================================================
     if params.client.is_none() {
-        // Get subscription details for the HTML page
-        let plan_name = match state.store_service.get_user_subscriptions(sub.user_id).await {
-            Ok(subs) => {
-                subs.iter()
-                    .find(|s| s.sub.id == sub.id)
-                    .map(|s| (s.plan_name.clone(), s.traffic_limit_gb.unwrap_or(0)))
-                    .unwrap_or(("VPN Plan".to_string(), 0))
-            }
-            Err(_) => ("VPN Plan".to_string(), 0)
-        };
+        // Use already fetched plan_details
+        let plan_name = plan_details;
 
         let used_gb = sub.used_traffic as f64 / 1024.0 / 1024.0 / 1024.0;
         let limit_gb = plan_name.1;
@@ -303,7 +316,14 @@ function copyLink(){{
             },
         );
 
-        return Html(html).into_response();
+        return (
+            [
+                (header::CONTENT_TYPE, "text/html"),
+                (header::header_name::from_static("subscription-userinfo"), user_info_header.as_str()),
+                (header::header_name::from_static("profile-title"), "EXA-ROBOT"),
+            ],
+            html
+        ).into_response();
     }
 
     // ===================================================================
@@ -366,6 +386,8 @@ function copyLink(){{
             [
                 (header::CONTENT_TYPE, content_type),
                 (header::CONTENT_DISPOSITION, format!("inline; filename={}", filename).as_str()),
+                (header::header_name::from_static("subscription-userinfo"), user_info_header.as_str()),
+                (header::header_name::from_static("profile-title"), "EXA-ROBOT"),
             ],
             cached_config
         ).into_response();
@@ -409,6 +431,8 @@ function copyLink(){{
         [
             (header::CONTENT_TYPE, content_type),
             (header::CONTENT_DISPOSITION, format!("inline; filename={}", filename).as_str()),
+            (header::header_name::from_static("subscription-userinfo"), user_info_header.as_str()),
+            (header::header_name::from_static("profile-title"), "EXA-ROBOT"),
         ],
         content
     ).into_response()

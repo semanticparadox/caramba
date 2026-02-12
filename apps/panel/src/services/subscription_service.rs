@@ -721,11 +721,33 @@ impl SubscriptionService {
         
         let hy2_password = format!("{}:{}", tg_id, user_uuid.replace("-", ""));
 
+        // Derive AWG private key
+        let awg_private_key = self.derive_awg_key(&user_uuid);
+
         Ok(UserKeys {
             user_uuid,
             hy2_password,
-            _awg_private_key: None, // Not yet implemented
+            _awg_private_key: Some(awg_private_key),
         })
+    }
+
+    /// Derives a stable X25519 private key from a UUID string
+    fn derive_awg_key(&self, uuid: &str) -> String {
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        hasher.update(uuid.as_bytes());
+        hasher.update(b"amneziawg-key-salt");
+        let result = hasher.finalize();
+        
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&result[..32]);
+        
+        // Clamp the key to be a valid X25519 private key
+        key[0] &= 248;
+        key[31] &= 127;
+        key[31] |= 64;
+        
+        base64::Engine::encode(&base64::prelude::BASE64_STANDARD, key)
     }
     
     // Wrappers for config generation

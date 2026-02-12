@@ -927,6 +927,44 @@ pub fn generate_singbox_config(
                         outbound_tags.push(tag);
                         outbounds.push(ob);
                     }
+                    "amneziawg" => {
+                        use crate::models::network::AmneziaWgSettings;
+                        let settings: AmneziaWgSettings = serde_json::from_str(&inbound.settings).unwrap_or_default();
+                        
+                        let mut ob = json!({
+                            "type": "wireguard",
+                            "tag": tag,
+                            "server": node.address,
+                            "server_port": inbound.listen_port,
+                            "local_address": [format!("10.10.0.{}", (user_keys.hy2_password.split(':').next().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0) % 250) + 2)],
+                            "private_key": user_keys._awg_private_key.clone().unwrap_or_default(),
+                            "peer_public_key": settings.public_key, // Wait, settings usually has private_key on server. We need public_key of server.
+                            // The server's public key should be in the 'settings' or 'node'
+                        });
+                        
+                        // We need the server's public key. 
+                        // In orchestration_service, when instantiating AWG, we generate keys.
+                        // But where is the server's PUBLIC key stored? 
+                        // It seems we should have it in the inbound settings after instantiation.
+                        
+                        if let Ok(mut awg_obj) = serde_json::from_str::<serde_json::Value>(&inbound.settings) {
+                            if let Some(pub_key) = awg_obj.get("public_key").and_then(|v| v.as_str()) {
+                                ob["peer_public_key"] = json!(pub_key);
+                            }
+                            // Add AmneziaWG specific fields
+                            for field in ["jc", "jmin", "jmax", "s1", "s2", "h1", "h2", "h3", "h4"] {
+                                if let Some(v) = awg_obj.get(field) {
+                                    ob[field] = v.clone();
+                                }
+                            }
+                        }
+
+                        if let Some(dt) = &detour_tag {
+                            ob["detour"] = json!(dt);
+                        }
+                        outbound_tags.push(tag);
+                        outbounds.push(ob);
+                    }
                     "naive" => {
                         let mut ob = json!({
                             "type": "naive",
@@ -1000,12 +1038,6 @@ pub fn generate_singbox_config(
     // ─── Dynamic Rules Generation ────────────────────────────────────────────
     let mut rules_list = vec![
         json!({ "protocol": "dns", "outbound": "dns-out" }),
-        json!({ 
-            "domain_suffix": ["github.com", "githubusercontent.com", "google.com", "youtube.com"], 
-            "action": "route-options",
-            "tls_fragment": true,
-            "tls_fragment_fallback_delay": "100ms"
-        })
     ];
 
     // Apply Policies (Phase 11)
