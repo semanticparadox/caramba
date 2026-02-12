@@ -315,7 +315,7 @@ impl OrchestrationService {
             
         info!("Found {} active subscriptions for inbound {}", active_subs.len(), inbound.tag);
 
-        use crate::models::network::{InboundType, VlessClient, Hysteria2User};
+        use crate::models::network::{InboundType, VlessClient, Hysteria2User, NaiveUser};
 
         // Parse as Value first to handle missing 'protocol' tag in legacy/broken data
         let mut settings_value: serde_json::Value = serde_json::from_str(&inbound.settings).unwrap_or(serde_json::Value::Null);
