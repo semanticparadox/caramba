@@ -38,7 +38,6 @@ pub struct Node {
     #[sqlx(default)]
     pub config_block_ads: bool,
     #[sqlx(default)]
-    #[sqlx(default)]
     pub config_block_porn: bool,
     
     // Telemetry & Load Balancing (Added Phase 1.5)
@@ -65,6 +64,10 @@ pub struct Node {
     pub total_egress: i64,
     #[sqlx(default)]
     pub uptime: i64,
+    #[sqlx(default)]
+    pub last_session_ingress: i64,
+    #[sqlx(default)]
+    pub last_session_egress: i64,
 }
 
 impl Node {

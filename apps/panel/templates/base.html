@@ -181,6 +181,23 @@
                                 transition-colors duration-300"></i>
                             Frontends
                         </a>
+                    </div>
+                </div>
+
+                <!-- 3. Management -->
+                <div>
+                    <div class="px-2 mb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-80">
+                        Management</div>
+                    <div class="space-y-1">
+                        <a href="{{ admin_path }}/users" class="flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 group
+                            {% if active_page==" users" %} bg-gradient-to-r from-indigo-500/10 to-indigo-500/5
+                            text-indigo-400 border border-indigo-500/10 shadow-[0_4px_20px_-4px_rgba(255,107,53,0.1)] {%
+                            else %} text-slate-400 hover:text-indigo-300 hover:bg-white/5 {% endif %}">
+                            <i data-lucide="users" class="w-4 h-4 mr-3 {% if active_page==" users" %}text-indigo-500{%
+                                else %}text-slate-500 group-hover:text-indigo-400{% endif %} transition-colors
+                                duration-300"></i>
+                            Users
+                        </a>
                         <a href="{{ admin_path }}/api-keys" class="flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 group
                             {% if active_page==" api_keys" %} bg-gradient-to-r from-indigo-500/10 to-indigo-500/5
                             text-indigo-400 border border-indigo-500/10 shadow-[0_4px_20px_-4px_rgba(255,107,53,0.1)] {%
@@ -190,14 +207,6 @@
                                 duration-300"></i>
                             Enrollment Keys
                         </a>
-                    </div>
-                </div>
-
-                <!-- 3. Stealth -->
-                <div>
-                    <div class="px-2 mb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-80">
-                        Stealth</div>
-                    <div class="space-y-1">
                         <a href="{{ admin_path }}/sni" class="flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 group
                             {% if active_page==" sni" %} bg-gradient-to-r from-indigo-500/10 to-indigo-500/5
                             text-indigo-400 border border-indigo-500/10 shadow-[0_4px_20px_-4px_rgba(255,107,53,0.1)] {%
@@ -224,96 +233,78 @@
                                 duration-300"></i>
                             Plans
                         </a>
-                        <li>
-                            <a href="{{ admin_path }}/store/products"
-                                class="flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all group {% if active_page == "
-                                products" %}bg-indigo-600 text-white shadow-lg shadow-indigo-500/25{% else
-                                %}text-slate-400 hover:text-white hover:bg-white/5{% endif %}">
-                                <i data-lucide="shopping-bag"
-                                    class="w-5 h-5 transition-transform group-hover:scale-110 {% if active_page == "
-                                    products" %}text-white{% else %}text-slate-500 group-hover:text-indigo-400{% endif
-                                    %}"></i>
-                                <span class="font-medium">Products</span>
-                            </a>
-                        </li>
-                        <li>
-                            <a href="{{ admin_path }}/store/categories"
-                                class="flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all group {% if active_page == "
-                                categories" %}bg-indigo-600 text-white shadow-lg shadow-indigo-500/25{% else
-                                %}text-slate-400 hover:text-white hover:bg-white/5{% endif %}">
-                                <i data-lucide="layers"
-                                    class="w-5 h-5 transition-transform group-hover:scale-110 {% if active_page == "
-                                    categories" %}text-white{% else %}text-slate-500 group-hover:text-indigo-400{% endif
-                                    %}"></i>
-                                <span class="font-medium">Categories</span>
-                            </a>
-                        </li>
-                        <li>
-                            <a href="{{ admin_path }}/transactions"
-                                class="flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all group {% if active_page == "
-                                transactions" %}bg-indigo-600 text-white shadow-lg shadow-indigo-500/25{% else
-                                %}text-slate-400 hover:text-white hover:bg-white/5{% endif %}">
-                                <i data-lucide="receipt"
-                                    class="w-5 h-5 transition-transform group-hover:scale-110 {% if active_page == "
-                                    transactions" %}text-white{% else %}text-slate-500 group-hover:text-indigo-400{%
-                                    endif %}"></i>
-                                <span class="font-medium">Transactions</span>
-                            </a>
-                        </li>
-                        </ul>
+                        <a href="{{ admin_path }}/store/products" class="flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 group
+                            {% if active_page==" products" %} bg-gradient-to-r from-indigo-500/10 to-indigo-500/5
+                            text-indigo-400 border border-indigo-500/10 shadow-[0_4px_20px_-4px_rgba(255,107,53,0.1)] {%
+                            else %} text-slate-400 hover:text-indigo-300 hover:bg-white/5 {% endif %}">
+                            <i data-lucide="shopping-bag" class="w-4 h-4 mr-3 {% if active_page==" products"
+                                %}text-indigo-500{% else %}text-slate-500 group-hover:text-indigo-400{% endif %}
+                                transition-colors duration-300"></i>
+                            Products
+                        </a>
+                        <a href="{{ admin_path }}/store/categories" class="flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 group
+                            {% if active_page==" categories" %} bg-gradient-to-r from-indigo-500/10 to-indigo-500/5
+                            text-indigo-400 border border-indigo-500/10 shadow-[0_4px_20px_-4px_rgba(255,107,53,0.1)] {%
+                            else %} text-slate-400 hover:text-indigo-300 hover:bg-white/5 {% endif %}">
+                            <i data-lucide="layers" class="w-4 h-4 mr-3 {% if active_page==" categories"
+                                %}text-indigo-500{% else %}text-slate-500 group-hover:text-indigo-400{% endif %}
+                                transition-colors duration-300"></i>
+                            Categories
+                        </a>
+                        <a href="{{ admin_path }}/transactions" class="flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 group
+                            {% if active_page==" transactions" %} bg-gradient-to-r from-indigo-500/10 to-indigo-500/5
+                            text-indigo-400 border border-indigo-500/10 shadow-[0_4px_20px_-4px_rgba(255,107,53,0.1)] {%
+                            else %} text-slate-400 hover:text-indigo-300 hover:bg-white/5 {% endif %}">
+                            <i data-lucide="receipt" class="w-4 h-4 mr-3 {% if active_page==" transactions"
+                                %}text-indigo-500{% else %}text-slate-500 group-hover:text-indigo-400{% endif %}
+                                transition-colors duration-300"></i>
+                            Transactions
+                        </a>
                     </div>
+                </div>
 
-                    <!-- Analysis Section -->
-                    <div>
-                        <div
-                            class="px-2 mb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-80">
-                            Analysis</div>
-                        <div class="space-y-1">
-                            <ul class="space-y-1">
-                                <li>
-                                    <a href="{{ admin_path }}/logs"
-                                        class="flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all group {% if active_page == "
-                                        logs" %}bg-indigo-600 text-white shadow-lg shadow-indigo-500/25{% else
-                                        %}text-slate-400 hover:text-white hover:bg-white/5{% endif %}">
-                                        <i data-lucide="file-text"
-                                            class="w-5 h-5 transition-transform group-hover:scale-110 {% if active_page == "
-                                            logs" %}text-white{% else %}text-slate-500 group-hover:text-indigo-400{%
-                                            endif %}"></i>
-                                        <span class="font-medium">System Logs</span>
-                                    </a>
-                                </li>
-                            </ul>
-                        </div>
-                    </div>
-
-                    <!-- Configuration Section -->
-                    <div>
-                        <div
-                            class="px-2 mb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-80">
-                            Configuration</div>
-                        <div class="space-y-1">
-                            <a href="{{ admin_path }}/settings" class="flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 group
-                                {% if active_page==" settings" %} bg-gradient-to-r from-indigo-500/10 to-indigo-500/5
-                                text-indigo-400 border border-indigo-500/10
-                                shadow-[0_4px_20px_-4px_rgba(255,107,53,0.1)] {% else %} text-slate-400
-                                hover:text-indigo-300 hover:bg-white/5 {% endif %}">
-                                <i data-lucide="settings" class="w-4 h-4 mr-3 {% if active_page==" settings"
-                                    %}text-indigo-500{% else %}text-slate-500 group-hover:text-indigo-400{% endif %}
-                                    transition-colors duration-300"></i>
-                                Settings
-                            </a>
-                            <a href="{{ admin_path }}/bot" class="flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 group
+                <!-- Analysis Section -->
+                <div>
+                    <div class="px-2 mb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-80">
+                        Analysis</div>
+                    <div class="space-y-1">
+                        <a href="{{ admin_path }}/logs" class="flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 group
+                                {% if active_page==" logs" %} bg-gradient-to-r from-indigo-500/10 to-indigo-500/5
+                            text-indigo-400 border border-indigo-500/10 shadow-[0_4px_20px_-4px_rgba(255,107,53,0.1)] {%
+                            else %} text-slate-400 hover:text-indigo-300 hover:bg-white/5 {% endif %}">
+                            <i data-lucide="file-text" class="w-4 h-4 mr-3 {% if active_page==" logs"
+                                %}text-indigo-500{% else %}text-slate-500 group-hover:text-indigo-400{% endif %}
+                                transition-colors duration-300"></i>
+                            System Logs
+                        </a>
+                        <a href="{{ admin_path }}/bot" class="flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 group
                                 {% if active_page==" bot_logs" %} bg-gradient-to-r from-indigo-500/10 to-indigo-500/5
-                                text-indigo-400 border border-indigo-500/10
-                                shadow-[0_4px_20px_-4px_rgba(255,107,53,0.1)] {% else %} text-slate-400
-                                hover:text-indigo-300 hover:bg-white/5 {% endif %}">
-                                <i data-lucide="bot" class="w-4 h-4 mr-3 {% if active_page==" bot_logs"
-                                    %}text-indigo-500{% else %}text-slate-500 group-hover:text-indigo-400{% endif %}
-                                    transition-colors duration-300"></i>
-                                Bot Logs
-                            </a>
-                        </div>
+                            text-indigo-400 border border-indigo-500/10 shadow-[0_4px_20px_-4px_rgba(255,107,53,0.1)] {%
+                            else %} text-slate-400 hover:text-indigo-300 hover:bg-white/5 {% endif %}">
+                            <i data-lucide="bot" class="w-4 h-4 mr-3 {% if active_page==" bot_logs" %}text-indigo-500{%
+                                else %}text-slate-500 group-hover:text-indigo-400{% endif %} transition-colors
+                                duration-300"></i>
+                            Bot Logs
+                        </a>
                     </div>
+                </div>
+
+                <!-- Configuration Section -->
+                <div>
+                    <div class="px-2 mb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-80">
+                        Configuration</div>
+                    <div class="space-y-1">
+                        <a href="{{ admin_path }}/settings" class="flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 group
+                                {% if active_page==" settings" %} bg-gradient-to-r from-indigo-500/10 to-indigo-500/5
+                            text-indigo-400 border border-indigo-500/10 shadow-[0_4px_20px_-4px_rgba(255,107,53,0.1)] {%
+                            else %} text-slate-400 hover:text-indigo-300 hover:bg-white/5 {% endif %}">
+                            <i data-lucide="settings" class="w-4 h-4 mr-3 {% if active_page==" settings"
+                                %}text-indigo-500{% else %}text-slate-500 group-hover:text-indigo-400{% endif %}
+                                transition-colors duration-300"></i>
+                            Settings
+                        </a>
+                    </div>
+                </div>
             </nav>
 
             <!-- Footer -->
