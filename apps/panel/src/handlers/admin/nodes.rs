@@ -53,12 +53,8 @@ pub struct NodeManualInstallTemplate {
     pub admin_path: String,
 }
 
-// Add filters module for Askama
 pub mod filters {
-    use askama::Result;
-    pub fn round(val: &f64) -> Result<String> {
-        Ok(format!("{:.0}", val))
-    }
+    pub use crate::utils::round0;
 }
 
 #[derive(Deserialize)]
