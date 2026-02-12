@@ -406,6 +406,9 @@ pub fn generate_v2ray_config(
                             node.address, inbound.listen_port,
                             params.join("&"), label));
                     }
+                    _ => {
+                        // Unknown protocol, skip
+                    }
                 }
             }
         }
