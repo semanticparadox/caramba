@@ -379,7 +379,7 @@ impl OrchestrationService {
                             }
                         }
                     },
-                InboundType::Trojan(trojan) => {
+                    InboundType::Trojan(trojan) => {
                         use crate::models::network::TrojanClient;
                         for sub in &active_subs {
                             if let (Some(uuid), tg_id, _) = (&sub.0, sub.1, &sub.2) {
@@ -401,6 +401,19 @@ impl OrchestrationService {
                                     name: auth_name,
                                     uuid: uuid.clone(),
                                     password: uuid.replace("-", ""), 
+                                });
+                            }
+                        }
+                    },
+                    InboundType::Naive(naive) => {
+                         for sub in &active_subs {
+                            if let (Some(uuid), tg_id, _) = (&sub.0, sub.1, &sub.2) {
+                                let auth_name = tg_id.to_string();
+                                
+                                info!("🔑 Injecting NAIVE user: {} (Pass: {})", auth_name, uuid);
+                                naive.users.push(NaiveUser {
+                                    username: auth_name,
+                                    password: uuid.replace("-", ""),
                                 });
                             }
                         }
