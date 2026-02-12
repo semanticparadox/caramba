@@ -287,15 +287,16 @@
                     </div>
 
                     <!-- Configuration Section -->
-                     <div>
+                    <div>
                         <div
                             class="px-2 mb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest opacity-80">
                             Configuration</div>
                         <div class="space-y-1">
                             <a href="{{ admin_path }}/settings" class="flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 group
                                 {% if active_page==" settings" %} bg-gradient-to-r from-indigo-500/10 to-indigo-500/5
-                                text-indigo-400 border border-indigo-500/10 shadow-[0_4px_20px_-4px_rgba(255,107,53,0.1)] {%
-                                else %} text-slate-400 hover:text-indigo-300 hover:bg-white/5 {% endif %}">
+                                text-indigo-400 border border-indigo-500/10
+                                shadow-[0_4px_20px_-4px_rgba(255,107,53,0.1)] {% else %} text-slate-400
+                                hover:text-indigo-300 hover:bg-white/5 {% endif %}">
                                 <i data-lucide="settings" class="w-4 h-4 mr-3 {% if active_page==" settings"
                                     %}text-indigo-500{% else %}text-slate-500 group-hover:text-indigo-400{% endif %}
                                     transition-colors duration-300"></i>
@@ -303,8 +304,9 @@
                             </a>
                             <a href="{{ admin_path }}/bot" class="flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 group
                                 {% if active_page==" bot_logs" %} bg-gradient-to-r from-indigo-500/10 to-indigo-500/5
-                                text-indigo-400 border border-indigo-500/10 shadow-[0_4px_20px_-4px_rgba(255,107,53,0.1)] {%
-                                else %} text-slate-400 hover:text-indigo-300 hover:bg-white/5 {% endif %}">
+                                text-indigo-400 border border-indigo-500/10
+                                shadow-[0_4px_20px_-4px_rgba(255,107,53,0.1)] {% else %} text-slate-400
+                                hover:text-indigo-300 hover:bg-white/5 {% endif %}">
                                 <i data-lucide="bot" class="w-4 h-4 mr-3 {% if active_page==" bot_logs"
                                     %}text-indigo-500{% else %}text-slate-500 group-hover:text-indigo-400{% endif %}
                                     transition-colors duration-300"></i>
@@ -360,7 +362,7 @@
             </header>
 
             <!-- Content Area -->
-            <div class="p-6 lg:p-10 max-w-[1600px] mx-auto w-full space-y-8 fade-in pb-12">
+            <div class="p-6 lg:p-10 max-w-7xl mx-auto w-full space-y-8 fade-in pb-12">
                 {% block content %}{% endblock %}
             </div>
             <!-- Persistent Footer -->
@@ -368,7 +370,7 @@
                 class="fixed bottom-0 right-0 left-0 lg:left-64 z-30 bg-slate-950/80 backdrop-blur-md border-t border-white/5 py-2 px-6 lg:px-10 flex items-center justify-between text-xs transition-all duration-300"
                 hx-get="{{ admin_path }}/partials/statusbar" hx-trigger="load, every 30s" hx-swap="innerHTML">
                 <!-- Initial Placeholder or Loading State -->
-                <div class="flex items-center gap-4 text-slate-500">
+                <div class="flex items-center gap-4 text-slate-500 min-h-[1.5rem]">
                     <span class="font-mono text-slate-400">Loading status...</span>
                 </div>
             </footer>
@@ -395,7 +397,16 @@
 
         // Re-init icons after HTMX swaps
         document.body.addEventListener('htmx:afterOnLoad', function (evt) {
-            lucide.createIcons();
+            // Only search within the target element that was updated
+            const target = evt.detail.target;
+            if (target && target.querySelectorAll) {
+                lucide.createIcons({
+                    root: target
+                });
+            } else {
+                lucide.createIcons();
+            }
+
             initTimeAgo();
             if (evt.detail.xhr.status === 200 && (evt.detail.elt.id === "settings-form" || evt.detail.elt.hasAttribute("hx-post"))) {
                 showToast("Action completed successfully!");

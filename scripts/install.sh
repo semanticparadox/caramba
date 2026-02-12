@@ -886,7 +886,7 @@ EOF
     # Check if Nginx is already running or installed
     if ! command -v nginx &> /dev/null; then
         if [ "$ID" = "ubuntu" ] || [ "$ID" = "debian" ]; then
-             apt-get install -y nginx -qq
+             apt-get install -y nginx libnginx-mod-stream -qq
         elif [ "$ID" = "centos" ] || [ "$ID" = "rhel" ]; then
              yum install nginx -y
         fi

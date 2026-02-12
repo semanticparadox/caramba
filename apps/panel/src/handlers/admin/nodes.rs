@@ -76,7 +76,7 @@ pub async fn get_nodes(
     headers: HeaderMap,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let nodes = state.infrastructure_service.get_active_nodes().await.unwrap_or_default();
+    let nodes = state.infrastructure_service.get_all_nodes().await.unwrap_or_default();
     
     let admin_path = state.admin_path.clone();
 
@@ -108,12 +108,6 @@ pub async fn install_node(
     } else {
         info!("Adding pending node: {}", form.name);
     }
-
-    // Generate Token for Smart Setup (handled inside create_node if we passed token, but create_node generates it internally currently)
-    // Actually create_node generates a token.
-    // Let's rely on create_node's internal logic or update create_node to take overrides if needed?
-    // create_node generates a new token.
-    // form.ip logic is handled in create_node now.
     
     match state.infrastructure_service.create_node(&form.name, &check_ip, form.vpn_port, form.auto_configure.unwrap_or(false)).await {
         Ok(id) => {
@@ -130,12 +124,15 @@ pub async fn install_node(
                      let script = crate::scripts::Scripts::get_setup_node_script().unwrap_or_default();
 
                      let template = NodeManualInstallTemplate { node, script };
-                     // We need to trigger a refresh of the table too. HTMX handles hx-swap-oob or we can rely on client side triggers.
-                     // But simply returning HTML will fill the target.
-                     // We also need to open the modal. We can append a script tag.
+                     
+                     let mut headers = HeaderMap::new();
+                     headers.insert("HX-Trigger", "refresh_nodes".parse().unwrap());
+                     
+                     // We still need the script to open the modal because hx-target is the modal content
                      let mut html = template.render().unwrap();
-                     html.push_str("<script>document.getElementById('add-node-modal').close(); document.getElementById('manual-install-modal').showModal(); htmx.trigger('body', 'refresh_nodes');</script>");
-                     return Html(html).into_response();
+                     html.push_str("<script>document.getElementById('add-node-modal').close(); document.getElementById('manual-install-modal').showModal();</script>");
+                     
+                     return (headers, Html(html)).into_response();
                  }
             }
 

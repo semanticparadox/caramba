@@ -24,6 +24,10 @@ impl InfrastructureService {
         self.node_repo.get_active_nodes().await
     }
 
+    pub async fn get_node_groups(&self, node_id: i64) -> Result<Vec<crate::models::groups::NodeGroup>> {
+        self.node_repo.get_groups_by_node(node_id).await
+    }
+
     pub async fn get_user_nodes(&self, _user_id: i64) -> Result<Vec<Node>> {
         self.node_repo.get_active_nodes().await
     }
@@ -77,6 +81,19 @@ impl InfrastructureService {
         };
 
         let id = self.node_repo.create_node(&node).await?;
+        
+        // Phase 16: Ensure node is added to "Default" group
+        let default_group = self.node_repo.get_group_by_name("Default").await?;
+        let group_id = match default_group {
+            Some(g) => g.id,
+            None => {
+                // Create Default Group if missing
+                self.node_repo.create_group("Default", Some("Default group for new nodes")).await?
+            }
+        };
+        
+        self.node_repo.add_node_to_group(id, group_id).await?;
+        
         Ok(id)
     }
 

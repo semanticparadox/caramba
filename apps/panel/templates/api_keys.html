@@ -4,7 +4,7 @@
 {% block header_title %}Enrollment Keys{% endblock %}
 
 {% block content %}
-<section class="max-w-6xl mx-auto pb-20">
+<section class="mx-auto pb-20 space-y-8">
 
     <!-- Header & Create Button -->
     <div class="flex items-center justify-between mb-8">
@@ -85,7 +85,7 @@
 
 <!-- Create Modal -->
 <dialog id="create-modal" class="bg-transparent p-0 w-full max-w-md backdrop:bg-slate-950/80 backdrop:backdrop-blur-sm">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl">
+    <div class="bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
         <h3 class="text-lg font-bold text-white mb-4">Create Enrollment Key</h3>
         <form action="{{ admin_path }}/api-keys" method="POST" class="space-y-4">
             <div>

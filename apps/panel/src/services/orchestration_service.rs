@@ -28,276 +28,227 @@ impl OrchestrationService {
         let node_repo = NodeRepository::new(pool.clone());
         Self { pool, node_repo, store_service, _infrastructure_service: infrastructure_service }
     }
-    /// Initializes default inbounds (VLESS Reality & Hysteria 2) for a fresh node
+    /// Initializes default inbounds by applying Group Templates
     pub async fn init_default_inbounds(&self, node_id: i64) -> anyhow::Result<()> {
-        info!("Initializing default inbounds for node {}", node_id);
+        info!("Initializing inbounds for node {} via templates", node_id);
         
         // Fetch node for SNI defaults
         let node = self.node_repo.get_node_by_id(node_id).await?
             .ok_or_else(|| anyhow::anyhow!("Node not found"))?;
-        
-        // 1. VLESS Reality (Vision)
-        // Use sing-box native generation for guaranteed compatibility
-        let (priv_key, pub_key) = {
-            use std::process::Command;
             
-            let output = Command::new("sing-box")
-                .args(&["generate", "reality-keypair"])
-                .output()
-                .map_err(|e| anyhow::anyhow!("Failed to execute sing-box generate: {}. Ensure sing-box is installed.", e))?;
+        // 1. Get Node's Groups
+        let group_ids: Vec<i64> = sqlx::query_scalar("SELECT group_id FROM node_group_members WHERE node_id = ?")
+            .bind(node_id)
+            .fetch_all(&self.pool)
+            .await?;
             
-            if !output.status.success() {
-                return Err(anyhow::anyhow!("sing-box generate failed: {}", String::from_utf8_lossy(&output.stderr)));
-            }
-            
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            let mut priv_key = String::new();
-            let mut pub_key = String::new();
-            
-            for line in output_str.lines() {
-                if let Some(key) = line.strip_prefix("PrivateKey:") {
-                    priv_key = key.trim().to_string();
-                } else if let Some(key) = line.strip_prefix("PublicKey:") {
-                    pub_key = key.trim().to_string();
-                }
-            }
-            
-            if priv_key.is_empty() || pub_key.is_empty() {
-                return Err(anyhow::anyhow!("Failed to parse sing-box output"));
-            }
-            
-            (priv_key, pub_key)
-        };
-        
-        let short_id = hex::encode(&rand::random::<[u8; 8]>());
-        
-        // Save keys to node
-        let mut updated_node = node.clone();
-        updated_node.reality_priv = Some(priv_key.clone());
-        updated_node.reality_pub = Some(pub_key.clone());
-        updated_node.short_id = Some(short_id.clone());
-        self.node_repo.update_node(&updated_node).await?;
-            
-        use crate::models::network::{InboundType, VlessSettings, RealitySettings, Hysteria2Settings};
-        // Removed DestOverride if not in models
-        
-        let vless_settings_struct = VlessSettings {
-            clients: vec![],
-            decryption: "none".to_string(),
-            fallbacks: None,
-        };
-        let vless_json = serde_json::to_string(&InboundType::Vless(vless_settings_struct))?;
-        
-        // Stream Settings for Reality
-        use crate::models::network::StreamSettings;
-        let stream_settings = StreamSettings {
-            network: Some("tcp".to_string()),
-            security: Some("reality".to_string()),
-            tls_settings: None,
-            reality_settings: Some(RealitySettings {
-                show: true,
-                xver: 0,
-                dest: "drive.google.com:443".to_string(),
-                server_names: vec!["drive.google.com".to_string()],
-                private_key: priv_key,
-                public_key: Some(pub_key),
-                short_ids: vec![short_id],
-                max_time_diff: Some(0), 
-            }),
-            ws_settings: None,
-            http_upgrade_settings: None,
-            xhttp_settings: None,
-        };
-        let stream_json = serde_json::to_string(&stream_settings)?;
-        
-        use crate::models::network::Inbound;
-        let vless_inbound = Inbound {
-            id: 0, // Generated
-            node_id,
-            tag: format!("vless-reality-{}", node_id),
-            protocol: "vless".to_string(),
-            listen_port: 443,
-            listen_ip: "0.0.0.0".to_string(),
-            settings: vless_json,
-            stream_settings: stream_json,
-            remark: None,
-            enable: true,
-            last_rotated_at: None,
-            created_at: None,
-        };
-        self.node_repo.upsert_inbound(&vless_inbound).await?;
+        if group_ids.is_empty() {
+             info!("Node {} has no groups, skipping template application", node_id);
+             return Ok(());
+        }
 
-        // 2. Hysteria 2
-        let hy2_settings_struct = Hysteria2Settings {
-             users: vec![],
-             up_mbps: 100,
-             down_mbps: 100,
-             obfs: None, 
-             masquerade: Some("file:///opt/exarobot/apps/panel/assets/masquerade".to_string()),
-        };
-
-        let hy2_json = serde_json::to_string(&InboundType::Hysteria2(hy2_settings_struct))?;
+        // 2. Fetch Templates for these groups (Active Only)
+        let mut templates = Vec::new();
+        for gid in &group_ids {
+            let mut group_templates = self.node_repo.get_templates_for_group(*gid).await?;
+            templates.append(&mut group_templates);
+        }
         
-        // Hysteria 2 uses UDP, correct. Stream settings with TLS.
-        use crate::models::network::TlsSettings;
-        let hy2_stream = StreamSettings {
-            network: Some("udp".to_string()), // Hysteria is UDP based
-            security: Some("tls".to_string()),
-            tls_settings: Some(TlsSettings {
-                server_name: node.reality_sni.clone().unwrap_or_else(|| "drive.google.com".to_string()),
-                certificates: None, // Will use auto-generated certs
-            }),
-            reality_settings: None,
-            ws_settings: None,
-            http_upgrade_settings: None,
-            xhttp_settings: None,
-        };
+        // 3. Bootstrap Defaults if NO templates found (Fresh Install Scenario)
+        if templates.is_empty() {
+            info!("No templates found for node groups. Bootstrapping default templates for 'Default' group...");
+            // Find the Default Group ID
+            let default_group = self.node_repo.get_group_by_name("Default").await?;
+            if let Some(group) = default_group {
+                self.bootstrap_default_templates(group.id).await?;
+                // Re-fetch templates
+                templates = self.node_repo.get_templates_for_group(group.id).await?;
+            }
+        }
         
-        let hy2_inbound = Inbound {
-            id: 0,
-            node_id,
-            tag: format!("hysteria2-{}", node_id),
-            protocol: "hysteria2".to_string(),
-            listen_port: 8443,
-            listen_ip: "0.0.0.0".to_string(),
-            settings: hy2_json,
-            stream_settings: serde_json::to_string(&hy2_stream)?,
-            remark: None,
-            enable: true,
-            last_rotated_at: None,
-            created_at: None,
-        };
-        self.node_repo.upsert_inbound(&hy2_inbound).await?;
-
-        // Link to default plan (ID=1)
+        // 4. Instantiate Inbounds from Templates
+        for template in templates {
+            self.instantiate_inbound_from_template(&node, &template).await?;
+        }
+        
+        // Link to default plan (ID=1) - for legacy compatibility
         self.node_repo.link_node_inbounds_to_plan(1, node_id).await?;
 
-        // 3. AmneziaWG
-        // Pre-generate random values to avoid Send trait issues with ThreadRng
-        let (awg_jc, awg_jmin, awg_jmax, awg_s1, awg_s2, awg_h1, awg_h2, awg_h3, awg_h4) = {
-            use rand::Rng;
-            let mut rng = rand::rng();
-            (
-                rng.random_range(3..=10),
-                rng.random_range(40..=100),
-                rng.random_range(500..=1000),
-                rng.random_range(20..=100),
-                rng.random_range(20..=100),
-                rng.random::<u32>(),
-                rng.random::<u32>(),
-                rng.random::<u32>(),
-                rng.random::<u32>(),
-            )
-        };
-        
-        // Generate WireGuard Keypair
-        let (awg_priv, _awg_pub) = {
-            use std::process::Command;
-            let output = Command::new("sing-box")
-                .args(&["generate", "wireguard-keypair"])
-                .output()
-                .map_err(|e| anyhow::anyhow!("Failed to execute sing-box generate (awg): {}", e))?;
-            
-            if !output.status.success() {
-                return Err(anyhow::anyhow!("sing-box generate awg failed"));
-            }
-            
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            let mut priv_key = String::new();
-            let mut pub_key = String::new();
-            
-            for line in output_str.lines() {
-                if let Some(key) = line.strip_prefix("PrivateKey:") {
-                    priv_key = key.trim().to_string();
-                } else if let Some(key) = line.strip_prefix("PublicKey:") {
-                    pub_key = key.trim().to_string();
-                }
-            }
-            (priv_key, pub_key)
-        };
-
-        let awg_settings = crate::models::network::AmneziaWgSettings {
-            users: vec![],
-            private_key: awg_priv,
-            listen_port: 51820,
-            jc: awg_jc,
-            jmin: awg_jmin,
-            jmax: awg_jmax,
-            s1: awg_s1,
-            s2: awg_s2,
-            h1: awg_h1,
-            h2: awg_h2,
-            h3: awg_h3,
-            h4: awg_h4,
-        };
-
-        let awg_json = serde_json::to_string(&InboundType::AmneziaWg(awg_settings))?;
-        
-        let awg_inbound = Inbound {
-            id: 0,
-            node_id,
-            tag: format!("amneziawg-{}", node_id),
-            protocol: "amneziawg".to_string(),
-            listen_port: 51820,
-            listen_ip: "0.0.0.0".to_string(),
-            settings: awg_json,
-            stream_settings: "{}".to_string(),
-            remark: None,
-            enable: true,
-            last_rotated_at: None,
-            created_at: None,
-        };
-        self.node_repo.upsert_inbound(&awg_inbound).await?;
-            
-        // Link AWG to default plan too - already linked via link_node_inbounds_to_plan above if generic
-        // but let's be safe if we want specific protocols.
-        // Actually link_node_inbounds_to_plan links ALL inbounds of the node.
-
-        // 4. TUIC
-        use crate::models::network::TuicSettings;
-        let tuic_settings = TuicSettings {
-             users: vec![],
-             congestion_control: "cubic".to_string(),
-             auth_timeout: "3s".to_string(),
-             zero_rtt_handshake: false,
-             heartbeat: "10s".to_string(),
-        };
-
-        let tuic_json = serde_json::to_string(&InboundType::Tuic(tuic_settings))?;
-        
-        let tuic_stream = StreamSettings {
-            network: Some("udp".to_string()),
-            security: Some("tls".to_string()),
-            tls_settings: Some(TlsSettings {
-                server_name: node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string()),
-                certificates: None,
-            }),
-            reality_settings: None,
-            ws_settings: None,
-            http_upgrade_settings: None,
-            xhttp_settings: None,
-        };
-
-        let tuic_inbound = Inbound {
-            id: 0,
-            node_id,
-            tag: format!("tuic-{}", node_id),
-            protocol: "tuic".to_string(),
-            listen_port: 9443,
-            listen_ip: "0.0.0.0".to_string(),
-            settings: tuic_json,
-            stream_settings: serde_json::to_string(&tuic_stream)?,
-            remark: None,
-            enable: true,
-            last_rotated_at: None,
-            created_at: None,
-        };
-        self.node_repo.upsert_inbound(&tuic_inbound).await?;
-            
         Ok(())
     }
 
+    /// Helper to bootstrap default templates
+    async fn bootstrap_default_templates(&self, group_id: i64) -> anyhow::Result<()> {
+        // VLESS Reality
+        let vless_settings = r#"{"clients":[],"decryption":"none"}"#;
+        let vless_stream = r#"{"network":"tcp","security":"reality","reality_settings":{"show":false,"xver":0,"dest":"drive.google.com:443","server_names":["drive.google.com"]}}"#;
+        self.create_template("VLESS Reality", "vless", vless_settings, vless_stream, group_id, 443).await?;
+
+        // Hysteria 2
+        let hy2_settings = r#"{"users":[],"up_mbps":100,"down_mbps":100,"masquerade":"file:///opt/exarobot/apps/panel/assets/masquerade"}"#;
+        let hy2_stream = r#"{"network":"udp","security":"tls","tls_settings":{"server_name":"drive.google.com"}}"#;
+        self.create_template("Hysteria 2", "hysteria2", hy2_settings, hy2_stream, group_id, 8443).await?;
+
+        // TUIC
+        let tuic_settings = r#"{"users":[],"congestion_control":"cubic","auth_timeout":"3s","heartbeat":"10s"}"#;
+        let tuic_stream = r#"{"network":"udp","security":"tls","tls_settings":{"server_name":"www.google.com"}}"#;
+        self.create_template("TUIC v5", "tuic", tuic_settings, tuic_stream, group_id, 9443).await?;
+
+        // AmneziaWG
+        let awg_settings = r#"{"users":[],"listen_port":51820}"#; // Key generation happens on instantiation
+        self.create_template("AmneziaWG", "amneziawg", awg_settings, "{}", group_id, 51820).await?;
+
+        Ok(())
+    }
+
+    async fn create_template(&self, name: &str, protocol: &str, settings: &str, stream: &str, group_id: i64, port: i64) -> anyhow::Result<()> {
+        sqlx::query("INSERT INTO inbound_templates (name, protocol, settings_template, stream_settings_template, target_group_id, port_range_start, port_range_end, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)")
+            .bind(name)
+            .bind(protocol)
+            .bind(settings)
+            .bind(stream)
+            .bind(group_id)
+            .bind(port)
+            .bind(port) 
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn instantiate_inbound_from_template(&self, node: &Node, template: &crate::models::groups::InboundTemplate) -> anyhow::Result<()> {
+        info!("Instantiating template '{}' for node {}", template.name, node.id);
+        
+        let port = template.port_range_start; 
+
+        let mut settings_json = template.settings_template.clone();
+        let mut stream_json = template.stream_settings_template.clone();
+
+        if template.protocol == "vless" {
+             // Generate Reality Keys
+             let (priv_key, pub_key, short_id) = self.generate_reality_keys()?;
+             
+             if node.reality_priv.is_none() {
+                 let mut updated_node = node.clone();
+                 updated_node.reality_priv = Some(priv_key.clone());
+                 updated_node.reality_pub = Some(pub_key.clone());
+                 updated_node.short_id = Some(short_id.clone());
+                 self.node_repo.update_node(&updated_node).await?;
+             }
+             
+             let node_updated = self.node_repo.get_node_by_id(node.id).await?.unwrap(); 
+             let pkey = node_updated.reality_priv.unwrap_or_default();
+             let pubkey = node_updated.reality_pub.unwrap_or_default();
+             let sid = node_updated.short_id.unwrap_or_default();
+             
+             if let Ok(mut stream_obj) = serde_json::from_str::<crate::models::network::StreamSettings>(&stream_json) {
+                 if let Some(reality) = &mut stream_obj.reality_settings {
+                     reality.private_key = pkey;
+                     reality.public_key = Some(pubkey);
+                     reality.short_ids = vec![sid];
+                 }
+                 stream_json = serde_json::to_string(&stream_obj)?;
+             }
+        } else if template.protocol == "amneziawg" {
+            let (priv_key, _pub_key) = self.generate_wireguard_keys()?;
+            let (jc, jmin, jmax, s1, s2, h1, h2, h3, h4) = self.generate_awg_params();
+            
+            if let Ok(mut awg_obj) = serde_json::from_str::<crate::models::network::AmneziaWgSettings>(&settings_json) {
+                awg_obj.private_key = priv_key;
+                awg_obj.jc = jc;
+                awg_obj.jmin = jmin;
+                awg_obj.jmax = jmax;
+                awg_obj.s1 = s1;
+                awg_obj.s2 = s2;
+                awg_obj.h1 = h1;
+                awg_obj.h2 = h2;
+                awg_obj.h3 = h3;
+                awg_obj.h4 = h4;
+                settings_json = serde_json::to_string(&awg_obj)?;
+            }
+        }
+
+        let inbound = crate::models::network::Inbound {
+            id: 0,
+            node_id: node.id,
+            tag: format!("tpl_{}_{}", template.protocol, node.id),
+            protocol: template.protocol.clone(),
+            listen_port: port,
+            listen_ip: "0.0.0.0".to_string(),
+            settings: settings_json,
+            stream_settings: stream_json,
+            remark: Some(format!("Template: {}", template.name)), 
+            enable: true,
+            last_rotated_at: None,
+            created_at: None,
+        };
+        
+        self.node_repo.upsert_inbound(&inbound).await?;
+        Ok(())
+    }
+
+    fn generate_reality_keys(&self) -> anyhow::Result<(String, String, String)> {
+        use std::process::Command;
+        
+        let output = Command::new("sing-box")
+            .args(&["generate", "reality-keypair"])
+            .output()
+            .map_err(|e| anyhow::anyhow!("sing-box generate error: {}", e))?;
+            
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        let mut priv_key = String::new();
+        let mut pub_key = String::new();
+        
+        for line in output_str.lines() {
+            if let Some(key) = line.strip_prefix("PrivateKey:") {
+                priv_key = key.trim().to_string();
+            } else if let Some(key) = line.strip_prefix("PublicKey:") {
+                pub_key = key.trim().to_string();
+            }
+        }
+        
+        let short_id = hex::encode(&rand::random::<[u8; 8]>());
+        Ok((priv_key, pub_key, short_id))
+    }
+
+    fn generate_wireguard_keys(&self) -> anyhow::Result<(String, String)> {
+        use std::process::Command;
+        let output = Command::new("sing-box")
+            .args(&["generate", "wireguard-keypair"])
+            .output()
+            .map_err(|e| anyhow::anyhow!("sing-box awg generate error: {}", e))?;
+            
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        let mut priv_key = String::new();
+        let mut pub_key = String::new();
+        
+        for line in output_str.lines() {
+            if let Some(key) = line.strip_prefix("PrivateKey:") {
+                priv_key = key.trim().to_string();
+            } else if let Some(key) = line.strip_prefix("PublicKey:") {
+                pub_key = key.trim().to_string();
+            }
+        }
+        Ok((priv_key, pub_key))
+    }
+
+    fn generate_awg_params(&self) -> (u32, u32, u32, u32, u32, u32, u32, u32, u32) {
+        use rand::Rng;
+        let mut rng = rand::rng();
+        (
+            rng.random_range(3..=10),
+            rng.random_range(40..=100),
+            rng.random_range(500..=1000),
+            rng.random_range(20..=100),
+            rng.random_range(20..=100),
+            rng.random::<u32>(),
+            rng.random::<u32>(),
+            rng.random::<u32>(),
+            rng.random::<u32>(),
+        )
+    }
+
     pub async fn reset_inbounds(&self, node_id: i64) -> anyhow::Result<()> {
+
         // Delete existing inbounds to force regeneration with fresh keys
         sqlx::query("DELETE FROM inbounds WHERE node_id = ?")
             .bind(node_id)

@@ -197,7 +197,6 @@ impl NodeRepository {
             .context("Failed to fetch plan groups")
     }
     
-    /// Get distinct active nodes belonging to a set of group IDs
     pub async fn get_active_nodes_by_groups(&self, group_ids: &[i64]) -> Result<Vec<Node>> {
         if group_ids.is_empty() {
             return Ok(Vec::new());
@@ -218,7 +217,47 @@ impl NodeRepository {
         
         q.fetch_all(&self.pool).await.context("Failed to fetch nodes by groups")
     }
+
+    pub async fn create_group(&self, name: &str, description: Option<&str>) -> Result<i64> {
+        let id = sqlx::query_scalar(
+            "INSERT INTO node_groups (name, description, created_at) VALUES (?, ?, CURRENT_TIMESTAMP) RETURNING id"
+        )
+        .bind(name)
+        .bind(description)
+        .fetch_one(&self.pool)
+        .await
+        .context("Failed to create node group")?;
+        Ok(id)
+    }
+
+    pub async fn get_group_by_name(&self, name: &str) -> Result<Option<crate::models::groups::NodeGroup>> {
+        sqlx::query_as::<_, crate::models::groups::NodeGroup>("SELECT * FROM node_groups WHERE name = ?")
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await
+            .context("Failed to fetch group by name")
+    }
+
+    pub async fn add_node_to_group(&self, node_id: i64, group_id: i64) -> Result<()> {
+        sqlx::query("INSERT OR IGNORE INTO node_group_members (node_id, group_id, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)")
+            .bind(node_id)
+            .bind(group_id)
+            .execute(&self.pool)
+            .await
+            .context("Failed to add node to group")?;
+        Ok(())
+    }
     
+    pub async fn get_groups_by_node(&self, node_id: i64) -> Result<Vec<crate::models::groups::NodeGroup>> {
+        sqlx::query_as::<_, crate::models::groups::NodeGroup>(
+            "SELECT g.* FROM node_groups g JOIN node_group_members m ON m.group_id = g.id WHERE m.node_id = ?"
+        )
+        .bind(node_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch node groups")
+    }
+
     // ==================== BUSINESS LOGIC queries ====================
 
     pub async fn get_nodes_for_plan(&self, plan_id: i64) -> Result<Vec<Node>> {

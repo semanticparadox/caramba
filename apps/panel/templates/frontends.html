@@ -35,7 +35,8 @@
                         <th class="px-6 py-4 text-right">Actions</th>
                     </tr>
                 </thead>
-                <tbody id="frontendsTableBody" class="divide-y divide-white/5 text-sm">
+                <tbody id="frontendsTableBody" class="divide-y divide-white/5 text-sm"
+                    hx-get="{{ admin_path }}/partials/frontends_rows" hx-trigger="load, every 30s" hx-swap="innerHTML">
                     <tr>
                         <td colspan="7" class="px-6 py-12 text-center text-slate-400">
                             <i data-lucide="loader" class="w-8 h-8 mx-auto mb-3 animate-spin text-indigo-500"></i>
@@ -51,7 +52,7 @@
 <!-- Add Frontend Modal -->
 <dialog id="addFrontendModal"
     class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4 ring-1 ring-white/10"
+    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4 ring-1 ring-white/10 overflow-y-auto max-h-[90vh]"
         onclick="event.stopPropagation()">
         <header class="flex justify-between items-center mb-6 border-b border-white/5 pb-4">
             <div class="flex items-center gap-3">
@@ -133,7 +134,7 @@
 <!-- Install Command Modal -->
 <dialog id="installCommandModal"
     class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-2xl p-6 m-4 ring-1 ring-emerald-500/30"
+    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-2xl p-6 m-4 ring-1 ring-emerald-500/30 overflow-y-auto max-h-[90vh]"
         onclick="event.stopPropagation()">
         <header class="flex justify-between items-center mb-6">
             <div class="flex items-center gap-3">
@@ -191,273 +192,6 @@
 </dialog>
 
 <script>
-    // Load frontends
-    async function loadFrontends() {
-        try {
-            const response = await fetch('/api/admin/frontends');
-
-            if (!response.ok) {
-                // If it's a 4xx/5xx, try to read text or default error
-                const errText = await response.text();
-                throw new Error(errText || `Server returned ${response.status}`);
-            }
-
-            // Check if response has content
-            const txt = await response.text();
-            let frontends = [];
-            if (txt && txt.trim().length > 0) {
-                try {
-                    frontends = JSON.parse(txt);
-                } catch (e) {
-                    console.error("Invalid JSON:", txt);
-                    throw new Error("Invalid response from server");
-                }
-            }
-
-            const tbody = document.getElementById('frontendsTableBody');
-
-            if (!frontends || frontends.length === 0) {
-                tbody.innerHTML = `
-                <tr>
-                    <td colspan="7" class="px-6 py-16 text-center text-slate-500">
-                        <div class="flex flex-col items-center justify-center">
-                            <div class="w-16 h-16 bg-slate-800/50 rounded-full flex items-center justify-center mb-4">
-                                <i data-lucide="server-off" class="w-8 h-8 text-slate-600"></i>
-                            </div>
-                            <p class="text-base font-medium text-white mb-1">No Frontend Servers</p>
-                            <p class="text-sm">Click the button above to deploy your first distributed node.</p>
-                        </div>
-                    </td>
-                </tr>
-            `;
-                lucide.createIcons();
-                return;
-            }
-
-            tbody.innerHTML = frontends.map(f => `
-            <tr class="hover:bg-white/5 transition-colors group">
-                <td class="px-6 py-4">
-                    <a href="https://${f.domain}" target="_blank" class="flex items-center gap-2 text-white font-medium hover:text-indigo-400 transition-colors">
-                        ${f.domain} <i data-lucide="external-link" class="w-3.5 h-3.5 opacity-50"></i>
-                    </a>
-                </td>
-                <td class="px-6 py-4">
-                    <span class="px-2.5 py-1 rounded-md text-xs font-medium border border-white/10 bg-slate-800 text-slate-300 uppercase">${f.region}</span>
-                </td>
-                <td class="px-6 py-4">
-                    <code class="text-xs font-mono text-slate-400 bg-white/5 px-1.5 py-0.5 rounded border border-white/5 select-all">${f.ip_address}</code>
-                </td>
-                <td class="px-6 py-4">
-                    ${f.is_active ?
-                    '<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>Active</span>' :
-                    '<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20"><span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>Inactive</span>'}
-                </td>
-                <td class="px-6 py-4 text-slate-300">${formatBytes(f.traffic_monthly || 0)}</td>
-                <td class="px-6 py-4">
-                    ${f.last_heartbeat ?
-                    `<span class="text-slate-400 text-xs">${timeAgo(f.last_heartbeat)}</span>` :
-                    '<span class="text-amber-500/80 text-xs">Never</span>'}
-                </td>
-                <td class="px-6 py-4 text-right">
-                    <div class="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button title="Test Health" onclick="testFrontend('${f.domain}')" class="p-2 hover:bg-emerald-500/10 text-slate-400 hover:text-emerald-400 rounded-lg transition-colors">
-                            <i data-lucide="activity" class="w-4 h-4"></i>
-                        </button>
-                        <button title="View Install Command" onclick="viewInstallCommand(${f.id}, '${f.domain}')" class="p-2 hover:bg-indigo-500/10 text-slate-400 hover:text-indigo-400 rounded-lg transition-colors">
-                            <i data-lucide="terminal" class="w-4 h-4"></i>
-                        </button>
-                        <button title="Rotate Token" onclick="rotateToken(${f.id})" class="p-2 hover:bg-amber-500/10 text-slate-400 hover:text-amber-400 rounded-lg transition-colors">
-                            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-                        </button>
-                        <button title="Delete" onclick="deleteFrontend(${f.id}, '${f.domain}')" class="p-2 hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 rounded-lg transition-colors">
-                            <i data-lucide="trash-2" class="w-4 h-4"></i>
-                        </button>
-                    </div>
-                </td>
-            </tr>
-        `).join('');
-
-            lucide.createIcons();
-
-        } catch (error) {
-            console.error('Failed to load frontends:', error);
-            document.getElementById('frontendsTableBody').innerHTML = `
-            <tr>
-                <td colspan="7" class="px-6 py-8 text-center text-rose-400 bg-rose-500/5">
-                    <p class="font-medium">Failed to load data</p>
-                    <p class="text-xs opacity-80 mt-1">${error.message}</p>
-                </td>
-            </tr>
-        `;
-        }
-    }
-
-    // Create frontend
-    document.getElementById('addFrontendForm')?.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const btn = document.getElementById('createFrontendBtn');
-        const form = e.target;
-        const formData = new FormData(form);
-        const data = Object.fromEntries(formData);
-
-        // Loading state
-        btn.disabled = true;
-        btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i><span>Provisioning...</span>';
-        lucide.createIcons();
-
-        try {
-            const response = await fetch('/api/admin/frontends', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-
-            if (!response.ok) throw new Error(await response.text() || 'Failed to create frontend');
-
-            const result = await response.json();
-
-            // Hide add modal
-            document.getElementById('addFrontendModal').close();
-
-            // Show install command modal
-            document.getElementById('installCommand').textContent = result.install_command;
-            document.getElementById('serverIP').textContent = data.ip_address;
-            document.getElementById('serverDomain').textContent = data.domain;
-            document.getElementById('verifyLink').href = `https://${data.domain}/health`;
-            document.getElementById('installCommandModal').showModal();
-
-            // Reload frontends list
-            loadFrontends();
-
-            // Reset form
-            form.reset();
-        } catch (error) {
-            alert('Failed to create frontend: ' + error.message);
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = '<span>Deploy & Generate Command</span><i data-lucide="arrow-right" class="w-5 h-5"></i>';
-            lucide.createIcons();
-        }
-    });
-
-    // Copy install command
-    document.getElementById('copyInstallCmd')?.addEventListener('click', () => {
-        const command = document.getElementById('installCommand').textContent;
-        navigator.clipboard.writeText(command);
-
-        showToast("Command copied to clipboard");
-    });
-
-    // Test frontend
-    async function testFrontend(domain) {
-        showToast("Checking health...");
-        try {
-            const response = await fetch(`https://${domain}/health`, { signal: AbortSignal.timeout(5000) });
-            const data = await response.json();
-            alert(`✅ Frontend is healthy!\n\nStatus: ${data.status}\nRegion: ${data.region}`);
-        } catch (error) {
-            alert(`❌ Frontend is not responding:\n\n${error.message}`);
-        }
-    }
-
-    // Delete frontend
-    async function deleteFrontend(id, domain) {
-        if (!confirm(`Are you sure you want to permanently delete ${domain}?\n\nThis action cannot be undone.`)) return;
-
-        try {
-            const response = await fetch(`/api/admin/frontends/${id}`, {
-                method: 'DELETE'
-            });
-
-            if (!response.ok) throw new Error('Failed to delete');
-
-            showToast("Frontend deleted successfully");
-            loadFrontends();
-        } catch (error) {
-            alert('Failed to delete frontend: ' + error.message);
-        }
-    }
-
-    // View Install Command (Wrapper around Rotate Token with specific UI flow)
-    async function viewInstallCommand(id, domain) {
-        if (!confirm(`Viewing the install command requires generating a new secure token.\n\nThis will INVALIDATE the previous token. If the server is already running, you will need to re-run the install command.\n\nProceed?`)) return;
-
-        try {
-            const response = await fetch(`/api/admin/frontends/${id}/rotate-token`, {
-                method: 'POST'
-            });
-
-            if (!response.ok) throw new Error('Failed to generate command');
-
-            const data = await response.json();
-
-            // Re-use the existing Install Modal
-            document.getElementById('installCommand').textContent = data.instructions;
-            document.getElementById('serverIP').textContent = "Server IP";
-            document.getElementById('serverDomain').textContent = domain;
-            document.getElementById('verifyLink').href = `https://${domain}/health`;
-            document.getElementById('installCommandModal').showModal();
-            loadFrontends();
-        } catch (error) {
-            alert('Failed to generate command: ' + error.message);
-        }
-    }
-
-    // Rotate token
-    async function rotateToken(id) {
-        if (!confirm('Warning: Rotating the token will break the connection until you update the frontend server configuration.\n\nContinue?')) return;
-
-        try {
-            const response = await fetch(`/api/admin/frontends/${id}/rotate-token`, {
-                method: 'POST'
-            });
-
-            if (!response.ok) throw new Error('Failed to rotate token');
-
-            const data = await response.json();
-
-            // Show instruction instead of just token
-            document.getElementById('installCommand').textContent = data.instructions;
-            document.getElementById('serverIP').textContent = "Server IP";
-            // We don't have domain handy unless we fetch it or pass it. 
-            // The viewInstallCommand handles this better.
-            document.getElementById('installCommandModal').showModal();
-            loadFrontends();
-        } catch (error) {
-            alert('Failed to rotate token: ' + error.message);
-        }
-    }
-
-    // Utilities
-    function formatBytes(bytes) {
-        if (bytes === 0) return '0 B';
-        const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-    }
-
-    function timeAgo(dateStr) {
-        const date = new Date(dateStr);
-        // Need to handle if dateStr is naive or UTC. Assuming backend sends UTC ISO string.
-        const seconds = Math.floor((new Date() - date) / 1000);
-
-        // Future proofing for clock skew
-        if (seconds < 0) return 'Just now';
-
-        if (seconds < 60) return 'Just now';
-        const minutes = Math.floor(seconds / 60);
-        if (minutes < 60) return `${minutes}m ago`;
-        const hours = Math.floor(minutes / 60);
-        if (hours < 24) return `${hours}h ago`;
-        const days = Math.floor(hours / 24);
-        return `${days}d ago`;
-    }
-
-    // Load on page load
-    loadFrontends();
-
-    // Refresh every 30 seconds
-    setInterval(loadFrontends, 30000);
+    // Initial load handled by HTMX trigger="load"
 </script>
 {% endblock %}

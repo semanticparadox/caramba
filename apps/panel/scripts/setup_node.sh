@@ -80,7 +80,7 @@ echo "🔒 Setting up Corporate Mimicry (Nginx)..."
 
 # Detect OS/Distro for apt vs yum (Assuming apt given existing code uses apt-get)
 if command -v apt-get &> /dev/null; then
-    apt-get install -y nginx -qq
+    apt-get install -y nginx libnginx-mod-stream -qq
 fi
 
 # Download Mimicry Template

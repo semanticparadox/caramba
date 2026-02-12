@@ -16,12 +16,32 @@
                 <span class="font-mono text-indigo-300">{{ node.name }}</span>
                 <span class="text-slate-600">•</span>
                 <span class="font-mono bg-slate-800 px-1.5 py-0.5 rounded text-xs">{{ node.ip }}</span>
+                {% if !groups.is_empty() %}
+                <span class="text-slate-600">•</span>
+                <div class="flex gap-1.5">
+                    {% for group in groups %}
+                    <span
+                        class="px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 text-[10px] font-bold border border-indigo-500/20">
+                        {{ group.name }}
+                    </span>
+                    {% endfor %}
+                </div>
+                {% endif %}
             </div>
         </div>
-        <a href="{{ admin_path }}/nodes"
-            class="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-sm font-medium rounded-xl transition-colors border border-white/5">
-            <i data-lucide="arrow-left" class="w-4 h-4"></i> Back to Nodes
-        </a>
+        <div class="flex items-center gap-3">
+            <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/sync" hx-swap="none"
+                hx-confirm="Warning: This will DELETE non-templated inbounds and regenerate default ones from templates. Proceed?"
+                class="flex items-center gap-2 px-4 py-2 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 border border-indigo-500/20 rounded-xl text-sm font-medium transition-all group">
+                <i data-lucide="refresh-cw"
+                    class="w-4 h-4 group-hover:rotate-180 transition-transform duration-500"></i>
+                Sync from Templates
+            </button>
+            <a href="{{ admin_path }}/nodes"
+                class="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-sm font-medium rounded-xl transition-colors border border-white/5">
+                <i data-lucide="arrow-left" class="w-4 h-4"></i> Back to Nodes
+            </a>
+        </div>
     </div>
 
     <!-- Inbounds List -->

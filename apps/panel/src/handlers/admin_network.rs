@@ -21,10 +21,11 @@ use tracing::{info, error};
 pub struct NodeInboundsTemplate {
     pub node: Node,
     pub inbounds: Vec<Inbound>,
+    pub groups: Vec<crate::models::groups::NodeGroup>,
     pub is_auth: bool,
     pub admin_path: String,
     pub active_page: String,
-    pub username: String, // NEW
+    pub username: String,
 }
 
 pub async fn get_node_inbounds(
@@ -45,9 +46,12 @@ pub async fn get_node_inbounds(
                 .await
                 .unwrap_or_default();
 
+            let groups = state.infrastructure_service.get_node_groups(node_id).await.unwrap_or_default();
+
             let template = NodeInboundsTemplate {
                 node,
                 inbounds,
+                groups,
                 is_auth: true,
                 admin_path: state.admin_path.clone(),
                 active_page: "nodes".to_string(),
