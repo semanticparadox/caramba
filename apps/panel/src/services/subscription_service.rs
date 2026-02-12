@@ -424,13 +424,15 @@ impl SubscriptionService {
                         params.push(format!("security={}", security));
                         if security == "reality" {
                             if let Some(reality) = stream.reality_settings {
-                                params.push(format!("sni={}", reality.server_names.first().cloned().unwrap_or_default()));
+                                let sni = reality.server_names.first().cloned().unwrap_or_else(|| address.clone());
+                                params.push(format!("sni={}", sni));
                                 params.push(format!("pbk={}", reality_pub.unwrap_or_default())); 
                                 if let Some(sid) = &short_id { params.push(format!("sid={}", sid)); }
                                 params.push("fp=chrome".to_string());
                             }
                         } else if security == "tls" {
-                            if let Some(tls) = stream.tls_settings { params.push(format!("sni={}", tls.server_name)); }
+                            let sni = stream.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| address.clone());
+                            params.push(format!("sni={}", sni));
                         }
                         params.push(format!("type={}", network));
                         if network == "tcp" {
@@ -441,7 +443,8 @@ impl SubscriptionService {
                     },
                     "hysteria2" => {
                         let mut params = Vec::new();
-                        if let Some(tls) = stream.tls_settings { params.push(format!("sni={}", tls.server_name)); }
+                        let sni = stream.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| address.clone());
+                        params.push(format!("sni={}", sni));
                         params.push("insecure=1".to_string());
 
                         use crate::models::network::InboundType;
@@ -457,6 +460,35 @@ impl SubscriptionService {
                         let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?").bind(sub.user_id).fetch_optional(&self.pool).await?.unwrap_or(0);
                         let auth = format!("{}:{}", tg_id, uuid.replace("-", ""));
                         links.push(format!("hysteria2://{}@{}:{}?{}#{}", auth, address, port, params.join("&"), remark));
+                    },
+                    "trojan" => {
+                        let mut params = Vec::new();
+                        params.push("security=tls".to_string());
+                        let sni = stream.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| address.clone());
+                        params.push(format!("sni={}", sni));
+                        params.push("fp=chrome".to_string());
+                        params.push(format!("type={}", network));
+                        links.push(format!("trojan://{}@{}:{}?{}#{}", uuid, address, port, params.join("&"), remark));
+                    },
+                    "tuic" => {
+                        let mut params = Vec::new();
+                        let sni = stream.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| address.clone());
+                        params.push(format!("sni={}", sni));
+                        params.push("alpn=h3".to_string());
+                        
+                        let congestion = if let Ok(InboundType::Tuic(settings)) = serde_json::from_str::<InboundType>(&inbound.settings) {
+                            settings.congestion_control
+                        } else {
+                            "cubic".to_string()
+                        };
+                        params.push(format!("congestion_control={}", congestion));
+                        links.push(format!("tuic://{}:{}@{}:{}?{}#{}", uuid, uuid.replace("-", ""), address, port, params.join("&"), remark));
+                    },
+                    "naive" => {
+                        let sni = stream.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| address.clone());
+                        let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?").bind(sub.user_id).fetch_optional(&self.pool).await?.unwrap_or(0);
+                        let auth = format!("{}:{}", tg_id, uuid.replace("-", ""));
+                        links.push(format!("naive+https://{}@{}:{}?sni={}#{}", auth, address, port, sni, remark));
                     },
                     _ => {}
                 }

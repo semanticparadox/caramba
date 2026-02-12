@@ -123,6 +123,24 @@ impl OrchestrationService {
         let mut settings_json = template.settings_template.clone();
         let mut stream_json = template.stream_settings_template.clone();
 
+        // 0. Placeholder Replacement
+        let sni = node.reality_sni.as_deref().unwrap_or(&node.domain);
+        let domain = &node.domain;
+        let pbk = node.reality_pub.as_deref().unwrap_or("");
+        let sid = node.short_id.as_deref().unwrap_or("");
+
+        settings_json = settings_json
+            .replace("{{SNI}}", sni)
+            .replace("{{DOMAIN}}", domain)
+            .replace("{{REALITY_PBK}}", pbk)
+            .replace("{{REALITY_SID}}", sid);
+
+        stream_json = stream_json
+            .replace("{{SNI}}", sni)
+            .replace("{{DOMAIN}}", domain)
+            .replace("{{REALITY_PBK}}", pbk)
+            .replace("{{REALITY_SID}}", sid);
+
         if template.protocol == "vless" {
              // Generate Reality Keys
              let (priv_key, pub_key, short_id) = self.generate_reality_keys()?;

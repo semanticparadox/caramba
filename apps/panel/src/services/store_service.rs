@@ -1389,7 +1389,7 @@ impl StoreService {
                         if security == "reality" {
                             if let Some(reality) = stream.reality_settings {
                                 let sni = node.reality_sni.clone().unwrap_or_else(|| {
-                                    reality.server_names.first().cloned().unwrap_or_default()
+                                    reality.server_names.first().cloned().unwrap_or_else(|| node.domain.clone())
                                 });
                                 let pub_key = reality.public_key.clone()
                                     .or_else(|| node.reality_pub.clone())
@@ -1406,9 +1406,10 @@ impl StoreService {
                                 params.push("fp=chrome".to_string());
                             }
                         } else if security == "tls" {
-                            if let Some(tls) = stream.tls_settings {
-                                params.push(format!("sni={}", tls.server_name));
-                            }
+                            let sni = node.reality_sni.clone()
+                                .or_else(|| stream.tls_settings.as_ref().map(|t| t.server_name.clone()))
+                                .unwrap_or_else(|| node.domain.clone());
+                            params.push(format!("sni={}", sni));
                         }
                         
                         params.push(format!("type={}", network));
@@ -1424,33 +1425,74 @@ impl StoreService {
                         links.push(link);
                     },
                     "hysteria2" => {
-                    // hysteria2://user:password@ip:port?sni=...&insecure=1#remark
-                    let mut params = Vec::new();
-                     if let Some(tls) = stream.tls_settings {
-                        params.push(format!("sni={}", tls.server_name));
-                    }
-                    params.push("insecure=1".to_string()); // Self-signed usually
+                        // hysteria2://user:password@ip:port?sni=...&insecure=1#remark
+                        let mut params = Vec::new();
+                        let sni = node.reality_sni.clone()
+                            .or_else(|| stream.tls_settings.as_ref().map(|t| t.server_name.clone()))
+                            .unwrap_or_else(|| node.domain.clone());
+                        params.push(format!("sni={}", sni));
+                        params.push("insecure=1".to_string());
 
-                    // Check for OBFS in protocol settings
-                    if let Ok(InboundType::Hysteria2(settings)) = serde_json::from_str::<InboundType>(&inbound.settings) {
-                        if let Some(obfs) = settings.obfs {
-                            if obfs.ttype == "salamander" {
-                                params.push("obfs=salamander".to_string());
-                                params.push(format!("obfs-password={}", obfs.password));
+                        // Check for OBFS in protocol settings
+                        if let Ok(InboundType::Hysteria2(settings)) = serde_json::from_str::<InboundType>(&inbound.settings) {
+                            if let Some(obfs) = settings.obfs {
+                                if obfs.ttype == "salamander" {
+                                    params.push("obfs=salamander".to_string());
+                                    params.push(format!("obfs-password={}", obfs.password));
+                                }
                             }
                         }
-                    }
 
-                    // Fetch TG ID for auth name
-                    let user = self.user_repo.get_by_id(sub.user_id).await?
-                        .ok_or_else(|| anyhow::anyhow!("User not found"))?;
-                    let tg_id = user.tg_id;
+                        // Fetch User once if needed
+                        let user = self.user_repo.get_by_id(sub.user_id).await?
+                            .ok_or_else(|| anyhow::anyhow!("User not found"))?;
+                        let tg_id = user.tg_id;
+                        let auth = format!("{}:{}", tg_id, uuid.replace("-", ""));
 
-                    let auth = format!("{}:{}", tg_id, uuid.replace("-", ""));
-
-                    let link = format!("hysteria2://{}@{}:{}?{}#{}", auth, address, port, params.join("&"), remark);
-                    links.push(link);
-                },
+                        let link = format!("hysteria2://{}@{}:{}?{}#{}", auth, address, port, params.join("&"), remark);
+                        links.push(link);
+                    },
+                    "trojan" => {
+                        let mut params = Vec::new();
+                        params.push("security=tls".to_string());
+                        let sni = node.reality_sni.clone()
+                           .or_else(|| stream.tls_settings.as_ref().and_then(|t| if t.server_name.is_empty() { None } else { Some(t.server_name.clone()) }))
+                           .unwrap_or(node.domain.clone());
+                        params.push(format!("sni={}", sni));
+                        params.push("fp=chrome".to_string());
+                        params.push(format!("type={}", network));
+                        
+                        links.push(format!("trojan://{}@{}:{}?{}#{}", uuid, address, port, params.join("&"), remark));
+                    },
+                    "tuic" => {
+                        let mut params = Vec::new();
+                        let sni = node.reality_sni.clone()
+                           .or_else(|| stream.tls_settings.as_ref().and_then(|t| if t.server_name.is_empty() { None } else { Some(t.server_name.clone()) }))
+                           .unwrap_or(node.domain.clone());
+                        params.push(format!("sni={}", sni));
+                        params.push("alpn=h3".to_string());
+                        
+                        let congestion = if let Ok(InboundType::Tuic(settings)) = serde_json::from_str::<InboundType>(&inbound.settings) {
+                            settings.congestion_control
+                        } else {
+                            "cubic".to_string()
+                        };
+                        params.push(format!("congestion_control={}", congestion));
+                        
+                        links.push(format!("tuic://{}:{}@{}:{}?{}#{}", uuid, uuid.replace("-", ""), address, port, params.join("&"), remark));
+                    },
+                    "naive" => {
+                        let sni = node.reality_sni.clone()
+                            .or_else(|| stream.tls_settings.as_ref().and_then(|t| if t.server_name.is_empty() { None } else { Some(t.server_name.clone()) }))
+                            .unwrap_or(node.domain.clone());
+                        
+                        let user = self.user_repo.get_by_id(sub.user_id).await?
+                             .ok_or_else(|| anyhow::anyhow!("User not found"))?;
+                        let tg_id = user.tg_id;
+                        let auth = format!("{}:{}", tg_id, uuid.replace("-", ""));
+                        
+                        links.push(format!("naive+https://{}@{}:{}?sni={}#{}", auth, address, port, sni, remark));
+                    },
                     _ => {}
                 }
             }
@@ -1582,14 +1624,15 @@ impl StoreService {
                         }
                     },
                     "hysteria2" => {
-                        let mut server_name = node.reality_sni.clone().unwrap_or_else(|| "drive.google.com".to_string());
+                        let mut server_name = node.reality_sni.clone().unwrap_or_else(|| node.domain.clone());
                         let mut insecure = true;
                         
                         if let Some(tls) = stream.tls_settings {
                             if !tls.server_name.is_empty() {
                                 server_name = tls.server_name.clone();
                             }
-                            if server_name != "drive.google.com" && server_name != "www.yahoo.com" {
+                            // If we have a real SNI that isn't a known fake, assume we want real verification if possible
+                            if server_name != node.domain && !server_name.contains("google") && !server_name.contains("yahoo") {
                                 insecure = false;
                             }
                         }
@@ -1657,14 +1700,14 @@ impl StoreService {
                     },
                     "trojan" => {
                         use crate::singbox::client_generator::ClientTrojanOutbound;
-                        let mut server_name = node.reality_sni.clone().unwrap_or_else(|| "drive.google.com".to_string());
+                        let mut server_name = node.reality_sni.clone().unwrap_or_else(|| node.domain.clone());
                         let mut insecure = true;
                         
                         if let Some(tls) = stream.tls_settings {
                             if !tls.server_name.is_empty() {
                                 server_name = tls.server_name.clone();
                             }
-                            if server_name != "drive.google.com" && server_name != "www.yahoo.com" {
+                            if server_name != node.domain && !server_name.contains("google") && !server_name.contains("yahoo") {
                                 insecure = false;
                             }
                         }
@@ -1717,7 +1760,7 @@ impl StoreService {
                         use crate::singbox::client_generator::{ClientTuicOutbound};
                         
                         // TUIC settings
-                         let mut server_name = node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string());
+                         let mut server_name = node.reality_sni.clone().unwrap_or_else(|| node.domain.clone());
                          if let Some(tls) = stream.tls_settings {
                              if !tls.server_name.is_empty() {
                                  server_name = tls.server_name.clone();
@@ -1751,6 +1794,31 @@ impl StoreService {
                                 reality: None,
                             },
                          }));
+                    },
+                    "naive" => {
+                        use crate::singbox::client_generator::ClientHttpOutbound;
+                        
+                        let server_name = node.reality_sni.clone()
+                            .or_else(|| stream.tls_settings.as_ref().and_then(|t| if t.server_name.is_empty() { None } else { Some(t.server_name.clone()) }))
+                            .unwrap_or(node.domain.clone());
+                        
+                        let password = format!("{}:{}", tg_id, uuid.replace("-", ""));
+                        
+                        client_outbounds.push(ClientOutbound::Http(ClientHttpOutbound {
+                            tag,
+                            server: address,
+                            server_port: port,
+                            username: None,
+                            password: Some(password),
+                            tls: Some(ClientTlsConfig {
+                                enabled: true,
+                                server_name,
+                                insecure: false,
+                                alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                                utls: Some(UtlsConfig { enabled: true, fingerprint: "chrome".to_string() }),
+                                reality: None,
+                            }),
+                        }));
                     },
                     _ => {}
                 }
