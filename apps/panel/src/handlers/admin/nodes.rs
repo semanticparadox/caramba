@@ -37,7 +37,7 @@ pub struct NodesRowsPartial {
     pub admin_path: String,
 }
 
-#[derive(askama::Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "node_edit_modal.html")]
 pub struct NodeEditModalTemplate {
     pub node: Node,
@@ -53,8 +53,13 @@ pub struct NodeManualInstallTemplate {
     pub admin_path: String,
 }
 
-// Add empty filters module to satisfy Askama's resolution if it looks for it locally
-pub mod filters {}
+// Add filters module for Askama
+pub mod filters {
+    use askama::Result;
+    pub fn round(val: &f64) -> Result<String> {
+        Ok(format!("{:.0}", val))
+    }
+}
 
 #[derive(Deserialize)]
 pub struct InstallNodeForm {
