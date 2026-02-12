@@ -77,7 +77,15 @@ CREATE TABLE IF NOT EXISTS nodes (
     -- Limits & Load Balancing
     speed_limit_mbps INTEGER DEFAULT 0,
     max_users INTEGER DEFAULT 0,
-    current_speed_mbps INTEGER DEFAULT 0
+    current_speed_mbps INTEGER DEFAULT 0,
+
+    -- Phase 21: Advanced Telemetry & Connections
+    active_connections INTEGER DEFAULT 0,
+    total_ingress BIGINT DEFAULT 0,
+    total_egress BIGINT DEFAULT 0,
+    uptime BIGINT DEFAULT 0,
+    last_session_ingress BIGINT DEFAULT 0,
+    last_session_egress BIGINT DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_nodes_ip ON nodes (ip);
