@@ -124,11 +124,10 @@ pub async fn install_node(
             
             // IF Smart Setup (No IP provided) -> Return the Setup Modal directly
             if check_ip.is_empty() {
-                 let node = state.infrastructure_service.get_node_by_id(id).await.unwrap_or(None);
+                 let node = state.infrastructure_service.get_node_by_id(id).await.ok();
                  
                  if let Some(node) = node {
-                     let script_bytes = crate::scripts::Scripts::get_setup_node_script().unwrap_or_default();
-                     let script = String::from_utf8(script_bytes.to_vec()).unwrap_or_default();
+                     let script = crate::scripts::Scripts::get_setup_node_script().unwrap_or_default();
 
                      let template = NodeManualInstallTemplate { node, script };
                      // We need to trigger a refresh of the table too. HTMX handles hx-swap-oob or we can rely on client side triggers.
