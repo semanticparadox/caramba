@@ -100,7 +100,9 @@ pub struct VlessClient {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Hysteria2Settings {
     pub users: Vec<Hysteria2User>,
+    #[serde(default = "default_bw")]
     pub up_mbps: i32,
+    #[serde(default = "default_bw")]
     pub down_mbps: i32,
     // Optional fields
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -108,6 +110,8 @@ pub struct Hysteria2Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub masquerade: Option<String>,
 }
+
+fn default_bw() -> i32 { 100 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Hysteria2Obfs {
@@ -125,11 +129,19 @@ pub struct Hysteria2User {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TuicSettings {
     pub users: Vec<TuicUser>,
+    #[serde(default = "default_congestion")]
     pub congestion_control: String,
+    #[serde(default = "default_auth_timeout")]
     pub auth_timeout: String,
+    #[serde(default)]
     pub zero_rtt_handshake: bool,
+    #[serde(default = "default_heartbeat")]
     pub heartbeat: String,
 }
+
+fn default_congestion() -> String { "cubic".to_string() }
+fn default_auth_timeout() -> String { "3s".to_string() }
+fn default_heartbeat() -> String { "10s".to_string() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TuicUser {

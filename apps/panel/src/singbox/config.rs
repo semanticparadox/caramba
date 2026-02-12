@@ -26,6 +26,10 @@ pub struct ClashApiConfig {
     pub secret: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_ui: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_control_allow_origin: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_control_allow_private_network: Option<bool>,
 }
 
 
@@ -122,6 +126,10 @@ pub struct VlessTlsConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alpn: Option<Vec<String>>,
     pub reality: RealityConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub certificate_path: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

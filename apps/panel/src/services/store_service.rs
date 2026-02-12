@@ -1482,16 +1482,27 @@ impl StoreService {
                         links.push(format!("tuic://{}:{}@{}:{}?{}#{}", uuid, uuid.replace("-", ""), address, port, params.join("&"), remark));
                     },
                     "naive" => {
+                        let mut params = Vec::new();
                         let sni = node.reality_sni.clone()
                             .or_else(|| stream.tls_settings.as_ref().and_then(|t| if t.server_name.is_empty() { None } else { Some(t.server_name.clone()) }))
                             .unwrap_or(node.domain.clone().unwrap_or_default());
+                        params.push(format!("sni={}", sni));
+
+                        if security == "reality" {
+                             if let Some(reality) = stream.reality_settings {
+                                 params.push(format!("pbk={}", node.reality_pub.as_ref().or(reality.public_key.as_ref()).cloned().unwrap_or_default()));
+                                 if let Some(sid) = node.short_id.as_ref().or(reality.short_ids.first()) {
+                                     params.push(format!("sid={}", sid));
+                                 }
+                             }
+                        }
                         
                         let user = self.user_repo.get_by_id(sub.user_id).await?
                              .ok_or_else(|| anyhow::anyhow!("User not found"))?;
                         let tg_id = user.tg_id;
                         let auth = format!("{}:{}", tg_id, uuid.replace("-", ""));
                         
-                        links.push(format!("naive+https://{}@{}:{}?sni={}#{}", auth, address, port, sni, remark));
+                        links.push(format!("naive+https://{}@{}:{}?{}#{}", auth, address, port, params.join("&"), remark));
                     },
                     _ => {}
                 }
@@ -1804,6 +1815,17 @@ impl StoreService {
                         
                         let password = format!("{}:{}", tg_id, uuid.replace("-", ""));
                         
+                        let mut reality_config = None;
+                        if security == "reality" {
+                             if let Some(reality) = &stream.reality_settings {
+                                 reality_config = Some(ClientRealityConfig {
+                                     enabled: true,
+                                     public_key: node.reality_pub.clone().or(reality.public_key.clone()).unwrap_or_default(),
+                                     short_id: node.short_id.clone().or(reality.short_ids.first().cloned()).unwrap_or_default(),
+                                 });
+                             }
+                        }
+
                         client_outbounds.push(ClientOutbound::Http(ClientHttpOutbound {
                             tag,
                             server: address,
@@ -1816,7 +1838,7 @@ impl StoreService {
                                 insecure: false,
                                 alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
                                 utls: Some(UtlsConfig { enabled: true, fingerprint: "chrome".to_string() }),
-                                reality: None,
+                                reality: reality_config,
                             }),
                         }));
                     },

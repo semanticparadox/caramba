@@ -98,6 +98,11 @@ impl OrchestrationService {
         let awg_settings = r#"{"users":[],"listen_port":51820}"#; // Key generation happens on instantiation
         self.create_template("AmneziaWG", "amneziawg", awg_settings, "{}", group_id, 51820).await?;
 
+        // Naive Reality
+        let naive_settings = r#"{"users":[]}"#;
+        let naive_stream = r#"{"network":"tcp","security":"reality","reality_settings":{"show":false,"xver":0,"dest":"drive.google.com:443","server_names":["drive.google.com"]}}"#;
+        self.create_template("Naive Reality", "naive", naive_settings, naive_stream, group_id, 5000).await?;
+
         Ok(())
     }
 
@@ -167,6 +172,19 @@ impl OrchestrationService {
                      reality.short_ids = vec![sid];
                  }
                  stream_json = serde_json::to_string(&stream_obj)?;
+             }
+        } else if template.protocol == "naive" {
+             // Inject Reality Keys for Naive
+             let node_updated = self.node_repo.get_node_by_id(node.id).await?.unwrap(); 
+             if let (Some(pkey), Some(pubkey), Some(sid)) = (node_updated.reality_priv, node_updated.reality_pub, node_updated.short_id) {
+                 if let Ok(mut stream_obj) = serde_json::from_str::<crate::models::network::StreamSettings>(&stream_json) {
+                     if let Some(reality) = &mut stream_obj.reality_settings {
+                         reality.private_key = pkey;
+                         reality.public_key = Some(pubkey);
+                         reality.short_ids = vec![sid];
+                     }
+                     stream_json = serde_json::to_string(&stream_obj)?;
+                 }
              }
         } else if template.protocol == "amneziawg" {
             let (priv_key, pub_key) = self.generate_wireguard_keys()?;

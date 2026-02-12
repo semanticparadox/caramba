@@ -486,10 +486,20 @@ impl SubscriptionService {
                         links.push(format!("tuic://{}:{}@{}:{}?{}#{}", uuid, uuid.replace("-", ""), address, port, params.join("&"), remark));
                     },
                     "naive" => {
+                        let mut params = Vec::new();
                         let sni = stream.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| address.clone());
+                        params.push(format!("sni={}", sni));
+
+                        if security == "reality" {
+                            if let Some(reality) = stream.reality_settings {
+                                params.push(format!("pbk={}", reality_pub.unwrap_or_default()));
+                                if let Some(sid) = &short_id { params.push(format!("sid={}", sid)); }
+                            }
+                        }
+
                         let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = ?").bind(sub.user_id).fetch_optional(&self.pool).await?.unwrap_or(0);
                         let auth = format!("{}:{}", tg_id, uuid.replace("-", ""));
-                        links.push(format!("naive+https://{}@{}:{}?sni={}#{}", auth, address, port, sni, remark));
+                        links.push(format!("naive+https://{}@{}:{}?{}#{}", auth, address, port, params.join("&"), remark));
                     },
                     _ => {}
                 }

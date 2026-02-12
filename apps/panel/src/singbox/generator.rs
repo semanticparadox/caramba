@@ -60,9 +60,22 @@ impl ConfigGenerator {
                                 }
                              });
                         }
-                    } else if security == "tls" || vless.clients.iter().any(|c| !c.flow.is_empty()) {
+                    } else if security == "tls" {
                          // Force TLS if Vision is used or explicitly requested
-                         let server_name = stream_settings.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| "www.google.com".to_string());
+                         let mut server_name = "www.google.com".to_string();
+                         let mut key_path = None;
+                         let mut cert_path = None;
+
+                         if let Some(tls) = &stream_settings.tls_settings {
+                             server_name = tls.server_name.clone();
+                             if let Some(certs) = &tls.certificates {
+                                 if let Some(first) = certs.first() {
+                                     key_path = Some(first.key_path.clone());
+                                     cert_path = Some(first.certificate_path.clone());
+                                 }
+                             }
+                         }
+
                          tls_config = Some(VlessTlsConfig {
                              enabled: true,
                              server_name,
@@ -72,7 +85,9 @@ impl ConfigGenerator {
                                  handshake: RealityHandshake { server: "".to_string(), server_port: 0 },
                                  private_key: "".to_string(),
                                  short_id: vec![],
-                             }
+                             },
+                             key_path,
+                             certificate_path: cert_path,
                          });
                     }
 
@@ -267,39 +282,54 @@ impl ConfigGenerator {
                     let security = stream_settings.security.as_deref().unwrap_or("none");
                     if security == "reality" {
                         if let Some(reality) = stream_settings.reality_settings {
-                             tls_config = Some(VlessTlsConfig {
-                                enabled: true,
-                                server_name: reality.server_names.first().cloned().unwrap_or_default(),
-                                alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
-                                reality: RealityConfig {
-                                    enabled: true,
-                                    handshake: RealityHandshake {
-                                        server: reality.dest.split(':').next().unwrap_or(&reality.dest).to_string(),
-                                        server_port: reality.dest.split(':').last().and_then(|p| p.parse().ok()).unwrap_or(443),
-                                    },
-                                    private_key: reality.private_key,
-                                    short_id: reality.short_ids,
-                                },
-                             });
+                              tls_config = Some(VlessTlsConfig {
+                                 enabled: true,
+                                 server_name: reality.server_names.first().cloned().unwrap_or_default(),
+                                 alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                                 reality: RealityConfig {
+                                     enabled: true,
+                                     handshake: RealityHandshake {
+                                         server: reality.dest.split(':').next().unwrap_or(&reality.dest).to_string(),
+                                         server_port: reality.dest.split(':').last().and_then(|p| p.parse().ok()).unwrap_or(443),
+                                     },
+                                     private_key: reality.private_key,
+                                     short_id: reality.short_ids,
+                                 },
+                                 key_path: None,
+                                 certificate_path: None,
+                              });
                         }
-                    } else if security == "tls" {
-                        if let Some(tls) = stream_settings.tls_settings {
-                            tls_config = Some(VlessTlsConfig {
-                                enabled: true,
-                                server_name: tls.server_name,
-                                alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
-                                reality: RealityConfig {
-                                    enabled: false,
-                                    handshake: RealityHandshake {
-                                        server: "".to_string(),
-                                        server_port: 0,
-                                    },
-                                    private_key: "".to_string(),
-                                    short_id: vec![],
-                                },
-                            });
+                     } else if security == "tls" {
+                        let mut server_name = "www.google.com".to_string();
+                        let mut key_path = None;
+                        let mut cert_path = None;
+
+                        if let Some(tls) = &stream_settings.tls_settings {
+                            server_name = tls.server_name.clone();
+                            if let Some(certs) = &tls.certificates {
+                                if let Some(first) = certs.first() {
+                                    key_path = Some(first.key_path.clone());
+                                    cert_path = Some(first.certificate_path.clone());
+                                }
+                            }
                         }
-                    }
+                        tls_config = Some(VlessTlsConfig {
+                            enabled: true,
+                            server_name,
+                            alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                            reality: RealityConfig {
+                                enabled: false,
+                                handshake: RealityHandshake {
+                                    server: "".to_string(),
+                                    server_port: 0,
+                                },
+                                private_key: "".to_string(),
+                                short_id: vec![],
+                            },
+                            key_path,
+                            certificate_path: cert_path,
+                        });
+                     }
 
                     let users = trojan.clients.iter().map(|c| TrojanUser {
                         name: c.email.clone(),
@@ -316,22 +346,65 @@ impl ConfigGenerator {
                 },
                 InboundType::Naive(naive) => {
                     // NaiveProxy (HTTP) ALWAYS requires TLS
-                    let server_name = stream_settings.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| "www.google.com".to_string());
-                    
-                    let tls_config = Some(VlessTlsConfig {
-                        enabled: true,
-                        server_name,
-                        alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
-                        reality: RealityConfig {
-                            enabled: false,
-                            handshake: RealityHandshake {
-                                server: "".to_string(),
-                                server_port: 0,
+                    let mut tls_config = None;
+                    let security = stream_settings.security.as_deref().unwrap_or("none");
+
+                    if security == "reality" {
+                        if let Some(reality) = stream_settings.reality_settings {
+                            tls_config = Some(VlessTlsConfig {
+                                enabled: true,
+                                server_name: reality.server_names.first().cloned().unwrap_or_default(),
+                                alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                                reality: RealityConfig {
+                                    enabled: true,
+                                    handshake: RealityHandshake {
+                                        server: reality.dest.split(':').next().unwrap_or(&reality.dest).to_string(),
+                                        server_port: reality.dest.split(':').last().and_then(|p| p.parse().ok()).unwrap_or(443),
+                                    },
+                                    private_key: reality.private_key,
+                                    short_id: reality.short_ids,
+                                },
+                                key_path: None,
+                                certificate_path: None,
+                            });
+                        }
+                    } else {
+                        // Default to TLS if security is 'tls' or even 'none' (NaiveProxy NEEDS TLS)
+                        let mut server_name = stream_settings.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| "www.google.com".to_string());
+                        let mut key_path = None;
+                        let mut cert_path = None;
+
+                        if let Some(tls) = &stream_settings.tls_settings {
+                             server_name = tls.server_name.clone();
+                             if let Some(certs) = &tls.certificates {
+                                 if let Some(first) = certs.first() {
+                                     key_path = Some(first.key_path.clone());
+                                     cert_path = Some(first.certificate_path.clone());
+                                 }
+                             }
+                        }
+
+                        // FALLBACK: If NO certificates and NOT Reality, force paths anyway (legacy behavior but better than panic)
+                        if key_path.is_none() { key_path = Some("/etc/sing-box/certs/key.pem".to_string()); }
+                        if cert_path.is_none() { cert_path = Some("/etc/sing-box/certs/cert.pem".to_string()); }
+
+                        tls_config = Some(VlessTlsConfig {
+                            enabled: true,
+                            server_name,
+                            alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                            reality: RealityConfig {
+                                enabled: false,
+                                handshake: RealityHandshake {
+                                    server: "".to_string(),
+                                    server_port: 0,
+                                },
+                                private_key: "".to_string(),
+                                short_id: vec![],
                             },
-                            private_key: "".to_string(),
-                            short_id: vec![],
-                        },
-                    });
+                            key_path,
+                            certificate_path: cert_path,
+                        });
+                    }
 
                     generated_inbounds.push(Inbound::Http(HttpInbound {
                         tag: inbound.tag,
@@ -426,6 +499,8 @@ impl ConfigGenerator {
                     external_controller: "0.0.0.0:9090".to_string(),
                     secret: None, // Internal access only, no auth needed
                     external_ui: None,
+                    access_control_allow_origin: Some(vec!["*".to_string()]),
+                    access_control_allow_private_network: Some(true),
                 },
             }),
         }
