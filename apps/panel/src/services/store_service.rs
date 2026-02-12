@@ -1389,7 +1389,7 @@ impl StoreService {
                         if security == "reality" {
                             if let Some(reality) = stream.reality_settings {
                                 let sni = node.reality_sni.clone().unwrap_or_else(|| {
-                                    reality.server_names.first().cloned().unwrap_or_else(|| node.domain.clone())
+                                    reality.server_names.first().cloned().unwrap_or_else(|| node.domain.clone().unwrap_or_default())
                                 });
                                 let pub_key = reality.public_key.clone()
                                     .or_else(|| node.reality_pub.clone())
@@ -1408,7 +1408,7 @@ impl StoreService {
                         } else if security == "tls" {
                             let sni = node.reality_sni.clone()
                                 .or_else(|| stream.tls_settings.as_ref().map(|t| t.server_name.clone()))
-                                .unwrap_or_else(|| node.domain.clone());
+                                .unwrap_or_else(|| node.domain.clone().unwrap_or_default());
                             params.push(format!("sni={}", sni));
                         }
                         
@@ -1429,7 +1429,7 @@ impl StoreService {
                         let mut params = Vec::new();
                         let sni = node.reality_sni.clone()
                             .or_else(|| stream.tls_settings.as_ref().map(|t| t.server_name.clone()))
-                            .unwrap_or_else(|| node.domain.clone());
+                            .unwrap_or_else(|| node.domain.clone().unwrap_or_default());
                         params.push(format!("sni={}", sni));
                         params.push("insecure=1".to_string());
 
@@ -1457,7 +1457,7 @@ impl StoreService {
                         params.push("security=tls".to_string());
                         let sni = node.reality_sni.clone()
                            .or_else(|| stream.tls_settings.as_ref().and_then(|t| if t.server_name.is_empty() { None } else { Some(t.server_name.clone()) }))
-                           .unwrap_or(node.domain.clone());
+                           .unwrap_or(node.domain.clone().unwrap_or_default());
                         params.push(format!("sni={}", sni));
                         params.push("fp=chrome".to_string());
                         params.push(format!("type={}", network));
@@ -1468,7 +1468,7 @@ impl StoreService {
                         let mut params = Vec::new();
                         let sni = node.reality_sni.clone()
                            .or_else(|| stream.tls_settings.as_ref().and_then(|t| if t.server_name.is_empty() { None } else { Some(t.server_name.clone()) }))
-                           .unwrap_or(node.domain.clone());
+                           .unwrap_or(node.domain.clone().unwrap_or_default());
                         params.push(format!("sni={}", sni));
                         params.push("alpn=h3".to_string());
                         
@@ -1484,7 +1484,7 @@ impl StoreService {
                     "naive" => {
                         let sni = node.reality_sni.clone()
                             .or_else(|| stream.tls_settings.as_ref().and_then(|t| if t.server_name.is_empty() { None } else { Some(t.server_name.clone()) }))
-                            .unwrap_or(node.domain.clone());
+                            .unwrap_or(node.domain.clone().unwrap_or_default());
                         
                         let user = self.user_repo.get_by_id(sub.user_id).await?
                              .ok_or_else(|| anyhow::anyhow!("User not found"))?;
@@ -1760,7 +1760,7 @@ impl StoreService {
                         use crate::singbox::client_generator::{ClientTuicOutbound};
                         
                         // TUIC settings
-                         let mut server_name = node.reality_sni.clone().unwrap_or_else(|| node.domain.clone());
+                         let mut server_name = node.reality_sni.clone().unwrap_or_else(|| node.domain.clone().unwrap_or_default());
                          if let Some(tls) = stream.tls_settings {
                              if !tls.server_name.is_empty() {
                                  server_name = tls.server_name.clone();
@@ -1800,7 +1800,7 @@ impl StoreService {
                         
                         let server_name = node.reality_sni.clone()
                             .or_else(|| stream.tls_settings.as_ref().and_then(|t| if t.server_name.is_empty() { None } else { Some(t.server_name.clone()) }))
-                            .unwrap_or(node.domain.clone());
+                            .unwrap_or(node.domain.clone().unwrap_or_default());
                         
                         let password = format!("{}:{}", tg_id, uuid.replace("-", ""));
                         

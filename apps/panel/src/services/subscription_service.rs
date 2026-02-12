@@ -2,6 +2,7 @@ use sqlx::SqlitePool;
 use anyhow::{Context, Result};
 use crate::models::store::{Plan, Subscription, SubscriptionWithDetails, GiftCode, PlanDuration, RenewalResult, SubscriptionIpTracking};
 use crate::models::node::Node;
+use crate::models::network::InboundType;
 use crate::singbox::subscription_generator::{self, NodeInfo, UserKeys};
 use uuid::Uuid;
 use chrono::{Utc, Duration};

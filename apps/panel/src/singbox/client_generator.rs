@@ -84,6 +84,8 @@ pub enum ClientOutbound {
     Trojan(ClientTrojanOutbound),
     #[serde(rename = "tuic")]
     Tuic(ClientTuicOutbound),
+    #[serde(rename = "http")]
+    Http(ClientHttpOutbound),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -137,6 +139,16 @@ pub struct ClientTuicOutbound {
     pub password: String,
     pub congestion_control: String,
     pub tls: ClientTlsConfig,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ClientHttpOutbound {
+    pub tag: String,
+    pub server: String,
+    pub server_port: u16,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub tls: Option<ClientTlsConfig>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -219,6 +231,11 @@ impl ClientGenerator {
                 ClientOutbound::Tuic(t) => {
                     all_proxy_tags.push(t.tag.clone());
                     tuic_tags.push(t.tag.clone());
+                },
+                ClientOutbound::Http(h) => {
+                    all_proxy_tags.push(h.tag.clone());
+                    // Group with Reality/general for now
+                    reality_tags.push(h.tag.clone());
                 },
                 ClientOutbound::Dns { .. } | ClientOutbound::Direct { .. } => {}
                 _ => {}
@@ -309,7 +326,7 @@ impl ClientGenerator {
                 servers: vec![
                     DnsServer { tag: "google".to_string(), address: "8.8.8.8".to_string(), detour: Some("🚀 Proxy".to_string()) },
                     DnsServer { tag: "local".to_string(), address: "local".to_string(), detour: Some("direct".to_string()) },
-                ],
+                ], // Fallback logic or rule sets needed
                 rules: vec![
                     DnsRule { outbound: Some("direct".to_string()), server: "local".to_string() }, // Fallback logic or rule sets needed
                 ]
