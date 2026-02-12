@@ -938,8 +938,7 @@ pub fn generate_singbox_config(
                             "server_port": inbound.listen_port,
                             "local_address": [format!("10.10.0.{}", (user_keys.hy2_password.split(':').next().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0) % 250) + 2)],
                             "private_key": user_keys._awg_private_key.clone().unwrap_or_default(),
-                            "peer_public_key": settings.public_key, // Wait, settings usually has private_key on server. We need public_key of server.
-                            // The server's public key should be in the 'settings' or 'node'
+                            "peer_public_key": settings.public_key, 
                         });
                         
                         // We need the server's public key. 

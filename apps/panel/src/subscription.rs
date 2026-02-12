@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query, State, Request},
     http::{header, StatusCode},
-    response::{IntoResponse, Response, Html},
+    response::{IntoResponse, Response},
 };
 use serde::Deserialize;
 use tracing::{error, warn};
@@ -319,8 +319,8 @@ function copyLink(){{
         return (
             [
                 (header::CONTENT_TYPE, "text/html"),
-                (header::header_name::from_static("subscription-userinfo"), user_info_header.as_str()),
-                (header::header_name::from_static("profile-title"), "EXA-ROBOT"),
+                (header::HeaderName::from_static("subscription-userinfo"), user_info_header.as_str()),
+                (header::HeaderName::from_static("profile-title"), "EXA-ROBOT"),
             ],
             html
         ).into_response();
@@ -386,8 +386,8 @@ function copyLink(){{
             [
                 (header::CONTENT_TYPE, content_type),
                 (header::CONTENT_DISPOSITION, format!("inline; filename={}", filename).as_str()),
-                (header::header_name::from_static("subscription-userinfo"), user_info_header.as_str()),
-                (header::header_name::from_static("profile-title"), "EXA-ROBOT"),
+                (header::HeaderName::from_static("subscription-userinfo"), user_info_header.as_str()),
+                (header::HeaderName::from_static("profile-title"), "EXA-ROBOT"),
             ],
             cached_config
         ).into_response();
@@ -431,8 +431,8 @@ function copyLink(){{
         [
             (header::CONTENT_TYPE, content_type),
             (header::CONTENT_DISPOSITION, format!("inline; filename={}", filename).as_str()),
-            (header::header_name::from_static("subscription-userinfo"), user_info_header.as_str()),
-            (header::header_name::from_static("profile-title"), "EXA-ROBOT"),
+            (header::HeaderName::from_static("subscription-userinfo"), user_info_header.as_str()),
+            (header::HeaderName::from_static("profile-title"), "EXA-ROBOT"),
         ],
         content
     ).into_response()

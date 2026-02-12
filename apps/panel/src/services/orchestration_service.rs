@@ -149,11 +149,12 @@ impl OrchestrationService {
                  stream_json = serde_json::to_string(&stream_obj)?;
              }
         } else if template.protocol == "amneziawg" {
-            let (priv_key, _pub_key) = self.generate_wireguard_keys()?;
+            let (priv_key, pub_key) = self.generate_wireguard_keys()?;
             let (jc, jmin, jmax, s1, s2, h1, h2, h3, h4) = self.generate_awg_params();
             
             if let Ok(mut awg_obj) = serde_json::from_str::<crate::models::network::AmneziaWgSettings>(&settings_json) {
                 awg_obj.private_key = priv_key;
+                awg_obj.public_key = pub_key;
                 awg_obj.jc = jc;
                 awg_obj.jmin = jmin;
                 awg_obj.jmax = jmax;

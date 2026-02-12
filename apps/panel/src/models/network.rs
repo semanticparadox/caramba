@@ -44,10 +44,11 @@ pub enum InboundType {
     Tuic(TuicSettings),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AmneziaWgSettings {
     pub users: Vec<AmneziaWgUser>,
     pub private_key: String,
+    pub public_key: String,
     pub listen_port: u16,
     // Obfuscation parameters
     pub jc: u16,
@@ -61,7 +62,7 @@ pub struct AmneziaWgSettings {
     pub h4: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AmneziaWgUser {
     pub name: String,
     pub private_key: String, // Client's private key (usually we generate it)

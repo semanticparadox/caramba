@@ -1,6 +1,6 @@
 use crate::singbox::config::*;
 use crate::models::network::{StreamSettings as DbStreamSettings, InboundType};
-use tracing::{error, warn};
+use tracing::error;
 
 pub struct ConfigGenerator;
 
