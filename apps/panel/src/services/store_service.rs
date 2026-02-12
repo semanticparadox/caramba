@@ -1454,7 +1454,6 @@ impl StoreService {
                     _ => {}
                 }
             }
-        }
         Ok(links)
     }
 
