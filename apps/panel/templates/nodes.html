@@ -64,8 +64,8 @@
             </div>
         </div>
 
-        <form hx-post="{{ admin_path }}/nodes/install" hx-swap="none"
-            hx-on::after-request="htmx.trigger('body', 'refresh_nodes')" class="space-y-4">
+        <form hx-post="{{ admin_path }}/nodes/install" hx-target="#manual-install-modal-content" hx-swap="innerHTML"
+            class="space-y-4">
             <div>
                 <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Friendly
                     Name</label>

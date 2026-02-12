@@ -45,6 +45,13 @@ pub struct NodeEditModalTemplate {
     pub admin_path: String,
 }
 
+#[derive(askama::Template)]
+#[template(path = "node_manual_install.html")]
+pub struct NodeManualInstallTemplate {
+    pub node: Node,
+    pub script: String,
+}
+
 #[derive(Deserialize)]
 pub struct InstallNodeForm {
     pub name: String,
@@ -115,6 +122,24 @@ pub async fn install_node(
                 error!("Failed to initialize inbounds for new node {}: {}", id, e);
             }
             
+            // IF Smart Setup (No IP provided) -> Return the Setup Modal directly
+            if check_ip.is_empty() {
+                 let node = state.infrastructure_service.get_node_by_id(id).await.unwrap_or(None);
+                 
+                 if let Some(node) = node {
+                     let script_bytes = crate::scripts::Scripts::get_setup_node_script().unwrap_or_default();
+                     let script = String::from_utf8(script_bytes.to_vec()).unwrap_or_default();
+
+                     let template = NodeManualInstallTemplate { node, script };
+                     // We need to trigger a refresh of the table too. HTMX handles hx-swap-oob or we can rely on client side triggers.
+                     // But simply returning HTML will fill the target.
+                     // We also need to open the modal. We can append a script tag.
+                     let mut html = template.render().unwrap();
+                     html.push_str("<script>document.getElementById('add-node-modal').close(); document.getElementById('manual-install-modal').showModal(); htmx.trigger('body', 'refresh_nodes');</script>");
+                     return Html(html).into_response();
+                 }
+            }
+
             let admin_path = state.admin_path.clone();
             let mut headers = HeaderMap::new();
             headers.insert("HX-Redirect", format!("{}/nodes", admin_path).parse().unwrap());
