@@ -57,7 +57,9 @@ impl ConfigGenerator {
                                     },
                                     private_key: reality.private_key,
                                     short_id: reality.short_ids,
-                                }
+                                },
+                                key_path: None,
+                                certificate_path: None,
                              });
                         }
                     } else if security == "tls" {

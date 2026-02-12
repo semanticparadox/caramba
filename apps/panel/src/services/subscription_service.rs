@@ -491,7 +491,7 @@ impl SubscriptionService {
                         params.push(format!("sni={}", sni));
 
                         if security == "reality" {
-                            if let Some(reality) = stream.reality_settings {
+                            if let Some(_reality) = stream.reality_settings {
                                 params.push(format!("pbk={}", reality_pub.unwrap_or_default()));
                                 if let Some(sid) = &short_id { params.push(format!("sid={}", sid)); }
                             }
