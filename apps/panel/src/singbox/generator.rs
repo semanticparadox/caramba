@@ -6,7 +6,6 @@ pub struct ConfigGenerator;
 
 impl ConfigGenerator {
     /// Generates a complete Sing-box configuration from a list of database Inbounds
-    /// Generates a complete Sing-box configuration from a list of database Inbounds
     pub fn generate_config(
         node: &crate::models::node::Node,
         inbounds: Vec<crate::models::network::Inbound>,
@@ -316,12 +315,10 @@ impl ConfigGenerator {
                     }));
                 },
                 InboundType::Naive(naive) => {
-                    let mut tls_config = None;
-                    
                     // NaiveProxy (HTTP) ALWAYS requires TLS
                     let server_name = stream_settings.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| "www.google.com".to_string());
                     
-                    tls_config = Some(VlessTlsConfig {
+                    let tls_config = Some(VlessTlsConfig {
                         enabled: true,
                         server_name,
                         alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),

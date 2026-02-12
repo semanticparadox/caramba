@@ -429,7 +429,6 @@ impl OrchestrationService {
 
         info!("Step 4: generating final sing-box config JSON");
         // 4. Generate Config
-        // 4. Generate Config
         let config = ConfigGenerator::generate_config(
             &node,
             inbounds
