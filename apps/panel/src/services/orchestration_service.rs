@@ -353,7 +353,7 @@ impl OrchestrationService {
                                 
                                 info!("🔑 Injecting HYSTERIA user: {} (Pass: {})", auth_name, uuid);
                                 hy2.users.push(Hysteria2User {
-                                    name: auth_name,
+                                    name: Some(auth_name),
                                     password: uuid.replace("-", ""),
                                 });
                             }
@@ -386,7 +386,7 @@ impl OrchestrationService {
                                 let auth_name = tg_id.to_string();
                                 trojan.clients.push(TrojanClient {
                                     password: uuid.clone(),
-                                    email: auth_name,
+                                    email: Some(auth_name),
                                 });
                             }
                         }
@@ -398,7 +398,7 @@ impl OrchestrationService {
                                 
                                 info!("🔑 Injecting TUIC user: {} (UUID: {})", auth_name, uuid);
                                 tuic.users.push(crate::models::network::TuicUser {
-                                    name: auth_name,
+                                    name: Some(auth_name),
                                     uuid: uuid.clone(),
                                     password: uuid.replace("-", ""), 
                                 });

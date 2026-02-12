@@ -170,7 +170,7 @@ pub struct Hysteria2Obfs {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Hysteria2User {
-    pub name: String,
+    pub name: Option<String>,
     pub password: String,
 }
 
@@ -242,7 +242,7 @@ pub struct TrojanInbound {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TrojanUser {
-    pub name: String,
+    pub name: Option<String>,
     pub password: String,
 }
 
@@ -261,7 +261,7 @@ pub struct TuicInbound {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TuicUser {
-    pub name: String,
+    pub name: Option<String>,
     pub uuid: String,
     pub password: String,
 }

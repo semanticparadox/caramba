@@ -61,8 +61,20 @@ impl ConfigGenerator {
                                 }
                              });
                         }
-                    } else if security == "tls" {
-                         // Regular TLS implementation (placeholder)
+                    } else if security == "tls" || vless.clients.iter().any(|c| !c.flow.is_empty()) {
+                         // Force TLS if Vision is used or explicitly requested
+                         let server_name = stream_settings.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| "www.google.com".to_string());
+                         tls_config = Some(VlessTlsConfig {
+                             enabled: true,
+                             server_name,
+                             alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                             reality: RealityConfig {
+                                 enabled: false,
+                                 handshake: RealityHandshake { server: "".to_string(), server_port: 0 },
+                                 private_key: "".to_string(),
+                                 short_id: vec![],
+                             }
+                         });
                     }
 
                     // Transport Settings
@@ -305,22 +317,24 @@ impl ConfigGenerator {
                 },
                 InboundType::Naive(naive) => {
                     let mut tls_config = None;
-                    if let Some(tls) = stream_settings.tls_settings {
-                        tls_config = Some(VlessTlsConfig {
-                            enabled: true,
-                            server_name: tls.server_name,
-                            alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
-                            reality: RealityConfig {
-                                enabled: false,
-                                handshake: RealityHandshake {
-                                    server: "".to_string(),
-                                    server_port: 0,
-                                },
-                                private_key: "".to_string(),
-                                short_id: vec![],
+                    
+                    // NaiveProxy (HTTP) ALWAYS requires TLS
+                    let server_name = stream_settings.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| "www.google.com".to_string());
+                    
+                    tls_config = Some(VlessTlsConfig {
+                        enabled: true,
+                        server_name,
+                        alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                        reality: RealityConfig {
+                            enabled: false,
+                            handshake: RealityHandshake {
+                                server: "".to_string(),
+                                server_port: 0,
                             },
-                        });
-                    }
+                            private_key: "".to_string(),
+                            short_id: vec![],
+                        },
+                    });
 
                     generated_inbounds.push(Inbound::Http(HttpInbound {
                         tag: inbound.tag,

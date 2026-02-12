@@ -118,7 +118,7 @@ pub struct Hysteria2Obfs {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Hysteria2User {
-    pub name: String,
+    pub name: Option<String>,
     pub password: String,
 }
 
@@ -133,7 +133,7 @@ pub struct TuicSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TuicUser {
-    pub name: String,
+    pub name: Option<String>,
     pub uuid: String,
     pub password: String,
 }
@@ -147,7 +147,7 @@ pub struct TrojanSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrojanClient {
     pub password: String,
-    pub email: String,
+    pub email: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
