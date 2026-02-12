@@ -1624,7 +1624,7 @@ impl StoreService {
                         }
                     },
                     "hysteria2" => {
-                        let mut server_name = node.reality_sni.clone().unwrap_or_else(|| node.domain.clone());
+                        let mut server_name = node.reality_sni.clone().unwrap_or_else(|| node.domain.clone().unwrap_or_default());
                         let mut insecure = true;
                         
                         if let Some(tls) = stream.tls_settings {
@@ -1632,10 +1632,10 @@ impl StoreService {
                                 server_name = tls.server_name.clone();
                             }
                             // If we have a real SNI that isn't a known fake, assume we want real verification if possible
-                            if server_name != node.domain && !server_name.contains("google") && !server_name.contains("yahoo") {
-                                insecure = false;
-                            }
-                        }
+                            if Some(server_name.as_str()) != node.domain.as_deref() && !server_name.contains("google") && !server_name.contains("yahoo") {
+                                 insecure = false;
+                             }
+                         }
 
                         let tg_id = tg_id; // Just for clarity as we pre-fetched it
                         
@@ -1700,17 +1700,17 @@ impl StoreService {
                     },
                     "trojan" => {
                         use crate::singbox::client_generator::ClientTrojanOutbound;
-                        let mut server_name = node.reality_sni.clone().unwrap_or_else(|| node.domain.clone());
+                        let mut server_name = node.reality_sni.clone().unwrap_or_else(|| node.domain.clone().unwrap_or_default());
                         let mut insecure = true;
                         
                         if let Some(tls) = stream.tls_settings {
                             if !tls.server_name.is_empty() {
                                 server_name = tls.server_name.clone();
                             }
-                            if server_name != node.domain && !server_name.contains("google") && !server_name.contains("yahoo") {
-                                insecure = false;
-                            }
-                        }
+                            if Some(server_name.as_str()) != node.domain.as_deref() && !server_name.contains("google") && !server_name.contains("yahoo") {
+                                 insecure = false;
+                             }
+                         }
 
                         let mut tls_config = Some(ClientTlsConfig {
                             enabled: true,

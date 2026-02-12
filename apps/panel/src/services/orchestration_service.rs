@@ -124,8 +124,10 @@ impl OrchestrationService {
         let mut stream_json = template.stream_settings_template.clone();
 
         // 0. Placeholder Replacement
-        let sni = node.reality_sni.as_deref().unwrap_or(&node.domain);
-        let domain = &node.domain;
+        let sni = node.reality_sni.as_deref()
+            .or(node.domain.as_deref())
+            .unwrap_or("");
+        let domain = node.domain.as_deref().unwrap_or("");
         let pbk = node.reality_pub.as_deref().unwrap_or("");
         let sid = node.short_id.as_deref().unwrap_or("");
 
