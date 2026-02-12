@@ -15,13 +15,5 @@ pub fn format_bytes(s: &i64) -> Result<String> {
     Ok(format_bytes_str(*s as u64))
 }
 
-pub fn round0(val: &f64) -> Result<String> {
-    Ok(format!("{:.0}", val))
-}
-
-// Overload or handling for u64 if needed? Askama usually passes reference.
-// The SQLx queries return i64 for count/sum usually.
-// admin.rs uses `bytes: u64` in its local helper.
-// I'll add another one or generic? 
-// Askama filters are functions.
+ // Askama filters are functions.
 // I can define `format_bytes_i64` or just expect i64 since DB uses i64.

@@ -60,11 +60,11 @@
             <div class="flex items-center gap-3 text-[10px] font-mono text-slate-400">
                 <div class="flex items-center gap-1">
                     <i data-lucide="cpu" class="w-3 h-3 text-slate-500"></i>
-                    <span>{{ node.last_cpu.unwrap_or(0.0)|round0 }}%</span>
+                    <span>{{ node.cpu_rounded() }}%</span>
                 </div>
                 <div class="flex items-center gap-1">
                     <i data-lucide="memory-stick" class="w-3 h-3 text-slate-500"></i>
-                    <span>{{ node.last_ram.unwrap_or(0.0)|round0 }}%</span>
+                    <span>{{ node.ram_rounded() }}%</span>
                 </div>
             </div>
             <!-- Latency -->
@@ -74,7 +74,7 @@
                     class="w-3 h-3 {% if lat < 100.0 %}text-emerald-400{% else if lat < 300.0 %}text-amber-400{% else %}text-red-400{% endif %}"></i>
                 <span
                     class="{% if lat < 100.0 %}text-emerald-400{% else if lat < 300.0 %}text-amber-400{% else %}text-red-400{% endif %}">
-                    {{ lat|round0 }}ms
+                    {{ node.latency_rounded() }}ms
                 </span>
             </div>
         </div>

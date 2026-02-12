@@ -53,9 +53,7 @@ pub struct NodeManualInstallTemplate {
     pub admin_path: String,
 }
 
-pub mod filters {
-    pub use crate::utils::round0;
-}
+// No custom filters needed, using Node methods instead.
 
 #[derive(Deserialize)]
 pub struct InstallNodeForm {

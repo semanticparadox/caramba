@@ -56,3 +56,15 @@ pub struct Node {
     #[sqlx(default)]
     pub relay_id: Option<i64>,
 }
+
+impl Node {
+    pub fn cpu_rounded(&self) -> String {
+        format!("{:.0}", self.last_cpu.unwrap_or(0.0))
+    }
+    pub fn ram_rounded(&self) -> String {
+        format!("{:.0}", self.last_ram.unwrap_or(0.0))
+    }
+    pub fn latency_rounded(&self) -> String {
+        format!("{:.0}", self.last_latency.unwrap_or(0.0))
+    }
+}
