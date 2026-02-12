@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 
 pub struct SingBoxConfig {
     pub log: LogConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dns: Option<serde_json::Value>, 
     pub inbounds: Vec<Inbound>,
     pub outbounds: Vec<Outbound>,
     pub route: Option<RouteConfig>,

@@ -555,11 +555,34 @@ impl SubscriptionService {
         }
     }
 
+    /// Detects the best client type based on User-Agent
+    pub fn detect_client_type(&self, ua: Option<&str>) -> String {
+        let ua = match ua {
+            Some(s) => s.to_lowercase(),
+            None => return "html".to_string(),
+        };
+
+        if ua.contains("hiddify") || ua.contains("sing-box") {
+            "singbox".to_string()
+        } else if ua.contains("clash") || ua.contains("stash") {
+            "clash".to_string()
+        } else if ua.contains("v2ray") || ua.contains("xray") || ua.contains("fair") || ua.contains("shadowrocket") {
+            "v2ray".to_string()
+        } else if ua.contains("mozilla") || ua.contains("chrome") || ua.contains("safari") {
+            "html".to_string()
+        } else {
+            // Default for unknown machine clients
+            "singbox".to_string()
+        }
+    }
     /// Update subscription last access time and IP
     pub async fn track_access(&self, sub_id: i64, ip: &str, user_agent: Option<&str>) -> Result<()> {
         sqlx::query(
-            "UPDATE subscriptions SET last_sub_access = CURRENT_TIMESTAMP WHERE id = ?"
+            "UPDATE subscriptions SET last_sub_access = ?, last_access_ip = ?, last_access_ua = ? WHERE id = ?"
         )
+        .bind(Utc::now())
+        .bind(ip)
+        .bind(user_agent)
         .bind(sub_id)
         .execute(&self.pool)
         .await?;

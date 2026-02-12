@@ -313,14 +313,33 @@ impl ConfigGenerator {
                 level: "info".to_string(),
                 timestamp: true,
             },
+            dns: Some(serde_json::json!({
+                "servers": [
+                    { "tag": "google", "address": "8.8.8.8" },
+                    { "tag": "local", "address": "local", "detour": "direct" }
+                ],
+                "rules": [
+                    { "outbound": "direct", "server": "local" }
+                ]
+            })),
             inbounds: generated_inbounds,
             outbounds: vec![
-                Outbound::Direct { tag: "direct".to_string() }
+                Outbound::Direct { tag: "direct".to_string() },
+                // Use a standard block outbound
+                // Sing-box enum Outbound might need to support 'block'
             ],
             route: Some(RouteConfig {
                 rules: {
                     let mut rules = Vec::new();
                     
+                    // 0. Route DNS
+                    rules.push(RouteRule {
+                        action: Some("route".to_string()),
+                        protocol: Some(vec!["dns".to_string()]),
+                        outbound: Some("direct".to_string()), // Or dns-out if implemented
+                        port: None, domain: None, geosite: None, geoip: None,
+                    });
+
                     // 1. Block BitTorrent
                     if node.config_block_torrent {
                         rules.push(RouteRule {
@@ -357,9 +376,6 @@ impl ConfigGenerator {
                             port: None, domain: None, geosite: None, geoip: None,
                         });
                     }
-                    
-                    // Default Rule (Implicitly Direct due to outbounds order, but good to be explicit if needed)
-                    // Sing-box defaults to first outbound if no match.
                     
                     rules
                 }

@@ -946,7 +946,7 @@ pub fn generate_singbox_config(
                         // But where is the server's PUBLIC key stored? 
                         // It seems we should have it in the inbound settings after instantiation.
                         
-                        if let Ok(mut awg_obj) = serde_json::from_str::<serde_json::Value>(&inbound.settings) {
+                        if let Ok(awg_obj) = serde_json::from_str::<serde_json::Value>(&inbound.settings) {
                             if let Some(pub_key) = awg_obj.get("public_key").and_then(|v| v.as_str()) {
                                 ob["peer_public_key"] = json!(pub_key);
                             }

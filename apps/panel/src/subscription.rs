@@ -115,9 +115,20 @@ pub async fn subscription_handler(
     );
 
     // ===================================================================
-    // If no ?client= param, serve the HTML subscription info page
+    // client autodetection or raw config mode
     // ===================================================================
-    if params.client.is_none() {
+    let mut selected_client = params.client.clone();
+    
+    // Autodetect if client is not specified
+    if selected_client.is_none() {
+        let detected = state.subscription_service.detect_client_type(user_agent.as_deref());
+        if detected != "html" {
+            selected_client = Some(detected);
+        }
+    }
+
+    // If still no client (or it's explicitly "html" detected), serve HTML
+    if selected_client.is_none() {
         // Use already fetched plan_details
         let plan_name = plan_details;
 
@@ -134,7 +145,7 @@ pub async fn subscription_handler(
         let base_url = if !sub_domain.is_empty() {
             if sub_domain.starts_with("http") { sub_domain.clone() } else { format!("https://{}", sub_domain) }
         } else if !panel_url_setting.is_empty() {
-            if panel_url_setting.starts_with("http") { panel_url_setting } else { format!("https://{}", panel_url_setting) }
+            if panel_url_setting.starts_with("http") { panel_url_setting.clone() } else { format!("https://{}", panel_url_setting) }
         } else {
             let panel = std::env::var("PANEL_URL").unwrap_or_else(|_| "localhost".to_string());
             if panel.starts_with("http") { panel } else { format!("https://{}", panel) }
@@ -366,7 +377,7 @@ function copyLink(){{
     };
 
     // Check Redis Cache & Generate
-    let client_type = params.client.as_deref().unwrap_or("singbox");
+    let client_type = selected_client.as_deref().unwrap_or("singbox");
     let cache_node_id = params.node_id.unwrap_or(0);
     let cache_key = format!("sub_config:{}:{}:{}", uuid, client_type, cache_node_id);
 
