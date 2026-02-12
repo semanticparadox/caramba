@@ -454,8 +454,6 @@ use tower_http::services::ServeDir;
         .route("/nodes/{id}/edit", axum::routing::get(handlers::admin::get_node_edit))
         .route("/nodes/{id}/update", axum::routing::post(handlers::admin::update_node))
         .route("/nodes/{id}/activate", axum::routing::post(handlers::admin::activate_node))
-        .route("/nodes/{id}/script", axum::routing::get(handlers::admin::get_node_install_script))
-        .route("/nodes/{id}/raw-install", axum::routing::get(handlers::admin::get_node_raw_install_script))
         .route("/nodes/{id}/config/preview", axum::routing::get(handlers::admin_network::preview_node_config))
         .route("/nodes/{id}/sync", axum::routing::post(handlers::admin::sync_node))
         .route("/nodes/{id}/logs", axum::routing::get(handlers::admin::get_node_logs)) // NEW
@@ -576,6 +574,8 @@ use tower_http::services::ServeDir;
         .route("/api/admin/frontends/{domain}/heartbeat", axum::routing::post(handlers::frontend::frontend_heartbeat))
 
         .nest(&admin_path, admin_routes)
+        .route("/nodes/{id}/script", axum::routing::get(handlers::admin::get_node_install_script))
+        .route("/nodes/{id}/raw-install", axum::routing::get(handlers::admin::get_node_raw_install_script))
         .with_state(state)
         .layer(tower_http::compression::CompressionLayer::new())
         .layer(tower_http::limit::RequestBodyLimitLayer::new(10 * 1024 * 1024)) // 10MB limit

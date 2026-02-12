@@ -62,7 +62,7 @@
     // Dynamically update the origin in the input value
     const origin = window.location.origin;
     const token = "{{ node.join_token.clone().unwrap_or_default() }}";
-    document.getElementById('one-liner').value = `curl -fsSL ${origin}{{ admin_path }}/nodes/{{ node.id }}/script | sudo bash -s -- --role agent --panel "${origin}" --token "${token}"`;
+    document.getElementById('one-liner').value = `curl -fsSL ${origin}/nodes/{{ node.id }}/script | sudo bash -s -- --role agent --panel "${origin}" --token "${token}"`;
 
     function copyToClipboard(elementId) {
         const el = document.getElementById(elementId);
