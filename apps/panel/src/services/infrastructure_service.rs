@@ -82,6 +82,7 @@ impl InfrastructureService {
             max_users: 0,
             current_speed_mbps: 0,
             relay_id: None,
+            active_connections: None,
         };
 
         let id = self.node_repo.create_node(&node).await?;
