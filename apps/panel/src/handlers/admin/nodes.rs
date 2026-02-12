@@ -298,15 +298,26 @@ pub async fn get_node_install_script(
     Path(_id): Path<i64>,
     State(_state): State<AppState>,
 ) -> impl IntoResponse {
-    match crate::scripts::Scripts::get_setup_node_script() {
+    // Return universal installer even for legacy endpoint to prevent breakage
+    match crate::scripts::Scripts::get_universal_install_script() {
         Some(content) => (
             [(axum::http::header::CONTENT_TYPE, "text/x-shellscript")],
             content
         ).into_response(),
         None => {
-            error!("Setup script not found in embedded assets");
+            error!("Universal install script not found in embedded assets");
             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Script not found").into_response()
         }
+    }
+}
+
+pub async fn get_install_sh() -> impl IntoResponse {
+    match crate::scripts::Scripts::get_universal_install_script() {
+        Some(content) => (
+            [(axum::http::header::CONTENT_TYPE, "text/x-shellscript")],
+            content
+        ).into_response(),
+        None => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Script not found").into_response(),
     }
 }
 

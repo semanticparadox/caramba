@@ -574,6 +574,7 @@ use tower_http::services::ServeDir;
         .route("/api/admin/frontends/{domain}/heartbeat", axum::routing::post(handlers::frontend::frontend_heartbeat))
 
         .nest(&admin_path, admin_routes)
+        .route("/install.sh", axum::routing::get(handlers::admin::get_install_sh))
         .route("/nodes/{id}/script", axum::routing::get(handlers::admin::get_node_install_script))
         .route("/nodes/{id}/raw-install", axum::routing::get(handlers::admin::get_node_raw_install_script))
         .with_state(state)
