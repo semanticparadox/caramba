@@ -50,7 +50,11 @@ pub struct NodeEditModalTemplate {
 pub struct NodeManualInstallTemplate {
     pub node: Node,
     pub script: String,
+    pub admin_path: String,
 }
+
+// Add empty filters module to satisfy Askama's resolution if it looks for it locally
+pub mod filters {}
 
 #[derive(Deserialize)]
 pub struct InstallNodeForm {
@@ -123,7 +127,8 @@ pub async fn install_node(
                  if let Some(node) = node {
                      let script = crate::scripts::Scripts::get_setup_node_script().unwrap_or_default();
 
-                     let template = NodeManualInstallTemplate { node, script };
+                     let admin_path = state.admin_path.clone();
+                     let template = NodeManualInstallTemplate { node, script, admin_path };
                      
                      let mut headers = HeaderMap::new();
                      headers.insert("HX-Trigger", "refresh_nodes".parse().unwrap());

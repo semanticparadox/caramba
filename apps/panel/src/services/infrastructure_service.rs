@@ -20,6 +20,10 @@ impl InfrastructureService {
             .ok_or_else(|| anyhow::anyhow!("Node not found"))
     }
 
+    pub async fn get_all_nodes(&self) -> Result<Vec<Node>> {
+        self.node_repo.get_all_nodes().await
+    }
+
     pub async fn get_active_nodes(&self) -> Result<Vec<Node>> {
         self.node_repo.get_active_nodes().await
     }

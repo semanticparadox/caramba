@@ -231,7 +231,7 @@ impl OrchestrationService {
         Ok((priv_key, pub_key))
     }
 
-    fn generate_awg_params(&self) -> (u32, u32, u32, u32, u32, u32, u32, u32, u32) {
+    fn generate_awg_params(&self) -> (u16, u16, u16, u16, u16, u32, u32, u32, u32) {
         use rand::Rng;
         let mut rng = rand::rng();
         (
