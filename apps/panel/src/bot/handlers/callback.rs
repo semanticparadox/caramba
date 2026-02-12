@@ -305,12 +305,29 @@ pub async fn callback_handler(
                                                  sub_domain
                                             } else {
                                                  let panel = state.settings.get_or_default("panel_url", "").await;
-                                                 if !panel.is_empty() { panel } else { std::env::var("PANEL_URL").unwrap_or_else(|_| "localhost".to_string()) }
+                                                 if !panel.is_empty() { 
+                                                     panel 
+                                                 } else { 
+                                                     // Try env var, otherwise localhost with a warning
+                                                     std::env::var("PANEL_URL").unwrap_or_else(|_| "localhost".to_string())
+                                                 }
                                             };
-                                            let base_url = if base_domain.starts_with("http") { base_domain } else { format!("https://{}", base_domain) };
+                                            
+                                            let is_localhost = base_domain == "localhost";
+                                            let base_url = if base_domain.starts_with("http") { 
+                                                base_domain 
+                                            } else { 
+                                                format!("https://{}", base_domain) 
+                                            };
+                                            
                                             let sub_url = format!("{}/sub/{}", base_url, _sub.sub.subscription_uuid);
                                             
-                                            response.push_str(&format!("🌍 *Subscription Page:*\n`{}`\n\n", escape_md(&sub_url)));
+                                            response.push_str(&format!("🌍 *Subscription Page:*\n`{}`\n", escape_md(&sub_url)));
+                                            if is_localhost {
+                                                response.push_str("⚠️ _Admin: Set PANEL_URL or subscription_domain setting\\!_\n\n");
+                                            } else {
+                                                response.push_str("\n");
+                                            }
 
                                             for link in links {
                                                 response.push_str(&format!("`{}`\n\n", escape_md(&link)));

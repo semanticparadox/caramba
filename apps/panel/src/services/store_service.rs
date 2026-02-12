@@ -494,18 +494,20 @@ impl StoreService {
         // We store the intended expiration duration by setting expires_at = now + duration.
         // When activated, we will recalculate: duration = expires_at - created_at, then NewExpiry = Now + duration.
         let expires_at = Utc::now() + Duration::days(duration.duration_days as i64);
-        let vless_uuid = Uuid::new_v4().to_string();
+        let vless_uuid = uuid::Uuid::new_v4().to_string();
+        let sub_uuid = uuid::Uuid::new_v4().to_string();
 
         let sub = sqlx::query_as::<_, Subscription>(
             r#"
-            INSERT INTO subscriptions (user_id, plan_id, vless_uuid, expires_at, status)
-            VALUES (?, ?, ?, ?, 'pending')
+            INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, expires_at, status)
+            VALUES (?, ?, ?, ?, ?, 'pending')
             RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at
             "#
         )
         .bind(user_id)
         .bind(duration.plan_id)
         .bind(vless_uuid)
+        .bind(sub_uuid)
         .bind(expires_at)
         .fetch_one(&mut *tx)
         .await?;
@@ -1333,10 +1335,21 @@ impl StoreService {
         let mut links = Vec::new();
 
         // 1. Get subscription
-        let sub = self.sub_repo.get_by_id(sub_id).await?;
+        let mut sub = self.sub_repo.get_by_id(sub_id).await?
+            .ok_or_else(|| anyhow::anyhow!("Subscription not found"))?;
         
-        if let Some(sub) = sub {
-            let uuid = sub.vless_uuid.clone().unwrap_or_default();
+        // Self-healing: Generate subscription_uuid if missing
+        if sub.subscription_uuid.is_empty() {
+            let new_uuid = uuid::Uuid::new_v4().to_string();
+            sqlx::query("UPDATE subscriptions SET subscription_uuid = ? WHERE id = ?")
+                .bind(&new_uuid)
+                .bind(sub_id)
+                .execute(&self.pool)
+                .await?;
+            sub.subscription_uuid = new_uuid;
+        }
+
+        let uuid = sub.vless_uuid.clone().unwrap_or_default();
             
             // 2. Get Inbounds for this Plan
             let inbounds = self.node_repo.get_inbounds_for_plan(sub.plan_id).await?;
