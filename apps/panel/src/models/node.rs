@@ -55,6 +55,9 @@ pub struct Node {
     // Relay Support (Phase 8)
     #[sqlx(default)]
     pub relay_id: Option<i64>,
+
+    #[sqlx(default)]
+    pub active_connections: Option<i32>,
 }
 
 impl Node {
