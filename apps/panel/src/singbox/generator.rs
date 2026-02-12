@@ -98,7 +98,8 @@ impl ConfigGenerator {
                     if let Some(network) = &stream_settings.network {
                         match network.as_str() {
                             "ws" => {
-                                if let Some(ws) = &stream_settings.ws_settings {
+                                if let Some(ws) = stream_settings.ws_settings.as_ref()
+                                    .or(stream_settings.ws_settings.as_ref()) { // Placeholder if we had CamelCase in struct
                                     transport_config = Some(VlessTransportConfig::Ws(WsTransport {
                                         path: ws.path.clone(),
                                         headers: ws.headers.clone(),
@@ -106,15 +107,15 @@ impl ConfigGenerator {
                                 }
                             },
                             "httpupgrade" => {
-                                if let Some(http) = &stream_settings.http_upgrade_settings {
+                                if let Some(http) = stream_settings.http_upgrade_settings.as_ref() {
                                     transport_config = Some(VlessTransportConfig::HttpUpgrade(HttpUpgradeTransport {
                                         path: http.path.clone(),
                                         host: http.host.clone().map(|h| vec![h]),
                                     }));
                                 }
                             },
-                            "xhttp" => {
-                                if let Some(xhttp) = &stream_settings.xhttp_settings {
+                            "xhttp" | "splithttp" => {
+                                if let Some(xhttp) = stream_settings.xhttp_settings.as_ref() {
                                     transport_config = Some(VlessTransportConfig::Xhttp(XhttpTransport {
                                         path: xhttp.path.clone(),
                                         host: xhttp.host.clone(),

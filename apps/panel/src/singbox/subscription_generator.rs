@@ -740,7 +740,18 @@ pub fn generate_singbox_config(
                 // ─────────────────────────────────────────────────────────────
 
                 let si = parse_stream_settings(&inbound.stream_settings, node);
-                let tag = format!("{}_{}", node.name, inbound.tag);
+                
+                // Human-readable tag for clients (e.g. "France - VLESS Reality XHTTP")
+                let display_name = if let Some(remark) = &inbound.remark {
+                    if remark.starts_with("Template: ") {
+                        remark.strip_prefix("Template: ").unwrap_or(remark).to_string()
+                    } else {
+                        remark.clone()
+                    }
+                } else {
+                    inbound.tag.clone()
+                };
+                let tag = format!("{} - {}", node.name, display_name);
 
                 match inbound.protocol.as_str() {
                     "vless" => {
@@ -793,29 +804,21 @@ pub fn generate_singbox_config(
                             }
                             "xhttp" | "splithttp" => {
                                 ob["transport"] = json!({
-                                    "type": "httpupgrade",
+                                    "type": "xhttp",
                                     "host": si.sni,
                                     "path": si.ws_path
                                 });
                                 
-                                // Packet Encoding (packet-up) & Padding
-                                if si.packet_encoding.as_deref() == Some("packetaddr") || si.packet_encoding.as_deref() == Some("packet-up") {
-                                      // "packet_encoding" field applies to the VLESS object not transport, 
-                                      // BUT for XHTTP it's often handled via headers or specific transport options.
-                                      // Sing-box VLESS inbound/outbound: 
-                                      // "packet_encoding": "packetaddr" (deprecated in some versions, replaced by 'multiplex' features).
-                                      // Actually, for Sing-box 'httpupgrade', we might just need headers or nothing specific if client supports it.
-                                      // Let's ensure 'packet_encoding' is set on the VLESS outbound object itself.
-                                      ob["packet_encoding"] = json!("packetaddr");
-                                }
+                                // Packet Encoding (xudp / packetaddr)
+                                // In Sing-box 1.10+, XHTTP transport handles packet encoding efficiently.
+                                // But for the VLESS outbound itself, we can specify packet_encoding.
+                                ob["packet_encoding"] = json!("xudp");
                                 
                                 // Mux (xmux) - Enforce Browser Mimicry
                                 let mut mux = si.xmux.clone().unwrap_or(json!({}));
                                 if !mux.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
-                                    // If not explicitly enabled, enable it with safe defaults
                                     mux["enabled"] = json!(true);
                                 }
-                                // Enforce concurrency for anti-freezing
                                 mux["max_connections"] = json!(4);
                                 mux["min_streams"] = json!(2);
                                 mux["padding"] = json!(true);
@@ -1072,14 +1075,15 @@ pub fn generate_singbox_config(
             "type": "selector",
             "tag": "proxy",
             "outbounds": outbound_tags,
-            "default": outbound_tags.first().unwrap_or(&"direct".to_string()),
+            "selected": outbound_tags.first().unwrap_or(&"direct".to_string()),
         }),
         json!({
             "type": "urltest",
             "tag": "auto",
             "outbounds": outbound_tags,
-            "url": "http://www.gstatic.com/generate_204",
-            "interval": "3m"
+            "url": "https://www.google.com/generate_204",
+            "interval": "3m",
+            "tolerance": 50
         }),
         json!({ "type": "direct", "tag": "direct" }),
         json!({ "type": "block", "tag": "block" }),
@@ -1114,9 +1118,13 @@ pub fn generate_singbox_config(
         "log": { "level": "info" },
         "dns": {
             "servers": [
-                { "tag": "google", "address": "tls://8.8.8.8" },
-                { "tag": "local", "address": "local", "detour": "direct" }
-            ]
+                { "tag": "google", "address": "8.8.8.8", "strategy": "ipv4_only" },
+                { "tag": "local", "address": "local", "strategy": "ipv4_only" }
+            ],
+            "rules": [
+                { "outbound": "any", "server": "google" }
+            ],
+            "strategy": "ipv4_only"
         },
         "inbounds": [{
             "type": "mixed",

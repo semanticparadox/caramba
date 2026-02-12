@@ -174,10 +174,15 @@ pub struct Fallback {
 pub struct StreamSettings {
     pub network: Option<String>, // "tcp", "udp", "quic", "grpc"
     pub security: Option<String>, // "none", "tls", "reality"
+    #[serde(alias = "tlsSettings")]
     pub tls_settings: Option<TlsSettings>,
+    #[serde(alias = "realitySettings")]
     pub reality_settings: Option<RealitySettings>,
+    #[serde(alias = "wsSettings")]
     pub ws_settings: Option<WsSettings>,
+    #[serde(alias = "httpUpgradeSettings")]
     pub http_upgrade_settings: Option<HttpUpgradeSettings>,
+    #[serde(alias = "xhttpSettings")]
     pub xhttp_settings: Option<XhttpSettings>,
 }
 
@@ -203,6 +208,7 @@ pub struct HttpUpgradeSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TlsSettings {
+    #[serde(alias = "serverName")]
     pub server_name: String,
     pub certificates: Option<Vec<Certificate>>,
 }
@@ -218,9 +224,13 @@ pub struct RealitySettings {
     pub show: bool,
     pub dest: String,
     pub xver: i32,
+    #[serde(alias = "serverNames")]
     pub server_names: Vec<String>,
+    #[serde(alias = "privateKey")]
     pub private_key: String,
+    #[serde(alias = "publicKey")]
     pub public_key: Option<String>,
+    #[serde(alias = "shortIds")]
     pub short_ids: Vec<String>,
     // Optional
     pub max_time_diff: Option<i64>,
