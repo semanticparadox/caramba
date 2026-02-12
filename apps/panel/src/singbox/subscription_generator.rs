@@ -966,7 +966,7 @@ pub fn generate_singbox_config(
                     }
                     "naive" => {
                         let mut ob = json!({
-                            "type": "naive",
+                            "type": "http",
                             "tag": tag,
                             "server": node.address,
                             "server_port": inbound.listen_port,

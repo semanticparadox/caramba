@@ -42,6 +42,18 @@ pub enum InboundType {
     #[serde(rename = "amneziawg")]
     AmneziaWg(AmneziaWgSettings),
     Tuic(TuicSettings),
+    Naive(NaiveSettings),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NaiveSettings {
+    pub users: Vec<NaiveUser>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NaiveUser {
+    pub username: String,
+    pub password: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

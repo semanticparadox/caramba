@@ -287,6 +287,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     
     -- Subscription URLs (010_subscription_urls)
     last_sub_access TIMESTAMP NULL,
+    last_access_ip TEXT,
+    last_access_ua TEXT,
     
     -- Enterprise Organizations
     organization_id INTEGER,

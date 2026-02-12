@@ -44,6 +44,23 @@ pub enum Inbound {
     AmneziaWg(AmneziaWgInbound),
     Trojan(TrojanInbound),
     Tuic(TuicInbound),
+    Http(HttpInbound),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct HttpInbound {
+    pub tag: String,
+    pub listen: String,
+    pub listen_port: u16,
+    pub users: Vec<HttpUser>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls: Option<VlessTlsConfig>, 
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct HttpUser {
+    pub username: String,
+    pub password: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

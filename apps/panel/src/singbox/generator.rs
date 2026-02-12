@@ -303,7 +303,36 @@ impl ConfigGenerator {
                         tls: tls_config,
                     }));
                 },
+                InboundType::Naive(naive) => {
+                    let mut tls_config = None;
+                    if let Some(tls) = stream_settings.tls_settings {
+                        tls_config = Some(VlessTlsConfig {
+                            enabled: true,
+                            server_name: tls.server_name,
+                            alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                            reality: RealityConfig {
+                                enabled: false,
+                                handshake: RealityHandshake {
+                                    server: "".to_string(),
+                                    server_port: 0,
+                                },
+                                private_key: "".to_string(),
+                                short_id: vec![],
+                            },
+                        });
+                    }
 
+                    generated_inbounds.push(Inbound::Http(HttpInbound {
+                        tag: inbound.tag,
+                        listen: inbound.listen_ip.clone(),
+                        listen_port: inbound.listen_port as u16,
+                        users: naive.users.iter().map(|u| HttpUser {
+                            username: u.username.clone(),
+                            password: u.password.clone(),
+                        }).collect(),
+                        tls: tls_config,
+                    }));
+                },
             }
         }
 
