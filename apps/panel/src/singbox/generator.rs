@@ -164,7 +164,7 @@ impl ConfigGenerator {
                         // CRITICAL FIX: Sing-box Hysteria2 treats the entire auth payload as 'password'.
                         // Official clients send 'user:password'.
                         // So we must set the server-side password to match 'user:password'.
-                        password: format!("{}:{}", u.name, u.password.replace("-", "")),
+                        password: format!("{}:{}", u.name.as_deref().unwrap_or("unknown"), u.password.replace("-", "")),
                     }).collect();
 
                     generated_inbounds.push(Inbound::Hysteria2(Hysteria2Inbound {
@@ -198,7 +198,7 @@ impl ConfigGenerator {
                 },
                 InboundType::AmneziaWg(awg) => {
                     let peers = awg.users.iter().map(|u| AmneziaWgUser {
-                        name: Some(u.name.clone()),
+                        name: u.name.clone(),
                         public_key: u.public_key.clone(),
                         preshared_key: u.preshared_key.clone(),
                         allowed_ips: vec![u.client_ip.clone()],

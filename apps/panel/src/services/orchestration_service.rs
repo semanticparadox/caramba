@@ -370,7 +370,7 @@ impl OrchestrationService {
                                 
                                 info!("🔑 Injecting AMNEZIAWG user: {} (Public: {})", auth_name, client_pub);
                                 awg.users.push(AmneziaWgUser {
-                                    name: auth_name,
+                                    name: Some(auth_name),
                                     private_key: client_priv,
                                     public_key: client_pub,
                                     preshared_key: None,

@@ -76,7 +76,7 @@ pub struct AmneziaWgSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AmneziaWgUser {
-    pub name: String,
+    pub name: Option<String>,
     pub private_key: String, // Client's private key (usually we generate it)
     pub public_key: String,
     pub preshared_key: Option<String>,
