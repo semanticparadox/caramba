@@ -2,7 +2,7 @@ use sqlx::SqlitePool;
 use anyhow::{Result, Context};
 use crate::models::groups::InboundTemplate;
 use crate::models::node::Node;
-use tracing::{info, warn};
+use tracing::{info, warn, error};
 
 #[derive(Clone)]
 pub struct GeneratorService {
