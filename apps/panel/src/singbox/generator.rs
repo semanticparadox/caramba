@@ -15,21 +15,25 @@ impl ConfigGenerator {
 
         for inbound in inbounds {
             if !inbound.enable {
+                error!("🚫 Inbound {} is DISABLED, skipping generation", inbound.tag);
                 continue;
             }
 
             // Parse Protocol Settings
-            let mut settings_value: serde_json::Value = serde_json::from_str(&inbound.settings).unwrap_or(serde_json::Value::Null);
+            let mut settings_value: serde_json::Value = serde_json::from_str(&inbound.settings).unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+            
             if let Some(obj) = settings_value.as_object_mut() {
                 if !obj.contains_key("protocol") {
                     obj.insert("protocol".to_string(), serde_json::Value::String(inbound.protocol.clone().to_lowercase()));
                 }
             }
 
-            let protocol_settings: InboundType = match serde_json::from_value(settings_value) {
+            let protocol_settings: InboundType = match serde_json::from_value(settings_value.clone()) {
                 Ok(s) => s,
                 Err(e) => {
-                    error!("Failed to parse settings for inbound {}: {} (json: {})", inbound.tag, e, inbound.settings);
+                    // Try a last-ditch effort: just protocol tag and empty structure
+                    let proto = inbound.protocol.clone().to_lowercase();
+                    error!("❌ Failed to parse settings for inbound {}: {} (json: {}). Protocol: {}", inbound.tag, e, inbound.settings, proto);
                     continue;
                 }
             };
@@ -37,10 +41,10 @@ impl ConfigGenerator {
             // Parse Stream Settings
             let stream_settings: DbStreamSettings = match serde_json::from_str(&inbound.stream_settings) {
                 Ok(s) => s,
-                Err(e) => {
-                    error!("StreamSettings parse failed for inbound tag='{}', json='{}': {}", 
-                        inbound.tag, inbound.stream_settings, e);
-                    continue;
+                Err(_) => {
+                    // Fallback to default StreamSettings if parsing fails
+                    warn!("⚠️ StreamSettings parse failed for inbound '{}', using defaults", inbound.tag);
+                    DbStreamSettings::default()
                 }
             };
 

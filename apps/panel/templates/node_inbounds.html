@@ -70,10 +70,19 @@
                     <tr class="hover:bg-white/5 transition-colors group">
                         <td class="px-6 py-4">
                             <div class="flex flex-col">
-                                <span class="font-medium text-white">{{ inbound.tag }}</span>
-                                {% if inbound.tag.starts_with("tpl_") %}
-                                <span class="text-[10px] text-indigo-400">Group Managed</span>
-                                {% endif %}
+                                <span class="font-medium text-white">
+                                    {% if let Some(remark) = inbound.remark %}
+                                    {{ remark }}
+                                    {% else %}
+                                    {{ inbound.tag }}
+                                    {% endif %}
+                                </span>
+                                <span class="text-[10px] text-slate-500 font-mono">
+                                    {{ inbound.tag }}
+                                    {% if inbound.tag.starts_with("tpl_") %}
+                                    • <span class="text-indigo-400">Group Managed</span>
+                                    {% endif %}
+                                </span>
                             </div>
                         </td>
                         <td class="px-6 py-4">
@@ -167,11 +176,20 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <!-- Basic Info -->
                 <div class="space-y-6">
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Tag
-                            (Identifier)</label>
-                        <input type="text" name="tag" placeholder="e.g. vless-tcp-reality" required
-                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label
+                                class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Remark
+                                / Name</label>
+                            <input type="text" name="remark" placeholder="e.g. My Custom VLESS"
+                                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Tag
+                                (Identifier)</label>
+                            <input type="text" name="tag" placeholder="e.g. vless-tcp-reality" required
+                                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                        </div>
                     </div>
                     <div>
                         <label

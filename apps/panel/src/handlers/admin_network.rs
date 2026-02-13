@@ -75,6 +75,7 @@ pub struct AddInboundForm {
     pub listen_ip: String,
     pub settings: String,
     pub stream_settings: String,
+    pub remark: Option<String>,
 }
 
 pub async fn add_inbound(
@@ -127,7 +128,7 @@ pub async fn add_inbound(
          return (axum::http::StatusCode::BAD_REQUEST, format!("Port {} is already used by another inbound on this node.", form.listen_port)).into_response();
     }
 
-    let res = sqlx::query("INSERT INTO inbounds (node_id, tag, protocol, listen_port, listen_ip, settings, stream_settings) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    let res = sqlx::query("INSERT INTO inbounds (node_id, tag, protocol, listen_port, listen_ip, settings, stream_settings, remark) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(node_id)
         .bind(&form.tag)
         .bind(&form.protocol)
@@ -135,6 +136,7 @@ pub async fn add_inbound(
         .bind(&form.listen_ip)
         .bind(&form.settings)
         .bind(&form.stream_settings)
+        .bind(&form.remark)
         .execute(&state.pool)
         .await;
 
@@ -456,9 +458,9 @@ pub async fn update_inbound(
          return (axum::http::StatusCode::BAD_REQUEST, format!("Port {} is already used by another inbound on this node.", form.listen_port)).into_response();
     }
 
-    let res = sqlx::query("UPDATE inbounds SET tag = ?, protocol = ?, listen_port = ?, listen_ip = ?, settings = ?, stream_settings = ? WHERE id = ? AND node_id = ?")
+    let res = sqlx::query("UPDATE inbounds SET tag = ?, protocol = ?, listen_port = ?, listen_ip = ?, settings = ?, stream_settings = ?, remark = ? WHERE id = ? AND node_id = ?")
         .bind(&form.tag).bind(&form.protocol).bind(form.listen_port).bind(&form.listen_ip)
-        .bind(&form.settings).bind(&form.stream_settings).bind(inbound_id).bind(node_id)
+        .bind(&form.settings).bind(&form.stream_settings).bind(&form.remark).bind(inbound_id).bind(node_id)
         .execute(&state.pool).await;
 
     match res {

@@ -25,6 +25,7 @@ impl GeneratorService {
         .await?;
 
         if templates.is_empty() {
+            warn!("⚠️ No active templates found for group {}", group_id);
             return Ok(());
         }
 
@@ -40,9 +41,14 @@ impl GeneratorService {
         .fetch_all(&self.pool)
         .await?;
 
+        info!("🔄 Syncing {} templates to {} nodes in group {}", templates.len(), nodes.len(), group_id);
+
         for node in nodes {
             for template in &templates {
-                self.ensure_inbound_exists(&node, template).await?;
+                match self.ensure_inbound_exists(&node, template).await {
+                    Ok(_) => info!("✅ Inbound for template {} synced to node {} ({})", template.id, node.id, node.name),
+                    Err(e) => error!("❌ Failed to sync template {} to node {}: {}", template.id, node.id, e),
+                }
             }
         }
 
@@ -108,7 +114,7 @@ impl GeneratorService {
 
             // Update DB
             sqlx::query(
-                "UPDATE inbounds SET protocol = ?, settings = ?, stream_settings = ?, remark = ? WHERE id = ?"
+                "UPDATE inbounds SET protocol = ?, settings = ?, stream_settings = ?, remark = ?, enable = 1 WHERE id = ?"
             )
             .bind(&template.protocol)
             .bind(&settings)

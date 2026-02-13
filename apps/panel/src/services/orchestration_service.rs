@@ -314,6 +314,7 @@ impl OrchestrationService {
         info!("Step 2: Fetching inbounds for node {}", node_id);
         // 2. Fetch Inbounds for this node
         let mut inbounds = self.node_repo.get_inbounds_by_node(node_id).await?;
+        info!("Step 2: Found {} inbounds for node {} ({})", inbounds.len(), node_id, node.name);
 
         // Dynamic SNI Override (for Auto Rotation)
         if let Some(new_sni) = &node.reality_sni {
@@ -339,19 +340,28 @@ impl OrchestrationService {
 
         info!("Step 3: Injecting users for {} inbounds", inbounds.len());
         // 3. For each inbound, inject authorized users
+        info!("Step 3: Injecting users for {} inbounds", inbounds.len());
         for inbound in &mut inbounds {
-            // Find plans linked to this inbound
-            // Find plans linked to this inbound OR to the parent node Generally
-            let linked_plans = self.node_repo.get_linked_plans(node.id, inbound.id).await?;
-
-            if linked_plans.is_empty() {
+            if !inbound.enable {
+                warn!("⚠️ Inbound {} is DISABLED, skipping user injection", inbound.tag);
                 continue;
             }
 
-    
-        let active_subs: Vec<(Option<String>, i64, Option<String>)> = self.store_service.get_active_subs_by_plans(&linked_plans).await?;
+            // Find plans linked to this inbound
+            let linked_plans = self.node_repo.get_linked_plans(node.id, inbound.id).await?;
+
+            if linked_plans.is_empty() {
+                warn!("⚠️ Inbound {} has NO linked plans for node {}, users will be empty", inbound.tag, node_id);
+            }
             
-        info!("Found {} active subscriptions for inbound {}", active_subs.len(), inbound.tag);
+            // Fetch users only if we have plans
+            let active_subs = if linked_plans.is_empty() {
+                Vec::new()
+            } else {
+                self.store_service.get_active_subs_by_plans(&linked_plans).await.unwrap_or_default()
+            };
+            
+            info!("Found {} active subscriptions for inbound {}", active_subs.len(), inbound.tag);
 
         use crate::models::network::{InboundType, VlessClient, Hysteria2User, NaiveUser};
 

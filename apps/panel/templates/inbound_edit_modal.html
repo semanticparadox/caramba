@@ -22,9 +22,18 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             <!-- Basic Settings -->
             <div class="space-y-6">
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Tag</label>
-                    <input type="text" id="edit_tag" name="tag" value="{{ inbound.tag }}" required class="input-field">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Remark /
+                            Name</label>
+                        <input type="text" id="edit_remark" name="remark"
+                            value="{{ inbound.remark.as_ref().unwrap_or(&inbound.tag) }}" class="input-field">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Tag</label>
+                        <input type="text" id="edit_tag" name="tag" value="{{ inbound.tag }}" required
+                            class="input-field">
+                    </div>
                 </div>
                 <div>
                     <label
