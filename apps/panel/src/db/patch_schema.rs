@@ -22,9 +22,6 @@ pub async fn patch_database_schema(pool: &Pool<Sqlite>) {
             error!("Failed to add 'is_trial' column: {}", e);
         } else {
             info!("✅ Added 'is_trial' column to 'plans'");
-            
-            // Also backfill default trial plan if not exists
-            let _ = sqlx::query("UPDATE plans SET is_trial = 1 WHERE name = 'Free Trial'").execute(pool).await;
         }
     }
 

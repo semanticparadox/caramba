@@ -19,10 +19,17 @@ impl ConfigGenerator {
             }
 
             // Parse Protocol Settings
-            let protocol_settings: InboundType = match serde_json::from_str(&inbound.settings) {
+            let mut settings_value: serde_json::Value = serde_json::from_str(&inbound.settings).unwrap_or(serde_json::Value::Null);
+            if let Some(obj) = settings_value.as_object_mut() {
+                if !obj.contains_key("protocol") {
+                    obj.insert("protocol".to_string(), serde_json::Value::String(inbound.protocol.clone().to_lowercase()));
+                }
+            }
+
+            let protocol_settings: InboundType = match serde_json::from_value(settings_value) {
                 Ok(s) => s,
                 Err(e) => {
-                    error!("Failed to parse settings for inbound {}: {}", inbound.tag, e);
+                    error!("Failed to parse settings for inbound {}: {} (json: {})", inbound.tag, e, inbound.settings);
                     continue;
                 }
             };

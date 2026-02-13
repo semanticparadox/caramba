@@ -1081,62 +1081,6 @@ pub async fn callback_handler(
                 }
             }
 
-            // === Quick Wins: Free Trial Activation ===
-            "start_trial" => {
-                let _ = bot.answer_callback_query(callback_id.clone()).await;
-                
-                if let Some(user) = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten() {
-                    if user.trial_used.unwrap_or(false) {
-                        let _ = bot.answer_callback_query(callback_id.clone())
-                            .text("❌ Free trial already used")
-                            .show_alert(true)
-                            .await;
-                        return Ok(());
-                    }
-                    
-                    match (state.store_service.get_trial_plan().await, state.store_service.mark_trial_used(user.id).await) {
-                        (Ok(trial_plan), Ok(_)) => {
-                            match state.store_service.create_trial_subscription(user.id, trial_plan.id, 1).await {
-                                Ok(sub_id) => {
-                                    if let Some(msg) = q.message {
-                                        let _ = bot.delete_message(msg.chat().id, msg.id()).await;
-                                        
-                                        let trial_msg = format!(
-                                            "🎁 <b>Free Trial Activated!</b>\n\n\
-                                             ⏰ Duration: 24 hours\n\
-                                             📊 Traffic: 10GB\n\
-                                             🔐 Protocols: VLESS, HY2, AmneziaWG\n\n\
-                                             Use /sub to view your subscription link!"
-                                        );
-                                        
-                                        let _ = bot.send_message(msg.chat().id, trial_msg)
-                                            .parse_mode(ParseMode::Html)
-                                            .await;
-                                        
-                                        info!("Trial subscription {} created for user {}", sub_id, user.id);
-                                    }
-                                }
-                                Err(e) => {
-                                    error!("Failed to create trial subscription: {}", e);
-                                    if let Some(msg) = q.message {
-                                        let _ = bot.send_message(msg.chat().id, "❌ Failed to activate trial\\. Please contact support\\.")
-                                            .parse_mode(ParseMode::MarkdownV2)
-                                            .await;
-                                    }
-                                }
-                            }
-                        }
-                        _ => {
-                            error!("Failed to get trial plan or mark trial used");
-                            if let Some(msg) = q.message {
-                                let _ = bot.send_message(msg.chat().id, "❌ Trial not available at the moment\\.")
-                                    .parse_mode(ParseMode::MarkdownV2)
-                                    .await;
-                            }
-                        }
-                    }
-                }
-            }
 
             _ => {
                 let _ = bot.answer_callback_query(callback_id).text("Feature not yet implemented.").await;

@@ -132,35 +132,6 @@ impl StoreService {
         // Analytics Hooks
         if existing.is_none() {
              let _ = crate::services::analytics_service::AnalyticsService::track_new_user(&self.pool).await;
-
-             // Free Tier / Auto-Trial Logic
-             // Check if there is an active "is_trial" plan
-             let trial_plan = self.sub_repo.get_trial_plan().await?;
-
-             if let Some(plan) = trial_plan {
-                 // Get default duration (shortest)
-                 let duration = plan.durations.first().cloned();
-
-                 if let Some(d) = duration {
-                     // Create active subscription
-                     let vless_uuid = Uuid::new_v4().to_string();
-                     let sub_uuid = Uuid::new_v4().to_string();
-                     let expires_at = Utc::now() + Duration::days(d.duration_days as i64);
-
-                     let _ = self.sub_repo.create(
-                         user.id,
-                         plan.id,
-                         &vless_uuid,
-                         &sub_uuid,
-                         expires_at,
-                         "active",
-                         Some("Free Tier"),
-                         true
-                     ).await;
-                     
-                     info!("Assigned Free Tier plan {} to new user {}", plan.name, user.id);
-                 }
-             }
         }
         let _ = crate::services::analytics_service::AnalyticsService::track_active_user(&self.pool, user.id).await;
 

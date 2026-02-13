@@ -700,14 +700,9 @@ INSERT OR IGNORE INTO sni_pool (domain, tier, notes) VALUES
     ('playstation.com', 2, 'PlayStation'),
     ('xbox.com', 2, 'Xbox');
 
--- Create Free Trial Plan (Fixed INSERT with traffic_limit_gb)
-INSERT OR IGNORE INTO plans (name, description, traffic_limit_gb, price, is_active, is_trial)
-VALUES ('Free Trial', '24h trial with 10GB traffic', 10, 0, 1, 1);
+-- Initial plans (Optional)
 
--- Add trial duration (only if plan exists)
-INSERT OR IGNORE INTO plan_durations (plan_id, duration_days, traffic_gb, price, is_default)
-SELECT id, 1, 10, 0, 1
-FROM plans WHERE is_trial = 1;
+
 
 -- Seed default group
 INSERT OR IGNORE INTO node_groups (id, name, slug, description) VALUES (1, 'Default', 'default', 'Default Node Group');

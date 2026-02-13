@@ -46,7 +46,6 @@ pub struct AppState {
     pub orchestration_service: Arc<services::orchestration_service::OrchestrationService>,
     pub pay_service: Arc<services::pay_service::PayService>,
     pub export_service: Arc<services::export_service::ExportService>,
-    pub channel_trial_service: Arc<services::channel_trial_service::ChannelTrialService>,
     pub notification_service: Arc<services::notification_service::NotificationService>,
     pub connection_service: Arc<services::connection_service::ConnectionService>,
     pub redis: Arc<services::redis_service::RedisService>,
@@ -307,7 +306,6 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     ));
 
     let export_service = Arc::new(services::export_service::ExportService::new(pool.clone()));
-    let channel_trial_service = Arc::new(services::channel_trial_service::ChannelTrialService::new(pool.clone()));
     let notification_service = Arc::new(services::notification_service::NotificationService::new(pool.clone()));
     
     // Telemetry Service (Phase 3) - Depends on Security, Notification, BotManager
@@ -342,7 +340,6 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         orchestration_service: orchestration_service.clone(),
         pay_service: pay_service.clone(),
         export_service: export_service.clone(),
-        channel_trial_service: channel_trial_service.clone(),
         notification_service: notification_service.clone(),
         connection_service: connection_service.clone(),
         redis: redis_service.clone(),
