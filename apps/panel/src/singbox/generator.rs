@@ -68,8 +68,8 @@ impl ConfigGenerator {
                                         server: reality.dest.split(':').next().unwrap_or(&reality.dest).to_string(),
                                         server_port: reality.dest.split(':').last().and_then(|p| p.parse().ok()).unwrap_or(443),
                                     },
-                                    private_key: reality.private_key,
-                                    short_id: reality.short_ids,
+                                    private_key: if reality.private_key.is_empty() { node.reality_priv.clone().unwrap_or_default() } else { reality.private_key },
+                                    short_id: if reality.short_ids.is_empty() { node.short_id.clone().map(|s| vec![s]).unwrap_or_default() } else { reality.short_ids },
                                 },
                                 key_path: None,
                                 certificate_path: None,
@@ -159,7 +159,7 @@ impl ConfigGenerator {
                 InboundType::Hysteria2(hy2) => {
                     let mut tls_config = Hysteria2TlsConfig {
                         enabled: true,
-                        server_name: "drive.google.com".to_string(), // Default or from stream
+                        server_name: node.reality_sni.clone().unwrap_or_else(|| "drive.google.com".to_string()), // Default or from stream
                         key_path: Some("/etc/sing-box/certs/key.pem".to_string()),
                         certificate_path: Some("/etc/sing-box/certs/cert.pem".to_string()),
                         alpn: Some(vec!["h3".to_string()]),
@@ -253,7 +253,7 @@ impl ConfigGenerator {
                 InboundType::Tuic(tuic) => {
                     let mut tls_config = TuicTlsConfig {
                         enabled: true,
-                        server_name: "www.google.com".to_string(), // Default
+                        server_name: node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string()), // Default
                         key_path: Some("/etc/sing-box/certs/key.pem".to_string()),
                         certificate_path: Some("/etc/sing-box/certs/cert.pem".to_string()),
                         alpn: Some(vec!["h3".to_string()]),
@@ -306,11 +306,23 @@ impl ConfigGenerator {
                                  reality: RealityConfig {
                                      enabled: true,
                                      handshake: RealityHandshake {
-                                         server: reality.dest.split(':').next().unwrap_or(&reality.dest).to_string(),
+                                         server: if reality.dest.is_empty() {
+                                             node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string())
+                                         } else {
+                                             reality.dest.split(':').next().unwrap_or(&reality.dest).to_string()
+                                         },
                                          server_port: reality.dest.split(':').last().and_then(|p| p.parse().ok()).unwrap_or(443),
                                      },
-                                     private_key: reality.private_key,
-                                     short_id: reality.short_ids,
+                                     private_key: if reality.private_key.is_empty() {
+                                         node.reality_priv.clone().unwrap_or_default()
+                                     } else {
+                                         reality.private_key
+                                     },
+                                     short_id: if reality.short_ids.is_empty() {
+                                         node.short_id.clone().map(|s| vec![s]).unwrap_or_default()
+                                     } else {
+                                         reality.short_ids
+                                     },
                                  },
                                  key_path: None,
                                  certificate_path: None,
@@ -378,8 +390,8 @@ impl ConfigGenerator {
                                         server: reality.dest.split(':').next().unwrap_or(&reality.dest).to_string(),
                                         server_port: reality.dest.split(':').last().and_then(|p| p.parse().ok()).unwrap_or(443),
                                     },
-                                    private_key: reality.private_key,
-                                    short_id: reality.short_ids,
+                                    private_key: if reality.private_key.is_empty() { node.reality_priv.clone().unwrap_or_default() } else { reality.private_key },
+                                    short_id: if reality.short_ids.is_empty() { node.short_id.clone().map(|s| vec![s]).unwrap_or_default() } else { reality.short_ids },
                                 },
                                 key_path: None,
                                 certificate_path: None,
