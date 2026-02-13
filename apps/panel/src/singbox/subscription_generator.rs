@@ -817,12 +817,20 @@ pub fn generate_singbox_config(
                                 }
                                 
                                 // Multiplexing for HTTPUpgrade
-                                ob["multiplex"] = json!({
-                                    "enabled": true,
-                                    "max_connections": 4,
-                                    "min_streams": 2,
-                                    "padding": true
-                                });
+                                let mut mux = si.xmux.clone().unwrap_or(json!({}));
+                                if !mux.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                    mux["enabled"] = json!(true);
+                                }
+                                if mux.get("max_connections").is_none() {
+                                    mux["max_connections"] = json!(4);
+                                }
+                                if mux.get("min_streams").is_none() {
+                                    mux["min_streams"] = json!(2);
+                                }
+                                if mux.get("padding").is_none() {
+                                    mux["padding"] = json!(true);
+                                }
+                                ob["multiplex"] = mux;
                             }
                             _ => {} // tcp = no transport block
                         }
