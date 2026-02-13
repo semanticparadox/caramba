@@ -452,7 +452,7 @@ impl ConfigGenerator {
                         });
                     }
 
-                    generated_inbounds.push(Inbound::Naive(NaiveInbound {
+                    let inbound_obj = NaiveInbound {
                         tag: inbound.tag,
                         listen: inbound.listen_ip.clone(),
                         listen_port: inbound.listen_port as u16,
