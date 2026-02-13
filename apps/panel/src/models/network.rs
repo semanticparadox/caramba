@@ -43,6 +43,7 @@ pub enum InboundType {
     AmneziaWg(AmneziaWgSettings),
     Tuic(TuicSettings),
     Naive(NaiveSettings),
+    Shadowsocks(ShadowsocksSettings),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +53,18 @@ pub struct NaiveSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NaiveUser {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShadowsocksSettings {
+    pub method: String,
+    pub users: Vec<ShadowsocksUser>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShadowsocksUser {
     pub username: String,
     pub password: String,
 }

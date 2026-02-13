@@ -354,13 +354,21 @@ pub fn generate_v2ray_config(
                     }
                     "shadowsocks" | "ss" => {
                         let method = parse_ss_method(&inbound.settings);
-                        let password = parse_ss_password(&inbound.settings);
+                        // Phase 46: Use per-user password (consistent with orchestration_service)
+                        let password = if method.contains("2022") {
+                            user_keys.user_uuid.replace("-", "")
+                        } else {
+                            parse_ss_password(&inbound.settings)
+                        };
+                        
+                        let host = node.frontend_url.as_deref().unwrap_or(&node.address);
+                        
                         // ss://base64(method:password)@host:port#tag
                         use base64::Engine;
                         let userinfo = base64::engine::general_purpose::URL_SAFE_NO_PAD
                             .encode(format!("{}:{}", method, password));
                         links.push(format!("ss://{}@{}:{}#{}",
-                            userinfo, node.address, inbound.listen_port, label));
+                            userinfo, host, inbound.listen_port, label));
                     }
                     "hysteria2" | "hy2" => {
                         let mut params = vec![
@@ -404,6 +412,25 @@ pub fn generate_v2ray_config(
                         links.push(format!("wireguard://{}@{}:{}?{}#{}",
                             user_keys._awg_private_key.clone().unwrap_or_default(),
                             node.address, inbound.listen_port,
+                            params.join("&"), label));
+                    }
+                    "naive" => {
+                         let host = node.frontend_url.as_deref().unwrap_or(&node.address);
+                         links.push(format!("naive+https://{}:{}@{}:{}?sni={}#{}",
+                            user_keys.user_uuid, user_keys.hy2_password,
+                            host, inbound.listen_port,
+                            si.sni, label));
+                    }
+                    "tuic" => {
+                        let host = node.frontend_url.as_deref().unwrap_or(&node.address);
+                        let mut params = vec![
+                            format!("sni={}", si.sni),
+                            format!("congestion_control={}", si.tuic_congestion_control.as_deref().unwrap_or("bbr")),
+                            format!("alpn=h3"),
+                        ];
+                        links.push(format!("tuic://{}:{}@{}:{}?{}#{}",
+                            user_keys.user_uuid, user_keys.hy2_password,
+                            host, inbound.listen_port,
                             params.join("&"), label));
                     }
                     _ => {

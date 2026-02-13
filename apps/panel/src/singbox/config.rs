@@ -50,6 +50,7 @@ pub enum Inbound {
     Tuic(TuicInbound),
     Http(HttpInbound),
     Naive(NaiveInbound),
+    Shadowsocks(ShadowsocksInbound),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -93,6 +94,21 @@ pub struct VlessInbound {
     pub tls: Option<VlessTlsConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transport: Option<VlessTransportConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ShadowsocksInbound {
+    pub tag: String,
+    pub listen: String,
+    pub listen_port: u16,
+    pub method: String,
+    pub users: Vec<ShadowsocksUser>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ShadowsocksUser {
+    pub name: String,
+    pub password: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

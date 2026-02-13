@@ -197,7 +197,8 @@
                         <div class="relative">
                             <select id="protocol" name="protocol" onchange="updateTemplates()" required
                                 class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-indigo-500 outline-none appearance-none">
-                                <option value="vless">VLESS</option>
+                                <option value="vless">VLESS Reality (TCP)</option>
+                                <option value="shadowsocks">Shadowsocks (TCP)</option>
                                 <option value="hysteria2">Hysteria 2</option>
                                 <option value="tuic">TUIC v5</option>
                                 <option value="naive">NaiveProxy</option>
@@ -299,6 +300,15 @@
                     "private_key": "",
                     "short_ids": [""]
                 }
+            }
+        },
+        shadowsocks: {
+            settings: {
+                "method": "2022-blake3-aes-128-gcm",
+                "users": []
+            },
+            stream_settings: {
+                "network": "tcp"
             }
         },
         hysteria2: {

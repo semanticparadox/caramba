@@ -465,6 +465,19 @@ impl OrchestrationService {
                                 });
                             }
                         }
+                    },
+                    InboundType::Shadowsocks(ss) => {
+                         for sub in &active_subs {
+                            if let (Some(uuid), tg_id, _) = (&sub.0, sub.1, &sub.2) {
+                                let auth_name = tg_id.to_string();
+                                
+                                info!("🔑 Injecting SHADOWSOCKS user: {} (Pass: {})", auth_name, uuid);
+                                ss.users.push(crate::models::network::ShadowsocksUser {
+                                    username: auth_name,
+                                    password: uuid.replace("-", ""),
+                                });
+                            }
+                        }
                     }
                 }
                 inbound.settings = serde_json::to_string(&settings)?;

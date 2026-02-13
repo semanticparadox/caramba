@@ -58,7 +58,9 @@ impl ConfigGenerator {
                         if let Some(reality) = stream_settings.reality_settings {
                              tls_config = Some(VlessTlsConfig {
                                 enabled: true,
-                                server_name: reality.server_names.first().cloned().unwrap_or_default(),
+                                server_name: reality.server_names.first().cloned().unwrap_or_else(|| {
+                                    node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string())
+                                }),
                                 alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
                                 reality: RealityConfig {
                                     enabled: true,
@@ -297,7 +299,9 @@ impl ConfigGenerator {
                         if let Some(reality) = stream_settings.reality_settings {
                               tls_config = Some(VlessTlsConfig {
                                  enabled: true,
-                                 server_name: reality.server_names.first().cloned().unwrap_or_default(),
+                                 server_name: reality.server_names.first().cloned().unwrap_or_else(|| {
+                                     node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string())
+                                 }),
                                  alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
                                  reality: RealityConfig {
                                      enabled: true,
@@ -428,6 +432,20 @@ impl ConfigGenerator {
                             password: u.password.clone(),
                         }).collect(),
                         tls: tls_config,
+                    }));
+                },
+                InboundType::Shadowsocks(ss) => {
+                    let users = ss.users.iter().map(|u| crate::singbox::config::ShadowsocksUser {
+                        name: u.username.clone(),
+                        password: u.password.clone(),
+                    }).collect();
+
+                    generated_inbounds.push(Inbound::Shadowsocks(ShadowsocksInbound {
+                        tag: inbound.tag,
+                        listen: inbound.listen_ip,
+                        listen_port: inbound.listen_port as u16,
+                        method: ss.method,
+                        users,
                     }));
                 },
             }

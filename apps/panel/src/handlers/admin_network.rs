@@ -128,7 +128,7 @@ pub async fn add_inbound(
          return (axum::http::StatusCode::BAD_REQUEST, format!("Port {} is already used by another inbound on this node.", form.listen_port)).into_response();
     }
 
-    let res = sqlx::query("INSERT INTO inbounds (node_id, tag, protocol, listen_port, listen_ip, settings, stream_settings, remark) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    let res: Result<i64, _> = sqlx::query_scalar("INSERT INTO inbounds (node_id, tag, protocol, listen_port, listen_ip, settings, stream_settings, remark) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")
         .bind(node_id)
         .bind(&form.tag)
         .bind(&form.protocol)
@@ -137,11 +137,38 @@ pub async fn add_inbound(
         .bind(&form.settings)
         .bind(&form.stream_settings)
         .bind(&form.remark)
-        .execute(&state.pool)
+        .fetch_one(&state.pool)
         .await;
 
     match res {
-        Ok(_) => {
+        Ok(inbound_id) => {
+
+            // Phase 46: Link this inbound to all plans that use this node
+            // This ensures manual inbounds actually HAVE users in the generated config.
+            let plans_res: Result<Vec<i64>, _> = sqlx::query_scalar(
+                r#"
+                SELECT plan_id FROM plan_nodes WHERE node_id = ?
+                UNION
+                SELECT pg.plan_id FROM plan_groups pg
+                JOIN node_group_members ngm ON pg.group_id = ngm.group_id
+                WHERE ngm.node_id = ?
+                "#
+            )
+            .bind(node_id)
+            .bind(node_id)
+            .fetch_all(&state.pool)
+            .await;
+
+            if let Ok(plans) = plans_res {
+                for plan_id in plans {
+                    let _ = sqlx::query("INSERT OR IGNORE INTO plan_inbounds (plan_id, inbound_id) VALUES (?, ?)")
+                        .bind(plan_id)
+                        .bind(inbound_id)
+                        .execute(&state.pool)
+                        .await;
+                }
+            }
+
             // PubSub Notify
             let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "update").await;
 
