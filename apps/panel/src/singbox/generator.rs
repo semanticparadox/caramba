@@ -131,14 +131,13 @@ impl ConfigGenerator {
                                 if let Some(xhttp) = stream_settings.xhttp_settings.as_ref() {
                                     transport_config = Some(VlessTransportConfig::HttpUpgrade(HttpUpgradeTransport {
                                         path: xhttp.path.clone(),
-                                        host: xhttp.host.clone().map(|h| vec![h]),
+                                        host: if xhttp.host.is_empty() { None } else { Some(vec![xhttp.host.clone()]) },
                                     }));
                                 }
                             },
                             _ => {}
                         }
                     }
-
                     // Convert users
                     let users = vless.clients.iter().map(|c| VlessUser {
                         name: c.email.clone(),
