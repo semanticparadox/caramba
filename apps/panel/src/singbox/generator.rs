@@ -141,11 +141,16 @@ impl ConfigGenerator {
                         }
                     }
                     // Convert users
-                    let users = vless.clients.iter().map(|c| VlessUser {
+                    let users: Vec<VlessUser> = vless.clients.iter().map(|c| VlessUser {
                         name: c.email.clone(),
                         uuid: c.id.clone(),
                         flow: if c.flow.is_empty() { None } else { Some(c.flow.clone()) },
                     }).collect();
+
+                    if users.is_empty() {
+                        warn!("⚠️ VLESS inbound '{}' has no users, skipping to avoid sing-box FATAL", inbound.tag);
+                        continue;
+                    }
 
                     generated_inbounds.push(Inbound::Vless(VlessInbound {
                         tag: inbound.tag,
@@ -188,13 +193,15 @@ impl ConfigGenerator {
                         tls_config.certificate_path = Some("/etc/sing-box/certs/cert.pem".to_string());
                     }
 
-                    let users = hy2.users.iter().map(|u| Hysteria2User {
+                    let users: Vec<Hysteria2User> = hy2.users.iter().map(|u| Hysteria2User {
                         name: u.name.clone(),
-                        // CRITICAL FIX: Sing-box Hysteria2 treats the entire auth payload as 'password'.
-                        // Official clients send 'user:password'.
-                        // So we must set the server-side password to match 'user:password'.
                         password: format!("{}:{}", u.name.as_deref().unwrap_or("unknown"), u.password.replace("-", "")),
                     }).collect();
+
+                    if users.is_empty() {
+                        warn!("⚠️ Hysteria2 inbound '{}' has no users, skipping to avoid sing-box FATAL", inbound.tag);
+                        continue;
+                    }
 
                     generated_inbounds.push(Inbound::Hysteria2(Hysteria2Inbound {
                         tag: inbound.tag,
@@ -273,11 +280,16 @@ impl ConfigGenerator {
                          }
                     }
 
-                    let users = tuic.users.iter().map(|u| TuicUser {
+                    let users: Vec<TuicUser> = tuic.users.iter().map(|u| TuicUser {
                         name: u.name.clone(),
                         uuid: u.uuid.clone(),
                         password: u.password.clone(),
                     }).collect();
+
+                    if users.is_empty() {
+                        warn!("⚠️ TUIC inbound '{}' has no users, skipping to avoid sing-box FATAL", inbound.tag);
+                        continue;
+                    }
 
                     generated_inbounds.push(Inbound::Tuic(TuicInbound {
                         tag: inbound.tag,
@@ -360,10 +372,15 @@ impl ConfigGenerator {
                         });
                      }
 
-                    let users = trojan.clients.iter().map(|c| TrojanUser {
+                    let users: Vec<TrojanUser> = trojan.clients.iter().map(|c| TrojanUser {
                         name: c.email.clone(),
                         password: c.password.clone(),
                     }).collect();
+
+                    if users.is_empty() {
+                        warn!("⚠️ Trojan inbound '{}' has no users, skipping to avoid sing-box FATAL", inbound.tag);
+                        continue;
+                    }
 
                     generated_inbounds.push(Inbound::Trojan(TrojanInbound {
                         tag: inbound.tag,
@@ -444,13 +461,25 @@ impl ConfigGenerator {
                             password: u.password.clone(),
                         }).collect(),
                         tls: tls_config,
-                    }));
+                    };
+                    
+                    if inbound_obj.users.is_empty() {
+                        warn!("⚠️ Naive inbound '{}' has no users, skipping to avoid sing-box FATAL", inbound.tag);
+                        continue;
+                    }
+
+                    generated_inbounds.push(Inbound::Naive(inbound_obj));
                 },
                 InboundType::Shadowsocks(ss) => {
-                    let users = ss.users.iter().map(|u| crate::singbox::config::ShadowsocksUser {
+                    let users: Vec<crate::singbox::config::ShadowsocksUser> = ss.users.iter().map(|u| crate::singbox::config::ShadowsocksUser {
                         name: u.username.clone(),
                         password: u.password.clone(),
                     }).collect();
+
+                    if users.is_empty() {
+                        warn!("⚠️ Shadowsocks inbound '{}' has no users, skipping to avoid sing-box FATAL", inbound.tag);
+                        continue;
+                    }
 
                     generated_inbounds.push(Inbound::Shadowsocks(ShadowsocksInbound {
                         tag: inbound.tag,
