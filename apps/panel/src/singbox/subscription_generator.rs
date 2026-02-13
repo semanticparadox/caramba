@@ -423,7 +423,7 @@ pub fn generate_v2ray_config(
                     }
                     "tuic" => {
                         let host = node.frontend_url.as_deref().unwrap_or(&node.address);
-                        let mut params = vec![
+                        let params = vec![
                             format!("sni={}", si.sni),
                             format!("congestion_control={}", si.tuic_congestion_control.as_deref().unwrap_or("bbr")),
                             format!("alpn=h3"),

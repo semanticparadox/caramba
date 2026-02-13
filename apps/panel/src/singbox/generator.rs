@@ -464,7 +464,7 @@ impl ConfigGenerator {
                     };
                     
                     if inbound_obj.users.is_empty() {
-                        warn!("⚠️ Naive inbound '{}' has no users, skipping to avoid sing-box FATAL", inbound.tag);
+                        warn!("⚠️ Naive inbound '{}' has no users, skipping to avoid sing-box FATAL", inbound_obj.tag);
                         continue;
                     }
 
