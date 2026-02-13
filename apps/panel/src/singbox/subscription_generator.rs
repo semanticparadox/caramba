@@ -802,27 +802,27 @@ pub fn generate_singbox_config(
                                     "service_name": si.grpc_service
                                 });
                             }
-                            "xhttp" | "splithttp" => {
+                            "xhttp" | "splithttp" | "httpupgrade" => {
                                 ob["transport"] = json!({
-                                    "type": "xhttp",
+                                    "type": "httpupgrade",
                                     "host": si.sni,
                                     "path": si.ws_path
                                 });
                                 
                                 // Packet Encoding (xudp / packetaddr)
-                                // In Sing-box 1.10+, XHTTP transport handles packet encoding efficiently.
-                                // But for the VLESS outbound itself, we can specify packet_encoding.
-                                ob["packet_encoding"] = json!("xudp");
-                                
-                                // Mux (xmux) - Enforce Browser Mimicry
-                                let mut mux = si.xmux.clone().unwrap_or(json!({}));
-                                if !mux.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
-                                    mux["enabled"] = json!(true);
+                                if let Some(pe) = &si.packet_encoding {
+                                     ob["transport"]["packet_encoding"] = json!(pe);
+                                } else {
+                                     ob["transport"]["packet_encoding"] = json!("xudp");
                                 }
-                                mux["max_connections"] = json!(4);
-                                mux["min_streams"] = json!(2);
-                                mux["padding"] = json!(true);
-                                ob["multiplex"] = mux;
+                                
+                                // Multiplexing for HTTPUpgrade
+                                ob["multiplex"] = json!({
+                                    "enabled": true,
+                                    "max_connections": 4,
+                                    "min_streams": 2,
+                                    "padding": true
+                                });
                             }
                             _ => {} // tcp = no transport block
                         }

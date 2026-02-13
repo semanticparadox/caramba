@@ -280,7 +280,11 @@
     const templates = {
         vless: {
             settings: {
-                "clients": [],
+                "clients": [{
+                    "id": "",
+                    "flow": "xtls-rprx-vision",
+                    "email": "user@example.com"
+                }],
                 "decryption": "none",
                 "fallbacks": []
             },
@@ -299,7 +303,7 @@
         },
         hysteria2: {
             settings: {
-                "users": [],
+                "users": [{ "password": "" }],
                 "up_mbps": 100,
                 "down_mbps": 100,
                 "ignore_client_bandwidth": false
@@ -311,12 +315,12 @@
                     "server_name": "drive.google.com",
                     "certificates": []
                 },
-                "masquerade": "/var/www/html"
+                "masquerade": "https://www.google.com"
             }
         },
         trojan: {
             settings: {
-                "clients": [],
+                "clients": [{ "password": "" }],
                 "fallback": null
             },
             stream_settings: {
@@ -330,10 +334,10 @@
         },
         tuic: {
             settings: {
-                "users": [],
+                "users": [{ "uuid": "", "password": "" }],
                 "congestion_control": "bbr",
                 "auth_timeout": "3s",
-                "zero_rtt_handshake": false,
+                "zero_rtt_handshake": true,
                 "heartbeat": "10s"
             },
             stream_settings: {
@@ -348,8 +352,7 @@
         },
         naive: {
             settings: {
-                "users": [],
-                "network": "https"
+                "users": [{ "username": "admin", "password": "" }]
             },
             stream_settings: {
                 "network": "tcp",

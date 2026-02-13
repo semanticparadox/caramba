@@ -49,6 +49,7 @@ pub enum Inbound {
     Trojan(TrojanInbound),
     Tuic(TuicInbound),
     Http(HttpInbound),
+    Naive(NaiveInbound),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -63,6 +64,22 @@ pub struct HttpInbound {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct HttpUser {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NaiveInbound {
+    pub tag: String,
+    pub listen: String,
+    pub listen_port: u16,
+    pub users: Vec<NaiveUser>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls: Option<VlessTlsConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NaiveUser {
     pub username: String,
     pub password: String,
 }

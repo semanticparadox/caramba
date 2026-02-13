@@ -36,7 +36,8 @@ mod tests {
     }
 
     #[test]
-    fn test_xhttp_generation() {
+    fn test_httpupgrade_generation() {
+        // Test that xhttp/splithttp legacy inputs are mapped to httpupgrade in Sing-box
         let user_keys = UserKeys {
             user_uuid: "uuid-123".to_string(),
             hy2_password: "pass".to_string(),

@@ -126,12 +126,12 @@ impl ConfigGenerator {
                                 }
                             },
                             "xhttp" | "splithttp" => {
+                                // Sing-box does NOT support Xray's xhttp/splithttp yet. 
+                                // We fallback to httpupgrade if possible, or just TCP.
                                 if let Some(xhttp) = stream_settings.xhttp_settings.as_ref() {
-                                    transport_config = Some(VlessTransportConfig::Xhttp(XhttpTransport {
+                                    transport_config = Some(VlessTransportConfig::HttpUpgrade(HttpUpgradeTransport {
                                         path: xhttp.path.clone(),
-                                        host: xhttp.host.clone(),
-                                        mode: xhttp.mode.clone(),
-                                        extra: xhttp.extra.clone(),
+                                        host: xhttp.host.clone().map(|h| vec![h]),
                                     }));
                                 }
                             },
@@ -420,11 +420,11 @@ impl ConfigGenerator {
                         });
                     }
 
-                    generated_inbounds.push(Inbound::Http(HttpInbound {
+                    generated_inbounds.push(Inbound::Naive(NaiveInbound {
                         tag: inbound.tag,
                         listen: inbound.listen_ip.clone(),
                         listen_port: inbound.listen_port as u16,
-                        users: naive.users.iter().map(|u| HttpUser {
+                        users: naive.users.iter().map(|u| NaiveUser {
                             username: u.username.clone(),
                             password: u.password.clone(),
                         }).collect(),
