@@ -1075,7 +1075,7 @@ pub fn generate_singbox_config(
             "type": "selector",
             "tag": "proxy",
             "outbounds": outbound_tags,
-            "selected": outbound_tags.first().unwrap_or(&"direct".to_string()),
+            "default": outbound_tags.first().unwrap_or(&"direct".to_string()),
         }),
         json!({
             "type": "urltest",
