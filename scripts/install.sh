@@ -14,7 +14,7 @@ set -e
 REPO_URL="https://github.com/semanticparadox/EXA-ROBOT.git"
 INSTALL_DIR="/opt/exarobot"
 TEMP_BUILD_DIR="/tmp/exarobot_build"
-VERSION_TAG="2026-02-13-v4"
+VERSION_TAG="2026-02-13-v5"
 
 # Colors
 RED='\033[0;31m'
@@ -1075,7 +1075,7 @@ fi
 
 # 3. Create Service
 echo "⚙️ Creating Systemd Service..."
-cat > /etc/systemd/system/hans.service <<EOF
+cat > /etc/systemd/system/hans.service <<EOF_SERVICE
 [Unit]
 Description=Hans ICMP Tunnel
 After=network.target
@@ -1090,7 +1090,7 @@ AmbientCapabilities=CAP_NET_RAW
 
 [Install]
 WantedBy=multi-user.target
-EOF
+EOF_SERVICE
 
 systemctl daemon-reload
 systemctl enable hans
