@@ -49,7 +49,6 @@ pub struct NodeEditModalTemplate {
 #[template(path = "node_manual_install.html")]
 pub struct NodeManualInstallTemplate {
     pub node: Node,
-    pub script: String,
     pub admin_path: String,
 }
 
@@ -124,15 +123,12 @@ pub async fn install_node(
                  let node = state.infrastructure_service.get_node_by_id(id).await.ok();
                  
                  if let Some(node) = node {
-                     let script = crate::scripts::Scripts::get_setup_node_script().unwrap_or_default();
-
                      let admin_path = state.admin_path.clone();
-                     let template = NodeManualInstallTemplate { node, script, admin_path };
+                     let template = NodeManualInstallTemplate { node, admin_path };
                      
                      let mut headers = HeaderMap::new();
                      headers.insert("HX-Trigger", "refresh_nodes".parse().unwrap());
                      
-                     // We still need the script to open the modal because hx-target is the modal content
                      let mut html = template.render().unwrap();
                      html.push_str("<script>document.getElementById('add-node-modal').close(); document.getElementById('manual-install-modal').showModal();</script>");
                      

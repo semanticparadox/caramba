@@ -292,8 +292,8 @@
     <div class="modal-container" onclick="event.stopPropagation()">
         <header class="modal-header">
             <h3 class="text-xl font-bold text-white flex items-center gap-3">
-                <i data-lucide="plug" class="w-6 h-6 text-indigo-400"></i>
-                Connect Node
+                <i data-lucide="terminal" class="w-6 h-6 text-indigo-400"></i>
+                Manual Setup: <span id="connect-node-name" class="text-indigo-400 font-mono text-base"></span>
             </h3>
             <button onclick="document.getElementById('connect-node-modal').close()"
                 class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
@@ -302,26 +302,24 @@
         </header>
 
         <div class="modal-body space-y-6">
-            <p class="text-slate-400 text-sm leading-relaxed">
-                Run the standard install command on your <span id="connect-node-name"
-                    class="text-white font-bold bg-white/5 px-1.5 py-0.5 rounded"></span> server to link it to this
-                panel:
-            </p>
+            <div class="space-y-3">
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest">Quick Installation
+                    Command</label>
+                <div class="relative group">
+                    <div class="absolute inset-0 bg-emerald-500/5 rounded-2xl pointer-events-none"></div>
+                    <input type="text" id="connect-command-input" value="Loading command..." readonly
+                        class="w-full bg-[#0a0a0a] border border-emerald-500/20 rounded-2xl px-5 py-4 pr-28 text-emerald-400 font-mono text-xs focus:border-emerald-500 outline-none leading-relaxed transition-all">
 
-            <div class="bg-[#0a0a0a] rounded-2xl border border-indigo-500/20 p-5 relative group overflow-hidden">
-                <div class="absolute inset-0 bg-indigo-500/5 pointer-events-none"></div>
-                <code id="connect-command"
-                    class="block font-mono text-sm text-indigo-300 break-all pr-12 relative z-10 leading-relaxed">Loading command...</code>
-                <button onclick="copyConnectCommand()" id="btn-copy-connect"
-                    class="absolute top-4 right-4 p-2 bg-indigo-500/20 hover:bg-indigo-500/40 rounded-xl text-indigo-300 transition-all active:scale-90 border border-indigo-500/30"
-                    title="Copy">
-                    <i data-lucide="copy" class="w-4 h-4"></i>
-                </button>
+                    <button onclick="copyConnectCommand()" id="btn-copy-connect"
+                        class="absolute right-3 top-3 bottom-3 px-4 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-bold uppercase tracking-wider rounded-xl transition-all border border-emerald-500/20 flex items-center gap-2 active:scale-95">
+                        <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy
+                    </button>
+                </div>
             </div>
 
             <div class="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/10 space-y-3">
                 <div class="flex gap-3">
-                    <i data-lucide="alert-circle" class="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5"></i>
+                    <i data-lucide="info" class="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5"></i>
                     <p class="text-[11px] font-bold text-amber-500 uppercase tracking-widest">Requirements &
                         Troubleshooting</p>
                 </div>
@@ -337,7 +335,8 @@
         </div>
 
         <footer class="modal-footer">
-            <button class="btn-secondary" onclick="document.getElementById('connect-node-modal').close()">Close</button>
+            <button class="btn-secondary" onclick="document.getElementById('connect-node-modal').close()">Close
+                Window</button>
         </footer>
     </div>
 </dialog>
@@ -345,30 +344,39 @@
 <script>
     function showConnectModal(token, name) {
         const modal = document.getElementById('connect-node-modal');
-        const cmdBlock = document.getElementById('connect-command');
+        const input = document.getElementById('connect-command-input');
         const nameSpan = document.getElementById('connect-node-name');
 
         nameSpan.innerText = name;
 
-        // Construct standard command
         const origin = window.location.origin;
         const cmd = `curl -sSL https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/scripts/install.sh | sudo bash -s -- --role agent --panel "${origin}" --token "${token}"`;
 
-        cmdBlock.innerText = cmd;
+        input.value = cmd;
         modal.showModal();
+        lucide.createIcons();
     }
 
     function copyConnectCommand() {
-        const cmd = document.getElementById('connect-command').innerText;
-        navigator.clipboard.writeText(cmd);
-        const btn = document.getElementById('btn-copy-connect');
+        const el = document.getElementById('connect-command-input');
+        const val = el.value;
+        navigator.clipboard.writeText(val).then(() => {
+            const btn = document.getElementById('btn-copy-connect');
+            const originalContent = btn.innerHTML;
 
-        btn.innerHTML = '<i data-lucide="check" class="w-4 h-4 text-emerald-400"></i>';
-        setTimeout(() => {
-            btn.innerHTML = '<i data-lucide="copy" class="w-4 h-4"></i>';
-        }, 2000);
+            btn.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5"></i> Copied!';
+            btn.classList.replace('text-emerald-400', 'text-white');
+            btn.classList.replace('bg-emerald-500/10', 'bg-emerald-500');
 
-        showToast("Command copied to clipboard");
+            setTimeout(() => {
+                btn.innerHTML = originalContent;
+                btn.classList.replace('text-white', 'text-emerald-400');
+                btn.classList.replace('bg-emerald-500', 'bg-emerald-500/10');
+                lucide.createIcons();
+            }, 2000);
+            lucide.createIcons();
+            showToast("Installation command copied");
+        });
     }
 </script>
 {% endblock %}

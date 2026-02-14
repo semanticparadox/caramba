@@ -24,31 +24,20 @@
                 <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy
             </button>
         </div>
-        <div class="flex gap-3 px-1">
-            <i data-lucide="info" class="w-4 h-4 text-indigo-400 shrink-0 mt-0.5"></i>
-            <p class="text-[11px] text-slate-500 leading-relaxed font-medium italic">
-                Paste this command into your SSH terminal (running as root) to automatically install the agent,
-                configure requirements, and link to this panel.
-            </p>
-        </div>
-    </div>
-
-    <!-- Full Script -->
-    <div class="space-y-3">
-        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest">Direct Installation
-            Script</label>
-        <div class="relative group overflow-hidden rounded-2xl border border-white/5 bg-[#0d1117]">
-            <div
-                class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500/50 via-purple-500/50 to-indigo-500/50 opacity-30">
+        <div class="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/10 space-y-3">
+            <div class="flex gap-3">
+                <i data-lucide="info" class="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5"></i>
+                <p class="text-[11px] font-bold text-amber-500 uppercase tracking-widest">Requirements & Troubleshooting
+                </p>
             </div>
-            <textarea id="full-script" rows="10" readonly
-                class="w-full bg-transparent p-5 text-xs text-slate-400 font-mono focus:outline-none leading-relaxed custom-scrollbar resize-none font-fira">{{ script }}</textarea>
-
-            <button onclick="copyToClipboard('full-script')"
-                class="absolute right-4 top-4 p-2 bg-slate-800/90 hover:bg-slate-700 backdrop-blur rounded-xl text-slate-300 transition-all border border-white/10 opacity-0 group-hover:opacity-100 shadow-xl active:scale-90"
-                title="Copy Script">
-                <i data-lucide="copy" class="w-4 h-4"></i>
-            </button>
+            <ul class="text-[11px] text-slate-500 space-y-1.5 list-disc list-inside px-1">
+                <li>Debian 12+ or Ubuntu 22.04+ (Clean OS recommended)</li>
+                <li>Ensure ports 80 and 443 are open in your VPS firewall</li>
+                <li>Command must be run as <span class="text-slate-400 font-bold">root</span> or via <span
+                        class="text-slate-400 font-bold">sudo</span></li>
+                <li>If installation fails, run: <code
+                        class="bg-white/5 px-1 rounded text-slate-400">journalctl -u exarobot-agent -f</code></li>
+            </ul>
         </div>
     </div>
 </div>
@@ -59,10 +48,12 @@
 </footer>
 
 <script>
-    // Dynamically update the origin in the input value
-    const origin = window.location.origin;
-    const token = "{{ node.join_token.clone().unwrap_or_default() }}";
-    document.getElementById('one-liner').value = `curl -fsSL ${origin}/install.sh | sudo bash -s -- --role agent --panel "${origin}" --token "${token}"`;
+    (function () {
+        const origin = window.location.origin;
+        const token = "{{ node.join_token.clone().unwrap_or_default() }}";
+        const cmd = `curl -sSL https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/scripts/install.sh | sudo bash -s -- --role agent --panel "${origin}" --token "${token}"`;
+        document.getElementById('one-liner').value = cmd;
+    })();
 
     function copyToClipboard(elementId) {
         const el = document.getElementById(elementId);
@@ -73,21 +64,17 @@
             const originalContent = btn.innerHTML;
 
             btn.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5"></i> Copied!';
-            if (btn.classList.contains('text-emerald-400')) {
-                btn.classList.replace('text-emerald-400', 'text-white');
-                btn.classList.replace('bg-emerald-500/10', 'bg-emerald-500');
-            }
+            btn.classList.replace('text-emerald-400', 'text-white');
+            btn.classList.replace('bg-emerald-500/10', 'bg-emerald-500');
 
             setTimeout(() => {
                 btn.innerHTML = originalContent;
-                if (btn.innerHTML.includes('Copied')) { // fallback
-                    btn.innerHTML = '<i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy';
-                }
                 btn.classList.replace('text-white', 'text-emerald-400');
                 btn.classList.replace('bg-emerald-500', 'bg-emerald-500/10');
                 lucide.createIcons();
             }, 2000);
             lucide.createIcons();
+            showToast("Installation command copied");
         });
     }
 
