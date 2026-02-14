@@ -252,7 +252,9 @@ impl OrchestrationService {
     fn generate_reality_keys(&self) -> anyhow::Result<(String, String, String)> {
         use x25519_dalek::{StaticSecret, PublicKey};
         
-        let secret = StaticSecret::random_from_rng(rand::rng());
+        // Generate 32 random bytes for the private key
+        let bytes = rand::random::<[u8; 32]>();
+        let secret = StaticSecret::from(bytes);
         let public = PublicKey::from(&secret);
         
         let priv_key = base64::Engine::encode(&base64::prelude::BASE64_STANDARD, secret.to_bytes());
