@@ -883,13 +883,20 @@ EOF
     # ----------------------------------------------------------------
     log_info "Setting up Corporate Mimicry (Nginx)..."
     
-    # Check if Nginx is already running or installed
-    if ! command -v nginx &> /dev/null; then
-        if [ "$ID" = "ubuntu" ] || [ "$ID" = "debian" ]; then
-             apt-get install -y nginx libnginx-mod-stream -qq
-        elif [ "$ID" = "centos" ] || [ "$ID" = "rhel" ]; then
-             yum install nginx -y
+    # Ensure Nginx and Stream module are installed
+    if [ "$ID" = "ubuntu" ] || [ "$ID" = "debian" ]; then
+        # Handle broken configs that block package manager if it tries to start a broken nginx
+        if command -v nginx &> /dev/null && [ -f /etc/nginx/nginx.conf ]; then
+            if ! nginx -t &>/dev/null; then
+                log_warn "Broken Nginx config detected. Moving aside to prevent installation failure."
+                mv /etc/nginx/nginx.conf "/etc/nginx/nginx.conf.broken_$(date +%s)"
+            fi
         fi
+        apt-get install -y nginx libnginx-mod-stream -qq
+    elif [ "$ID" = "centos" ] || [ "$ID" = "rhel" ]; then
+         if ! command -v nginx &> /dev/null; then
+            yum install nginx -y
+         fi
     fi
     
     # Download Mimicry Template
