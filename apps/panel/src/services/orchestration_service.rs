@@ -155,6 +155,9 @@ impl OrchestrationService {
         let pbk = node.reality_pub.as_deref().unwrap_or("");
         let sid = node.short_id.as_deref().unwrap_or("");
 
+        let mut settings_json = template.settings_template.clone();
+        let mut stream_json = template.stream_settings_template.clone();
+
         settings_json = settings_json
             .replace("{{SNI}}", sni)
             .replace("{{port}}", &port.to_string())

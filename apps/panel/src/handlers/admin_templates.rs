@@ -83,6 +83,7 @@ pub struct CreateTemplateForm {
     pub target_group_id: Option<i64>,
     pub settings_template: String,
     pub stream_settings_template: String,
+    pub port_range_start: i64,
     pub port_range_end: i64,
     pub renew_interval_mins: i64,
 }

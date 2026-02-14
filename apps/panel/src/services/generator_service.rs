@@ -242,8 +242,6 @@ impl GeneratorService {
         if !inbound.tag.starts_with("tpl_") {
              return Err(anyhow::anyhow!("Inbound is not tied to a template"));
         }
-        let tpl_id_str = inbound.tag.strip_prefix("tpl_").unwrap();
-        
         // Tag could be tpl_name or tpl_id. Let's see how it was generated.
         // In orchestration_service, it was format!("tpl_{}", template.name.to_lowercase().replace(' ', "_"))
         // Wait, in generator_service it was format!("tpl_{}", template.id)
