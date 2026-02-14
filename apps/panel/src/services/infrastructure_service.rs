@@ -1,3 +1,4 @@
+use sqlx::SqlitePool;
 use anyhow::Result;
 use tracing::info;
 use rand::distr::{Alphanumeric, SampleString};
