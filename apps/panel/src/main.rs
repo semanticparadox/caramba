@@ -247,7 +247,6 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     let orchestration_service = Arc::new(services::orchestration_service::OrchestrationService::new(
         pool.clone(),
         store_service.clone(),
-        infrastructure_service.clone(),
         security_service.clone(),
     ));
 

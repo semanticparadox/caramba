@@ -15,7 +15,6 @@ use crate::repositories::node_repo::NodeRepository;
 pub struct OrchestrationService {
     pub pool: SqlitePool,
     pub node_repo: NodeRepository,
-    infrastructure_service: Arc<crate::services::infrastructure_service::InfrastructureService>,
     security_service: Arc<crate::services::security_service::SecurityService>,
     store_service: Arc<StoreService>,
 }
@@ -24,7 +23,6 @@ impl OrchestrationService {
     pub fn new(
         pool: SqlitePool, 
         store_service: Arc<StoreService>,
-        infrastructure_service: Arc<crate::services::infrastructure_service::InfrastructureService>,
         security_service: Arc<crate::services::security_service::SecurityService>,
     ) -> Self {
         let node_repo = NodeRepository::new(pool.clone());
@@ -32,7 +30,6 @@ impl OrchestrationService {
             pool, 
             node_repo, 
             store_service, 
-            infrastructure_service,
             security_service
         }
     }
