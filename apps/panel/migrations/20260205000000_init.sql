@@ -108,6 +108,9 @@ CREATE TABLE IF NOT EXISTS inbounds (
     stream_settings TEXT NOT NULL DEFAULT '{}',
     remark TEXT,
     enable BOOLEAN DEFAULT 1,
+    renew_interval_mins INTEGER DEFAULT 0,
+    port_range_start INTEGER DEFAULT 10000,
+    port_range_end INTEGER DEFAULT 60000,
     last_rotated_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
@@ -595,6 +598,7 @@ CREATE TABLE IF NOT EXISTS inbound_templates (
     port_range_start INTEGER DEFAULT 10000,
     port_range_end INTEGER DEFAULT 60000,
     renew_interval_hours INTEGER DEFAULT 0,
+    renew_interval_mins INTEGER DEFAULT 0,
     is_active BOOLEAN DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(target_group_id) REFERENCES node_groups(id) ON DELETE SET NULL

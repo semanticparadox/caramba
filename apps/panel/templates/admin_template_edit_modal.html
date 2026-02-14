@@ -40,7 +40,7 @@
                 </div>
 
                 <!-- Row 2: Protocol & Ports -->
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
                     <div>
                         <label
                             class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Protocol</label>
@@ -73,6 +73,12 @@
                             End</label>
                         <input type="number" name="port_range_end" value="{{ tpl.port_range_end }}" required
                             class="input-field font-mono">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Rotation
+                            (Mins)</label>
+                        <input type="number" name="renew_interval_mins" value="{{ tpl.renew_interval_mins }}" required
+                            class="input-field font-mono" title="0 = no automatic rotation">
                     </div>
                 </div>
 

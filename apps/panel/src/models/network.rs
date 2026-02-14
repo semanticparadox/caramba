@@ -18,6 +18,9 @@ pub struct Inbound {
 
     pub remark: Option<String>,
     pub enable: bool,
+    pub renew_interval_mins: i64,
+    pub port_range_start: i64,
+    pub port_range_end: i64,
     pub last_rotated_at: Option<DateTime<Utc>>,
     pub created_at: Option<DateTime<Utc>>,
 }

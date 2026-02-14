@@ -83,8 +83,8 @@ pub struct CreateTemplateForm {
     pub target_group_id: Option<i64>,
     pub settings_template: String,
     pub stream_settings_template: String,
-    pub port_range_start: i64,
     pub port_range_end: i64,
+    pub renew_interval_mins: i64,
 }
 
 pub async fn create_template(
@@ -117,8 +117,8 @@ pub async fn create_template(
     let res = sqlx::query(
         r#"
         INSERT INTO inbound_templates 
-        (name, protocol, target_group_id, settings_template, stream_settings_template, port_range_start, port_range_end) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (name, protocol, target_group_id, settings_template, stream_settings_template, port_range_start, port_range_end, renew_interval_mins) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         "#
     )
         .bind(&form.name)
@@ -128,6 +128,7 @@ pub async fn create_template(
         .bind(&form.stream_settings_template)
         .bind(form.port_range_start)
         .bind(form.port_range_end)
+        .bind(form.renew_interval_mins)
         .execute(&state.pool)
         .await;
 
@@ -270,7 +271,7 @@ pub async fn update_template(
     let res = sqlx::query(
         r#"
         UPDATE inbound_templates 
-        SET name = ?, protocol = ?, target_group_id = ?, settings_template = ?, stream_settings_template = ?, port_range_start = ?, port_range_end = ?
+        SET name = ?, protocol = ?, target_group_id = ?, settings_template = ?, stream_settings_template = ?, port_range_start = ?, port_range_end = ?, renew_interval_mins = ?
         WHERE id = ?
         "#
     )
@@ -281,6 +282,7 @@ pub async fn update_template(
         .bind(&form.stream_settings_template)
         .bind(form.port_range_start)
         .bind(form.port_range_end)
+        .bind(form.renew_interval_mins)
         .bind(id)
         .execute(&state.pool)
         .await;

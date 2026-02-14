@@ -11,7 +11,7 @@ struct PendingRotation {
     id: i64,
     last_rotated_at: Option<NaiveDateTime>,
     created_at: Option<NaiveDateTime>,
-    renew_interval_hours: i64,
+    renew_interval_mins: i64,
 }
 
 pub struct RotationService {
@@ -36,15 +36,12 @@ impl RotationService {
         }
     }
 
-    async fn check_and_rotate_all(&self) -> Result<()> {
         // Find inbounds that need rotation
-        // Join with templates to get renewal interval
         let pending = sqlx::query_as::<_, PendingRotation>(
             r#"
-            SELECT i.id, i.last_rotated_at, i.created_at, t.renew_interval_hours
-            FROM inbounds i
-            JOIN inbound_templates t ON i.tag = 'tpl_' || t.id
-            WHERE t.renew_interval_hours > 0 AND t.is_active = 1
+            SELECT id, last_rotated_at, created_at, renew_interval_mins
+            FROM inbounds 
+            WHERE renew_interval_mins > 0 AND enable = 1
             "#
         )
         .fetch_all(&self.pool)
@@ -58,10 +55,10 @@ impl RotationService {
             if let Some(last_date) = last_val {
                 // Conver to Utc
                 let last_utc: DateTime<Utc> = DateTime::from_naive_utc_and_offset(last_date, Utc);
-                let hours_elapsed = (now - last_utc).num_hours();
+                let mins_elapsed = (now - last_utc).num_minutes();
                 
-                if hours_elapsed >= row.renew_interval_hours {
-                    info!("Inbound {} reached renewal interval ({}h). Rotating...", row.id, row.renew_interval_hours);
+                if mins_elapsed >= row.renew_interval_mins {
+                    info!("Inbound {} reached renewal interval ({}m). Rotating...", row.id, row.renew_interval_mins);
                     if let Err(e) = self.generator.rotate_inbound(row.id).await {
                         error!("Failed to rotate inbound {}: {}", row.id, e);
                     }

@@ -36,6 +36,7 @@ pub struct InboundTemplate {
     pub port_range_start: i64,
     pub port_range_end: i64,
     pub renew_interval_hours: i64,
+    pub renew_interval_mins: i64,
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
 }

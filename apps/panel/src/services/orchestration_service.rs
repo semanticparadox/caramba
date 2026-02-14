@@ -15,7 +15,8 @@ use crate::repositories::node_repo::NodeRepository;
 pub struct OrchestrationService {
     pub pool: SqlitePool,
     pub node_repo: NodeRepository,
-    _infrastructure_service: Arc<crate::services::infrastructure_service::InfrastructureService>,
+    infrastructure_service: Arc<crate::services::infrastructure_service::InfrastructureService>,
+    security_service: Arc<crate::services::security_service::SecurityService>,
     store_service: Arc<StoreService>,
 }
 
@@ -24,9 +25,16 @@ impl OrchestrationService {
         pool: SqlitePool, 
         store_service: Arc<StoreService>,
         infrastructure_service: Arc<crate::services::infrastructure_service::InfrastructureService>,
+        security_service: Arc<crate::services::security_service::SecurityService>,
     ) -> Self {
         let node_repo = NodeRepository::new(pool.clone());
-        Self { pool, node_repo, store_service, _infrastructure_service: infrastructure_service }
+        Self { 
+            pool, 
+            node_repo, 
+            store_service, 
+            infrastructure_service,
+            security_service
+        }
     }
     /// Initializes default inbounds by applying Group Templates
     pub async fn init_default_inbounds(&self, node_id: i64) -> anyhow::Result<()> {
@@ -123,27 +131,40 @@ impl OrchestrationService {
     async fn instantiate_inbound_from_template(&self, node: &Node, template: &crate::models::groups::InboundTemplate) -> anyhow::Result<()> {
         info!("Instantiating template '{}' for node {}", template.name, node.id);
         
-        let port = template.port_range_start; 
-
-        let mut settings_json = template.settings_template.clone();
-        let mut stream_json = template.stream_settings_template.clone();
-
         // 0. Placeholder Replacement
-        let sni = node.reality_sni.as_deref()
-            .or(node.domain.as_deref())
-            .unwrap_or("");
+        // 0.1 Allocate Port if needed (Dynamic Port Allocation)
+        let mut port = template.port_range_start;
+        if template.port_range_end > template.port_range_start {
+            if let Ok(new_port) = self.allocate_port(node.id, template.port_range_start, template.port_range_end).await {
+                port = new_port;
+            }
+        }
+
+        // 0.2 Smart SNI selection
+        let best_sni = self.security_service.get_best_sni_for_node(node.id).await.unwrap_or_else(|_| "www.google.com".to_string());
+        
+        let sni = if best_sni == "www.google.com" || best_sni == "drive.google.com" {
+             node.reality_sni.as_deref()
+                .or(node.domain.as_deref())
+                .unwrap_or(&best_sni)
+        } else {
+            &best_sni
+        };
+
         let domain = node.domain.as_deref().unwrap_or("");
         let pbk = node.reality_pub.as_deref().unwrap_or("");
         let sid = node.short_id.as_deref().unwrap_or("");
 
         settings_json = settings_json
             .replace("{{SNI}}", sni)
+            .replace("{{port}}", &port.to_string())
             .replace("{{DOMAIN}}", domain)
             .replace("{{REALITY_PBK}}", pbk)
             .replace("{{REALITY_SID}}", sid);
 
         stream_json = stream_json
             .replace("{{SNI}}", sni)
+            .replace("{{port}}", &port.to_string())
             .replace("{{DOMAIN}}", domain)
             .replace("{{REALITY_PBK}}", pbk)
             .replace("{{REALITY_SID}}", sid);
@@ -217,6 +238,9 @@ impl OrchestrationService {
             stream_settings: stream_json,
             remark: Some(template.name.clone()), 
             enable: true,
+            renew_interval_mins: template.renew_interval_mins,
+            port_range_start: template.port_range_start,
+            port_range_end: template.port_range_end,
             last_rotated_at: None,
             created_at: None,
         };
@@ -268,6 +292,29 @@ impl OrchestrationService {
             }
         }
         Ok((priv_key, pub_key))
+    }
+
+    pub async fn allocate_port(&self, node_id: i64, start: i64, end: i64) -> anyhow::Result<i64> {
+        // Find used ports
+        let used_ports: Vec<i64> = sqlx::query_scalar(
+            "SELECT listen_port FROM inbounds WHERE node_id = ?"
+        )
+        .bind(node_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        // Use rand 0.9 rng
+        use rand::Rng;
+        let mut rng = rand::rng();
+        
+        for _ in 0..100 {
+            let p = rng.random_range(start..=end);
+            if !used_ports.contains(&p) {
+                return Ok(p);
+            }
+        }
+        
+        Err(anyhow::anyhow!("Failed to allocate port for node {} in range {}-{}", node_id, start, end))
     }
 
     fn generate_awg_params(&self) -> (u16, u16, u16, u16, u16, u32, u32, u32, u32) {

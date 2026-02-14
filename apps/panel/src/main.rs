@@ -248,6 +248,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         pool.clone(),
         store_service.clone(),
         infrastructure_service.clone(),
+        security_service.clone(),
     ));
 
     // Initialize new modular services
@@ -255,7 +256,11 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     let billing_service = Arc::new(services::billing_service::BillingService::new(pool.clone()));
     let subscription_service = Arc::new(services::subscription_service::SubscriptionService::new(pool.clone()));
     let catalog_service = Arc::new(services::catalog_service::CatalogService::new(pool.clone()));
-    let generator_service = Arc::new(services::generator_service::GeneratorService::new(pool.clone())); // Phase 1.8
+    let generator_service = Arc::new(services::generator_service::GeneratorService::new(
+        pool.clone(),
+        security_service.clone(),
+        orchestration_service.clone(),
+    )); // Phase 1.8
     let org_repo = repositories::org_repo::OrganizationRepository::new(pool.clone());
     let org_service = Arc::new(services::org_service::OrganizationService::new(org_repo));
     let sni_repo = Arc::new(repositories::sni_repo::SniRepository::new(pool.clone()));

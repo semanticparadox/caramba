@@ -3,15 +3,28 @@ use anyhow::{Result, Context};
 use crate::models::groups::InboundTemplate;
 use crate::models::node::Node;
 use tracing::{info, warn, error};
+use std::sync::Arc;
+use crate::services::security_service::SecurityService;
+use crate::services::orchestration_service::OrchestrationService;
 
 #[derive(Clone)]
 pub struct GeneratorService {
     pool: SqlitePool,
+    security_service: Arc<SecurityService>,
+    orchestration_service: Arc<OrchestrationService>,
 }
 
 impl GeneratorService {
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+    pub fn new(
+        pool: SqlitePool, 
+        security_service: Arc<SecurityService>,
+        orchestration_service: Arc<OrchestrationService>,
+    ) -> Self {
+        Self { 
+            pool, 
+            security_service,
+            orchestration_service
+        }
     }
 
     /// Syncs inbounds for all nodes in a specific group based on active templates.
@@ -225,72 +238,73 @@ impl GeneratorService {
             .await
             .context("Node not found")?;
 
-        // 1. Find Template
+        // 1. Identify Template for base settings
         if !inbound.tag.starts_with("tpl_") {
-            return Err(anyhow::anyhow!("Inbound is not tied to a template"));
+             return Err(anyhow::anyhow!("Inbound is not tied to a template"));
         }
-        let tpl_id = inbound.tag[4..].parse::<i64>().context("Invalid template ID in tag")?;
-        let template = sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE id = ?")
-            .bind(tpl_id)
-            .fetch_one(&self.pool)
-            .await
-            .context("Template not found for rotation")?;
-
-        // 2. Resolve New Values
-        let new_port = self.allocate_port(inbound.node_id, template.port_range_start, template.port_range_end).await?;
+        let tpl_id_str = inbound.tag.strip_prefix("tpl_").unwrap();
         
-        let mut settings = template.settings_template.clone();
-        let mut stream_settings = template.stream_settings_template.clone();
-        
-        // We probably want to keep the same UUID if it's already in the inbound settings 
-        // to avoid breaking active connections immediately, 
-        // OR we just use the same logic as ensure_inbound_exists.
-        // Actually, for rotation, we usually ONLY want to change Port and SNI (the "outer" layers).
-        
-        // Extract old SNI for logging
-        let old_sni = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&inbound.stream_settings) {
-            json["reality_settings"]["server_names"][0]
-                .as_str()
-                .or_else(|| json["tls_settings"]["server_name"].as_str())
-                .unwrap_or("unknown")
-                .to_string()
+        // Tag could be tpl_name or tpl_id. Let's see how it was generated.
+        // In orchestration_service, it was format!("tpl_{}", template.name.to_lowercase().replace(' ', "_"))
+        // Wait, in generator_service it was format!("tpl_{}", template.id)
+        // I should probably find the template by name or ID.
+        // Let's use name since that's what's in remark.
+        let template = if let Some(remark) = &inbound.remark {
+             sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE name = ?")
+                .bind(remark)
+                .fetch_optional(&self.pool)
+                .await?
         } else {
-            "unknown".to_string()
+            None
         };
 
-        // Re-interpolate
-        // Re-use ensure_inbound_exists logic for substitution (simplified here or refactored into helper)
-        if stream_settings.contains("{{pool_sni}}") {
-            let pool_sni: Option<String> = sqlx::query_scalar(
-                "SELECT domain FROM sni_pool WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1"
-            )
-            .fetch_optional(&self.pool)
-            .await?;
-            if let Some(sni) = pool_sni {
-                stream_settings = stream_settings.replace("{{pool_sni}}", &sni);
+        let template = template.ok_or_else(|| anyhow::anyhow!("Template not found for rotation"))?;
+
+        // 2. Allocate New Port
+        let new_port = self.orchestration_service.allocate_port(inbound.node_id, inbound.port_range_start, inbound.port_range_end).await?;
+        
+        // 3. Select New SNI
+        let new_sni = self.security_service.get_best_sni_for_node(node.id).await.unwrap_or_else(|_| "www.google.com".to_string());
+        
+        // 4. Re-interpolate settings
+        let mut settings = template.settings_template.clone();
+        let mut stream_settings = template.stream_settings_template.clone();
+
+        // Placeholders
+        let domain = node.domain.as_deref().unwrap_or("");
+        let pbk = node.reality_pub.as_deref().unwrap_or("");
+        let sid = node.short_id.as_deref().unwrap_or("");
+
+        // Old settings might have clients we want to preserve? 
+        // Or we regenerate for maximum rotation. 
+        // User said "уникальный конфиг", so let's regenerate UUID too if placeholder exists.
+        let new_uuid = uuid::Uuid::new_v4().to_string();
+
+        settings = settings
+            .replace("{{SNI}}", &new_sni)
+            .replace("{{port}}", &new_port.to_string())
+            .replace("{{uuid}}", &new_uuid)
+            .replace("{{DOMAIN}}", domain)
+            .replace("{{REALITY_PBK}}", pbk)
+            .replace("{{REALITY_SID}}", sid);
+
+        stream_settings = stream_settings
+            .replace("{{SNI}}", &new_sni)
+            .replace("{{port}}", &new_port.to_string())
+            .replace("{{pool_sni}}", &new_sni) // Backward compat
+            .replace("{{sni}}", &new_sni)      // Backward compat
+            .replace("{{DOMAIN}}", domain)
+            .replace("{{REALITY_PBK}}", pbk)
+            .replace("{{REALITY_SID}}", sid);
+
+        // Inject Reality keys for vless/naive
+        if template.protocol == "vless" || template.protocol == "naive" {
+            if let Some(pkey) = &node.reality_priv {
+                stream_settings = stream_settings.replace("{{reality_private}}", pkey);
             }
         }
-        
-        if let Some(sni) = &node.reality_sni {
-            stream_settings = stream_settings.replace("{{sni}}", sni);
-        } else {
-            stream_settings = stream_settings.replace("{{sni}}", "www.google.com");
-        }
 
-        if let Some(priv_key) = &node.reality_priv {
-            stream_settings = stream_settings.replace("{{reality_private}}", priv_key);
-        }
-
-        // We use a fixed string replacement for UUID for now if we don't have the original one easily.
-        // Better: maybe store the "resolved_uuid" somewhere or just generate a new one.
-        // For now, let's just generate a new one like in ensure_inbound_exists 
-        // UNLESS we want to stick to the old one. 
-        // Let's stick to a NEW one for MAXIMUM rotation/obfuscation (security policy).
-        let new_uuid = uuid::Uuid::new_v4().to_string();
-        settings = settings.replace("{{uuid}}", &new_uuid);
-        settings = settings.replace("{{port}}", &new_port.to_string());
-
-        // 3. Update DB
+        // 5. Update DB
         sqlx::query(
             "UPDATE inbounds SET listen_port = ?, settings = ?, stream_settings = ?, last_rotated_at = datetime('now') WHERE id = ?"
         )
@@ -301,30 +315,7 @@ impl GeneratorService {
         .execute(&self.pool)
         .await?;
 
-        // 4. Log Rotation
-        let new_sni = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stream_settings) {
-             json["reality_settings"]["server_names"][0]
-                .as_str()
-                .or_else(|| json["tls_settings"]["server_name"].as_str())
-                .unwrap_or("unknown")
-                .to_string()
-        } else {
-            "unknown".to_string()
-        };
-
-        if old_sni != new_sni {
-            let _ = sqlx::query(
-                "INSERT INTO sni_rotation_log (node_id, old_sni, new_sni, reason) VALUES (?, ?, ?, ?)"
-            )
-            .bind(node.id)
-            .bind(old_sni)
-            .bind(new_sni)
-            .bind("Periodic rotation")
-            .execute(&self.pool)
-            .await;
-        }
-
-        info!("Rotated inbound {} (Node {}) to port {} and updated SNI/UUID", inbound_id, node.id, new_port);
+        info!("🔄 Rotated inbound '{}' (Node {}) to port {} and SNI {}", template.name, node.id, new_port, new_sni);
         Ok(())
     }
 
