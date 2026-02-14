@@ -13,7 +13,7 @@ pub mod api_keys;
 // Re-export commonly used functions for convenience
 pub use auth::{get_login, login, logout, get_auth_user, is_authenticated};
 pub use dashboard::{get_dashboard, get_statusbar};
-pub use nodes::{get_nodes, install_node, get_node_edit, update_node, sync_node, delete_node, toggle_node_enable, activate_node, get_node_install_script, get_node_raw_install_script, get_node_logs, get_install_sh};
+pub use nodes::{get_nodes, install_node, get_node_edit, update_node, sync_node, delete_node, toggle_node_enable, activate_node, get_node_install_script, get_node_raw_install_script, get_node_logs, get_install_sh, get_node_rescue};
 pub use users::{get_users, admin_gift_subscription, get_user_details, update_user, update_user_balance, delete_user_subscription, refund_user_subscription, extend_user_subscription, get_subscription_devices, admin_kill_subscription_sessions};
 pub use plans::{get_plans, add_plan, delete_plan, get_plan_edit, update_plan};
 pub use settings::{get_settings, save_settings, toggle_bot, bot_logs_page, bot_logs_history, bot_logs_tail, update_trial_config, check_update, export_database};

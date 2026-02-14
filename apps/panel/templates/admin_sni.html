@@ -18,7 +18,7 @@
                 class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2 text-xs text-indigo-400 outline-none focus:border-indigo-500 transition-all min-w-[150px]">
                 <option value="">All Nodes (Global)</option>
                 {% for node in nodes %}
-                <option value="{{ node.id }}" {% if filter_node_id==Some(node.id) %}selected{% endif %}>
+                <option value="{{ node.id }}" {% if filter_node_id.unwrap_or(0)==node.id %}selected{% endif %}>
                     {{ node.name }}
                 </option>
                 {% endfor %}
@@ -107,7 +107,7 @@
                                         <span class="text-xs text-slate-400 truncate max-w-[150px]"
                                             title="{{ item.notes.as_deref().unwrap_or("") }}">
                                             {% for node in nodes %}
-                                            {% if Some(node.id) == item.discovered_by_node_id %}
+                                            {% if item.discovered_by_node_id.unwrap_or(0) == node.id %}
                                             {{ node.name }}
                                             {% endif %}
                                             {% endfor %}

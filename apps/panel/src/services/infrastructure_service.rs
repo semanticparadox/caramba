@@ -1,5 +1,6 @@
-use sqlx::SqlitePool;
 use anyhow::Result;
+use tracing::info;
+use rand::distr::{Alphanumeric, SampleString};
 use crate::repositories::node_repo::NodeRepository;
 use crate::models::node::Node;
 
@@ -38,11 +39,7 @@ impl InfrastructureService {
 
     pub async fn create_node(&self, name: &str, ip: &str, vpn_port: i32, auto_configure: bool) -> Result<i64> {
         let token = uuid::Uuid::new_v4().to_string();
-        let doomsday_password = rand::distributions::Alphanumeric
-            .sample_iter(&mut rand::thread_rng())
-            .take(12)
-            .map(char::from)
-            .collect::<String>();
+        let doomsday_password = Alphanumeric.sample_string(&mut rand::rng(), 12);
         
         let final_ip = if ip.is_empty() { 
             format!("pending-{}", &token[0..8]) 
