@@ -145,23 +145,42 @@ fix_broken_nginx() {
 
     log_info "Running Nginx pre-check..."
     
+    local moved=false
+
     # 1. Detect if /etc/nginx/nginx.conf exists and mentions 'stream'
-    # This usually happens if a previous install failed while writing the config,
-    # or if the package was removed but configs were left behind.
     if [ -f /etc/nginx/nginx.conf ] && grep -q "stream {" /etc/nginx/nginx.conf; then
-        # Check if the stream module is actually available
-        # If the binary is missing or the module is missing, nginx -t will fail.
-        # But we want to be safe and just move it aside if it has 'stream' before we install modules.
         log_warn "Problematic Nginx configuration detected (stream directive). Moving aside to prevent installation failure."
         mv /etc/nginx/nginx.conf "/etc/nginx/nginx.conf.fixed_$(date +%s)"
+        moved=true
     fi
     
     # 2. General sanity check if binary exists
-    if command -v nginx &> /dev/null && [ -f /etc/nginx/nginx.conf ]; then
+    if [ "$moved" = false ] && command -v nginx &> /dev/null && [ -f /etc/nginx/nginx.conf ]; then
         if ! nginx -t &>/dev/null; then
             log_warn "Nginx config is invalid. Moving aside to allow repair/reinstall."
             mv /etc/nginx/nginx.conf "/etc/nginx/nginx.conf.invalid_$(date +%s)"
+            moved=true
         fi
+    fi
+
+    # 3. If we moved the config, we MUST create a minimal valid one
+    # Otherwise, nginx's postinst script (nginx -t) will fail with "No such file or directory"
+    if [ "$moved" = true ]; then
+        log_info "Creating minimal default Nginx configuration..."
+        mkdir -p /etc/nginx
+        cat > /etc/nginx/nginx.conf <<EOF
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+events { worker_connections 768; }
+http {
+    server {
+        listen 80;
+        server_name _;
+        location / { return 200 'Nginx recovery mode'; }
+    }
+}
+EOF
     fi
 }
 
