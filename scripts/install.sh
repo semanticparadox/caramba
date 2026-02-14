@@ -14,7 +14,7 @@ set -e
 REPO_URL="https://github.com/semanticparadox/EXA-ROBOT.git"
 INSTALL_DIR="/opt/exarobot"
 TEMP_BUILD_DIR="/tmp/exarobot_build"
-VERSION_TAG="2026-02-05-v3"
+VERSION_TAG="2026-02-13-v4"
 
 # Colors
 RED='\033[0;31m'
@@ -145,39 +145,38 @@ fix_broken_nginx() {
 
     log_info "Running Nginx pre-check..."
     
-    local moved=false
+    mkdir -p /etc/nginx
 
-    # 1. Detect if /etc/nginx/nginx.conf exists and mentions 'stream'
-    if [ -f /etc/nginx/nginx.conf ] && grep -q "stream {" /etc/nginx/nginx.conf; then
-        log_warn "Problematic Nginx configuration detected (stream directive). Moving aside to prevent installation failure."
-        mv /etc/nginx/nginx.conf "/etc/nginx/nginx.conf.fixed_$(date +%s)"
-        moved=true
+    local needs_fix=false
+
+    # 1. Detect if it exists and is broken
+    if [ -f /etc/nginx/nginx.conf ]; then
+        if grep -q "stream {" /etc/nginx/nginx.conf || ! nginx -t &>/dev/null; then
+             log_warn "Nginx configuration found but is problematic. Moving aside to permit installation."
+             mv /etc/nginx/nginx.conf "/etc/nginx/nginx.conf.fixed_$(date +%s)"
+             needs_fix=true
+        fi
+    else
+        # File is missing
+        needs_fix=true
     fi
     
-    # 2. General sanity check if binary exists
-    if [ "$moved" = false ] && command -v nginx &> /dev/null && [ -f /etc/nginx/nginx.conf ]; then
-        if ! nginx -t &>/dev/null; then
-            log_warn "Nginx config is invalid. Moving aside to allow repair/reinstall."
-            mv /etc/nginx/nginx.conf "/etc/nginx/nginx.conf.invalid_$(date +%s)"
-            moved=true
-        fi
-    fi
-
-    # 3. If we moved the config, we MUST create a minimal valid one
-    # Otherwise, nginx's postinst script (nginx -t) will fail with "No such file or directory"
-    if [ "$moved" = true ]; then
-        log_info "Creating minimal default Nginx configuration..."
-        mkdir -p /etc/nginx
+    # 2. If it's MISSING or was just moved, we MUST create a minimal valid one
+    # Otherwise, nginx's postinst script (which runs nginx -t) will fail the whole installation.
+    if [ "$needs_fix" = true ]; then
+        log_info "Creating minimal placeholder Nginx configuration for safe installation..."
         cat > /etc/nginx/nginx.conf <<EOF
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
 events { worker_connections 768; }
 http {
+    access_log off;
+    error_log /dev/null;
     server {
-        listen 80;
+        listen 8888; # Recovery port (no conflicts)
         server_name _;
-        location / { return 200 'Nginx recovery mode'; }
+        location / { return 200 'Nginx Recovery Mode Active'; }
     }
 }
 EOF
@@ -192,23 +191,11 @@ install_dependencies() {
     setup_firewall
     fix_broken_nginx
     
-    # Stop conflicting web servers
+    # Stop conflicting services
     if command -v systemctl &> /dev/null; then
-        if systemctl is-active --quiet nginx; then
-            log_warn "Stopping Nginx to release ports 80/443..."
-            systemctl stop nginx
-            systemctl disable nginx
-        fi
-        if systemctl is-active --quiet apache2; then
-            log_warn "Stopping Apache2 to release ports 80/443..."
-            systemctl stop apache2
-            systemctl disable apache2
-        fi
-        if systemctl is-active --quiet httpd; then
-            log_warn "Stopping HTTPD to release ports 80/443..."
-            systemctl stop httpd
-            systemctl disable httpd
-        fi
+        log_info "Releasing ports 80/443..."
+        systemctl stop nginx apache2 httpd sing-box 2>/dev/null || true
+        systemctl disable nginx apache2 httpd sing-box 2>/dev/null || true
     fi
     
     apt-get update -qq
