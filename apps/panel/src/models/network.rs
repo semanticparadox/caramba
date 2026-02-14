@@ -190,15 +190,15 @@ pub struct Fallback {
 pub struct StreamSettings {
     pub network: Option<String>, // "tcp", "udp", "quic", "grpc"
     pub security: Option<String>, // "none", "tls", "reality"
-    #[serde(alias = "tlsSettings")]
+    #[serde(alias = "tlsSettings", default)]
     pub tls_settings: Option<TlsSettings>,
-    #[serde(alias = "realitySettings")]
+    #[serde(alias = "realitySettings", default)]
     pub reality_settings: Option<RealitySettings>,
-    #[serde(alias = "wsSettings")]
+    #[serde(alias = "wsSettings", default)]
     pub ws_settings: Option<WsSettings>,
-    #[serde(alias = "httpUpgradeSettings")]
+    #[serde(alias = "httpUpgradeSettings", default)]
     pub http_upgrade_settings: Option<HttpUpgradeSettings>,
-    #[serde(alias = "xhttpSettings")]
+    #[serde(alias = "xhttpSettings", default)]
     pub xhttp_settings: Option<XhttpSettings>,
 }
 
@@ -235,18 +235,18 @@ pub struct Certificate {
     pub key_path: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RealitySettings {
     pub show: bool,
     pub dest: String,
     pub xver: i32,
-    #[serde(alias = "serverNames")]
+    #[serde(alias = "serverNames", default)]
     pub server_names: Vec<String>,
-    #[serde(alias = "privateKey")]
+    #[serde(alias = "privateKey", default)]
     pub private_key: String,
-    #[serde(alias = "publicKey")]
+    #[serde(alias = "publicKey", default)]
     pub public_key: Option<String>,
-    #[serde(alias = "shortIds")]
+    #[serde(alias = "shortIds", default)]
     pub short_ids: Vec<String>,
     // Optional
     pub max_time_diff: Option<i64>,

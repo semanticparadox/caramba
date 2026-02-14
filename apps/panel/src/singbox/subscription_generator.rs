@@ -172,6 +172,8 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
         .to_string();
 
     // Flow: only use xtls-rprx-vision for Reality+TCP VLESS
+    // Note: Protocol check is done at the caller level usually, but we can't see it here.
+    // However, we should be careful. Sing-box only wants 'flow' on VLESS inbounds.
     let flow = if security == "reality" && network == "tcp" {
         "xtls-rprx-vision".to_string()
     } else {

@@ -387,11 +387,16 @@ impl SubscriptionService {
             let uuid = sub.vless_uuid.clone().unwrap_or_default();
             let inbounds = sqlx::query_as::<_, crate::models::network::Inbound>(
                 r#"
-                SELECT i.* FROM inbounds i
-                JOIN plan_inbounds pi ON pi.inbound_id = i.id
-                WHERE pi.plan_id = ? AND i.enable = 1
+                SELECT DISTINCT i.* FROM inbounds i
+                LEFT JOIN plan_inbounds pi ON pi.inbound_id = i.id
+                LEFT JOIN plan_nodes pn ON pn.node_id = i.node_id
+                LEFT JOIN node_group_members ngm ON ngm.node_id = i.node_id
+                LEFT JOIN plan_groups pg ON pg.group_id = ngm.group_id
+                WHERE (pi.plan_id = ? OR pn.plan_id = ? OR pg.plan_id = ?) AND i.enable = 1
                 "#
             )
+            .bind(sub.plan_id)
+            .bind(sub.plan_id)
             .bind(sub.plan_id)
             .fetch_all(&self.pool)
             .await?;

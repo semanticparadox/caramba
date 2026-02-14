@@ -86,7 +86,7 @@ impl OrchestrationService {
     async fn bootstrap_default_templates(&self, group_id: i64) -> anyhow::Result<()> {
         // VLESS Reality
         let vless_settings = r#"{"clients":[],"decryption":"none"}"#;
-        let vless_stream = r#"{"network":"tcp","security":"reality","reality_settings":{"show":false,"xver":0,"dest":"drive.google.com:443","server_names":["drive.google.com"]}}"#;
+        let vless_stream = r#"{"network":"tcp","security":"reality","reality_settings":{"show":false,"xver":0,"dest":"drive.google.com:443","server_names":["drive.google.com"],"private_key":"","short_ids":[""]}}"#;
         self.create_template("VLESS Reality", "vless", vless_settings, vless_stream, group_id, 10000).await?;
 
         // Hysteria 2
