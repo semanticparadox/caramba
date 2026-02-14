@@ -36,6 +36,7 @@ impl RotationService {
         }
     }
 
+    async fn check_and_rotate_all(&self) -> Result<()> {
         // Find inbounds that need rotation
         let pending = sqlx::query_as::<_, PendingRotation>(
             r#"
