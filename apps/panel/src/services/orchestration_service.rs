@@ -250,24 +250,13 @@ impl OrchestrationService {
     }
 
     fn generate_reality_keys(&self) -> anyhow::Result<(String, String, String)> {
-        use std::process::Command;
+        use x25519_dalek::{StaticSecret, PublicKey};
         
-        let output = Command::new("sing-box")
-            .args(&["generate", "reality-keypair"])
-            .output()
-            .map_err(|e| anyhow::anyhow!("sing-box generate error: {}", e))?;
-            
-        let output_str = String::from_utf8_lossy(&output.stdout);
-        let mut priv_key = String::new();
-        let mut pub_key = String::new();
+        let secret = StaticSecret::random_from_rng(rand::rng());
+        let public = PublicKey::from(&secret);
         
-        for line in output_str.lines() {
-            if let Some(key) = line.strip_prefix("PrivateKey:") {
-                priv_key = key.trim().to_string();
-            } else if let Some(key) = line.strip_prefix("PublicKey:") {
-                pub_key = key.trim().to_string();
-            }
-        }
+        let priv_key = base64::Engine::encode(&base64::prelude::BASE64_STANDARD, secret.to_bytes());
+        let pub_key = base64::Engine::encode(&base64::prelude::BASE64_STANDARD, public.as_bytes());
         
         let short_id = hex::encode(&rand::random::<[u8; 8]>());
         Ok((priv_key, pub_key, short_id))
@@ -362,6 +351,27 @@ impl OrchestrationService {
         // 2. Fetch Inbounds for this node
         let mut inbounds = self.node_repo.get_inbounds_by_node(node_id).await?;
         info!("Step 2: Found {} inbounds for node {} ({})", inbounds.len(), node_id, node.name);
+
+        // 2.5 Lazy Initialization of Reality Keys if missing
+        let mut node = node;
+        let mut needs_node_update = false;
+        if node.reality_priv.is_none() || node.reality_priv.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
+             // Check if any inbound uses reality
+             let has_reality = inbounds.iter().any(|i| i.stream_settings.contains("reality"));
+             if has_reality {
+                 info!("✨ Lazily generating Reality keys for node {}", node.id);
+                 if let Ok((priv_key, pub_key, short_id)) = self.generate_reality_keys() {
+                     node.reality_priv = Some(priv_key);
+                     node.reality_pub = Some(pub_key);
+                     node.short_id = Some(short_id);
+                     needs_node_update = true;
+                 }
+             }
+        }
+        
+        if needs_node_update {
+            self.node_repo.update_node(&node).await?;
+        }
 
         // Dynamic SNI Override (for Auto Rotation)
         if let Some(new_sni) = &node.reality_sni {

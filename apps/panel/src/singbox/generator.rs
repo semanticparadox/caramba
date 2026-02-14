@@ -74,6 +74,14 @@ impl ConfigGenerator {
                                 key_path: None,
                                 certificate_path: None,
                              });
+
+                             // Final safety: if private_key is still empty, skip TLS config to avoid Sing-box FATAL
+                             if let Some(ref cfg) = tls_config {
+                                 if cfg.reality.enabled && cfg.reality.private_key.is_empty() {
+                                     warn!("⚠️ Skipping Reality block for inbound '{}' due to MISSING PRIVATE KEY", inbound.tag);
+                                     tls_config = None;
+                                 }
+                             }
                         }
                     } else if security == "tls" {
                          // Force TLS if Vision is used or explicitly requested
