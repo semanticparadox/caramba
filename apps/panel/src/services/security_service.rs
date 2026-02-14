@@ -28,6 +28,24 @@ impl SecurityService {
         Ok(sni.unwrap_or_else(|| "www.google.com".to_string()))
     }
 
+    /// Prefer SNIs discovered by THIS node, fallback to global popular ones
+    pub async fn get_best_sni_for_node(&self, node_id: i64) -> Result<String> {
+        // 1. Try node-specific SNI
+        let node_sni: Option<String> = sqlx::query_scalar(
+            "SELECT domain FROM sni_pool WHERE discovered_by_node_id = ? AND is_active = 1 ORDER BY health_score DESC LIMIT 1"
+        )
+        .bind(node_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if let Some(sni) = node_sni {
+            return Ok(sni);
+        }
+
+        // 2. Fallback to global best
+        self.get_next_sni("", 1).await
+    }
+
     pub async fn log_sni_rotation(
         &self, 
         node_id: i64, 

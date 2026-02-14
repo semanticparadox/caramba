@@ -22,19 +22,30 @@ pub struct AdminSniTemplate {
     pub admin_path: String,
     pub active_page: String,
     pub username: String,
+    pub nodes: Vec<crate::models::node::Node>,
+    pub filter_node_id: Option<i64>,
 }
 
 pub async fn get_sni_page(
     State(state): State<AppState>,
     jar: CookieJar,
+    axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
     use axum::http::StatusCode;
     if !is_authenticated(&state, &jar).await {
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    let snis = state.sni_repo.get_all_snis().await.unwrap_or_default();
+    let node_id = query.get("node_id").and_then(|id| id.parse::<i64>().ok());
+
+    let snis = if let Some(id) = node_id {
+        state.sni_repo.get_snis_by_node(id).await.unwrap_or_default()
+    } else {
+        state.sni_repo.get_all_snis().await.unwrap_or_default()
+    };
+
     let logs = state.sni_repo.get_recent_logs(10).await.unwrap_or_default();
+    let nodes = state.infrastructure_service.get_all_nodes().await.unwrap_or_default();
     let active_sni_count = snis.iter().filter(|s| s.is_active).count();
     
     let username = state.settings.get_or_default("admin_username", "admin").await;
@@ -47,6 +58,8 @@ pub async fn get_sni_page(
         admin_path: state.admin_path.clone(),
         active_page: "sni".to_string(),
         username,
+        nodes,
+        filter_node_id: node_id,
     };
 
     Html(template.render().unwrap()).into_response()

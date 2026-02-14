@@ -38,6 +38,11 @@ impl InfrastructureService {
 
     pub async fn create_node(&self, name: &str, ip: &str, vpn_port: i32, auto_configure: bool) -> Result<i64> {
         let token = uuid::Uuid::new_v4().to_string();
+        let doomsday_password = rand::distributions::Alphanumeric
+            .sample_iter(&mut rand::thread_rng())
+            .take(12)
+            .map(char::from)
+            .collect::<String>();
         
         let final_ip = if ip.is_empty() { 
             format!("pending-{}", &token[0..8]) 
@@ -88,6 +93,7 @@ impl InfrastructureService {
             uptime: 0,
             last_session_ingress: 0,
             last_session_egress: 0,
+            doomsday_password: Some(doomsday_password),
         };
 
         let id = self.node_repo.create_node(&node).await?;
@@ -123,8 +129,21 @@ impl InfrastructureService {
         Ok(())
     }
 
-    pub async fn activate_node(&self, id: i64) -> Result<()> {
-        self.node_repo.update_status(id, "active").await.map_err(|e| e.into())
+    pub async fn activate_node(&self, id: i64, security_service: &crate::services::security_service::SecurityService) -> Result<()> {
+        // 1. Mark as active
+        self.node_repo.update_status(id, "active").await?;
+
+        // 2. Automated Smart SNI selection
+        if let Ok(best_sni) = security_service.get_best_sni_for_node(id).await {
+            info!("🎯 Smart Setup: Auto-selected best SNI for Node {}: {}", id, best_sni);
+            let _ = sqlx::query("UPDATE nodes SET reality_sni = ? WHERE id = ?")
+                .bind(best_sni)
+                .bind(id)
+                .execute(&self.pool)
+                .await;
+        }
+
+        Ok(())
     }
 
     pub async fn delete_node(&self, id: i64) -> Result<()> {

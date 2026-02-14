@@ -114,8 +114,7 @@ pub async fn delete_group(
         .execute(&state.pool)
         .await;
 
-    let admin_path = state.admin_path.clone();
-    axum::response::Redirect::to(&format!("{}/groups", admin_path)).into_response()
+    axum::http::StatusCode::OK.into_response()
 }
 
 // --- Edit Group ---
@@ -239,8 +238,7 @@ pub async fn remove_group_member(
         .execute(&state.pool)
         .await;
 
-    let admin_path = state.admin_path.clone();
-    axum::response::Redirect::to(&format!("{}/groups/{}", admin_path, group_id)).into_response()
+    axum::http::StatusCode::OK.into_response()
 }
 
 #[derive(Deserialize)]

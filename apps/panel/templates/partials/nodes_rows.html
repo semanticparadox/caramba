@@ -181,6 +181,13 @@
                         <i data-lucide="activity" class="w-4 h-4 opacity-50"></i>
                         Test Connection
                     </button>
+                    <button hx-get="{{ admin_path }}/nodes/{{ node.id }}/rescue" hx-target="#edit-node-modal-content"
+                        hx-swap="innerHTML"
+                        hx-on::after-request="document.getElementById('edit-node-modal').showModal()"
+                        class="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-semibold text-orange-400 hover:bg-orange-500/10 transition-colors text-left font-bold">
+                        <i data-lucide="shield-alert" class="w-4 h-4 opacity-70"></i>
+                        Emergency Access
+                    </button>
                     <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/sync" hx-swap="none"
                         class="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-semibold text-slate-300 hover:bg-indigo-500/10 hover:text-indigo-400 transition-colors text-left">
                         <i data-lucide="refresh-cw" class="w-4 h-4 opacity-50"></i>

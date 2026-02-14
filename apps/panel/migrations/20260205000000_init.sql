@@ -85,7 +85,8 @@ CREATE TABLE IF NOT EXISTS nodes (
     total_egress BIGINT DEFAULT 0,
     uptime BIGINT DEFAULT 0,
     last_session_ingress BIGINT DEFAULT 0,
-    last_session_egress BIGINT DEFAULT 0
+    last_session_egress BIGINT DEFAULT 0,
+    doomsday_password TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_nodes_ip ON nodes (ip);
@@ -454,9 +455,10 @@ CREATE TABLE IF NOT EXISTS sni_pool (
     domain TEXT NOT NULL UNIQUE,
     tier INTEGER DEFAULT 0,
     health_score INTEGER DEFAULT 100,
-    last_check TIMESTAMP,
+    last_check DATETIME,
     is_active BOOLEAN DEFAULT 1,
-    notes TEXT
+    notes TEXT,
+    discovered_by_node_id BIGINT REFERENCES nodes(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS sni_rotation_log (

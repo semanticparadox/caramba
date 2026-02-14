@@ -9,4 +9,5 @@ pub struct SniPoolItem {
     pub last_check: Option<chrono::NaiveDateTime>,
     pub is_active: bool,
     pub notes: Option<String>,
+    pub discovered_by_node_id: Option<i64>,
 }

@@ -12,6 +12,18 @@
             <p class="text-slate-400 text-sm mt-1">Manage domains used for Reality and TLS masking. Diversifying SNIs
                 helps evade DPI blocks.</p>
         </div>
+        <div class="flex items-center gap-4 bg-slate-900/40 p-1.5 rounded-2xl border border-white/5">
+            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest pl-3">Filter by Node:</span>
+            <select onchange="window.location.href='?node_id=' + this.value"
+                class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2 text-xs text-indigo-400 outline-none focus:border-indigo-500 transition-all min-w-[150px]">
+                <option value="">All Nodes (Global)</option>
+                {% for node in nodes %}
+                <option value="{{ node.id }}" {% if filter_node_id==Some(node.id) %}selected{% endif %}>
+                    {{ node.name }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
         <div class="flex items-center gap-3">
             <button onclick="document.getElementById('bulkSniModal').showModal()"
                 class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-medium py-2.5 px-5 rounded-xl transition-all border border-white/10">
@@ -93,8 +105,13 @@
                                             Auto
                                         </span>
                                         <span class="text-xs text-slate-400 truncate max-w-[150px]"
-                                            title="{{ item.notes.as_deref().unwrap_or("") }}">{{
-                                            item.notes.as_deref().unwrap_or("") }}</span>
+                                            title="{{ item.notes.as_deref().unwrap_or("") }}">
+                                            {% for node in nodes %}
+                                            {% if Some(node.id) == item.discovered_by_node_id %}
+                                            {{ node.name }}
+                                            {% endif %}
+                                            {% endfor %}
+                                        </span>
                                     </div>
                                     {% else %}
                                     <span class="text-white">{{ item.notes.as_deref().unwrap_or("-") }}</span>

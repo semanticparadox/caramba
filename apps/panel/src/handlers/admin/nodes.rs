@@ -52,6 +52,13 @@ pub struct NodeManualInstallTemplate {
     pub admin_path: String,
 }
 
+#[derive(Template, WebTemplate)]
+#[template(path = "node_rescue_modal.html")]
+pub struct NodeRescueModalTemplate {
+    pub node: Node,
+    pub admin_path: String,
+}
+
 // No custom filters needed, using Node methods instead.
 
 #[derive(Deserialize)]
@@ -277,7 +284,7 @@ pub async fn activate_node(
     Path(id): Path<i64>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    match state.infrastructure_service.activate_node(id).await {
+    match state.infrastructure_service.activate_node(id, &state.security_service).await {
         Ok(_) => {
             let admin_path = state.admin_path.clone();
             (
@@ -330,6 +337,22 @@ pub async fn get_node_logs(
 ) -> impl IntoResponse {
     // Stub for node logs
     Html(format!("<div class='p-4 text-slate-400'>Logs for node {} unavailable (Not implemented)</div>", id)).into_response()
+}
+
+pub async fn get_node_rescue(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let node = match state.infrastructure_service.get_node_by_id(id).await {
+        Ok(n) => n,
+        Err(e) => return (axum::http::StatusCode::NOT_FOUND, format!("Node not found: {}", e)).into_response(),
+    };
+
+    let template = NodeRescueModalTemplate {
+        node,
+        admin_path: state.admin_path.clone(),
+    };
+    Html(template.render().unwrap()).into_response()
 }
 
 

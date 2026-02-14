@@ -26,6 +26,14 @@ impl SniRepository {
             .context("Failed to fetch active SNIs")
     }
 
+    pub async fn get_snis_by_node(&self, node_id: i64) -> Result<Vec<SniPoolItem>> {
+        sqlx::query_as::<_, SniPoolItem>("SELECT * FROM sni_pool WHERE discovered_by_node_id = ? ORDER BY domain ASC")
+            .bind(node_id)
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to fetch SNIs by node")
+    }
+
     pub async fn add_sni(&self, domain: &str, tier: i32, notes: Option<&str>) -> Result<i64> {
         let id = sqlx::query_scalar(
             "INSERT INTO sni_pool (domain, tier, notes) VALUES (?, ?, ?) RETURNING id"

@@ -159,8 +159,7 @@ pub async fn delete_template(
         .execute(&state.pool)
         .await;
 
-    let admin_path = state.admin_path.clone();
-    axum::response::Redirect::to(&format!("{}/templates", admin_path)).into_response()
+    axum::http::StatusCode::OK.into_response()
 }
 
 pub async fn sync_template(

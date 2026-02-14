@@ -68,6 +68,8 @@ pub struct Node {
     pub last_session_ingress: i64,
     #[sqlx(default)]
     pub last_session_egress: i64,
+    #[sqlx(default)]
+    pub doomsday_password: Option<String>,
 }
 
 impl Node {

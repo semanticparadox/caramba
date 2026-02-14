@@ -453,7 +453,8 @@ use tower_http::services::ServeDir;
         .route("/nodes/{id}/activate", axum::routing::post(handlers::admin::activate_node))
         .route("/nodes/{id}/config/preview", axum::routing::get(handlers::admin_network::preview_node_config))
         .route("/nodes/{id}/sync", axum::routing::post(handlers::admin::sync_node))
-        .route("/nodes/{id}/logs", axum::routing::get(handlers::admin::get_node_logs)) // NEW
+        .route("/nodes/{id}/logs", axum::routing::get(handlers::admin::get_node_logs))
+        .route("/nodes/{id}/rescue", axum::routing::get(handlers::admin::get_node_rescue))
         // SSH-based Node Control removed - use Agent API endpoints instead
         .route("/nodes/{id}/delete", axum::routing::delete(handlers::admin::delete_node))
         .route("/nodes/{id}/toggle", axum::routing::post(handlers::admin::toggle_node_enable))

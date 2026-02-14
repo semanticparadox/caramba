@@ -53,9 +53,9 @@ impl NodeRepository {
                 status, load_stats, check_stats_json, sort_order,
                 join_token, vpn_port, auto_configure, is_enabled,
                 reality_pub, reality_priv, short_id, reality_sni,
-                relay_id
+                relay_id, doomsday_password
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id
             "#
         )
@@ -78,6 +78,7 @@ impl NodeRepository {
         .bind(&node.short_id)
         .bind(&node.reality_sni)
         .bind(node.relay_id)
+        .bind(&node.doomsday_password)
         .fetch_one(&self.pool)
         .await?;
         
@@ -89,7 +90,7 @@ impl NodeRepository {
             r#"
             UPDATE nodes 
             SET name=?, ip=?, domain=?, country=?, city=?, flag=?, status=?, load_stats=?, check_stats_json=?, sort_order=?,
-                join_token=?, vpn_port=?, auto_configure=?, is_enabled=?, reality_sni=?, relay_id=?
+                join_token=?, vpn_port=?, auto_configure=?, is_enabled=?, reality_sni=?, relay_id=?, doomsday_password=?
             WHERE id=?
             "#
         )
@@ -109,6 +110,7 @@ impl NodeRepository {
         .bind(node.is_enabled)
         .bind(&node.reality_sni)
         .bind(node.relay_id)
+        .bind(&node.doomsday_password)
         .bind(node.id)
         .execute(&self.pool)
         .await?;
@@ -137,15 +139,16 @@ impl NodeRepository {
     pub async fn upsert_inbound(&self, inbound: &Inbound) -> Result<()> {
         sqlx::query(
             r#"
-            INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable, listen_ip)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable, listen_ip, remark)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(node_id, listen_port) DO UPDATE SET
                 tag=excluded.tag,
                 protocol=excluded.protocol,
                 settings=excluded.settings,
                 stream_settings=excluded.stream_settings,
                 enable=excluded.enable,
-                listen_ip=excluded.listen_ip
+                listen_ip=excluded.listen_ip,
+                remark=excluded.remark
             "#
         )
         .bind(inbound.node_id)
@@ -156,6 +159,7 @@ impl NodeRepository {
         .bind(&inbound.stream_settings)
         .bind(inbound.enable)
         .bind(&inbound.listen_ip)
+        .bind(&inbound.remark)
         .execute(&self.pool)
         .await?;
         

@@ -99,17 +99,24 @@ impl TelemetryService {
             }
         }
         
-        // 3. Process Discovered SNIs (Phase 7 - Neighbor Sniper)
+        // 3. Process Discovered SNIs (Phase 7/57 - Neighbor Sniper)
         if let Some(snis) = discovered_snis {
             for sni in snis {
-                // Insert into sni_pool table if doesn't exist, tagging as discovered
-                let _ = sqlx::query("INSERT INTO sni_pool (domain, tier, notes, is_active) VALUES (?, 1, ?, 1) ON CONFLICT(domain) DO UPDATE SET notes = EXCLUDED.notes")
-                    .bind(&sni.domain)
+                // Phase 57: Filter out "junk" SNIs
+                let domain = sni.domain.to_lowercase();
+                if domain.split('.').count() > 4 || domain.contains("traefik") || domain.contains("localhost") || domain.len() > 50 {
+                    continue;
+                }
+
+                // Insert into sni_pool table if doesn't exist, tagging as discovered by specific node
+                let _ = sqlx::query("INSERT INTO sni_pool (domain, tier, notes, is_active, discovered_by_node_id) VALUES (?, 1, ?, 1, ?) ON CONFLICT(domain) DO UPDATE SET notes = EXCLUDED.notes")
+                    .bind(&domain)
                     .bind(format!("Discovered by Node {} (Sniper)", node_id))
+                    .bind(node_id)
                     .execute(&self.pool)
                     .await;
                 
-                info!("💎 Neighbor Sniper: Persisted discovered SNI {} from Node {}", sni.domain, node_id);
+                info!("💎 Neighbor Sniper: Persisted discovered SNI {} from Node {}", domain, node_id);
             }
         }
 
