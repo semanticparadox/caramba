@@ -75,10 +75,12 @@ impl ConfigGenerator {
                                 certificate_path: None,
                              });
 
-                             // Final safety: if private_key is still empty, skip TLS config to avoid Sing-box FATAL
+                             // Final safety: if private_key is still empty or suspicious, skip TLS config to avoid Sing-box FATAL
                              if let Some(ref cfg) = tls_config {
-                                 if cfg.reality.enabled && cfg.reality.private_key.is_empty() {
-                                     warn!("⚠️ Skipping Reality block for inbound '{}' due to MISSING PRIVATE KEY", inbound.tag);
+                                 let pkey = &cfg.reality.private_key;
+                                 let is_invalid = pkey.is_empty() || pkey.len() < 43 || pkey.contains(' ');
+                                 if cfg.reality.enabled && is_invalid {
+                                     warn!("⚠️ Skipping Reality block for inbound '{}' due to INVALID OR MISSING PRIVATE KEY (len: {})", inbound.tag, pkey.len());
                                      tls_config = None;
                                  }
                              }

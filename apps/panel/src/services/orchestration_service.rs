@@ -53,10 +53,15 @@ impl OrchestrationService {
         }
 
         // 2. Fetch Templates for these groups (Active Only)
+        // Selective Instantiation: Focus on VLESS Reality for automatic setup
         let mut templates = Vec::new();
         for gid in &group_ids {
-            let mut group_templates = self.node_repo.get_templates_for_group(*gid).await?;
-            templates.append(&mut group_templates);
+            let group_templates = self.node_repo.get_templates_for_group(*gid).await?;
+            for tpl in group_templates {
+                if tpl.protocol.to_lowercase() == "vless" {
+                    templates.push(tpl);
+                }
+            }
         }
         
         // 3. Bootstrap Defaults if NO templates found (Fresh Install Scenario)
@@ -257,8 +262,9 @@ impl OrchestrationService {
         let secret = StaticSecret::from(bytes);
         let public = PublicKey::from(&secret);
         
-        let priv_key = base64::Engine::encode(&base64::prelude::BASE64_STANDARD, secret.to_bytes());
-        let pub_key = base64::Engine::encode(&base64::prelude::BASE64_STANDARD, public.as_bytes());
+        // Use STANDARD engine for sing-box compatibility
+        let priv_key = base64::engine::general_purpose::STANDARD.encode(secret.to_bytes());
+        let pub_key = base64::engine::general_purpose::STANDARD.encode(public.as_bytes());
         
         let short_id = hex::encode(&rand::random::<[u8; 8]>());
         Ok((priv_key, pub_key, short_id))
@@ -354,14 +360,20 @@ impl OrchestrationService {
         let mut inbounds = self.node_repo.get_inbounds_by_node(node_id).await?;
         info!("Step 2: Found {} inbounds for node {} ({})", inbounds.len(), node_id, node.name);
 
-        // 2.5 Lazy Initialization of Reality Keys if missing
+        // 2.5 Lazy Initialization & Key Validation
         let mut node = node;
         let mut needs_node_update = false;
-        if node.reality_priv.is_none() || node.reality_priv.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
+        
+        let current_priv = node.reality_priv.as_deref().unwrap_or("");
+        let is_invalid_key = current_priv.is_empty() || 
+                             current_priv.len() < 43 || 
+                             base64::engine::general_purpose::STANDARD.decode(current_priv).is_err();
+
+        if is_invalid_key {
              // Check if any inbound uses reality
              let has_reality = inbounds.iter().any(|i| i.stream_settings.contains("reality"));
              if has_reality {
-                 info!("✨ Lazily generating Reality keys for node {}", node.id);
+                 info!("✨ Lazily generating or REFIXING Reality keys for node {}", node.id);
                  if let Ok((priv_key, pub_key, short_id)) = self.generate_reality_keys() {
                      node.reality_priv = Some(priv_key);
                      node.reality_pub = Some(pub_key);
