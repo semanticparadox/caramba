@@ -136,11 +136,42 @@ detect_os() {
 }
 
 # --------------------------------------------------
+# Nginx Recovery Logic
+# --------------------------------------------------
+fix_broken_nginx() {
+    [ ! -f /etc/os-release ] && return 0
+    source /etc/os-release
+    [[ "$ID" != "debian" && "$ID" != "ubuntu" ]] && return 0
+
+    log_info "Running Nginx pre-check..."
+    
+    # 1. Detect if /etc/nginx/nginx.conf exists and mentions 'stream'
+    # This usually happens if a previous install failed while writing the config,
+    # or if the package was removed but configs were left behind.
+    if [ -f /etc/nginx/nginx.conf ] && grep -q "stream {" /etc/nginx/nginx.conf; then
+        # Check if the stream module is actually available
+        # If the binary is missing or the module is missing, nginx -t will fail.
+        # But we want to be safe and just move it aside if it has 'stream' before we install modules.
+        log_warn "Problematic Nginx configuration detected (stream directive). Moving aside to prevent installation failure."
+        mv /etc/nginx/nginx.conf "/etc/nginx/nginx.conf.fixed_$(date +%s)"
+    fi
+    
+    # 2. General sanity check if binary exists
+    if command -v nginx &> /dev/null && [ -f /etc/nginx/nginx.conf ]; then
+        if ! nginx -t &>/dev/null; then
+            log_warn "Nginx config is invalid. Moving aside to allow repair/reinstall."
+            mv /etc/nginx/nginx.conf "/etc/nginx/nginx.conf.invalid_$(date +%s)"
+        fi
+    fi
+}
+
+# --------------------------------------------------
 # Dependency Installation
 # --------------------------------------------------
 install_dependencies() {
     log_info "Installing dependencies..."
     setup_firewall
+    fix_broken_nginx
     
     # Stop conflicting web servers
     if command -v systemctl &> /dev/null; then
@@ -885,22 +916,6 @@ EOF
     
     # Ensure Nginx and Stream module are installed
     if [ "$ID" = "ubuntu" ] || [ "$ID" = "debian" ]; then
-        # Handle broken configs that block package manager
-        # If /etc/nginx/nginx.conf exists and has 'stream', it WILL break the nginx postinst 
-        # script if it starts before libnginx-mod-stream is fully configured.
-        if [ -f /etc/nginx/nginx.conf ] && grep -q "stream {" /etc/nginx/nginx.conf; then
-            log_warn "Potential broken Nginx config detected (stream directive). Moving aside to allow installation."
-            mv /etc/nginx/nginx.conf "/etc/nginx/nginx.conf.broken_$(date +%s)"
-        fi
-        
-        # Second safety: if binary exists but config is still broken for any other reason
-        if command -v nginx &> /dev/null && [ -f /etc/nginx/nginx.conf ]; then
-            if ! nginx -t &>/dev/null; then
-                log_warn "Nginx config diagnostic failed. Resetting config for installation."
-                mv /etc/nginx/nginx.conf "/etc/nginx/nginx.conf.invalid_$(date +%s)"
-            fi
-        fi
-
         apt-get install -y nginx libnginx-mod-stream -qq
     elif [ "$ID" = "centos" ] || [ "$ID" = "rhel" ]; then
          if ! command -v nginx &> /dev/null; then
