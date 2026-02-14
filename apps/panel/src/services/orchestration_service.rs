@@ -10,6 +10,7 @@ use crate::services::store_service::StoreService;
 
 
 use crate::repositories::node_repo::NodeRepository;
+use base64::Engine;
 
 #[derive(Debug, Clone)]
 pub struct OrchestrationService {
