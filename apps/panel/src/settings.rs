@@ -49,6 +49,20 @@ impl SettingsService {
         self.get(key).await.unwrap_or_else(|| default.to_string())
     }
 
+    /// Gets a value, or sets it to the default if it doesn't exist.
+    pub async fn get_or_set(&self, key: &str, default: &str) -> String {
+        if let Some(val) = self.get(key).await {
+            return val;
+        }
+        
+        // Key doesn't exist, set it
+        if let Err(e) = self.set(key, default).await {
+            tracing::error!("Failed to set default for {}: {}", key, e);
+        }
+        
+        default.to_string()
+    }
+
     pub async fn set(&self, key: &str, value: &str) -> Result<()> {
         let _ = sqlx::query(
             "INSERT INTO settings (key, value) VALUES (?, ?) 

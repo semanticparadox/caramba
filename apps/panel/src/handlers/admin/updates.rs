@@ -2,7 +2,6 @@ use axum::{
     extract::{Path, State},
     response::{Html, IntoResponse},
     http::StatusCode,
-    Form,
 };
 use crate::AppState;
 use tracing::{info, error};
@@ -43,7 +42,7 @@ pub async fn trigger_update(
                 r#"<button class="px-3 py-1 bg-gray-500 text-white rounded cursor-not-allowed opacity-70" disabled>
                     Pending Update...
                 </button>"#
-            ))
+            )).into_response()
         },
         Err(e) => {
             error!("Failed to trigger update for node {}: {}", id, e);

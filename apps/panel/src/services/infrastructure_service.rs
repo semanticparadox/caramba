@@ -58,6 +58,8 @@ impl InfrastructureService {
             short_id: None,
             domain: None,
             root_password: None,
+            version: None,
+            target_version: None,
             vpn_port: vpn_port as i64,
             last_seen: None,
             created_at: chrono::Utc::now(),
