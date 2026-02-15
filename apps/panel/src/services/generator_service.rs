@@ -12,6 +12,7 @@ pub struct GeneratorService {
     pool: SqlitePool,
     security_service: Arc<SecurityService>,
     orchestration_service: Arc<OrchestrationService>,
+    pubsub: Arc<crate::services::pubsub_service::PubSubService>,
 }
 
 impl GeneratorService {
@@ -19,11 +20,13 @@ impl GeneratorService {
         pool: SqlitePool, 
         security_service: Arc<SecurityService>,
         orchestration_service: Arc<OrchestrationService>,
+        pubsub: Arc<crate::services::pubsub_service::PubSubService>,
     ) -> Self {
         Self { 
             pool, 
             security_service,
-            orchestration_service
+            orchestration_service,
+            pubsub,
         }
     }
 
@@ -56,13 +59,15 @@ impl GeneratorService {
 
         info!("🔄 Syncing {} templates to {} nodes in group {}", templates.len(), nodes.len(), group_id);
 
-        for node in nodes {
+        for node in &nodes {
             for template in &templates {
-                match self.ensure_inbound_exists(&node, template).await {
+                match self.ensure_inbound_exists(node, template).await {
                     Ok(_) => info!("✅ Inbound for template {} synced to node {} ({})", template.id, node.id, node.name),
                     Err(e) => error!("❌ Failed to sync template {} to node {}: {}", template.id, node.id, e),
                 }
             }
+            // Notify node to update config
+            let _ = self.pubsub.publish(&format!("node_events:{}", node.id), "update").await;
         }
 
         Ok(())

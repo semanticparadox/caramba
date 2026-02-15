@@ -67,7 +67,7 @@
                 </thead>
                 <tbody class="divide-y divide-white/5">
                     {% for inbound in inbounds %}
-                    <tr class="hover:bg-white/5 transition-colors group">
+                    <tr id="inbound-row-{{ inbound.id }}" class="hover:bg-white/5 transition-colors group">
                         <td class="px-6 py-4">
                             <div class="flex flex-col">
                                 <span class="font-medium text-white">
@@ -126,7 +126,7 @@
                                 <button
                                     class="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors border border-red-500/10"
                                     hx-delete="{{ admin_path }}/nodes/{{ node.id }}/inbounds/{{ inbound.id }}"
-                                    hx-confirm="Delete inbound {{ inbound.tag }}?" hx-target="closest tr"
+                                    hx-confirm="Delete inbound {{ inbound.tag }}?" hx-target="#inbound-row-{{ inbound.id }}"
                                     hx-swap="outerHTML">
                                     <i data-lucide="trash-2" class="w-4 h-4"></i>
                                 </button>

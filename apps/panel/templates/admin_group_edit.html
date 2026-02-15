@@ -61,10 +61,11 @@
                 </thead>
                 <tbody class="divide-y divide-white/5 text-sm">
                     {% for node in members %}
-                    <tr class="hover:bg-white/5 transition-colors group">
+                    <tr id="member-row-{{ node.id }}" class="hover:bg-white/5 transition-colors group">
                         <td class="px-6 py-4">
                             <div class="flex items-center gap-3">
-                                <div class="p-1.5 bg-emerald-500/10 rounded-lg text-emerald-400">
+                                <div
+                                    class="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400 group-hover:bg-indigo-500 group-hover:text-white transition-all">
                                     <i data-lucide="server" class="w-4 h-4"></i>
                                 </div>
                                 <span class="text-white font-medium">{{ node.name }}</span>
@@ -76,7 +77,8 @@
                         </td>
                         <td class="px-6 py-4 text-right">
                             <button hx-delete="{{ admin_path }}/groups/{{ group.id }}/members/{{ node.id }}"
-                                hx-confirm="Remove this node from the group?" hx-target="closest tr" hx-swap="outerHTML"
+                                hx-confirm="Remove this node from the group?" hx-target="#member-row-{{ node.id }}"
+                                hx-swap="outerHTML"
                                 class="p-2 hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 rounded-lg transition-colors opacity-0 group-hover:opacity-100">
                                 <i data-lucide="user-minus" class="w-4 h-4"></i>
                             </button>

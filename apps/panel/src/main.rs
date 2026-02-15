@@ -236,6 +236,9 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         }
     };
 
+    // Initialize PubSub Service (Moved up for dependency injection)
+    let pubsub_service = services::pubsub_service::PubSubService::new(redis_url).await.expect("Failed to init PubSub");
+
     // Initialize store service
     let store_service = Arc::new(services::store_service::StoreService::new(pool.clone()));
 
@@ -259,6 +262,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         pool.clone(),
         security_service.clone(),
         orchestration_service.clone(),
+        pubsub_service.clone(),
     )); // Phase 1.8
     let org_repo = repositories::org_repo::OrganizationRepository::new(pool.clone());
     let org_service = Arc::new(services::org_service::OrganizationService::new(org_repo));
@@ -328,7 +332,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         bot_manager.clone(),
     ));
 
-    let pubsub_service = services::pubsub_service::PubSubService::new(redis_url).await.expect("Failed to init PubSub");
+
 
     let admin_path_prefix = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
     let admin_path_prefix = if admin_path_prefix.starts_with('/') { admin_path_prefix } else { format!("/{}", admin_path_prefix) };

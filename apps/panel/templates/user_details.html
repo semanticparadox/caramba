@@ -216,7 +216,8 @@
                                     <button hx-delete="{{ admin_path }}/users/subs/{{ sub.id }}"
                                         hx-confirm="Are you sure you want to permanently delete this subscription for {{ user.username.as_deref().unwrap_or("
                                         this user") }}? This will revoke access immediately."
-                                        data-confirm-title="Delete Subscription"
+                                        data-confirm-title="Delete Subscription" hx-target="#sub-row-{{ sub.id }}"
+                                        hx-swap="outerHTML"
                                         class="p-1.5 rounded-lg hover:bg-red-500/10 text-slate-600 hover:text-red-400 transition-colors"
                                         title="Delete">
                                         <i data-lucide="trash-2" class="w-4 h-4"></i>
