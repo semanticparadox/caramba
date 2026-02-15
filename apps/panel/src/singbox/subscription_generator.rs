@@ -840,9 +840,9 @@ pub fn generate_singbox_config(
                                 
                                 // Packet Encoding (xudp / packetaddr)
                                 if let Some(pe) = &si.packet_encoding {
-                                     ob["transport"]["packet_encoding"] = json!(pe);
+                                     ob["packet_encoding"] = json!(pe);
                                 } else {
-                                     ob["transport"]["packet_encoding"] = json!("xudp");
+                                     ob["packet_encoding"] = json!("xudp");
                                 }
                                 
                                 // Multiplexing for HTTPUpgrade
@@ -1029,7 +1029,7 @@ pub fn generate_singbox_config(
                             "tag": tag,
                             "server": node.address,
                             "server_port": inbound.listen_port,
-                            "local_address": local_address, // String per Hiddify error
+                            "local_address": [local_address], // Must be an array
                             "private_key": user_keys._awg_private_key.clone().unwrap_or_default(),
                             "peer_public_key": "", // Placeholder, will be replaced below
                         });
@@ -1107,17 +1107,23 @@ pub fn generate_singbox_config(
     }
 
     // Add selector and urltest outbounds
+    let proxy_outbounds = if outbound_tags.is_empty() {
+        vec!["direct".to_string()]
+    } else {
+        outbound_tags.clone()
+    };
+
     let mut all_outbounds = vec![
         json!({
             "type": "selector",
             "tag": "proxy",
-            "outbounds": outbound_tags,
-            "default": outbound_tags.first().unwrap_or(&"direct".to_string()),
+            "outbounds": proxy_outbounds,
+            "default": proxy_outbounds.first().unwrap_or(&"direct".to_string()),
         }),
         json!({
             "type": "urltest",
             "tag": "auto",
-            "outbounds": outbound_tags,
+            "outbounds": proxy_outbounds,
             "url": "https://www.google.com/generate_204",
             "interval": "3m",
             "tolerance": 50
@@ -1159,7 +1165,7 @@ pub fn generate_singbox_config(
                 { "tag": "local", "address": "local", "strategy": "ipv4_only" }
             ],
             "rules": [
-                { "outbound": "any", "server": "google" }
+                { "server": "google" }
             ],
             "strategy": "ipv4_only"
         },
