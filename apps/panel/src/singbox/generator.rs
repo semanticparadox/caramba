@@ -65,7 +65,11 @@ impl ConfigGenerator {
                                 reality: RealityConfig {
                                     enabled: true,
                                     handshake: RealityHandshake {
-                                        server: reality.dest.split(':').next().unwrap_or(&reality.dest).to_string(),
+                                        server: if reality.dest.is_empty() {
+                                            node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string())
+                                        } else {
+                                            reality.dest.split(':').next().unwrap_or(&reality.dest).to_string()
+                                        },
                                         server_port: reality.dest.split(':').last().and_then(|p| p.parse().ok()).unwrap_or(443),
                                     },
                                     private_key: {
@@ -198,6 +202,7 @@ impl ConfigGenerator {
                         users,
                         tls: tls_config,
                         transport: transport_config,
+                        packet_encoding: stream_settings.packet_encoding.clone(),
                     }));
                 },
                 InboundType::Hysteria2(hy2) => {

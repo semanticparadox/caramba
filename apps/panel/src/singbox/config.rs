@@ -94,6 +94,8 @@ pub struct VlessInbound {
     pub tls: Option<VlessTlsConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transport: Option<VlessTransportConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packet_encoding: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
