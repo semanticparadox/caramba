@@ -376,10 +376,12 @@ pub struct LocalDnsServer {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DnsRule {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub outbound: Option<String>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    // pub outbound: Option<String>, // Deprecated in 1.12, removed to fix warning
     #[serde(skip_serializing_if = "Option::is_none")]
     pub domain_resolver: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub server: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clash_mode: Option<String>,
 }

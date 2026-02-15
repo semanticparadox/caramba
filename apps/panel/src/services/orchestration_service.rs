@@ -95,24 +95,24 @@ impl OrchestrationService {
         let vless_stream = r#"{"network":"tcp","security":"reality","reality_settings":{"show":false,"xver":0,"dest":"drive.google.com:443","server_names":["drive.google.com"],"private_key":"","short_ids":[""]}}"#;
         self.create_template("VLESS Reality", "vless", vless_settings, vless_stream, group_id, 10000).await?;
 
-        // Hysteria 2
-        let hy2_settings = r#"{"users":[],"up_mbps":100,"down_mbps":100,"masquerade":"file:///opt/exarobot/apps/panel/assets/masquerade"}"#;
-        let hy2_stream = r#"{"network":"udp","security":"tls","tls_settings":{"server_name":"drive.google.com"}}"#;
-        self.create_template("Hysteria 2", "hysteria2", hy2_settings, hy2_stream, group_id, 8443).await?;
-
-        // TUIC
-        let tuic_settings = r#"{"users":[],"congestion_control":"cubic","auth_timeout":"3s","heartbeat":"10s"}"#;
-        let tuic_stream = r#"{"network":"udp","security":"tls","tls_settings":{"server_name":"www.google.com"}}"#;
-        self.create_template("TUIC v5", "tuic", tuic_settings, tuic_stream, group_id, 9443).await?;
-
-        // AmneziaWG
-        let awg_settings = r#"{"users":[],"listen_port":51820}"#; // Key generation happens on instantiation
-        self.create_template("AmneziaWG", "amneziawg", awg_settings, "{}", group_id, 51820).await?;
-
-        // Naive Reality
-        let naive_settings = r#"{"users":[]}"#;
-        let naive_stream = r#"{"network":"tcp","security":"reality","reality_settings":{"show":false,"xver":0,"dest":"drive.google.com:443","server_names":["drive.google.com"]}}"#;
-        self.create_template("Naive Reality", "naive", naive_settings, naive_stream, group_id, 5000).await?;
+        // Hysteria 2 (Disabled by default for now)
+        // let hy2_settings = r#"{"users":[],"up_mbps":100,"down_mbps":100,"masquerade":"file:///opt/exarobot/apps/panel/assets/masquerade"}"#;
+        // let hy2_stream = r#"{"network":"udp","security":"tls","tls_settings":{"server_name":"drive.google.com"}}"#;
+        // self.create_template("Hysteria 2", "hysteria2", hy2_settings, hy2_stream, group_id, 8443).await?;
+ 
+        // TUIC (Disabled by default for now)
+        // let tuic_settings = r#"{"users":[],"congestion_control":"cubic","auth_timeout":"3s","heartbeat":"10s"}"#;
+        // let tuic_stream = r#"{"network":"udp","security":"tls","tls_settings":{"server_name":"www.google.com"}}"#;
+        // self.create_template("TUIC v5", "tuic", tuic_settings, tuic_stream, group_id, 9443).await?;
+ 
+        // AmneziaWG (Disabled by default for now)
+        // let awg_settings = r#"{"users":[],"listen_port":51820}"#; // Key generation happens on instantiation
+        // self.create_template("AmneziaWG", "amneziawg", awg_settings, "{}", group_id, 51820).await?;
+ 
+        // Naive Reality (Disabled by default for now)
+        // let naive_settings = r#"{"users":[]}"#;
+        // let naive_stream = r#"{"network":"tcp","security":"reality","reality_settings":{"show":false,"xver":0,"dest":"drive.google.com:443","server_names":["drive.google.com"]}}"#;
+        // self.create_template("Naive Reality", "naive", naive_settings, naive_stream, group_id, 5000).await?;
 
         Ok(())
     }
@@ -263,9 +263,9 @@ impl OrchestrationService {
         let secret = StaticSecret::from(bytes);
         let public = PublicKey::from(&secret);
         
-        // Use STANDARD engine for sing-box compatibility and ensure NO WHITESPACE
-        let priv_key = base64::engine::general_purpose::STANDARD.encode(secret.to_bytes()).trim().to_string();
-        let pub_key = base64::engine::general_purpose::STANDARD.encode(public.as_bytes()).trim().to_string();
+        // Use URL_SAFE_NO_PAD engine for sing-box 1.12+ compatibility
+        let priv_key = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(secret.to_bytes()).trim().to_string();
+        let pub_key = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(public.as_bytes()).trim().to_string();
         
         let short_id = hex::encode(&rand::random::<[u8; 8]>()).trim().to_string();
         Ok((priv_key, pub_key, short_id))

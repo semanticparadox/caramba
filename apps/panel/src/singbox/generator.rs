@@ -74,7 +74,8 @@ impl ConfigGenerator {
                                         } else { 
                                             reality.private_key 
                                         };
-                                        k.trim().to_string()
+                                        // Sanitize to URL-Safe Base64 (RFC 4648) for Sing-box 1.12+ compatibility
+                                        k.trim().replace('+', "-").replace('/', "_").replace('=', "")
                                     },
                                     short_id: {
                                         let ids = if reality.short_ids.is_empty() { 
@@ -536,9 +537,10 @@ impl ConfigGenerator {
                 ],
                 rules: vec![
                     DnsRule { 
-                        outbound: Some("direct".to_string()), 
+                        // outbound: Some("direct".to_string()), // Removed for sing-box 1.12+
                         domain_resolver: None,
-                        server: Some("local".to_string()) 
+                        server: Some("local".to_string()),
+                        clash_mode: None,
                     }
                 ]
             }),
