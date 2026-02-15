@@ -221,8 +221,26 @@ fn parse_ss_method(settings_raw: &str) -> String {
         .to_string()
 }
 
-fn parse_ss_password(settings_raw: &str) -> String {
+fn parse_ss_password(settings_raw: &str, user_uuid: &str) -> String {
     let v: Value = serde_json::from_str(settings_raw).unwrap_or(json!({}));
+    
+    // 1. Try to find in `users` list matching UUID
+    if let Some(users) = v.get("users").and_then(|u| u.as_array()) {
+        for user in users {
+            // Check username/name against UUID
+            if let Some(username) = user.get("username").or(user.get("name")).and_then(|u| u.as_str()) {
+                if username == user_uuid {
+                    return user.get("password").and_then(|p| p.as_str()).unwrap_or("").to_string();
+                }
+            }
+        }
+        // Fallback: if list has 1 item and we didn't match (maybe single user mode but ID mismatch?), use it.
+        if users.len() == 1 {
+            return users[0].get("password").and_then(|p| p.as_str()).unwrap_or("").to_string();
+        }
+    }
+
+    // 2. Fallback to top-level password
     v.get("password")
         .and_then(|s| s.as_str())
         .unwrap_or("")
@@ -357,7 +375,7 @@ pub fn generate_v2ray_config(
                     "shadowsocks" | "ss" => {
                         let method = parse_ss_method(&inbound.settings);
                         // Phase 46: Use per-user password (consistent with orchestration_service)
-                        let password = parse_ss_password(&inbound.settings);
+                        let password = parse_ss_password(&inbound.settings, &user_keys.user_uuid);
                         
                         let host = node.frontend_url.as_deref().unwrap_or(&node.address);
                         
@@ -583,7 +601,7 @@ pub fn generate_clash_config(
                     }
                     "shadowsocks" | "ss" => {
                         let method = parse_ss_method(&inbound.settings);
-                        let password = parse_ss_password(&inbound.settings);
+                        let password = parse_ss_password(&inbound.settings, &user_keys.user_uuid);
                         proxies.push(json!({
                             "name": name,
                             "type": "ss",
@@ -727,7 +745,7 @@ pub fn generate_singbox_config(
                         let r_ob = match ri.protocol.as_str() {
                             "shadowsocks" | "ss" => {
                                 let method = parse_ss_method(&ri.settings);
-                                let password = parse_ss_password(&ri.settings);
+                                let password = parse_ss_password(&ri.settings, &user_keys.user_uuid);
                                 Some(json!({
                                     "type": "shadowsocks",
                                     "tag": &r_tag,
@@ -945,7 +963,7 @@ pub fn generate_singbox_config(
                     }
                     "shadowsocks" | "ss" => {
                         let method = parse_ss_method(&inbound.settings);
-                        let password = parse_ss_password(&inbound.settings);
+                        let password = parse_ss_password(&inbound.settings, &user_keys.user_uuid);
                         let mut ob = json!({
                             "type": "shadowsocks",
                             "tag": tag,
