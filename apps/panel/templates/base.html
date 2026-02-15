@@ -444,7 +444,94 @@
                 toast.classList.add('translate-y-10', 'opacity-0', 'pointer-events-none');
             }, 3000);
         }
+
+        // Global Confirmation Interceptor for hx-confirm
+        document.body.addEventListener('htmx:confirm', function (evt) {
+            const elt = evt.detail.elt;
+            const question = evt.detail.question;
+            if (question) {
+                evt.preventDefault();
+
+                const modal = document.getElementById('global-confirm-modal');
+                const titleEl = document.getElementById('global-confirm-title');
+                const messageEl = document.getElementById('global-confirm-message');
+                const confirmBtn = document.getElementById('global-confirm-btn');
+
+                titleEl.innerText = elt.getAttribute('data-confirm-title') || "Confirm Action";
+                messageEl.innerText = question;
+
+                const onConfirm = function () {
+                    modal.close();
+                    cleanup();
+                    evt.detail.issueRequest();
+                };
+
+                const onCancel = function () {
+                    cleanup();
+                };
+
+                const cleanup = function () {
+                    confirmBtn.removeEventListener('click', onConfirm);
+                    modal.removeEventListener('close', onCancel);
+                };
+
+                confirmBtn.addEventListener('click', onConfirm);
+                modal.addEventListener('close', onCancel);
+
+                modal.showModal();
+                lucide.createIcons();
+            }
+        });
     </script>
+
+    <!-- Global Confirmation Modal -->
+    <dialog id="global-confirm-modal" class="modal-reset">
+        <div class="modal-container !max-w-md p-0 overflow-hidden" onclick="event.stopPropagation()">
+            <header class="modal-header"
+                style="padding: 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;">
+                <h3 class="text-xl font-bold text-white flex items-center gap-3">
+                    <i data-lucide="alert-triangle" class="w-6 h-6 text-indigo-500"></i>
+                    <span id="global-confirm-title">Confirm Action</span>
+                </h3>
+                <button onclick="document.getElementById('global-confirm-modal').close()"
+                    class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </header>
+
+            <div class="modal-body" style="padding: 1.5rem;">
+                <div class="p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-2xl">
+                    <p id="global-confirm-message" class="text-sm text-slate-300 leading-relaxed">
+                        Are you sure you want to proceed with this action?
+                    </p>
+                </div>
+            </div>
+
+            <footer class="modal-footer"
+                style="padding: 1.5rem; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; gap: 1rem;">
+                <button class="btn-secondary"
+                    onclick="document.getElementById('global-confirm-modal').close()">Cancel</button>
+                <button id="global-confirm-btn"
+                    class="btn-primary !bg-indigo-600 hover:!bg-indigo-500 shadow-indigo-500/20">
+                    Confirm
+                </button>
+            </footer>
+        </div>
+    </dialog>
+
+    <style>
+        .modal-reset {
+            background: transparent;
+            border: none;
+            padding: 0;
+            margin: auto;
+        }
+
+        .modal-reset::backdrop {
+            background: rgba(2, 6, 23, 0.8);
+            backdrop-filter: blur(4px);
+        }
+    </style>
 </body>
 
 </html>

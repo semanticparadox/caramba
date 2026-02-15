@@ -76,8 +76,9 @@
                                 </a>
                                 {% if item.group.id != 1 %}
                                 <button title="Delete" hx-delete="{{ admin_path }}/groups/{{ item.group.id }}"
-                                    hx-confirm="Are you sure? Plans linked to this group will lose access."
-                                    hx-target="#group-row-{{ item.group.id }}" hx-swap="outerHTML"
+                                    hx-confirm="Are you sure you want to delete this group? Plans linked to this group will lose access to its nodes."
+                                    data-confirm-title="Delete Node Group" hx-target="#group-row-{{ item.group.id }}"
+                                    hx-swap="outerHTML"
                                     class="p-2 hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 rounded-lg transition-colors">
                                     <i data-lucide="trash-2" class="w-4 h-4"></i>
                                 </button>

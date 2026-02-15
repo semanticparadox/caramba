@@ -85,7 +85,8 @@
                     <button
                         class="py-2 px-3 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 text-sm font-medium transition-colors border border-red-500/10"
                         hx-delete="{{ admin_path }}/plans/{{ plan.id }}"
-                        hx-confirm="Delete plan? This cannot be undone." hx-target="closest .plan-card"
+                        hx-confirm="Are you sure you want to delete the plan '{{ plan.name }}'? This action cannot be undone."
+                        data-confirm-title="Delete Subscription Plan" hx-target="#plan-{{ plan.id }}"
                         hx-swap="outerHTML">
                         Delete
                     </button>
