@@ -19,7 +19,9 @@ pub struct DnsConfig {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DnsServer {
     pub tag: String,
-    pub address: String,
+    #[serde(rename = "type")]
+    pub ttype: String,
+    pub server: String,
     pub detour: Option<String>,
 }
 
@@ -27,6 +29,8 @@ pub struct DnsServer {
 pub struct DnsRule {
     pub outbound: Option<String>,
     pub server: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain_resolver: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -324,11 +328,11 @@ impl ClientGenerator {
         let dns = if country_code == "ru" {
             Some(DnsConfig {
                 servers: vec![
-                    DnsServer { tag: "google".to_string(), address: "8.8.8.8".to_string(), detour: Some("🚀 Proxy".to_string()) },
-                    DnsServer { tag: "local".to_string(), address: "local".to_string(), detour: Some("direct".to_string()) },
-                ], // Fallback logic or rule sets needed
+                    DnsServer { tag: "google".to_string(), ttype: "udp".to_string(), server: "8.8.8.8".to_string(), detour: Some("🚀 Proxy".to_string()) },
+                    DnsServer { tag: "local".to_string(), ttype: "local".to_string(), server: "local".to_string(), detour: Some("direct".to_string()) },
+                ], 
                 rules: vec![
-                    DnsRule { outbound: Some("direct".to_string()), server: "local".to_string() }, // Fallback logic or rule sets needed
+                    DnsRule { outbound: Some("direct".to_string()), server: "local".to_string(), domain_resolver: None }, 
                 ]
             })
         } else {
@@ -337,22 +341,20 @@ impl ClientGenerator {
 
         // 4. Routes
         let route = RouteConfig {
+            default_domain_resolver: None,
             rules: vec![
                 RouteRule {
                     protocol: Some(vec!["dns".to_string()]),
                     outbound: Some("dns-out".to_string()),
-                    action: None, port: None, domain: None, geosite: None, geoip: None
+                    action: None, port: None, domain: None, geosite: None, geoip: None,
+                    domain_resolver: None,
                 },
                 RouteRule {
                     outbound: Some("direct".to_string()),
                     domain: Some(vec!["geosite:cn".to_string(), "geosite:private".to_string()]), 
-                    action: None, port: None, protocol: None, geosite: None, geoip: None
+                    action: None, port: None, protocol: None, geosite: None, geoip: None,
+                    domain_resolver: None,
                 },
-                // Default rule (implicit in sing-box if no match? No, needs default)
-                // Actually sing-box routes to first outbound used in "rules" or just select first one?
-                // Sing-box needs explicit final rule or it loops?
-                // Usually it picks the first outbound in the list as default if no rules match.
-                // Our first outbound is "🚀 Proxy".
             ]
         };
 
