@@ -258,15 +258,26 @@ pub async fn delete_node(
 ) -> impl IntoResponse {
     info!("Request to delete node ID: {}", id);
 
-    // Delete the node (now handled by service)
     match state.infrastructure_service.delete_node(id).await {
         Ok(_) => {
             info!("Node {} deleted successfully", id);
-            (axum::http::StatusCode::OK, "").into_response()
+            (
+                axum::http::StatusCode::OK,
+                [
+                    ("HX-Trigger", "refresh_nodes"),
+                ],
+                "",
+            ).into_response()
         }
         Err(e) => {
             error!("Failed to delete node {}: {}", id, e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete node: {}", e)).into_response()
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                [
+                    ("HX-Reswap", "none"),
+                ],
+                format!("Failed to delete node: {}", e),
+            ).into_response()
         }
     }
 }

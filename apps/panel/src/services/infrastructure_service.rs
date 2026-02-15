@@ -147,18 +147,51 @@ impl InfrastructureService {
     }
 
     pub async fn delete_node(&self, id: i64) -> Result<()> {
-        // Clear SNI Logs (Shared logic)
+        // 1. Delete plan_inbound links for this node's inbounds
+        let _ = sqlx::query(
+            "DELETE FROM plan_inbounds WHERE inbound_id IN (SELECT id FROM inbounds WHERE node_id = ?)"
+        )
+            .bind(id)
+            .execute(&self.pool)
+            .await;
+
+        // 2. Delete inbounds belonging to this node
+        let _ = sqlx::query("DELETE FROM inbounds WHERE node_id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await;
+
+        // 3. Delete plan-node links
+        let _ = sqlx::query("DELETE FROM plan_nodes WHERE node_id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await;
+
+        // 4. Delete node group memberships
+        let _ = sqlx::query("DELETE FROM node_group_members WHERE node_id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await;
+
+        // 5. Clear SNI rotation logs
         let _ = sqlx::query("DELETE FROM sni_rotation_log WHERE node_id = ?")
             .bind(id)
             .execute(&self.pool)
             .await;
 
-        // Unlink Subscriptions
+        // 6. Nullify SNI pool discovered_by references
+        let _ = sqlx::query("UPDATE sni_pool SET discovered_by_node_id = NULL WHERE discovered_by_node_id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await;
+
+        // 7. Unlink subscriptions
         let _ = sqlx::query("UPDATE subscriptions SET node_id = NULL WHERE node_id = ?")
             .bind(id)
             .execute(&self.pool)
             .await;
 
+        // 8. Finally, delete the node itself
         self.node_repo.delete_node(id).await.map_err(|e| e.into())
     }
 }

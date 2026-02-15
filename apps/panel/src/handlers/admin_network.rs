@@ -189,6 +189,12 @@ pub async fn delete_inbound(
 ) -> impl IntoResponse {
     info!("Deleting inbound {} from node {}", inbound_id, node_id);
     
+    // Clean up plan_inbound links first
+    let _ = sqlx::query("DELETE FROM plan_inbounds WHERE inbound_id = ?")
+        .bind(inbound_id)
+        .execute(&state.pool)
+        .await;
+
     match sqlx::query("DELETE FROM inbounds WHERE id = ? AND node_id = ?")
         .bind(inbound_id)
         .bind(node_id)
