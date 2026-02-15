@@ -1125,23 +1125,28 @@ pub fn generate_singbox_config(
     }
 
     // Add selector and urltest outbounds
-    let proxy_outbounds = if outbound_tags.is_empty() {
+    let urltest_list = if outbound_tags.is_empty() {
         vec!["direct".to_string()]
     } else {
         outbound_tags.clone()
     };
 
+    // Selector includes: auto group + individual proxies + direct bypass
+    let mut selector_list = vec!["auto".to_string()];
+    selector_list.extend(outbound_tags.clone());
+    selector_list.push("direct".to_string());
+
     let mut all_outbounds = vec![
         json!({
             "type": "selector",
             "tag": "proxy",
-            "outbounds": proxy_outbounds,
-            "default": proxy_outbounds.first().unwrap_or(&"direct".to_string()),
+            "outbounds": selector_list,
+            "default": "auto",
         }),
         json!({
             "type": "urltest",
             "tag": "auto",
-            "outbounds": proxy_outbounds,
+            "outbounds": urltest_list,
             "url": "https://www.google.com/generate_204",
             "interval": "3m",
             "tolerance": 50
@@ -1154,20 +1159,20 @@ pub fn generate_singbox_config(
 
     // ─── Dynamic Rules Generation ────────────────────────────────────────────
     let mut rules_list = vec![
-        json!({ "protocol": "dns", "outbound": "dns-out" }),
+        json!({ "protocol": ["dns"], "outbound": "dns-out" }),
     ];
 
     // Apply Policies (Phase 11)
     // We use the policy of the first available node as the global policy for this subscription profile.
     if let Some(node) = nodes.first() {
         if node.config_block_ads {
-            rules_list.push(json!({ "geosite": "category-ads-all", "outbound": "block" }));
+            rules_list.push(json!({ "geosite": ["category-ads-all"], "outbound": "block" }));
         }
         if node.config_block_porn {
-            rules_list.push(json!({ "geosite": "category-porn", "outbound": "block" }));
+            rules_list.push(json!({ "geosite": ["category-porn"], "outbound": "block" }));
         }
         if node.config_block_torrent {
-             rules_list.push(json!({ "protocol": "bittorrent", "outbound": "block" }));
+             rules_list.push(json!({ "protocol": ["bittorrent"], "outbound": "block" }));
         }
     }
 
@@ -1179,13 +1184,12 @@ pub fn generate_singbox_config(
         "log": { "level": "info" },
         "dns": {
             "servers": [
-                { "tag": "google", "address": "8.8.8.8", "strategy": "ipv4_only" },
-                { "tag": "local", "address": "local", "strategy": "ipv4_only" }
+                { "tag": "google", "type": "udp", "server": "8.8.8.8" },
+                { "tag": "local", "type": "local" }
             ],
             "rules": [
                 { "server": "google" }
-            ],
-            "strategy": "ipv4_only"
+            ]
         },
         "inbounds": [{
             "type": "mixed",

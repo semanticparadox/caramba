@@ -50,7 +50,7 @@ out/
 .cache/
 .parcel-cache/
 .vite/
-
+/old_exarobot/
 # Telegram Mini App Build
 apps/mini-app/dist/
 apps/mini-app/build/
