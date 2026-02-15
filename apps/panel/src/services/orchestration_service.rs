@@ -386,7 +386,7 @@ impl OrchestrationService {
 
         let is_invalid_key = current_priv.is_empty() || 
                              current_priv.len() < 43 || 
-                             base64::engine::general_purpose::STANDARD.decode(&current_priv).is_err();
+                             base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(&current_priv).is_err();
 
         if is_invalid_key {
              // Check if any inbound uses reality
