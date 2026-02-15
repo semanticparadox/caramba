@@ -166,10 +166,24 @@ impl ConfigGenerator {
                         }
                     }
                     // Convert users
+
+                    // Determine default flow based on security/network
+                    let default_flow = if security == "reality" && stream_settings.network.as_deref() == Some("tcp") {
+                        "xtls-rprx-vision"
+                    } else {
+                        ""
+                    };
+
                     let users: Vec<VlessUser> = vless.clients.iter().map(|c| VlessUser {
                         name: c.email.clone(),
                         uuid: c.id.clone(),
-                        flow: if c.flow.is_empty() { None } else { Some(c.flow.clone()) },
+                        flow: if !c.flow.is_empty() { 
+                            Some(c.flow.clone()) 
+                        } else if !default_flow.is_empty() {
+                            Some(default_flow.to_string())
+                        } else {
+                            None
+                        },
                     }).collect();
 
                     if users.is_empty() {
