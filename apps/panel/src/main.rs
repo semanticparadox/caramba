@@ -264,6 +264,14 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     let org_service = Arc::new(services::org_service::OrganizationService::new(org_repo));
     let sni_repo = Arc::new(repositories::sni_repo::SniRepository::new(pool.clone()));
 
+    // Initialize Update Service (Phase 66)
+    let update_service = Arc::new(services::update_service::UpdateService::new(settings.clone()));
+    // Run update check in background on startup
+    let update_svc_clone = update_service.clone();
+    tokio::spawn(async move {
+        update_svc_clone.initialize_agent_updates().await;
+    });
+
     // Initialize connection service
     let connection_service = Arc::new(services::connection_service::ConnectionService::new(
         pool.clone(),
@@ -454,6 +462,7 @@ use tower_http::services::ServeDir;
         .route("/nodes/install", axum::routing::post(handlers::admin::install_node))
         .route("/nodes/{id}/edit", axum::routing::get(handlers::admin::get_node_edit))
         .route("/nodes/{id}/update", axum::routing::post(handlers::admin::update_node))
+        .route("/nodes/{id}/update/trigger", axum::routing::post(handlers::admin::updates::trigger_update)) // NEW Phase 67
         .route("/nodes/{id}/activate", axum::routing::post(handlers::admin::activate_node))
         .route("/nodes/{id}/config/preview", axum::routing::get(handlers::admin_network::preview_node_config))
         .route("/nodes/{id}/sync", axum::routing::post(handlers::admin::sync_node))

@@ -28,6 +28,9 @@ pub struct NodesTemplate {
     pub username: String,
     pub admin_path: String,
     pub active_page: String,
+    // Phase 67
+    pub agent_latest_version: String,
+    pub auto_update_agents: bool,
 }
 
 #[derive(Template, WebTemplate)]
@@ -35,6 +38,9 @@ pub struct NodesTemplate {
 pub struct NodesRowsPartial {
     pub nodes: Vec<Node>,
     pub admin_path: String,
+    // Phase 67
+    pub agent_latest_version: String,
+    pub auto_update_agents: bool,
 }
 
 #[derive(Template, WebTemplate)]
@@ -89,10 +95,16 @@ pub async fn get_nodes(
     
     let admin_path = state.admin_path.clone();
 
+    // Fetch Update Settings (Phase 67)
+    let agent_latest_version = state.settings.get_or_default("agent_latest_version", "0.0.0").await;
+    let auto_update_agents: bool = state.settings.get_or_default("auto_update_agents", "true").await.parse().unwrap_or(true);
+
     if headers.contains_key("hx-request") {
         let template = NodesRowsPartial {
             nodes,
             admin_path,
+            agent_latest_version,
+            auto_update_agents,
         };
         return Html(template.render().unwrap()).into_response();
     }
@@ -103,6 +115,8 @@ pub async fn get_nodes(
         username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
         admin_path,
         active_page: "nodes".to_string(),
+        agent_latest_version,
+        auto_update_agents,
     };
     Html(template.render().unwrap()).into_response()
 }

@@ -524,18 +524,15 @@ impl ConfigGenerator {
             },
             dns: Some(DnsConfig {
                 servers: vec![
-                    DnsServer { 
+                    DnsServer::Udp(UdpDnsServer { 
                         tag: "google".to_string(), 
-                        ttype: "udp".to_string(), // 1.12.0 requirement
                         server: "8.8.8.8".to_string(),
                         detour: None
-                    },
-                    DnsServer { 
+                    }),
+                    DnsServer::Local(LocalDnsServer { 
                         tag: "local".to_string(), 
-                        ttype: "local".to_string(), 
-                        server: "local".to_string(),
                         detour: Some("direct".to_string()) 
-                    }
+                    })
                 ],
                 rules: vec![
                     DnsRule { 

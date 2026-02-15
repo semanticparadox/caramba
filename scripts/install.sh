@@ -14,7 +14,7 @@ set -e
 REPO_URL="https://github.com/semanticparadox/EXA-ROBOT.git"
 INSTALL_DIR="/opt/exarobot"
 TEMP_BUILD_DIR="/tmp/exarobot_build"
-VERSION_TAG="2026-02-13-v5"
+VERSION_TAG="2026-02-15-v6"
 
 # Colors
 RED='\033[0;31m'
@@ -239,18 +239,19 @@ install_dependencies() {
 }
 
 install_singbox() {
-    if ! command -v sing-box &> /dev/null; then
-        log_info "Installing sing-box..."
-        curl -fsSL https://sing-box.app/gpg.key -o /etc/apt/keyrings/sagernet.asc
-        chmod a+r /etc/apt/keyrings/sagernet.asc
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/sagernet.asc] https://deb.sagernet.org/ * *" | \
-            tee /etc/apt/sources.list.d/sagernet.list > /dev/null
-        apt-get update -qq
-        apt-get install -y sing-box -qq
-        log_success "sing-box installed"
-    else
-        log_success "sing-box already installed"
-    fi
+    log_info "Ensuring latest sing-box is installed..."
+    # Always ensure the sagernet repo is present and GPG key is valid
+    mkdir -p /etc/apt/keyrings
+    curl -fsSL https://sing-box.app/gpg.key -o /etc/apt/keyrings/sagernet.asc
+    chmod a+r /etc/apt/keyrings/sagernet.asc
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/sagernet.asc] https://deb.sagernet.org/ * *" | \
+        tee /etc/apt/sources.list.d/sagernet.list > /dev/null
+    
+    apt-get update -qq
+    # Use install without the ! command check to force update to latest in sagernet repo
+    apt-get install -y sing-box -qq
+    log_success "sing-box updated to latest version"
+}
     
     # Ensure we know where it is
     SINGBOX_BIN=$(command -v sing-box || echo "/usr/bin/sing-box")
@@ -518,6 +519,16 @@ EOF
         
         log_info "Compiling Agent (for downloads/distribution)..."
         cargo build -p exarobot-agent --release
+        
+        # Copy to downloads for auto-update
+        mkdir -p "$APP_PANEL_DIR/downloads"
+        cp "$src_dir/target/release/exarobot-agent" "$APP_PANEL_DIR/downloads/exarobot-agent-linux-amd64"
+        
+        # Extract version from Cargo.toml or use tag
+        # We can use grep to get version from apps/agent/Cargo.toml
+        AGENT_VER=$(grep '^version =' "$src_dir/apps/agent/Cargo.toml" | head -n1 | cut -d'"' -f2)
+        echo "$AGENT_VER" > "$APP_PANEL_DIR/downloads/agent_version.txt"
+        log_success "Agent binary and version ($AGENT_VER) prepared for auto-update."
     fi
     
     if [[ "$target_role" == "agent" || "$target_role" == "both" ]]; then

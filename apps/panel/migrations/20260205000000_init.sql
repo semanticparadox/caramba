@@ -86,7 +86,11 @@ CREATE TABLE IF NOT EXISTS nodes (
     uptime BIGINT DEFAULT 0,
     last_session_ingress BIGINT DEFAULT 0,
     last_session_egress BIGINT DEFAULT 0,
-    doomsday_password TEXT
+    doomsday_password TEXT,
+    
+    -- Phase 67: Granular Update Control
+    version TEXT,
+    target_version TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_nodes_ip ON nodes (ip);

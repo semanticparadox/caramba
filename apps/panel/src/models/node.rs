@@ -70,6 +70,12 @@ pub struct Node {
     pub last_session_egress: i64,
     #[sqlx(default)]
     pub doomsday_password: Option<String>,
+    
+    // Phase 67: Version Control
+    #[sqlx(default)]
+    pub version: Option<String>,
+    #[sqlx(default)]
+    pub target_version: Option<String>,
 }
 
 impl Node {

@@ -155,6 +155,8 @@ pub async fn patch_database_schema(pool: &Pool<Sqlite>) {
         ("speed_limit_mbps", "ALTER TABLE nodes ADD COLUMN speed_limit_mbps INTEGER DEFAULT 0"),
         ("current_speed_mbps", "ALTER TABLE nodes ADD COLUMN current_speed_mbps INTEGER DEFAULT 0"),
         ("relay_id", "ALTER TABLE nodes ADD COLUMN relay_id INTEGER"),
+        ("version", "ALTER TABLE nodes ADD COLUMN version TEXT"),
+        ("target_version", "ALTER TABLE nodes ADD COLUMN target_version TEXT"),
     ];
 
     for (col, alter_sql) in &node_columns {

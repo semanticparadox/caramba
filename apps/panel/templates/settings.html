@@ -123,28 +123,36 @@
                 <div class="space-y-6">
                     <!-- Frontend Mode -->
                     <div>
-                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Frontend Mode</label>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Frontend
+                            Mode</label>
                         <select form="main-settings-form" name="frontend_mode"
                             class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all text-sm appearance-none">
-                            <option value="local" {% if frontend_mode == "local" %}selected{% endif %}>Local (Panel Hosted)</option>
-                            <option value="distributed" {% if frontend_mode == "distributed" %}selected{% endif %}>Distributed (CDN/External)</option>
+                            <option value="local" {% if frontend_mode=="local" %}selected{% endif %}>Local (Panel
+                                Hosted)</option>
+                            <option value="distributed" {% if frontend_mode=="distributed" %}selected{% endif %}>
+                                Distributed (CDN/External)</option>
                         </select>
-                        <p class="text-[10px] text-slate-500 mt-1.5">Local: Panel serves pages directly. Distributed: Uses external nodes/CDNs.</p>
+                        <p class="text-[10px] text-slate-500 mt-1.5">Local: Panel serves pages directly. Distributed:
+                            Uses external nodes/CDNs.</p>
                     </div>
 
                     <!-- Subscription Domain -->
                     <div>
-                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Subscription Domain (Optional)</label>
-                        <input type="text" form="main-settings-form" name="subscription_domain" value="{{ subscription_domain }}"
-                            placeholder="sub.example.com"
+                        <label
+                            class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Subscription
+                            Domain (Optional)</label>
+                        <input type="text" form="main-settings-form" name="subscription_domain"
+                            value="{{ subscription_domain }}" placeholder="sub.example.com"
                             class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all text-sm">
-                        <p class="text-[10px] text-slate-500 mt-1.5">Custom domain for subscription links. Leave empty to use Panel URL.</p>
+                        <p class="text-[10px] text-slate-500 mt-1.5">Custom domain for subscription links. Leave empty
+                            to use Panel URL.</p>
                     </div>
 
                     <!-- Mini App Toggle -->
                     <div class="flex items-center justify-between p-4 bg-slate-950/30 border border-white/5 rounded-xl">
                         <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400">
+                            <div
+                                class="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400">
                                 <i data-lucide="smartphone" class="w-5 h-5"></i>
                             </div>
                             <div>
@@ -155,7 +163,9 @@
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" form="main-settings-form" name="miniapp_enabled" value="true"
                                 class="sr-only peer" {% if miniapp_enabled %}checked{% endif %}>
-                            <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                            <div
+                                class="w-11 h-6 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600">
+                            </div>
                         </label>
                     </div>
                 </div>
@@ -461,6 +471,54 @@
                         class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-medium py-2 px-4 rounded-lg transition-all border border-white/5">
                         <i data-lucide="refresh-cw" class="w-4 h-4"></i> Check for Updates
                     </button>
+                </div>
+
+                <!-- Granular Update Controls (Phase 67) -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 mt-4 border-t border-white/5">
+                    <!-- Panel Auto-Update -->
+                    <div class="flex items-center justify-between p-3 bg-slate-950/30 rounded-xl border border-white/5">
+                        <div>
+                            <span class="block text-xs font-bold text-white">Panel Auto-Update</span>
+                            <span class="text-[10px] text-slate-500">Update panel automatically</span>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" form="main-settings-form" name="auto_update_panel" value="true"
+                                class="sr-only peer" {% if auto_update_panel %}checked{% endif %}>
+                            <div
+                                class="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500">
+                            </div>
+                        </label>
+                    </div>
+
+                    <!-- Agents Auto-Update -->
+                    <div class="flex items-center justify-between p-3 bg-slate-950/30 rounded-xl border border-white/5">
+                        <div>
+                            <span class="block text-xs font-bold text-white">Agents Auto-Update</span>
+                            <span class="text-[10px] text-slate-500">Update agents automatically</span>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" form="main-settings-form" name="auto_update_agents" value="true"
+                                class="sr-only peer" {% if auto_update_agents %}checked{% endif %}>
+                            <div
+                                class="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500">
+                            </div>
+                        </label>
+                    </div>
+
+                    <!-- Frontend Auto-Update -->
+                    <div class="flex items-center justify-between p-3 bg-slate-950/30 rounded-xl border border-white/5">
+                        <div>
+                            <span class="block text-xs font-bold text-white">Frontend Auto-Update</span>
+                            <span class="text-[10px] text-slate-500">Update frontends automatically</span>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" form="main-settings-form" name="auto_update_frontend" value="true"
+                                class="sr-only peer" {% if auto_update_frontend %}checked{% endif %}>
+                            <div
+                                class="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500">
+                            </div>
+                        </label>
+                    </div>
                 </div>
             </div>
 

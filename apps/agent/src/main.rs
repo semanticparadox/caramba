@@ -166,7 +166,7 @@ async fn main() -> anyhow::Result<()> {
                 if let Some(target_ver) = resp.latest_version {
                     // Simple string comparison for now, or use semver crate if added
                     // Assuming versions are "x.y.z"
-                    let current_version = "0.2.0";
+                    let current_version = env!("CARGO_PKG_VERSION");
                     if target_ver != current_version && target_ver != "0.0.0" {
                          info!("📣 New version available: {} (Current: {})", target_ver, current_version);
                          
@@ -327,7 +327,7 @@ async fn send_heartbeat(
     let (latency, cpu, ram, connections) = collect_telemetry(client, sys).await;
 
     let payload = HeartbeatRequest {
-        version: "0.2.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         uptime,
         status: "running".to_string(),
         config_hash: state.current_hash.clone(),

@@ -70,6 +70,10 @@ pub struct SettingsTemplate {
     pub frontend_mode: String,
     pub miniapp_enabled: bool,
     pub subscription_domain: String,
+    // Phase 67
+    pub auto_update_panel: bool,
+    pub auto_update_agents: bool,
+    pub auto_update_frontend: bool,
 }
 
 #[derive(Template, WebTemplate)]
@@ -119,6 +123,10 @@ pub struct SaveSettingsForm {
     pub frontend_mode: Option<String>,
     pub miniapp_enabled: Option<String>,
     pub subscription_domain: Option<String>,
+    // Phase 67
+    pub auto_update_panel: Option<String>,
+    pub auto_update_agents: Option<String>,
+    pub auto_update_frontend: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -179,6 +187,12 @@ pub async fn get_settings(
     let miniapp_enabled = state.settings.get_or_default("miniapp_enabled", "true").await == "true";
     let subscription_domain = state.settings.get_or_default("subscription_domain", "").await;
 
+    // Phase 67
+    let auto_update_panel = state.settings.get_or_default("auto_update_panel", "false").await == "true";
+    let auto_update_agents = state.settings.get_or_default("auto_update_agents", "true").await == "true";
+    let auto_update_frontend = state.settings.get_or_default("auto_update_frontend", "false").await == "true";
+
+
     let masked_payment_api_key = if !payment_api_key.is_empty() { mask_key(&payment_api_key) } else { "".to_string() };
     let masked_nowpayments_api_key = if !nowpayments_api_key.is_empty() { mask_key(&nowpayments_api_key) } else { "".to_string() };
     let masked_bot_token = if !bot_token.is_empty() { mask_key(&bot_token) } else { "".to_string() };
@@ -235,6 +249,9 @@ pub async fn get_settings(
         frontend_mode,
         miniapp_enabled,
         subscription_domain,
+        auto_update_panel,
+        auto_update_agents,
+        auto_update_frontend,
     };
 
     match template.render() {
@@ -364,6 +381,11 @@ pub async fn save_settings(
     if let Some(v) = form.frontend_mode { settings.insert("frontend_mode".to_string(), v); }
     if let Some(v) = form.miniapp_enabled { settings.insert("miniapp_enabled".to_string(), v); }
     if let Some(v) = form.subscription_domain { settings.insert("subscription_domain".to_string(), v); }
+
+    // Phase 67
+    if let Some(v) = form.auto_update_panel { settings.insert("auto_update_panel".to_string(), v); }
+    if let Some(v) = form.auto_update_agents { settings.insert("auto_update_agents".to_string(), v); }
+    if let Some(v) = form.auto_update_frontend { settings.insert("auto_update_frontend".to_string(), v); }
 
     match state.settings.set_multiple(settings).await {
         Ok(_) => {

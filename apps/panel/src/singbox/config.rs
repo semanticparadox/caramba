@@ -353,11 +353,23 @@ pub struct DnsConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DnsServer {
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum DnsServer {
+    Udp(UdpDnsServer),
+    Local(LocalDnsServer),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UdpDnsServer {
     pub tag: String,
-    #[serde(rename = "type")]
-    pub ttype: String,
     pub server: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detour: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LocalDnsServer {
+    pub tag: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detour: Option<String>,
 }

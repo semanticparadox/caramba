@@ -9,6 +9,7 @@ pub mod analytics;
 pub mod store;
 pub mod frontends;
 pub mod api_keys;
+pub mod updates;
 
 // Re-export commonly used functions for convenience
 pub use auth::{get_login, login, logout, get_auth_user, is_authenticated};

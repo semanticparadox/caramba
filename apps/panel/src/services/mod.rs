@@ -25,4 +25,4 @@ pub mod generator_service;
 pub mod org_service;
 pub mod payment;
 pub mod rotation_service;
-pub mod sni_monitor;
+pub mod update_service;

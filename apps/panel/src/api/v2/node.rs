@@ -52,23 +52,24 @@ pub async fn heartbeat(
         }
     };
 
-    // 3. Update Telemetry & Status & IP
+    // 3. Update Telemetry & Status & IP & Version
     if let Some(lat) = req.latency {
         // Fix: Also update IP here, because if a node sends stats, we still want to fix its IP if it's pending.
-        let _ = sqlx::query("UPDATE nodes SET last_latency = ?, last_cpu = ?, last_ram = ?, current_speed_mbps = ?, last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN ? ELSE ip END WHERE id = ?")
+        let _ = sqlx::query("UPDATE nodes SET last_latency = ?, last_cpu = ?, last_ram = ?, current_speed_mbps = ?, last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN ? ELSE ip END, version = ? WHERE id = ?")
             .bind(lat)
             .bind(req.cpu_usage.unwrap_or(0.0))
             .bind(req.memory_usage.unwrap_or(0.0))
-            .bind(req.speed_mbps.unwrap_or(0)) // New
+            .bind(req.speed_mbps.unwrap_or(0))
             .bind(&remote_ip)
+            .bind(&req.version)
             .bind(node_id)
             .execute(&state.pool)
             .await;
     } else {
         // Just update last_seen if no telemetry (or older agent)
-        // Also update IP if it was a pending placeholder
-        let _ = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN ? ELSE ip END WHERE id = ?")
+        let _ = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN ? ELSE ip END, version = ? WHERE id = ?")
             .bind(&remote_ip)
+            .bind(&req.version)
             .bind(node_id)
             .execute(&state.pool)
             .await;
@@ -131,13 +132,28 @@ pub async fn heartbeat(
         }
     });
 
-    // 5. Check for Agent Update
+    // 5. Agent Update Logic (Phase 67)
+    let auto_update_agents: bool = state.settings.get_or_default("auto_update_agents", "true").await.parse().unwrap_or(true);
     let latest_version: String = state.settings.get_or_default("agent_latest_version", "0.0.0").await;
     
+    let target_version = if auto_update_agents {
+        // If auto-update is ON, force latest version
+        Some(latest_version)
+    } else {
+        // If auto-update is OFF, check if specific target version is set for this node
+        let stored_target: Option<String> = sqlx::query_scalar("SELECT target_version FROM nodes WHERE id = ?")
+            .bind(node_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
+        
+        stored_target
+    };
+
     (StatusCode::OK, Json(HeartbeatResponse {
         success: true,
         action: AgentAction::None,
-        latest_version: Some(latest_version),
+        latest_version: target_version,
     })).into_response()
 }
 
@@ -168,8 +184,16 @@ pub async fn get_update_info(
 
     // 3. Fetch Update Info from Settings
     let version = state.settings.get_or_default("agent_latest_version", "0.0.0").await;
-    let url = state.settings.get_or_default("agent_update_url", "").await;
+    let mut url = state.settings.get_or_default("agent_update_url", "").await;
     let hash = state.settings.get_or_default("agent_update_hash", "").await;
+
+    // Resolve relative URL
+    if url.starts_with('/') {
+        if let Some(host) = headers.get("host").and_then(|h| h.to_str().ok()) {
+            let protocol = if host.contains("localhost") || host.contains("127.0.0.1") { "http" } else { "https" };
+            url = format!("{}://{}{}", protocol, host, url);
+        }
+    }
 
     Json(serde_json::json!({
         "version": version,
@@ -177,6 +201,8 @@ pub async fn get_update_info(
         "hash": hash
     })).into_response()
 }
+
+
 
 /// Get Node Configuration
 /// GET /api/v2/node/config
