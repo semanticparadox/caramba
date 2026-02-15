@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct SingBoxConfig {
     pub log: LogConfig,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub dns: Option<serde_json::Value>, 
+    pub dns: Option<DnsConfig>, 
     pub inbounds: Vec<Inbound>,
     pub outbounds: Vec<Outbound>,
     pub route: Option<RouteConfig>,
@@ -322,6 +322,8 @@ pub struct TuicTlsConfig {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RouteConfig {
     pub rules: Vec<RouteRule>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_domain_resolver: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -340,4 +342,32 @@ pub struct RouteRule {
     pub geosite: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub geoip: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain_resolver: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DnsConfig {
+    pub servers: Vec<DnsServer>,
+    pub rules: Vec<DnsRule>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DnsServer {
+    pub tag: String,
+    #[serde(rename = "type")]
+    pub ttype: String,
+    pub server: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detour: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DnsRule {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outbound: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain_resolver: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
 }

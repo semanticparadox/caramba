@@ -68,8 +68,22 @@ impl ConfigGenerator {
                                         server: reality.dest.split(':').next().unwrap_or(&reality.dest).to_string(),
                                         server_port: reality.dest.split(':').last().and_then(|p| p.parse().ok()).unwrap_or(443),
                                     },
-                                    private_key: if reality.private_key.is_empty() { node.reality_priv.clone().unwrap_or_default() } else { reality.private_key },
-                                    short_id: if reality.short_ids.is_empty() { node.short_id.clone().map(|s| vec![s]).unwrap_or_default() } else { reality.short_ids },
+                                    private_key: {
+                                        let k = if reality.private_key.is_empty() { 
+                                            node.reality_priv.clone().unwrap_or_default() 
+                                        } else { 
+                                            reality.private_key 
+                                        };
+                                        k.trim().to_string()
+                                    },
+                                    short_id: {
+                                        let ids = if reality.short_ids.is_empty() { 
+                                            node.short_id.clone().map(|s| vec![s]).unwrap_or_default() 
+                                        } else { 
+                                            reality.short_ids 
+                                        };
+                                        ids.into_iter().map(|s| s.trim().to_string()).collect()
+                                    },
                                 },
                                 key_path: None,
                                 certificate_path: None,
@@ -508,15 +522,29 @@ impl ConfigGenerator {
                 level: "info".to_string(),
                 timestamp: true,
             },
-            dns: Some(serde_json::json!({
-                "servers": [
-                    { "tag": "google", "address": "8.8.8.8" },
-                    { "tag": "local", "address": "local", "detour": "direct" }
+            dns: Some(DnsConfig {
+                servers: vec![
+                    DnsServer { 
+                        tag: "google".to_string(), 
+                        ttype: "udp".to_string(), // 1.12.0 requirement
+                        server: "8.8.8.8".to_string(),
+                        detour: None
+                    },
+                    DnsServer { 
+                        tag: "local".to_string(), 
+                        ttype: "local".to_string(), 
+                        server: "local".to_string(),
+                        detour: Some("direct".to_string()) 
+                    }
                 ],
-                "rules": [
-                    { "outbound": "direct", "server": "local" }
+                rules: vec![
+                    DnsRule { 
+                        outbound: Some("direct".to_string()), 
+                        domain_resolver: None,
+                        server: Some("local".to_string()) 
+                    }
                 ]
-            })),
+            }),
             inbounds: generated_inbounds,
             outbounds: vec![
                 Outbound::Direct { tag: "direct".to_string() },
@@ -524,6 +552,7 @@ impl ConfigGenerator {
                 // Sing-box enum Outbound might need to support 'block'
             ],
             route: Some(RouteConfig {
+                default_domain_resolver: Some("google".to_string()),
                 rules: {
                     let mut rules = Vec::new();
                     
@@ -531,8 +560,9 @@ impl ConfigGenerator {
                     rules.push(RouteRule {
                         action: Some("route".to_string()),
                         protocol: Some(vec!["dns".to_string()]),
-                        outbound: Some("direct".to_string()), // Or dns-out if implemented
+                        outbound: Some("direct".to_string()),
                         port: None, domain: None, geosite: None, geoip: None,
+                        domain_resolver: None,
                     });
 
                     // 1. Block BitTorrent
@@ -541,6 +571,7 @@ impl ConfigGenerator {
                             action: Some("reject".to_string()),
                             protocol: Some(vec!["bittorrent".to_string()]),
                             outbound: None, port: None, domain: None, geosite: None, geoip: None,
+                            domain_resolver: None,
                         });
                     }
 
@@ -550,6 +581,7 @@ impl ConfigGenerator {
                             action: Some("reject".to_string()),
                             geosite: Some(vec!["category-ads-all".to_string()]),
                             outbound: None, protocol: None, port: None, domain: None, geoip: None,
+                            domain_resolver: None,
                         });
                     }
 
@@ -559,6 +591,7 @@ impl ConfigGenerator {
                             action: Some("reject".to_string()),
                             geosite: Some(vec!["category-porn".to_string()]),
                             outbound: None, protocol: None, port: None, domain: None, geoip: None,
+                            domain_resolver: None,
                         });
                     }
 
@@ -569,6 +602,7 @@ impl ConfigGenerator {
                             protocol: Some(vec!["stun".to_string(), "quic".to_string(), "dtls".to_string()]),
                             outbound: Some("direct".to_string()),
                             port: None, domain: None, geosite: None, geoip: None,
+                            domain_resolver: None,
                         });
                     }
                     
