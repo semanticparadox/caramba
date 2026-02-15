@@ -200,6 +200,8 @@ pub struct StreamSettings {
     pub http_upgrade_settings: Option<HttpUpgradeSettings>,
     #[serde(alias = "xhttpSettings", default)]
     pub xhttp_settings: Option<XhttpSettings>,
+    #[serde(alias = "packetEncoding", default)]
+    pub packet_encoding: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

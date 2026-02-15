@@ -357,11 +357,7 @@ pub fn generate_v2ray_config(
                     "shadowsocks" | "ss" => {
                         let method = parse_ss_method(&inbound.settings);
                         // Phase 46: Use per-user password (consistent with orchestration_service)
-                        let password = if method.contains("2022") {
-                            user_keys.user_uuid.replace("-", "")
-                        } else {
-                            parse_ss_password(&inbound.settings)
-                        };
+                        let password = parse_ss_password(&inbound.settings);
                         
                         let host = node.frontend_url.as_deref().unwrap_or(&node.address);
                         
