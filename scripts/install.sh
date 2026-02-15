@@ -251,7 +251,6 @@ install_singbox() {
     # Use install without the ! command check to force update to latest in sagernet repo
     apt-get install -y sing-box -qq
     log_success "sing-box updated to latest version"
-}
     
     # Ensure we know where it is
     SINGBOX_BIN=$(command -v sing-box || echo "/usr/bin/sing-box")
