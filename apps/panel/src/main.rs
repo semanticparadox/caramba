@@ -251,6 +251,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         pool.clone(),
         store_service.clone(),
         security_service.clone(),
+        pubsub_service.clone(),
     ));
 
     // Initialize new modular services

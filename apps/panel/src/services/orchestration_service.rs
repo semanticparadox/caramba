@@ -12,12 +12,16 @@ use crate::services::store_service::StoreService;
 use crate::repositories::node_repo::NodeRepository;
 use base64::Engine;
 
+// Added import
+use crate::services::pubsub_service::PubSubService;
+
 #[derive(Debug, Clone)]
 pub struct OrchestrationService {
     pub pool: SqlitePool,
     pub node_repo: NodeRepository,
     security_service: Arc<crate::services::security_service::SecurityService>,
     store_service: Arc<StoreService>,
+    pubsub_service: Arc<PubSubService>,
 }
 
 impl OrchestrationService {
@@ -25,14 +29,40 @@ impl OrchestrationService {
         pool: SqlitePool, 
         store_service: Arc<StoreService>,
         security_service: Arc<crate::services::security_service::SecurityService>,
+        pubsub_service: Arc<PubSubService>,
     ) -> Self {
         let node_repo = NodeRepository::new(pool.clone());
         Self { 
             pool, 
             node_repo, 
             store_service, 
-            security_service
+            security_service,
+            pubsub_service,
         }
+    }
+    
+    // ... (init_default_inbounds and other methods remain unchanged)
+
+    pub async fn notify_node_update(&self, node_id: i64) -> anyhow::Result<()> {
+        info!("🔔 Node {} update notification triggered", node_id);
+        
+        // Publish to Redis channel node_events:{node_id}
+        // The payload is arbitrary JSON, matching what poll_updates expects (or just a kick)
+        // poll_updates converts any message to {"update": true}
+        
+        let channel = format!("node_events:{}", node_id);
+        let payload = serde_json::json!({ "update": true }).to_string();
+        
+        if let Err(e) = self.pubsub_service.publish(&channel, &payload).await {
+            error!("Failed to publish node update for {}: {}", node_id, e);
+            // Don't fail the request, just log error? 
+            // Better to return error if critical, but update triggers are often best-effort.
+            // Let's return error to be safe so caller knows it failed.
+            return Err(e);
+        }
+        
+        info!("✅ PubSub: Published update signal to {}", channel);
+        Ok(())
     }
     /// Initializes default inbounds by applying Group Templates
     pub async fn init_default_inbounds(&self, node_id: i64) -> anyhow::Result<()> {
@@ -560,11 +590,7 @@ impl OrchestrationService {
     }
 
 
-    pub async fn notify_node_update(&self, node_id: i64) -> anyhow::Result<()> {
-        info!("🔔 Node {} update notification triggered", node_id);
-        // TODO: Implement actual notification logic (e.g. PubSub or direct push)
-        Ok(())
-    }
+
 
 
 
