@@ -7,6 +7,7 @@ use anyhow::Result;
 
 /// Service to handle Pub/Sub for Long Polling
 /// Maintains a list of local waiters (HTTP requests) and a Redis subscriber
+#[derive(Debug)]
 pub struct PubSubService {
     redis_url: String,
     // Map of "channel_name" -> List of waiters
