@@ -1336,6 +1336,7 @@ impl StoreService {
                     ws_settings: None,
                     http_upgrade_settings: None,
                     xhttp_settings: None,
+                    packet_encoding: None,
                 });
                 let security = stream.security.as_deref().unwrap_or("none");
                 let network = stream.network.as_deref().unwrap_or("tcp");
@@ -1508,6 +1509,7 @@ impl StoreService {
                     ws_settings: None,
                     http_upgrade_settings: None,
                     xhttp_settings: None,
+                    packet_encoding: None,
                 });
                 let security = stream.security.as_deref().unwrap_or("none");
                 let _network = stream.network.as_deref().unwrap_or("tcp");
@@ -1846,6 +1848,7 @@ impl StoreService {
                     ws_settings: None,
                     http_upgrade_settings: None,
                     xhttp_settings: None,
+                    packet_encoding: None,
                 });
                 let security = stream.security.as_deref().unwrap_or("none");
                 let network = stream.network.as_deref().unwrap_or("tcp");
