@@ -137,8 +137,8 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
     let public_key = reality
         .and_then(|r| r.get("publicKey").or_else(|| r.get("public_key")))
         .and_then(|s| s.as_str())
+        .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
-        // Also check privateKey → we need publicKey for client
         .unwrap_or_else(|| node.reality_public_key.clone().unwrap_or_default());
 
     let short_id = reality
@@ -146,13 +146,14 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
         .and_then(|v| v.as_array())
         .and_then(|a| a.first())
         .and_then(|s| s.as_str())
+        .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
         .unwrap_or_else(|| node.reality_short_id.clone().unwrap_or_default());
 
     let fingerprint = reality
         .and_then(|r| r.get("fingerprint"))
         .and_then(|s| s.as_str())
-        .unwrap_or("chrome_random")
+        .unwrap_or("chrome")
         .to_string();
 
     // WebSocket settings
@@ -174,11 +175,14 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
     // Flow: only use xtls-rprx-vision for Reality+TCP VLESS
     // Note: Protocol check is done at the caller level usually, but we can't see it here.
     // However, we should be careful. Sing-box only wants 'flow' on VLESS inbounds.
-    let flow = if security == "reality" && network == "tcp" {
-        "xtls-rprx-vision".to_string()
-    } else {
-        String::new()
-    };
+    let flow = v.get("flow").and_then(|f| f.as_str()).map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            if security == "reality" && network == "tcp" {
+                "xtls-rprx-vision".to_string()
+            } else {
+                String::new()
+            }
+        });
 
     // XHTTP / Advanced Parsing
     let packet_encoding = v.get("packet_encoding").or_else(|| v.get("packetEncoding"))

@@ -1361,12 +1361,12 @@ impl StoreService {
                         if security == "reality" {
                             if let Some(reality) = stream.reality_settings {
                                 let sni = node.reality_sni.clone().unwrap_or_else(|| {
-                                    reality.server_names.first().cloned().unwrap_or_else(|| node.domain.clone().unwrap_or_default())
+                                    reality.server_names.first().filter(|s| !s.is_empty()).cloned().unwrap_or_else(|| node.domain.clone().unwrap_or_default())
                                 });
-                                let pub_key = reality.public_key.clone()
+                                let pub_key = reality.public_key.clone().filter(|s| !s.is_empty())
                                     .or_else(|| node.reality_pub.clone())
                                     .unwrap_or_default();
-                                let short_id = reality.short_ids.first().cloned()
+                                let short_id = reality.short_ids.first().filter(|s| !s.is_empty()).cloned()
                                     .or_else(|| node.short_id.clone())
                                     .unwrap_or_default();
 
@@ -1872,11 +1872,21 @@ impl StoreService {
                         
                         if security == "reality" {
                             if let Some(reality) = stream.reality_settings {
-                                let sni = node.reality_sni.clone()
-                                    .or_else(|| reality.server_names.first().cloned())
-                                    .unwrap_or_default();
+                                let sni = node.reality_sni.clone().unwrap_or_else(|| {
+                                    reality.server_names.first().filter(|s| !s.is_empty()).cloned().unwrap_or_else(|| node.domain.clone().unwrap_or_default())
+                                });
                                 params.push(format!("sni={}", sni));
-                                params.push(format!("pbk={}", reality.public_key.or(node.reality_pub).unwrap_or_default())); 
+                                let pub_key = reality.public_key.clone().filter(|s| !s.is_empty())
+                                    .or_else(|| node.reality_pub.clone())
+                                    .unwrap_or_default();
+                                let short_id = reality.short_ids.first().filter(|s| !s.is_empty()).cloned()
+                                    .or_else(|| node.short_id.clone())
+                                    .unwrap_or_default();
+
+                                params.push(format!("pbk={}", pub_key)); 
+                                if !short_id.is_empty() {
+                                    params.push(format!("sid={}", short_id));
+                                }
                                 params.push("fp=chrome".to_string());
                             }
                         } else if security == "tls" {
