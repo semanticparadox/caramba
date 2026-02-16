@@ -844,7 +844,7 @@ pub fn generate_singbox_config(
                                 "type": "grpc",
                                 "service_name": si.grpc_service
                             });
-                        } else if si.network == "xhttp" | "splithttp" | "httpupgrade" => {
+                        } else if matches!(si.network.as_str(), "xhttp" | "splithttp" | "httpupgrade") {
                              outbound["transport"] = json!({
                                 "type": "httpupgrade",
                                 "path": si.ws_path,
