@@ -503,9 +503,9 @@ impl OrchestrationService {
                 match &mut settings {
                     InboundType::Vless(vless) => {
                         for sub in &active_subs {
-                            if let (Some(uuid), tg_id, username) = (&sub.0, sub.1, &sub.2) {
-                                let auth_name = tg_id.to_string();
-                                let _display_name = username.clone().unwrap_or_default().replace("@", "");
+                            if let (sub_id, Some(uuid), _tg_id, _username) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                // Use user_{sub_id} to match TrafficService expectation
+                                let auth_name = format!("user_{}", sub_id);
 
                                 info!("🔑 Injecting VLESS user: {} (UUID: {})", auth_name, uuid);
                                 // Parse stream settings to check for TCP + Reality/TLS
@@ -528,8 +528,8 @@ impl OrchestrationService {
                     },
                     InboundType::Hysteria2(hy2) => {
                          for sub in &active_subs {
-                            if let (Some(uuid), tg_id, _) = (&sub.0, sub.1, &sub.2) {
-                                let auth_name = tg_id.to_string();
+                            if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                let auth_name = format!("user_{}", sub_id);
                                 
                                 info!("🔑 Injecting HYSTERIA user: {} (Pass: {})", auth_name, uuid);
                                 hy2.users.push(Hysteria2User {
@@ -542,8 +542,8 @@ impl OrchestrationService {
                     InboundType::AmneziaWg(awg) => {
                         use crate::models::network::AmneziaWgUser;
                         for sub in &active_subs {
-                            if let (Some(uuid), tg_id, _) = (&sub.0, sub.1, &sub.2) {
-                                let auth_name = tg_id.to_string();
+                            if let (sub_id, Some(uuid), tg_id, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                let auth_name = format!("user_{}", sub_id);
                                 
                                 let client_priv = self.derive_awg_key(uuid);
                                 let client_pub = self.priv_to_pub(&client_priv);
@@ -562,8 +562,8 @@ impl OrchestrationService {
                     InboundType::Trojan(trojan) => {
                         use crate::models::network::TrojanClient;
                         for sub in &active_subs {
-                            if let (Some(uuid), tg_id, _) = (&sub.0, sub.1, &sub.2) {
-                                let auth_name = tg_id.to_string();
+                            if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                let auth_name = format!("user_{}", sub_id);
                                 trojan.clients.push(TrojanClient {
                                     password: uuid.clone(),
                                     email: Some(auth_name),
@@ -573,8 +573,8 @@ impl OrchestrationService {
                     },
                     InboundType::Tuic(tuic) => {
                          for sub in &active_subs {
-                            if let (Some(uuid), tg_id, _) = (&sub.0, sub.1, &sub.2) {
-                                let auth_name = tg_id.to_string();
+                            if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                let auth_name = format!("user_{}", sub_id);
                                 
                                 info!("🔑 Injecting TUIC user: {} (UUID: {})", auth_name, uuid);
                                 tuic.users.push(crate::models::network::TuicUser {
@@ -587,8 +587,8 @@ impl OrchestrationService {
                     },
                     InboundType::Naive(naive) => {
                          for sub in &active_subs {
-                            if let (Some(uuid), tg_id, _) = (&sub.0, sub.1, &sub.2) {
-                                let auth_name = tg_id.to_string();
+                            if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                let auth_name = format!("user_{}", sub_id);
                                 
                                 info!("🔑 Injecting NAIVE user: {} (Pass: {})", auth_name, uuid);
                                 naive.users.push(NaiveUser {
@@ -600,8 +600,8 @@ impl OrchestrationService {
                     },
                     InboundType::Shadowsocks(ss) => {
                          for sub in &active_subs {
-                            if let (Some(uuid), tg_id, _) = (&sub.0, sub.1, &sub.2) {
-                                let auth_name = tg_id.to_string();
+                            if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                let auth_name = format!("user_{}", sub_id);
                                 
                                 info!("🔑 Injecting SHADOWSOCKS user: {} (Pass: {})", auth_name, uuid);
                                 ss.users.push(crate::models::network::ShadowsocksUser {

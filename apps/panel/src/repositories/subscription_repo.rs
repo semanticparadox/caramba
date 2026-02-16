@@ -273,21 +273,21 @@ impl SubscriptionRepository {
         Ok(plan)
     }
 
-    pub async fn get_active_subs_by_plans(&self, plan_ids: &[i64]) -> Result<Vec<(Option<String>, i64, Option<String>)>> {
+    pub async fn get_active_subs_by_plans(&self, plan_ids: &[i64]) -> Result<Vec<(i64, Option<String>, i64, Option<String>)>> {
         if plan_ids.is_empty() {
             return Ok(Vec::new());
         }
         
         let placeholders = plan_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let query = format!(
-            "SELECT s.vless_uuid, u.tg_id, u.username
+            "SELECT s.id, s.vless_uuid, u.tg_id, u.username
              FROM subscriptions s
              JOIN users u ON s.user_id = u.id
              WHERE LOWER(s.status) = 'active' AND s.plan_id IN ({})",
             placeholders
         );
         
-        let mut q = sqlx::query_as::<_, (Option<String>, i64, Option<String>)>(&query);
+        let mut q = sqlx::query_as::<_, (i64, Option<String>, i64, Option<String>)>(&query);
         for id in plan_ids {
             q = q.bind(id);
         }

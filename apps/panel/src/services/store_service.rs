@@ -64,7 +64,7 @@ impl StoreService {
     }
 
     /// Public wrapper for SubscriptionRepository::get_active_subs_by_plans
-    pub async fn get_active_subs_by_plans(&self, plan_ids: &[i64]) -> Result<Vec<(Option<String>, i64, Option<String>)>> {
+    pub async fn get_active_subs_by_plans(&self, plan_ids: &[i64]) -> Result<Vec<(i64, Option<String>, i64, Option<String>)>> {
         self.sub_repo.get_active_subs_by_plans(plan_ids).await
     }
 

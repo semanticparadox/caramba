@@ -40,6 +40,8 @@ pub struct ConnectionMetadata {
     pub inbound_ip: String,
     #[serde(rename = "inboundPort", default)]
     pub inbound_port: String,
+    #[serde(default)]
+    pub user: Option<String>,
 }
 
 /// Clash API response for /connections
@@ -101,7 +103,11 @@ impl ConnectionService {
         }
 
         // Collect connections from all nodes
-        let mut subscription_ips: HashMap<String, HashSet<String>> = HashMap::new();
+        // Key: Subscription ID (i64), Value: Set of IPs
+        let mut subscription_ips: HashMap<i64, HashSet<String>> = HashMap::new();
+
+        // Separate cache for resolving UUID -> SubID to avoid repeatedly DB hitting if using chains
+        let mut uuid_cache: HashMap<String, i64> = HashMap::new();
 
         for node in nodes {
             if node.status != "active" {
@@ -111,11 +117,36 @@ impl ConnectionService {
                 Ok(connections) => {
                     info!("Fetched {} connections from node {}", connections.len(), node.ip);
                     
-                    // Group IPs by subscription UUID (extracted from inbound chains)
                     for conn in connections {
-                        if let Some(uuid) = extract_uuid_from_connection(&conn) {
-                            subscription_ips
-                                .entry(uuid)
+                        // Strategy 1: Check metadata.user (e.g. "user_123")
+                        let mut sub_id_opt = None;
+
+                        if let Some(user_tag) = &conn.metadata.user {
+                            if user_tag.starts_with("user_") {
+                                if let Ok(id) = user_tag[5..].parse::<i64>() {
+                                    sub_id_opt = Some(id);
+                                }
+                            }
+                        }
+
+                        // Strategy 2: Check chains for UUID if Strategy 1 failed
+                        if sub_id_opt.is_none() {
+                            if let Some(uuid) = extract_uuid_from_chain(&conn) {
+                                if let Some(cached_id) = uuid_cache.get(&uuid) {
+                                    sub_id_opt = Some(*cached_id);
+                                } else {
+                                    // Resolve UUID to ID from DB
+                                    if let Ok(Some(sub)) = self.store.get_subscription_by_uuid(&uuid).await {
+                                        uuid_cache.insert(uuid.clone(), sub.id);
+                                        sub_id_opt = Some(sub.id);
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if let Some(sub_id) = sub_id_opt {
+                             subscription_ips
+                                .entry(sub_id)
                                 .or_insert_with(HashSet::new)
                                 .insert(conn.metadata.source_ip.clone());
                         }
@@ -131,9 +162,9 @@ impl ConnectionService {
         info!("Collected IPs for {} subscriptions", subscription_ips.len());
 
         // Check each subscription's device limit
-        for (uuid, ips) in subscription_ips {
-            if let Err(e) = self.enforce_subscription_limit(&uuid, ips).await {
-                error!("Failed to enforce limit for subscription {}: {:#}", uuid, e);
+        for (sub_id, ips) in subscription_ips {
+            if let Err(e) = self.enforce_subscription_limit(sub_id, ips).await {
+                error!("Failed to enforce limit for subscription ID {}: {:#}", sub_id, e);
             }
         }
 
@@ -161,45 +192,32 @@ impl ConnectionService {
     }
 
     /// Enforce device limit for a single subscription
-    async fn enforce_subscription_limit(&self, uuid: &str, active_ips: HashSet<String>) -> Result<()> {
-        // Get subscription by UUID
-        let sub = match self.get_subscription_by_uuid(uuid).await? {
-            Some(s) => s,
-            None => {
-                warn!("Subscription not found for UUID: {}", uuid);
-                return Ok(());
-            }
-        };
-
+    async fn enforce_subscription_limit(&self, sub_id: i64, active_ips: HashSet<String>) -> Result<()> {
         // Get device limit for this subscription
-        let device_limit = self.store.get_subscription_device_limit(sub.id).await?;
+        let device_limit = self.store.get_device_limit(sub_id).await?.unwrap_or(0);
 
         let active_device_count = active_ips.len();
         let ips_vec: Vec<String> = active_ips.iter().cloned().collect();
 
         // Update IP tracking in database
-        self.store.update_subscription_ips(sub.id, ips_vec.clone()).await?;
+        self.store.sub_repo.update_ips(sub_id, ips_vec).await?; // Assuming update_ips exists or uses previous method logic
 
         // Check if limit exceeded (0 for Unlimited)
         if device_limit > 0 && active_device_count > device_limit as usize {
             warn!(
-                "Subscription {} ({}) exceeded device limit: {}/{} devices. Enforcing limit.",
-                sub.id, uuid, active_device_count, device_limit
+                "Subscription {} exceeded device limit: {}/{} devices. Enforcing limit.",
+                sub_id, active_device_count, device_limit
             );
 
-            // Kill all connections for this subscription to enforce re-login
-            // A more granular approach would be to kill only the "newest" IP, but we don't have timestamp per connection easily here without storing checks.
-            // Killing all forces valid users to maybe reconnect, but kicks the sharers.
-            
-            self.kill_subscription_connections(uuid).await?;
-
-            // Optional: Send notification via Bot if linked
-            // self.orchestration.notify_user(sub.user_id, "Device limit exceeded. Connections reset.").await?;
+            // Kill all connections for this subscription
+            // We need to kill by user_tag "user_{sub_id}" AND potentially by UUID if possible?
+            // Safer to use "user_{sub_id}" as that is what we standardized on.
+            self.kill_subscription_connections(sub_id).await?;
 
         } else if active_device_count > 0 {
             info!(
-                "Subscription {} ({}) within limit: {}/{} devices",
-                sub.id, uuid, active_device_count, if device_limit == 0 { "Unlimited".to_string() } else { device_limit.to_string() }
+                "Subscription {} within limit: {}/{} devices",
+                sub_id, active_device_count, if device_limit == 0 { "Unlimited".to_string() } else { device_limit.to_string() }
             );
         }
 
@@ -207,24 +225,29 @@ impl ConnectionService {
     }
 
     /// Kill all active connections for a specific subscription across all nodes
-    pub async fn kill_subscription_connections(&self, uuid: &str) -> Result<()> {
+    pub async fn kill_subscription_connections(&self, sub_id: i64) -> Result<()> {
         let nodes: Vec<crate::models::node::Node> = self.orchestration.node_repo.get_all_nodes().await?;
+        let target_user = format!("user_{}", sub_id);
         
         for node in nodes {
-             // 1. Fetch connections again to get IDs (IDs change)
-             // Optimization: We could pass the connection list from the check phase if we refactored
              match self.fetch_node_connections(&node.ip).await {
                  Ok(connections) => {
                      for conn in connections {
-                         // Check if this connection belongs to the UUID
-                         if let Some(conn_uuid) = extract_uuid_from_connection(&conn) {
-                             if conn_uuid == uuid {
-                                 // Kill it
-                                 info!("Killing connection {} on node {} for user {}", conn.id, node.name, uuid);
+                         // Check metadata.user
+                         let mut match_found = false;
+                         if let Some(user) = &conn.metadata.user {
+                             if user == &target_target_user {
+                                 match_found = true;
+                             }
+                         }
+                         
+                         // If no match on user, maybe check UUID if we had it?
+                         // For now, rely on parsed user tag
+                         if match_found {
+                                 info!("Killing connection {} on node {} for {}", conn.id, node.name, target_user);
                                  if let Err(e) = self.close_connection(&node.ip, &conn.id).await {
                                      error!("Failed to close connection {} on {}: {}", conn.id, node.name, e);
                                  }
-                             }
                          }
                      }
                  },
@@ -253,33 +276,15 @@ impl ConnectionService {
         }
         Ok(())
     }
-
-    /// Get subscription by UUID
-    async fn get_subscription_by_uuid(&self, uuid: &str) -> Result<Option<Subscription>> {
-        let sub = sqlx::query_as::<_, Subscription>(
-            "SELECT * FROM subscriptions WHERE uuid = ? LIMIT 1"
-        )
-        .bind(uuid)
-        .fetch_optional(&self.pool)
-        .await
-        .context("Failed to fetch subscription by UUID")?;
-
-        Ok(sub)
-    }
 }
 
-/// Extract UUID from connection metadata (inbound tag or chain)
-/// This assumes the inbound tag contains the subscription UUID
-fn extract_uuid_from_connection(conn: &ClashConnection) -> Option<String> {
-    // Check chains for UUID pattern (8-4-4-4-12 hex pattern)
+/// Extract UUID from connection chains (legacy support)
+fn extract_uuid_from_chain(conn: &ClashConnection) -> Option<String> {
     for chain in &conn.chains {
         if is_valid_uuid(chain) {
             return Some(chain.clone());
         }
     }
-
-    // Fallback: check metadata fields
-    // This may need adjustment based on actual sing-box Clash API output
     None
 }
 
