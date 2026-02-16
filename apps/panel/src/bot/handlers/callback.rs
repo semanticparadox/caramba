@@ -2,7 +2,6 @@ use teloxide::prelude::*;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ForceReply, ParseMode, CallbackQuery, ChatId, LabeledPrice};
 use tracing::{info, error};
 use crate::AppState;
-use sqlx::Row;
 use crate::bot::utils::escape_md;
 use crate::bot::keyboards::{main_menu, terms_keyboard};
 use crate::models::payment::PaymentType;
