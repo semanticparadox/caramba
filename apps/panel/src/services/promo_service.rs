@@ -1,8 +1,8 @@
 use sqlx::SqlitePool;
 use anyhow::{Result, Context};
 use tracing::{info, error};
-use chrono::Utc;
-use crate::models::promo::{PromoCode, PromoCodeUsage};
+use chrono::{DateTime, Utc};
+use crate::models::promo::PromoCode;
 
 #[derive(Debug, Clone)]
 pub struct PromoService {
@@ -19,7 +19,7 @@ impl PromoService {
         let code = code.trim().to_uppercase();
         
         // 1. Check Gift Codes (User-to-User Single Use)
-        let gift: Option<(i64, i64, i32)> = sqlx::query_as::<(i64, i64, i32)>(
+        let gift: Option<(i64, i64, i32)> = sqlx::query_as::<sqlx::Sqlite, (i64, i64, i32)>(
             "SELECT id, plan_id, duration_days FROM gift_codes WHERE code = ? AND redeemed_by_user_id IS NULL"
         )
         .bind(&code)
@@ -60,7 +60,7 @@ impl PromoService {
         // But better use SQL to ensure atomicity in this transaction
         
         // 1. Get Plan info
-        let traffic_gb: i64 = sqlx::query_scalar("SELECT traffic_limit_gb FROM plans WHERE id = ?")
+        let _traffic_gb: i64 = sqlx::query_scalar("SELECT traffic_limit_gb FROM plans WHERE id = ?")
             .bind(plan_id)
             .fetch_one(&mut *tx)
             .await?;

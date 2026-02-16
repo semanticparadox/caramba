@@ -2,11 +2,11 @@ use axum::{
     extract::{State, Form, Path},
     response::{IntoResponse, Html},
 };
+use axum_extra::extract::cookie::CookieJar;
 use askama::Template;
 use serde::Deserialize;
-use tracing::{info, error};
+use tracing::error;
 use crate::AppState;
-use super::auth::get_auth_user;
 use crate::models::promo::PromoCode;
 
 #[derive(Template)]
@@ -15,18 +15,35 @@ struct PromoManageTemplate {
     admin_path: String,
     promos: Vec<PromoCode>,
     plans: Vec<crate::models::store::Plan>,
+    is_auth: bool,
+    username: String,
+    active_page: String,
 }
 
 pub async fn get_promos(
     State(state): State<AppState>,
+    jar: axum_extra::extract::cookie::CookieJar,
 ) -> impl IntoResponse {
     let promos = state.promo_service.list_promos().await.unwrap_or_default();
-    let plans = state.catalog_service.get_all_plans().await.unwrap_or_default();
+    let plans = state.store_service.get_active_plans().await.unwrap_or_default();
     
+    // Auth context for base.html
+    let mut is_auth = false;
+    let mut username = String::new();
+    if let Some(user_id) = jar.get("user_id").and_then(|c| c.value().parse::<i64>().ok()) {
+         if let Ok(Some(u)) = state.store_service.get_user_by_tg_id(user_id).await {
+             is_auth = true;
+             username = u.username.unwrap_or_else(|| u.tg_id.to_string());
+         }
+    }
+
     Html(PromoManageTemplate {
         admin_path: state.admin_path.clone(),
         promos,
         plans,
+        is_auth,
+        username,
+        active_page: "promo".to_string(),
     }.render().unwrap())
 }
 

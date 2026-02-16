@@ -84,8 +84,7 @@
                         <td class="px-6 py-4">
                             <div class="flex items-center gap-2">
                                 <div class="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden min-w-[60px]">
-                                    <div class="h-full bg-indigo-500"
-                                        style="width: {{ (promo.current_uses as f32 / promo.max_uses as f32 * 100.0) }}%">
+                                    <div class="h-full bg-indigo-500" style="width: {{ promo.usage_pct() }}%">
                                     </div>
                                 </div>
                                 <span class="text-xs font-bold text-white">{{ promo.current_uses }}/{{ promo.max_uses
@@ -94,11 +93,10 @@
                         </td>
                         <td class="px-6 py-4">
                             <span class="text-xs text-slate-400">
-                                {% if promo.expires_at %}
-                                {{ promo.expires_at.unwrap().format("%Y-%m-%d") }}
-                                {% else %}
-                                Never
-                                {% endif %}
+                                {% match promo.expires_at %}
+                                {% when Some with (val) %} {{ val.format("%Y-%m-%d") }}
+                                {% when None %} Never
+                                {% endmatch %}
                             </span>
                         </td>
                         <td class="px-6 py-4 text-right">

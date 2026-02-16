@@ -20,6 +20,13 @@ pub struct PromoCode {
     pub is_active: bool,
 }
 
+impl PromoCode {
+    pub fn usage_pct(&self) -> f32 {
+        if self.max_uses == 0 { return 0.0; }
+        (self.current_uses as f32 / self.max_uses as f32) * 100.0
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PromoCodeUsage {
     pub id: i64,

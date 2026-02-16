@@ -72,7 +72,7 @@ pub struct NodeManageTemplate {
     pub discovered_snis: Vec<NodeSniDisplay>,
 }
 
-#[derive(serde::Serialize)]
+#[derive(sqlx::FromRow, serde::Serialize)]
 pub struct NodeSniDisplay {
     pub id: i64,
     pub domain: String,
