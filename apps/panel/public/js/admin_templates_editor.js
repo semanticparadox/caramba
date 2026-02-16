@@ -32,6 +32,25 @@ class VisualEditor {
             });
         }
 
+        // 1.5 Sync with Master Protocol Selector (fixes duplication)
+        const masterProtocol = this.container.querySelector('select[name="protocol"]');
+        const internalProtocol = this.container.querySelector('.vis-protocol');
+        const internalContainer = this.container.querySelector('.vis-protocol-container');
+
+        if (masterProtocol && internalProtocol && masterProtocol !== internalProtocol) {
+            // Hide the internal one if a master one exists
+            if (internalContainer) internalContainer.classList.add('hidden');
+
+            // Sync values initially
+            internalProtocol.value = masterProtocol.value;
+
+            // Listen to master
+            masterProtocol.addEventListener('change', () => {
+                internalProtocol.value = masterProtocol.value;
+                this.updateVisualState();
+            });
+        }
+
         // 2. Hook up Visual Controls
         this.container.querySelector('.vis-protocol')?.addEventListener('change', () => this.updateVisualState());
         this.container.querySelector('.vis-network')?.addEventListener('change', () => this.updateVisualState());
@@ -83,10 +102,12 @@ class VisualEditor {
         if (this.state.mode === 'visual') {
             visualContainer?.classList.remove('hidden');
             manualContainer?.classList.add('hidden');
+            // When switching to Visual, try to parse what's in the Manual textareas
             this.parseJsonToVisual();
         } else {
             visualContainer?.classList.add('hidden');
             manualContainer?.classList.remove('hidden');
+            // When switching to Manual, sync Visual data TO the textareas
             this.generateJsonFromVisual();
         }
     }
@@ -144,6 +165,8 @@ class VisualEditor {
     }
 
     generateJsonFromVisual() {
+        if (this.state.mode === 'manual') return; // CRITICAL: Do not overwrite manual edits!
+
         const protocol = this.container.querySelector('.vis-protocol').value;
         const network = this.container.querySelector('.vis-network').value;
         const security = this.container.querySelector('.vis-security').value;
@@ -295,7 +318,14 @@ class VisualEditor {
             return true;
         } catch (e) {
             console.warn("VisualEditor: Failed to parse JSON to Visual", e);
-            // Don't auto-switch to manual here, just stay in current state but maybe warn?
+
+            // If we're already in visual mode but parsing fails (shouldn't happen on switch, but maybe on init),
+            // show a small warning in the UI if possible or just log it.
+            const manualContainer = this.container.querySelector('.manual-editor-container');
+            if (manualContainer && !manualContainer.classList.contains('hidden')) {
+                // Already in manual, just log it.
+            }
+
             return false;
         }
     }

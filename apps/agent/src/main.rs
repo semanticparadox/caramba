@@ -40,6 +40,7 @@ struct AgentState {
     vpn_stopped_by_kill_switch: bool,
     cached_speed_mbps: Option<i32>,
     recent_discoveries: std::sync::Arc<tokio::sync::Mutex<Vec<exarobot_shared::DiscoveredSni>>>,
+    scan_trigger: tokio::sync::mpsc::Sender<()>, // NEW: Pulse for neighbor sniper
 }
 
 
@@ -89,7 +90,17 @@ async fn main() -> anyhow::Result<()> {
         vpn_stopped_by_kill_switch: false,
         cached_speed_mbps: None,
         recent_discoveries: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
+        scan_trigger: {
+            let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(1);
+            // Spawn a proxy loop to actually notify the sniper thread
+            // (We'll update start_neighbor_sniper to accept this rx)
+            tx 
+        },
     };
+    
+    // Create actual channel for sniper
+    let (scan_tx, scan_rx) = tokio::sync::mpsc::channel::<()>(1);
+    state.scan_trigger = scan_tx;
 
     // Initialize HTTP Client
     let client = reqwest::Client::new();
@@ -124,7 +135,7 @@ async fn main() -> anyhow::Result<()> {
     // 5.5 Start Neighbor Sniper (Phase 7)
     let discoveries = state.recent_discoveries.clone();
     tokio::spawn(async move {
-        start_neighbor_sniper(discoveries).await;
+        start_neighbor_sniper(discoveries, scan_rx).await;
     });
 
     // 6. Main Loop
@@ -247,12 +258,19 @@ async fn main() -> anyhow::Result<()> {
         // Long poll (replaces sleep(10))
         // This effectively makes the heartbeat interval ~30s (timeout) unless update occurs
         match poll_events(&client, &panel_url, &token).await {
-            Ok(should_update) => {
-                if should_update {
-                    info!("⚡ Instant Update Received!");
-                    if let Err(e) = update_config(&client, &panel_url, &token, &args.config_path, &mut state).await {
-                        error!("Failed to update config: {}", e);
-                    }
+            Ok(signal) => {
+                match signal {
+                    Some(SignalType::Update) => {
+                        info!("⚡ Instant Update Received!");
+                        if let Err(e) = update_config(&client, &panel_url, &token, &args.config_path, &mut state).await {
+                            error!("Failed to update config: {}", e);
+                        }
+                    },
+                    Some(SignalType::Scan) => {
+                        info!("🔍 Manual Scan Signal Received!");
+                        let _ = state.scan_trigger.try_send(());
+                    },
+                    None => {}
                 }
             },
             Err(e) => {
@@ -263,11 +281,17 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
+#[derive(Debug)]
+enum SignalType {
+    Update,
+    Scan,
+}
+
 async fn poll_events(
     client: &reqwest::Client,
     panel_url: &str,
     token: &str,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<Option<SignalType>> {
     let url = format!("{}/api/v2/node/updates/poll", panel_url);
     let resp = client.get(&url)
         .header("Authorization", format!("Bearer {}", token))
@@ -276,11 +300,24 @@ async fn poll_events(
         .await?;
 
     if !resp.status().is_success() {
-        return Ok(false);
+        return Ok(None);
     }
 
     let json: serde_json::Value = resp.json().await?;
-    Ok(json.get("update").and_then(|v| v.as_bool()).unwrap_or(false))
+    
+    // Check for "update": true or "scan": true (if we change panel to send scan:true)
+    // Or check if a generic "message" field says "scan"
+    if json.get("update").and_then(|v| v.as_bool()).unwrap_or(false) {
+        return Ok(Some(SignalType::Update));
+    }
+    
+    // Support generic signal from PubSub message
+    if let Some(msg) = json.get("message").and_then(|v| v.as_str()) {
+        if msg == "scan" { return Ok(Some(SignalType::Scan)); }
+        if msg == "update" { return Ok(Some(SignalType::Update)); }
+    }
+
+    Ok(None)
 }
 
 async fn rotate_sni(
@@ -656,7 +693,10 @@ async fn run_speed_test(client: &reqwest::Client) -> Option<i32> {
     None
 }
 
-async fn start_neighbor_sniper(discoveries: std::sync::Arc<tokio::sync::Mutex<Vec<exarobot_shared::DiscoveredSni>>>) {
+async fn start_neighbor_sniper(
+    discoveries: std::sync::Arc<tokio::sync::Mutex<Vec<exarobot_shared::DiscoveredSni>>>,
+    mut scan_rx: tokio::sync::mpsc::Receiver<()>,
+) {
     info!("🚀 Neighbor Sniper background loop started.");
     
     let local_ip = match get_local_ip() {
@@ -679,8 +719,15 @@ async fn start_neighbor_sniper(discoveries: std::sync::Arc<tokio::sync::Mutex<Ve
              info!("✨ Neighbor Sniper: Found {} potential SNIs.", lock.len());
         }
 
-        // Scan once an hour - it's a background task, don't be aggressive
-        tokio::time::sleep(Duration::from_secs(3600)).await;
+        // Wait for EITHER 1 hour OR a manual scan signal
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(3600)) => {
+                info!("🕒 Neighbor Sniper: Scheduled hourly scan starting.");
+            }
+            _ = scan_rx.recv() => {
+                info!("⚡ Neighbor Sniper: Manual scan signal received!");
+            }
+        }
     }
 }
 

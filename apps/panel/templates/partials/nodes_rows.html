@@ -118,6 +118,13 @@
                     <span>Mimicry:</span>
                     <span class="text-indigo-400/80 font-mono">{{
                         node.reality_sni.clone().unwrap_or("www.google.com".to_string()) }}</span>
+                    {% if let Some(sni) = node.reality_sni.clone() %}
+                    {% if !sni.starts_with("google") && !sni.starts_with("microsoft") %}
+                    <span
+                        class="ml-1 px-1 py-0.5 rounded-[4px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[8px] font-bold uppercase"
+                        title="Actual domain discovered by local scan">Actual</span>
+                    {% endif %}
+                    {% endif %}
                 </div>
                 <div class="flex items-center gap-2 text-[10px] text-slate-500 font-medium">
                     <i data-lucide="map-pin" class="w-3.5 h-3.5 text-slate-600"></i>
@@ -224,6 +231,12 @@
                         class="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-semibold text-orange-500 hover:bg-orange-500/10 transition-colors text-left">
                         <i data-lucide="rotate-ccw" class="w-4 h-4 opacity-50"></i>
                         Restart Service
+                    </button>
+                    <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/scan" hx-swap="none"
+                        hx-on::after-request="showToast('Scanner triggered on node')"
+                        class="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-semibold text-cyan-400 hover:bg-cyan-500/10 transition-colors text-left">
+                        <i data-lucide="scan-line" class="w-4 h-4 opacity-50"></i>
+                        Scan Neighbors (Manual)
                     </button>
                     {% endif %}
 

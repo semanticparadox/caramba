@@ -109,7 +109,7 @@ impl TelemetryService {
                 }
 
                 // Insert into sni_pool table if doesn't exist, tagging as discovered by specific node
-                let _ = sqlx::query("INSERT INTO sni_pool (domain, tier, notes, is_active, discovered_by_node_id) VALUES (?, 1, ?, 1, ?) ON CONFLICT(domain) DO UPDATE SET notes = EXCLUDED.notes")
+                let _ = sqlx::query("INSERT INTO sni_pool (domain, tier, notes, is_active, discovered_by_node_id, health_score) VALUES (?, 1, ?, 1, ?, 100) ON CONFLICT(domain) DO UPDATE SET notes = EXCLUDED.notes")
                     .bind(&domain)
                     .bind(format!("Discovered by Node {} (Sniper)", node_id))
                     .bind(node_id)
@@ -117,6 +117,27 @@ impl TelemetryService {
                     .await;
                 
                 info!("💎 Neighbor Sniper: Persisted discovered SNI {} from Node {}", domain, node_id);
+
+                // --- NEW: Semi-Auto Assignment to Node ---
+                // If the node currently has NO reality_sni, or it's a generic one like google.com, 
+                // and we just discovered a fresh local one, update the node immediately.
+                // This fulfills the user request: "SNI же должен ставится после нахождения сканером на нашем хостинге рядом"
+                let node_sni: Option<String> = sqlx::query_scalar("SELECT reality_sni FROM nodes WHERE id = ?")
+                    .bind(node_id)
+                    .fetch_one(&self.pool)
+                    .await
+                    .unwrap_or(None);
+
+                let is_generic = node_sni.as_deref().map(|s| s == "www.google.com" || s == "google.com" || s == "www.microsoft.com").unwrap_or(true);
+                
+                if is_generic {
+                    let _ = sqlx::query("UPDATE nodes SET reality_sni = ? WHERE id = ?")
+                        .bind(&domain)
+                        .bind(node_id)
+                        .execute(&self.pool)
+                        .await;
+                    info!("✨ Neighbor Sniper: Automatically assigned discovered SNI {} to Node {}", domain, node_id);
+                }
             }
         }
 

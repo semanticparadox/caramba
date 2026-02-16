@@ -380,5 +380,17 @@ pub async fn get_node_rescue(
     Html(template.render().unwrap()).into_response()
 }
 
+pub async fn trigger_scan(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    info!("Manual Neighbor Sniper scan triggered for node: {}", id);
+    
+    // Notify Agent via PubSub
+    if let Err(e) = state.pubsub.publish(&format!("node_events:{}", id), "scan").await {
+        error!("Failed to publish scan event: {}", e);
+        return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Signal failed").into_response();
+    }
 
-
+    axum::http::StatusCode::ACCEPTED.into_response()
+}
