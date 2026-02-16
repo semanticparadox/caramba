@@ -607,6 +607,7 @@ pub async fn unpin_sni(
     let mut headers = HeaderMap::new();
     headers.insert("HX-Refresh", "true".parse().unwrap());
     (axum::http::StatusCode::OK, headers, "").into_response()
+}
 
 pub async fn block_sni(
     Path((node_id, sni_id)): Path<(i64, i64)>,
