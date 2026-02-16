@@ -102,114 +102,112 @@
             </table>
         </div>
     </div>
-</div>
 
-</div>
-
-<!-- Active Inbounds Table -->
-<div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden mt-6">
-    <div class="flex items-center justify-between px-6 py-4 border-b border-white/5">
-        <div class="flex items-center gap-2">
-            <i data-lucide="file-json" class="w-4 h-4 text-emerald-400"></i>
-            <span class="text-sm font-semibold text-white">Active Inbounds</span>
-            <span
-                class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">{{
-                inbounds.len() }}</span>
-        </div>
-        <a href="{{ admin_path }}/templates"
-            class="flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg transition-colors border border-white/5">
-            <i data-lucide="settings" class="w-3.5 h-3.5"></i> Manage Templates
-        </a>
-    </div>
-    <div class="overflow-x-auto">
-        <table class="w-full text-left border-collapse">
-            <thead>
-                <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
-                    <th class="px-6 py-3">Inbound Name</th>
-                    <th class="px-6 py-3">Protocol</th>
-                    <th class="px-6 py-3">Ports</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-white/5 text-sm">
-                {% for inbound in inbounds %}
-                <tr class="hover:bg-white/5 transition-colors">
-                    <td class="px-6 py-4 text-white font-medium">{{ inbound.name }}</td>
-                    <td class="px-6 py-4 uppercase text-slate-400">{{ inbound.protocol }}</td>
-                    <td class="px-6 py-4 text-slate-400 font-mono text-xs">{{ inbound.port_range_start }} - {{
-                        inbound.port_range_end }}</td>
-                </tr>
-                {% else %}
-                <tr>
-                    <td colspan="3" class="px-6 py-12 text-center text-slate-500">
-                        No inbounds assigned to this group.
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- Add Node Modal -->
-<dialog id="addMemberModal">
-    <div class="modal-container max-w-md" onclick="event.stopPropagation()">
-        <header class="modal-header">
-            <h3 class="text-xl font-bold text-white flex items-center gap-3">
-                <i data-lucide="server" class="w-6 h-6 text-indigo-400"></i>
-                Add Node to Group
-            </h3>
-            <button onclick="document.getElementById('addMemberModal').close()"
-                class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
-                <i data-lucide="x" class="w-5 h-5"></i>
-            </button>
-        </header>
-
-        {% if available_nodes.is_empty() %}
-        <div class="modal-body">
-            <div class="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 flex gap-3">
-                <i data-lucide="info" class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5"></i>
-                <p class="text-sm text-amber-100/80 font-medium italic">All active nodes are already members of this
-                    group.</p>
+    <!-- Active Inbounds Table -->
+    <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-white/5">
+            <div class="flex items-center gap-2">
+                <i data-lucide="file-json" class="w-4 h-4 text-emerald-400"></i>
+                <span class="text-sm font-semibold text-white">Active Inbounds</span>
+                <span
+                    class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">{{
+                    inbounds.len() }}</span>
             </div>
+            <a href="{{ admin_path }}/templates"
+                class="flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg transition-colors border border-white/5">
+                <i data-lucide="settings" class="w-3.5 h-3.5"></i> Manage Templates
+            </a>
         </div>
-        <footer class="modal-footer">
-            <button type="button" class="btn-secondary"
-                onclick="document.getElementById('addMemberModal').close()">Close</button>
-        </footer>
-        {% else %}
-        <form action="{{ admin_path }}/groups/{{ group.id }}/members" method="POST">
-            <div class="modal-body space-y-5">
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Select
-                        Node</label>
-                    <div class="relative">
-                        <select name="node_id" required class="input-field appearance-none">
-                            {% for node in available_nodes %}
-                            <option value="{{ node.id }}">{{ node.name }} ({{ node.ip }})</option>
-                            {% endfor %}
-                        </select>
-                        <i data-lucide="chevron-down"
-                            class="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"></i>
-                    </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                        <th class="px-6 py-3">Inbound Name</th>
+                        <th class="px-6 py-3">Protocol</th>
+                        <th class="px-6 py-3">Ports</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5 text-sm">
+                    {% for inbound in inbounds %}
+                    <tr class="hover:bg-white/5 transition-colors">
+                        <td class="px-6 py-4 text-white font-medium">{{ inbound.name }}</td>
+                        <td class="px-6 py-4 uppercase text-slate-400">{{ inbound.protocol }}</td>
+                        <td class="px-6 py-4 text-slate-400 font-mono text-xs">{{ inbound.port_range_start }} - {{
+                            inbound.port_range_end }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="3" class="px-6 py-12 text-center text-slate-500">
+                            No inbounds assigned to this group.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Add Node Modal -->
+    <dialog id="addMemberModal">
+        <div class="modal-container max-w-md" onclick="event.stopPropagation()">
+            <header class="modal-header">
+                <h3 class="text-xl font-bold text-white flex items-center gap-3">
+                    <i data-lucide="server" class="w-6 h-6 text-indigo-400"></i>
+                    Add Node to Group
+                </h3>
+                <button onclick="document.getElementById('addMemberModal').close()"
+                    class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </header>
+
+            {% if available_nodes.is_empty() %}
+            <div class="modal-body">
+                <div class="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 flex gap-3">
+                    <i data-lucide="info" class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5"></i>
+                    <p class="text-sm text-amber-100/80 font-medium italic">All active nodes are already members of this
+                        group.</p>
                 </div>
             </div>
-
             <footer class="modal-footer">
                 <button type="button" class="btn-secondary"
-                    onclick="document.getElementById('addMemberModal').close()">Cancel</button>
-                <button type="submit" class="btn-primary">
-                    <i data-lucide="plus" class="w-4 h-4 mr-2 inline-block"></i>Add to Group
-                </button>
+                    onclick="document.getElementById('addMemberModal').close()">Close</button>
             </footer>
-        </form>
-        {% endif %}
-    </div>
-</dialog>
+            {% else %}
+            <form action="{{ admin_path }}/groups/{{ group.id }}/members" method="POST">
+                <div class="modal-body space-y-5">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Select
+                            Node</label>
+                        <div class="relative">
+                            <select name="node_id" required class="input-field appearance-none">
+                                {% for node in available_nodes %}
+                                <option value="{{ node.id }}">{{ node.name }} ({{ node.ip }})</option>
+                                {% endfor %}
+                            </select>
+                            <i data-lucide="chevron-down"
+                                class="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"></i>
+                        </div>
+                    </div>
+                </div>
 
-<script>
-    document.getElementById('addMemberModal')?.addEventListener('click', function (e) {
-        if (e.target === this) this.close();
-    });
-    document.body.addEventListener('htmx:afterSwap', () => lucide.createIcons());
-</script>
+                <footer class="modal-footer">
+                    <button type="button" class="btn-secondary"
+                        onclick="document.getElementById('addMemberModal').close()">Cancel</button>
+                    <button type="submit" class="btn-primary">
+                        <i data-lucide="plus" class="w-4 h-4 mr-2 inline-block"></i>Add to Group
+                    </button>
+                </footer>
+            </form>
+            {% endif %}
+        </div>
+    </dialog>
+
+    <script>
+        document.getElementById('addMemberModal')?.addEventListener('click', function (e) {
+            if (e.target === this) this.close();
+        });
+        document.body.addEventListener('htmx:afterSwap', () => lucide.createIcons());
+    </script>
+</div>
 {% endblock %}

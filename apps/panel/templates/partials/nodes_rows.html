@@ -105,16 +105,8 @@
                 </div>
                 <div class="flex items-center gap-4 text-xs font-mono">
                     <div class="flex items-center gap-1.5 group/stat" title="Active Connections">
-                        <i data-lucide="users" class="w-3.5 h-3.5 text-blue-400"></i>
+                        <i data-lucide="cable" class="w-3.5 h-3.5 text-blue-400"></i>
                         <span class="text-slate-200">{{ node.active_connections.unwrap_or(0) }}</span>
-                    </div>
-                    <div class="flex items-center gap-1.5 group/stat" title="Total Inbound">
-                        <i data-lucide="arrow-down-circle" class="w-3.5 h-3.5 text-sky-400"></i>
-                        <span class="text-slate-200">{{ node.format_traffic_ingress() }}</span>
-                    </div>
-                    <div class="flex items-center gap-1.5 group/stat" title="Total Outbound">
-                        <i data-lucide="arrow-up-circle" class="w-3.5 h-3.5 text-orange-400"></i>
-                        <span class="text-slate-200">{{ node.format_traffic_egress() }}</span>
                     </div>
                 </div>
             </div>
@@ -151,6 +143,17 @@
                 <i data-lucide="calendar" class="w-3 h-3"></i>
                 {{ ls.format("%H:%M %d/%m") }}
             </div>
+            {% if let Some(sync) = node.last_synced_at %}
+            <div class="flex items-center gap-1 text-[10px] text-emerald-500/60 font-mono mt-0.5">
+                <i data-lucide="refresh-cw" class="w-2.5 h-2.5"></i>
+                <span class="time-ago" data-time="{{ sync }}">synced</span>
+            </div>
+            {% else %}
+            <div class="flex items-center gap-1 text-[10px] text-amber-500/50 font-mono mt-0.5">
+                <i data-lucide="refresh-cw" class="w-2.5 h-2.5"></i>
+                <span>not synced</span>
+            </div>
+            {% endif %}
         </div>
         {% else %}
         <div class="flex flex-col items-end opacity-40">

@@ -143,6 +143,10 @@
                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Quick
                     Presets</label>
                 <div class="flex flex-wrap gap-2">
+                    <button type="button" onclick="applyPreset('vless_reality_vision')"
+                        class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-xl hover:bg-indigo-500 border-indigo-500/20 hover:text-white transition-all active:scale-95">
+                        Reality TCP (Vision)
+                    </button>
                     <button type="button" onclick="applyPreset('vless_reality_xhttp')"
                         class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl hover:bg-emerald-500 border-emerald-500/20 hover:text-white transition-all active:scale-95">
                         Reality XHTTP
@@ -323,10 +327,30 @@
 
     // ── Template Presets ──────────────────────────────────────
     const PRESETS = {
+        vless_reality_vision: {
+            name: 'VLESS Reality TCP (Vision)',
+            protocol: 'vless',
+            portStart: 443, portEnd: 443,
+            settings: JSON.stringify({
+                protocol: "vless",
+                clients: [], decryption: "none", fallbacks: []
+            }, null, 2),
+            stream: JSON.stringify({
+                network: "tcp",
+                security: "reality",
+                realitySettings: {
+                    show: false,
+                    dest: "www.microsoft.com:443",
+                    serverNames: ["www.microsoft.com"],
+                    privateKey: "{{reality_private}}",
+                    shortIds: ["", "0123456789abcdef"]
+                }
+            }, null, 2)
+        },
         vless_reality_xhttp: {
             name: 'VLESS Reality XHTTP',
             protocol: 'vless',
-            portStart: 10000, portEnd: 20000,
+            portStart: 443, portEnd: 443,
             settings: JSON.stringify({
                 protocol: "vless",
                 clients: [], decryption: "none", fallbacks: []
@@ -339,7 +363,7 @@
                     dest: "www.google.com:443",
                     serverNames: ["www.google.com"],
                     privateKey: "{{reality_private}}",
-                    shortIds: [""]
+                    shortIds: ["", "0123456789abcdef"]
                 },
                 xhttpSettings: {
                     path: "/xhttp",
@@ -434,8 +458,8 @@
             settings: JSON.stringify({
                 protocol: "hysteria2",
                 password: "{{uuid}}",
-                up_mbps: 100,
-                down_mbps: 100
+                up_mbps: 0,
+                down_mbps: 0
             }, null, 2),
             stream: JSON.stringify({
                 network: "quic",

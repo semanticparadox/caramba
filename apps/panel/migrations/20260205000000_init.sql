@@ -90,7 +90,8 @@ CREATE TABLE IF NOT EXISTS nodes (
     
     -- Phase 67: Granular Update Control
     version TEXT,
-    target_version TEXT
+    target_version TEXT,
+    last_synced_at DATETIME
 );
 
 CREATE INDEX IF NOT EXISTS idx_nodes_ip ON nodes (ip);

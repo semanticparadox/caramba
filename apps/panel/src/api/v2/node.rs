@@ -13,8 +13,19 @@ use serde::{Deserialize, Serialize};
 struct IpApiResponse {
     #[serde(rename = "countryCode")]
     country_code: String,
+    country: String,
+    city: String,
     lat: f64,
     lon: f64,
+}
+
+fn country_code_to_flag(code: &str) -> String {
+    let code = code.to_uppercase();
+    if code.len() != 2 { return "🌐".to_string(); }
+    let offset = 127397u32;
+    let first = code.chars().next().unwrap() as u32 + offset;
+    let second = code.chars().nth(1).unwrap() as u32 + offset;
+    format!("{}{}", char::from_u32(first).unwrap_or('🌐'), char::from_u32(second).unwrap_or(' '))
 }
 
 /// Agent Heartbeat
@@ -38,13 +49,13 @@ pub async fn heartbeat(
     };
 
     // 2. Validate Node
-    let node_res: Result<Option<(i64, Option<String>)>, sqlx::Error> = sqlx::query_as("SELECT id, country_code FROM nodes WHERE join_token = ?")
+    let node_res: Result<Option<(i64, Option<String>, Option<String>)>, sqlx::Error> = sqlx::query_as("SELECT id, country_code, country FROM nodes WHERE join_token = ?")
         .bind(&token)
         .fetch_optional(&state.pool)
         .await;
 
-    let (node_id, node_country) = match node_res {
-        Ok(Some((id, cc))) => (id, cc),
+    let (node_id, node_country_code, node_country) = match node_res {
+        Ok(Some((id, cc, c))) => (id, cc, c),
         Ok(None) => return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response(),
         Err(e) => {
              error!("DB Error in heartbeat: {}", e);
@@ -75,23 +86,27 @@ pub async fn heartbeat(
             .await;
     }
 
-    // GeoIP Check (Async)
-    if node_country.is_none() {
+    // GeoIP Check (Async) — trigger if country_code OR country/city/flag are missing
+    if node_country_code.is_none() || node_country.is_none() {
         let pool = state.pool.clone();
         let ip_target = remote_ip.clone();
         tokio::spawn(async move {
-            let url = format!("http://ip-api.com/json/{}?fields=countryCode,lat,lon", ip_target);
+            let url = format!("http://ip-api.com/json/{}?fields=countryCode,country,city,lat,lon", ip_target);
             match reqwest::get(&url).await {
                 Ok(resp) => {
                      if let Ok(json) = resp.json::<IpApiResponse>().await {
-                         let _ = sqlx::query("UPDATE nodes SET country_code = ?, latitude = ?, longitude = ? WHERE id = ?")
+                         let flag = country_code_to_flag(&json.country_code);
+                         let _ = sqlx::query("UPDATE nodes SET country_code = ?, country = ?, city = ?, flag = ?, latitude = ?, longitude = ? WHERE id = ?")
                              .bind(&json.country_code)
+                             .bind(&json.country)
+                             .bind(&json.city)
+                             .bind(&flag)
                              .bind(json.lat)
                              .bind(json.lon)
                              .bind(node_id)
                              .execute(&pool)
                              .await;
-                         info!("🗺️ [GeoIP] Detected location {} ({}, {}) for node {}", json.country_code, json.lat, json.lon, node_id);
+                         info!("🗺️ [GeoIP] Detected location {} {}, {} ({}, {}) for node {}", flag, json.city, json.country, json.lat, json.lon, node_id);
                      }
                 },
                 Err(e) => error!("GeoIP failed: {}", e)
@@ -252,6 +267,12 @@ pub async fn get_config(
             let config_str: String = config_value.to_string();
             let hash = format!("{:x}", md5::compute(config_str.as_bytes()));
             
+            // Update last_synced_at
+            let _ = sqlx::query("UPDATE nodes SET last_synced_at = CURRENT_TIMESTAMP WHERE id = ?")
+                .bind(node_id_scalar)
+                .execute(&state.pool)
+                .await;
+
             (StatusCode::OK, Json(ConfigResponse {
                 hash,
                 content: config_value,

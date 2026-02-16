@@ -2,6 +2,7 @@ use teloxide::prelude::*;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ForceReply, ParseMode, CallbackQuery, ChatId, LabeledPrice};
 use tracing::{info, error};
 use crate::AppState;
+use sqlx::Row;
 use crate::bot::utils::escape_md;
 use crate::bot::keyboards::{main_menu, terms_keyboard};
 use crate::models::payment::PaymentType;
@@ -382,17 +383,34 @@ pub async fn callback_handler(
                         Ok(sub) => {
                                 let _ = bot.answer_callback_query(callback_id).text("✅ Activated!").await;
                             
-                            // Trigger instant config update via PubSub
-                            if let Some(node_id) = sub.node_id {
-                                let pubsub = state.pubsub.clone();
-                                tokio::spawn(async move {
-                                    if let Err(e) = pubsub.publish(&format!("node_events:{}", node_id), "config_update").await {
-                                        error!("Failed to publish node update: {}", e);
-                                    } else {
-                                        info!("✅ Published instant config update to node {}", node_id);
+                            // Trigger instant config update for ALL nodes serving this plan
+                            let pubsub = state.pubsub.clone();
+                            let pool = state.store_service.get_pool();
+                            let plan_id = sub.plan_id;
+                            tokio::spawn(async move {
+                                // Find all nodes that serve this plan via plan_nodes or plan groups
+                                let node_ids: Vec<i64> = sqlx::query_scalar(
+                                    "SELECT DISTINCT n.id FROM nodes n
+                                     JOIN node_group_members ngm ON n.id = ngm.node_id
+                                     JOIN plan_groups pg ON pg.group_id = ngm.group_id
+                                     WHERE pg.plan_id = ? AND n.is_enabled = 1"
+                                )
+                                .bind(plan_id)
+                                .fetch_all(&pool)
+                                .await
+                                .unwrap_or_default();
+
+                                if node_ids.is_empty() {
+                                    info!("⚠️ No nodes found for plan {} — skipping auto-sync", plan_id);
+                                } else {
+                                    info!("🔄 Auto-syncing {} nodes for activated plan {}", node_ids.len(), plan_id);
+                                    for nid in node_ids {
+                                        if let Err(e) = pubsub.publish(&format!("node_events:{}", nid), "update").await {
+                                            error!("Failed to publish node update for {}: {}", nid, e);
+                                        }
                                     }
-                                });
-                            }
+                                }
+                            });
                             
                             if let Some(msg) = q.message {
                                 let _ = bot.send_message(msg.chat().id, format!("🚀 *Subscription Activated!*\nExpires: `{}`", sub.expires_at.format("%Y-%m-%d"))).parse_mode(ParseMode::MarkdownV2).await;

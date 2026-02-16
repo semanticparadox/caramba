@@ -76,6 +76,8 @@ pub struct Node {
     pub version: Option<String>,
     #[sqlx(default)]
     pub target_version: Option<String>,
+    #[sqlx(default)]
+    pub last_synced_at: Option<DateTime<Utc>>,
 }
 
 impl Node {

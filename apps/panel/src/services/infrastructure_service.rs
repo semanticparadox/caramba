@@ -94,6 +94,7 @@ impl InfrastructureService {
             last_session_ingress: 0,
             last_session_egress: 0,
             doomsday_password: Some(doomsday_password),
+        last_synced_at: None,
         };
 
         let id = self.node_repo.create_node(&node).await?;

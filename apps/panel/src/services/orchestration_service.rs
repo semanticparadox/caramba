@@ -84,15 +84,10 @@ impl OrchestrationService {
         }
 
         // 2. Fetch Templates for these groups (Active Only)
-        // Selective Instantiation: Focus on VLESS Reality for automatic setup
         let mut templates = Vec::new();
         for gid in &group_ids {
             let group_templates = self.node_repo.get_templates_for_group(*gid).await?;
-            for tpl in group_templates {
-                if tpl.protocol.to_lowercase() == "vless" {
-                    templates.push(tpl);
-                }
-            }
+            templates.extend(group_templates);
         }
         
         // 3. Bootstrap Defaults if NO templates found (Fresh Install Scenario)
@@ -476,10 +471,20 @@ impl OrchestrationService {
                                 let _display_name = username.clone().unwrap_or_default().replace("@", "");
 
                                 info!("🔑 Injecting VLESS user: {} (UUID: {})", auth_name, uuid);
+                                // Parse stream settings to check for TCP + Reality/TLS
+                                let stream_json: serde_json::Value = serde_json::from_str(&inbound.stream_settings).unwrap_or(serde_json::Value::Null);
+                                let network = stream_json.get("network").and_then(|v| v.as_str()).unwrap_or("");
+                                let security = stream_json.get("security").and_then(|v| v.as_str()).unwrap_or("");
+
                                 vless.clients.push(VlessClient {
                                     id: uuid.clone(),
                                     email: auth_name,
-                                    flow: "xtls-rprx-vision".to_string(), 
+                                    // Only apply flow for TCP + REALITY/TLS
+                                    flow: if network == "tcp" && (security == "reality" || security == "tls") {
+                                        "xtls-rprx-vision".to_string()
+                                    } else {
+                                        "".to_string()
+                                    },
                                 });
                             }
                         }
