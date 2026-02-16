@@ -103,68 +103,55 @@ struct StreamInfo {
 }
 
 fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
+    // 1. Parse into strongly-typed struct for robust alias handling (SNI, Settings, etc.)
+    let settings: crate::models::network::StreamSettings = serde_json::from_str(raw).unwrap_or_default();
+    
+    // 2. Parse into generic Value for fields not yet in StreamSettings struct (e.g. fingerprint, tuic/hy2 extras)
     let v: Value = serde_json::from_str(raw).unwrap_or(json!({}));
 
-    let network = v.get("network")
-        .and_then(|v| v.as_str())
-        .unwrap_or("tcp")
-        .to_string();
+    let network = settings.network.clone().unwrap_or_else(|| "tcp".to_string());
+    let security = settings.security.clone().unwrap_or_else(|| "reality".to_string());
 
-    let security = v.get("security")
-        .and_then(|v| v.as_str())
-        .unwrap_or("reality")
-        .to_string();
+    // SNI Extraction (Priority: Reality -> TLS -> Node Fallback)
+    let sni = if let Some(reality) = &settings.reality_settings {
+        reality.server_names.first().cloned()
+    } else if let Some(tls) = &settings.tls_settings {
+        if !tls.server_name.is_empty() {
+            Some(tls.server_name.clone())
+        } else {
+            None
+        }
+    } else {
+        None
+    }.unwrap_or_else(| | node.reality_sni.clone().unwrap_or("www.google.com".to_string()));
 
-    // Reality settings
-    let reality = v.get("realitySettings")
-        .or_else(|| v.get("reality_settings"));
-
-    let sni = reality
-        .and_then(|r| r.get("serverNames").or_else(|| r.get("server_names")))
-        .and_then(|v| v.as_array())
-        .and_then(|a| a.first())
-        .and_then(|s| s.as_str())
-        .map(|s| s.to_string())
-        .or_else(|| {
-            // TLS SNI fallback
-            v.get("tlsSettings")
-                .and_then(|t| t.get("serverName"))
-                .and_then(|s| s.as_str())
-                .map(|s| s.to_string())
-        })
-        .unwrap_or_else(|| node.reality_sni.clone().unwrap_or("www.google.com".to_string()));
-
-    let public_key = reality
-        .and_then(|r| r.get("publicKey").or_else(|| r.get("public_key")))
-        .and_then(|s| s.as_str())
+    // Reality Keys
+    let public_key = settings.reality_settings.as_ref()
+        .and_then(|r| r.public_key.clone())
         .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
         .unwrap_or_else(|| node.reality_public_key.clone().unwrap_or_default());
 
-    let short_id = reality
-        .and_then(|r| r.get("shortIds").or_else(|| r.get("short_ids")))
-        .and_then(|v| v.as_array())
-        .and_then(|a| a.first())
-        .and_then(|s| s.as_str())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
+    let short_id = settings.reality_settings.as_ref()
+        .and_then(|r| r.short_ids.first().cloned())
         .unwrap_or_else(|| node.reality_short_id.clone().unwrap_or_default());
 
-    let fingerprint = reality
+    // Fingerprint (Not in StreamSettings yet, extract manually)
+    let fingerprint = v.get("realitySettings").or_else(|| v.get("reality_settings"))
         .and_then(|r| r.get("fingerprint"))
         .and_then(|s| s.as_str())
         .unwrap_or("chrome")
         .to_string();
 
     // WebSocket settings
-    let ws = v.get("wsSettings").or_else(|| v.get("ws_settings"));
-    let ws_path = ws
-        .and_then(|w| w.get("path"))
-        .and_then(|s| s.as_str())
-        .unwrap_or("/")
-        .to_string();
+    let ws_path = settings.ws_settings.as_ref()
+        .map(|w| w.path.clone())
+        .unwrap_or_else(|| "/".to_string());
 
-    // gRPC settings
+    // gRPC settings (Not in StreamSettings struct fully? Let's check manual parsing fallback)
+    // StreamSettings has no grpc_settings field defined in models/network.rs snippet I saw? 
+    // Wait, let me check models/network.rs again. It had ws_settings, http_upgrade...
+    // It did NOT have grpc_settings in the snippet I read. 
+    // So I must rely on `v` for grpc.
     let grpc = v.get("grpcSettings").or_else(|| v.get("grpc_settings"));
     let grpc_service = grpc
         .and_then(|g| g.get("serviceName").or_else(|| g.get("service_name")))
@@ -172,12 +159,7 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
         .unwrap_or("grpc")
         .to_string();
 
-    // Flow: only use xtls-rprx-vision for Reality+TCP VLESS
-    // Note: Protocol check is done at the caller level usually, but we can't see it here.
-    // However, we should be careful. Sing-box only wants 'flow' on VLESS inbounds.
-    // Flow: only use xtls-rprx-vision for Reality+TCP or TLS+TCP VLESS
-    // Note: Protocol check is done at the caller level usually, but we can't see it here.
-    // However, we should be careful. Sing-box only wants 'flow' on VLESS inbounds.
+    // Flow
     let explicit_flow = v.get("flow").and_then(|f| f.as_str()).unwrap_or("");
     let flow = if !explicit_flow.is_empty() {
         explicit_flow.to_string()
@@ -188,9 +170,9 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
     };
 
     // XHTTP / Advanced Parsing
-    let packet_encoding = v.get("packet_encoding").or_else(|| v.get("packetEncoding"))
-        .and_then(|s| s.as_str()).map(|s| s.to_string());
-
+    let packet_encoding = settings.packet_encoding.clone();
+    
+    // x_padding_bytes not in StreamSettings?
     let x_padding_bytes = v.get("x_padding_bytes").or_else(|| v.get("xPaddingBytes"))
         .and_then(|s| s.as_str()).map(|s| s.to_string());
 
