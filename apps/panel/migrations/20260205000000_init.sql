@@ -90,12 +90,15 @@ CREATE TABLE IF NOT EXISTS nodes (
     
     -- Phase 67: Granular Update Control
     version TEXT,
-    target_version TEXT,
-    last_synced_at DATETIME
+    -- Phase: Node Overhaul & SNI Pinning (2026-02-16)
+    is_relay BOOLEAN NOT NULL DEFAULT 0,
+    last_sync_trigger TEXT,
+    pending_log_collection BOOLEAN NOT NULL DEFAULT 0,
     
-
-    
-
+    -- Hardware Specs (2026-02-16)
+    max_ram BIGINT DEFAULT 0,
+    cpu_cores INTEGER DEFAULT 0,
+    cpu_model TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_nodes_ip ON nodes (ip);
@@ -504,7 +507,38 @@ CREATE TABLE IF NOT EXISTS sni_pool (
     health_score INTEGER DEFAULT 100,
     last_check DATETIME,
     is_active BOOLEAN DEFAULT 1,
-    notes TEXT
+    is_premium BOOLEAN NOT NULL DEFAULT 0,
+    notes TEXT,
+    discovered_by_node_id BIGINT REFERENCES nodes(id) ON DELETE SET NULL
+);
+
+-- favorite/pinned SNIs for nodes (2026-02-16)
+CREATE TABLE IF NOT EXISTS node_pinned_snis (
+    node_id INTEGER NOT NULL,
+    sni_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (node_id, sni_id),
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+    FOREIGN KEY (sni_id) REFERENCES sni_pool(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_node_pinned_snis_node ON node_pinned_snis(node_id);
+
+-- Global SNI Blacklist (for rejected domains) (2026-02-16)
+CREATE TABLE IF NOT EXISTS sni_blacklist (
+    domain TEXT PRIMARY KEY,
+    reason TEXT,
+    blocked_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sni_rotation_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id INTEGER NOT NULL,
+    old_sni TEXT NOT NULL,
+    new_sni TEXT NOT NULL,
+    reason TEXT,
+    rotated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (node_id) REFERENCES nodes(id)
 );
 
 
