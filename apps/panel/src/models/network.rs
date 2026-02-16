@@ -241,6 +241,7 @@ pub struct Certificate {
 pub struct RealitySettings {
     pub show: bool,
     pub dest: String,
+    #[serde(default)]
     pub xver: i32,
     #[serde(alias = "serverNames", default)]
     pub server_names: Vec<String>,
