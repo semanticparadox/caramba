@@ -506,7 +506,7 @@ impl ConfigGenerator {
                         if let Some(token) = &client_node.join_token {
                             warn!("🔗 Injecting Relay Access for Node {} ({}). User: relay_{}", client_node.name, client_node.ip, client_node.id);
                             ss.users.push(crate::models::network::ShadowsocksUser {
-                                name: Some(format!("relay_{}", client_node.id)), // Keep it traceable
+                                username: Some(format!("relay_{}", client_node.id)), // Keep it traceable
                                 password: token.clone(), // Use the client node's token as password
                             });
                         }

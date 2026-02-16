@@ -270,8 +270,20 @@ pub struct AmneziaWgUser {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename_all = "lowercase")]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "type", rename_all = "lowercase")]
 pub enum Outbound {
     Direct { tag: String },
+    Shadowsocks(ShadowsocksOutbound),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ShadowsocksOutbound {
+    pub tag: String,
+    pub server: String,
+    pub server_port: u16,
+    pub method: String,
+    pub password: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
