@@ -201,34 +201,95 @@ install_dependencies() {
     fi
 }
 
+install_singbox_binary_fallback() {
+    local ARCH=$(dpkg --print-architecture)
+    local SB_ARCH=""
+    case "$ARCH" in
+        amd64) SB_ARCH="amd64" ;;
+        arm64) SB_ARCH="arm64" ;;
+        *) log_error "Unsupported architecture for binary fallback: $ARCH"; return 1 ;;
+    esac
+
+    log_info "Fetching latest version tag from GitHub..."
+    # Try to get the latest release tag; handling both vX.Y.Z and X.Y.Z formats safely
+    local TAG_NAME=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    
+    if [ -z "$TAG_NAME" ]; then
+        log_error "Failed to fetch latest sing-box version from GitHub."
+        return 1
+    fi
+    
+    # Strip 'v' prefix for the filename construction if present, but keep tag for URL
+    local VER="${TAG_NAME#v}"
+    
+    log_info "Downloading sing-box $TAG_NAME for $SB_ARCH..."
+    local URL="https://github.com/SagerNet/sing-box/releases/download/${TAG_NAME}/sing-box-${VER}-linux-${SB_ARCH}.tar.gz"
+    
+    local TMP_DIR=$(mktemp -d)
+    if curl -fsSL "$URL" -o "$TMP_DIR/sing-box.tar.gz"; then
+        tar -xzf "$TMP_DIR/sing-box.tar.gz" -C "$TMP_DIR"
+        # The archive usually contains a directory like Sing-box-version-linux-arch
+        # find the binary regardless of exact dir name
+        local BIN_PATH=$(find "$TMP_DIR" -name sing-box -type f | head -n 1)
+        
+        if [ -f "$BIN_PATH" ]; then
+            mv "$BIN_PATH" /usr/local/bin/sing-box
+            chmod +x /usr/local/bin/sing-box
+            rm -rf "$TMP_DIR"
+            log_success "sing-box binary installed to /usr/local/bin/sing-box"
+        else
+             log_error "Extracted archive but could not find sing-box binary."
+             rm -rf "$TMP_DIR"
+             return 1
+        fi
+    else
+        log_error "Failed to download sing-box binary from $URL"
+        rm -rf "$TMP_DIR"
+        return 1
+    fi
+}
+
 install_singbox() {
-    if ! command -v sing-box &> /dev/null; then
-        log_info "Installing sing-box..."
-        curl -fsSL https://sing-box.app/gpg.key -o /etc/apt/keyrings/sagernet.asc
+    log_info "Ensuring latest sing-box is installed..."
+    
+    local apt_success=false
+
+    # Attempt APT Install
+    mkdir -p /etc/apt/keyrings
+    
+    log_info "Attempting APT install via sing-box.app..."
+    if curl -fsSL -m 10 https://sing-box.app/gpg.key -o /etc/apt/keyrings/sagernet.asc; then
         chmod a+r /etc/apt/keyrings/sagernet.asc
         echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/sagernet.asc] https://deb.sagernet.org/ * *" | \
             tee /etc/apt/sources.list.d/sagernet.list > /dev/null
-        apt-get update -qq
-        apt-get install -y sing-box -qq
-        log_success "sing-box installed"
+        
+        if apt-get update -qq; then
+            if apt-get install -y sing-box -qq; then
+                apt_success=true
+                log_success "sing-box installed via APT"
+            fi
+        fi
     else
-        log_success "sing-box already installed"
+        log_warn "Failed to access sing-box.app (GPG key download). This is common if their site is under load."
+    fi
+
+    if [ "$apt_success" = false ]; then
+        log_info "Falling back to direct binary installation from GitHub..."
+        install_singbox_binary_fallback
     fi
     
     # Ensure we know where it is
-    SINGBOX_BIN=$(command -v sing-box || echo "/usr/bin/sing-box")
+    SINGBOX_BIN=$(command -v sing-box || echo "/usr/local/bin/sing-box")
     if [ ! -f "$SINGBOX_BIN" ]; then
-        # Try common checks
-        if [ -f "/usr/local/bin/sing-box" ]; then
-             SINGBOX_BIN="/usr/local/bin/sing-box"
-        elif [ -f "/usr/bin/sing-box" ]; then
-             SINGBOX_BIN="/usr/bin/sing-box"
-        else
-             log_warn "Could not locate sing-box binary. Assuming /usr/bin/sing-box"
-             SINGBOX_BIN="/usr/bin/sing-box"
-        fi
+         # Check standard locations
+         if [ -f "/usr/bin/sing-box" ]; then SINGBOX_BIN="/usr/bin/sing-box"; fi
     fi
-    log_info "Sing-box binary found at: $SINGBOX_BIN"
+
+    if [ ! -f "$SINGBOX_BIN" ]; then
+        log_error "Could not install sing-box via APT or Binary Fallback."
+        exit 1
+    fi
+    log_info "Sing-box binary verified at: $SINGBOX_BIN"
 }
 
 setup_firewall() {
