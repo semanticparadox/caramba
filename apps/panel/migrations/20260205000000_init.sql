@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     -- Phase 67: Granular Update Control
     version TEXT,
     target_version TEXT,
-    last_synced_at DATETIME,
+    last_synced_at DATETIME
     
 
     
