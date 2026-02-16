@@ -70,7 +70,7 @@ pub struct Subscription {
 
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct PromoCode {
+pub struct LegacyPromoCode {
     pub id: i64,
     pub code: String,
     pub discount_percent: i32,

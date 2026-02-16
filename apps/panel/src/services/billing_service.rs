@@ -1,6 +1,7 @@
 use sqlx::SqlitePool;
 use anyhow::{Context, Result};
-use crate::models::store::{User, PromoCode};
+use crate::models::store::User;
+use crate::models::promo::PromoCode;
 use chrono::Utc;
 
 
@@ -67,7 +68,7 @@ impl BillingService {
 
     pub async fn validate_promo(&self, code: &str) -> Result<Option<PromoCode>> {
         sqlx::query_as::<_, PromoCode>(
-            "SELECT * FROM promo_codes WHERE code = ? AND (expires_at IS NULL OR expires_at > ?) AND current_uses < max_uses"
+            "SELECT id, code, type as promo_type, plan_id, balance_amount, duration_days, traffic_gb, max_uses, current_uses, expires_at, created_at, created_by_admin_id, promoter_user_id, is_active FROM promo_codes WHERE code = ? AND (expires_at IS NULL OR expires_at > ?) AND current_uses < max_uses AND is_active = 1"
         )
         .bind(code)
         .bind(Utc::now())

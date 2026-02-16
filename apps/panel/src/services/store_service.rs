@@ -1208,15 +1208,17 @@ impl StoreService {
         ReferralService::get_referral_count(&self.pool, user_id).await
     }
 
-    pub async fn validate_promo(&self, code: &str) -> Result<Option<crate::models::store::PromoCode>> {
-        sqlx::query_as::<_, crate::models::store::PromoCode>(
-            "SELECT id, code, discount_percent, bonus_amount, max_uses, current_uses, expires_at, created_at FROM promo_codes WHERE code = ? AND (expires_at IS NULL OR expires_at > ?) AND current_uses < max_uses"
+    pub async fn validate_promo(&self, code: &str) -> Result<Option<crate::models::promo::PromoCode>> {
+        let promo = sqlx::query_as::<_, crate::models::promo::PromoCode>(
+            "SELECT id, code, type as promo_type, plan_id, balance_amount, duration_days, traffic_gb, max_uses, current_uses, expires_at, created_at, created_by_admin_id, promoter_user_id, is_active FROM promo_codes WHERE code = ? AND (expires_at IS NULL OR expires_at > ?) AND current_uses < max_uses AND is_active = 1"
         )
         .bind(code)
         .bind(Utc::now())
         .fetch_optional(&self.pool)
         .await
-        .context("Failed to validate promo code")
+        .context("Failed to validate promo code")?;
+        
+        Ok(promo)
     }
 
     pub async fn process_order_payment(&self, order_id: i64) -> Result<()> {
