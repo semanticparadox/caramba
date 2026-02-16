@@ -27,6 +27,7 @@ impl PromoCode {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PromoCodeUsage {
     pub id: i64,

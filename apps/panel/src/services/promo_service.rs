@@ -1,7 +1,7 @@
 use sqlx::SqlitePool;
 use anyhow::{Result, Context};
 use chrono::{DateTime, Utc};
-use crate::models::promo::PromoCode;
+use crate::models::promo::{PromoCode, PromoCodeUsage};
 
 #[derive(Debug, Clone)]
 pub struct PromoService {
@@ -168,6 +168,16 @@ impl PromoService {
         .fetch_all(&self.pool)
         .await
         .context("Failed to list promos")
+    }
+
+    pub async fn get_promo_usages(&self, promo_id: i64) -> Result<Vec<PromoCodeUsage>> {
+        sqlx::query_as::<_, PromoCodeUsage>(
+            "SELECT id, promo_code_id, user_id, used_at FROM promo_code_usage WHERE promo_code_id = ? ORDER BY used_at DESC"
+        )
+        .bind(promo_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch promo usages")
     }
 
     pub async fn create_promo(&self, code: &str, p_type: &str, plan_id: Option<i64>, balance: Option<i32>, duration: Option<i32>, traffic: Option<i32>, max_uses: i32, expires_at: Option<DateTime<Utc>>, admin_id: i64) -> Result<i64> {
