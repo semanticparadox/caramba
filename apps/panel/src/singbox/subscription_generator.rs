@@ -175,14 +175,17 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
     // Flow: only use xtls-rprx-vision for Reality+TCP VLESS
     // Note: Protocol check is done at the caller level usually, but we can't see it here.
     // However, we should be careful. Sing-box only wants 'flow' on VLESS inbounds.
-    let flow = v.get("flow").and_then(|f| f.as_str()).map(|s| s.to_string())
-        .unwrap_or_else(|| {
-            if security == "reality" && network == "tcp" {
-                "xtls-rprx-vision".to_string()
-            } else {
-                String::new()
-            }
-        });
+    // Flow: only use xtls-rprx-vision for Reality+TCP or TLS+TCP VLESS
+    // Note: Protocol check is done at the caller level usually, but we can't see it here.
+    // However, we should be careful. Sing-box only wants 'flow' on VLESS inbounds.
+    let explicit_flow = v.get("flow").and_then(|f| f.as_str()).unwrap_or("");
+    let flow = if !explicit_flow.is_empty() {
+        explicit_flow.to_string()
+    } else if (security == "reality" || security == "tls") && network == "tcp" {
+        "xtls-rprx-vision".to_string()
+    } else {
+        String::new()
+    };
 
     // XHTTP / Advanced Parsing
     let packet_encoding = v.get("packet_encoding").or_else(|| v.get("packetEncoding"))

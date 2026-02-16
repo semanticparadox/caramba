@@ -379,7 +379,7 @@ function copyLink(){{
     // Check Redis Cache & Generate
     let client_type = selected_client.as_deref().unwrap_or("singbox");
     let cache_node_id = params.node_id.unwrap_or(0);
-    let cache_key = format!("sub_config:{}:{}:{}", uuid, client_type, cache_node_id);
+    let cache_key = format!("sub_config_v2:{}:{}:{}", uuid, client_type, cache_node_id);
 
     if let Ok(Some(cached_config)) = state.redis.get(&cache_key).await {
          let filename = match client_type {
@@ -435,7 +435,7 @@ function copyLink(){{
     };
     
     // Cache
-    let _ = state.redis.set(&cache_key, &content, 300).await; // 5 min cache
+    let _ = state.redis.set(&cache_key, &content, 60).await; // 1 min cache
     
     (
         StatusCode::OK,
