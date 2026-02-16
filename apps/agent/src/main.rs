@@ -630,7 +630,7 @@ async fn collect_telemetry(client: &reqwest::Client, sys: &mut System) -> (Optio
         None
     };
 
-    let connections = count_active_connections();
+
 
     let connections = count_active_connections();
 
