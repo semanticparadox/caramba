@@ -156,12 +156,40 @@ pub async fn delete_template(
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
     
-    let _ = sqlx::query("DELETE FROM inbound_templates WHERE id = ?")
+    // Get the target group ID before deleting, so we can sync (renamed variables to avoid conflict)
+    let group_id: Option<i64> = sqlx::query_scalar("SELECT target_group_id FROM inbound_templates WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    // 1. Delete linked Inbounds (User expectation: "All linked inbounds will be removed")
+    // We identify them by tag "tpl_{id}" which is how GeneratorService creates them.
+    let tag = format!("tpl_{}", id);
+    let _ = sqlx::query("DELETE FROM inbounds WHERE tag = ?")
+        .bind(&tag)
+        .execute(&state.pool)
+        .await;
+
+    // 2. Delete the Template
+    let res = sqlx::query("DELETE FROM inbound_templates WHERE id = ?")
         .bind(id)
         .execute(&state.pool)
         .await;
 
-    axum::http::StatusCode::OK.into_response()
+    match res {
+        Ok(_) => {
+            // Trigger sync for the group to ensure nodes update (remove the deleted inbounds from their config)
+            if let Some(gid) = group_id {
+                let _ = state.generator_service.sync_group_inbounds(gid).await;
+            }
+            axum::http::StatusCode::OK.into_response()
+        },
+        Err(e) => {
+            error!("Failed to delete template {}: {}", id, e);
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete template: {}", e)).into_response()
+        }
+    }
 }
 
 pub async fn sync_template(

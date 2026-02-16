@@ -641,4 +641,45 @@ impl ConfigGenerator {
     }
 
 
+    /// Validates the configuration using the `sing-box` binary
+    pub fn validate_config(config: &SingBoxConfig) -> anyhow::Result<()> {
+        use std::process::Command;
+        use std::io::Write;
+        
+        // Serialize to JSON
+        let config_json = serde_json::to_string_pretty(config)?;
+        
+        // Create temp file
+        let mut temp_path = std::env::temp_dir();
+        temp_path.push(format!("singbox_check_{}.json", uuid::Uuid::new_v4()));
+        
+        // Write to file
+        let mut file = std::fs::File::create(&temp_path)?;
+        file.write_all(config_json.as_bytes())?;
+        
+        // Run sing-box check
+        // We assume sing-box is in PATH. If not, this will fail.
+        let output = Command::new("sing-box")
+            .arg("check")
+            .arg("-c")
+            .arg(&temp_path)
+            .output();
+            
+        // Clean up temp file immediately
+        let _ = std::fs::remove_file(&temp_path);
+        
+        match output {
+            Ok(out) => {
+                if !out.status.success() {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    return Err(anyhow::anyhow!("Sing-box validation failed: {}", stderr));
+                }
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("Failed to execute sing-box binary: {}", e));
+            }
+        }
+        
+        Ok(())
+    }
 }

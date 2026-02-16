@@ -590,6 +590,15 @@ impl OrchestrationService {
             inbounds
         );
         
+        // Validate Config
+        // This ensures we never serve a broken configuration to a node
+        // If validation fails, we return an error, which should result in a 500/Retaining old config on client side
+        if let Err(e) = ConfigGenerator::validate_config(&config) {
+            error!("❌ Generated config for node {} FAILED VALIDATION: {}", node_id, e);
+            return Err(e);
+        }
+        info!("✅ Config validation passed for node {}", node_id);
+        
         info!("Config generation successful for node {}", node_id);
         Ok((node, serde_json::to_value(&config)?))
     }
