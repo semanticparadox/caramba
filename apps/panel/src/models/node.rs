@@ -44,6 +44,14 @@ pub struct Node {
     pub last_latency: Option<f64>,
     pub last_cpu: Option<f64>,
     pub last_ram: Option<f64>,
+    
+    // Hardware Specs (2026-02-16)
+    #[sqlx(default)]
+    pub max_ram: u64, // bytes
+    #[sqlx(default)]
+    pub cpu_cores: i32, 
+    #[sqlx(default)]
+    pub cpu_model: Option<String>,
     #[sqlx(default)]
     pub speed_limit_mbps: i32,
     #[sqlx(default)]
@@ -111,6 +119,10 @@ impl Node {
         } else {
             format!("{}m", minutes)
         }
+    }
+
+    pub fn format_max_ram(&self) -> String {
+        crate::utils::format_bytes_str(self.max_ram)
     }
 
     pub fn format_traffic_ingress(&self) -> String {

@@ -66,11 +66,15 @@ pub async fn heartbeat(
     // 3. Update Telemetry & Status & IP & Version
     if let Some(lat) = req.latency {
         // Fix: Also update IP here, because if a node sends stats, we still want to fix its IP if it's pending.
-        let _ = sqlx::query("UPDATE nodes SET last_latency = ?, last_cpu = ?, last_ram = ?, current_speed_mbps = ?, last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN ? ELSE ip END, version = ? WHERE id = ?")
+        let _ = sqlx::query("UPDATE nodes SET last_latency = ?, last_cpu = ?, last_ram = ?, current_speed_mbps = ?, max_ram = COALESCE(?, max_ram), cpu_cores = COALESCE(?, cpu_cores), cpu_model = COALESCE(?, cpu_model), active_connections = COALESCE(?, active_connections), last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN ? ELSE ip END, version = ? WHERE id = ?")
             .bind(lat)
             .bind(req.cpu_usage.unwrap_or(0.0))
             .bind(req.memory_usage.unwrap_or(0.0))
             .bind(req.speed_mbps.unwrap_or(0))
+            .bind(req.max_ram.map(|v| v as i64)) // Cast u64 to i64 (BIGINT)
+            .bind(req.cpu_cores)
+            .bind(req.cpu_model)
+            .bind(req.active_connections.map(|v| v as i32))
             .bind(&remote_ip)
             .bind(&req.version)
             .bind(node_id)

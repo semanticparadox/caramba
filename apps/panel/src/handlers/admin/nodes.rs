@@ -453,10 +453,19 @@ pub async fn get_node_logs(
     }
 
     // 2. If not, trigger collection and return "Waiting"
-    let _ = sqlx::query("UPDATE nodes SET pending_log_collection = 1 WHERE id = ?")
+    // Optimization: Only set pending flag if it's not already set to prevent spamming the agent
+    let pending: bool = sqlx::query_scalar("SELECT pending_log_collection FROM nodes WHERE id = ?")
         .bind(id)
-        .execute(&state.pool)
-        .await;
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(false);
+
+    if !pending {
+        let _ = sqlx::query("UPDATE nodes SET pending_log_collection = 1 WHERE id = ?")
+            .bind(id)
+            .execute(&state.pool)
+            .await;
+    }
 
     Html(format!(r###"
         <div class="p-8 text-center" hx-get="{}/nodes/{}/logs" hx-trigger="every 3s" hx-target="this">

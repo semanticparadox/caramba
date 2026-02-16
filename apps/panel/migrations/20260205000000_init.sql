@@ -96,7 +96,12 @@ CREATE TABLE IF NOT EXISTS nodes (
     -- Phase: Node Overhaul & SNI Pinning (2026-02-16)
     is_relay BOOLEAN NOT NULL DEFAULT 0,
     last_sync_trigger TEXT,
-    pending_log_collection BOOLEAN NOT NULL DEFAULT 0
+    pending_log_collection BOOLEAN NOT NULL DEFAULT 0,
+    
+    -- Hardware Specs (2026-02-16)
+    max_ram BIGINT DEFAULT 0,
+    cpu_cores INTEGER DEFAULT 0,
+    cpu_model TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_nodes_ip ON nodes (ip);

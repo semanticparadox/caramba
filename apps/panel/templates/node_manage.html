@@ -31,6 +31,18 @@
                     {{ node.flag.as_deref().unwrap_or("") }} {{ node.city.as_deref().unwrap_or("") }}, {{
                     node.country.as_deref().unwrap_or("") }}
                 </p>
+                <!-- Hardware Specs -->
+                <div class="flex items-center gap-3 mt-1.5 text-[10px] text-slate-500 font-mono">
+                    <div class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/5 border border-white/5"
+                        title="CPU Model: {{ node.cpu_model.as_deref().unwrap_or('Unknown') }}">
+                        <i data-lucide="cpu" class="w-3 h-3 text-indigo-400"></i>
+                        <span>{{ node.cpu_cores }} Cores</span>
+                    </div>
+                    <div class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/5 border border-white/5">
+                        <i data-lucide="memory-stick" class="w-3 h-3 text-indigo-400"></i>
+                        <span>{{ node.format_max_ram() }} RAM</span>
+                    </div>
+                </div>
             </div>
         </div>
 

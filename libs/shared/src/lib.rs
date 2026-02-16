@@ -25,6 +25,9 @@ pub mod api {
         pub latency: Option<f64>,
         pub cpu_usage: Option<f64>,
         pub memory_usage: Option<f64>,
+        pub max_ram: Option<u64>,
+        pub cpu_cores: Option<i32>,
+        pub cpu_model: Option<String>,
         pub speed_mbps: Option<i32>,
         pub active_connections: Option<u32>, // Added for Telemetry (Phase 3)
         /// Per-user traffic usage. Key is User Tag (e.g. "user_123"), value is bytes used.

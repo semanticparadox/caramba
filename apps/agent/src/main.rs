@@ -365,7 +365,7 @@ async fn send_heartbeat(
     let url = format!("{}/api/v2/node/heartbeat", panel_url);
     
     // Collect Telemetry
-    let (latency, cpu, ram, connections) = collect_telemetry(client, sys).await;
+    let (latency, cpu, ram, connections, max_ram, cpu_cores, cpu_model) = collect_telemetry(client, sys).await;
 
     let payload = HeartbeatRequest {
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -380,6 +380,9 @@ async fn send_heartbeat(
         memory_usage: ram,
         speed_mbps: state.cached_speed_mbps,
         active_connections: connections, // Added Phase 3
+        max_ram,
+        cpu_cores,
+        cpu_model,
         user_usage: None,
         discovered_snis: {
             let mut lock = state.recent_discoveries.lock().await;
@@ -602,7 +605,7 @@ async fn fetch_global_settings(
     Ok(())
 }
 
-async fn collect_telemetry(client: &reqwest::Client, sys: &mut System) -> (Option<f64>, Option<f64>, Option<f64>, Option<u32>) {
+async fn collect_telemetry(client: &reqwest::Client, sys: &mut System) -> (Option<f64>, Option<f64>, Option<f64>, Option<u32>, Option<u64>, Option<i32>, Option<String>) {
     // 1. Latency Check (HTTP HEAD to Google)
     let start = std::time::Instant::now();
     let latency = match client.head("https://www.google.com")
@@ -629,38 +632,38 @@ async fn collect_telemetry(client: &reqwest::Client, sys: &mut System) -> (Optio
 
     let connections = count_active_connections();
 
-    (latency, cpu, ram, connections)
+    let connections = count_active_connections();
+
+    let max_ram = Some(sys.total_memory());
+    let cpu_cores = Some(sys.cpus().len() as i32);
+    let cpu_model = sys.cpus().first().map(|c| c.brand().to_string());
+
+    (latency, cpu, ram, connections, max_ram, cpu_cores, cpu_model)
 }
 
-fn count_active_connections() -> Option<u32> {
+    // count_active_connections now filters for sing-box
     // Try using `ss` (Socket Statistics) - Linux standard
-    // ss -t -a state established
+    // ss -t -n -p state established
+    // We want to count lines containing "sing-box"
     if let Ok(output) = std::process::Command::new("ss")
-        .args(&["-t", "-a", "state", "established"])
+        .args(&["-t", "-n", "-p", "state", "established"])
         .output() 
     {
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            // First line is header, count remaining lines
-            let count = stdout.lines().count().saturating_sub(1);
+            // Count lines containing "sing-box"
+            let count = stdout.lines()
+                .filter(|line| line.contains("\"sing-box\"") || line.contains("sing-box"))
+                .count();
             return Some(count as u32);
         }
     }
     
     // Fallback: Read /proc/net/tcp (More robust if ss missing)
-    if let Ok(content) = std::fs::read_to_string("/proc/net/tcp") {
-        // State is 4th column (hex). 01 = ESTABLISHED.
-        // sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
-        let count = content.lines().skip(1).filter(|line| {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 4 {
-                return parts[3] == "01";
-            }
-            false
-        }).count();
-        return Some(count as u32);
-    }
-
+    // But harder to filter by process without scanning /proc/pid/fd
+    // For now, if ss fails, we return 0 or None to avoid "4" fallback
+    // Or just return total count but warn it's inaccurate?
+    // Let's return None to indicate "Can't determine VPN users"
     None
 }
 
