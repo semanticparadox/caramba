@@ -69,17 +69,6 @@ pub struct Subscription {
 }
 
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct LegacyPromoCode {
-    pub id: i64,
-    pub code: String,
-    pub discount_percent: i32,
-    pub bonus_amount: i64,
-    pub max_uses: i32,
-    pub current_uses: i32,
-    pub expires_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct FamilyInvite {
