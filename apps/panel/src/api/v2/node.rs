@@ -329,7 +329,7 @@ pub async fn rotate_sni(
     
     // 3. Get Next SNI
     // Assume Tier 1 for now, or fetch from node settings
-    let next_sni: String = match state.security_service.get_next_sni(&current_sni, 1).await {
+    let next_sni: String = match state.security_service.get_next_sni(&current_sni, 1, false).await {
         Ok(s) => s,
         Err(e) => {
             error!("Failed to get next SNI: {}", e);

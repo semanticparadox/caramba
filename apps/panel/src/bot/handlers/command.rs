@@ -232,13 +232,9 @@ pub async fn message_handler(
                         let code = text.trim();
                         let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                         if let Some(u) = user_db {
-                            if code.starts_with("EXA-GIFT-") {
-                                match state.store_service.redeem_gift_code(u.id, code).await {
-                                    Ok(_sub) => { let _ = bot.send_message(msg.chat.id, "✅ *Code Redeemed\\!*\n\nCheck *My Services*\\.").parse_mode(ParseMode::MarkdownV2).await; },
-                                    Err(e) => { let _ = bot.send_message(msg.chat.id, format!("❌ Redemption Failed: {}", escape_md(&e.to_string()))).parse_mode(ParseMode::MarkdownV2).await; }
-                                }
-                            } else {
-                                let _ = bot.send_message(msg.chat.id, "❌ Invalid code format\\.").parse_mode(ParseMode::MarkdownV2).await;
+                            match state.promo_service.redeem_code(u.id, code).await {
+                                Ok(msg) => { let _ = bot.send_message(msg.chat.id, format!("✅ *Success\\!*\n\n{}", escape_md(&msg))).parse_mode(ParseMode::MarkdownV2).await; },
+                                Err(e) => { let _ = bot.send_message(msg.chat.id, format!("❌ Redemption Failed: {}", escape_md(&e.to_string()))).parse_mode(ParseMode::MarkdownV2).await; }
                             }
                         }
                         return Ok(());

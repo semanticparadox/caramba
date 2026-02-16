@@ -1,3 +1,4 @@
+pub mod promo;
 pub mod store;
 pub mod node;
 pub mod network;

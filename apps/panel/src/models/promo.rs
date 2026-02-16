@@ -1,0 +1,29 @@
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
+use chrono::{DateTime, Utc};
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct PromoCode {
+    pub id: i64,
+    pub code: String,
+    pub promo_type: String, // sqlx will map 'type' column to this if we use alias or handle it in query
+    pub plan_id: Option<i64>,
+    pub balance_amount: Option<i32>,
+    pub duration_days: Option<i32>,
+    pub traffic_gb: Option<i32>,
+    pub max_uses: i32,
+    pub current_uses: i32,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub created_by_admin_id: Option<i64>,
+    pub promoter_user_id: Option<i64>,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct PromoCodeUsage {
+    pub id: i64,
+    pub promo_code_id: i64,
+    pub user_id: i64,
+    pub used_at: DateTime<Utc>,
+}

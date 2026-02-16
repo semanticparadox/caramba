@@ -15,6 +15,7 @@ use tracing::{info, error};
 use crate::AppState;
 use crate::models::node::Node;
 use super::auth::get_auth_user;
+use chrono::Utc;
 
 // ============================================================================
 // Templates
@@ -438,7 +439,7 @@ pub async fn get_node_logs(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     // 1. Check if logs are already in Redis
-    if let Ok(Some(logs_json)) = state.redis.get::<String>(&format!("node_logs:{}", id)).await {
+    if let Ok(Some(logs_json)) = state.redis.get(&format!("node_logs:{}", id)).await {
         return Html(format!(r###"
             <div class="space-y-4">
                 <div class="flex justify-end">
@@ -498,22 +499,21 @@ pub async fn get_node_manage(
     let inbounds = state.infrastructure_service.get_node_inbounds(id).await.unwrap_or_default();
     
     // Fetch discovered SNIs with pinning status
-    let discovered_snis = sqlx::query_as!(
-        NodeSniDisplay,
+    let discovered_snis = sqlx::query_as::<_, NodeSniDisplay>(
         r#"
         SELECT 
             s.id, 
             s.domain, 
             s.health_score, 
             s.is_premium,
-            EXISTS(SELECT 1 FROM node_pinned_snis WHERE node_id = ? AND sni_id = s.id) as "is_pinned!"
+            EXISTS(SELECT 1 FROM node_pinned_snis WHERE node_id = ? AND sni_id = s.id) as is_pinned
         FROM sni_pool s
         WHERE s.discovered_by_node_id = ? OR s.is_premium = 1
         ORDER BY is_pinned DESC, s.health_score DESC
-        "#,
-        id,
-        id
+        "#
     )
+    .bind(id)
+    .bind(id)
     .fetch_all(&state.pool)
     .await
     .unwrap_or_default();

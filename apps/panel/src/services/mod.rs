@@ -27,3 +27,4 @@ pub mod payment;
 pub mod rotation_service;
 pub mod update_service;
 pub mod sni_monitor;
+pub mod promo_service;

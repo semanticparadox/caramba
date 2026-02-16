@@ -63,6 +63,7 @@ pub struct AppState {
     pub telemetry_service: Arc<services::telemetry_service::TelemetryService>, 
     pub infrastructure_service: Arc<services::infrastructure_service::InfrastructureService>,
     pub security_service: Arc<services::security_service::SecurityService>,
+    pub promo_service: Arc<services::promo_service::PromoService>,
 
 
     pub ssh_public_key: String,
@@ -348,6 +349,8 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     let geo_cache = Arc::new(Mutex::new(HashMap::new()));
     let session_secret = std::env::var("SESSION_SECRET").unwrap_or_else(|_| "secret".to_string());
 
+    let promo_service = Arc::new(services::promo_service::PromoService::new(pool.clone()));
+
     // App state
     let state = AppState {
         pool: pool.clone(),
@@ -373,6 +376,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         telemetry_service,
         infrastructure_service,
         security_service,
+        promo_service,
         
         ssh_public_key,
         geo_cache,
@@ -497,6 +501,9 @@ use tower_http::services::ServeDir;
         .route("/subs/{id}/devices", axum::routing::get(handlers::admin::get_subscription_devices))
         .route("/subs/{id}/devices/kill", axum::routing::post(handlers::admin::admin_kill_subscription_sessions))
         .route("/analytics", axum::routing::get(handlers::admin::get_traffic_analytics))
+        .route("/promo", axum::routing::get(handlers::admin::get_promos))
+        .route("/promo/add", axum::routing::post(handlers::admin::add_promo))
+        .route("/promo/{id}/delete", axum::routing::delete(handlers::admin::delete_promo))
         
         // Frontend Servers (Page)
         .route("/frontends", axum::routing::get(handlers::admin::get_frontends))
