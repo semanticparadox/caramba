@@ -620,11 +620,26 @@ impl OrchestrationService {
             }
         }
 
+        // 3.5 Fetch Relay Logic Context
+        let mut relay_target_node: Option<Node> = None;
+        if let Some(target_id) = node.relay_id {
+            if node.is_relay {
+                 relay_target_node = self.node_repo.get_node_by_id(target_id).await.unwrap_or(None);
+            }
+        }
+
+        let relay_clients = self.node_repo.get_relay_clients(node.id).await.unwrap_or_default();
+        if !relay_clients.is_empty() {
+            info!("Context: Node {} has {} relay clients", node.id, relay_clients.len());
+        }
+
         info!("Step 4: generating final sing-box config JSON");
         // 4. Generate Config
         let config = ConfigGenerator::generate_config(
             &node,
-            inbounds
+            inbounds,
+            relay_target_node,
+            relay_clients,
         );
         
         // Validate Config

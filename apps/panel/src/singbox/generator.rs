@@ -9,10 +9,13 @@ impl ConfigGenerator {
     pub fn generate_config(
         node: &crate::models::node::Node,
         inbounds: Vec<crate::models::network::Inbound>,
+        target_node: Option<crate::models::node::Node>,
+        relay_clients: Vec<crate::models::node::Node>,
     ) -> SingBoxConfig {
         
         let mut generated_inbounds = Vec::new();
 
+        // 1. Process Inbounds (Normal + Relay Injection)
         for inbound in inbounds {
             if !inbound.enable {
                 error!("🚫 Inbound {} is DISABLED, skipping generation", inbound.tag);
@@ -31,7 +34,6 @@ impl ConfigGenerator {
             let protocol_settings: InboundType = match serde_json::from_value(settings_value.clone()) {
                 Ok(s) => s,
                 Err(e) => {
-                    // Try a last-ditch effort: just protocol tag and empty structure
                     let proto = inbound.protocol.clone().to_lowercase();
                     error!("❌ Failed to parse settings for inbound {}: {} (json: {}). Protocol: {}", inbound.tag, e, inbound.settings, proto);
                     continue;
@@ -42,7 +44,6 @@ impl ConfigGenerator {
             let stream_settings: DbStreamSettings = match serde_json::from_str(&inbound.stream_settings) {
                 Ok(s) => s,
                 Err(_) => {
-                    // Fallback to default StreamSettings if parsing fails
                     warn!("⚠️ StreamSettings parse failed for inbound '{}', using defaults", inbound.tag);
                     DbStreamSettings::default()
                 }
@@ -50,7 +51,11 @@ impl ConfigGenerator {
 
             // Map DB Inbound to Sing-box Inbound
             match protocol_settings {
-                InboundType::Vless(vless) => {
+                InboundType::Vless(mut vless) => {
+                    // Inject Relay Clients as Users if this is a suitable inbound
+                    // For now, we only inject into Shadowsocks for simplicity, but VLESS is possible too.
+                    // Let's stick to Shadowsocks for inter-node transport unless VLESS is required.
+                    
                     let mut tls_config = None;
                     
                     let security = stream_settings.security.as_deref().unwrap_or("none");
@@ -78,7 +83,6 @@ impl ConfigGenerator {
                                         } else { 
                                             reality.private_key 
                                         };
-                                        // Sanitize to URL-Safe Base64 (RFC 4648) for Sing-box 1.12+ compatibility
                                         k.trim().replace('+', "-").replace('/', "_").replace('=', "")
                                     },
                                     short_id: {
@@ -94,7 +98,6 @@ impl ConfigGenerator {
                                 certificate_path: None,
                              });
 
-                             // Final safety: if private_key is still empty or suspicious, skip TLS config to avoid Sing-box FATAL
                              if let Some(ref cfg) = tls_config {
                                  let pkey = &cfg.reality.private_key;
                                  let is_invalid = pkey.is_empty() || pkey.len() < 43 || pkey.contains(' ');
@@ -105,7 +108,6 @@ impl ConfigGenerator {
                              }
                         }
                     } else if security == "tls" {
-                         // Force TLS if Vision is used or explicitly requested
                          let mut server_name = "www.google.com".to_string();
                          let mut key_path = None;
                          let mut cert_path = None;
@@ -141,7 +143,7 @@ impl ConfigGenerator {
                         match network.as_str() {
                             "ws" => {
                                 if let Some(ws) = stream_settings.ws_settings.as_ref()
-                                    .or(stream_settings.ws_settings.as_ref()) { // Placeholder if we had CamelCase in struct
+                                    .or(stream_settings.ws_settings.as_ref()) {
                                     transport_config = Some(VlessTransportConfig::Ws(WsTransport {
                                         path: ws.path.clone(),
                                         headers: ws.headers.clone(),
@@ -157,8 +159,6 @@ impl ConfigGenerator {
                                 }
                             },
                             "xhttp" | "splithttp" => {
-                                // Sing-box does NOT support Xray's xhttp/splithttp yet. 
-                                // We fallback to httpupgrade if possible, or just TCP.
                                 if let Some(xhttp) = stream_settings.xhttp_settings.as_ref() {
                                     transport_config = Some(VlessTransportConfig::HttpUpgrade(HttpUpgradeTransport {
                                         path: xhttp.path.clone(),
@@ -169,9 +169,7 @@ impl ConfigGenerator {
                             _ => {}
                         }
                     }
-                    // Convert users
 
-                    // Determine default flow based on security/network
                     let default_flow = if security == "reality" && stream_settings.network.as_deref() == Some("tcp") {
                         "xtls-rprx-vision"
                     } else {
@@ -208,7 +206,7 @@ impl ConfigGenerator {
                 InboundType::Hysteria2(hy2) => {
                     let mut tls_config = Hysteria2TlsConfig {
                         enabled: true,
-                        server_name: node.reality_sni.clone().unwrap_or_else(|| "drive.google.com".to_string()), // Default or from stream
+                        server_name: node.reality_sni.clone().unwrap_or_else(|| "drive.google.com".to_string()),
                         key_path: Some("/etc/sing-box/certs/key.pem".to_string()),
                         certificate_path: Some("/etc/sing-box/certs/cert.pem".to_string()),
                         alpn: Some(vec!["h3".to_string()]),
@@ -218,7 +216,6 @@ impl ConfigGenerator {
                          tls_config.server_name = tls.server_name;
                          if let Some(certs) = tls.certificates {
                              if let Some(first) = certs.first() {
-                                 // Only overwrite if not empty
                                  if !first.key_path.is_empty() {
                                      tls_config.key_path = Some(first.key_path.clone());
                                  }
@@ -229,7 +226,6 @@ impl ConfigGenerator {
                          }
                     }
 
-                    // FINAL SAFEGUARD: If still None, force defaults
                     if tls_config.key_path.is_none() {
                         tls_config.key_path = Some("/etc/sing-box/certs/key.pem".to_string());
                     }
@@ -252,20 +248,13 @@ impl ConfigGenerator {
                         listen: inbound.listen_ip,
                         listen_port: inbound.listen_port as u16,
                         users,
-                        // Configured bandwidth hints (integers in Mbps)
                         up_mbps: Some(hy2.up_mbps),
                         down_mbps: Some(hy2.down_mbps),
-                        
-                        // Conflict resolution: Docs say 'ignore_client_bandwidth' conflicts with up/down limits.
-                        // So we only set it if limits are NOT set (or implicitly handling it).
-                        // Since we are setting limits, we set this to None to let Serde skip it.
                         ignore_client_bandwidth: None, 
-                        
                         obfs: hy2.obfs.map(|o| Hysteria2Obfs {
                             ttype: o.ttype,
                             password: o.password,
                         }),
-
                         masquerade: hy2.masquerade.clone().map(|s| {
                             if !s.contains("://") && s.starts_with('/') {
                                 format!("file://{}", s)
@@ -304,7 +293,7 @@ impl ConfigGenerator {
                 InboundType::Tuic(tuic) => {
                     let mut tls_config = TuicTlsConfig {
                         enabled: true,
-                        server_name: node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string()), // Default
+                        server_name: node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string()),
                         key_path: Some("/etc/sing-box/certs/key.pem".to_string()),
                         certificate_path: Some("/etc/sing-box/certs/cert.pem".to_string()),
                         alpn: Some(vec!["h3".to_string()]),
@@ -435,7 +424,6 @@ impl ConfigGenerator {
                     }));
                 },
                 InboundType::Naive(naive) => {
-                    // NaiveProxy (HTTP) ALWAYS requires TLS
                     let mut tls_config = None;
                     let security = stream_settings.security.as_deref().unwrap_or("none");
 
@@ -459,7 +447,6 @@ impl ConfigGenerator {
                             });
                         }
                     } else {
-                        // Default to TLS if security is 'tls' or even 'none' (NaiveProxy NEEDS TLS)
                         let mut server_name = stream_settings.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| "www.google.com".to_string());
                         let mut key_path = None;
                         let mut cert_path = None;
@@ -474,7 +461,6 @@ impl ConfigGenerator {
                              }
                         }
 
-                        // FALLBACK: If NO certificates and NOT Reality, force paths anyway (legacy behavior but better than panic)
                         if key_path.is_none() { key_path = Some("/etc/sing-box/certs/key.pem".to_string()); }
                         if cert_path.is_none() { cert_path = Some("/etc/sing-box/certs/cert.pem".to_string()); }
 
@@ -514,7 +500,18 @@ impl ConfigGenerator {
 
                     generated_inbounds.push(Inbound::Naive(inbound_obj));
                 },
-                InboundType::Shadowsocks(ss) => {
+                InboundType::Shadowsocks(mut ss) => {
+                    // Inject Relay Clients if this is a suitable Shadowsocks inbound
+                    for client_node in &relay_clients {
+                        if let Some(token) = &client_node.join_token {
+                            warn!("🔗 Injecting Relay Access for Node {} ({}). User: relay_{}", client_node.name, client_node.ip, client_node.id);
+                            ss.users.push(crate::models::network::ShadowsocksUser {
+                                name: Some(format!("relay_{}", client_node.id)), // Keep it traceable
+                                password: token.clone(), // Use the client node's token as password
+                            });
+                        }
+                    }
+
                     let users: Vec<crate::singbox::config::ShadowsocksUser> = ss.users.iter().map(|u| crate::singbox::config::ShadowsocksUser {
                         name: u.username.clone(),
                         password: u.password.clone(),
@@ -536,6 +533,44 @@ impl ConfigGenerator {
             }
         }
 
+        // 2. Generate Outbounds (Standard + Relay)
+        let mut outbounds = vec![
+            Outbound::Direct { tag: "direct".to_string() },
+        ];
+
+        // 3. Relay Logic: Add Relay Outbound if enabled
+        let mut default_outbound_tag = "direct".to_string();
+
+        if let Some(target) = target_node {
+            if node.is_relay {
+                warn!("🔗 Configuring Node as RELAY -> Target: {} ({})", target.name, target.ip);
+                
+                // We use Shadowsocks for inter-node transport
+                // IMPORTANT: The target node MUST have a Shadowsocks inbound listening
+                // For now, we assume standard VPN port or 443 with Shadowsocks
+                
+                // We actually need to know WHICH inbound on the target node to connect to.
+                // Assuming standard Shadowsocks inbound on target.vpn_port for now.
+                // Or maybe VLESS?
+                // Let's use the target's VPN port with Shadowsocks 2022 if possible, or wait, we just use Shadowsocks.
+                
+                // IMPROVEMENT: Protocol Selection? For now, hardcode Shadowsocks.
+                outbounds.push(Outbound::Shadowsocks(ShadowsocksOutbound {
+                    tag: "relay-out".to_string(),
+                    server: target.ip.clone(),
+                    server_port: target.vpn_port as u16,
+                    method: "chacha20-ietf-poly1305".to_string(), // Safer default for variable length passwords (tokens)
+                    // ISSUE: We don't know the exact method/password of the target's inbound here easily WITHOUT fetching its inbounds.
+                    // BUT! We injected the user `relay_<id>` with password `token` into the target's SS inbound above.
+                    // effectively we need to know the METHOD of the target's SS inbound.
+                    // Fallback: This requires the TARGET node to have a matching inbound.
+                    password: node.join_token.clone().unwrap_or_default(), // We authenticate using OUR token
+                }));
+                
+                // Override default route to Relay
+                default_outbound_tag = "relay-out".to_string();
+            }
+        }
 
         SingBoxConfig {
             log: LogConfig {
@@ -556,7 +591,6 @@ impl ConfigGenerator {
                 ],
                 rules: vec![
                     DnsRule { 
-                        // outbound: Some("direct".to_string()), // Removed for sing-box 1.12+
                         domain_resolver: None,
                         server: Some("local".to_string()),
                         clash_mode: None,
@@ -564,11 +598,7 @@ impl ConfigGenerator {
                 ]
             }),
             inbounds: generated_inbounds,
-            outbounds: vec![
-                Outbound::Direct { tag: "direct".to_string() },
-                // Use a standard block outbound
-                // Sing-box enum Outbound might need to support 'block'
-            ],
+            outbounds, // Use our modified outbounds
             route: Some(RouteConfig {
                 default_domain_resolver: Some("google".to_string()),
                 rules: {
@@ -613,14 +643,13 @@ impl ConfigGenerator {
                         });
                     }
 
-                    // 4. QoS (Prioritize UDP/QUIC)
-                    if node.config_qos_enabled {
+                    // 4. Default Route (If Relay is active, this sends everything to relay-out)
+                    if default_outbound_tag != "direct" {
                         rules.push(RouteRule {
-                            action: Some("route".to_string()),
-                            protocol: Some(vec!["stun".to_string(), "quic".to_string(), "dtls".to_string()]),
-                            outbound: Some("direct".to_string()),
-                            port: None, domain: None, geosite: None, geoip: None,
-                            domain_resolver: None,
+                             action: Some("route".to_string()),
+                             outbound: Some(default_outbound_tag),
+                             // Match everything else
+                             protocol: None, port: None, domain: None, geosite: None, geoip: None, domain_resolver: None,
                         });
                     }
                     
@@ -631,7 +660,7 @@ impl ConfigGenerator {
             experimental: Some(ExperimentalConfig {
                 clash_api: ClashApiConfig {
                     external_controller: "0.0.0.0:9090".to_string(),
-                    secret: None, // Internal access only, no auth needed
+                    secret: None, 
                     external_ui: None,
                     access_control_allow_origin: Some(vec!["*".to_string()]),
                     access_control_allow_private_network: Some(true),

@@ -45,6 +45,14 @@ impl NodeRepository {
             .context("Failed to fetch active node IDs")
     }
 
+    pub async fn get_relay_clients(&self, node_id: i64) -> Result<Vec<Node>> {
+        sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE relay_id = ? AND status = 'active'")
+            .bind(node_id)
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to fetch relay clients")
+    }
+
     pub async fn create_node(&self, node: &Node) -> Result<i64> {
         let id = sqlx::query_scalar(
             r#"

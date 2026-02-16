@@ -1,6 +1,6 @@
 use sqlx::SqlitePool;
 use anyhow::{Context, Result};
-use crate::models::sni::SniPoolItem;
+use crate::models::sni::{SniPoolItem, SniBlacklistItem};
 
 #[derive(Debug, Clone)]
 pub struct SniRepository {
@@ -83,5 +83,11 @@ impl SniRepository {
         .fetch_all(&self.pool)
         .await
         .context("Failed to fetch rotation logs")
+    }
+    pub async fn get_blacklisted_snis(&self) -> Result<Vec<SniBlacklistItem>> {
+        sqlx::query_as::<_, SniBlacklistItem>("SELECT * FROM sni_blacklist ORDER BY blocked_at DESC")
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to fetch blacklisted SNIs")
     }
 }

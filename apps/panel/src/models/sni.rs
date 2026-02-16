@@ -13,3 +13,10 @@ pub struct SniPoolItem {
     #[sqlx(default)]
     pub is_premium: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct SniBlacklistItem {
+    pub domain: String,
+    pub reason: Option<String>,
+    pub blocked_at: Option<chrono::NaiveDateTime>,
+}

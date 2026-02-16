@@ -8,7 +8,7 @@ use askama::Template;
 use askama_web::WebTemplate;
 use serde::Deserialize;
 use crate::AppState;
-use crate::models::sni::SniPoolItem;
+use crate::models::sni::{SniPoolItem, SniBlacklistItem};
 use crate::models::sni_log::SniRotationLog;
 use tracing::{info, error};
 
@@ -24,6 +24,7 @@ pub struct AdminSniTemplate {
     pub username: String,
     pub nodes: Vec<crate::models::node::Node>,
     pub filter_node_id: Option<i64>,
+    pub blacklist: Vec<SniBlacklistItem>,
 }
 
 pub async fn get_sni_page(
@@ -50,6 +51,8 @@ pub async fn get_sni_page(
     
     let username = state.settings.get_or_default("admin_username", "admin").await;
 
+    let blacklist = state.sni_repo.get_blacklisted_snis().await.unwrap_or_default();
+
     let template = AdminSniTemplate {
         snis,
         logs,
@@ -60,6 +63,7 @@ pub async fn get_sni_page(
         username,
         nodes,
         filter_node_id: node_id,
+        blacklist,
     };
 
     Html(template.render().unwrap()).into_response()

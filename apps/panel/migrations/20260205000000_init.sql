@@ -776,6 +776,8 @@ INSERT OR IGNORE INTO sni_pool (domain, tier, notes) VALUES
     ('xbox.com', 2, 'Xbox');
 
 -- Initial plans (Optional)
+INSERT OR IGNORE INTO plans (id, name, description, traffic_limit_gb, price, is_active) 
+VALUES (1, 'Default Plan', 'System Default Plan', 0, 0, 1);
 
 
 
