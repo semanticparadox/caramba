@@ -35,7 +35,7 @@ impl TelemetryService {
         active_connections: Option<u32>,
         traffic_up: u64,
         traffic_down: u64,
-        _speed_mbps: Option<i32>,
+        speed_mbps: Option<i32>,
         discovered_snis: Option<Vec<exarobot_shared::DiscoveredSni>>,
         uptime: u64,
     ) -> Result<(), sqlx::Error> {
@@ -66,6 +66,13 @@ impl TelemetryService {
             total_in += diff_in as i64;
             total_eq += diff_eg as i64;
 
+            // Simple heuristic for max users: Speed / 8 Mbps per user (rounded)
+            let calculated_max = if let Some(s) = speed_mbps {
+                if s > 0 { Some(s / 8) } else { None }
+            } else {
+                None
+            };
+
             // Update node
             sqlx::query(
                 "UPDATE nodes SET 
@@ -74,7 +81,9 @@ impl TelemetryService {
                     total_egress = ?, 
                     last_session_ingress = ?, 
                     last_session_egress = ?,
-                    uptime = ?
+                    uptime = ?,
+                    current_speed_mbps = COALESCE(?, current_speed_mbps),
+                    max_users = COALESCE(?, max_users)
                  WHERE id = ?"
             )
             .bind(active_connections)
@@ -83,6 +92,8 @@ impl TelemetryService {
             .bind(traffic_up as i64)
             .bind(traffic_down as i64)
             .bind(uptime as i64)
+            .bind(speed_mbps)
+            .bind(calculated_max)
             .bind(node_id)
             .execute(&self.pool)
             .await?;
@@ -105,6 +116,17 @@ impl TelemetryService {
                 // Phase 57: Filter out "junk" SNIs
                 let domain = sni.domain.to_lowercase();
                 if domain.split('.').count() > 4 || domain.contains("traefik") || domain.contains("localhost") || domain.len() > 50 {
+                    continue;
+                }
+
+                // Check Blacklist
+                let is_blacklisted: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sni_blacklist WHERE domain = ?)")
+                    .bind(&domain)
+                    .fetch_one(&self.pool)
+                    .await
+                    .unwrap_or(false);
+                
+                if is_blacklisted {
                     continue;
                 }
 

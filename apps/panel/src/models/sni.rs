@@ -10,4 +10,6 @@ pub struct SniPoolItem {
     pub is_active: bool,
     pub notes: Option<String>,
     pub discovered_by_node_id: Option<i64>,
+    #[sqlx(default)]
+    pub is_premium: bool,
 }

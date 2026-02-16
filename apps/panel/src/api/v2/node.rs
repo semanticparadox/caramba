@@ -165,9 +165,21 @@ pub async fn heartbeat(
         stored_target
     };
 
+    // 6. Action Trigger (Log Collection, etc.)
+    let mut action = AgentAction::None;
+    let pending_logs: bool = sqlx::query_scalar("SELECT pending_log_collection FROM nodes WHERE id = ?")
+        .bind(node_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(false);
+
+    if pending_logs {
+        action = AgentAction::CollectLogs;
+    }
+
     (StatusCode::OK, Json(HeartbeatResponse {
         success: true,
-        action: AgentAction::None,
+        action,
         latest_version: target_version,
     })).into_response()
 }
@@ -538,7 +550,7 @@ pub async fn register(
         .fetch_one(&state.pool)
         .await;
 
-    match node_id_res {
+     match node_id_res {
         Ok(row) => {
              use sqlx::Row;
              let node_id: i64 = row.get("id");
@@ -554,4 +566,43 @@ pub async fn register(
             (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create node").into_response()
         }
     }
+}
+
+/// Report Logs from Agent
+/// POST /api/v2/node/logs
+pub async fn report_node_logs(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<exarobot_shared::api::LogResponse>,
+) -> impl IntoResponse {
+    // 1. Extract Token
+    let token = match headers.get("Authorization") {
+        Some(hv) => hv.to_str().unwrap_or("").replace("Bearer ", ""),
+        None => return (StatusCode::UNAUTHORIZED, "Missing Token").into_response(),
+    };
+
+    // 2. Validate Node
+    let node_id: i64 = match sqlx::query_scalar("SELECT id FROM nodes WHERE join_token = ?")
+        .bind(&token)
+        .fetch_one(&state.pool)
+        .await 
+    {
+        Ok(id) => id,
+        Err(_) => return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response(),
+    };
+
+    // 3. Store Logs (In Redis for quick retrieval, and reset pending flag)
+    let logs_json = serde_json::to_string(&req.logs).unwrap_or_default();
+    let _ = state.redis.set(&format!("node_logs:{}", node_id), &logs_json, 300).await; // Store for 5 mins
+
+    let _ = sqlx::query("UPDATE nodes SET pending_log_collection = 0 WHERE id = ?")
+        .bind(node_id)
+        .execute(&state.pool)
+        .await;
+
+    // 4. Notify UI via PubSub
+    let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "logs_ready").await;
+
+    info!("✅ Logs received and stored for node {}", node_id);
+    StatusCode::OK.into_response()
 }

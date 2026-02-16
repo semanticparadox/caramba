@@ -53,6 +53,18 @@ pub mod api {
         None,
         UpdateConfig,
         RestartService,
+        CollectLogs,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct LogRequest {
+        pub services: Vec<String>, // e.g., ["sing-box", "exarobot-agent", "nginx", "caddy"]
+        pub include_config: bool,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct LogResponse {
+        pub logs: std::collections::HashMap<String, String>,
     }
 }
 

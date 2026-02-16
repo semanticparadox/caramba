@@ -34,6 +34,14 @@ impl InfrastructureService {
         self.node_repo.get_groups_by_node(node_id).await
     }
 
+    pub async fn get_node_inbounds(&self, node_id: i64) -> Result<Vec<crate::models::network::Inbound>> {
+        let inbounds = sqlx::query_as::<_, crate::models::network::Inbound>("SELECT * FROM inbounds WHERE node_id = ? ORDER BY listen_port ASC")
+            .bind(node_id)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(inbounds)
+    }
+
     pub async fn get_user_nodes(&self, _user_id: i64) -> Result<Vec<Node>> {
         self.node_repo.get_active_nodes().await
     }
@@ -114,11 +122,12 @@ impl InfrastructureService {
         Ok(id)
     }
 
-    pub async fn update_node(&self, id: i64, name: &str, ip: &str, relay_id: Option<i64>) -> Result<()> {
-        sqlx::query("UPDATE nodes SET name = ?, ip = ?, relay_id = ? WHERE id = ?")
+    pub async fn update_node(&self, id: i64, name: &str, ip: &str, relay_id: Option<i64>, is_relay: bool) -> Result<()> {
+        sqlx::query("UPDATE nodes SET name = ?, ip = ?, relay_id = ?, is_relay = ? WHERE id = ?")
             .bind(name)
             .bind(ip)
             .bind(relay_id)
+            .bind(is_relay)
             .bind(id)
             .execute(&self.pool)
             .await?;

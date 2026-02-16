@@ -59,6 +59,28 @@ pub struct NodeManualInstallTemplate {
 }
 
 #[derive(Template, WebTemplate)]
+#[template(path = "node_manage.html")]
+pub struct NodeManageTemplate {
+    pub node: Node,
+    pub all_nodes: Vec<Node>, // For relay selection
+    pub admin_path: String,
+    pub username: String,
+    pub active_page: String,
+    pub is_auth: bool,
+    pub inbounds: Vec<crate::models::network::Inbound>,
+    pub discovered_snis: Vec<NodeSniDisplay>,
+}
+
+#[derive(serde::Serialize)]
+pub struct NodeSniDisplay {
+    pub id: i64,
+    pub domain: String,
+    pub is_pinned: bool,
+    pub health_score: i32,
+    pub is_premium: bool,
+}
+
+#[derive(Template, WebTemplate)]
 #[template(path = "node_rescue_modal.html")]
 pub struct NodeRescueModalTemplate {
     pub node: Node,
@@ -79,7 +101,12 @@ pub struct InstallNodeForm {
 pub struct UpdateNodeForm {
     pub name: String,
     pub ip: String,
-    pub relay_id: Option<i64>, // Added Phase 8
+    pub relay_id: Option<i64>,
+    pub is_relay: Option<String>, // "on" or None from checkbox
+    pub config_block_torrent: Option<String>,
+    pub config_block_ads: Option<String>,
+    pub config_block_porn: Option<String>,
+    pub config_qos_enabled: Option<String>,
 }
 
 // ============================================================================
@@ -209,21 +236,47 @@ pub async fn update_node(
     State(state): State<AppState>,
     Form(form): Form<UpdateNodeForm>,
 ) -> impl IntoResponse {
-    info!("Updating node ID: {} (Relay: {:?})", id, form.relay_id);
+    let is_relay = form.is_relay.is_some();
+    info!("Updating node ID: {} (Relay: {})", id, is_relay);
     
-    match state.infrastructure_service.update_node(id, &form.name, &form.ip, form.relay_id).await {
-        Ok(_) => {
-             let admin_path = state.admin_path.clone();
-             
-             let mut headers = HeaderMap::new();
-             headers.insert("HX-Redirect", format!("{}/nodes", admin_path).parse().unwrap());
-             (axum::http::StatusCode::OK, headers, "Updated").into_response()
-        },
-        Err(e) => {
-             error!("Failed to update node: {}", e);
-             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to update node").into_response()
-        }
+    // 1. Update core fields
+    if let Err(e) = state.infrastructure_service.update_node(id, &form.name, &form.ip, form.relay_id, is_relay).await {
+        error!("Failed to update node core: {}", e);
+        return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to update node").into_response();
     }
+
+    // 2. Update security policies (Partial updates supported by HTMX)
+    let b_torrent = form.config_block_torrent.is_some();
+    let b_ads = form.config_block_ads.is_some();
+    let b_porn = form.config_block_porn.is_some();
+    let qos = form.config_qos_enabled.is_some();
+
+    // If any policy is present in the form, it's likely a targeted update or a full form submission.
+    // We update policies based on checkbox presence.
+    let _ = sqlx::query("UPDATE nodes SET config_block_torrent = ?, config_block_ads = ?, config_block_porn = ?, config_qos_enabled = ? WHERE id = ?")
+        .bind(b_torrent)
+        .bind(b_ads)
+        .bind(b_porn)
+        .bind(qos)
+        .bind(id)
+        .execute(&state.pool)
+        .await;
+
+    // 3. Trigger sync if policies changed (Policy changes need config regent)
+    let _ = state.orchestration_service.reset_inbounds(id).await;
+    let _ = state.pubsub.publish(&format!("node_events:{}", id), "update").await;
+
+    let admin_path = state.admin_path.clone();
+    let mut headers = HeaderMap::new();
+    
+    // Check if HTMX request
+    if let Some(_) = form.config_block_torrent.as_ref().or(form.config_block_ads.as_ref()).or(form.config_block_porn.as_ref()).or(form.config_qos_enabled.as_ref()) {
+        // Targeted update from managing page switches
+        return (axum::http::StatusCode::OK, "Saved").into_response();
+    }
+
+    headers.insert("HX-Redirect", format!("{}/nodes", admin_path).parse().unwrap());
+    (axum::http::StatusCode::OK, headers, "Updated").into_response()
 }
 
 pub async fn sync_node(
@@ -232,6 +285,12 @@ pub async fn sync_node(
 ) -> impl IntoResponse {
     info!("Manual sync triggered for node: {}", id);
     
+    // Update trigger tracking
+    let _ = sqlx::query("UPDATE nodes SET last_sync_trigger = 'Manual Update' WHERE id = ?")
+        .bind(id)
+        .execute(&state.pool)
+        .await;
+
     let orch = state.orchestration_service.clone();
     let pubsub = state.pubsub.clone();
 
@@ -250,6 +309,24 @@ pub async fn sync_node(
     });
 
     axum::http::StatusCode::ACCEPTED
+}
+
+pub async fn test_node_connection(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let node = match state.infrastructure_service.get_node_by_id(id).await {
+        Ok(n) => n,
+        Err(_) => return (axum::http::StatusCode::NOT_FOUND, "Node not found").into_response(),
+    };
+
+    let is_online = node.last_seen.map(|ls| (Utc::now() - ls).num_seconds() < 60).unwrap_or(false);
+
+    if is_online {
+        (axum::http::StatusCode::OK, format!("✅ Node '{}' is ONLINE (Last seen: {}s ago)", node.name, (Utc::now() - node.last_seen.unwrap()).num_seconds())).into_response()
+    } else {
+        (axum::http::StatusCode::OK, format!("❌ Node '{}' is OFFLINE or UNREACHABLE", node.name)).into_response()
+    }
 }
 
 pub async fn delete_node(
@@ -358,10 +435,104 @@ pub async fn get_node_raw_install_script(
 
 pub async fn get_node_logs(
     Path(id): Path<i64>,
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
 ) -> impl IntoResponse {
-    // Stub for node logs
-    Html(format!("<div class='p-4 text-slate-400'>Logs for node {} unavailable (Not implemented)</div>", id)).into_response()
+    // 1. Check if logs are already in Redis
+    if let Ok(Some(logs_json)) = state.redis.get::<String>(&format!("node_logs:{}", id)).await {
+        return Html(format!(r###"
+            <div class="space-y-4">
+                <div class="flex justify-end">
+                    <button hx-get="{}/nodes/{}/logs" hx-target="#logs-modal-content" class="text-xs text-indigo-400 hover:text-indigo-300">Refresh Logs</button>
+                </div>
+                <div class="custom-scrollbar overflow-auto max-h-[60vh] space-y-4 font-mono text-[11px]">
+                    {}
+                </div>
+            </div>
+        "###, state.admin_path, id, format_logs_html(&logs_json))).into_response();
+    }
+
+    // 2. If not, trigger collection and return "Waiting"
+    let _ = sqlx::query("UPDATE nodes SET pending_log_collection = 1 WHERE id = ?")
+        .bind(id)
+        .execute(&state.pool)
+        .await;
+
+    Html(format!(r###"
+        <div class="p-8 text-center" hx-get="{}/nodes/{}/logs" hx-trigger="every 3s" hx-target="this">
+            <div class="animate-spin w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+            <p class="text-slate-400">Requesting real-time logs from agent...</p>
+            <p class="text-[10px] text-slate-500 mt-2 italic">Ensure the node is online. This may take up to 30 seconds.</p>
+        </div>
+    "###, state.admin_path, id)).into_response()
+}
+
+fn format_logs_html(json_str: &str) -> String {
+    let logs: std::collections::HashMap<String, String> = serde_json::from_str(json_str).unwrap_or_default();
+    let mut html = String::new();
+
+    for (service, content) in logs {
+        html.push_str(&format!(r###"
+            <div class="bg-slate-950/50 rounded-lg border border-white/5 overflow-hidden">
+                <div class="bg-white/5 px-3 py-1.5 flex justify-between items-center text-[10px] uppercase font-bold text-slate-400">
+                    <span>{}</span>
+                </div>
+                <pre class="p-3 text-emerald-400 overflow-x-auto">{}</pre>
+            </div>
+        "###, service, content));
+    }
+
+    html
+}
+
+pub async fn get_node_manage(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
+    let node = match state.infrastructure_service.get_node_by_id(id).await {
+        Ok(n) => n,
+        Err(_) => return (axum::http::StatusCode::NOT_FOUND, "Node not found").into_response(),
+    };
+
+    let all_nodes = state.infrastructure_service.get_active_nodes().await.unwrap_or_default();
+    let inbounds = state.infrastructure_service.get_node_inbounds(id).await.unwrap_or_default();
+    
+    // Fetch discovered SNIs with pinning status
+    let discovered_snis = sqlx::query_as!(
+        NodeSniDisplay,
+        r#"
+        SELECT 
+            s.id, 
+            s.domain, 
+            s.health_score, 
+            s.is_premium,
+            EXISTS(SELECT 1 FROM node_pinned_snis WHERE node_id = ? AND sni_id = s.id) as "is_pinned!"
+        FROM sni_pool s
+        WHERE s.discovered_by_node_id = ? OR s.is_premium = 1
+        ORDER BY is_pinned DESC, s.health_score DESC
+        "#,
+        id,
+        id
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+    
+    let admin_path = state.admin_path.clone();
+    let username = get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string());
+
+    let template = NodeManageTemplate {
+        node,
+        all_nodes,
+        admin_path,
+        username,
+        active_page: "nodes".to_string(),
+        is_auth: true,
+        inbounds,
+        discovered_snis,
+    };
+
+    Html(template.render().unwrap()).into_response()
 }
 
 pub async fn get_node_rescue(
@@ -393,4 +564,80 @@ pub async fn trigger_scan(
     }
 
     axum::http::StatusCode::ACCEPTED.into_response()
+}
+pub async fn pin_sni(
+    Path((node_id, sni_id)): Path<(i64, i64)>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    info!("Pinning SNI {} for node {}", sni_id, node_id);
+    
+    let _ = sqlx::query("INSERT OR IGNORE INTO node_pinned_snis (node_id, sni_id) VALUES (?, ?)")
+        .bind(node_id)
+        .bind(sni_id)
+        .execute(&state.pool)
+        .await;
+
+    // Trigger sync to apply the pinned SNI
+    let _ = state.orchestration_service.reset_inbounds(node_id).await;
+    let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "update").await;
+
+    let admin_path = state.admin_path.clone();
+    let mut headers = HeaderMap::new();
+    headers.insert("HX-Refresh", "true".parse().unwrap());
+    (axum::http::StatusCode::OK, headers, "").into_response()
+}
+
+pub async fn unpin_sni(
+    Path((node_id, sni_id)): Path<(i64, i64)>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    info!("Unpinning SNI {} for node {}", sni_id, node_id);
+    
+    let _ = sqlx::query("DELETE FROM node_pinned_snis WHERE node_id = ? AND sni_id = ?")
+        .bind(node_id)
+        .bind(sni_id)
+        .execute(&state.pool)
+        .await;
+
+    // Trigger sync
+    let _ = state.orchestration_service.reset_inbounds(node_id).await;
+    let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "update").await;
+
+    let admin_path = state.admin_path.clone();
+    let mut headers = HeaderMap::new();
+    headers.insert("HX-Refresh", "true".parse().unwrap());
+    (axum::http::StatusCode::OK, headers, "").into_response()
+
+pub async fn block_sni(
+    Path((node_id, sni_id)): Path<(i64, i64)>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    info!("Blocking SNI {} (requested from node {})", sni_id, node_id);
+    
+    // 1. Get Domain
+    let domain: Option<String> = sqlx::query_scalar("SELECT domain FROM sni_pool WHERE id = ?")
+        .bind(sni_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    if let Some(domain) = domain {
+        // 2. Add to Blacklist
+        let _ = sqlx::query("INSERT OR IGNORE INTO sni_blacklist (domain, reason) VALUES (?, ?)")
+            .bind(&domain)
+            .bind(format!("Rejected by admin on node {}", node_id))
+            .execute(&state.pool)
+            .await;
+
+        // 3. Delete from Pool
+        let _ = sqlx::query("DELETE FROM sni_pool WHERE id = ?")
+            .bind(sni_id)
+            .execute(&state.pool)
+            .await;
+    }
+
+    let admin_path = state.admin_path.clone();
+    let mut headers = HeaderMap::new();
+    headers.insert("HX-Refresh", "true".parse().unwrap());
+    (axum::http::StatusCode::OK, headers, "").into_response()
 }

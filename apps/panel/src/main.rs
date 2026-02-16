@@ -463,7 +463,7 @@ use tower_http::services::ServeDir;
         // .route("/traffic", axum::routing::get(handlers::admin::get_traffic_analytics)) // Merged into /analytics
         .route("/logs", axum::routing::get(handlers::admin::get_system_logs_page)) // NEW
         .route("/nodes", axum::routing::get(handlers::admin::get_nodes))
-
+        .route("/nodes/{id}/manage", axum::routing::get(handlers::admin::get_node_manage)) // NEW Unified UI
         .route("/nodes/install", axum::routing::post(handlers::admin::install_node))
         .route("/nodes/{id}/edit", axum::routing::get(handlers::admin::get_node_edit))
         .route("/nodes/{id}/update", axum::routing::post(handlers::admin::update_node))
@@ -476,6 +476,9 @@ use tower_http::services::ServeDir;
         // SSH-based Node Control removed - use Agent API endpoints instead
         .route("/nodes/{id}/delete", axum::routing::delete(handlers::admin::delete_node))
         .route("/nodes/{id}/toggle", axum::routing::post(handlers::admin::toggle_node_enable))
+        .route("/nodes/{id}/snis/{sni_id}/pin", axum::routing::post(handlers::admin::nodes::pin_sni))
+        .route("/nodes/{id}/snis/{sni_id}/unpin", axum::routing::post(handlers::admin::nodes::unpin_sni))
+        .route("/nodes/{id}/snis/{sni_id}/block", axum::routing::post(handlers::admin::nodes::block_sni))
         .route("/nodes/{id}/inbounds", axum::routing::get(handlers::admin_network::get_node_inbounds).post(handlers::admin_network::add_inbound))
         .route("/nodes/{id}/inbounds/{inbound_id}", axum::routing::get(handlers::admin_network::get_edit_inbound).post(handlers::admin_network::update_inbound).delete(handlers::admin_network::delete_inbound))
         .route("/nodes/{id}/inbounds/{inbound_id}/toggle", axum::routing::post(handlers::admin_network::toggle_inbound))
@@ -570,6 +573,7 @@ use tower_http::services::ServeDir;
         .route("/api/v2/node/rotate-sni", axum::routing::post(api::v2::node::rotate_sni))
         .route("/api/v2/node/update-info", axum::routing::get(api::v2::node::get_update_info))
         .route("/api/v2/node/updates/poll", axum::routing::get(api::v2::node::poll_updates)) // NEW
+        .route("/api/v2/node/logs", axum::routing::post(api::v2::node::report_node_logs)) // NEW
         .route("/api/v2/node/settings", axum::routing::get(api::v2::node::get_settings)) // NEW
         .route("/api/v2/node/register", axum::routing::post(api::v2::node::register)) // NEW Enrollment
         .route("/api/v2/client/recommended", axum::routing::get(api::v2::client::get_recommended_nodes)) // AI Routing

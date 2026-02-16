@@ -71,13 +71,18 @@ pub struct Node {
     #[sqlx(default)]
     pub doomsday_password: Option<String>,
     
-    // Phase 67: Version Control
     #[sqlx(default)]
     pub version: Option<String>,
     #[sqlx(default)]
     pub target_version: Option<String>,
     #[sqlx(default)]
     pub last_synced_at: Option<DateTime<Utc>>,
+    #[sqlx(default)]
+    pub last_sync_trigger: Option<String>,
+    #[sqlx(default)]
+    pub is_relay: bool,
+    #[sqlx(default)]
+    pub pending_log_collection: bool,
 }
 
 impl Node {

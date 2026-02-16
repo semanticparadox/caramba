@@ -82,6 +82,8 @@ async fn main() -> anyhow::Result<()> {
     info!("📁 Config Path: {}", args.config_path);
 
     // 3. Load current hash (if config exists)
+    let (scan_tx, scan_rx) = tokio::sync::mpsc::channel::<()>(1);
+    
     let mut state = AgentState {
         current_hash: load_current_hash(&args.config_path).await,
         last_successful_contact: std::time::Instant::now(),
@@ -90,17 +92,8 @@ async fn main() -> anyhow::Result<()> {
         vpn_stopped_by_kill_switch: false,
         cached_speed_mbps: None,
         recent_discoveries: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
-        scan_trigger: {
-            let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(1);
-            // Spawn a proxy loop to actually notify the sniper thread
-            // (We'll update start_neighbor_sniper to accept this rx)
-            tx 
-        },
+        scan_trigger: scan_tx,
     };
-    
-    // Create actual channel for sniper
-    let (scan_tx, scan_rx) = tokio::sync::mpsc::channel::<()>(1);
-    state.scan_trigger = scan_tx;
 
     // Initialize HTTP Client
     let client = reqwest::Client::new();
@@ -163,13 +156,23 @@ async fn main() -> anyhow::Result<()> {
                 }
                 info!("💓 Heartbeat OK. Action: {:?}", resp.action);
                 
-                // Check if config update needed
-                match resp.action {
                     exarobot_shared::api::AgentAction::UpdateConfig => {
                         info!("🔄 Config update requested");
                         if let Err(e) = update_config(&client, &panel_url, &token, &args.config_path, &mut state).await {
                             error!("Failed to update config: {}", e);
                         }
+                    },
+                    exarobot_shared::api::AgentAction::CollectLogs => {
+                        info!("📋 Log collection requested");
+                        let panel_url_clone = panel_url.clone();
+                        let token_clone = token.clone();
+                        let config_path_clone = args.config_path.clone();
+                        let client_clone = client.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = report_logs(&client_clone, &panel_url_clone, &token_clone, &config_path_clone).await {
+                                error!("Failed to report logs: {}", e);
+                            }
+                        });
                     },
                     _ => {}
                 }
@@ -737,4 +740,53 @@ fn get_local_ip() -> Option<std::net::IpAddr> {
     let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
     socket.connect("8.8.8.8:80").ok()?;
     socket.local_addr().ok().map(|addr| addr.ip())
+}
+async fn report_logs(
+    client: &reqwest::Client,
+    panel_url: &str,
+    token: &str,
+    config_path: &str,
+) -> anyhow::Result<()> {
+    let mut logs = std::collections::HashMap::new();
+    let services = vec!["sing-box", "exarobot-agent", "nginx", "caddy"];
+
+    for service in services {
+        let output = std::process::Command::new("journalctl")
+            .args(&["-u", service, "-n", "100", "--no-pager"])
+            .output();
+
+        match output {
+            Ok(out) => {
+                let content = String::from_utf8_lossy(&out.stdout).to_string();
+                if !content.is_empty() {
+                    logs.insert(service.to_string(), content);
+                } else {
+                    logs.insert(service.to_string(), "No logs found or service not installed.".to_string());
+                }
+            },
+            Err(e) => {
+                logs.insert(service.to_string(), format!("Failed to fetch logs: {}", e));
+            }
+        }
+    }
+
+    // Include config
+    if let Ok(config_content) = tokio::fs::read_to_string(config_path).await {
+        logs.insert("config.json".to_string(), config_content);
+    }
+
+    let url = format!("{}/api/v2/node/logs", panel_url);
+    let resp = client.post(&url)
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&exarobot_shared::api::LogResponse { logs })
+        .send()
+        .await?;
+
+    if resp.status().is_success() {
+        info!("✅ Logs reported successfully");
+    } else {
+        warn!("⚠️ Failed to report logs: {}", resp.status());
+    }
+
+    Ok(())
 }

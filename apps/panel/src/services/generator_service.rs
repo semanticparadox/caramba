@@ -125,25 +125,11 @@ impl GeneratorService {
              }
              
              // SNI
-            if stream_settings.contains("{{pool_sni}}") {
-                let pool_sni: Option<String> = sqlx::query_scalar(
-                    "SELECT domain FROM sni_pool WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1"
-                )
-                .fetch_optional(&self.pool)
-                .await?;
-                
-                if let Some(sni) = pool_sni {
-                    stream_settings = stream_settings.replace("{{pool_sni}}", &sni);
-                } else {
-                    let fallback = node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string());
-                    stream_settings = stream_settings.replace("{{pool_sni}}", &fallback);
-                }
-            }
-    
-            if let Some(sni) = &node.reality_sni {
-                stream_settings = stream_settings.replace("{{sni}}", sni);
-            } else {
-                stream_settings = stream_settings.replace("{{sni}}", "www.google.com");
+            // SNI Selection (Pinned -> Node-specific -> Premium -> Global)
+            if stream_settings.contains("{{pool_sni}}") || stream_settings.contains("{{sni}}") {
+                let best_sni = self.security_service.get_best_sni_for_node(node.id).await.unwrap_or_else(|_| "www.google.com".to_string());
+                stream_settings = stream_settings.replace("{{pool_sni}}", &best_sni);
+                stream_settings = stream_settings.replace("{{sni}}", &best_sni);
             }
 
             // Update DB (Include listen_port!)
@@ -181,26 +167,11 @@ impl GeneratorService {
         }
         
         // SNI
-        if stream_settings.contains("{{pool_sni}}") {
-            let pool_sni: Option<String> = sqlx::query_scalar(
-                "SELECT domain FROM sni_pool WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1"
-            )
-            .fetch_optional(&self.pool)
-            .await?;
-            
-            if let Some(sni) = pool_sni {
-                stream_settings = stream_settings.replace("{{pool_sni}}", &sni);
-            } else {
-                // Fallback to node SNI if pool is empty
-                let fallback = node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string());
-                stream_settings = stream_settings.replace("{{pool_sni}}", &fallback);
-            }
-        }
-
-        if let Some(sni) = &node.reality_sni {
-            stream_settings = stream_settings.replace("{{sni}}", sni);
-        } else {
-            stream_settings = stream_settings.replace("{{sni}}", "www.google.com");
+        // SNI Selection (Pinned -> Node-specific -> Premium -> Global)
+        if stream_settings.contains("{{pool_sni}}") || stream_settings.contains("{{sni}}") {
+            let best_sni = self.security_service.get_best_sni_for_node(node.id).await.unwrap_or_else(|_| "www.google.com".to_string());
+            stream_settings = stream_settings.replace("{{pool_sni}}", &best_sni);
+            stream_settings = stream_settings.replace("{{sni}}", &best_sni);
         }
 
         // 4. Insert Inbound

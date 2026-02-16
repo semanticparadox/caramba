@@ -1,0 +1,387 @@
+{% extends "admin_layout.html" %}
+
+{% block title %}Manage Node: {{ node.name }} - EXA ROBOT{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header with Stats -->
+    <div
+        class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/50 p-6 rounded-2xl border border-white/5 backdrop-blur-xl">
+        <div class="flex items-center gap-4">
+            <div
+                class="w-12 h-12 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 border border-indigo-500/20">
+                <i data-lucide="server" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold text-white flex items-center gap-2">
+                    {{ node.name }}
+                    <span
+                        class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-white/5 font-mono">ID:
+                        {{ node.id }}</span>
+                    {% if node.is_relay %}
+                    <span
+                        class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1">
+                        <i data-lucide="repeat" class="w-3 h-3"></i> Relay Node
+                    </span>
+                    {% endif %}
+                </h1>
+                <p class="text-sm text-slate-400 flex items-center gap-2 mt-1">
+                    <span class="font-mono">{{ node.ip }}</span>
+                    <span class="w-1 h-1 rounded-full bg-slate-600"></span>
+                    {{ node.flag }} {{ node.city }}, {{ node.country }}
+                </p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/test" hx-swap="none"
+                hx-on::after-request="showToast(event.detail.xhr.responseText)"
+                class="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold border border-white/5 transition-all">
+                <i data-lucide="activity" class="w-4 h-4"></i>
+                Test Connection
+            </button>
+            <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/sync" hx-swap="none"
+                hx-on::after-request="showToast('Synchronization triggered')"
+                class="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-indigo-500/20 transition-all">
+                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                Sync Config
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Sidebar: Configuration & Settings -->
+        <div class="lg:col-span-1 space-y-6">
+            <!-- General Settings Card -->
+            <div class="bg-slate-900/50 rounded-2xl border border-white/5 overflow-hidden">
+                <div class="px-6 py-4 border-b border-white/5 bg-white/5">
+                    <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i data-lucide="settings" class="w-4 h-4 text-indigo-400"></i>
+                        General Settings
+                    </h2>
+                </div>
+                <form hx-post="{{ admin_path }}/nodes/{{ node.id }}/update" hx-swap="none"
+                    hx-on::after-request="showToast('Settings saved')" class="p-6 space-y-4">
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] uppercase font-bold text-slate-500 ml-1">Node Name</label>
+                        <input type="text" name="name" value="{{ node.name }}"
+                            class="w-full bg-slate-950/50 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/50 transition-all">
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] uppercase font-bold text-slate-500 ml-1">IP Address / Hostname</label>
+                        <input type="text" name="ip" value="{{ node.ip }}"
+                            class="w-full bg-slate-950/50 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/50 transition-all">
+                    </div>
+
+                    <div class="pt-2">
+                        <div
+                            class="flex items-center justify-between p-3 rounded-xl bg-slate-950/30 border border-white/5">
+                            <div class="flex items-center gap-3">
+                                <div
+                                    class="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400">
+                                    <i data-lucide="repeat" class="w-4 h-4"></i>
+                                </div>
+                                <div>
+                                    <p class="text-xs font-bold text-white">Relay Node</p>
+                                    <p class="text-[10px] text-slate-500">Enable to use as a transit node</p>
+                                </div>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" name="is_relay" class="sr-only peer" {% if node.is_relay
+                                    %}checked{% endif %}>
+                                <div
+                                    class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600">
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <button type="submit"
+                        class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold border border-white/5 transition-all mt-4">
+                        Save Changes
+                    </button>
+                </form>
+            </div>
+
+            <!-- Security Policies Card -->
+            <div class="bg-slate-900/50 rounded-2xl border border-white/5 overflow-hidden">
+                <div class="px-6 py-4 border-b border-white/5 bg-white/5">
+                    <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
+                        Security Policies
+                    </h2>
+                </div>
+                <div class="p-6 space-y-3">
+                    {% for policy in [
+                    ("config_block_torrent", "Block BitTorrent", "Stop P2P traffic"),
+                    ("config_block_ads", "Ad & Tracker Blocker", "Smart DNS filtering"),
+                    ("config_block_porn", "Adult Content Filter", "Block NSFW sites"),
+                    ("config_qos_enabled", "QoS Traffic Shaping", "Prioritize real-time data")
+                    ] %}
+                    <div class="flex items-center justify-between p-3 rounded-xl bg-slate-950/30 border border-white/5">
+                        <div>
+                            <p class="text-xs font-bold text-white">{{ policy.1 }}</p>
+                            <p class="text-[10px] text-slate-500">{{ policy.2 }}</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" name="{{ policy.0 }}" class="sr-only peer"
+                                hx-post="{{ admin_path }}/nodes/{{ node.id }}/update" hx-trigger="change" {% if
+                                node.config_block_torrent and policy.0=="config_block_torrent" %}checked{% endif %} {%
+                                if node.config_block_ads and policy.0=="config_block_ads" %}checked{% endif %} {% if
+                                node.config_block_porn and policy.0=="config_block_porn" %}checked{% endif %} {% if
+                                node.config_qos_enabled and policy.0=="config_qos_enabled" %}checked{% endif %}>
+                            <div
+                                class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600">
+                            </div>
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Sync History -->
+            <div class="bg-slate-900/50 rounded-2xl border border-white/5 overflow-hidden">
+                <div class="px-6 py-4 border-b border-white/5 bg-white/5">
+                    <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i data-lucide="history" class="w-4 h-4 text-slate-400"></i>
+                        Sync History
+                    </h2>
+                </div>
+                <div class="p-6">
+                    <div class="space-y-4">
+                        <div class="flex gap-3">
+                            <div class="w-1.5 h-1.5 rounded-full bg-indigo-500 mt-1.5 shadow-lg shadow-indigo-500/50">
+                            </div>
+                            <div>
+                                <p class="text-xs font-bold text-white">Last Synced</p>
+                                <p class="text-[10px] text-slate-400 mt-0.5">
+                                    {% if let Some(ls) = node.last_synced_at %}
+                                    {{ ls.format("%Y-%m-%d %H:%M:%S") }}
+                                    {% else %}
+                                    Never
+                                    {% endif %}
+                                </p>
+                                <div
+                                    class="mt-1 px-2 py-0.5 rounded bg-white/5 text-[9px] text-slate-500 border border-white/5 inline-block">
+                                    Trigger: {{ node.last_sync_trigger.clone().unwrap_or("System Boot".to_string()) }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content: Inbounds & Logs -->
+        <div class="lg:col-span-2 space-y-6">
+            <!-- Inbounds Management -->
+            <div class="bg-slate-900/50 rounded-2xl border border-white/5 overflow-hidden">
+                <div class="px-6 py-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
+                    <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i data-lucide="network" class="w-4 h-4 text-indigo-400"></i>
+                        Node Inbounds
+                    </h2>
+                    <a href="{{ admin_path }}/templates"
+                        class="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors">
+                        Manage Templates <i data-lucide="arrow-right" class="w-3 h-3"></i>
+                    </a>
+                </div>
+                <!-- Inbound list from node_inbounds.html would go here, simplified for MVP -->
+                <div class="p-0 overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="text-[10px] uppercase font-bold text-slate-500 border-b border-white/5">
+                                <th class="px-6 py-4">Protocol</th>
+                                <th class="px-6 py-4">Listen Port</th>
+                                <th class="px-6 py-4">Status</th>
+                                <th class="px-6 py-4 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-white/5">
+                            {% for inbound in inbounds %}
+                            <tr class="hover:bg-white/[0.02] transition-colors group">
+                                <td class="px-6 py-4">
+                                    <div class="flex items-center gap-2">
+                                        <span
+                                            class="text-xs font-bold text-white group-hover:text-indigo-400 transition-colors">{{
+                                            inbound.tag }}</span>
+                                        <span
+                                            class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 font-mono">{{
+                                            inbound.protocol }}</span>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 text-xs font-mono text-slate-300">{{ inbound.listen_port }}</td>
+                                <td class="px-6 py-4">
+                                    {% if inbound.is_enabled %}
+                                    <span class="flex items-center gap-1.5 text-emerald-400 text-[10px] font-bold">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                        Active
+                                    </span>
+                                    {% else %}
+                                    <span class="flex items-center gap-1.5 text-slate-500 text-[10px] font-bold">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-slate-600"></span>
+                                        Disabled
+                                    </span>
+                                    {% endif %}
+                                </td>
+                                <td class="px-6 py-4 text-right">
+                                    <div class="flex items-center justify-end gap-2">
+                                        <button
+                                            hx-delete="{{ admin_path }}/nodes/{{ node.id }}/inbounds/{{ inbound.id }}"
+                                            hx-confirm="Are you sure?" hx-target="closest tr" hx-swap="outerHTML"
+                                            class="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center hover:bg-red-500/20 transition-all border border-red-500/20">
+                                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            {% if inbounds.is_empty() %}
+                            <tr>
+                                <td colspan="4" class="px-6 py-12 text-center">
+                                    <div
+                                        class="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 mx-auto mb-3 border border-white/5">
+                                        <i data-lucide="inbox" class="w-6 h-6"></i>
+                                    </div>
+                                    <p class="text-sm text-slate-400">No inbounds found on this node.</p>
+                                    <p class="text-xs text-slate-600 mt-1">Sync from templates to populate.</p>
+                                </td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Local SNI Pool (Neighbor Sniper) -->
+            <div class="bg-slate-900/50 rounded-2xl border border-white/5 overflow-hidden">
+                <div class="px-6 py-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
+                    <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i data-lucide="scan" class="w-4 h-4 text-cyan-400"></i>
+                        Discovered Neighbors
+                    </h2>
+                    <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/scan" hx-swap="none"
+                        hx-on::after-request="showToast('Scanner triggered on node')"
+                        class="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 transition-colors">
+                        <i data-lucide="scan-line" class="w-3 h-3"></i> Rescan
+                    </button>
+                </div>
+                <div class="p-0">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-6">
+                        {% for sni in discovered_snis %}
+                        <div
+                            class="flex items-center justify-between p-3 rounded-xl bg-slate-950/30 border {% if sni.is_pinned %}border-amber-500/30 bg-amber-500/5{% else %}border-white/5{% endif %} group/sni">
+                            <div class="flex items-center gap-3">
+                                <div
+                                    class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center {% if sni.is_pinned %}text-amber-400{% else %}text-slate-500{% endif %}">
+                                    <i data-lucide="globe" class="w-4 h-4"></i>
+                                </div>
+                                <div class="overflow-hidden">
+                                    <p class="text-xs font-bold text-white truncate max-w-[150px]"
+                                        title="{{ sni.domain }}">
+                                        {{ sni.domain }}
+                                    </p>
+                                    <div class="flex items-center gap-2 mt-0.5">
+                                        <span class="text-[9px] text-slate-500 font-mono">Score: {{ sni.health_score
+                                            }}</span>
+                                        {% if sni.is_premium %}
+                                        <span
+                                            class="text-[8px] px-1 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold uppercase">Premium</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                {% if sni.is_pinned %}
+                                <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/snis/{{ sni.id }}/unpin"
+                                    class="p-2 rounded-lg bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 transition-all"
+                                    title="Unpin SNI">
+                                    <i data-lucide="star" class="w-4 h-4 fill-amber-500"></i>
+                                </button>
+                                {% else %}
+                                <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/snis/{{ sni.id }}/pin"
+                                    class="p-2 rounded-lg bg-slate-800 text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 transition-all opacity-0 group-hover/sni:opacity-100"
+                                    title="Pin SNI">
+                                    <i data-lucide="star" class="w-4 h-4"></i>
+                                </button>
+                                {% endif %}
+                                <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/snis/{{ sni.id }}/block"
+                                    hx-confirm="Block this domain globally? It will be removed and never added again."
+                                    class="p-2 rounded-lg bg-slate-800 text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all opacity-0 group-hover/sni:opacity-100"
+                                    title="Block globally">
+                                    <i data-lucide="ban" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                        </div>
+                        {% endfor %}
+                        {% if discovered_snis.is_empty() %}
+                        <div
+                            class="col-span-2 py-8 text-center bg-slate-950/20 rounded-xl border border-dashed border-white/5">
+                            <i data-lucide="radar" class="w-8 h-8 text-slate-700 mx-auto mb-2"></i>
+                            <p class="text-[11px] text-slate-500">No neighbors discovered yet.<br>Click Rescan to start
+                                Neighbor Sniper.</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Real-time Terminal Logs -->
+            <div
+                class="bg-slate-900 rounded-2xl border border-white/5 overflow-hidden flex flex-col h-[500px] shadow-2xl">
+                <div class="px-6 py-4 border-b border-white/5 bg-slate-950/50 flex items-center justify-between">
+                    <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i data-lucide="terminal" class="w-4 h-4 text-emerald-400"></i>
+                        Terminal Logs
+                    </h2>
+                    <div class="flex items-center gap-3">
+                        <div id="log-status"
+                            class="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-500 px-2 py-1 bg-white/5 rounded-full border border-white/5">
+                            <span class="w-1.5 h-1.5 rounded-full bg-slate-600"></span>
+                            Idle
+                        </div>
+                        <button hx-get="{{ admin_path }}/nodes/{{ node.id }}/logs" hx-target="#terminal-content"
+                            hx-swap="innerHTML"
+                            class="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 border border-indigo-500/20 transition-all">
+                            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+                </div>
+                <div id="terminal-content"
+                    class="flex-grow p-6 font-mono text-[11px] overflow-auto custom-scrollbar bg-slate-950">
+                    <div class="text-slate-600">
+                        <p class="mb-2">EXA ROBOT Node Management Terminal v2.0</p>
+                        <p>> System ready. Click refresh to poll real-time logs from agent.</p>
+                        <p>> Log sources: sing-box, exarobot-agent, nginx, caddy, config.json</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('htmx:afterRequest', function (evt) {
+        if (evt.detail.target.id === 'terminal-content') {
+            const status = document.getElementById('log-status');
+            if (evt.detail.xhr.status === 200) {
+                if (evt.detail.xhr.responseText.includes('animate-spin')) {
+                    status.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span> Polling...';
+                    status.className = status.className.replace('text-slate-500', 'text-amber-500');
+                } else {
+                    status.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Ready';
+                    status.className = status.className.replace('text-amber-500', 'text-emerald-500').replace('text-slate-500', 'text-emerald-500');
+                }
+            }
+        }
+    });
+
+    // Auto-scroll terminal
+    const terminal = document.getElementById('terminal-content');
+    const observer = new MutationObserver(() => {
+        terminal.scrollTop = terminal.scrollHeight;
+    });
+    observer.observe(terminal, { childList: true });
+</script>
+{% endblock %}
