@@ -409,9 +409,8 @@ impl OrchestrationService {
             self.node_repo.update_node(&node).await?;
         }
 
-        // Dynamic SNI Override & Placeholder Cleanup
         // We do this for ALL inbounds to ensure no {{placeholders}} leak into the generator
-        if let Some(new_sni) = &node.reality_sni {
+        if let Some(_new_sni) = &node.reality_sni {
              // ... existing SNI logic ...
         }
 

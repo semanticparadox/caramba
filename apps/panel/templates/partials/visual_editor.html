@@ -177,7 +177,7 @@
                 <!-- Note: using name="settings_template" which matches both Create and Edit forms -->
                 <textarea name="settings_template" rows="10" required
                     class="w-full bg-transparent p-4 text-xs text-indigo-300 font-mono focus:outline-none resize-none leading-relaxed transition-all"
-                    placeholder='{"protocol": "vless", "clients": []}'>{{ template.as_ref().map(|t| t.settings_template.as_str()).unwrap_or("") }}</textarea>
+                    placeholder='{"protocol": "vless", "clients": []}'>{% if let Some(t) = template %}{{t.settings_template}}{% endif %}</textarea>
             </div>
         </div>
 
@@ -187,7 +187,7 @@
                 <div class="absolute top-0 left-0 right-0 h-1 bg-purple-500/30"></div>
                 <textarea name="stream_settings_template" rows="10" required
                     class="w-full bg-transparent p-4 text-xs text-purple-300 font-mono focus:outline-none resize-none leading-relaxed transition-all"
-                    placeholder='{"network": "tcp", ...}'>{{ template.as_ref().map(|t| t.stream_settings_template.as_str()).unwrap_or("") }}</textarea>
+                    placeholder='{"network": "tcp", ...}'>{% if let Some(t) = template %}{{t.stream_settings_template}}{% endif %}</textarea>
             </div>
         </div>
     </div>
