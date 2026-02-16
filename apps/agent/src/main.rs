@@ -641,6 +641,8 @@ async fn collect_telemetry(client: &reqwest::Client, sys: &mut System) -> (Optio
     (latency, cpu, ram, connections, max_ram, cpu_cores, cpu_model)
 }
 
+
+fn count_active_connections() -> Option<u32> {
     // count_active_connections now filters for sing-box
     // Try using `ss` (Socket Statistics) - Linux standard
     // ss -t -n -p state established
