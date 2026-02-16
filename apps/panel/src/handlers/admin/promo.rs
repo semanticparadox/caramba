@@ -24,27 +24,23 @@ pub async fn get_promos(
     State(state): State<AppState>,
     jar: axum_extra::extract::cookie::CookieJar,
 ) -> impl IntoResponse {
+    // Check Auth
+    let username = match crate::handlers::admin::auth::get_auth_user(&state, &jar).await {
+        Some(u) => u,
+        None => return axum::response::Redirect::to(&format!("{}/login", state.admin_path)).into_response(),
+    };
+    
     let promos = state.promo_service.list_promos().await.unwrap_or_default();
     let plans = state.store_service.get_active_plans().await.unwrap_or_default();
     
-    // Auth context for base.html
-    let mut is_auth = false;
-    let mut username = String::new();
-    if let Some(user_id) = jar.get("user_id").and_then(|c| c.value().parse::<i64>().ok()) {
-         if let Ok(Some(u)) = state.store_service.get_user_by_tg_id(user_id).await {
-             is_auth = true;
-             username = u.username.unwrap_or_else(|| u.tg_id.to_string());
-         }
-    }
-
     Html(PromoManageTemplate {
         admin_path: state.admin_path.clone(),
         promos,
         plans,
-        is_auth,
+        is_auth: true,
         username,
         active_page: "promo".to_string(),
-    }.render().unwrap())
+    }.render().unwrap()).into_response()
 }
 
 #[derive(Deserialize)]

@@ -6,7 +6,8 @@ use chrono::{DateTime, Utc};
 pub struct PromoCode {
     pub id: i64,
     pub code: String,
-    pub promo_type: String, // sqlx will map 'type' column to this if we use alias or handle it in query
+    #[sqlx(rename = "type")]
+    pub promo_type: String, // sqlx will map 'type' column to this
     pub plan_id: Option<i64>,
     pub balance_amount: Option<i32>,
     pub duration_days: Option<i32>,

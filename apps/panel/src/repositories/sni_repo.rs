@@ -13,17 +13,17 @@ impl SniRepository {
     }
 
     pub async fn get_all_snis(&self) -> Result<Vec<SniPoolItem>> {
-        sqlx::query_as::<_, SniPoolItem>("SELECT * FROM sni_pool ORDER BY domain ASC")
+        sqlx::query_as::<_, SniPoolItem>("SELECT * FROM sni_pool WHERE discovered_by_node_id IS NULL OR is_premium = 1 ORDER BY domain ASC")
             .fetch_all(&self.pool)
             .await
-            .context("Failed to fetch all SNIs")
+            .context("Failed to fetch all global SNIs")
     }
 
     pub async fn get_active_snis(&self) -> Result<Vec<SniPoolItem>> {
-        sqlx::query_as::<_, SniPoolItem>("SELECT * FROM sni_pool WHERE is_active = 1 ORDER BY domain ASC")
+        sqlx::query_as::<_, SniPoolItem>("SELECT * FROM sni_pool WHERE is_active = 1 AND (discovered_by_node_id IS NULL OR is_premium = 1) ORDER BY domain ASC")
             .fetch_all(&self.pool)
             .await
-            .context("Failed to fetch active SNIs")
+            .context("Failed to fetch active global SNIs")
     }
 
     pub async fn get_snis_by_node(&self, node_id: i64) -> Result<Vec<SniPoolItem>> {
