@@ -156,6 +156,7 @@ async fn main() -> anyhow::Result<()> {
                 }
                 info!("💓 Heartbeat OK. Action: {:?}", resp.action);
                 
+                match resp.action {
                     exarobot_shared::api::AgentAction::UpdateConfig => {
                         info!("🔄 Config update requested");
                         if let Err(e) = update_config(&client, &panel_url, &token, &args.config_path, &mut state).await {
