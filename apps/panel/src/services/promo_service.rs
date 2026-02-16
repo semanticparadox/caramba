@@ -1,6 +1,5 @@
 use sqlx::SqlitePool;
 use anyhow::{Result, Context};
-use tracing::{info, error};
 use chrono::{DateTime, Utc};
 use crate::models::promo::PromoCode;
 

@@ -28,7 +28,8 @@
                 <p class="text-sm text-slate-400 flex items-center gap-2 mt-1">
                     <span class="font-mono">{{ node.ip }}</span>
                     <span class="w-1 h-1 rounded-full bg-slate-600"></span>
-                    {{ node.flag }} {{ node.city }}, {{ node.country }}
+                    {{ node.flag.as_deref().unwrap_or("") }} {{ node.city.as_deref().unwrap_or("") }}, {{
+                    node.country.as_deref().unwrap_or("") }}
                 </p>
             </div>
         </div>
@@ -164,7 +165,7 @@
                                 </p>
                                 <div
                                     class="mt-1 px-2 py-0.5 rounded bg-white/5 text-[9px] text-slate-500 border border-white/5 inline-block">
-                                    Trigger: {{ node.last_sync_trigger.clone().unwrap_or("System Boot".to_string()) }}
+                                    Trigger: {{ node.last_sync_trigger.as_deref().unwrap_or("System Boot") }}
                                 </div>
                             </div>
                         </div>
@@ -213,7 +214,7 @@
                                 </td>
                                 <td class="px-6 py-4 text-xs font-mono text-slate-300">{{ inbound.listen_port }}</td>
                                 <td class="px-6 py-4">
-                                    {% if inbound.is_enabled %}
+                                    {% if inbound.enable %}
                                     <span class="flex items-center gap-1.5 text-emerald-400 text-[10px] font-bold">
                                         <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                                         Active

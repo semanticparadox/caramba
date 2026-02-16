@@ -581,7 +581,6 @@ pub async fn pin_sni(
     let _ = state.orchestration_service.reset_inbounds(node_id).await;
     let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "update").await;
 
-    let admin_path = state.admin_path.clone();
     let mut headers = HeaderMap::new();
     headers.insert("HX-Refresh", "true".parse().unwrap());
     (axum::http::StatusCode::OK, headers, "").into_response()
@@ -603,7 +602,6 @@ pub async fn unpin_sni(
     let _ = state.orchestration_service.reset_inbounds(node_id).await;
     let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "update").await;
 
-    let admin_path = state.admin_path.clone();
     let mut headers = HeaderMap::new();
     headers.insert("HX-Refresh", "true".parse().unwrap());
     (axum::http::StatusCode::OK, headers, "").into_response()
@@ -637,7 +635,6 @@ pub async fn block_sni(
             .await;
     }
 
-    let admin_path = state.admin_path.clone();
     let mut headers = HeaderMap::new();
     headers.insert("HX-Refresh", "true".parse().unwrap());
     (axum::http::StatusCode::OK, headers, "").into_response()

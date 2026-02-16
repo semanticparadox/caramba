@@ -2,7 +2,7 @@ use axum::{
     extract::{State, Form, Path},
     response::{IntoResponse, Html},
 };
-use axum_extra::extract::cookie::CookieJar;
+
 use askama::Template;
 use serde::Deserialize;
 use tracing::error;
