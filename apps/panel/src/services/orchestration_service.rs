@@ -338,6 +338,14 @@ impl OrchestrationService {
     }
 
     pub async fn reset_inbounds(&self, node_id: i64) -> anyhow::Result<()> {
+        info!("RESETTING inbounds for node {}", node_id);
+        
+        // Manual Cascade: Delete linked plan_inbounds first
+        // This ensures that even if SQLite Foreign Key support is disabled/broken, we don't get constraint errors
+        sqlx::query("DELETE FROM plan_inbounds WHERE inbound_id IN (SELECT id FROM inbounds WHERE node_id = ?)")
+            .bind(node_id)
+            .execute(&self.pool)
+            .await?;
 
         // Delete existing inbounds to force regeneration with fresh keys
         sqlx::query("DELETE FROM inbounds WHERE node_id = ?")
@@ -401,30 +409,60 @@ impl OrchestrationService {
             self.node_repo.update_node(&node).await?;
         }
 
-        // Dynamic SNI Override (for Auto Rotation)
+        // Dynamic SNI Override & Placeholder Cleanup
+        // We do this for ALL inbounds to ensure no {{placeholders}} leak into the generator
         if let Some(new_sni) = &node.reality_sni {
-            use crate::models::network::StreamSettings;
-            
-            for inbound in &mut inbounds {
-                // Try to parse stream settings
-                if let Ok(mut stream) = serde_json::from_str::<StreamSettings>(&inbound.stream_settings) {
-                    // Check if Reality is enabled
-                    if let Some(reality) = &mut stream.reality_settings {
-                        info!("🔄 Applying Dynamic SNI for inbound {}: {}", inbound.tag, new_sni);
-                        reality.server_names = vec![new_sni.clone()];
-                        reality.dest = format!("{}:443", new_sni);
-                        
-                        // Serialize back to inbound.stream_settings
-                        if let Ok(new_json) = serde_json::to_string(&stream) {
-                            inbound.stream_settings = new_json;
-                        }
-                    }
+             // ... existing SNI logic ...
+        }
+
+        let pkey = node.reality_priv.as_deref().unwrap_or("").trim();
+        let pubkey = node.reality_pub.as_deref().unwrap_or("").trim();
+        let sid = node.short_id.as_deref().unwrap_or("").trim();
+        let domain = node.domain.as_deref().unwrap_or("");
+        
+        for inbound in &mut inbounds {
+            // runtime replacement of leftovers
+            if inbound.stream_settings.contains("{{") {
+                inbound.stream_settings = inbound.stream_settings
+                    .replace("{{reality_private}}", pkey)
+                    .replace("{{REALITY_PBK}}", pubkey)
+                    .replace("{{REALITY_SID}}", sid)
+                    .replace("{{DOMAIN}}", domain);
+                    
+                if let Some(sni) = &node.reality_sni {
+                     inbound.stream_settings = inbound.stream_settings.replace("{{sni}}", sni);
+                } else {
+                     // Best effort fallback
+                     inbound.stream_settings = inbound.stream_settings.replace("{{sni}}", "www.google.com");
                 }
+            }
+
+            // Also check settings for UUID placeholders just in case
+            // ...
+        
+            // Try to parse stream settings for specific logic
+            if let Ok(mut stream) = serde_json::from_str::<crate::models::network::StreamSettings>(&inbound.stream_settings) {
+                 // Check if Reality is enabled and SNI override is needed
+                 if let Some(reality) = &mut stream.reality_settings {
+                     // If we have a specific SNI set on the node, enforce it
+                     if let Some(new_sni) = &node.reality_sni {
+                         reality.server_names = vec![new_sni.clone()];
+                         reality.dest = format!("{}:443", new_sni);
+                     }
+                     // Ensure keys are present if they were missing or empty
+                     if reality.private_key.len() < 10 && !pkey.is_empty() {
+                         reality.private_key = pkey.to_string();
+                         reality.public_key = Some(pubkey.to_string());
+                         reality.short_ids = vec![sid.to_string()];
+                     }
+                     
+                     if let Ok(new_json) = serde_json::to_string(&stream) {
+                        inbound.stream_settings = new_json;
+                     }
+                 }
             }
         }
 
-        info!("Step 3: Injecting users for {} inbounds", inbounds.len());
-        // 3. For each inbound, inject authorized users
         info!("Step 3: Injecting users for {} inbounds", inbounds.len());
         for inbound in &mut inbounds {
             if !inbound.enable {

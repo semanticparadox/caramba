@@ -82,27 +82,18 @@
                     </div>
                 </div>
 
-                <!-- Settings JSON -->
-                <div class="space-y-3">
-                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest">Inbound Settings
-                        (JSON Template)</label>
-                    <div class="relative group overflow-hidden rounded-2xl border border-white/5 bg-[#0d1117]">
-                        <div class="absolute top-0 left-0 right-0 h-1 bg-indigo-500/30"></div>
-                        <textarea name="settings_template" rows="5" required
-                            class="w-full bg-transparent p-4 text-xs text-indigo-300 font-mono focus:outline-none resize-none leading-relaxed transition-all">{{ tpl.settings_template }}</textarea>
-                    </div>
-                </div>
+                {% let template = Some(tpl) %}
+                <!-- Visual Editor Partial -->
+                {% include "partials/visual_editor.html" %}
 
-                <!-- Stream Settings JSON -->
-                <div class="space-y-3">
-                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest">Stream Settings
-                        (JSON Template)</label>
-                    <div class="relative group overflow-hidden rounded-2xl border border-white/5 bg-[#0d1117]">
-                        <div class="absolute top-0 left-0 right-0 h-1 bg-purple-500/30"></div>
-                        <textarea name="stream_settings_template" rows="8" required
-                            class="w-full bg-transparent p-4 text-xs text-purple-300 font-mono focus:outline-none resize-none leading-relaxed transition-all">{{ tpl.stream_settings_template }}</textarea>
-                    </div>
-                </div>
+                <script>
+                    (function () {
+                        const form = document.currentScript.closest('form');
+                        if (form && window.VisualEditor) {
+                            new VisualEditor(form);
+                        }
+                    })();
+                </script>
             </div>
 
             <footer class="modal-footer">

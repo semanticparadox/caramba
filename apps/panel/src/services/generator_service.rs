@@ -94,9 +94,25 @@ impl GeneratorService {
         settings = settings.replace("{{uuid}}", &new_uuid);
         
          if let Some((id, existing_port)) = existing_inbound {
-            // Inbound exists. Update it to match template!
-            // We preserve the existing port to avoid breaking clients.
-            let port = existing_port;
+            // Inbound exists. 
+            
+            // Check compliance with current template range
+            let port_in_range = existing_port >= template.port_range_start && existing_port <= template.port_range_end;
+            
+            let port = if port_in_range {
+                 // Preserve existing valid port to avoid breaking clients
+                 existing_port
+            } else {
+                 info!("Inbound {} port {} is outside template range {}-{}, updating...", tag, existing_port, template.port_range_start, template.port_range_end);
+                 // Allocate new port
+                 let new_port = if template.port_range_end > template.port_range_start {
+                      self.allocate_port(node.id, template.port_range_start, template.port_range_end).await.unwrap_or(template.port_range_start)
+                 } else {
+                      template.port_range_start
+                 };
+                 new_port
+            };
+
             settings = settings.replace("{{port}}", &port.to_string());
             
              // Reality Key Generation / SNI Logic (Re-run to ensure consistency or updates)
@@ -130,14 +146,15 @@ impl GeneratorService {
                 stream_settings = stream_settings.replace("{{sni}}", "www.google.com");
             }
 
-            // Update DB
+            // Update DB (Include listen_port!)
             sqlx::query(
-                "UPDATE inbounds SET protocol = ?, settings = ?, stream_settings = ?, remark = ?, enable = 1 WHERE id = ?"
+                "UPDATE inbounds SET protocol = ?, settings = ?, stream_settings = ?, remark = ?, listen_port = ?, enable = 1 WHERE id = ?"
             )
             .bind(&template.protocol)
             .bind(&settings)
             .bind(&stream_settings)
             .bind(&template.name)
+            .bind(port)
             .bind(id)
             .execute(&self.pool)
             .await?;

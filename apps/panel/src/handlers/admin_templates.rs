@@ -25,6 +25,7 @@ pub struct AdminTemplatesTemplate {
     pub email: String,
     pub reality_private: String,
     pub sni: String,
+    pub template: Option<InboundTemplate>,
 }
 
 pub struct TemplateWithGroup {
@@ -72,6 +73,7 @@ pub async fn get_templates_page(
         email: "{{email}}".to_string(),
         reality_private: "{{reality_private}}".to_string(),
         sni: "{{sni}}".to_string(),
+        template: None,
     };
     Html(template.render().unwrap_or_default()).into_response()
 }

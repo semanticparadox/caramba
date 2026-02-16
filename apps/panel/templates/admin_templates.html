@@ -250,56 +250,8 @@
                 <div class="space-y-3">
                     <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest">Inbound Settings
                         (JSON Template)</label>
-                    <div class="relative group overflow-hidden rounded-2xl border border-white/5 bg-[#0d1117]">
-                        <div class="absolute top-0 left-0 right-0 h-1 bg-indigo-500/30"></div>
-                        <textarea name="settings_template" id="tpl_settings" rows="5" required
-                            class="w-full bg-transparent p-4 text-xs text-indigo-300 font-mono focus:outline-none resize-none leading-relaxed transition-all">
-{
-  "protocol": "vless",
-  "clients": [],
-  "decryption": "none",
-  "fallbacks": []
-}</textarea>
-                    </div>
-                    <div class="flex gap-2 px-1">
-                        <span class="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Variables:</span>
-                        <code
-                            class="text-[9px] text-indigo-400 bg-indigo-500/10 px-1 rounded">{{ "{{" }}uuid{{ "}}" }}</code>
-                        <code
-                            class="text-[9px] text-indigo-400 bg-indigo-500/10 px-1 rounded">{{ "{{" }}email{{ "}}" }}</code>
-                    </div>
-                </div>
-
-                <!-- Stream Settings JSON -->
-                <div class="space-y-3">
-                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest">Stream Settings
-                        (JSON Template)</label>
-                    <div class="relative group overflow-hidden rounded-2xl border border-white/5 bg-[#0d1117]">
-                        <div class="absolute top-0 left-0 right-0 h-1 bg-purple-500/30"></div>
-                        <textarea name="stream_settings_template" id="tpl_stream" rows="8" required
-                            class="w-full bg-transparent p-4 text-xs text-purple-300 font-mono focus:outline-none resize-none leading-relaxed transition-all">
-{
-  "network": "tcp",
-  "security": "reality",
-  "realitySettings": {
-    "show": false,
-    "dest": "www.google.com:443",
-    "serverNames": ["www.google.com"],
-    "privateKey": "{{ "{{" }}reality_private{{ "}}" }}",
-    "shortIds": [""]
-  }
-}</textarea>
-                    </div>
-                    <div class="flex flex-wrap gap-2 px-1">
-                        <span class="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Variables:</span>
-                        <code
-                            class="text-[9px] text-purple-400 bg-purple-500/10 px-1 rounded">{{ "{{" }}reality_private{{ "}}" }}</code>
-                        <code
-                            class="text-[9px] text-purple-400 bg-purple-500/10 px-1 rounded">{{ "{{" }}sni{{ "}}" }}</code>
-                        <code
-                            class="text-[9px] text-purple-400 bg-purple-500/10 px-1 rounded">{{ "{{" }}pool_sni{{ "}}" }}</code>
-                    </div>
-                </div>
+                    <!-- Visual Editor Partial -->
+                    {% include "partials/visual_editor.html" %}
             </form>
         </div>
 
@@ -518,8 +470,22 @@
         document.getElementById('tpl_protocol').value = p.protocol;
         document.getElementById('tpl_port_start').value = p.portStart;
         document.getElementById('tpl_port_end').value = p.portEnd;
-        document.getElementById('tpl_settings').value = p.settings;
-        document.getElementById('tpl_stream').value = p.stream;
+        document.getElementById('tpl_port_end').value = p.portEnd;
+
+        const form = document.getElementById('tplForm');
+        if (form) {
+            const settingsEl = form.querySelector('textarea[name="settings_template"]');
+            const streamEl = form.querySelector('textarea[name="stream_settings_template"]');
+            if (settingsEl) settingsEl.value = p.settings;
+            if (streamEl) streamEl.value = p.stream;
+            if (form.visualEditor) form.visualEditor.parseJsonToVisual();
+        }
     }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const form = document.getElementById('tplForm');
+        if (form && window.VisualEditor) new VisualEditor(form);
+    });
 </script>
+<script src="/public/js/admin_templates_editor.js"></script>
 {% endblock %}
