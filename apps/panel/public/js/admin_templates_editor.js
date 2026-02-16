@@ -32,27 +32,8 @@ class VisualEditor {
             });
         }
 
-        // 1.5 Sync with Master Protocol Selector (fixes duplication)
-        const masterProtocol = this.container.querySelector('select[name="protocol"]');
-        const internalProtocol = this.container.querySelector('.vis-protocol');
-        const internalContainer = this.container.querySelector('.vis-protocol-container');
-
-        if (masterProtocol && internalProtocol && masterProtocol !== internalProtocol) {
-            // Hide the internal one if a master one exists
-            if (internalContainer) internalContainer.classList.add('hidden');
-
-            // Sync values initially
-            internalProtocol.value = masterProtocol.value;
-
-            // Listen to master
-            masterProtocol.addEventListener('change', () => {
-                internalProtocol.value = masterProtocol.value;
-                this.updateVisualState();
-            });
-        }
-
         // 2. Hook up Visual Controls
-        this.container.querySelector('.vis-protocol')?.addEventListener('change', () => this.updateVisualState());
+        // Protocol is always VLESS now, so no listener needed for it
         this.container.querySelector('.vis-network')?.addEventListener('change', () => this.updateVisualState());
         this.container.querySelector('.vis-security')?.addEventListener('change', () => this.updateVisualState());
 
@@ -70,7 +51,6 @@ class VisualEditor {
         });
 
         // 4. Hook Form Submit for Validation
-        // Find the parent form
         const form = this.container.closest('form') || this.container.querySelector('form');
         if (form) {
             form.addEventListener('submit', (e) => {
@@ -78,9 +58,7 @@ class VisualEditor {
                     if (!this.validateVisualConfig()) {
                         e.preventDefault();
                         e.stopPropagation();
-                        // alert("Please fix validation errors in the Visual Editor before saving.");
                     } else {
-                        // Ensure JSON is up to date
                         this.generateJsonFromVisual();
                     }
                 }
@@ -88,8 +66,6 @@ class VisualEditor {
         }
 
         // 5. Initial State
-        // Try parsing existing JSON first (for Edit mode)
-        // If parsing fails (e.g. empty new template), force generation from defaults
         if (!this.parseJsonToVisual() && this.state.mode === 'visual') {
             this.updateVisualState();
         }
@@ -102,25 +78,23 @@ class VisualEditor {
         if (this.state.mode === 'visual') {
             visualContainer?.classList.remove('hidden');
             manualContainer?.classList.add('hidden');
-            // When switching to Visual, try to parse what's in the Manual textareas
             this.parseJsonToVisual();
         } else {
             visualContainer?.classList.add('hidden');
             manualContainer?.classList.remove('hidden');
-            // When switching to Manual, sync Visual data TO the textareas
             this.generateJsonFromVisual();
         }
     }
 
     updateVisualState() {
-        // Get values
-        const pEl = this.container.querySelector('.vis-protocol');
+        // Always VLESS
+        this.state.protocol = 'vless';
+
         const nEl = this.container.querySelector('.vis-network');
         const sEl = this.container.querySelector('.vis-security');
 
-        if (!pEl || !nEl || !sEl) return;
+        if (!nEl || !sEl) return;
 
-        this.state.protocol = pEl.value;
         this.state.network = nEl.value;
         this.state.security = sEl.value;
 
@@ -134,17 +108,21 @@ class VisualEditor {
             if (el) condition ? el.classList.remove('hidden') : el.classList.add('hidden');
         };
 
-        toggle('.client-section', ['vless', 'vmess', 'trojan', 'tuic', 'hysteria2', 'naive'].includes(p));
+        // Always show client section for VLESS
+        toggle('.client-section', true);
+
+        // Flow is only for VLESS + Reality + TCP
         toggle('.flow-section', p === 'vless' && s === 'reality' && n === 'tcp');
 
         // Transports
         this.container.querySelectorAll('.transport-settings').forEach(el => el.classList.add('hidden'));
         const transportMap = {
-            'tcp': '.tcp-settings', // usually none
+            'tcp': '.tcp-settings',
             'ws': '.ws-settings',
             'grpc': '.grpc-settings',
             'httpupgrade': '.httpupgrade-settings',
-            'quic': '.quic-settings'
+            'quic': '.quic-settings',
+            'xhttp': '.xhttp-settings' // Added XHTTP support just in case, though template might not have it yet
         };
         if (transportMap[n]) toggle(transportMap[n], true);
 
@@ -152,60 +130,32 @@ class VisualEditor {
         toggle('.tls-settings', s === 'tls');
         toggle('.reality-settings', s === 'reality');
 
-        // Sync Protocol to Main Form Hidden Input (if exists)
-        // Usually handled by generated JSON, but for top-level protocol field:
-        const mainProtocolInput = this.container.querySelector('select[name="protocol"]');
-        if (mainProtocolInput && !mainProtocolInput.classList.contains('vis-protocol')) {
-            mainProtocolInput.value = p;
-        }
-
         if (this.state.mode === 'visual') {
             this.generateJsonFromVisual();
         }
     }
 
     generateJsonFromVisual() {
-        if (this.state.mode === 'manual') return; // CRITICAL: Do not overwrite manual edits!
+        if (this.state.mode === 'manual') return;
 
-        const protocol = this.container.querySelector('.vis-protocol').value;
+        // Force VLESS
+        const protocol = 'vless';
         const network = this.container.querySelector('.vis-network').value;
         const security = this.container.querySelector('.vis-security').value;
 
         // --- Settings JSON ---
         let settings = {
             protocol: protocol,
-            clients: [] // Default empty
+            clients: [],
+            decryption: "none",
+            fallbacks: []
         };
 
-        // Basic placeholder logic
-        if (['vless', 'vmess'].includes(protocol)) {
-            settings.clients.push({
-                id: "{{uuid}}",
-                flow: (protocol === 'vless' && security === 'reality' && network === 'tcp') ? "xtls-rprx-vision" : undefined
-            });
-            settings.decryption = "none";
-            settings.fallbacks = [];
-        } else if (protocol === 'trojan') {
-            settings.clients.push({ password: "{{uuid}}" });
-            settings.fallbacks = [];
-        } else if (protocol === 'shadowsocks') {
-            settings.method = "2022-blake3-aes-128-gcm";
-            settings.password = "{{uuid}}";
-            settings.network = "tcp,udp";
-            delete settings.clients;
-        } else if (protocol === 'hysteria2') {
-            settings.password = "{{uuid}}";
-            delete settings.clients;
-        } else if (protocol === 'tuic') {
-            settings.users = [{ uuid: "{{uuid}}", password: "{{uuid}}" }];
-            settings.congestion_control = "bbr";
-            settings.heartbeat = "10s";
-            delete settings.clients;
-        } else if (protocol === 'naive') {
-            settings.users = [{ username: "{{uuid}}", password: "{{uuid}}" }];
-            settings.network = "tcp";
-            delete settings.clients;
-        }
+        // Add default client placeholder
+        settings.clients.push({
+            id: "{{uuid}}",
+            flow: (protocol === 'vless' && security === 'reality' && network === 'tcp') ? "xtls-rprx-vision" : undefined
+        });
 
         // Clean undefined in clients
         if (settings.clients) {
@@ -218,7 +168,6 @@ class VisualEditor {
             });
         }
 
-        // Handle both settings_template (preferred) and settings (fallback) names
         const settingsArea = this.container.querySelector('textarea[name="settings_template"]') || this.container.querySelector('textarea[name="settings"]');
         if (settingsArea) settingsArea.value = JSON.stringify(settings, null, 2);
 
@@ -255,7 +204,7 @@ class VisualEditor {
                 show: false,
                 dest: this.getVal('.vis-reality-dest', 'www.google.com:443'),
                 serverNames: this.getVal('.vis-reality-sni', 'www.google.com').split(','),
-                privateKey: "{{reality_private}}", // Always use placeholder for template
+                privateKey: "{{reality_private}}",
                 shortIds: ["", "0123456789abcdef"]
             };
             if (network === 'tcp') stream.realitySettings.xver = 0;
@@ -275,11 +224,8 @@ class VisualEditor {
             const settings = JSON.parse(settingsArea.value);
             const stream = JSON.parse(streamArea.value);
 
-            // Protocol
-            if (settings.protocol) {
-                const el = this.container.querySelector('.vis-protocol');
-                if (el) el.value = settings.protocol;
-            }
+            // Protocol - Ignored (Always VLESS)
+            // if (settings.protocol) { ... }
 
             // Network
             if (stream.network) {

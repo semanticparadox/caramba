@@ -39,29 +39,10 @@
                     </div>
                 </div>
 
-                <!-- Row 2: Protocol & Ports -->
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div>
-                        <label
-                            class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Protocol</label>
-                        <div class="relative">
-                            <select name="protocol" class="input-field appearance-none">
-                                <option value="vless" {% if tpl.protocol=="vless" %}selected{% endif %}>VLESS</option>
-                                <option value="vmess" {% if tpl.protocol=="vmess" %}selected{% endif %}>VMess</option>
-                                <option value="trojan" {% if tpl.protocol=="trojan" %}selected{% endif %}>Trojan
-                                </option>
-                                <option value="shadowsocks" {% if tpl.protocol=="shadowsocks" %}selected{% endif %}>
-                                    Shadowsocks</option>
-                                <option value="hysteria2" {% if tpl.protocol=="hysteria2" %}selected{% endif %}>
-                                    Hysteria2</option>
-                                <option value="tuic" {% if tpl.protocol=="tuic" %}selected{% endif %}>TUIC v5</option>
-                                <option value="naive" {% if tpl.protocol=="naive" %}selected{% endif %}>NaiveProxy
-                                </option>
-                            </select>
-                            <i data-lucide="chevron-down"
-                                class="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"></i>
-                        </div>
-                    </div>
+                <!-- Row 2: Protocol (Hidden) & Ports -->
+                <input type="hidden" name="protocol" value="vless">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- Protocol Selector Removed -->
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Port
                             Start</label>

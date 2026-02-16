@@ -14,21 +14,8 @@
 
     <!-- Visual Editor Container -->
     <div class="visual-editor-container space-y-6">
-        <!-- Protocol Selection -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div class="vis-protocol-container">
-                <label class="block text-sm font-medium text-slate-400 mb-2">Protocol</label>
-                <select
-                    class="vis-protocol w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-colors">
-                    <option value="vless">VLESS</option>
-                    <option value="vmess">VMess</option>
-                    <option value="trojan">Trojan</option>
-                    <option value="shadowsocks">Shadowsocks</option>
-                    <option value="hysteria2">Hysteria 2</option>
-                    <option value="tuic">TUIC</option>
-                    <option value="naive">NaïveProxy</option>
-                </select>
-            </div>
+        <!-- Transport & Security -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
                 <label class="block text-sm font-medium text-slate-400 mb-2">Network (Transport)</label>
                 <select
