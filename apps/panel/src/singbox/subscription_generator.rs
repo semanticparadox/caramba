@@ -857,6 +857,11 @@ pub fn generate_singbox_config(
                             } else {
                                 outbound["packet_encoding"] = json!("xudp");
                             }
+
+                            // Multiplexing
+                            if let Some(mux) = &si.xmux {
+                                outbound["multiplex"] = mux.clone();
+                            }
                         }
                     },
                     "hysteria2" | "hy2" => {
@@ -865,7 +870,7 @@ pub fn generate_singbox_config(
                         outbound["server_port"] = json!(inbound.listen_port);
                         outbound["password"] = json!(user_keys.hy2_password);
                         
-                        let mut tls = json!({
+                        let tls = json!({
                             "enabled": true,
                             "server_name": si.sni,
                             "insecure": true, 
@@ -887,7 +892,7 @@ pub fn generate_singbox_config(
                         outbound["uuid"] = json!(user_keys.user_uuid);
                         outbound["password"] = json!(user_keys.hy2_password); 
                         outbound["congestion_control"] = json!(si.tuic_congestion_control.as_deref().unwrap_or("bbr"));
-                        outbound["zero_rtt_handshake"] = json!(false);
+                        outbound["zero_rtt_handshake"] = json!(si.tuic_zero_rtt_handshake.unwrap_or(false));
                         
                         outbound["tls"] = json!({
                             "enabled": true,
