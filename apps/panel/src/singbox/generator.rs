@@ -51,7 +51,7 @@ impl ConfigGenerator {
 
             // Map DB Inbound to Sing-box Inbound
             match protocol_settings {
-                InboundType::Vless(mut vless) => {
+                InboundType::Vless(vless) => {
                     // Inject Relay Clients as Users if this is a suitable inbound
                     // For now, we only inject into Shadowsocks for simplicity, but VLESS is possible too.
                     // Let's stick to Shadowsocks for inter-node transport unless VLESS is required.
