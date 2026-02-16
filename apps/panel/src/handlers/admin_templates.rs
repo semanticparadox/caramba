@@ -237,6 +237,10 @@ pub struct AdminTemplateEditModalTemplate {
     pub tpl: InboundTemplate,
     pub groups: Vec<NodeGroup>,
     pub admin_path: String,
+    pub uuid: String,
+    pub email: String,
+    pub reality_private: String,
+    pub sni: String,
 }
 
 pub async fn get_template_edit(
@@ -267,6 +271,10 @@ pub async fn get_template_edit(
         tpl,
         groups,
         admin_path: state.admin_path.clone(),
+        uuid: "{{uuid}}".to_string(),
+        email: "{{email}}".to_string(),
+        reality_private: "{{reality_private}}".to_string(),
+        sni: "{{sni}}".to_string(),
     };
     Html(template.render().unwrap_or_default()).into_response()
 }
