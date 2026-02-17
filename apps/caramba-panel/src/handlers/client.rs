@@ -150,7 +150,7 @@ pub async fn auth_telegram(
 
     if let Some(tg_user) = validate_init_data(&payload.init_data, &bot_token) {
         // Find user by Telegram ID
-        let user_res = sqlx::query_as::<_, crate::models::store::User>("SELECT * FROM users WHERE tg_id = ?")
+        let user_res = sqlx::query_as::<_, caramba_db::models::store::User>("SELECT * FROM users WHERE tg_id = ?")
             .bind(tg_user.id)
             .fetch_optional(&state.pool)
             .await;
@@ -328,7 +328,7 @@ pub async fn get_client_nodes(
     };
     
     // Fetch active nodes
-    let nodes: Vec<crate::models::node::Node> = sqlx::query_as("SELECT * FROM nodes WHERE is_enabled = 1")
+    let nodes: Vec<caramba_db::models::node::Node> = sqlx::query_as("SELECT * FROM nodes WHERE is_enabled = 1")
         .fetch_all(&state.pool)
         .await
         .unwrap_or_default();
@@ -385,7 +385,7 @@ pub async fn get_user_payments(
     };
     
     // Fetch payments
-    let payments: Vec<crate::models::store::Payment> = sqlx::query_as("SELECT * FROM payments WHERE user_id = ? ORDER BY created_at DESC LIMIT 50")
+    let payments: Vec<caramba_db::models::store::Payment> = sqlx::query_as("SELECT * FROM payments WHERE user_id = ? ORDER BY created_at DESC LIMIT 50")
         .bind(user_id)
         .fetch_all(&state.pool)
         .await
@@ -421,7 +421,7 @@ pub async fn get_user_referrals(
     };
     
     // Get user to check code
-    let user = match sqlx::query_as::<_, crate::models::store::User>("SELECT * FROM users WHERE id = ?")
+    let user = match sqlx::query_as::<_, caramba_db::models::store::User>("SELECT * FROM users WHERE id = ?")
         .bind(user_id)
         .fetch_optional(&state.pool)
         .await

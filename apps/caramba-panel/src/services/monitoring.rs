@@ -1,6 +1,7 @@
 use tracing::{info, error};
 use tokio::time::{interval, Duration};
 use crate::AppState;
+use caramba_db::models::store::{RenewalResult, AlertType};
 use chrono::Utc;
 
 pub struct MonitoringService {
@@ -111,7 +112,7 @@ impl MonitoringService {
     async fn process_auto_renewals(&self) -> anyhow::Result<()> {
         use caramba_db::models::store::RenewalResult;
         
-        let results = self.state.store_service.process_auto_renewals().await?;
+        let results: Vec<RenewalResult> = self.state.subscription_service.process_auto_renewals().await?;
         
         if results.is_empty() {
             return Ok(());
@@ -170,7 +171,7 @@ impl MonitoringService {
     async fn check_traffic_alerts(&self) -> anyhow::Result<()> {
         use caramba_db::models::store::AlertType;
         
-        let alerts = self.state.store_service.check_traffic_alerts().await?;
+        let alerts: Vec<(i64, AlertType)> = self.state.subscription_service.check_and_send_alerts().await?;
         
         if alerts.is_empty() {
             return Ok(());
@@ -178,7 +179,7 @@ impl MonitoringService {
         
         info!("Sending {} traffic alerts", alerts.len());
         
-        for (user_id, alert_type, _sub_id) in alerts {
+        for (user_id, alert_type) in alerts {
             if let Ok(Some(user)) = sqlx::query_as::<_, (i64,)>("SELECT tg_id FROM users WHERE id = $1")
                 .bind(user_id)
                 .fetch_optional(&self.state.pool)

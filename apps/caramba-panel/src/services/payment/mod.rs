@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use crate::models::payment::PaymentType;
+use caramba_db::models::payment::PaymentType;
 use anyhow::Result;
 
 pub mod cryptomus;

@@ -35,12 +35,12 @@ jobs:
 
       - name: Build All Binaries (Release)
         run: |
-          cargo build --release --target x86_64-unknown-linux-musl --workspace --exclude caramba-panel --exclude caramba-app
+          cargo build --release --target x86_64-unknown-linux-musl --workspace --exclude caramba-app
 
       - name: Prepare Artifacts
         run: |
           mkdir release
-          # cp target/x86_64-unknown-linux-musl/release/caramba-panel release/
+          cp target/x86_64-unknown-linux-musl/release/caramba-panel release/
           cp target/x86_64-unknown-linux-musl/release/caramba-node release/
           cp target/x86_64-unknown-linux-musl/release/caramba-bot release/
           cp target/x86_64-unknown-linux-musl/release/caramba-sub release/
@@ -51,7 +51,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            # release/caramba-panel
+            release/caramba-panel
             release/caramba-node
             release/caramba-bot
             release/caramba-sub

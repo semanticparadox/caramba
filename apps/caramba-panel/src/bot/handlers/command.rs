@@ -83,7 +83,7 @@ pub async fn message_handler(
                 }
             }
         } else {
-            let user: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+            let user: Option<caramba_db::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
             user
         };
 
@@ -215,7 +215,7 @@ pub async fn message_handler(
                         let rest = &reply_text[start + "Subscription #".len()..];
                         let id_str = rest.split_whitespace().next().unwrap_or("0");
                         if let Ok(sub_id) = id_str.parse::<i64>() {
-                            let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                            let user_db: Option<caramba_db::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                             if let Some(u) = user_db {
                                 match state.store_service.transfer_subscription(sub_id, u.id, text).await {
                                     Ok(_) => { let _ = bot.send_message(msg.chat.id, format!("✅ Subscription \\#{} transferred to {} successfully\\!", sub_id, escape_md(text))).parse_mode(ParseMode::MarkdownV2).await; }
@@ -230,7 +230,7 @@ pub async fn message_handler(
                     // Gift Code
                     if reply_text.contains("🎟 Enter your Gift Code") || reply_text.contains("🎟 Enter your Promo Code") {
                         let code = text.trim();
-                        let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                        let user_db: Option<caramba_db::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                         if let Some(u) = user_db {
                             match state.promo_service.redeem_code(u.id, code).await {
                                 Ok(res_msg) => { let _ = bot.send_message(msg.chat.id, format!("✅ *Success\\!*\n\n{}", escape_md(&res_msg))).parse_mode(ParseMode::MarkdownV2).await; },
@@ -255,7 +255,7 @@ pub async fn message_handler(
                             return Ok(());
                         }
 
-                        let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                        let user_db: Option<caramba_db::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                         if let Some(u) = user_db {
                             match state.store_service.update_user_referral_code(u.id, new_code).await {
                                 Ok(_) => { 
@@ -286,7 +286,7 @@ pub async fn message_handler(
                     // Enter Referrer Code
                     if reply_text.contains("Enter Referrer Code") {
                          let ref_code = text.trim();
-                         let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                         let user_db: Option<caramba_db::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                          if let Some(u) = user_db {
                              match state.store_service.set_user_referrer(u.id, ref_code).await {
                                  Ok(_) => { let _ = bot.send_message(msg.chat.id, "✅ *Referrer Linked\\!*\n\nYou've successfully set your referrer\\.").parse_mode(ParseMode::MarkdownV2).await; },
@@ -369,7 +369,7 @@ pub async fn message_handler(
         match text {
             // /start is already handled above in flow
             "📦 Digital Store" => {
-                        let categories: Vec<crate::models::store::StoreCategory> = state.catalog_service.get_categories().await.unwrap_or_default();
+                        let categories: Vec<caramba_db::models::store::StoreCategory> = state.catalog_service.get_categories().await.unwrap_or_default();
                     if categories.is_empty() {
                         let _ = bot.send_message(msg.chat.id, "❌ The store is currently empty.")
                             .reply_markup(main_menu())
@@ -392,7 +392,7 @@ pub async fn message_handler(
             }
             "🛒 My Cart" | "/cart" => {
                   if let Ok(Some(user)) = state.store_service.get_user_by_tg_id(tg_id).await {
-                     let cart_items: Vec<crate::models::store::CartItem> = state.store_service.get_user_cart(user.id).await.unwrap_or_default();
+                     let cart_items: Vec<caramba_db::models::store::CartItem> = state.store_service.get_user_cart(user.id).await.unwrap_or_default();
                      
                      if cart_items.is_empty() {
                          let _ = bot.send_message(msg.chat.id, "🛒 Your cart is empty.").await;
@@ -439,8 +439,8 @@ pub async fn message_handler(
             }
 
             "🛍 Buy Subscription" | "/plans" => {
-                let user_db: Option<crate::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
-                let plans: Vec<crate::models::store::Plan> = state.store_service.get_active_plans().await.unwrap_or_default();
+                let user_db: Option<caramba_db::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                let plans: Vec<caramba_db::models::store::Plan> = state.store_service.get_active_plans().await.unwrap_or_default();
                 
                 if plans.is_empty() {
                     let _ = bot.send_message(msg.chat.id, "❌ No active plans available at the moment.")
@@ -757,7 +757,7 @@ pub async fn message_handler(
                   if let Ok(Some(u)) = state.store_service.get_user_by_tg_id(tg_id).await {
                       // Get all subs
                        if let Ok(subs) = state.store_service.get_user_subscriptions(u.id).await {
-                           let active_subs: Vec<crate::models::store::SubscriptionWithDetails> = subs.into_iter().filter(|s| s.sub.status == "active").collect();
+                           let active_subs: Vec<caramba_db::models::store::SubscriptionWithDetails> = subs.into_iter().filter(|s| s.sub.status == "active").collect();
                            
                            if active_subs.is_empty() {
                                let _ = bot.send_message(msg.chat.id, "❌ You have no active subscriptions.")
@@ -770,7 +770,7 @@ pub async fn message_handler(
                                // Simpler to just send message with "View Devices" button or replicate logic.
                                // Replicating logic is cleaner here to avoid hacking callback structure.
                                
-                               let ips: Vec<crate::models::store::SubscriptionIpTracking> = state.store_service.get_subscription_active_ips(sub.sub.id).await.unwrap_or_default();
+                               let ips: Vec<caramba_db::models::store::SubscriptionIpTracking> = state.store_service.get_subscription_active_ips(sub.sub.id).await.unwrap_or_default();
                                let limit: i64 = state.store_service.get_subscription_device_limit(sub.sub.id).await.unwrap_or(0).into();
                                
                                let mut text = format!("📱 *Active Devices for Subscription \\#{:?}*\n", sub.sub.id);

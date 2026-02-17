@@ -8,8 +8,8 @@ use askama::Template;
 use askama_web::WebTemplate;
 use serde::Deserialize;
 use crate::AppState;
-use crate::models::sni::{SniPoolItem, SniBlacklistItem};
-use crate::models::sni_log::SniRotationLog;
+use caramba_db::models::sni::{SniPoolItem, SniBlacklistItem};
+use caramba_db::models::sni_log::SniRotationLog;
 use tracing::{info, error};
 
 #[derive(Template, WebTemplate)]
@@ -22,7 +22,7 @@ pub struct AdminSniTemplate {
     pub admin_path: String,
     pub active_page: String,
     pub username: String,
-    pub nodes: Vec<crate::models::node::Node>,
+    pub nodes: Vec<caramba_db::models::node::Node>,
     pub filter_node_id: Option<i64>,
     pub blacklist: Vec<SniBlacklistItem>,
 }

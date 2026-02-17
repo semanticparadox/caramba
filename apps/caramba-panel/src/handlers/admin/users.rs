@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use tracing::{info, error};
 
 use crate::AppState;
-use crate::models::store::{User, Plan, SubscriptionWithPlan};
+use caramba_db::models::store::{User, Plan, SubscriptionWithPlan};
 use crate::services::logging_service::LoggingService;
 use super::auth::{get_auth_user, is_authenticated};
 
@@ -38,7 +38,7 @@ pub struct UserDetailsTemplate {
     pub user: User,
     pub subscriptions: Vec<SubscriptionWithPlan>,
     pub orders: Vec<UserOrderDisplay>,
-    pub referrals: Vec<crate::models::store::DetailedReferral>,
+    pub referrals: Vec<caramba_db::models::store::DetailedReferral>,
     pub total_referral_earnings: String,
     pub available_plans: Vec<Plan>,
     pub is_auth: bool,
@@ -122,7 +122,7 @@ pub async fn admin_gift_subscription(
     State(state): State<AppState>,
     Form(form): Form<AdminGiftForm>,
 ) -> impl IntoResponse {
-    let duration = match state.store_service.get_plan_duration_by_id(form.duration_id).await {
+    let duration = match state.catalog_service.get_plan_duration_by_id(form.duration_id).await {
         Ok(Some(d)) => d,
         Ok(None) => return (axum::http::StatusCode::BAD_REQUEST, "Invalid duration ID").into_response(),
         Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)).into_response(),
@@ -182,10 +182,10 @@ pub async fn get_user_details(
         created_at: o.created_at.format("%Y-%m-%d").to_string(),
     }).collect();
 
-    let referrals = state.store_service.get_user_referrals(id).await.unwrap_or_default();
-    let earnings_cents = state.store_service.get_user_referral_earnings(id).await.unwrap_or(0);
+    let referrals = crate::services::referral_service::ReferralService::get_user_referrals(&state.pool, id).await.unwrap_or_default();
+    let earnings_cents = crate::services::referral_service::ReferralService::get_user_referral_earnings(&state.pool, id).await.unwrap_or(0);
 
-    let available_plans = state.store_service.get_active_plans().await.unwrap_or_default();
+    let available_plans = state.catalog_service.get_active_plans().await.unwrap_or_default();
 
     let template = UserDetailsTemplate {
         user,
@@ -311,7 +311,7 @@ pub async fn refund_user_subscription(
     Form(form): Form<RefundForm>,
 ) -> impl IntoResponse {
     info!("Request to refund subscription ID: {} with amount {}", id, form.amount);
-    match state.store_service.admin_refund_subscription(id, form.amount).await {
+    match state.catalog_service.admin_refund_subscription(id, form.amount).await {
         Ok(_) => ([(("HX-Refresh", "true"))], "Refunded").into_response(),
         Err(e) => {
              error!("Failed to refund subscripton {}: {}", id, e);

@@ -8,8 +8,8 @@ use askama::Template;
 use askama_web::WebTemplate;
 use serde::Deserialize;
 use crate::AppState;
-use crate::models::groups::{NodeGroup, InboundTemplate};
-use crate::models::node::Node;
+use caramba_db::models::groups::{NodeGroup, InboundTemplate};
+use caramba_db::models::node::Node;
 use tracing::error;
 
 #[derive(Template, WebTemplate)]
@@ -36,7 +36,7 @@ pub async fn get_groups_page(
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    let groups = sqlx::query_as::<_, NodeGroup>("SELECT * FROM node_groups ORDER BY name ASC")
+    let groups: Vec<NodeGroup> = sqlx::query_as::<_, NodeGroup>("SELECT * FROM node_groups ORDER BY name ASC")
         .fetch_all(&state.pool)
         .await
         .unwrap_or_default();
@@ -152,7 +152,7 @@ pub async fn get_group_edit(
         };
 
     // Get current members
-    let members = sqlx::query_as::<_, Node>(
+    let members: Vec<Node> = sqlx::query_as::<_, Node>(
         "SELECT n.* FROM nodes n JOIN node_group_members ngm ON n.id = ngm.node_id WHERE ngm.group_id = ?"
     )
     .bind(id)
@@ -161,7 +161,7 @@ pub async fn get_group_edit(
     .unwrap_or_default();
 
     // Get available nodes (not in this group)
-    let available_nodes = sqlx::query_as::<_, Node>(
+    let available_nodes: Result<Vec<Node>, sqlx::Error> = sqlx::query_as::<_, Node>(
         "SELECT * FROM nodes WHERE id NOT IN (SELECT node_id FROM node_group_members WHERE group_id = ?)"
     )
     .bind(id)
@@ -177,7 +177,7 @@ pub async fn get_group_edit(
     };
 
     // Get inbounds for this group
-    let inbounds = sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE target_group_id = ?")
+    let inbounds: Vec<InboundTemplate> = sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE target_group_id = ?")
         .bind(id)
         .fetch_all(&state.pool)
         .await

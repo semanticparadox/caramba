@@ -1,6 +1,6 @@
 use sqlx::PgPool;
 use anyhow::{Context, Result};
-use caramba_db::models::store::{Plan, Subscription, SubscriptionWithDetails, GiftCode, PlanDuration, RenewalResult, SubscriptionIpTracking};
+use caramba_db::models::store::{Plan, Subscription, SubscriptionWithDetails, GiftCode, PlanDuration, RenewalResult, SubscriptionIpTracking, AlertType};
 use caramba_db::models::node::Node;
 use caramba_db::models::network::InboundType;
 use crate::singbox::subscription_generator::{self, NodeInfo, UserKeys};
@@ -268,13 +268,12 @@ impl SubscriptionService {
     }
 
     pub async fn toggle_auto_renewal(&self, subscription_id: i64) -> Result<bool> {
-        let current: bool = sqlx::query_scalar::<_, bool>("SELECT auto_renew FROM subscriptions WHERE id = $1")
+        let current: Option<bool> = sqlx::query_scalar::<_, Option<bool>>("SELECT auto_renew FROM subscriptions WHERE id = $1")
             .bind(subscription_id)
             .fetch_one(&self.pool)
-            .await?
-            .unwrap_or(false);
+            .await?;
         
-        let new_value = !current;
+        let new_value = !current.unwrap_or(false);
         sqlx::query("UPDATE subscriptions SET auto_renew = $1 WHERE id = $2")
             .bind(new_value)
             .bind(subscription_id)
@@ -368,7 +367,7 @@ impl SubscriptionService {
         
         if let Some(sub) = sub {
             let uuid = sub.vless_uuid.clone().unwrap_or_default();
-            let inbounds = sqlx::query_as::<_, crate::models::network::Inbound>(
+            let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>(
                 r#"
                 SELECT DISTINCT i.* FROM inbounds i
                 LEFT JOIN plan_inbounds pi ON pi.inbound_id = i.id
@@ -383,7 +382,7 @@ impl SubscriptionService {
             .await?;
             
             for inbound in inbounds {
-                use crate::models::network::StreamSettings;
+                use caramba_db::models::network::StreamSettings;
                 let stream: StreamSettings = serde_json::from_str(&inbound.stream_settings).unwrap_or_default();
                 let security = stream.security.as_deref().unwrap_or("none");
                 let network = stream.network.as_deref().unwrap_or("tcp");
@@ -637,7 +636,7 @@ impl SubscriptionService {
         let inbounds_map = if node_ids.is_empty() {
             std::collections::HashMap::new()
         } else {
-            let inbounds = sqlx::query_as::<_, crate::models::network::Inbound>("SELECT * FROM inbounds WHERE enable = TRUE AND node_id = ANY($1)")
+            let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>("SELECT * FROM inbounds WHERE enable = TRUE AND node_id = ANY($1)")
                 .bind(&node_ids)
                 .fetch_all(&self.pool)
                 .await?;
@@ -702,11 +701,11 @@ impl SubscriptionService {
         Ok(node_infos)
     }
 
-    async fn fetch_inbounds_for_nodes(&self, node_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<crate::models::network::Inbound>>> {
+    async fn fetch_inbounds_for_nodes(&self, node_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<caramba_db::models::network::Inbound>>> {
         if node_ids.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
-        let inbounds = sqlx::query_as::<_, crate::models::network::Inbound>("SELECT * FROM inbounds WHERE enable = TRUE AND node_id = ANY($1)")
+        let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>("SELECT * FROM inbounds WHERE enable = TRUE AND node_id = ANY($1)")
             .bind(node_ids)
             .fetch_all(&self.pool)
             .await?;
@@ -733,11 +732,111 @@ impl SubscriptionService {
         Ok(UserKeys {
             user_uuid,
             hy2_password,
-            awg_private_key,
+            _awg_private_key: Some(awg_private_key.clone()),
         })
     }
 
     fn derive_awg_key(&self, uuid: &str) -> String {
+        Self::generate_amneziawg_key(uuid)
+    }
+
+    pub async fn check_and_send_alerts(&self) -> Result<Vec<(i64, AlertType)>> {
+        use caramba_db::models::store::AlertType;
+        let mut alerts_to_send = vec![];
+        
+        // Traffic alerts (80%, 90%)
+        let subs = sqlx::query_as::<_, (i64, i64, i64, String)>(
+            "SELECT s.id, s.user_id, s.used_traffic, COALESCE(s.alerts_sent, '[]') 
+             FROM subscriptions s
+             JOIN plans p ON s.plan_id = p.id
+             WHERE s.status = 'active' AND p.traffic_limit_gb > 0"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        
+        for (sub_id, user_id, used_traffic_bytes, alerts_json) in subs {
+            // Get traffic limit from plan
+            let traffic_limit_gb: i32 = sqlx::query_scalar(
+                "SELECT p.traffic_limit_gb FROM plans p
+                 JOIN subscriptions s ON s.plan_id = p.id
+                 WHERE s.id = $1 LIMIT 1"
+            )
+            .bind(sub_id)
+            .fetch_one(&self.pool)
+            .await?;
+            
+            if traffic_limit_gb == 0 { continue; }
+            
+            let total_traffic_bytes = traffic_limit_gb as i64 * 1024 * 1024 * 1024;
+            let percentage = (used_traffic_bytes as f64 / total_traffic_bytes as f64) * 100.0;
+            
+            let mut alerts: Vec<String> = serde_json::from_str(&alerts_json).unwrap_or_default();
+            
+            // Check 80% threshold
+            if percentage >= 80.0 && !alerts.contains(&"80_percent".to_string()) {
+                alerts_to_send.push((user_id, AlertType::Traffic80));
+                alerts.push("80_percent".to_string());
+            }
+            
+            // Check 90% threshold
+            if percentage >= 90.0 && !alerts.contains(&"90_percent".to_string()) {
+                alerts_to_send.push((user_id, AlertType::Traffic90));
+                alerts.push("90_percent".to_string());
+            }
+            
+            // Update alerts_sent
+            if !alerts.is_empty() {
+                let alerts_json = serde_json::to_string(&alerts)?;
+                sqlx::query("UPDATE subscriptions SET alerts_sent = $1 WHERE id = $2")
+                    .bind(&alerts_json)
+                    .bind(sub_id)
+                    .execute(&self.pool)
+                    .await?;
+            }
+        }
+        
+        // Expiry alerts (3 days before)
+        let expiring_subs = sqlx::query_as::<_, (i64, String)>(
+            "SELECT s.user_id, COALESCE(s.alerts_sent, '[]')
+             FROM subscriptions s
+             WHERE s.status = 'active'
+             AND s.expires_at BETWEEN CURRENT_TIMESTAMP + interval '2 days' AND CURRENT_TIMESTAMP + interval '3 days'"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        
+        for (user_id, alerts_json) in expiring_subs {
+            let alerts: Vec<String> = serde_json::from_str(&alerts_json).unwrap_or_default();
+            if !alerts.contains(&"expiry_3d".to_string()) {
+                alerts_to_send.push((user_id, AlertType::Expiry3Days));
+            }
+        }
+        
+        Ok(alerts_to_send)
+    }
+
+    pub fn generate_clash(&self, sub: &Subscription, nodes: &[NodeInfo], keys: &UserKeys) -> Result<String> {
+        crate::singbox::subscription_generator::generate_clash_config(sub, nodes, keys)
+    }
+    
+    pub fn generate_v2ray(&self, sub: &Subscription, nodes: &[NodeInfo], keys: &UserKeys) -> Result<String> {
+        crate::singbox::subscription_generator::generate_v2ray_config(sub, nodes, keys)
+    }
+    
+    pub fn generate_singbox(&self, sub: &Subscription, nodes: &[NodeInfo], keys: &UserKeys) -> Result<String> {
+        crate::singbox::subscription_generator::generate_singbox_config(sub, nodes, keys)
+    }
+
+    pub async fn update_subscription_node(&self, sub_id: i64, node_id: Option<i64>) -> Result<()> {
+        sqlx::query("UPDATE subscriptions SET node_id = $1 WHERE id = $2")
+            .bind(node_id)
+            .bind(sub_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    fn generate_amneziawg_key(uuid: &str) -> String {
         use sha2::{Sha256, Digest};
         let mut hasher = Sha256::new();
         hasher.update(uuid.as_bytes());

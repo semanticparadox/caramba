@@ -1,5 +1,5 @@
 mod settings;
-mod bot;
+// mod bot;
 mod bot_manager;
 mod scripts;
 mod singbox;
@@ -279,6 +279,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     let connection_service = Arc::new(services::connection_service::ConnectionService::new(
         orchestration_service.clone(),
         store_service.clone(),
+        subscription_service.clone(),
     ));
 
     let bot_token = settings.get_or_default("bot_token", "").await;
@@ -303,6 +304,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     let pay_service = Arc::new(services::pay_service::PayService::new(
         pool.clone(),
         store_service.clone(),
+        catalog_service.clone(),
         bot_manager.clone(),
         bot_token,
         pay_token,
@@ -420,13 +422,8 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     });
 
 
-    let connection_store = state.store_service.clone();
-    let connection_orch = state.orchestration_service.clone();
+    let connection_svc = state.connection_service.clone();
     tokio::spawn(async move {
-        let connection_svc = services::connection_service::ConnectionService::new(
-            connection_orch,
-            connection_store,
-        );
         connection_svc.start_monitoring().await;
     });
     

@@ -9,9 +9,9 @@ use askama::Template;
 use askama_web::WebTemplate;
 use serde::Deserialize;
 use crate::AppState;
-use crate::models::node::Node;
-use crate::models::network::Inbound;
-use crate::models::store::Plan;
+use caramba_db::models::node::Node;
+use caramba_db::models::network::Inbound;
+use caramba_db::models::store::Plan;
 use tracing::{info, error};
 
 
@@ -21,8 +21,8 @@ use tracing::{info, error};
 pub struct NodeInboundsTemplate {
     pub node: Node,
     pub inbounds: Vec<Inbound>,
-    pub groups: Vec<crate::models::groups::NodeGroup>,
-    pub templates: Vec<crate::models::groups::InboundTemplate>, // Added
+    pub groups: Vec<caramba_db::models::groups::NodeGroup>,
+    pub templates: Vec<caramba_db::models::groups::InboundTemplate>, // Added
     pub is_auth: bool,
     pub admin_path: String,
     pub active_page: String,
@@ -92,24 +92,24 @@ pub async fn add_inbound(
 
     // Validate JSON against Models
     // 1. Stream Settings
-    if let Err(e) = serde_json::from_str::<crate::models::network::StreamSettings>(&form.stream_settings) {
+    if let Err(e) = serde_json::from_str::<caramba_db::models::network::StreamSettings>(&form.stream_settings) {
          return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Stream Settings: {}", e)).into_response();
     }
 
     // 2. Protocol Settings
     match form.protocol.as_str() {
         "vless" => {
-            if let Err(e) = serde_json::from_str::<crate::models::network::VlessSettings>(&form.settings) {
+            if let Err(e) = serde_json::from_str::<caramba_db::models::network::VlessSettings>(&form.settings) {
                 return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid VLESS Settings: {}", e)).into_response();
             }
         },
         "hysteria2" => {
-            if let Err(e) = serde_json::from_str::<crate::models::network::Hysteria2Settings>(&form.settings) {
+            if let Err(e) = serde_json::from_str::<caramba_db::models::network::Hysteria2Settings>(&form.settings) {
                 return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Hysteria2 Settings: {}", e)).into_response();
             }
         },
         "trojan" => {
-            if let Err(e) = serde_json::from_str::<crate::models::network::TrojanSettings>(&form.settings) {
+            if let Err(e) = serde_json::from_str::<caramba_db::models::network::TrojanSettings>(&form.settings) {
                 return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Trojan Settings: {}", e)).into_response();
             }
         },
@@ -384,7 +384,7 @@ pub async fn preview_node_config(
 
     // 3. Simple user injection (VLESS/UUID only for preview)
     for inbound in &mut inbounds {
-        let linked_plans: Vec<i64> = sqlx::query_scalar("SELECT plan_id FROM plan_inbounds WHERE inbound_id = ?")
+        let linked_plans: Vec<i64> = sqlx::query_scalar::<_, i64>("SELECT plan_id FROM plan_inbounds WHERE inbound_id = ?")
             .bind(inbound.id)
             .fetch_all(&state.pool)
             .await
@@ -393,9 +393,10 @@ pub async fn preview_node_config(
         if !linked_plans.is_empty() {
              let plan_ids_str = linked_plans.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
              let query = format!("SELECT * FROM subscriptions WHERE status = 'active' AND plan_id IN ({}) LIMIT 5", plan_ids_str);
-             let active_subs: Vec<crate::models::store::Subscription> = sqlx::query_as(&query).fetch_all(&state.pool).await.unwrap_or_default();
+             let active_subs: Vec<caramba_db::models::store::Subscription> = sqlx::query_as::<_, caramba_db::models::store::Subscription>(&query)
+                 .fetch_all(&state.pool).await.unwrap_or_default();
 
-             use crate::models::network::{InboundType, VlessClient};
+             use caramba_db::models::network::{InboundType, VlessClient};
              if let Ok(mut settings) = serde_json::from_str::<InboundType>(&inbound.settings) {
                  match &mut settings {
                      InboundType::Vless(vless) => {
@@ -455,24 +456,24 @@ pub async fn update_inbound(
     
     // Validate JSON against Models
     // 1. Stream Settings
-    if let Err(e) = serde_json::from_str::<crate::models::network::StreamSettings>(&form.stream_settings) {
+    if let Err(e) = serde_json::from_str::<caramba_db::models::network::StreamSettings>(&form.stream_settings) {
          return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Stream Settings: {}", e)).into_response();
     }
 
     // 2. Protocol Settings
     match form.protocol.as_str() {
         "vless" => {
-            if let Err(e) = serde_json::from_str::<crate::models::network::VlessSettings>(&form.settings) {
+            if let Err(e) = serde_json::from_str::<caramba_db::models::network::VlessSettings>(&form.settings) {
                 return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid VLESS Settings: {}", e)).into_response();
             }
         },
         "hysteria2" => {
-            if let Err(e) = serde_json::from_str::<crate::models::network::Hysteria2Settings>(&form.settings) {
+            if let Err(e) = serde_json::from_str::<caramba_db::models::network::Hysteria2Settings>(&form.settings) {
                 return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Hysteria2 Settings: {}", e)).into_response();
             }
         },
         "trojan" => {
-            if let Err(e) = serde_json::from_str::<crate::models::network::TrojanSettings>(&form.settings) {
+            if let Err(e) = serde_json::from_str::<caramba_db::models::network::TrojanSettings>(&form.settings) {
                 return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Trojan Settings: {}", e)).into_response();
             }
         },

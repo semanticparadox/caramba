@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     // use super::*; // Unused
-    use crate::models::network::Inbound;
-    // use crate::models::store::Subscription; // Unused
+    use caramba_db::models::network::Inbound;
+    // use caramba_db::models::store::Subscription; // Unused
     use crate::singbox::subscription_generator::{NodeInfo, UserKeys, generate_singbox_config, generate_v2ray_config};
     use serde_json::json;
 
@@ -268,7 +268,7 @@ mod tests {
         assert!(!links_str.contains("@1.2.3.4")); // Real IP should NOT be visible in the address part
     }
 
-    fn match_any_sub() -> crate::models::store::Subscription {
+    fn match_any_sub() -> caramba_db::models::store::Subscription {
          // Create a dummy subscription with minimal fields populated
          // Using unsafe/transmute or just a minimal struct construction if visible
          // Since we can't easily construct the full DB model without sqlx::FromRow, 
@@ -295,8 +295,8 @@ mod tests {
     #[test]
     fn test_security_policy_generation() {
          use crate::singbox::ConfigGenerator;
-         use crate::models::node::Node;
-         use crate::models::network::Inbound;
+         use caramba_db::models::node::Node;
+         use caramba_db::models::network::Inbound;
 
          // 1. Create Mock Node with Policies Enabled
          let node = Node {

@@ -21,7 +21,7 @@ use super::auth::get_auth_user;
 #[derive(Template, WebTemplate)]
 #[template(path = "store_categories.html")]
 pub struct StoreCategoriesTemplate {
-    pub categories: Vec<crate::models::store::StoreCategory>,
+    pub categories: Vec<caramba_db::models::store::StoreCategory>,
     pub is_auth: bool,
     pub username: String,
     pub admin_path: String,
@@ -31,8 +31,8 @@ pub struct StoreCategoriesTemplate {
 #[derive(Template, WebTemplate)]
 #[template(path = "store_products.html")]
 pub struct StoreProductsTemplate {
-    pub products: Vec<crate::models::store::Product>,
-    pub categories: Vec<crate::models::store::StoreCategory>,
+    pub products: Vec<caramba_db::models::store::Product>,
+    pub categories: Vec<caramba_db::models::store::StoreCategory>,
     pub is_auth: bool,
     pub username: String,
     pub admin_path: String,
@@ -64,7 +64,7 @@ pub async fn get_store_categories_page(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let categories: Vec<crate::models::store::StoreCategory> = state.catalog_service.get_categories().await.unwrap_or_default();
+    let categories: Vec<caramba_db::models::store::StoreCategory> = state.catalog_service.get_categories().await.unwrap_or_default();
     
     let admin_path = state.admin_path.clone();
 
@@ -120,7 +120,7 @@ pub async fn get_store_products_page(
 ) -> impl IntoResponse {
     let products = state.catalog_service.get_all_products().await.unwrap_or_default();
 
-    let categories: Vec<crate::models::store::StoreCategory> = state.catalog_service.get_categories().await.unwrap_or_default();
+    let categories: Vec<caramba_db::models::store::StoreCategory> = state.catalog_service.get_categories().await.unwrap_or_default();
     
     let admin_path = state.admin_path.clone();
 

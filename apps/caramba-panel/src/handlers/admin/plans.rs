@@ -13,10 +13,10 @@ use axum_extra::extract::cookie::CookieJar;
 use tracing::{info, error};
 
 use crate::AppState;
-use crate::models::store::Plan;
-// use crate::models::node::Node; // Removed
+use caramba_db::models::store::Plan;
+// use caramba_db::models::node::Node; // Removed
 
-use crate::models::groups::NodeGroup;
+use caramba_db::models::groups::NodeGroup;
 use super::auth::get_auth_user;
 
 // ============================================================================
@@ -50,7 +50,7 @@ pub async fn get_plans(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let plans = match state.store_service.get_plans_admin().await {
+    let plans = match state.catalog_service.get_plans_admin().await {
             Ok(p) => {
                 info!("Successfully fetched {} plans from DB", p.len());
                 p
@@ -133,7 +133,7 @@ pub async fn add_plan(
         return (axum::http::StatusCode::BAD_REQUEST, "Plan name is required").into_response();
     }
 
-    match state.store_service.create_plan(&name, &description, device_limit, traffic_limit_gb, duration_days, price, group_ids).await {
+    match state.catalog_service.create_plan(&name, &description, device_limit, traffic_limit_gb, duration_days, price, group_ids).await {
         Ok(id) => info!("Created plan with ID: {}", id),
         Err(e) => {
             error!("Failed to create plan: {}", e);
@@ -156,13 +156,13 @@ pub async fn delete_plan(
 ) -> impl IntoResponse {
     info!("Request to delete plan: {}", id);
     
-    let is_trial = state.store_service.is_trial_plan(id).await.unwrap_or(false);
+    let is_trial = state.catalog_service.is_trial_plan(id).await.unwrap_or(false);
 
     if is_trial {
         return (axum::http::StatusCode::BAD_REQUEST, "Cannot delete system trial plan. Disable it instead.").into_response();
     }
 
-    match state.store_service.delete_plan_and_refund(id).await {
+    match state.catalog_service.delete_plan_and_refund(id).await {
         Ok((refunded_users, total_refunded_cents)) => {
             info!("Plan {} deleted. Refunded {} users (Total: ${:.2})", id, refunded_users, total_refunded_cents as f64 / 100.0);
             (axum::http::StatusCode::OK, "").into_response()
@@ -178,14 +178,14 @@ pub async fn get_plan_edit(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    let plan = match state.store_service.get_plan_by_id(id).await {
+    let plan = match state.catalog_service.get_plan_by_id(id).await {
         Ok(Some(p)) => p,
         _ => return (axum::http::StatusCode::NOT_FOUND, "Plan not found").into_response(),
     };
 
     let all_groups = state.orchestration_service.node_repo.get_all_groups().await.unwrap_or_default();
 
-    let linked_group_ids = state.store_service.get_plan_group_ids(id).await.unwrap_or_default();
+    let linked_group_ids = state.catalog_service.get_plan_group_ids(id).await.unwrap_or_default();
 
     let admin_path = state.admin_path.clone();
     let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
@@ -250,7 +250,7 @@ pub async fn update_plan(
         return (axum::http::StatusCode::BAD_REQUEST, "Plan name is required").into_response();
     }
 
-    if let Err(e) = state.store_service.update_plan(id, &name, &description, device_limit, traffic_limit_gb, duration_days, price, group_ids).await {
+    if let Err(e) = state.catalog_service.update_plan(id, &name, &description, device_limit, traffic_limit_gb, duration_days, price, group_ids).await {
         error!("Failed to update plan: {}", e);
         return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to update plan").into_response();
     }

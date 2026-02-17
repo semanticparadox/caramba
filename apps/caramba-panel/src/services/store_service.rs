@@ -329,35 +329,6 @@ impl StoreService {
         Ok(())
     }
 
-    pub async fn get_active_plans(&self) -> Result<Vec<Plan>> {
-        let mut plans = sqlx::query_as::<_, Plan>(
-            "SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans WHERE is_active = TRUE"
-        )
-        .fetch_all(&self.pool)
-        .await?;
-
-        if plans.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let plan_ids: Vec<i64> = plans.iter().map(|p| p.id).collect();
-        let query = "SELECT * FROM plan_durations WHERE plan_id = ANY($1) ORDER BY duration_days ASC";
-        
-        let all_durations = sqlx::query_as::<_, caramba_db::models::store::PlanDuration>(&query)
-            .bind(&plan_ids)
-            .fetch_all(&self.pool)
-            .await?;
-
-        for plan in &mut plans {
-            plan.durations = all_durations.iter()
-                .filter(|d| d.plan_id == plan.id)
-                .cloned()
-                .collect();
-        }
-
-        Ok(plans)
-    }
-
     pub async fn purchase_plan(&self, user_id: i64, duration_id: i64) -> Result<Subscription> {
         let mut tx = self.pool.begin().await?;
 
@@ -611,14 +582,6 @@ impl StoreService {
         Ok(sub)
     }
 
-    pub async fn get_plan_duration_by_id(&self, duration_id: i64) -> Result<Option<PlanDuration>> {
-        let duration = sqlx::query_as::<_, PlanDuration>("SELECT * FROM plan_durations WHERE id = $1")
-            .bind(duration_id)
-            .fetch_optional(&self.pool)
-            .await?;
-        Ok(duration)
-    }
-
     pub async fn extend_subscription(&self, user_id: i64, duration_id: i64) -> Result<Subscription> {
         let mut tx = self.pool.begin().await?;
         let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
@@ -714,62 +677,6 @@ impl StoreService {
     pub async fn delete_product(&self, id: i64) -> Result<()> {
         sqlx::query("DELETE FROM products WHERE id = $1").bind(id).execute(&self.pool).await?;
         Ok(())
-    }
-
-    pub async fn get_plans_admin(&self) -> Result<Vec<Plan>> {
-        let mut plans = sqlx::query_as::<_, Plan>("SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans WHERE is_trial = FALSE").fetch_all(&self.pool).await?;
-        for plan in &mut plans {
-            plan.durations = sqlx::query_as::<_, PlanDuration>("SELECT * FROM plan_durations WHERE plan_id = $1 ORDER BY duration_days ASC").bind(plan.id).fetch_all(&self.pool).await.unwrap_or_default();
-        }
-        Ok(plans)
-    }
-
-    pub async fn get_plan_by_id(&self, id: i64) -> Result<Option<Plan>> {
-        let plan_opt = sqlx::query_as::<_, Plan>("SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans WHERE id = $1").bind(id).fetch_optional(&self.pool).await?;
-        if let Some(mut plan) = plan_opt {
-            plan.durations = sqlx::query_as::<_, PlanDuration>("SELECT * FROM plan_durations WHERE plan_id = $1 ORDER BY duration_days ASC").bind(plan.id).fetch_all(&self.pool).await.unwrap_or_default();
-            Ok(Some(plan))
-        } else { Ok(None) }
-    }
-
-    pub async fn get_plan_group_ids(&self, plan_id: i64) -> Result<Vec<i64>> {
-        let ids: Vec<i64> = sqlx::query_scalar("SELECT group_id FROM plan_groups WHERE plan_id = $1").bind(plan_id).fetch_all(&self.pool).await?;
-        Ok(ids)
-    }
-
-    pub async fn create_plan(&self, name: &str, description: &str, device_limit: i32, traffic_limit_gb: i32, duration_days: Vec<i32>, prices: Vec<i64>, group_ids: Vec<i64>) -> Result<i64> {
-        let mut tx = self.pool.begin().await?;
-        let plan_id: i64 = sqlx::query_scalar("INSERT INTO plans (name, description, is_active, traffic_limit_gb, device_limit) VALUES ($1, $2, TRUE, $3, $4) RETURNING id")
-            .bind(name).bind(description).bind(traffic_limit_gb).bind(device_limit).fetch_one(&mut *tx).await?;
-
-        for i in 0..duration_days.len().min(prices.len()) {
-            sqlx::query("INSERT INTO plan_durations (plan_id, duration_days, price) VALUES ($1, $2, $3)").bind(plan_id).bind(duration_days[i]).bind(prices[i]).execute(&mut *tx).await?;
-        }
-        for group_id in group_ids {
-            sqlx::query("INSERT INTO plan_groups (plan_id, group_id) VALUES ($1, $2)").bind(plan_id).bind(group_id).execute(&mut *tx).await?;
-        }
-        tx.commit().await?;
-        Ok(plan_id)
-    }
-
-    pub async fn update_plan(&self, id: i64, name: &str, description: &str, device_limit: i32, traffic_limit_gb: i32, duration_days: Vec<i32>, prices: Vec<i64>, group_ids: Vec<i64>) -> Result<()> {
-        let mut tx = self.pool.begin().await?;
-        sqlx::query("UPDATE plans SET name = $1, description = $2, device_limit = $3, traffic_limit_gb = $4 WHERE id = $5").bind(name).bind(description).bind(device_limit).bind(traffic_limit_gb).bind(id).execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM plan_durations WHERE plan_id = $1").bind(id).execute(&mut *tx).await?;
-        for i in 0..duration_days.len().min(prices.len()) {
-            sqlx::query("INSERT INTO plan_durations (plan_id, duration_days, price) VALUES ($1, $2, $3)").bind(id).bind(duration_days[i]).bind(prices[i]).execute(&mut *tx).await?;
-        }
-        sqlx::query("DELETE FROM plan_groups WHERE plan_id = $1").bind(id).execute(&mut *tx).await?;
-        for group_id in group_ids {
-            sqlx::query("INSERT INTO plan_groups (plan_id, group_id) VALUES ($1, $2)").bind(id).bind(group_id).execute(&mut *tx).await?;
-        }
-        tx.commit().await?;
-        Ok(())
-    }
-
-    pub async fn is_trial_plan(&self, id: i64) -> Result<bool> {
-        let is_trial: bool = sqlx::query_scalar("SELECT is_trial FROM plans WHERE id = $1").bind(id).fetch_one(&self.pool).await.unwrap_or(false);
-        Ok(is_trial)
     }
 
     pub async fn get_active_node_ids(&self) -> Result<Vec<i64>> {

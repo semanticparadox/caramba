@@ -81,7 +81,7 @@ impl TelemetryService {
                     max_users = COALESCE($8, max_users)
                  WHERE id = $9"
             )
-            .bind(active_connections)
+            .bind(active_connections.map(|c| c as i32))
             .bind(total_in)
             .bind(total_eq)
             .bind(traffic_up as i64)
@@ -158,7 +158,7 @@ impl TelemetryService {
             Ok((old_sni, new_sni, rotation_id)) => {
                  info!("✅ Auto-Healed Node {}: {} -> {}", node_id, old_sni, new_sni);
                  
-                 if let Some(bot) = self.bot_manager.get_bot().await.ok() {
+                 if let Some(bot) = self.bot_manager.get_bot().await.ok().map(|b| b as teloxide::Bot) {
                      let notify_svc = self.notification_service.clone();
                      let old = old_sni.clone();
                      let new = new_sni.clone();

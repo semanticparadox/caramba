@@ -11,7 +11,7 @@ use uuid::Uuid;
 use axum_extra::extract::cookie::CookieJar;
 
 use crate::AppState;
-use crate::models::api_key::ApiKey;
+use caramba_db::models::api_key::ApiKey;
 use super::auth::get_auth_user;
 
 #[derive(Template, WebTemplate)]

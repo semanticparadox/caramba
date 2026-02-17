@@ -587,7 +587,7 @@ pub async fn update_trial_config(
     let _ = state.settings.set("free_trial_device_limit", &form.free_trial_device_limit.to_string()).await;
     let _ = state.settings.set("required_channel_id", &form.required_channel_id).await;
     
-    if let Err(e) = state.store_service.update_trial_plan_limits(form.free_trial_device_limit, form.free_trial_traffic_limit).await {
+    if let Err(e) = state.catalog_service.update_trial_plan_limits(form.free_trial_device_limit, form.free_trial_traffic_limit).await {
         error!("Failed to update trial plan limits: {}", e);
     }
 

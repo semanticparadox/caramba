@@ -94,7 +94,7 @@ pub async fn subscription_handler(
     let _ = state.subscription_service.track_access(sub.id, &client_ip, user_agent.as_deref()).await;
     
     // 4.5 Prepare Usage Headers (for Hiddify/Sing-box)
-    let plan_details = match state.store_service.get_user_subscriptions(sub.user_id).await {
+    let plan_details = match state.subscription_service.get_user_subscriptions(sub.user_id).await {
         Ok(subs) => {
             subs.iter()
                 .find(|s| s.sub.id == sub.id)
@@ -404,7 +404,7 @@ function copyLink(){{
         ).into_response();
     }
 
-    let (content, content_type, filename) = match client_type {
+    let (content, content_type, filename): (String, &'static str, &'static str) = match client_type {
         "clash" => {
             match state.subscription_service.generate_clash(&sub, &node_infos, &user_keys) {
                 Ok(c) => (c, "application/yaml", "config.yaml"),

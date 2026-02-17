@@ -7,7 +7,7 @@ use askama::Template;
 use askama_web::WebTemplate;
 use axum_extra::extract::cookie::CookieJar;
 use crate::AppState;
-use crate::models::orgs::Organization;
+use caramba_db::models::orgs::Organization;
 
 #[derive(Template, WebTemplate)]
 #[template(path = "admin_orgs.html")]

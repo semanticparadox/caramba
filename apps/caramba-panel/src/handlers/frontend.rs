@@ -5,7 +5,7 @@ use axum::{
 };
 
 use crate::AppState;
-use crate::models::frontend::{
+use caramba_db::models::frontend::{
     FrontendServer, CreateFrontendServer, FrontendHeartbeat,
     FrontendCreatedResponse, TokenRotateResponse,
 };

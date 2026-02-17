@@ -19,6 +19,7 @@ serde_urlencoded = "0.7"
 dotenvy = "0.15"
 teloxide = { version = "0.17", default-features = false, features = ["macros", "rustls"] }
 openssl = { version = "0.10", features = ["vendored"] }
+uuid = { version = "1.11", features = ["v4"] }
 
 rust-embed = "8.5"
 tokio-stream = { version = "0.1", features = ["sync"] }
@@ -39,7 +40,6 @@ bcrypt = "0.18"
 x25519-dalek = { version = "2.0", features = ["static_secrets"] }
 base64 = "0.22"
 hex = "0.4"
-uuid = { version = "1.11", features = ["v4"] }
 jsonwebtoken = "10.3"
 redis = { version = "1.0.3", features = ["tokio-comp", "tokio-rustls-comp", "connection-manager"] }
 # removal of bb8-redis and bb8

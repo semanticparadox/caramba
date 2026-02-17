@@ -58,6 +58,7 @@ pub struct PayService {
     pool: PgPool,
     #[allow(dead_code)]
     store_service: Arc<StoreService>,
+    catalog_service: Arc<crate::services::catalog_service::CatalogService>,
     bot_manager: Arc<BotManager>,
     bot_token: String, 
     cryptobot_token: String,
@@ -79,6 +80,7 @@ impl PayService {
     pub fn new(
         pool: PgPool, 
         store_service: Arc<StoreService>, 
+        catalog_service: Arc<crate::services::catalog_service::CatalogService>,
         bot_manager: Arc<BotManager>, 
         bot_token: String,
         cryptobot_token: String, 
@@ -108,6 +110,7 @@ impl PayService {
         Self { 
             pool, 
             store_service, 
+            catalog_service,
             bot_manager, 
             bot_token,
             cryptobot_token, 
@@ -647,7 +650,7 @@ impl PayService {
         info!("Processing ORDER payment #${} for user {}", order_id, user_id);
         let amount_units = (amount_usd * 100.0) as i64;
         self.store_service.log_payment(user_id, method, amount_units, external_id.as_deref(), "paid").await?;
-        self.store_service.process_order_payment(order_id).await?;
+        self.catalog_service.process_order_payment(order_id).await?;
         
         let _ = self.bot_manager.send_notification(user_id, "✅ Your order has been paid successfully!").await;
         

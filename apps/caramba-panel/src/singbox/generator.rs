@@ -1,5 +1,5 @@
 use crate::singbox::config::*;
-use crate::models::network::{StreamSettings as DbStreamSettings, InboundType, Certificate}; // Added Certificate
+use caramba_db::models::network::{StreamSettings as DbStreamSettings, InboundType, Certificate}; // Added Certificate
 use tracing::{error, warn};
 
 pub struct ConfigGenerator;
@@ -7,10 +7,10 @@ pub struct ConfigGenerator;
 impl ConfigGenerator {
     /// Generates a complete Sing-box configuration from a list of database Inbounds
     pub fn generate_config(
-        node: &crate::models::node::Node,
-        inbounds: Vec<crate::models::network::Inbound>,
-        target_node: Option<crate::models::node::Node>,
-        relay_clients: Vec<crate::models::node::Node>,
+        node: &caramba_db::models::node::Node,
+        inbounds: Vec<caramba_db::models::network::Inbound>,
+        target_node: Option<caramba_db::models::node::Node>,
+        relay_clients: Vec<caramba_db::models::node::Node>,
     ) -> SingBoxConfig {
         
         let mut generated_inbounds = Vec::new();
@@ -217,7 +217,7 @@ impl ConfigGenerator {
                     if let Some(tls) = stream_settings.tls_settings {
                          tls_config.server_name = tls.server_name;
                          if let Some(certs) = tls.certificates {
-                             let certs: Vec<crate::models::network::Certificate> = certs;
+                             let certs: Vec<caramba_db::models::network::Certificate> = certs;
                              if let Some(first) = certs.get(0) {
                                  if !first.key_path.is_empty() {
                                      tls_config.key_path = Some(first.key_path.clone());
@@ -305,7 +305,7 @@ impl ConfigGenerator {
                     if let Some(tls) = stream_settings.tls_settings {
                          tls_config.server_name = tls.server_name;
                          if let Some(certs) = tls.certificates {
-                             let certs: Vec<crate::models::network::Certificate> = certs;
+                             let certs: Vec<caramba_db::models::network::Certificate> = certs;
                              if let Some(first) = certs.get(0) {
                                  if !first.key_path.is_empty() {
                                      tls_config.key_path = Some(first.key_path.clone());
@@ -385,7 +385,7 @@ impl ConfigGenerator {
                         if let Some(tls) = &stream_settings.tls_settings {
                             server_name = tls.server_name.clone();
                             if let Some(certs) = &tls.certificates {
-                                let certs: &Vec<crate::models::network::Certificate> = certs;
+                                let certs: &Vec<caramba_db::models::network::Certificate> = certs;
                                 if let Some(first) = certs.get(0) {
                                     key_path = Some(first.key_path.clone());
                                     cert_path = Some(first.certificate_path.clone());
@@ -459,7 +459,7 @@ impl ConfigGenerator {
                         if let Some(tls) = &stream_settings.tls_settings {
                              server_name = tls.server_name.clone();
                              if let Some(certs) = &tls.certificates {
-                                 let certs: &Vec<crate::models::network::Certificate> = certs;
+                                 let certs: &Vec<caramba_db::models::network::Certificate> = certs;
                                  if let Some(first) = certs.get(0) {
                                      key_path = Some(first.key_path.clone());
                                      cert_path = Some(first.certificate_path.clone());
@@ -512,7 +512,7 @@ impl ConfigGenerator {
                         if let Some(token) = &client_node.join_token {
                             warn!("🔗 Injecting Relay Access for Node {} ({}). User: relay_{}", client_node.name, client_node.ip, client_node.id);
                             let password = format!("{}", token);
-                            ss.users.push(crate::models::network::ShadowsocksUser {
+                            ss.users.push(caramba_db::models::network::ShadowsocksUser {
                                 username: format!("relay_{}", client_node.id),
                                 password,
                             });

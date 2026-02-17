@@ -139,7 +139,7 @@ impl OrchestrationService {
     }
 
 
-    async fn instantiate_inbound_from_template(&self, node: &Node, template: &crate::models::groups::InboundTemplate) -> anyhow::Result<()> {
+    async fn instantiate_inbound_from_template(&self, node: &Node, template: &caramba_db::models::groups::InboundTemplate) -> anyhow::Result<()> {
         info!("Instantiating template '{}' for node {}", template.name, node.id);
         
         // 0. Placeholder Replacement
@@ -200,7 +200,7 @@ impl OrchestrationService {
              let pubkey = node_updated.reality_pub.unwrap_or_default();
              let sid = node_updated.short_id.unwrap_or_default();
              
-             if let Ok(mut stream_obj) = serde_json::from_str::<crate::models::network::StreamSettings>(&stream_json) {
+             if let Ok(mut stream_obj) = serde_json::from_str::<caramba_db::models::network::StreamSettings>(&stream_json) {
                  if let Some(reality) = &mut stream_obj.reality_settings {
                      reality.private_key = pkey;
                      reality.public_key = Some(pubkey);
@@ -212,7 +212,7 @@ impl OrchestrationService {
              // Inject Reality Keys for Naive
              let node_updated = self.node_repo.get_node_by_id(node.id).await?.unwrap(); 
              if let (Some(pkey), Some(pubkey), Some(sid)) = (node_updated.reality_priv, node_updated.reality_pub, node_updated.short_id) {
-                 if let Ok(mut stream_obj) = serde_json::from_str::<crate::models::network::StreamSettings>(&stream_json) {
+                 if let Ok(mut stream_obj) = serde_json::from_str::<caramba_db::models::network::StreamSettings>(&stream_json) {
                      if let Some(reality) = &mut stream_obj.reality_settings {
                          reality.private_key = pkey;
                          reality.public_key = Some(pubkey);
@@ -225,7 +225,7 @@ impl OrchestrationService {
             let (priv_key, pub_key) = self.generate_wireguard_keys()?;
             let (jc, jmin, jmax, s1, s2, h1, h2, h3, h4) = self.generate_awg_params();
             
-            if let Ok(mut awg_obj) = serde_json::from_str::<crate::models::network::AmneziaWgSettings>(&settings_json) {
+            if let Ok(mut awg_obj) = serde_json::from_str::<caramba_db::models::network::AmneziaWgSettings>(&settings_json) {
                 awg_obj.private_key = priv_key;
                 awg_obj.public_key = pub_key;
                 awg_obj.jc = jc;
@@ -241,7 +241,7 @@ impl OrchestrationService {
             }
         }
 
-        let inbound = crate::models::network::Inbound {
+        let inbound = caramba_db::models::network::Inbound {
             id: 0,
             node_id: node.id,
             tag: format!("tpl_{}", template.name.to_lowercase().replace(' ', "_")),
@@ -360,7 +360,7 @@ impl OrchestrationService {
     }
 
     /// Generates Node Config JSON without applying it (Internal)
-    pub async fn generate_node_config_json(&self, node_id: i64) -> anyhow::Result<(crate::models::node::Node, serde_json::Value)> {
+    pub async fn generate_node_config_json(&self, node_id: i64) -> anyhow::Result<(caramba_db::models::node::Node, serde_json::Value)> {
         info!("Step 1: Fetching node details for ID: {}", node_id);
         // 1. Fetch node details
         let node: Node = sqlx::query_as("SELECT * FROM nodes WHERE id = $1")
@@ -442,7 +442,7 @@ impl OrchestrationService {
             // ...
         
             // Try to parse stream settings for specific logic
-            if let Ok(mut stream) = serde_json::from_str::<crate::models::network::StreamSettings>(&inbound.stream_settings) {
+            if let Ok(mut stream) = serde_json::from_str::<caramba_db::models::network::StreamSettings>(&inbound.stream_settings) {
                  // Check if Reality is enabled and SNI override is needed
                  if let Some(reality) = &mut stream.reality_settings {
                      // If we have a specific SNI set on the node, enforce it
@@ -487,7 +487,7 @@ impl OrchestrationService {
             
             info!("Found {} active subscriptions for inbound {}", active_subs.len(), inbound.tag);
 
-        use crate::models::network::{InboundType, VlessClient, Hysteria2User, NaiveUser};
+        use caramba_db::models::network::{InboundType, VlessClient, Hysteria2User, NaiveUser};
 
         // Parse as Value first to handle missing 'protocol' tag in legacy/broken data
         let mut settings_value: serde_json::Value = serde_json::from_str(&inbound.settings).unwrap_or(serde_json::Value::Null);
@@ -542,7 +542,7 @@ impl OrchestrationService {
                         }
                     },
                     InboundType::AmneziaWg(awg) => {
-                        use crate::models::network::AmneziaWgUser;
+                        use caramba_db::models::network::AmneziaWgUser;
                         for sub in &active_subs {
                             if let (sub_id, Some(uuid), tg_id, _) = (sub.0, &sub.1, sub.2, &sub.3) {
                                 let auth_name = format!("user_{}", sub_id);
@@ -562,7 +562,7 @@ impl OrchestrationService {
                         }
                     },
                     InboundType::Trojan(trojan) => {
-                        use crate::models::network::TrojanClient;
+                        use caramba_db::models::network::TrojanClient;
                         for sub in &active_subs {
                             if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
                                 let auth_name = format!("user_{}", sub_id);
@@ -579,7 +579,7 @@ impl OrchestrationService {
                                 let auth_name = format!("user_{}", sub_id);
                                 
                                 info!("🔑 Injecting TUIC user: {} (UUID: {})", auth_name, uuid);
-                                tuic.users.push(crate::models::network::TuicUser {
+                                tuic.users.push(caramba_db::models::network::TuicUser {
                                     name: Some(auth_name),
                                     uuid: uuid.clone(),
                                     password: uuid.replace("-", ""), 
@@ -606,7 +606,7 @@ impl OrchestrationService {
                                 let auth_name = format!("user_{}", sub_id);
                                 
                                 info!("🔑 Injecting SHADOWSOCKS user: {} (Pass: {})", auth_name, uuid);
-                                ss.users.push(crate::models::network::ShadowsocksUser {
+                                ss.users.push(caramba_db::models::network::ShadowsocksUser {
                                     username: auth_name,
                                     password: uuid.replace("-", ""),
                                 });

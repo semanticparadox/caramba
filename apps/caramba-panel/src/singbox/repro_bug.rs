@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod tests {
-    use crate::models::network::Inbound;
+    use caramba_db::models::network::Inbound;
     use crate::singbox::subscription_generator::{NodeInfo, UserKeys, generate_singbox_config};
     use serde_json::json;
 
     // Helper to create a dummy subscription
-    fn match_any_sub() -> crate::models::store::Subscription {
+    fn match_any_sub() -> caramba_db::models::store::Subscription {
          serde_json::from_value(json!({
              "id": 1,
              "user_id": 1,

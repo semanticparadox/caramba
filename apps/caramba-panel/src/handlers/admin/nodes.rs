@@ -13,7 +13,7 @@ use serde::Deserialize;
 use tracing::{info, error};
 
 use crate::AppState;
-use crate::models::node::Node;
+use caramba_db::models::node::Node;
 use super::auth::get_auth_user;
 use chrono::Utc;
 
@@ -22,7 +22,7 @@ use chrono::Utc;
 // ============================================================================
 
 #[derive(Template)]
-#[template(source = "DEBUG")]
+#[template(source = "DEBUG", ext = "html")]
 pub struct NodesTemplate {
     pub nodes: Vec<Node>,
     pub is_auth: bool,
@@ -68,7 +68,7 @@ pub struct NodeManageTemplate {
     pub username: String,
     pub active_page: String,
     pub is_auth: bool,
-    pub inbounds: Vec<crate::models::network::Inbound>,
+    pub inbounds: Vec<caramba_db::models::network::Inbound>,
     pub discovered_snis: Vec<NodeSniDisplay>,
 }
 

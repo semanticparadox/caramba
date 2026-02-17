@@ -30,12 +30,12 @@ impl InfrastructureService {
         self.node_repo.get_active_nodes().await
     }
 
-    pub async fn get_node_groups(&self, node_id: i64) -> Result<Vec<crate::models::groups::NodeGroup>> {
+    pub async fn get_node_groups(&self, node_id: i64) -> Result<Vec<caramba_db::models::groups::NodeGroup>> {
         self.node_repo.get_groups_by_node(node_id).await
     }
 
-    pub async fn get_node_inbounds(&self, node_id: i64) -> Result<Vec<crate::models::network::Inbound>> {
-        let inbounds = sqlx::query_as::<_, crate::models::network::Inbound>("SELECT * FROM inbounds WHERE node_id = $1 ORDER BY listen_port ASC")
+    pub async fn get_node_inbounds(&self, node_id: i64) -> Result<Vec<caramba_db::models::network::Inbound>> {
+        let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>("SELECT * FROM inbounds WHERE node_id = $1 ORDER BY listen_port ASC")
             .bind(node_id)
             .fetch_all(&self.pool)
             .await?;

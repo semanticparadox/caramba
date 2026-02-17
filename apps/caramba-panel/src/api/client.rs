@@ -285,8 +285,8 @@ async fn get_user_subscriptions(
         None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
     };
 
-    // Use store_service for consistency with bot
-    let subs = match state.store_service.get_user_subscriptions(user_id).await {
+    // Use subscription_service
+    let subs: Vec<caramba_db::models::store::SubscriptionWithDetails> = match state.subscription_service.get_user_subscriptions(user_id).await {
         Ok(s) => s,
         Err(e) => {
             tracing::error!("Failed to fetch subscriptions: {}", e);
@@ -388,7 +388,7 @@ async fn get_plans(
     State(state): State<AppState>,
     axum::Extension(_claims): axum::Extension<Claims>,
 ) -> impl IntoResponse {
-    match state.store_service.get_active_plans().await {
+    match state.catalog_service.get_active_plans().await {
         Ok(plans) => {
             let result: Vec<serde_json::Value> = plans.iter().map(|p| {
                 let durations: Vec<serde_json::Value> = p.durations.iter().map(|d| {
@@ -466,7 +466,7 @@ async fn get_active_servers(
     let user_id = claims.sub.parse::<i64>().unwrap_or(0);
     
     // (Refactored Phase 1.8: Use Plan Groups)
-    let nodes: Vec<crate::models::node::Node> = state.store_service.get_user_nodes(user_id)
+    let nodes: Vec<caramba_db::models::node::Node> = state.store_service.get_user_nodes(user_id)
         .await
         .unwrap_or_default();
     
@@ -630,7 +630,7 @@ async fn get_store_categories(
     axum::Extension(_claims): axum::Extension<Claims>,
 ) -> impl IntoResponse {
     match state.catalog_service.get_categories().await {
-        Ok(cats) => Json::<Vec<crate::models::store::StoreCategory>>(cats).into_response(),
+        Ok(cats) => Json::<Vec<caramba_db::models::store::StoreCategory>>(cats).into_response(),
         Err(e) => {
             tracing::error!("Failed to fetch categories: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch categories").into_response()
@@ -833,7 +833,7 @@ async fn pin_subscription_node(
     match sub_owner_id {
         Some(owner_id) if owner_id == user_id => {
             // Update
-            match state.store_service.update_subscription_node(sub_id, Some(body.node_id)).await {
+            match state.subscription_service.update_subscription_node(sub_id, Some(body.node_id)).await {
                 Ok(_) => Json(serde_json::json!({"ok": true})).into_response(),
                 Err(e) => {
                     tracing::error!("Failed to pin node: {}", e);

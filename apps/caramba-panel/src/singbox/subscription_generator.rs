@@ -1,4 +1,4 @@
-use crate::models::store::Subscription;
+use caramba_db::models::store::Subscription;
 use anyhow::Result;
 use serde_json::{json, Value};
 
@@ -21,7 +21,7 @@ pub struct NodeInfo {
     pub hy2_port: Option<i32>,
     pub hy2_sni: Option<String>,
     pub frontend_url: Option<String>, 
-    pub inbounds: Vec<crate::models::network::Inbound>,
+    pub inbounds: Vec<caramba_db::models::network::Inbound>,
     pub relay_info: Option<Box<NodeInfo>>, // Chaining support (Phase 8)
     
     // Policies (Phase 11)
@@ -31,8 +31,8 @@ pub struct NodeInfo {
 }
 
 // Convert from actual Node model
-impl From<&crate::models::node::Node> for NodeInfo {
-    fn from(node: &crate::models::node::Node) -> Self {
+impl From<&caramba_db::models::node::Node> for NodeInfo {
+    fn from(node: &caramba_db::models::node::Node) -> Self {
         Self {
             name: node.name.clone(),
             address: node.ip.clone(),
@@ -54,7 +54,7 @@ impl From<&crate::models::node::Node> for NodeInfo {
 
 // Convert from Node + Inbounds
 impl NodeInfo {
-    pub fn new(node: &crate::models::node::Node, inbounds: Vec<crate::models::network::Inbound>) -> Self {
+    pub fn new(node: &caramba_db::models::node::Node, inbounds: Vec<caramba_db::models::network::Inbound>) -> Self {
         Self {
             name: node.name.clone(),
             address: node.ip.clone(),
@@ -104,7 +104,7 @@ struct StreamInfo {
 
 fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
     // 1. Parse into strongly-typed struct for robust alias handling (SNI, Settings, etc.)
-    let settings: crate::models::network::StreamSettings = serde_json::from_str(raw).unwrap_or_default();
+    let settings: caramba_db::models::network::StreamSettings = serde_json::from_str(raw).unwrap_or_default();
     
     // 2. Parse into generic Value for fields not yet in StreamSettings struct (e.g. fingerprint, tuic/hy2 extras)
     let v: Value = serde_json::from_str(raw).unwrap_or(json!({}));
@@ -200,7 +200,7 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
     }
 }
 
-fn extract_sni_from_settings(settings: &crate::models::network::StreamSettings) -> Option<String> {
+fn extract_sni_from_settings(settings: &caramba_db::models::network::StreamSettings) -> Option<String> {
     if let Some(reality) = &settings.reality_settings {
         // Priority: server_names[0] -> server_name (singular)
         reality.server_names.first().cloned()

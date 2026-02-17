@@ -8,7 +8,7 @@ use askama::Template;
 use askama_web::WebTemplate;
 use serde::Deserialize;
 use crate::AppState;
-use crate::models::groups::{InboundTemplate, NodeGroup};
+use caramba_db::models::groups::{InboundTemplate, NodeGroup};
 use tracing::{info, error};
 
 #[derive(Template, WebTemplate)]
@@ -42,12 +42,12 @@ pub async fn get_templates_page(
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    let templates = sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates ORDER BY name ASC")
+    let templates: Vec<InboundTemplate> = sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates ORDER BY name ASC")
         .fetch_all(&state.pool)
         .await
         .unwrap_or_default();
         
-    let groups = sqlx::query_as::<_, NodeGroup>("SELECT * FROM node_groups ORDER BY name ASC")
+    let groups: Vec<NodeGroup> = sqlx::query_as::<_, NodeGroup>("SELECT * FROM node_groups ORDER BY name ASC")
         .fetch_all(&state.pool)
         .await
         .unwrap_or_default();
@@ -262,7 +262,7 @@ pub async fn get_template_edit(
             Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)).into_response(),
         };
 
-    let groups = sqlx::query_as::<_, NodeGroup>("SELECT * FROM node_groups ORDER BY name ASC")
+    let groups: Vec<NodeGroup> = sqlx::query_as::<_, NodeGroup>("SELECT * FROM node_groups ORDER BY name ASC")
         .fetch_all(&state.pool)
         .await
         .unwrap_or_default();
@@ -294,7 +294,7 @@ pub async fn get_template_json(
         .fetch_optional(&state.pool)
         .await 
     {
-        Ok(Some(t)) => axum::Json(t).into_response(),
+        Ok(Some(t)) => axum::Json::<InboundTemplate>(t).into_response(),
         Ok(None) => (StatusCode::NOT_FOUND, "Template not found").into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)).into_response(),
     }

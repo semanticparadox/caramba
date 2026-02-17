@@ -366,7 +366,7 @@ pub async fn rotate_sni(
     };
 
     // 6. Notify Affected Users (async, non-blocking)
-    if let Some(bot) = state.bot_manager.get_bot().await.ok() {
+    if let Some(bot) = state.bot_manager.get_bot().await.ok().map(|b| b as teloxide::Bot) {
         let notification_service = state.notification_service.clone();
         let old_sni = current_sni.clone();
         let new_sni_clone = next_sni.clone();
@@ -511,7 +511,7 @@ pub async fn register(
     Json(payload): Json<RegisterNodeRequest>,
 ) -> impl IntoResponse {
     // 1. Validate API Key
-    let api_key_res: Result<Option<crate::models::api_key::ApiKey>, _> = sqlx::query_as("SELECT * FROM api_keys WHERE key = ? AND is_active = 1")
+    let api_key_res: Result<Option<caramba_db::models::api_key::ApiKey>, _> = sqlx::query_as("SELECT * FROM api_keys WHERE key = ? AND is_active = 1")
     .bind(&payload.enrollment_key)
     .fetch_optional(&state.pool)
     .await;

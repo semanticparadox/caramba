@@ -9,6 +9,7 @@ use tracing::{error, info, warn};
 
 use crate::services::orchestration_service::OrchestrationService;
 use crate::services::store_service::StoreService;
+use crate::services::subscription_service::SubscriptionService;
 
 /// Represents a single connection from the Clash API
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -55,16 +56,19 @@ pub struct ClashConnectionsResponse {
 pub struct ConnectionService {
     orchestration: Arc<OrchestrationService>,
     store: Arc<StoreService>,
+    subscription: Arc<SubscriptionService>,
 }
 
 impl ConnectionService {
     pub fn new(
         orchestration: Arc<OrchestrationService>,
         store: Arc<StoreService>,
+        subscription: Arc<SubscriptionService>,
     ) -> Self {
         Self {
             orchestration,
             store,
+            subscription,
         }
     }
 
@@ -81,7 +85,7 @@ impl ConnectionService {
             }
 
             // Cleanup old IP tracking records (>1 hour old)
-            if let Err(e) = self.store.cleanup_old_ip_tracking().await {
+            if let Err(e) = self.subscription.cleanup_old_ip_tracking().await {
                 error!("Error cleaning up old IP tracking: {:#}", e);
             }
         }
@@ -191,7 +195,7 @@ impl ConnectionService {
     /// Enforce device limit for a single subscription
     async fn enforce_subscription_limit(&self, sub_id: i64, active_ips: HashSet<String>) -> Result<()> {
         // Get device limit for this subscription
-        let device_limit = self.store.get_subscription_device_limit(sub_id).await?;
+        let device_limit = self.subscription.get_subscription_device_limit(sub_id).await?;
 
         let active_device_count = active_ips.len();
         let ips_vec: Vec<String> = active_ips.iter().cloned().collect();
