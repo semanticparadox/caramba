@@ -142,7 +142,9 @@ pub async fn install_hub(config: &crate::setup::InstallConfig, version: &str) ->
     let base_url = format!("https://github.com/semanticparadox/caramba/releases/download/{}", version);
     
     let panel_path = format!("{}/caramba-panel", config.install_dir);
-    download_file(&format!("{}/caramba-panel", base_url), &panel_path).await?;
+    if let Err(e) = download_file(&format!("{}/caramba-panel", base_url), &panel_path).await {
+        println!("⚠️ Warning: Failed to download caramba-panel: {}. Skipping for now.", e);
+    }
     
     let sub_path = format!("{}/caramba-sub", config.install_dir);
     download_file(&format!("{}/caramba-sub", base_url), &sub_path).await?;
