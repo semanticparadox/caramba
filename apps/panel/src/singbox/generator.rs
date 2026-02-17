@@ -749,8 +749,8 @@ impl ConfigGenerator {
         file.write_all(config_json.as_bytes())?;
         
         // Run sing-box check
-        // We assume sing-box is in PATH. If not, this will fail.
-        let output = Command::new("sing-box")
+        // We assume sing-box is in PATH. If not, we skip validation to allow running on servers without sing-box installed.
+        let output_result = Command::new("sing-box")
             .arg("check")
             .arg("-c")
             .arg(&temp_path)
@@ -759,7 +759,7 @@ impl ConfigGenerator {
         // Clean up temp file immediately
         let _ = std::fs::remove_file(&temp_path);
         
-        match output {
+        match output_result {
             Ok(out) => {
                 if !out.status.success() {
                     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -767,7 +767,9 @@ impl ConfigGenerator {
                 }
             }
             Err(e) => {
-                return Err(anyhow::anyhow!("Failed to execute sing-box binary: {}", e));
+                // If the binary is missing or execution fails, we log a warning but DO NOT fail the request.
+                // This enables the panel to run on environments where sing-box is not installed.
+                warn!("⚠️ Skipping Sing-box config validation (binary execution failed: {}). Proceeding blindly.", e);
             }
         }
         
