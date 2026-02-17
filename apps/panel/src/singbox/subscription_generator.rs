@@ -37,7 +37,7 @@ impl From<&crate::models::node::Node> for NodeInfo {
             name: node.name.clone(),
             address: node.ip.clone(),
             reality_port: Some(node.vpn_port as i32),
-            reality_sni: node.domain.clone(),
+            reality_sni: node.reality_sni.clone().or(node.domain.clone()),
             reality_public_key: node.reality_pub.clone(),
             reality_short_id: node.short_id.clone(),
             hy2_port: None,
@@ -59,7 +59,7 @@ impl NodeInfo {
             name: node.name.clone(),
             address: node.ip.clone(),
             reality_port: Some(node.vpn_port as i32),
-            reality_sni: node.domain.clone(),
+            reality_sni: node.reality_sni.clone().or(node.domain.clone()),
             reality_public_key: node.reality_pub.clone(),
             reality_short_id: node.short_id.clone(),
             hy2_port: None,
@@ -202,7 +202,10 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
 
 fn extract_sni_from_settings(settings: &crate::models::network::StreamSettings) -> Option<String> {
     if let Some(reality) = &settings.reality_settings {
+        // Priority: server_names[0] -> server_name (singular)
         reality.server_names.first().cloned()
+            .or_else(|| reality.server_name.clone())
+            .filter(|s| !s.is_empty())
     } else if let Some(tls) = &settings.tls_settings {
         if !tls.server_name.is_empty() {
             Some(tls.server_name.clone())

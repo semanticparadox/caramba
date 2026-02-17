@@ -245,6 +245,8 @@ pub struct RealitySettings {
     pub xver: i32,
     #[serde(alias = "serverNames", default)]
     pub server_names: Vec<String>,
+    #[serde(alias = "serverName", default)]
+    pub server_name: Option<String>,
     #[serde(alias = "privateKey", default)]
     pub private_key: String,
     #[serde(alias = "publicKey", default)]
