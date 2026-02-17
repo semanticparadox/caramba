@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::time;

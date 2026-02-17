@@ -411,8 +411,7 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
         traffic_svc.start().await;
     });
 
-    // Start Connection Service (Device Limit Enforcement)
-    let connection_state = state.clone();
+
     let connection_store = state.store_service.clone();
     let connection_orch = state.orchestration_service.clone();
     tokio::spawn(async move {
