@@ -48,10 +48,16 @@
     <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden shadow-xl">
         <div class="p-6 border-b border-white/5 flex justify-between items-center bg-slate-900/30">
             <h3 class="text-lg font-semibold text-white">Active Inbounds</h3>
-            <span
-                class="px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                {{ inbounds.len() }} Configured
-            </span>
+            <div class="flex items-center gap-3">
+                <span
+                    class="px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                    {{ inbounds.len() }} Configured
+                </span>
+                <button onclick="document.getElementById('add-inbound-modal').showModal()"
+                    class="flex items-center gap-2 px-3 py-1.5 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-400 border border-emerald-500/20 rounded-lg text-xs font-medium transition-all">
+                    <i data-lucide="plus" class="w-4 h-4"></i> Add Inbound
+                </button>
+            </div>
         </div>
 
         <div class="overflow-x-auto">
@@ -165,32 +171,147 @@
         </div>
     </dialog>
 
-    <!-- Template Guidance -->
-    <div
-        class="bg-indigo-500/5 border border-indigo-500/20 rounded-2xl p-6 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-6">
-        <div class="flex items-start gap-4">
-            <div class="p-3 bg-indigo-500/10 rounded-xl text-indigo-400">
-                <i data-lucide="info" class="w-6 h-6"></i>
-            </div>
-            <div>
-                <h3 class="text-lg font-bold text-white mb-1">Template-Driven Configuration</h3>
-                <p class="text-sm text-slate-400 max-w-xl">
-                    Individual inbounds are now managed via <b>Global Templates</b>. To add new ports or protocols,
-                    create a template and assign it to a group this node belongs to.
-                </p>
-            </div>
+    <!-- ADD INBOUND MODAL -->
+    <dialog id="add-inbound-modal"
+        class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50">
+        <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4 p-6"
+            onclick="event.stopPropagation()">
+            <header class="flex justify-between items-center mb-6">
+                <h3 class="text-lg font-bold text-white">Add New Inbound</h3>
+                <form method="dialog">
+                    <button class="text-slate-400 hover:text-white transition-colors">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </form>
+            </header>
+
+            <form hx-post="{{ admin_path }}/nodes/{{ node.id }}/inbounds" hx-swap="none" class="space-y-4">
+
+                <!-- BORROW TEMPLATE -->
+                <div class="p-4 rounded-xl bg-indigo-500/5 border border-indigo-500/10 mb-6">
+                    <label class="block text-xs font-medium text-indigo-300 uppercase mb-2">Borrow Settings from
+                        Template</label>
+                    <select id="borrow-template-select"
+                        class="w-full bg-slate-950 border border-white/10 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors">
+                        <option value="">-- Select a Template --</option>
+                        {% for tpl in templates %}
+                        <option value="{{ tpl.id }}">{{ tpl.name }} ({{ tpl.protocol }})</option>
+                        {% endfor %}
+                    </select>
+                    <p class="text-[10px] text-slate-500 mt-2">Select a template to auto-fill the settings below.</p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase mb-1">Tag</label>
+                        <input type="text" name="tag" required placeholder="inbound-1"
+                            class="w-full bg-slate-950 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase mb-1">Protocol</label>
+                        <select name="protocol" id="add_protocol" required
+                            class="w-full bg-slate-950 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors">
+                            <option value="vless">VLESS</option>
+                            <option value="hysteria2">Hysteria 2</option>
+                            <option value="trojan">Trojan</option>
+                            <option value="shadowsocks">Shadowsocks</option>
+                            <option value="vmess">VMess</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase mb-1">Listen IP</label>
+                        <input type="text" name="listen_ip" value="0.0.0.0" required
+                            class="w-full bg-slate-950 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors font-mono">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase mb-1">Listen Port</label>
+                        <input type="number" name="listen_port" required placeholder="443"
+                            class="w-full bg-slate-950 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors font-mono">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 uppercase mb-1">Remark</label>
+                    <input type="text" name="remark" placeholder="Optional description"
+                        class="w-full bg-slate-950 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 uppercase mb-1">
+                        Settings JSON
+                        <span class="text-slate-600 ml-2 text-[10px] normal-case">VLESS users, Hysteria2 up/down,
+                            etc.</span>
+                    </label>
+                    <textarea name="settings" id="add_settings" rows="6" required
+                        class="w-full bg-slate-950 border border-white/10 rounded-lg px-4 py-3 text-xs text-emerald-400 font-mono focus:outline-none focus:border-indigo-500 transition-colors leading-relaxed">{}</textarea>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 uppercase mb-1">
+                        Stream Settings JSON
+                        <span class="text-slate-600 ml-2 text-[10px] normal-case">Transport, Security, Reality...</span>
+                    </label>
+                    <textarea name="stream_settings" id="add_stream_settings" rows="6" required
+                        class="w-full bg-slate-950 border border-white/10 rounded-lg px-4 py-3 text-xs text-emerald-400 font-mono focus:outline-none focus:border-indigo-500 transition-colors leading-relaxed">{}</textarea>
+                </div>
+
+                <div class="flex justify-end pt-4 border-t border-white/5">
+                    <button type="button" onclick="document.getElementById('add-inbound-modal').close()"
+                        class="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors mr-2">
+                        Cancel
+                    </button>
+                    <button type="submit"
+                        class="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl shadow-lg shadow-indigo-600/20 transition-all active:scale-95">
+                        Add Inbound
+                    </button>
+                </div>
+            </form>
         </div>
-        <div class="flex flex-wrap gap-3">
-            <a href="{{ admin_path }}/templates"
-                class="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl transition-all shadow-lg shadow-indigo-600/20 active:scale-95">
-                <i data-lucide="plus-circle" class="w-5 h-5"></i>
-                Manage Templates
-            </a>
-        </div>
-    </div>
+    </dialog>
 </section>
 
 <script>
-    // Templates JS logic removed as form is removed.
+    document.getElementById('borrow-template-select').addEventListener('change', async function (e) {
+        const tplId = e.target.value;
+        if (!tplId) return;
+
+        try {
+            const adminPath = "{{ admin_path }}"; // From template binding
+            const res = await fetch(`${adminPath}/templates/${tplId}/json`);
+            if (!res.ok) throw new Error("Failed to fetch template");
+
+            const tpl = await res.json();
+
+            // Auto-fill form
+            if (tpl.protocol) document.getElementById('add_protocol').value = tpl.protocol;
+
+            // Parse and format JSON for pretty display
+            try {
+                const settingsObj = JSON.parse(tpl.settings_template || "{}");
+                document.getElementById('add_settings').value = JSON.stringify(settingsObj, null, 2);
+            } catch {
+                document.getElementById('add_settings').value = tpl.settings_template || "{}";
+            }
+
+            try {
+                const streamObj = JSON.parse(tpl.stream_settings_template || "{}");
+                document.getElementById('add_stream_settings').value = JSON.stringify(streamObj, null, 2);
+            } catch {
+                document.getElementById('add_stream_settings').value = tpl.stream_settings_template || "{}";
+            }
+
+            // Optional: Auto-fill port if range start is set
+            if (tpl.port_range_start > 0) {
+                document.querySelector('input[name="listen_port"]').value = tpl.port_range_start;
+            }
+
+        } catch (err) {
+            console.error(err);
+            alert("Error loading template data: " + err.message);
+        }
+    });
 </script>
 {% endblock %}

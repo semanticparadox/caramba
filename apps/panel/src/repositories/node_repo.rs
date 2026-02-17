@@ -177,6 +177,31 @@ impl NodeRepository {
         .await?;
         
         Ok(())
+        Ok(())
+    }
+
+    pub async fn get_inbound_by_id(&self, id: i64) -> Result<Option<Inbound>> {
+        sqlx::query_as::<_, Inbound>("SELECT * FROM inbounds WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .context("Failed to fetch inbound by ID")
+    }
+
+    pub async fn delete_inbound_by_id(&self, id: i64) -> Result<()> {
+        sqlx::query("DELETE FROM inbounds WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Get all global inbound templates
+    pub async fn get_all_inbound_templates(&self) -> Result<Vec<crate::models::groups::InboundTemplate>> {
+        sqlx::query_as::<_, crate::models::groups::InboundTemplate>("SELECT * FROM inbound_templates WHERE is_active = 1")
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to fetch all inbound templates")
     }
 
     // ==================== GROUPS (NODES) ====================

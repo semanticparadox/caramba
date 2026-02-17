@@ -113,17 +113,17 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
     let security = settings.security.clone().unwrap_or_else(|| "reality".to_string());
 
     // SNI Extraction (Priority: Reality -> TLS -> Node Fallback)
-    let sni = if let Some(reality) = &settings.reality_settings {
-        reality.server_names.first().cloned()
-    } else if let Some(tls) = &settings.tls_settings {
-        if !tls.server_name.is_empty() {
-            Some(tls.server_name.clone())
+    // SNI Extraction (Priority: Node Override -> Reality -> TLS -> Default)
+    let sni = if let Some(override_sni) = &node.reality_sni {
+        if !override_sni.is_empty() {
+            override_sni.clone()
         } else {
-            None
+             // Fallback if empty string
+             extract_sni_from_settings(&settings).unwrap_or("www.google.com".to_string())
         }
     } else {
-        None
-    }.unwrap_or_else(| | node.reality_sni.clone().unwrap_or("www.google.com".to_string()));
+        extract_sni_from_settings(&settings).unwrap_or("www.google.com".to_string())
+    };
 
     // Reality Keys
     let public_key = settings.reality_settings.as_ref()
@@ -197,6 +197,20 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
         hy2_ports, hy2_obfs,
         tuic_congestion_control,
         tuic_zero_rtt_handshake,
+    }
+}
+
+fn extract_sni_from_settings(settings: &crate::models::network::StreamSettings) -> Option<String> {
+    if let Some(reality) = &settings.reality_settings {
+        reality.server_names.first().cloned()
+    } else if let Some(tls) = &settings.tls_settings {
+        if !tls.server_name.is_empty() {
+            Some(tls.server_name.clone())
+        } else {
+            None
+        }
+    } else {
+        None
     }
 }
 

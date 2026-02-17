@@ -572,6 +572,111 @@ impl ConfigGenerator {
             }
         }
 
+        // 4. Rule Sets & Blocking Logic
+        let mut rule_sets = Vec::new();
+        let mut router_rules = Vec::new();
+        let mut dns_rules = Vec::new();
+
+        // 0. DNS Route (Always first)
+        router_rules.push(RouteRule {
+            action: Some("route".to_string()),
+            protocol: Some(vec!["dns".to_string()]),
+            outbound: Some("direct".to_string()),
+            port: None, domain: None, geosite: None, geoip: None,
+            domain_resolver: None,
+            rule_set: None,
+        });
+
+        // 1. BitTorrent Blocking (Protocol + Geosite)
+        if node.config_block_torrent {
+            router_rules.push(RouteRule {
+                action: Some("reject".to_string()),
+                protocol: Some(vec!["bittorrent".to_string()]),
+                outbound: None, port: None, domain: None, geosite: None, geoip: None,
+                domain_resolver: None,
+                rule_set: None,
+            });
+            // Try to use geosite if available, but keep protocol as primary fallback
+             router_rules.push(RouteRule {
+                action: Some("reject".to_string()),
+                geosite: Some(vec!["category-p2p".to_string()]),
+                outbound: None, protocol: None, port: None, domain: None, geoip: None,
+                domain_resolver: None,
+                rule_set: None,
+            });
+        }
+
+        // 2. Ad Blocking (Remote RuleSet)
+        if node.config_block_ads {
+            rule_sets.push(RuleSet::Remote(RemoteRuleSet {
+                tag: "geosite-ads".to_string(),
+                format: "binary".to_string(),
+                url: "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs".to_string(),
+                download_detour: Some("direct".to_string()),
+                update_interval: Some("24h".to_string()),
+            }));
+
+            // Block in DNS
+            dns_rules.push(DnsRule {
+                rule_set: Some(vec!["geosite-ads".to_string()]),
+                server: Some("block".to_string()), // "block" isn't a server, usually "reject" or 127.0.0.1. Sing-box DNS rules don't have "action": "reject". 
+                // Wait, DNS rules map to a server. We need a "block" server or just use "reject" action in 1.10+?
+                // Sing-box 1.9+ DNS rule doesn't have action. It has `server` or `interrupt`.
+                // We'll define a fake "block" server or use the route rule to reject.
+                // Actually, best practice for DNS AdBlock in sing-box:
+                // Define a "block" DNS server (e.g. 0.0.0.0) or use `action: reject` in Route (which handles traffic).
+                // But to stop DNS resolution itself:
+                // We can't easily do it in `dns.rules` without a sinkhole server.
+                // Let's use 127.0.0.1 as a sinkhole server.
+                domain_resolver: None,
+                clash_mode: None,
+                // outbound: None, // Verified removed
+            });
+            
+            // Block in Route
+            router_rules.push(RouteRule {
+                action: Some("reject".to_string()),
+                rule_set: Some(vec!["geosite-ads".to_string()]),
+                outbound: None, protocol: None, port: None, domain: None, geosite: None, geoip: None,
+                domain_resolver: None,
+            });
+        }
+
+        // 3. Adult Content (Remote RuleSet)
+        if node.config_block_porn {
+             rule_sets.push(RuleSet::Remote(RemoteRuleSet {
+                tag: "geosite-porn".to_string(),
+                format: "binary".to_string(),
+                url: "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-porn.srs".to_string(),
+                download_detour: Some("direct".to_string()),
+                update_interval: Some("24h".to_string()),
+            }));
+
+            dns_rules.push(DnsRule {
+                rule_set: Some(vec!["geosite-porn".to_string()]),
+                server: Some("block".to_string()),
+                domain_resolver: None,
+                clash_mode: None,
+            });
+
+             router_rules.push(RouteRule {
+                action: Some("reject".to_string()),
+                rule_set: Some(vec!["geosite-porn".to_string()]),
+                outbound: None, protocol: None, port: None, domain: None, geosite: None, geoip: None,
+                domain_resolver: None,
+            });
+        }
+
+        // 4. Default Route
+        if default_outbound_tag != "direct" {
+            router_rules.push(RouteRule {
+                    action: Some("route".to_string()),
+                    outbound: Some(default_outbound_tag),
+                    protocol: None, port: None, domain: None, geosite: None, geoip: None, domain_resolver: None, 
+                    rule_set: None,
+            });
+        }
+
         SingBoxConfig {
             log: LogConfig {
                 level: "info".to_string(),
@@ -587,74 +692,31 @@ impl ConfigGenerator {
                     DnsServer::Local(LocalDnsServer { 
                         tag: "local".to_string(), 
                         detour: Some("direct".to_string()) 
-                    })
+                    }),
+                    // Sinkhole for AdBlock
+                    DnsServer::Udp(UdpDnsServer {
+                        tag: "block".to_string(),
+                        server: "127.0.0.1".to_string(),
+                        detour: None,
+                    }),
                 ],
-                rules: vec![
-                    DnsRule { 
+                rules: {
+                    let mut final_dns_rules = dns_rules;
+                    final_dns_rules.push(DnsRule { 
                         domain_resolver: None,
                         server: Some("local".to_string()),
                         clash_mode: None,
-                    }
-                ]
+                        rule_set: None,
+                    });
+                    final_dns_rules
+                }
             }),
             inbounds: generated_inbounds,
-            outbounds, // Use our modified outbounds
+            outbounds, 
             route: Some(RouteConfig {
                 default_domain_resolver: Some("google".to_string()),
-                rules: {
-                    let mut rules = Vec::new();
-                    
-                    // 0. Route DNS
-                    rules.push(RouteRule {
-                        action: Some("route".to_string()),
-                        protocol: Some(vec!["dns".to_string()]),
-                        outbound: Some("direct".to_string()),
-                        port: None, domain: None, geosite: None, geoip: None,
-                        domain_resolver: None,
-                    });
-
-                    // 1. Block BitTorrent
-                    if node.config_block_torrent {
-                        rules.push(RouteRule {
-                            action: Some("reject".to_string()),
-                            protocol: Some(vec!["bittorrent".to_string()]),
-                            outbound: None, port: None, domain: None, geosite: None, geoip: None,
-                            domain_resolver: None,
-                        });
-                    }
-
-                    // 2. Block Ads
-                    if node.config_block_ads {
-                        rules.push(RouteRule {
-                            action: Some("reject".to_string()),
-                            geosite: Some(vec!["category-ads-all".to_string()]),
-                            outbound: None, protocol: None, port: None, domain: None, geoip: None,
-                            domain_resolver: None,
-                        });
-                    }
-
-                    // 3. Block Porn
-                    if node.config_block_porn {
-                        rules.push(RouteRule {
-                            action: Some("reject".to_string()),
-                            geosite: Some(vec!["category-porn".to_string()]),
-                            outbound: None, protocol: None, port: None, domain: None, geoip: None,
-                            domain_resolver: None,
-                        });
-                    }
-
-                    // 4. Default Route (If Relay is active, this sends everything to relay-out)
-                    if default_outbound_tag != "direct" {
-                        rules.push(RouteRule {
-                             action: Some("route".to_string()),
-                             outbound: Some(default_outbound_tag),
-                             // Match everything else
-                             protocol: None, port: None, domain: None, geosite: None, geoip: None, domain_resolver: None,
-                        });
-                    }
-                    
-                    rules
-                }
+                rules: router_rules,
+                rule_set: if rule_sets.is_empty() { None } else { Some(rule_sets) },
             }),
             // Enable Clash API for device monitoring and limit enforcement
             experimental: Some(ExperimentalConfig {

@@ -470,6 +470,10 @@ use tower_http::services::ServeDir;
         .route("/nodes/{id}/manage", axum::routing::get(handlers::admin::get_node_manage)) // NEW Unified UI
         .route("/nodes/install", axum::routing::post(handlers::admin::install_node))
         .route("/nodes/{id}/edit", axum::routing::get(handlers::admin::get_node_edit))
+        .route("/nodes/{id}/restart", axum::routing::post(handlers::admin::nodes::restart_node))
+        .route("/nodes/{id}/rescan", axum::routing::post(handlers::admin::nodes::trigger_scan)) // Fixed alias if needed or just ensure consistency
+        .route("/nodes/{id}/scan", axum::routing::post(handlers::admin::nodes::trigger_scan))
+        .route("/nodes/{id}/config/preview", axum::routing::get(handlers::admin::nodes::get_node_config_preview))
         .route("/nodes/{id}/update", axum::routing::post(handlers::admin::update_node))
         .route("/nodes/{id}/update/trigger", axum::routing::post(handlers::admin::updates::trigger_update)) // NEW Phase 67
         .route("/nodes/{id}/activate", axum::routing::post(handlers::admin::activate_node))
@@ -544,6 +548,7 @@ use tower_http::services::ServeDir;
         .route("/templates/{id}", axum::routing::delete(handlers::admin_templates::delete_template).post(handlers::admin_templates::update_template))
         .route("/templates/{id}/edit", axum::routing::get(handlers::admin_templates::get_template_edit))
         .route("/templates/{id}/sync", axum::routing::post(handlers::admin_templates::sync_template))
+        .route("/templates/{id}/json", axum::routing::get(handlers::admin_templates::get_template_json))
         
         // Organization Management (Phase 3)
         .route("/orgs", axum::routing::get(handlers::admin_orgs::get_organizations).post(handlers::admin_orgs::create_organization))

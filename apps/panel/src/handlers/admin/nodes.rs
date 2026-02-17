@@ -648,3 +648,71 @@ pub async fn block_sni(
     headers.insert("HX-Refresh", "true".parse().unwrap());
     (axum::http::StatusCode::OK, headers, "").into_response()
 }
+
+pub async fn restart_node(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    info!("Manual restart triggered for node: {}", id);
+    
+    // Publish restart event
+    if let Err(e) = state.pubsub.publish(&format!("node_events:{}", id), "restart").await {
+        error!("Failed to publish restart event: {}", e);
+        return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Signal failed").into_response();
+    }
+
+    // Optional: Update last_sync_trigger to denote manual intervention
+    let _ = sqlx::query("UPDATE nodes SET last_sync_trigger = 'Manual Restart' WHERE id = ?")
+        .bind(id)
+        .execute(&state.pool)
+        .await;
+
+    (axum::http::StatusCode::OK, "Restart Signal Sent").into_response()
+}
+
+pub async fn get_node_config_preview(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    match state.orchestration_service.generate_node_config_json(id).await {
+        Ok((_, config)) => {
+            let json_str = serde_json::to_string_pretty(&config).unwrap_or_default();
+            Html(format!(r###"
+                <div class="p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-bold text-white">Config Preview</h3>
+                        <button onclick="document.getElementById('config-preview-modal').close()" class="text-slate-400 hover:text-white">
+                            <i data-lucide="x" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                    <div class="bg-slate-950 rounded-lg border border-white/10 p-4 max-h-[70vh] overflow-auto custom-scrollbar">
+                        <pre class="text-xs font-mono text-emerald-400">{}</pre>
+                    </div>
+                    <div class="mt-4 flex justify-end">
+                        <button onclick="copyConfig()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium">
+                            Copy JSON
+                        </button>
+                    </div>
+                    <script>
+                        function copyConfig() {{
+                            const content = document.querySelector('pre').innerText;
+                            navigator.clipboard.writeText(content).then(() => {{
+                                showToast('Config copied to clipboard');
+                            }});
+                        }}
+                    </script>
+                </div>
+            "###, json_str)).into_response()
+        },
+        Err(e) => {
+            error!("Failed to generate config for preview: {}", e);
+             Html(format!(r###"
+                <div class="p-6 text-center text-red-400">
+                    <p class="font-bold">Failed to generate config</p>
+                    <p class="text-sm mt-2">{}</p>
+                    <button onclick="document.getElementById('config-preview-modal').close()" class="mt-4 px-4 py-2 bg-slate-800 text-white rounded-lg">Close</button>
+                </div>
+            "###, e)).into_response()
+        }
+    }
+}

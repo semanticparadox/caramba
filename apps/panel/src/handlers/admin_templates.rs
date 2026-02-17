@@ -279,6 +279,27 @@ pub async fn get_template_edit(
     Html(template.render().unwrap_or_default()).into_response()
 }
 
+pub async fn get_template_json(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    use axum::http::StatusCode;
+    if !is_authenticated(&state, &jar).await {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    match sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await 
+    {
+        Ok(Some(t)) => axum::Json(t).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "Template not found").into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)).into_response(),
+    }
+}
+
 pub async fn update_template(
     State(state): State<AppState>,
     jar: CookieJar,

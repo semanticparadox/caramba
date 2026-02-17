@@ -200,7 +200,7 @@ impl ConnectionService {
         let ips_vec: Vec<String> = active_ips.iter().cloned().collect();
 
         // Update IP tracking in database
-        self.store.sub_repo.update_ips(sub_id, ips_vec).await?; // Assuming update_ips exists or uses previous method logic
+        self.store.sub_repo.update_ips(sub_id, ips_vec).await?; 
 
         // Check if limit exceeded (0 for Unlimited)
         if device_limit > 0 && active_device_count > device_limit as usize {
@@ -210,8 +210,6 @@ impl ConnectionService {
             );
 
             // Kill all connections for this subscription
-            // We need to kill by user_tag "user_{sub_id}" AND potentially by UUID if possible?
-            // Safer to use "user_{sub_id}" as that is what we standardized on.
             self.kill_subscription_connections(sub_id).await?;
 
         } else if active_device_count > 0 {
@@ -236,13 +234,11 @@ impl ConnectionService {
                          // Check metadata.user
                          let mut match_found = false;
                          if let Some(user) = &conn.metadata.user {
-                             if user == &target_target_user {
+                             if user == &target_user {
                                  match_found = true;
                              }
                          }
                          
-                         // If no match on user, maybe check UUID if we had it?
-                         // For now, rely on parsed user tag
                          if match_found {
                                  info!("Killing connection {} on node {} for {}", conn.id, node.name, target_user);
                                  if let Err(e) = self.close_connection(&node.ip, &conn.id).await {

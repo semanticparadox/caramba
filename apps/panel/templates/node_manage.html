@@ -143,47 +143,50 @@
                         </script>
                     </div>
 
+                    <!-- Security Policies Card (Moved inside form) -->
+                    <div class="bg-slate-900/50 rounded-2xl border border-white/5 overflow-hidden mt-6">
+                        <div class="px-6 py-4 border-b border-white/5 bg-white/5">
+                            <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                                <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
+                                Security Policies
+                            </h2>
+                        </div>
+                        <div class="p-6 space-y-3">
+                            {% for policy in [
+                            ("config_block_torrent", "Block BitTorrent", "Stop P2P traffic"),
+                            ("config_block_ads", "Ad & Tracker Blocker", "Smart DNS filtering"),
+                            ("config_block_porn", "Adult Content Filter", "Block NSFW sites"),
+                            ("config_qos_enabled", "QoS Traffic Shaping", "Prioritize real-time data")
+                            ] %}
+                            <div
+                                class="flex items-center justify-between p-3 rounded-xl bg-slate-950/30 border border-white/5">
+                                <div>
+                                    <p class="text-xs font-bold text-white">{{ policy.1 }}</p>
+                                    <p class="text-[10px] text-slate-500">{{ policy.2 }}</p>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" name="{{ policy.0 }}" class="sr-only peer"
+                                        hx-post="{{ admin_path }}/nodes/{{ node.id }}/update" hx-trigger="change"
+                                        hx-include="closest form" {% if node.config_block_torrent &&
+                                        policy.0=="config_block_torrent" %}checked{% endif %} {% if
+                                        node.config_block_ads && policy.0=="config_block_ads" %}checked{% endif %} {% if
+                                        node.config_block_porn && policy.0=="config_block_porn" %}checked{% endif %} {%
+                                        if node.config_qos_enabled && policy.0=="config_qos_enabled" %}checked{% endif
+                                        %}>
+                                    <div
+                                        class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600">
+                                    </div>
+                                </label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
                     <button type="submit"
-                        class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold border border-white/5 transition-all mt-4">
+                        class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold border border-white/5 transition-all mt-6">
                         Save Changes
                     </button>
                 </form>
-            </div>
-
-            <!-- Security Policies Card -->
-            <div class="bg-slate-900/50 rounded-2xl border border-white/5 overflow-hidden">
-                <div class="px-6 py-4 border-b border-white/5 bg-white/5">
-                    <h2 class="text-sm font-bold text-white flex items-center gap-2">
-                        <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
-                        Security Policies
-                    </h2>
-                </div>
-                <div class="p-6 space-y-3">
-                    {% for policy in [
-                    ("config_block_torrent", "Block BitTorrent", "Stop P2P traffic"),
-                    ("config_block_ads", "Ad & Tracker Blocker", "Smart DNS filtering"),
-                    ("config_block_porn", "Adult Content Filter", "Block NSFW sites"),
-                    ("config_qos_enabled", "QoS Traffic Shaping", "Prioritize real-time data")
-                    ] %}
-                    <div class="flex items-center justify-between p-3 rounded-xl bg-slate-950/30 border border-white/5">
-                        <div>
-                            <p class="text-xs font-bold text-white">{{ policy.1 }}</p>
-                            <p class="text-[10px] text-slate-500">{{ policy.2 }}</p>
-                        </div>
-                        <label class="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" name="{{ policy.0 }}" class="sr-only peer"
-                                hx-post="{{ admin_path }}/nodes/{{ node.id }}/update" hx-trigger="change" {% if
-                                node.config_block_torrent && policy.0=="config_block_torrent" %}checked{% endif %} {% if
-                                node.config_block_ads && policy.0=="config_block_ads" %}checked{% endif %} {% if
-                                node.config_block_porn && policy.0=="config_block_porn" %}checked{% endif %} {% if
-                                node.config_qos_enabled && policy.0=="config_qos_enabled" %}checked{% endif %}>
-                            <div
-                                class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600">
-                            </div>
-                        </label>
-                    </div>
-                    {% endfor %}
-                </div>
             </div>
 
             <!-- Sync History -->
@@ -255,7 +258,9 @@
                             </div>
                         </button>
 
-                        <button onclick="showConfigPreview({{ node.id }})"
+                        <button hx-get="{{ admin_path }}/nodes/{{ node.id }}/config/preview"
+                            hx-target="#config-preview-modal-content" hx-swap="innerHTML"
+                            hx-on::after-request="document.getElementById('config-preview-modal').showModal()"
                             class="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-950/30 border border-white/5 hover:bg-indigo-500/10 hover:border-indigo-500/30 hover:text-indigo-400 text-slate-400 transition-all group">
                             <div
                                 class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center group-hover:bg-indigo-500/20 transition-colors">
@@ -484,6 +489,33 @@
     </div>
 </div>
 
+<!-- EDIT NODE / RESCUE MODAL -->
+<dialog id="edit-node-modal"
+    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50">
+    <div id="edit-node-modal-content"
+        class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4"
+        onclick="event.stopPropagation()">
+        <!-- Content loaded via HTMX -->
+        <div class="p-8 text-center text-slate-400">
+            <i data-lucide="loader-2" class="w-8 h-8 animate-spin mx-auto mb-2"></i>
+            <p>Loading...</p>
+        </div>
+    </div>
+</dialog>
+
+<!-- CONFIG PREVIEW MODAL -->
+<dialog id="config-preview-modal"
+    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50">
+    <div id="config-preview-modal-content"
+        class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-y-auto m-4"
+        onclick="event.stopPropagation()">
+        <div class="p-8 text-center text-slate-400">
+            <i data-lucide="loader-2" class="w-8 h-8 animate-spin mx-auto mb-2"></i>
+            <p>Loading config...</p>
+        </div>
+    </div>
+</dialog>
+
 <script>
     document.addEventListener('htmx:afterRequest', function (evt) {
         if (evt.detail.target.id === 'terminal-content') {
@@ -501,13 +533,14 @@
     });
 
     // Auto-scroll terminal
-    observer.observe(terminal, { childList: true });
+    // observer.observe(terminal, { childList: true }); // Fixed reference error if terminal ID is different
 
     // Installation Command Logic
     (function () {
         const origin = window.location.origin;
         const token = "{{ node.join_token.clone().unwrap_or_default() }}";
-        const cmd = `curl -sSL https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/scripts/install.sh | sudo bash -s -- --role agent --panel "${origin}" --token "${token}"`;
+        // Use local install script instead of GitHub
+        const cmd = `curl -sSL ${origin}/install.sh | sudo bash -s -- --role agent --panel "${origin}" --token "${token}"`;
         document.getElementById('install-cmd').value = cmd;
     })();
 

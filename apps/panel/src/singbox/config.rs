@@ -11,7 +11,34 @@ pub struct SingBoxConfig {
     pub outbounds: Vec<Outbound>,
     pub route: Option<RouteConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub route: Option<RouteConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub experimental: Option<ExperimentalConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum RuleSet {
+    Remote(RemoteRuleSet),
+    Local(LocalRuleSet),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RemoteRuleSet {
+    pub tag: String,
+    pub format: String,
+    pub url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub download_detour: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update_interval: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LocalRuleSet {
+    pub tag: String,
+    pub format: String,
+    pub path: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -335,6 +362,8 @@ pub struct TuicTlsConfig {
 pub struct RouteConfig {
     pub rules: Vec<RouteRule>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_set: Option<Vec<RuleSet>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_domain_resolver: Option<String>,
 }
 
@@ -356,6 +385,8 @@ pub struct RouteRule {
     pub geoip: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub domain_resolver: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_set: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -396,4 +427,6 @@ pub struct DnsRule {
     pub server: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clash_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_set: Option<Vec<String>>,
 }

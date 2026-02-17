@@ -292,4 +292,107 @@ mod tests {
              "subscription_uuid": "uuid",
          })).expect("Failed to create mock subscription")
     }
+    #[test]
+    fn test_security_policy_generation() {
+         use crate::singbox::ConfigGenerator;
+         use crate::models::node::Node;
+         use crate::models::network::Inbound;
+
+         // 1. Create Mock Node with Policies Enabled
+         let node = Node {
+             id: 1,
+             name: "TestPolicyNode".to_string(),
+             ip: "1.1.1.1".to_string(),
+             domain: None,
+             group_id: Some(1),
+             is_relay: false,
+             relay_id: None,
+             total_bandwidth: 0,
+             used_bandwidth: 0,
+             status: "active".to_string(),
+             country_code: None,
+             city_code: None,
+             config_block_torrent: true,
+             config_block_ads: true, // Enabled
+             config_block_porn: true, // Enabled
+             config_qos_enabled: false,
+             last_heartbeat: None,
+             online: false,
+             install_id: None,
+             api_key: None,
+             admin_api_port: None,
+             vpn_port: 8000,
+             api_token: None,
+             cert_url: None,
+             last_synced_at: None,
+             reboot_required: false,
+             synced: false,
+             version: None,
+             created_at: None,
+             updated_at: None,
+             reality_port: None,
+             reality_sni: None,
+             reality_pub: None,
+             reality_priv: None,
+             short_id: None,
+             grpc_port: None,
+             last_sync_trigger: None,
+             join_token: None,
+         };
+
+         // 2. Create Mock Inbound
+         let inbound = Inbound {
+             id: 1,
+             node_id: 1,
+             tag: "vless-in".to_string(),
+             protocol: "vless".to_string(),
+             listen_port: 443,
+             listen_ip: "0.0.0.0".to_string(),
+             settings: r#"{"type":"vless","clients":[]}"#.to_string(),
+             stream_settings: r#"{"network":"tcp","security":"none"}"#.to_string(),
+             remark: None,
+             enable: true,
+             renew_interval_mins: 0,
+             port_range_start: 0,
+             port_range_end: 0,
+             last_rotated_at: None,
+             created_at: None,
+         };
+
+         // 3. Generate Config
+         let config = ConfigGenerator::generate_config(&node, vec![inbound], None, vec![]);
+         
+         // 4. Assertions
+         
+         // Check Rule Sets
+         let rule_sets = config.route.as_ref().unwrap().rule_set.as_ref().expect("Rule sets missing");
+         assert!(rule_sets.iter().any(|r| match r {
+             crate::singbox::config::RuleSet::Remote(rr) => rr.tag == "geosite-ads",
+             _ => false,
+         }));
+         assert!(rule_sets.iter().any(|r| match r {
+             crate::singbox::config::RuleSet::Remote(rr) => rr.tag == "geosite-porn",
+             _ => false,
+         }));
+
+         // Check Route Rules
+         let rules = &config.route.as_ref().unwrap().rules;
+         
+         // Should have DNS, Torrent, Ads, Porn rules
+         assert!(rules.iter().any(|r| r.protocol == Some(vec!["bittorrent".to_string()]) && r.action == Some("reject".to_string())));
+         assert!(rules.iter().any(|r| r.rule_set == Some(vec!["geosite-ads".to_string()]) && r.action == Some("reject".to_string())));
+         assert!(rules.iter().any(|r| r.rule_set == Some(vec!["geosite-porn".to_string()]) && r.action == Some("reject".to_string())));
+
+         // Check DNS Sinkhole
+         let dns = config.dns.as_ref().unwrap();
+         
+         // Should have sinkhole server
+         assert!(dns.servers.iter().any(|s| match s {
+             crate::singbox::config::DnsServer::Udp(u) => u.server == "127.0.0.1" && u.tag == "block",
+             _ => false,
+         }));
+
+         // Should have DNS blocking rules
+         assert!(dns.rules.iter().any(|r| r.rule_set == Some(vec!["geosite-ads".to_string()]) && r.server == Some("block".to_string())));
+    }
 }
