@@ -1010,37 +1010,61 @@ pub fn generate_singbox_config(
     final_outbounds.extend(outbounds);
 
 
+    // Aggregated Policies
+    let block_ads = nodes.iter().any(|n| n.config_block_ads);
+    let block_porn = nodes.iter().any(|n| n.config_block_porn);
+    // let block_torrent = nodes.iter().any(|n| n.config_block_torrent); // Client-side P2P blocking is harder to enforce reliably via geosite alone, but we can try.
+
     // 3. DNS Configuration
+    let mut dns_rules = vec![
+             json!({ "outbound": ["any"], "server": "local" }), // Default local? No, usually reverse
+             json!({ "clash_mode": "direct", "server": "local" }),
+             json!({ "clash_mode": "global", "server": "google" }),
+             // Domain based rules
+             json!({ "geosite": "cn", "server": "local" }),
+    ];
+
+    if block_ads {
+        dns_rules.push(json!({ "geosite": "category-ads-all", "server": "block" }));
+    }
+    if block_porn {
+        dns_rules.push(json!({ "geosite": "category-porn", "server": "block" }));
+    }
+
     let dns_config = json!({
         "servers": [
             { "tag": "google", "address": "8.8.8.8", "detour": "proxy" }, // Route DNS through proxy to avoid leaks/poisoning
             { "tag": "local", "address": "local", "detour": "direct" }
         ],
-        "rules": [
-             { "outbound": ["any"], "server": "local" }, // Default local? No, usually reverse
-             { "clash_mode": "direct", "server": "local" },
-             { "clash_mode": "global", "server": "google" },
-             // Domain based rules
-             { "geosite": "cn", "server": "local" },
-             { "geosite": "category-ads-all", "server": "block" }
-        ],
+        "rules": dns_rules,
         "final": "google",
         "strategy": "ipv4_only" // Safer for most
     });
 
     // 4. Route Rules
+    let mut route_rules = vec![
+            json!({ "protocol": "dns", "outbound": "dns-out" }),
+    ];
+
+    if block_ads {
+        route_rules.push(json!({ "geosite": ["category-ads-all"], "outbound": "block" }));
+    }
+    if block_porn {
+        route_rules.push(json!({ "geosite": ["category-porn"], "outbound": "block" }));
+    }
+
+    route_rules.extend(vec![
+            json!({ "geosite": ["cn", "private"], "outbound": "direct" }),
+            json!({ "geoip": ["cn", "private"], "outbound": "direct" }),
+            // Add RU/UA specifics if needed, for now standard
+            json!({ "geosite": ["ru"], "outbound": "direct" }),
+            json!({ "geoip": ["ru"], "outbound": "direct" })
+    ]);
+
     let route_config = json!({
         "auto_detect_interface": true,
         "final": "proxy",
-        "rules": [
-            { "protocol": "dns", "outbound": "dns-out" },
-            { "geosite": ["category-ads-all"], "outbound": "block" },
-            { "geosite": ["cn", "private"], "outbound": "direct" },
-            { "geoip": ["cn", "private"], "outbound": "direct" },
-            // Add RU/UA specifics if needed, for now standard
-             { "geosite": ["ru"], "outbound": "direct" },
-             { "geoip": ["ru"], "outbound": "direct" }
-        ]
+        "rules": route_rules
     });
     
     // 5. Inbounds (Mixed Port for Client)
