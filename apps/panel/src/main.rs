@@ -474,7 +474,7 @@ use tower_http::services::ServeDir;
         .route("/nodes/{id}/update", axum::routing::post(handlers::admin::update_node))
         .route("/nodes/{id}/update/trigger", axum::routing::post(handlers::admin::updates::trigger_update)) // NEW Phase 67
         .route("/nodes/{id}/activate", axum::routing::post(handlers::admin::activate_node))
-        .route("/nodes/{id}/config/preview", axum::routing::get(handlers::admin_network::preview_node_config))
+
         .route("/nodes/{id}/sync", axum::routing::post(handlers::admin::sync_node))
         .route("/nodes/{id}/logs", axum::routing::get(handlers::admin::get_node_logs))
         .route("/nodes/{id}/rescue", axum::routing::get(handlers::admin::get_node_rescue))
