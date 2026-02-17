@@ -417,7 +417,6 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
     let connection_orch = state.orchestration_service.clone();
     tokio::spawn(async move {
         let connection_svc = services::connection_service::ConnectionService::new(
-            connection_state.pool.clone(),
             connection_orch,
             connection_store,
         );
