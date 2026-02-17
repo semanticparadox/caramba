@@ -1,11 +1,11 @@
-# EXA ROBOT: Advanced VPN Panel & Bot
+# CARAMBA: Advanced VPN Panel & Bot
 
-**EXA ROBOT** is a high-performance, censorship-resistant VPN management system built with Rust. It leverages Sing-box, Reality, and Hysteria 2 to provide a robust, anti-censorship solution.
+**Caramba** is a high-performance, censorship-resistant VPN management system built with Rust. It leverages Sing-box, Reality, and Hysteria 2 to provide a robust, anti-censorship solution.
 
 ## 🚀 Key Features
 
 *   **V3 Architecture:** "Disposable Front, Stable Back" design for maximum censorship resilience.
-*   **Modular:** 5 core binaries (`panel`, `agent`, `bot`, `sub`, `miniapp`) for flexible deployment.
+*   **Modular:** 5 core binaries (`caramba-panel`, `caramba-node`, `caramba-bot`, `caramba-sub`, `caramba-installer`) for flexible deployment.
 *   **High Performance:** Written in Rust for speed and low resource usage.
 *   **Secure:** Admin panel hidden behind private networks; only disposable services face the public.
 *   **Automated:** Auto-updates via GitHub Releases, automated node management.
