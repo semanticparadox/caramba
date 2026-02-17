@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use chrono::Utc;
+
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::collections::{HashMap, HashSet};
@@ -53,19 +53,16 @@ pub struct ClashConnectionsResponse {
 
 /// Connection monitoring and device limit enforcement service
 pub struct ConnectionService {
-    pool: SqlitePool,
     orchestration: Arc<OrchestrationService>,
     store: Arc<StoreService>,
 }
 
 impl ConnectionService {
     pub fn new(
-        pool: SqlitePool,
         orchestration: Arc<OrchestrationService>,
         store: Arc<StoreService>,
     ) -> Self {
         Self {
-            pool,
             orchestration,
             store,
         }

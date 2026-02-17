@@ -280,7 +280,6 @@ async fn run_server(pool: sqlx::SqlitePool, ssh_public_key: String) -> Result<()
 
     // Initialize connection service
     let connection_service = Arc::new(services::connection_service::ConnectionService::new(
-        pool.clone(),
         orchestration_service.clone(),
         store_service.clone(),
     ));
