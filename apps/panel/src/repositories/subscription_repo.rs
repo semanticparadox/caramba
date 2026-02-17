@@ -294,4 +294,25 @@ impl SubscriptionRepository {
         
         q.fetch_all(&self.pool).await.context("Failed to fetch active subs by plans")
     }
+    pub async fn update_ips(&self, sub_id: i64, ips: Vec<String>) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+
+        // 1. Clear existing IPs for this subscription
+        sqlx::query("DELETE FROM subscription_ip_tracking WHERE subscription_id = ?")
+            .bind(sub_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // 2. Insert current IPs
+        for ip in ips {
+            sqlx::query("INSERT INTO subscription_ip_tracking (subscription_id, client_ip, last_seen_at) VALUES (?, ?, CURRENT_TIMESTAMP)")
+                .bind(sub_id)
+                .bind(ip)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
 }

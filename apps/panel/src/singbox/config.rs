@@ -11,8 +11,6 @@ pub struct SingBoxConfig {
     pub outbounds: Vec<Outbound>,
     pub route: Option<RouteConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub route: Option<RouteConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub experimental: Option<ExperimentalConfig>,
 }
 

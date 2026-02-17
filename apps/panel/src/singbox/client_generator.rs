@@ -341,19 +341,22 @@ impl ClientGenerator {
 
         // 4. Routes
         let route = RouteConfig {
+            rule_set: None,
             default_domain_resolver: None,
             rules: vec![
                 RouteRule {
                     protocol: Some(vec!["dns".to_string()]),
                     outbound: Some("dns-out".to_string()),
                     action: None, port: None, domain: None, geosite: None, geoip: None,
-                    domain_resolver: None,
+                    action: None, port: None, domain: None, geosite: None, geoip: None,
+                    domain_resolver: None, rule_set: None,
                 },
                 RouteRule {
                     outbound: Some("direct".to_string()),
                     domain: Some(vec!["geosite:cn".to_string(), "geosite:private".to_string()]), 
                     action: None, port: None, protocol: None, geosite: None, geoip: None,
-                    domain_resolver: None,
+                    action: None, port: None, protocol: None, geosite: None, geoip: None,
+                    domain_resolver: None, rule_set: None,
                 },
             ]
         };

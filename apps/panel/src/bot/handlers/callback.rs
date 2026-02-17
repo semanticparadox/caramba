@@ -841,8 +841,7 @@ pub async fn callback_handler(
                       // Verify ownership
                       let user_subs = state.store_service.get_user_subscriptions(u.id).await.unwrap_or_default();
                       if let Some(sub_details) = user_subs.iter().find(|s| s.sub.id == sub_id) {
-                          if let Some(uuid) = &sub_details.sub.vless_uuid {
-                               match state.connection_service.kill_subscription_connections(uuid).await {
+                           match state.connection_service.kill_subscription_connections(sub_details.sub.id).await {
                                    Ok(_) => {
                                         let _ = bot.answer_callback_query(callback_id).text("✅ Sessions reset successfully!").show_alert(true).await;
                                         // Update the message to remove "Kill" button or showing refreshed list

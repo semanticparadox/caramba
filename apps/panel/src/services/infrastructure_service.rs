@@ -8,7 +8,7 @@ use crate::models::node::Node;
 #[derive(Debug, Clone)]
 pub struct InfrastructureService {
     pool: SqlitePool,
-    node_repo: NodeRepository,
+    pub node_repo: NodeRepository,
 }
 
 impl InfrastructureService {

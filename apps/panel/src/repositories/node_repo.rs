@@ -177,7 +177,6 @@ impl NodeRepository {
         .await?;
         
         Ok(())
-        Ok(())
     }
 
     pub async fn get_inbound_by_id(&self, id: i64) -> Result<Option<Inbound>> {

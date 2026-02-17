@@ -407,12 +407,7 @@ pub async fn admin_kill_subscription_sessions(
         _ => return (axum::http::StatusCode::NOT_FOUND, "Subscription not found").into_response(),
     };
 
-    let uuid = match sub.vless_uuid {
-        Some(u) => u,
-        None => return (axum::http::StatusCode::BAD_REQUEST, "No UUID for sub").into_response(),
-    };
-
-    if let Err(e) = state.connection_service.kill_subscription_connections(&uuid).await {
+    if let Err(e) = state.connection_service.kill_subscription_connections(sub.id).await {
         error!("Admin failed to kill sessions for sub {}: {}", sub_id, e);
         return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to kill sessions: {}", e)).into_response();
     }

@@ -194,7 +194,7 @@ impl ConnectionService {
     /// Enforce device limit for a single subscription
     async fn enforce_subscription_limit(&self, sub_id: i64, active_ips: HashSet<String>) -> Result<()> {
         // Get device limit for this subscription
-        let device_limit = self.store.get_device_limit(sub_id).await?.unwrap_or(0);
+        let device_limit = self.store.get_subscription_device_limit(sub_id).await?.unwrap_or(0);
 
         let active_device_count = active_ips.len();
         let ips_vec: Vec<String> = active_ips.iter().cloned().collect();
