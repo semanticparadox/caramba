@@ -5,9 +5,15 @@ use axum::{
 };
 use rust_embed::RustEmbed;
 
-#[derive(RustEmbed)]
-#[folder = "../mini-app/dist"]
+// #[derive(RustEmbed)]
+// #[folder = "../mini-app/dist"]
 struct MiniAppAssets;
+
+impl MiniAppAssets {
+    pub fn get(_path: &str) -> Option<rust_embed::EmbeddedFile> {
+        None
+    }
+}
 
 /// Serve Mini App main page
 pub async fn serve_app() -> Response {

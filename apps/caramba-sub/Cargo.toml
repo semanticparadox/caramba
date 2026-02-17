@@ -39,6 +39,7 @@ urlencoding = "2.1"
 
 # MIME type detection for static files
 mime_guess = "2.0"
+uuid = { version = "1.11", features = ["v4"] }
 
 # GeoIP (for Phase 4)
 maxminddb = { version = "0.24", optional = true }

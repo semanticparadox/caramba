@@ -20,6 +20,7 @@ os_info = "3.8"
 whoami = "1.5"
 chrono = "0.4"
 rust-embed = "8.0"
+uuid = { version = "1.11", features = ["v4"] }
 
 [[bin]]
 name = "caramba-installer"

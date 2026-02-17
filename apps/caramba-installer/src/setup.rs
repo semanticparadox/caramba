@@ -1,4 +1,4 @@
-use dialoguer::{Input, Password, Confirm, Select, theme::ColorfulTheme};
+use dialoguer::{Input, Password, theme::ColorfulTheme};
 use console::style;
 
 #[derive(Debug)]

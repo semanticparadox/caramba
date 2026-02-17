@@ -62,7 +62,7 @@ async fn main() {
     }
 
     match cli.command {
-        Commands::Install { panel, node, hub, force } => {
+        Commands::Install { panel, node, hub, force: _ } => {
             if !panel && !node && !hub {
                 println!("Please specify --panel, --node, or --hub to install.");
                 exit(1);
