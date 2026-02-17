@@ -857,7 +857,6 @@ pub async fn callback_handler(
                                }
                           }
                       }
-                 }
             }
             store if store.starts_with("store_") => {
                 let chat_id = q.message.as_ref().map(|m| m.chat().id).unwrap_or(ChatId(0));
