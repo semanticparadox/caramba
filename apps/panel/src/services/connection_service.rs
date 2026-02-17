@@ -298,23 +298,4 @@ fn is_valid_uuid(s: &str) -> bool {
         && parts[4].len() == 12
 }
 
-/// Minimal subscription struct for this service
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct Subscription {
-    #[allow(dead_code)]
-    id: i64,
-    #[allow(dead_code)]
-    user_id: i64,
-    #[allow(dead_code)]
-    plan_id: i64,
-    #[allow(dead_code)]
-    uuid: String,
-    #[allow(dead_code)]
-    traffic_used: i64,
-    #[allow(dead_code)]
-    traffic_limit: i64,
-    #[allow(dead_code)]
-    expires_at: chrono::DateTime<Utc>,
-    #[allow(dead_code)]
-    is_active: bool,
-}
+
