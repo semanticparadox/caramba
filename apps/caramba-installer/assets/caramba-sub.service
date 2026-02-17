@@ -1,0 +1,14 @@
+[Unit]
+Description=Caramba Subscription Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/caramba
+ExecStart=/opt/caramba/caramba-sub
+Restart=always
+EnvironmentFile=/etc/caramba/frontend.toml
+
+[Install]
+WantedBy=multi-user.target

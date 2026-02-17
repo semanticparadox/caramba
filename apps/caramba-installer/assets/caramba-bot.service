@@ -1,0 +1,14 @@
+[Unit]
+Description=Caramba Helper Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/caramba
+ExecStart=/opt/caramba/caramba-bot
+Restart=always
+EnvironmentFile=/etc/caramba/bot.env
+
+[Install]
+WantedBy=multi-user.target

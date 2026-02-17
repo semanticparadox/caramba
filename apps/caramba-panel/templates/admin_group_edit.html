@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Group: {{ group.name }} - CARAMBA{% endblock %}
+{% block header_title %}Edit Group{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div class="flex items-center gap-4">
+            <a href="{{ admin_path }}/groups"
+                class="p-2 hover:bg-white/5 text-slate-400 hover:text-white rounded-lg transition-colors">
+                <i data-lucide="arrow-left" class="w-5 h-5"></i>
+            </a>
+            <div>
+                <h2 class="text-xl font-bold text-white tracking-tight">{{ group.name }}</h2>
+                <p class="text-slate-400 text-sm mt-0.5">
+                    <code
+                        class="text-xs font-mono bg-white/5 px-1.5 py-0.5 rounded border border-white/5">{{ group.slug.as_deref().unwrap_or("-") }}</code>
+                    {% if let Some(desc) = group.description.as_deref() %}
+                    <span class="mx-2 text-white/10">|</span> {{ desc }}
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+        <form action="{{ admin_path }}/groups/{{ group.id }}/rotate" method="POST"
+            onsubmit="return confirm('Rotate all dynamic inbounds in this group? Users will briefly disconnect.');">
+            <button type="submit"
+                class="flex items-center gap-2 bg-amber-600/80 hover:bg-amber-500 text-white font-medium py-2.5 px-5 rounded-xl transition-all border border-white/10">
+                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                <span>Rotate Inbounds</span>
+            </button>
+        </form>
+    </div>
+
+    <!-- Members Table -->
+    <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-white/5">
+            <div class="flex items-center gap-2">
+                <i data-lucide="server" class="w-4 h-4 text-indigo-400"></i>
+                <span class="text-sm font-semibold text-white">Node Members</span>
+                <span
+                    class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">{{
+                    members.len() }}</span>
+            </div>
+            {% if !available_nodes.is_empty() %}
+            <button onclick="document.getElementById('addMemberModal').showModal()"
+                class="flex items-center gap-1.5 text-xs font-medium text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-1.5 rounded-lg transition-colors border border-indigo-500/20">
+                <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add Node
+            </button>
+            {% endif %}
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                        <th class="px-6 py-3">Node</th>
+                        <th class="px-6 py-3">IP Address</th>
+                        <th class="px-6 py-3 text-right">Action</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5 text-sm">
+                    {% for node in members %}
+                    <tr id="member-row-{{ node.id }}" class="hover:bg-white/5 transition-colors group">
+                        <td class="px-6 py-4">
+                            <div class="flex items-center gap-3">
+                                <div
+                                    class="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400 group-hover:bg-indigo-500 group-hover:text-white transition-all">
+                                    <i data-lucide="server" class="w-4 h-4"></i>
+                                </div>
+                                <span class="text-white font-medium">{{ node.name }}</span>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4">
+                            <code
+                                class="text-xs font-mono text-slate-400 bg-white/5 px-2 py-1 rounded border border-white/5 select-all">{{ node.ip }}</code>
+                        </td>
+                        <td class="px-6 py-4 text-right">
+                            <button hx-delete="{{ admin_path }}/groups/{{ group.id }}/members/{{ node.id }}"
+                                hx-confirm="Remove this node from the group?" hx-target="#member-row-{{ node.id }}"
+                                hx-swap="outerHTML"
+                                class="p-2 hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 rounded-lg transition-colors opacity-0 group-hover:opacity-100">
+                                <i data-lucide="user-minus" class="w-4 h-4"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="3" class="px-6 py-12 text-center text-slate-500">
+                            <div class="flex flex-col items-center justify-center">
+                                <div
+                                    class="w-12 h-12 bg-slate-800/50 rounded-full flex items-center justify-center mb-3">
+                                    <i data-lucide="server-off" class="w-6 h-6 text-slate-600"></i>
+                                </div>
+                                <p class="text-sm font-medium text-white mb-1">No nodes in this group</p>
+                                <p class="text-xs">Add nodes to start deploying inbounds.</p>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Active Inbounds Table -->
+    <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-white/5">
+            <div class="flex items-center gap-2">
+                <i data-lucide="file-json" class="w-4 h-4 text-emerald-400"></i>
+                <span class="text-sm font-semibold text-white">Active Inbounds</span>
+                <span
+                    class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">{{
+                    inbounds.len() }}</span>
+            </div>
+            <a href="{{ admin_path }}/templates"
+                class="flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg transition-colors border border-white/5">
+                <i data-lucide="settings" class="w-3.5 h-3.5"></i> Manage Templates
+            </a>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                        <th class="px-6 py-3">Inbound Name</th>
+                        <th class="px-6 py-3">Protocol</th>
+                        <th class="px-6 py-3">Ports</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5 text-sm">
+                    {% for inbound in inbounds %}
+                    <tr class="hover:bg-white/5 transition-colors">
+                        <td class="px-6 py-4 text-white font-medium">{{ inbound.name }}</td>
+                        <td class="px-6 py-4 uppercase text-slate-400">{{ inbound.protocol }}</td>
+                        <td class="px-6 py-4 text-slate-400 font-mono text-xs">{{ inbound.port_range_start }} - {{
+                            inbound.port_range_end }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="3" class="px-6 py-12 text-center text-slate-500">
+                            No inbounds assigned to this group.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Add Node Modal -->
+    <dialog id="addMemberModal">
+        <div class="modal-container max-w-md" onclick="event.stopPropagation()">
+            <header class="modal-header">
+                <h3 class="text-xl font-bold text-white flex items-center gap-3">
+                    <i data-lucide="server" class="w-6 h-6 text-indigo-400"></i>
+                    Add Node to Group
+                </h3>
+                <button onclick="document.getElementById('addMemberModal').close()"
+                    class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </header>
+
+            {% if available_nodes.is_empty() %}
+            <div class="modal-body">
+                <div class="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 flex gap-3">
+                    <i data-lucide="info" class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5"></i>
+                    <p class="text-sm text-amber-100/80 font-medium italic">All active nodes are already members of this
+                        group.</p>
+                </div>
+            </div>
+            <footer class="modal-footer">
+                <button type="button" class="btn-secondary"
+                    onclick="document.getElementById('addMemberModal').close()">Close</button>
+            </footer>
+            {% else %}
+            <form action="{{ admin_path }}/groups/{{ group.id }}/members" method="POST">
+                <div class="modal-body space-y-5">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Select
+                            Node</label>
+                        <div class="relative">
+                            <select name="node_id" required class="input-field appearance-none">
+                                {% for node in available_nodes %}
+                                <option value="{{ node.id }}">{{ node.name }} ({{ node.ip }})</option>
+                                {% endfor %}
+                            </select>
+                            <i data-lucide="chevron-down"
+                                class="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <footer class="modal-footer">
+                    <button type="button" class="btn-secondary"
+                        onclick="document.getElementById('addMemberModal').close()">Cancel</button>
+                    <button type="submit" class="btn-primary">
+                        <i data-lucide="plus" class="w-4 h-4 mr-2 inline-block"></i>Add to Group
+                    </button>
+                </footer>
+            </form>
+            {% endif %}
+        </div>
+    </dialog>
+
+    <script>
+        document.getElementById('addMemberModal')?.addEventListener('click', function (e) {
+            if (e.target === this) this.close();
+        });
+        document.body.addEventListener('htmx:afterSwap', () => lucide.createIcons());
+    </script>
+</div>
+{% endblock %}

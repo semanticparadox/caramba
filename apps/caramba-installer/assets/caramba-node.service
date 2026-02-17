@@ -1,0 +1,16 @@
+[Unit]
+Description=Caramba VPN Node
+After=network.target
+Before=sing-box.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/caramba/node
+ExecStart=/opt/caramba/node/caramba-node
+Restart=always
+RestartSec=10s
+EnvironmentFile=/opt/caramba/node/.env
+
+[Install]
+WantedBy=multi-user.target

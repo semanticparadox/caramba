@@ -1,158 +1,76 @@
-# VPN Control Panel
+# EXA ROBOT: Advanced VPN Panel & Bot
 
-## Secure Installation (Recommended)
+**EXA ROBOT** is a high-performance, censorship-resistant VPN management system built with Rust. It leverages Sing-box, Reality, and Hysteria 2 to provide a robust, anti-censorship solution.
 
-For maximum security, verify the installer's GPG signature before running:
+## 🚀 Key Features
+
+*   **V3 Architecture:** "Disposable Front, Stable Back" design for maximum censorship resilience.
+*   **Modular:** 5 core binaries (`panel`, `agent`, `bot`, `sub`, `miniapp`) for flexible deployment.
+*   **High Performance:** Written in Rust for speed and low resource usage.
+*   **Secure:** Admin panel hidden behind private networks; only disposable services face the public.
+*   **Automated:** Auto-updates via GitHub Releases, automated node management.
+
+## 📚 Documentation
+
+The full documentation is available in the `docs/` directory:
+
+- [**Deployment Guide**](docs/DEPLOYMENT.md): Installation instructions.
+- [**Configuration**](docs/CONFIGURATION.md): Environment variables reference.
+- [**Development**](docs/DEVELOPMENT.md): Build and test instructions.
+- [**Architecture**](docs/MODULES.md): Codebase structure.
+- [**Database**](docs/DATABASE.md): Schema details.
+- [**API Reference**](docs/API.md): Integrations.
+
+---
+
+## 📦 Installation
+
+**Security Notice:** Always verify the GPG signature of the installer.
 
 ```bash
-# Download installer and signature
-curl -sSLO https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/scripts/install.sh
-curl -sSLO https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/scripts/install.sh.asc
+# 1. Download
+curl -sSLO https://raw.githubusercontent.com/semanticparadox/CARAMBA/main/scripts/install.sh
+curl -sSLO https://raw.githubusercontent.com/semanticparadox/CARAMBA/main/scripts/install.sh.asc
+curl -sSL https://raw.githubusercontent.com/semanticparadox/CARAMBA/main/gpg-key.asc | gpg --import
 
-# Import official GPG key
-curl -sSL https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/gpg-key.asc | gpg --import
-
-# Verify signature
+# 2. Verify
 gpg --verify install.sh.asc install.sh
 
-# If "Good signature" shown, proceed with installation
+# 3. Install
 sudo bash install.sh
 ```
 
-**Why verify?**
-- ✅ Protects against man-in-the-middle (MITM) attacks
-- ✅ Ensures the script hasn't been tampered with
-- ✅ Verifies authenticity from official source
-
----
-
-## Quick Installation
-
-**One-line install** (GPG verification will be skipped, less secure):
-
+### Quick One-Liner (Less Secure)
 ```bash
-curl -sSL https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/scripts/install.sh | sudo bash
-```
-
-### Installation Options
-
-**Standard Install**: Default. Clones source code to `/opt/exarobot/source` for easier debugging/modding.
-
-**Clean Install**: Adds `--clean`. Builds binaries in a temp folder and installs ONLY the executables. Keeps server clean.
-```bash
-curl -sSL https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/scripts/install.sh | sudo bash -s -- --clean
-```
-
-### Manual Arguments
-
-Skip the interactive menu by passing arguments:
-
-```bash
-# Install Panel Only (Clean)
-sudo bash install.sh --clean --role panel --domain panel.example.com
-
-# Install Agent Only  
-sudo bash install.sh --role agent --panel https://panel.example.com --token YOUR_TOKEN
-
-# Install Both (Panel + Agent)
-sudo bash install.sh --role both --domain panel.example.com
-```
-
-> **Tip:** For one-line piped install, replace `sudo bash install.sh` with the curl command from above.
-
----
-
-## Updates
-
-To update your installation to the latest version (preserves your config/DB):
-
-```bash
-/opt/exarobot/source/scripts/update.sh
-# OR if using clean install, download it manually:
-curl -sSL https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/scripts/update.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/semanticparadox/CARAMBA/main/scripts/install.sh | sudo bash
 ```
 
 ---
 
-## Configuration Paths
-- **Binaries**: `/opt/exarobot/`
-- **Panel Config**: `/opt/exarobot/.env`
-- **Agent Config**: `/opt/exarobot/.env.agent`
-- **Database**: `/opt/exarobot/exarobot.db`
+## 🛠 Project Structure
+
+*   `apps/panel`: The Core Brain (API, DB, Admin UI).
+*   `apps/agent`: The Node Logic (Sing-box manager).
+*   `apps/bot` (Planned): Separate Telegram Bot binary.
+*   `apps/sub-link` (Planned): High-performance subscription distributor.
+*   `apps/mini-app`: React-based User Frontend.
 
 ---
 
-## Service Management
+## 🔧 Deployment Strategies
 
-**Panel:**
-```bash
-systemctl restart exarobot
-journalctl -u exarobot -f
-```
+### Monolith (Simple)
+Install everything on one server. Good for testing or small deployments.
 
-**Agent:**
-```bash
-systemctl restart exarobot-agent
-journalctl -u exarobot-agent -f
-```
+### Distributed (Anti-Censorship)
+*   **Panel:** Hosted on a secure, private server (The Bunker).
+*   **Bot:** Hosted on any cheap VPS.
+*   **Subscription Service:** Hosted on disposable VPS or Edge.
+*   **Nodes:** Distributed globally.
 
----
-
-## Frontend Module Deployment
-
-Deploy geographically distributed frontend servers to improve censorship resistance:
-
-**Option 1: Secure Installation (Recommended)**
-```bash
-# Download and verify
-curl -sSLO https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/scripts/install.sh
-curl -sSLO https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/scripts/install.sh.asc
-gpg --verify install.sh.asc install.sh
-
-# Run with frontnd role
-sudo bash install.sh --role frontend \
-  --domain frontend-eu.example.com \
-  --token <AUTH_TOKEN_FROM_PANEL> \
-  --region eu
-```
-
-**Option 2: Quick Install**
-```bash
-curl -sSL https://raw.githubusercontent.com/semanticparadox/EXA-ROBOT/main/scripts/install.sh | \
-  sudo bash -s -- --role frontend \
-  --domain frontend-eu.example.com \
-  --token <AUTH_TOKEN_FROM_PANEL> \
-  --region eu
-```
-
-> **Note:** The old `install-frontend.sh` script is deprecated. Use `install.sh --role frontend` instead.
-
-**Architecture:**
-- Frontend servers host the Telegram Mini App and user-facing assets
-- Automatically register with the main Panel
-- Use Caddy for automatic HTTPS
-- Ideal for multi-region deployments to bypass regional blocks
+See [docs/02_censorship.md](docs/02_censorship.md) for details.
 
 ---
 
-## Environment Variables
-
-### Panel (`.env`)
-```bash
-SERVER_DOMAIN=panel.example.com    # Your domain
-ADMIN_PATH=/admin                  # Admin panel path
-PANEL_PORT=3000                    # HTTP port
-DATABASE_URL=sqlite://exarobot.db  # Database location
-BOT_TOKEN=                         # Telegram Bot Token
-PAYMENT_API_KEY=                   # Payment provider key
-NOWPAYMENTS_KEY=                   # NowPayments API key
-```
-
-### Agent (`.env.agent`)
-```bash
-PANEL_URL=https://panel.example.com  # Panel URL
-NODE_TOKEN=                          # Node authentication token
-CONFIG_PATH=/etc/sing-box/config.json # Sing-box config path
-```
-
-**See also:** `.env.panel.example` and `.env.agent.example` for full templates.
+## License
+Proprietary / Closed Source.

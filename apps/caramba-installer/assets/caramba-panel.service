@@ -1,0 +1,15 @@
+[Unit]
+Description=Caramba VPN Control Panel
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/caramba/panel
+ExecStart=/opt/caramba/panel/caramba-panel serve
+Restart=always
+RestartSec=5s
+EnvironmentFile=/opt/caramba/panel/.env
+
+[Install]
+WantedBy=multi-user.target

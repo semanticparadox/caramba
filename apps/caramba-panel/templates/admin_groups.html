@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}Node Groups - CARAMBA{% endblock %}
+{% block header_title %}Node Groups{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header & Actions -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+            <h2 class="text-xl font-bold text-white tracking-tight">Node Groups (Tiers)</h2>
+            <p class="text-slate-400 text-sm mt-1">Organize nodes into groups and assign them to plans.</p>
+        </div>
+        <button onclick="document.getElementById('createGroupModal').showModal()"
+            class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 px-5 rounded-xl transition-all shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_30px_rgba(99,102,241,0.5)] border border-white/10">
+            <i data-lucide="plus-circle" class="w-5 h-5"></i>
+            <span>Create Group</span>
+        </button>
+    </div>
+
+    <!-- Groups Table -->
+    <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                        <th class="px-6 py-4">Group</th>
+                        <th class="px-6 py-4">Slug</th>
+                        <th class="px-6 py-4">Description</th>
+                        <th class="px-6 py-4">Nodes</th>
+                        <th class="px-6 py-4 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5 text-sm">
+                    {% if groups.is_empty() %}
+                    <tr>
+                        <td colspan="5" class="px-6 py-16 text-center text-slate-500">
+                            <div class="flex flex-col items-center justify-center">
+                                <div
+                                    class="w-16 h-16 bg-slate-800/50 rounded-full flex items-center justify-center mb-4">
+                                    <i data-lucide="layers" class="w-8 h-8 text-slate-600"></i>
+                                </div>
+                                <p class="text-base font-medium text-white mb-1">No Groups</p>
+                                <p class="text-sm">Create your first group to organize nodes.</p>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    {% for item in groups %}
+                    <tr class="hover:bg-white/5 transition-colors group" id="group-row-{{ item.group.id }}">
+                        <td class="px-6 py-4">
+                            <div class="flex items-center gap-3">
+                                <div class="p-2 bg-indigo-500/10 rounded-lg text-indigo-400">
+                                    <i data-lucide="layers" class="w-4 h-4"></i>
+                                </div>
+                                <span class="text-white font-medium">{{ item.group.name }}</span>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4">
+                            <code
+                                class="text-xs font-mono text-slate-400 bg-white/5 px-2 py-1 rounded border border-white/5">{{ item.group.slug.as_deref().unwrap_or("-") }}</code>
+                        </td>
+                        <td class="px-6 py-4 text-slate-400">{{ item.group.description.as_deref().unwrap_or("-") }}</td>
+                        <td class="px-6 py-4">
+                            <span
+                                class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                                <i data-lucide="server" class="w-3 h-3"></i> {{ item.node_count }} Nodes
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 text-right">
+                            <div
+                                class="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <a href="{{ admin_path }}/groups/{{ item.group.id }}" title="Edit & Manage Members"
+                                    class="p-2 hover:bg-indigo-500/10 text-slate-400 hover:text-indigo-400 rounded-lg transition-colors">
+                                    <i data-lucide="settings" class="w-4 h-4"></i>
+                                </a>
+                                {% if item.group.id != 1 %}
+                                <button title="Delete" hx-delete="{{ admin_path }}/groups/{{ item.group.id }}"
+                                    hx-confirm="Are you sure you want to delete this group? Plans linked to this group will lose access to its nodes."
+                                    data-confirm-title="Delete Node Group" hx-target="#group-row-{{ item.group.id }}"
+                                    hx-swap="outerHTML"
+                                    class="p-2 hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 rounded-lg transition-colors">
+                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                </button>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Create Group Modal -->
+<dialog id="createGroupModal">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <header class="modal-header">
+            <h3 class="text-xl font-bold text-white flex items-center gap-3">
+                <i data-lucide="layers" class="w-6 h-6 text-indigo-400"></i>
+                Create Node Group
+            </h3>
+            <button onclick="document.getElementById('createGroupModal').close()"
+                class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+        </header>
+
+        <form action="{{ admin_path }}/groups" method="POST">
+            <div class="modal-body space-y-5">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Group
+                        Name</label>
+                    <input type="text" name="name" required placeholder="e.g. Premium Tier" class="input-field">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Slug</label>
+                    <input type="text" name="slug" placeholder="e.g. premium"
+                        class="input-field uppercase font-mono text-xs">
+                    <p class="text-[10px] text-slate-500 mt-2 font-medium italic">Unique slug for API/config usage.</p>
+                </div>
+                <div>
+                    <label
+                        class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Description</label>
+                    <textarea name="description" rows="3" placeholder="Describe the purpose of this group..."
+                        class="input-field resize-none"></textarea>
+                </div>
+            </div>
+
+            <footer class="modal-footer">
+                <button type="button" class="btn-secondary"
+                    onclick="document.getElementById('createGroupModal').close()">Cancel</button>
+                <button type="submit" class="btn-primary">
+                    <i data-lucide="plus" class="w-4 h-4"></i>
+                    Create Group
+                </button>
+            </footer>
+        </form>
+    </div>
+</dialog>
+
+<script>
+    document.getElementById('createGroupModal')?.addEventListener('click', function (e) {
+        if (e.target === this) this.close();
+    });
+    document.body.addEventListener('htmx:afterSwap', () => lucide.createIcons());
+</script>
+{% endblock %}

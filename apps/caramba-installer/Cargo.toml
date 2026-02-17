@@ -1,0 +1,26 @@
+[package]
+name = "caramba-installer"
+version = "0.3.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4.4", features = ["derive"] }
+reqwest = { version = "0.13", features = ["json", "rustls"] }
+anyhow = "1.0"
+dialoguer = "0.11"
+indicatif = "0.17"
+console = "0.15"
+sysinfo = "0.33"
+tempfile = "3.10"
+zip = "0.6"
+tar = "0.4"
+flate2 = "1.0"
+os_info = "3.8"
+whoami = "1.5"
+chrono = "0.4"
+rust-embed = "8.0"
+
+[[bin]]
+name = "caramba-installer"
+path = "src/main.rs"

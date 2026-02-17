@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+
+{% block title %}Distributed Nodes - CARAMBA{% endblock %}
+{% block header_title %}Distributed Nodes{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header & Actions -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+            <h2 class="text-xl font-bold text-white tracking-tight">Distributed Frontend Nodes</h2>
+            <p class="text-slate-400 text-sm mt-1">Manage external frontend servers. For global subscription settings,
+                visit <a href="/admin/settings" class="text-indigo-400 hover:text-indigo-300">Settings > Frontend</a>.
+            </p>
+        </div>
+        <button onclick="document.getElementById('addFrontendModal').showModal()"
+            class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 px-5 rounded-xl transition-all shadow-[0_0_20px_rgba(255,107,53,0.3)] hover:shadow-[0_0_30px_rgba(255,107,53,0.5)] border border-white/10">
+            <i data-lucide="plus-circle" class="w-5 h-5"></i>
+            <span>Add Frontend</span>
+        </button>
+    </div>
+
+    <!-- Frontend Servers List -->
+    <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden glass">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                        <th class="px-6 py-4">Domain</th>
+                        <th class="px-6 py-4">Region</th>
+                        <th class="px-6 py-4">IP Address</th>
+                        <th class="px-6 py-4">Status</th>
+                        <th class="px-6 py-4">Traffic (Mo)</th>
+                        <th class="px-6 py-4">Last Seen</th>
+                        <th class="px-6 py-4 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="frontendsTableBody" class="divide-y divide-white/5 text-sm"
+                    hx-get="{{ admin_path }}/partials/frontends_rows" hx-trigger="load, every 30s" hx-swap="innerHTML">
+                    <tr>
+                        <td colspan="7" class="px-6 py-12 text-center text-slate-400">
+                            <i data-lucide="loader" class="w-8 h-8 mx-auto mb-3 animate-spin text-indigo-500"></i>
+                            <p>Loading servers...</p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Add Frontend Modal -->
+<dialog id="addFrontendModal"
+    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50">
+    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4 ring-1 ring-white/10 overflow-y-auto max-h-[90vh]"
+        onclick="event.stopPropagation()">
+        <header class="flex justify-between items-center mb-6 border-b border-white/5 pb-4">
+            <div class="flex items-center gap-3">
+                <div class="p-2 bg-indigo-500/10 rounded-lg text-indigo-400">
+                    <i data-lucide="globe" class="w-6 h-6"></i>
+                </div>
+                <h3 class="text-xl font-bold text-white">Add Frontend</h3>
+            </div>
+            <button onclick="document.getElementById('addFrontendModal').close()"
+                class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+        </header>
+
+        <form id="addFrontendForm" class="space-y-5">
+            <div>
+                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Domain</label>
+                <div class="relative">
+                    <i data-lucide="link" class="absolute left-4 top-3.5 w-4 h-4 text-slate-500"></i>
+                    <input type="text" name="domain" placeholder="frontend-eu.example.com" required
+                        class="w-full bg-slate-950 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                </div>
+                <p class="text-[10px] text-slate-500 mt-1.5 ml-1">Must be a valid FQDN pointing to the server IP.</p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Miniapp
+                        Domain (Optional)</label>
+                    <div class="relative">
+                        <i data-lucide="smartphone" class="absolute left-4 top-3.5 w-4 h-4 text-slate-500"></i>
+                        <input type="text" name="miniapp_domain" placeholder="app.example.com"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Sub
+                        Path</label>
+                    <div class="relative">
+                        <i data-lucide="folder" class="absolute left-4 top-3.5 w-4 h-4 text-slate-500"></i>
+                        <input type="text" name="sub_path" placeholder="/sub/" value="/sub/"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Advanced / Hidden fields for IP/Region (Optional) -->
+            <details class="group">
+                <summary
+                    class="flex items-center gap-2 text-xs font-medium text-slate-500 uppercase tracking-wider cursor-pointer hover:text-indigo-400 transition-colors">
+                    <i data-lucide="chevron-right" class="w-4 h-4 group-open:rotate-90 transition-transform"></i>
+                    <span>Advanced Options (IP / Region)</span>
+                </summary>
+                <div class="grid grid-cols-2 gap-4 mt-3 pl-2 border-l border-white/5 bg-white/5 p-3 rounded-r-xl">
+                    <div>
+                        <label class="block text-[10px] font-medium text-slate-400 uppercase mb-1">IP Address</label>
+                        <input type="text" name="ip_address" placeholder="Auto-detected"
+                            class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:border-indigo-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-medium text-slate-400 uppercase mb-1">Region</label>
+                        <input type="text" name="region" placeholder="global"
+                            class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:border-indigo-500 outline-none">
+                    </div>
+                </div>
+            </details>
+
+            <div class="pt-4">
+                <button type="submit" id="createFrontendBtn"
+                    class="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02]">
+                    <span>Deploy & Generate Command</span>
+                    <i data-lucide="arrow-right" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+<!-- Install Command Modal -->
+<dialog id="installCommandModal"
+    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50">
+    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-2xl p-6 m-4 ring-1 ring-emerald-500/30 overflow-y-auto max-h-[90vh]"
+        onclick="event.stopPropagation()">
+        <header class="flex justify-between items-center mb-6">
+            <div class="flex items-center gap-3">
+                <div class="p-2 bg-emerald-500/10 rounded-lg text-emerald-400">
+                    <i data-lucide="check-circle-2" class="w-6 h-6"></i>
+                </div>
+                <h3 class="text-xl font-bold text-white">Frontend Created!</h3>
+            </div>
+            <button onclick="document.getElementById('installCommandModal').close()"
+                class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+        </header>
+
+        <div class="space-y-6">
+            <div class="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4 flex gap-3">
+                <i data-lucide="info" class="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5"></i>
+                <div class="text-sm text-emerald-100/80">
+                    <p class="font-medium text-emerald-400 mb-1">Installation Required</p>
+                    Run the command below on your server to install the frontend service. This token is shown only once.
+                </div>
+            </div>
+
+            <div class="relative group">
+                <pre id="installCommand"
+                    class="bg-slate-950 border border-white/5 rounded-xl p-5 text-emerald-400 font-mono text-xs overflow-x-auto whitespace-pre-wrap break-all leading-relaxed shadow-inner"></pre>
+                <button id="copyInstallCmd"
+                    class="absolute top-3 right-3 p-2 bg-white/5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100">
+                    <i data-lucide="copy" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3">
+                <h4 class="text-sm font-semibold text-white uppercase tracking-wider">Instructions</h4>
+                <ol class="space-y-3 text-sm text-slate-400 list-decimal list-outside ml-4">
+                    <li>SSH into your server: <code
+                            class="text-indigo-400 font-mono bg-white/5 px-1.5 py-0.5 rounded">ssh root@<span id="serverIP"></span></code>
+                    </li>
+                    <li>Paste and run the installation command above</li>
+                    <li>Wait ~2 minutes for the setup to complete</li>
+                    <li>Verify by visiting: <a href="#" id="verifyLink" target="_blank"
+                            class="text-indigo-400 hover:text-indigo-300 underline underline-offset-4 decoration-indigo-500/30">https://<span
+                                id="serverDomain"></span>/health</a></li>
+                </ol>
+            </div>
+        </div>
+
+        <div class="mt-8 pt-6 border-t border-white/5 flex justify-end">
+            <button onclick="document.getElementById('installCommandModal').close()"
+                class="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-xl transition-colors">
+                Done
+            </button>
+        </div>
+    </div>
+</dialog>
+
+<script>
+    // Initial load handled by HTMX trigger="load"
+</script>
+{% endblock %}
