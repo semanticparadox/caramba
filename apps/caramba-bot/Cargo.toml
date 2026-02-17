@@ -4,7 +4,7 @@ version = "0.3.0"
 edition = "2021"
 
 [dependencies]
-teloxide = { version = "0.17", default-features = false, features = ["macros", "rustls-tokio"] }
+teloxide = { version = "0.17", default-features = false, features = ["macros", "rustls"] }
 openssl = { version = "0.10", features = ["vendored"] }
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.13", features = ["json", "rustls"] }
