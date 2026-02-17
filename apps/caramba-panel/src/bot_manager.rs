@@ -27,7 +27,7 @@ impl BotManager {
         }
     }
 
-    pub async fn start_bot(&self, token: String, state: crate::AppState) -> bool {
+    pub async fn start_bot(&self, token: String, _state: crate::AppState) -> bool {
         let mut handle_lock = self.current_handle.lock().await;
         
         if handle_lock.is_some() {

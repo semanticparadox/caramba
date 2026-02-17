@@ -14,9 +14,7 @@ pub mod handlers;
 
 
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
-use std::time::Instant;
+use std::sync::Arc;
 use std::io;
 use tracing_appender;
 use settings::SettingsService;
@@ -591,7 +589,17 @@ use tower_http::services::ServeDir;
         .route("/api/v2/node/settings", axum::routing::get(api::v2::node::get_settings)) // NEW
         .route("/api/v2/node/register", axum::routing::post(api::v2::node::register)) // NEW Enrollment
         .route("/api/v2/bot/verify", axum::routing::post(handlers::api::bot::verify_user))
-        .route("/api/v2/bot/link", axum::routing::post(handlers::api::bot::link_user))
+        .route("/api/v2/bot/users", axum::routing::post(handlers::api::bot::upsert_user))
+        .route("/api/v2/bot/users/tg/{tg_id}", axum::routing::get(handlers::api::bot::get_user_by_tg))
+        .route("/api/v2/bot/users/{id}/subs", axum::routing::get(handlers::api::bot::get_user_subs))
+        .route("/api/v2/bot/plans", axum::routing::get(handlers::api::bot::get_plans))
+        .route("/api/v2/bot/store/categories", axum::routing::get(handlers::api::bot::get_categories))
+        .route("/api/v2/bot/store/categories/{id}/products", axum::routing::get(handlers::api::bot::get_products_by_category))
+        .route("/api/v2/bot/users/{id}/purchase-plan", axum::routing::post(handlers::api::bot::purchase_plan))
+        .route("/api/v2/bot/users/{id}/purchase-product", axum::routing::post(handlers::api::bot::purchase_product))
+        .route("/api/v2/bot/settings/{key}", axum::routing::get(handlers::api::bot::get_settings))
+        .route("/api/v2/bot/subs/{id}/links", axum::routing::get(handlers::api::bot::get_sub_links))
+        .route("/api/v2/bot/subs/{id}/activate", axum::routing::post(handlers::api::bot::activate_sub))
         .route("/api/v2/client/recommended", axum::routing::get(api::v2::client::get_recommended_nodes)) // AI Routing
         // Client API
         .nest("/api/client", api::client::routes(state.clone()))

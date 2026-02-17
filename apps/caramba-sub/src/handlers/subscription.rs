@@ -4,7 +4,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
-use tracing::{info, error, warn};
+use tracing::{info, error};
 use crate::AppState;
 use crate::singbox_generator::ConfigGenerator;
 

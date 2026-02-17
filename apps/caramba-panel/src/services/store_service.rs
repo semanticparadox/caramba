@@ -1,15 +1,15 @@
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use anyhow::{Context, Result};
 use chrono::{Utc, Duration};
-use tracing::{info, error};
 use uuid::Uuid;
 use crate::services::referral_service::ReferralService;
+use crate::services::activity_service::ActivityService;
 
 use caramba_db::models::store::{
-    User, Plan, Subscription, GiftCode, PlanDuration, 
-    RenewalResult, AlertType, DetailedReferral, SubscriptionWithDetails, CartItem
+    User, Subscription, GiftCode, PlanDuration, 
+    CartItem
 };
-use caramba_db::models::network::InboundType;
+
 use caramba_db::repositories::user_repo::UserRepository;
 use caramba_db::repositories::subscription_repo::SubscriptionRepository;
 use caramba_db::repositories::node_repo::NodeRepository;
@@ -215,7 +215,7 @@ impl StoreService {
         let children = self.get_family_members(parent_id).await?;
         if children.is_empty() { return Ok(()); }
 
-        let mut tx = self.pool.begin().await?;
+        let tx = self.pool.begin().await?;
 
         if let Some(psub) = parent_sub {
             for child in children {
@@ -373,7 +373,26 @@ impl StoreService {
 
         tx.commit().await?;
         let _ = crate::services::analytics_service::AnalyticsService::track_order(&self.pool).await;
+        let _ = ActivityService::log_tx(&self.pool, Some(user_id), "Plan Purchase", &format!("Purchased plan (Duration ID: {})", duration_id)).await;
         Ok(sub)
+    }
+
+    pub async fn purchase_product_with_balance(&self, user_id: i64, product_id: i64) -> Result<caramba_db::models::store::Product> {
+        let mut tx = self.pool.begin().await?;
+        let user: User = sqlx::query_as("SELECT * FROM users WHERE id = $1 FOR UPDATE").bind(user_id).fetch_one(&mut *tx).await?;
+        let product: caramba_db::models::store::Product = sqlx::query_as("SELECT * FROM products WHERE id = $1").bind(product_id).fetch_one(&mut *tx).await?;
+
+        if user.balance < product.price {
+            return Err(anyhow::anyhow!("Insufficient balance"));
+        }
+
+        sqlx::query("UPDATE users SET balance = balance - $1 WHERE id = $2")
+            .bind(product.price).bind(user_id).execute(&mut *tx).await?;
+
+        let _ = ActivityService::log_tx(&mut *tx, Some(user_id), "Product Purchase", &format!("Purchased product: {}", product.name)).await;
+        
+        tx.commit().await?;
+        Ok(product)
     }
 
     pub async fn activate_subscription(&self, sub_id: i64, user_id: i64) -> Result<Subscription> {
@@ -390,6 +409,8 @@ impl StoreService {
 
         self.sub_repo.update_status_and_expiry(sub_id, "active", new_expires_at).await?;
         let updated_sub = self.sub_repo.get_by_id(sub_id).await?.unwrap();
+
+        let _ = ActivityService::log(&self.pool, "Subscription", &format!("User {} activated sub {}", user_id, sub_id)).await;
 
         Ok(updated_sub)
     }
@@ -540,6 +561,9 @@ impl StoreService {
             .bind(sub.user_id)
             .execute(&mut *tx)
             .await?;
+        
+        let _ = ActivityService::log_tx(&mut *tx, Some(sub.user_id), "Refund", &format!("Refunded sub {} (Amt: {})", sub_id, amount)).await;
+        
         tx.commit().await?;
         Ok(())
     }
@@ -707,6 +731,9 @@ impl StoreService {
             sqlx::query("INSERT INTO order_items (order_id, product_id, quantity, price) VALUES ($1, $2, $3, $4)").bind(order_id).bind(item.product_id).bind(item.quantity).bind(item.price).execute(&mut *tx).await?;
         }
         sqlx::query("DELETE FROM cart_items WHERE user_id = $1").bind(user_id).execute(&mut *tx).await?;
+        
+        let _ = ActivityService::log_tx(&mut *tx, Some(user_id), "Checkout", &format!("Checkout complete. Total: {}", total_price)).await;
+
         tx.commit().await?;
         Ok(())
     }

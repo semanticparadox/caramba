@@ -4,7 +4,7 @@ use tracing::{info, error};
 use crate::AppState;
 use crate::bot::utils::{escape_md, register_bot_message};
 use crate::bot::keyboards::{main_menu, language_keyboard, terms_keyboard};
-use crate::models::store::{User, Plan, Subscription, DetailedSubscription, SubscriptionIpTracking, CartItem, StoreCategory, GiftCode};
+use crate::models::store::{User, Plan, DetailedSubscription, SubscriptionIpTracking, CartItem, StoreCategory};
 use anyhow::Result as AnyhowResult;
 
 // Note: LoggingService is now in state

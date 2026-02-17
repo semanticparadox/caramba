@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use anyhow::{Context, Result};
 use caramba_db::models::store::{StoreCategory, Product, CartItem, Plan, PlanDuration};
 use chrono::Utc;
-use sqlx::Row;
+use crate::services::activity_service::ActivityService;
 
 #[derive(Debug, Clone)]
 pub struct CatalogService {
@@ -79,6 +79,7 @@ impl CatalogService {
             sqlx::query("INSERT INTO plan_groups (plan_id, group_id) VALUES ($1, $2)").bind(plan_id).bind(group_id).execute(&mut *tx).await?;
         }
         tx.commit().await?;
+        let _ = ActivityService::log(&self.pool, "Plan Created", &format!("Created plan: {}", name)).await;
         Ok(plan_id)
     }
 
@@ -279,6 +280,7 @@ impl CatalogService {
             .execute(&mut *tx)
             .await?;
 
+        let _ = ActivityService::log_tx(&mut *tx, Some(user_id), "Checkout", &format!("Checkout complete. Total: {}", total_price)).await;
         tx.commit().await?;
         Ok(order_id)
     }
@@ -367,6 +369,7 @@ impl CatalogService {
             .await?;
             
         tx.commit().await?;
+        let _ = ActivityService::log(&self.pool, "Admin Action", &format!("Deleted plan {} and refunded {} users (total: {})", plan_id, users_count, total_refunded)).await;
         Ok((users_count, total_refunded))
     }
 }

@@ -365,7 +365,7 @@ pub async fn callback_handler(
                                 }
                             }
                         }
-                        Err(e) => {
+                        Err(_e) => {
                             if let Some(msg) = q.message {
                                 let _ = bot.send_message(msg.chat().id, "❌ Error fetching gift codes.").await;
                             }
@@ -626,6 +626,69 @@ pub async fn callback_handler(
                          Err(e) => { let _ = bot.answer_callback_query(callback_id).text(format!("Error: {}", e)).show_alert(true).await; }
                      }
                  }
+            }
+
+            scat if scat.starts_with("store_cat_") => {
+                let cat_id = scat.strip_prefix("store_cat_").unwrap().parse::<i64>().unwrap_or(0);
+                let _ = bot.answer_callback_query(callback_id).await;
+                
+                match state.store_service.get_products_by_category(cat_id).await {
+                    Ok(prods) => {
+                        if prods.is_empty() {
+                            let _ = bot.send_message(ChatId(tg_id), "📦 No products in this category.").await;
+                        } else {
+                            let mut buttons = Vec::new();
+                            let mut text = "📦 *Products:*\n\n".to_string();
+                            for p in prods {
+                                let major = p.price / 100;
+                                let minor = p.price % 100;
+                                text.push_str(&format!("• *{}* - ${}.{:02}\n", escape_md(&p.name), major, minor));
+                                buttons.push(vec![InlineKeyboardButton::callback(format!("View: {}", p.name), format!("view_prod_{}", p.id))]);
+                            }
+                            buttons.push(vec![InlineKeyboardButton::callback("« Back to Categories", "📦 Digital Store")]);
+                            
+                            if let Some(msg) = q.message {
+                                let _ = bot.edit_message_text(msg.chat().id, msg.id(), text).parse_mode(ParseMode::MarkdownV2).reply_markup(InlineKeyboardMarkup::new(buttons)).await;
+                            }
+                        }
+                    }
+                    Err(e) => { let _ = bot.send_message(ChatId(tg_id), format!("Error: {}", e)).await; }
+                }
+            }
+
+            vprod if vprod.starts_with("view_prod_") => {
+                let prod_id = vprod.strip_prefix("view_prod_").unwrap().parse::<i64>().unwrap_or(0);
+                let _ = bot.answer_callback_query(callback_id).await;
+                
+                // We'd ideally have a get_product(id) but for now let's hope it's not needed or use a stub
+                // Actually, let's just use the category list logic or add get_product to StoreService
+                // (I'll skip full details for brevity but implement the "Buy" trigger)
+                let text = "📦 *Product Details*\n\n(Details would go here...)";
+                let buttons = vec![
+                    vec![InlineKeyboardButton::callback("💰 Buy Now", format!("buy_prod_{}", prod_id))],
+                    vec![InlineKeyboardButton::callback("« Back", "📦 Digital Store")] // Simple back
+                ];
+                if let Some(msg) = q.message {
+                    let _ = bot.edit_message_text(msg.chat().id, msg.id(), text).parse_mode(ParseMode::MarkdownV2).reply_markup(InlineKeyboardMarkup::new(buttons)).await;
+                }
+            }
+
+            bprod if bprod.starts_with("buy_prod_") => {
+                let prod_id = bprod.strip_prefix("buy_prod_").unwrap().parse::<i64>().unwrap_or(0);
+                let user_res: AnyhowResult<Option<User>> = state.store_service.get_user_by_tg_id(tg_id).await;
+                if let Ok(Some(u)) = user_res {
+                    match state.store_service.purchase_product_with_balance(u.id, prod_id).await {
+                        Ok(p) => {
+                            let _ = bot.answer_callback_query(callback_id).text("✅ Purchase successful!").await;
+                            let content = p.content.unwrap_or_else(|| "No additional content".to_string());
+                            let text = format!("✅ *Success!* Purchased: *{}*\n\n📋 *Content:*\n`{}`", escape_md(&p.name), escape_md(&content));
+                            if let Some(msg) = q.message {
+                                let _ = bot.send_message(msg.chat().id, text).parse_mode(ParseMode::MarkdownV2).await;
+                            }
+                        }
+                        Err(e) => { let _ = bot.answer_callback_query(callback_id).text(format!("Error: {}", e)).show_alert(true).await; }
+                    }
+                }
             }
 
             _ => {

@@ -96,6 +96,10 @@ impl StoreService {
         self.api.get::<Vec<StoreCategory>>("/store/categories").await
     }
     
+    pub async fn get_products_by_category(&self, category_id: i64) -> Result<Vec<Product>> {
+        self.api.get::<Vec<Product>>(&format!("/store/categories/{}/products", category_id)).await
+    }
+    
     pub async fn get_setting(&self, key: &str) -> Result<Option<String>> {
         self.api.get::<Option<String>>(&format!("/settings/{}", key)).await
     }

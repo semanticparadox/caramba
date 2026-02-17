@@ -3,7 +3,8 @@ use anyhow::{Context, Result};
 use caramba_db::models::store::{Plan, Subscription, SubscriptionWithDetails, GiftCode, PlanDuration, RenewalResult, SubscriptionIpTracking, AlertType};
 use caramba_db::models::node::Node;
 use caramba_db::models::network::InboundType;
-use crate::singbox::subscription_generator::{self, NodeInfo, UserKeys};
+use crate::singbox::subscription_generator::{NodeInfo, UserKeys};
+use crate::services::activity_service::ActivityService;
 use uuid::Uuid;
 use chrono::{Utc, Duration};
 
@@ -82,6 +83,8 @@ impl SubscriptionService {
         .execute(&mut *tx)
         .await?;
 
+        let _ = ActivityService::log_tx(&mut *tx, Some(user_id), "Gift Code", &format!("Converted sub {} to gift: {}", sub_id, code)).await;
+
         tx.commit().await?;
         Ok(code)
     }
@@ -139,6 +142,9 @@ impl SubscriptionService {
         .bind(current_user_id)
         .fetch_one(&self.pool)
         .await?;
+
+        let _ = ActivityService::log(&self.pool, "Transfer", &format!("Transferred sub {} from {} to {}", sub_id, current_user_id, target_user_id)).await;
+
         Ok(sub)
     }
 
@@ -158,6 +164,9 @@ impl SubscriptionService {
             .execute(&self.pool)
             .await
             .context("Failed to extend subscription")?;
+        
+        let _ = ActivityService::log(&self.pool, "Admin Action", &format!("Admin extended sub {} by {} days", sub_id, days)).await;
+
         Ok(())
     }
 
@@ -188,6 +197,8 @@ impl SubscriptionService {
         .bind(sub_uuid)
         .fetch_one(&mut *tx)
         .await?;
+
+        let _ = ActivityService::log_tx(&mut *tx, Some(user_id), "Admin Action", &format!("Admin gifted sub to user {}", user_id)).await;
 
         tx.commit().await?;
         Ok(sub)

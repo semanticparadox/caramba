@@ -1,9 +1,6 @@
 use dotenvy::dotenv;
 use teloxide::prelude::*;
 use std::env;
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use std::collections::HashMap;
 
 mod api_client;
 mod state;

@@ -1,7 +1,6 @@
 use tracing::{info, error};
 use tokio::time::{interval, Duration};
 use crate::AppState;
-use caramba_db::models::store::{RenewalResult, AlertType};
 use chrono::Utc;
 
 pub struct MonitoringService {
