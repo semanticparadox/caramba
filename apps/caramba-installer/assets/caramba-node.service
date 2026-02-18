@@ -6,11 +6,12 @@ Before=sing-box.service
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/caramba/node
-ExecStart=/opt/caramba/node/caramba-node
+WorkingDirectory=/opt/caramba
+ExecStart=/opt/caramba/caramba-node
 Restart=always
 RestartSec=10s
-EnvironmentFile=/opt/caramba/node/.env
+EnvironmentFile=-/opt/caramba/.env
+EnvironmentFile=-/opt/caramba/node.env
 
 [Install]
 WantedBy=multi-user.target

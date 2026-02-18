@@ -103,7 +103,7 @@ async fn main() {
                         exit(1);
                      }
                 } else if panel {
-                    if let Err(e) = install::install_service("caramba-panel.service") {
+                    if let Err(e) = install::install_service("caramba-panel.service", &config.install_dir) {
                         eprintln!("Failed to install panel service: {}", e);
                     }
                 }
@@ -119,7 +119,7 @@ async fn main() {
             if node || hub {
                 println!("Installing Caramba Node...");
                 // install::install_node().await;
-                 if let Err(e) = install::install_service("caramba-node.service") {
+                 if let Err(e) = install::install_service("caramba-node.service", "/opt/caramba") {
                     eprintln!("Failed to install node service: {}", e);
                 }
             }

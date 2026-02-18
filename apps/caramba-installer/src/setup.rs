@@ -19,10 +19,17 @@ pub fn interactive_setup(hub_mode: bool) -> InstallConfig {
         .unwrap();
 
     let sub_domain = if hub_mode {
-        Some(Input::with_theme(&ColorfulTheme::default())
+        let raw: String = Input::with_theme(&ColorfulTheme::default())
             .with_prompt("Subscription Domain (e.g. sub.example.com)")
+            .default("".into())
             .interact_text()
-            .unwrap())
+            .unwrap();
+        let trimmed = raw.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
     } else {
         None
     };
@@ -61,6 +68,9 @@ pub fn generate_caddyfile(config: &InstallConfig) -> String {
     );
 
     if let Some(sub) = &config.sub_domain {
+        if sub == &config.domain {
+            return caddyfile;
+        }
         caddyfile.push_str(&format!(
             "\n{sub} {{\n    reverse_proxy 127.0.0.1:8080\n}}\n"
         ));

@@ -33,6 +33,16 @@ fn run_command(cmd: &str, args: &[&str], msg: &str) -> Result<()> {
     }
 }
 
+fn command_exists(cmd: &str) -> bool {
+    Command::new("which")
+        .arg(cmd)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 pub async fn install_dependencies() -> Result<()> {
     println!("\n{}", style("Installing System Dependencies...").bold());
 
@@ -74,23 +84,34 @@ pub async fn install_dependencies() -> Result<()> {
         run_command("apt-get", &["install", "-y", pkg], &format!("Installing {}", pkg))?;
     }
 
-    // npm is not available in some Debian/Ubuntu combinations (or is bundled with nodejs).
-    // Treat it as optional to avoid aborting installation.
-    let npm_status = Command::new("apt-get")
-        .args(["install", "-y", "npm"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+    if command_exists("npm") {
+        println!("✅ npm is already available (bundled with nodejs or preinstalled).");
+    } else {
+        // npm is not available in some Debian/Ubuntu combinations.
+        // Treat it as optional to avoid aborting installation.
+        let npm_status = Command::new("apt-get")
+            .args(["install", "-y", "npm"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
 
-    match npm_status {
-        Ok(status) if status.success() => {
-            println!("✅ Installing npm");
+        match npm_status {
+            Ok(status) if status.success() => {
+                println!("✅ Installed npm");
+            }
+            _ => {
+                println!(
+                    "⚠️ npm package is unavailable via apt on this host. Continuing installer."
+                );
+            }
         }
-        _ => {
-            println!(
-                "⚠️ npm package installation skipped (not available via apt). Continuing installer."
-            );
-        }
+    }
+
+    // Rust is not required for release-binary installation, but report status for diagnostics.
+    if command_exists("rustc") && command_exists("cargo") {
+        println!("✅ Rust toolchain detected (rustc + cargo).");
+    } else {
+        println!("ℹ️ Rust toolchain not found. This is OK for release-binary installation.");
     }
 
     Ok(())
@@ -108,15 +129,19 @@ pub async fn configure_firewall() -> Result<()> {
 }
 
 
-pub fn install_service(service_name: &str) -> Result<()> {
+pub fn install_service(service_name: &str, install_dir: &str) -> Result<()> {
     let file_content = Assets::get(service_name)
         .ok_or_else(|| anyhow!("Service file '{}' not found in assets", service_name))?;
+    let raw = std::str::from_utf8(file_content.data.as_ref())
+        .map_err(|e| anyhow!("Service file '{}' is not valid UTF-8: {}", service_name, e))?;
+    let normalized_dir = install_dir.trim_end_matches('/');
+    let rendered = raw.replace("/opt/caramba", normalized_dir);
     
     let path = format!("/etc/systemd/system/{}", service_name);
     println!("Installing service to {}", path);
     
     let mut file = std::fs::File::create(&path)?;
-    file.write_all(file_content.data.as_ref())?;
+    file.write_all(rendered.as_bytes())?;
     
     run_command("systemctl", &["daemon-reload"], "Reloading systemd")?;
     run_command("systemctl", &["enable", service_name], &format!("Enabling {}", service_name))?;
@@ -173,10 +198,10 @@ pub async fn install_hub(config: &crate::setup::InstallConfig, version: &str) ->
     download_file(&format!("{}/caramba-node", base_url), &node_path).await?;
     
     // 3. Install Services
-    install_service("caramba-panel.service")?;
-    install_service("caramba-sub.service")?;
-    install_service("caramba-bot.service")?;
-    install_service("caramba-node.service")?;
+    install_service("caramba-panel.service", &config.install_dir)?;
+    install_service("caramba-sub.service", &config.install_dir)?;
+    install_service("caramba-bot.service", &config.install_dir)?;
+    install_service("caramba-node.service", &config.install_dir)?;
     
     Ok(())
 }
@@ -203,6 +228,8 @@ pub fn setup_database(config: &crate::setup::InstallConfig) -> Result<()> {
 
 pub fn create_env_file(config: &crate::setup::InstallConfig) -> Result<()> {
     println!("Creating .env file...");
+    std::fs::create_dir_all(&config.install_dir)?;
+
     let env_content = format!(
 r#"DATABASE_URL=postgres://caramba:{}@localhost/caramba
 REDIS_URL=redis://127.0.0.1:6379

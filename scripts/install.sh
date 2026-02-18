@@ -6,9 +6,18 @@ INSTALL_DIR="/usr/local/bin"
 BINARY="caramba-installer"
 
 echo "🔍 Resolving latest version..."
-# Get latest tag via redirect
-LATEST_URL=$(curl -Ls -o /dev/null -w %{url_effective} "https://github.com/$REPO/releases/latest")
-VERSION=$(basename "$LATEST_URL")
+# Prefer stable semantic tags only (vX.Y.Z), ignore CI tags like v0.0.0-ci-*
+RELEASES_JSON=$(curl -fsSL "https://api.github.com/repos/$REPO/releases" || true)
+VERSION=$(printf "%s" "$RELEASES_JSON" \
+  | grep -oE '"tag_name":[[:space:]]*"v[0-9]+\.[0-9]+\.[0-9]+"' \
+  | head -n1 \
+  | sed -E 's/.*"([^"]+)".*/\1/')
+
+# Fallback to GitHub latest if API parsing fails
+if [ -z "$VERSION" ]; then
+  LATEST_URL=$(curl -Ls -o /dev/null -w %{url_effective} "https://github.com/$REPO/releases/latest")
+  VERSION=$(basename "$LATEST_URL")
+fi
 
 if [ -z "$VERSION" ]; then
     echo "❌ Failed to detect latest version."

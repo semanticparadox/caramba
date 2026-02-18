@@ -8,7 +8,8 @@ User=root
 WorkingDirectory=/opt/caramba
 ExecStart=/opt/caramba/caramba-sub
 Restart=always
-EnvironmentFile=/etc/caramba/frontend.toml
+EnvironmentFile=-/opt/caramba/.env
+EnvironmentFile=-/opt/caramba/sub.env
 
 [Install]
 WantedBy=multi-user.target
