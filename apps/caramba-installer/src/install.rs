@@ -295,6 +295,11 @@ pub fn install_service(service_name: &str, install_dir: &str) -> Result<()> {
         &["enable", "--now", service_name],
         &format!("Enabling and starting {}", service_name),
     )?;
+    run_command(
+        "systemctl",
+        &["restart", service_name],
+        &format!("Restarting {}", service_name),
+    )?;
 
     Ok(())
 }
@@ -326,9 +331,33 @@ pub async fn download_file(url: &str, path: &str) -> Result<()> {
     }
 
     let content = response.bytes().await?;
-    std::fs::write(path, content)?;
+    let target_path = std::path::Path::new(path);
+    let parent = target_path
+        .parent()
+        .ok_or_else(|| anyhow!("Invalid target path: {}", path))?;
+    std::fs::create_dir_all(parent)?;
 
-    run_command("chmod", &["+x", path], "Making executable")?;
+    let file_name = target_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| anyhow!("Invalid file name in path: {}", path))?;
+    let tmp_path = parent.join(format!(
+        ".{}.tmp.{}",
+        file_name,
+        uuid::Uuid::new_v4().to_string().replace('-', "")
+    ));
+
+    {
+        let mut tmp_file = std::fs::File::create(&tmp_path)?;
+        tmp_file.write_all(&content)?;
+        tmp_file.sync_all()?;
+    }
+
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755))?;
+
+    // Atomic swap avoids ETXTBSY when target binary is currently executing.
+    std::fs::rename(&tmp_path, target_path)?;
 
     pb.finish_with_message(format!("✅ Downloaded {}", path));
     Ok(())
