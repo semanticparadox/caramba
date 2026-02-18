@@ -3,6 +3,7 @@ pub mod admin_network;
 pub mod admin_groups;
 pub mod admin_templates;
 pub mod admin_orgs;
+pub mod assets;
 pub mod setup;
 pub mod frontend;
 pub mod local_app;

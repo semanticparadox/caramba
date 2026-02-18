@@ -570,6 +570,10 @@ use tower_http::services::ServeDir;
             let path = admin_path.clone(); // Clone for closure
             move || async move { axum::response::Redirect::to(&format!("{}/dashboard", path)) } // Redirect to dashboard
         }))
+        .route(
+            "/assets/css/modern.css",
+            axum::routing::get(handlers::assets::modern_css),
+        )
         .route(&format!("{}/login", admin_path), axum::routing::get(handlers::admin::get_login).post(handlers::admin::login))
         // Serve Downloads (for frontend binaries)
         .nest_service("/downloads", ServeDir::new("apps/caramba-panel/downloads"))
