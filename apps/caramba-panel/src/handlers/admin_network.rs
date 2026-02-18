@@ -35,42 +35,45 @@ pub async fn get_node_inbounds(
     jar: CookieJar,
     Path(node_id): Path<i64>,
 ) -> impl IntoResponse {
-    let node_res = sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE id = $1")
-        .bind(node_id)
-        .fetch_optional(&state.pool)
-        .await;
-
-    match node_res {
-        Ok(Some(node)) => {
-            let inbounds = sqlx::query_as::<_, Inbound>("SELECT * FROM inbounds WHERE node_id = $1 ORDER BY listen_port ASC")
-                .bind(node_id)
-                .fetch_all(&state.pool)
-                .await
-                .unwrap_or_default();
-
-            let groups = state.infrastructure_service.get_node_groups(node_id).await.unwrap_or_default();
-            
-            // Fetch active templates
-            let templates = state.infrastructure_service.node_repo.get_all_inbound_templates().await.unwrap_or_default();
-
-            let template = NodeInboundsTemplate {
-                node,
-                inbounds,
-                groups,
-                templates,
-                is_auth: true,
-                admin_path: state.admin_path.clone(),
-                active_page: "nodes".to_string(),
-                username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
-            };
-            Html(template.render().unwrap_or_default()).into_response()
-        },
-        Ok(None) => (axum::http::StatusCode::NOT_FOUND, "Node not found").into_response(),
+    let node = match state.infrastructure_service.get_node_by_id(node_id).await {
+        Ok(node) => node,
         Err(e) => {
-            error!("DB Error: {}", e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response()
+            error!("Failed to load node {}: {}", node_id, e);
+            return (axum::http::StatusCode::NOT_FOUND, "Node not found").into_response();
         }
-    }
+    };
+
+    let inbounds = state
+        .infrastructure_service
+        .get_node_inbounds(node_id)
+        .await
+        .unwrap_or_default();
+
+    let groups = state
+        .infrastructure_service
+        .get_node_groups(node_id)
+        .await
+        .unwrap_or_default();
+
+    // Fetch active templates
+    let templates = state
+        .infrastructure_service
+        .node_repo
+        .get_all_inbound_templates()
+        .await
+        .unwrap_or_default();
+
+    let template = NodeInboundsTemplate {
+        node,
+        inbounds,
+        groups,
+        templates,
+        is_auth: true,
+        admin_path: state.admin_path.clone(),
+        active_page: "nodes".to_string(),
+        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
+    };
+    Html(template.render().unwrap_or_default()).into_response()
 }
 
 #[derive(Deserialize)]

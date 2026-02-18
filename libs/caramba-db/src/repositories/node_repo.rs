@@ -148,6 +148,54 @@ impl NodeRepository {
         }
     }
 
+    fn row_to_inbound(row: &PgRow) -> Inbound {
+        Inbound {
+            id: row.try_get::<i64, _>("id").unwrap_or_default(),
+            node_id: row.try_get::<i64, _>("node_id").unwrap_or_default(),
+            tag: row
+                .try_get::<String, _>("tag")
+                .unwrap_or_else(|_| "inbound".to_string()),
+            protocol: row
+                .try_get::<String, _>("protocol")
+                .unwrap_or_else(|_| "vless".to_string()),
+            listen_port: row
+                .try_get::<i64, _>("listen_port")
+                .or_else(|_| row.try_get::<i32, _>("listen_port").map(|v| v as i64))
+                .unwrap_or(443),
+            listen_ip: row
+                .try_get::<String, _>("listen_ip")
+                .unwrap_or_else(|_| "::".to_string()),
+            settings: row
+                .try_get::<String, _>("settings")
+                .unwrap_or_else(|_| "{}".to_string()),
+            stream_settings: row
+                .try_get::<String, _>("stream_settings")
+                .unwrap_or_else(|_| "{}".to_string()),
+            remark: row.try_get::<Option<String>, _>("remark").ok().flatten(),
+            enable: row.try_get::<bool, _>("enable").unwrap_or(true),
+            renew_interval_mins: row
+                .try_get::<i64, _>("renew_interval_mins")
+                .or_else(|_| row.try_get::<i32, _>("renew_interval_mins").map(|v| v as i64))
+                .unwrap_or(0),
+            port_range_start: row
+                .try_get::<i64, _>("port_range_start")
+                .or_else(|_| row.try_get::<i32, _>("port_range_start").map(|v| v as i64))
+                .unwrap_or(10000),
+            port_range_end: row
+                .try_get::<i64, _>("port_range_end")
+                .or_else(|_| row.try_get::<i32, _>("port_range_end").map(|v| v as i64))
+                .unwrap_or(60000),
+            last_rotated_at: row
+                .try_get::<Option<DateTime<Utc>>, _>("last_rotated_at")
+                .ok()
+                .flatten(),
+            created_at: row
+                .try_get::<Option<DateTime<Utc>>, _>("created_at")
+                .ok()
+                .flatten(),
+        }
+    }
+
     // ==================== NODES ====================
 
     pub async fn get_all_nodes(&self) -> Result<Vec<Node>> {
@@ -342,18 +390,26 @@ impl NodeRepository {
     // ==================== INBOUNDS ====================
 
     pub async fn get_inbounds_by_node(&self, node_id: i64) -> Result<Vec<Inbound>> {
-        sqlx::query_as::<_, Inbound>("SELECT * FROM inbounds WHERE node_id = $1")
+        let rows = sqlx::query("SELECT * FROM inbounds WHERE node_id = $1")
             .bind(node_id)
             .fetch_all(&self.pool)
             .await
-            .context("Failed to fetch inbounds for node")
+            .context("Failed to fetch inbounds for node")?;
+        Ok(rows
+            .into_iter()
+            .map(|row| Self::row_to_inbound(&row))
+            .collect())
     }
     
     pub async fn get_all_inbounds(&self) -> Result<Vec<Inbound>> {
-         sqlx::query_as::<_, Inbound>("SELECT * FROM inbounds")
+         let rows = sqlx::query("SELECT * FROM inbounds")
             .fetch_all(&self.pool)
             .await
-            .context("Failed to fetch all inbounds")
+            .context("Failed to fetch all inbounds")?;
+        Ok(rows
+            .into_iter()
+            .map(|row| Self::row_to_inbound(&row))
+            .collect())
     }
 
     pub async fn upsert_inbound(&self, inbound: &Inbound) -> Result<()> {
@@ -387,11 +443,12 @@ impl NodeRepository {
     }
 
     pub async fn get_inbound_by_id(&self, id: i64) -> Result<Option<Inbound>> {
-        sqlx::query_as::<_, Inbound>("SELECT * FROM inbounds WHERE id = $1")
+        let row = sqlx::query("SELECT * FROM inbounds WHERE id = $1")
             .bind(id)
             .fetch_optional(&self.pool)
             .await
-            .context("Failed to fetch inbound by ID")
+            .context("Failed to fetch inbound by ID")?;
+        Ok(row.map(|r| Self::row_to_inbound(&r)))
     }
 
     pub async fn delete_inbound_by_id(&self, id: i64) -> Result<()> {
@@ -505,7 +562,7 @@ impl NodeRepository {
     // ==================== BUSINESS LOGIC queries ====================
 
     pub async fn get_nodes_for_plan(&self, plan_id: i64) -> Result<Vec<Node>> {
-        let nodes = sqlx::query_as::<_, Node>(
+        let rows = sqlx::query(
             r#"
             SELECT DISTINCT n.* 
             FROM nodes n
@@ -518,6 +575,7 @@ impl NodeRepository {
         .bind(plan_id)
         .fetch_all(&self.pool)
         .await?;
+        let nodes: Vec<Node> = rows.into_iter().map(|row| Self::row_to_node(&row)).collect();
         
         if !nodes.is_empty() {
              return Ok(nodes);
@@ -536,7 +594,7 @@ impl NodeRepository {
     }
 
     pub async fn get_inbounds_for_plan(&self, plan_id: i64) -> Result<Vec<Inbound>> {
-        sqlx::query_as::<_, Inbound>(
+        let rows = sqlx::query(
             r#"
             SELECT DISTINCT i.* FROM inbounds i
             LEFT JOIN plan_inbounds pi ON pi.inbound_id = i.id
@@ -551,7 +609,11 @@ impl NodeRepository {
         .bind(plan_id)
         .fetch_all(&self.pool)
         .await
-        .context("Failed to fetch inbounds for plan")
+        .context("Failed to fetch inbounds for plan")?;
+        Ok(rows
+            .into_iter()
+            .map(|row| Self::row_to_inbound(&row))
+            .collect())
     }
 
     pub async fn delete_node(&self, id: i64) -> Result<()> {

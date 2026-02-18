@@ -35,10 +35,8 @@ impl InfrastructureService {
     }
 
     pub async fn get_node_inbounds(&self, node_id: i64) -> Result<Vec<caramba_db::models::network::Inbound>> {
-        let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>("SELECT * FROM inbounds WHERE node_id = $1 ORDER BY listen_port ASC")
-            .bind(node_id)
-            .fetch_all(&self.pool)
-            .await?;
+        let mut inbounds = self.node_repo.get_inbounds_by_node(node_id).await?;
+        inbounds.sort_by_key(|i| i.listen_port);
         Ok(inbounds)
     }
 

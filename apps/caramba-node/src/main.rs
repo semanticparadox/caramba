@@ -11,6 +11,13 @@ mod self_update;
 mod decoy_service; 
 mod scanner; // NEW
 
+fn init_rustls_provider() {
+    // rustls 0.23 requires explicit process-wide provider in some feature combinations.
+    if tokio_rustls::rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -46,6 +53,8 @@ struct AgentState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    init_rustls_provider();
+
      // Initialize System Monitor
     let mut sys = System::new_with_specifics(
         sysinfo::RefreshKind::nothing()

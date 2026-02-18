@@ -73,14 +73,26 @@ impl OrchestrationService {
             .ok_or_else(|| anyhow::anyhow!("Node not found"))?;
             
         // 1. Get Node's Groups
-        let group_ids: Vec<i64> = sqlx::query_scalar("SELECT group_id FROM node_group_members WHERE node_id = $1")
+        let group_ids: Vec<i64> = match sqlx::query_scalar("SELECT group_id FROM node_group_members WHERE node_id = $1")
             .bind(node_id)
             .fetch_all(&self.pool)
-            .await?;
+            .await
+        {
+            Ok(ids) => ids,
+            Err(e) => {
+                warn!(
+                    "Failed to load node groups for {} (legacy schema?): {}. Falling back to minimal inbound.",
+                    node_id, e
+                );
+                self.ensure_minimal_default_inbound(&node).await?;
+                return Ok(());
+            }
+        };
             
             
         if group_ids.is_empty() {
-             info!("Node {} has no groups, skipping template application", node_id);
+             info!("Node {} has no groups, using minimal fallback inbound", node_id);
+             self.ensure_minimal_default_inbound(&node).await?;
              return Ok(());
         }
 
@@ -95,22 +107,112 @@ impl OrchestrationService {
         if templates.is_empty() {
             info!("No templates found for node groups. Bootstrapping default templates for 'Default' group...");
             // Find the Default Group ID
-            let default_group = self.node_repo.get_group_by_name("Default").await?;
+            let default_group = self.node_repo.get_group_by_name("Default").await.ok().flatten();
             if let Some(group) = default_group {
-                self.bootstrap_default_templates(group.id).await?;
+                let _ = self.bootstrap_default_templates(group.id).await;
                 // Re-fetch templates
-                templates = self.node_repo.get_templates_for_group(group.id).await?;
+                templates = self.node_repo.get_templates_for_group(group.id).await.unwrap_or_default();
             }
+        }
+
+        if templates.is_empty() {
+            warn!(
+                "No templates available for node {} after bootstrap attempt. Falling back to minimal inbound.",
+                node_id
+            );
+            self.ensure_minimal_default_inbound(&node).await?;
+            return Ok(());
         }
         
         // 4. Instantiate Inbounds from Templates
         for template in templates {
-            self.instantiate_inbound_from_template(&node, &template).await?;
+            if let Err(e) = self.instantiate_inbound_from_template(&node, &template).await {
+                warn!(
+                    "Failed to instantiate template '{}' for node {}: {}",
+                    template.name, node_id, e
+                );
+            }
         }
         
         // Link to default plan (ID=1) - for legacy compatibility
-        self.node_repo.link_node_inbounds_to_plan(1, node_id).await?;
+        if let Err(e) = self.node_repo.link_node_inbounds_to_plan(1, node_id).await {
+            warn!("Failed to link default plan to node {} inbounds: {}", node_id, e);
+        }
 
+        // Final safety: ensure at least one inbound exists.
+        self.ensure_minimal_default_inbound(&node).await?;
+
+        Ok(())
+    }
+
+    async fn ensure_minimal_default_inbound(&self, node: &Node) -> anyhow::Result<()> {
+        let existing = self
+            .node_repo
+            .get_inbounds_by_node(node.id)
+            .await
+            .unwrap_or_default();
+        if !existing.is_empty() {
+            return Ok(());
+        }
+
+        let mut effective_node = node.clone();
+        if effective_node.reality_priv.as_deref().unwrap_or("").trim().is_empty()
+            || effective_node.reality_pub.as_deref().unwrap_or("").trim().is_empty()
+            || effective_node.short_id.as_deref().unwrap_or("").trim().is_empty()
+        {
+            let (priv_key, pub_key, short_id) = self.generate_reality_keys()?;
+            effective_node.reality_priv = Some(priv_key);
+            effective_node.reality_pub = Some(pub_key);
+            effective_node.short_id = Some(short_id);
+            let _ = self.node_repo.update_node(&effective_node).await;
+        }
+
+        let sni = effective_node
+            .reality_sni
+            .as_deref()
+            .or(effective_node.domain.as_deref())
+            .unwrap_or("www.google.com");
+        let pkey = effective_node.reality_priv.clone().unwrap_or_default();
+        let pubkey = effective_node.reality_pub.clone().unwrap_or_default();
+        let sid = effective_node.short_id.clone().unwrap_or_default();
+
+        let settings = serde_json::json!({
+            "protocol": "vless",
+            "clients": [],
+            "decryption": "none"
+        })
+        .to_string();
+
+        let stream_settings = serde_json::json!({
+            "network": "tcp",
+            "security": "reality",
+            "reality_settings": {
+                "show": false,
+                "xver": 0,
+                "dest": format!("{}:443", sni),
+                "server_names": [sni],
+                "private_key": pkey,
+                "public_key": pubkey,
+                "short_ids": [sid]
+            }
+        })
+        .to_string();
+
+        let _ = sqlx::query(
+            "INSERT INTO inbounds (node_id, tag, protocol, listen_port, listen_ip, settings, stream_settings, remark, enable) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE) ON CONFLICT (node_id, listen_port) DO NOTHING",
+        )
+        .bind(effective_node.id)
+        .bind("tpl_reality")
+        .bind("vless")
+        .bind(if effective_node.vpn_port > 0 { effective_node.vpn_port } else { 443 })
+        .bind("::")
+        .bind(settings)
+        .bind(stream_settings)
+        .bind(Some("Auto fallback inbound"))
+        .execute(&self.pool)
+        .await;
+
+        let _ = self.node_repo.link_node_inbounds_to_plan(1, effective_node.id).await;
         Ok(())
     }
 
@@ -363,18 +465,29 @@ impl OrchestrationService {
     pub async fn generate_node_config_json(&self, node_id: i64) -> anyhow::Result<(caramba_db::models::node::Node, serde_json::Value)> {
         info!("Step 1: Fetching node details for ID: {}", node_id);
         // 1. Fetch node details
-        let node: Node = sqlx::query_as("SELECT * FROM nodes WHERE id = $1")
-            .bind(node_id)
-            .fetch_one(&self.pool)
+        let node: Node = self
+            .node_repo
+            .get_node_by_id(node_id)
             .await
             .map_err(|e| {
                 error!("Failed to fetch node: {}", e);
                 e
-            })?;
+            })?
+            .ok_or_else(|| anyhow::anyhow!("Node not found"))?;
 
         info!("Step 2: Fetching inbounds for node {}", node_id);
         // 2. Fetch Inbounds for this node
         let mut inbounds = self.node_repo.get_inbounds_by_node(node_id).await?;
+        if inbounds.is_empty() {
+            warn!(
+                "Node {} has no inbounds. Attempting auto-bootstrap before config generation.",
+                node_id
+            );
+            if let Err(e) = self.init_default_inbounds(node_id).await {
+                warn!("Auto-bootstrap failed for node {}: {}", node_id, e);
+            }
+            inbounds = self.node_repo.get_inbounds_by_node(node_id).await.unwrap_or_default();
+        }
         info!("Step 2: Found {} inbounds for node {} ({})", inbounds.len(), node_id, node.name);
 
         // 2.5 Lazy Initialization & Key Validation/Scrubbing

@@ -50,24 +50,43 @@ pub async fn heartbeat(
     };
 
     // 2. Validate Node
-    let node_res: Result<Option<(i64, Option<String>, Option<String>)>, sqlx::Error> = sqlx::query_as("SELECT id, country_code, country FROM nodes WHERE join_token = $1")
-        .bind(&token)
-        .fetch_optional(&state.pool)
-        .await;
-
-    let (node_id, node_country_code, node_country) = match node_res {
+    let (node_id, node_country_code, node_country) = match sqlx::query_as::<_, (i64, Option<String>, Option<String>)>(
+        "SELECT id, country_code, country FROM nodes WHERE join_token = $1",
+    )
+    .bind(&token)
+    .fetch_optional(&state.pool)
+    .await
+    {
         Ok(Some((id, cc, c))) => (id, cc, c),
         Ok(None) => return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response(),
         Err(e) => {
-             error!("DB Error in heartbeat: {}", e);
-             return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response();
+            let msg = e.to_string();
+            if msg.contains("does not exist") {
+                match sqlx::query_scalar::<_, i64>(
+                    "SELECT id FROM nodes WHERE join_token = $1",
+                )
+                .bind(&token)
+                .fetch_optional(&state.pool)
+                .await
+                {
+                    Ok(Some(id)) => (id, None, None),
+                    Ok(None) => return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response(),
+                    Err(e2) => {
+                        error!("DB Error in heartbeat fallback: {}", e2);
+                        return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response();
+                    }
+                }
+            } else {
+                error!("DB Error in heartbeat: {}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response();
+            }
         }
     };
 
     // 3. Update Telemetry & Status & IP & Version
-    if let Some(lat) = req.latency {
+    let update_result = if let Some(lat) = req.latency {
         // Fix: Also update IP here, because if a node sends stats, we still want to fix its IP if it's pending.
-        let _ = sqlx::query("UPDATE nodes SET last_latency = $1, last_cpu = $2, last_ram = $3, current_speed_mbps = $4, max_ram = COALESCE($5, max_ram), cpu_cores = COALESCE($6, cpu_cores), cpu_model = COALESCE($7, cpu_model), active_connections = COALESCE($8, active_connections), last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN $9 ELSE ip END, version = $10 WHERE id = $11")
+        sqlx::query("UPDATE nodes SET last_latency = $1, last_cpu = $2, last_ram = $3, current_speed_mbps = $4, max_ram = COALESCE($5, max_ram), cpu_cores = COALESCE($6, cpu_cores), cpu_model = COALESCE($7, cpu_model), active_connections = COALESCE($8, active_connections), last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN $9 ELSE ip END, version = $10 WHERE id = $11")
             .bind(lat)
             .bind(req.cpu_usage.unwrap_or(0.0))
             .bind(req.memory_usage.unwrap_or(0.0))
@@ -80,15 +99,27 @@ pub async fn heartbeat(
             .bind(&req.version)
             .bind(node_id)
             .execute(&state.pool)
-            .await;
+            .await
     } else {
         // Just update last_seen if no telemetry (or older agent)
-        let _ = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN $1 ELSE ip END, version = $2 WHERE id = $3")
+        sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN $1 ELSE ip END, version = $2 WHERE id = $3")
             .bind(&remote_ip)
             .bind(&req.version)
             .bind(node_id)
             .execute(&state.pool)
-            .await;
+            .await
+    };
+
+    if let Err(e) = update_result {
+        warn!("Primary node heartbeat update failed for node {}: {}", node_id, e);
+        // Compatibility fallback for legacy schemas: update only core online fields.
+        let _ = sqlx::query(
+            "UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN $1 ELSE ip END WHERE id = $2",
+        )
+        .bind(&remote_ip)
+        .bind(node_id)
+        .execute(&state.pool)
+        .await;
     }
 
     // GeoIP Check (Async) — trigger if country_code OR country/city/flag are missing
@@ -272,17 +303,36 @@ pub async fn get_config(
     // 2. Validate Node
     // Using simple query_as to avoid compilation failure if DB migration is not applied locally yet.
     // At runtime, it will fail if column is missing, but it unblocks build.
-    let node_res: Result<Option<(i64, bool)>, sqlx::Error> = sqlx::query_as("SELECT id, is_enabled FROM nodes WHERE join_token = $1")
-        .bind(&token)
-        .fetch_optional(&state.pool)
-        .await;
-
-    let (node_id, is_enabled) = match node_res {
+    let (node_id, is_enabled) = match sqlx::query_as::<_, (i64, bool)>(
+        "SELECT id, is_enabled FROM nodes WHERE join_token = $1",
+    )
+    .bind(&token)
+    .fetch_optional(&state.pool)
+    .await
+    {
         Ok(Some((id, enabled))) => (id, enabled),
         Ok(None) => return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response(),
         Err(e) => {
-             error!("DB Error in get_config: {}", e);
-             return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response();
+            let msg = e.to_string();
+            if msg.contains("does not exist") {
+                match sqlx::query_scalar::<_, i64>(
+                    "SELECT id FROM nodes WHERE join_token = $1",
+                )
+                .bind(&token)
+                .fetch_optional(&state.pool)
+                .await
+                {
+                    Ok(Some(id)) => (id, true),
+                    Ok(None) => return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response(),
+                    Err(e2) => {
+                        error!("DB Error in get_config fallback: {}", e2);
+                        return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response();
+                    }
+                }
+            } else {
+                error!("DB Error in get_config: {}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response();
+            }
         }
     };
 
@@ -290,23 +340,15 @@ pub async fn get_config(
         return (StatusCode::FORBIDDEN, "Node is disabled").into_response();
     }
     
-    // Force unwrap if it is Option (based on error)
-    // NOTE: The previous error "found Option<i64>" suggests n.id is Option.
-    // Let's handle it safely.
-    let node_id_scalar = if let Some(id_val) = Option::from(node_id) { id_val } else { 
-        error!("Node ID is null for token {}", token);
-        return (StatusCode::INTERNAL_SERVER_ERROR, "Node ID Invalid").into_response();
-    };
-
     // 3. Generate Config
-    match state.orchestration_service.generate_node_config_json(node_id_scalar).await {
+    match state.orchestration_service.generate_node_config_json(node_id).await {
         Ok((_, config_value)) => {
             let config_str: String = config_value.to_string();
             let hash = format!("{:x}", md5::compute(config_str.as_bytes()));
             
             // Update last_synced_at
             let _ = sqlx::query("UPDATE nodes SET last_synced_at = CURRENT_TIMESTAMP WHERE id = $1")
-                .bind(node_id_scalar)
+                .bind(node_id)
                 .execute(&state.pool)
                 .await;
 
@@ -316,7 +358,7 @@ pub async fn get_config(
             })).into_response()
         },
         Err(e) => {
-            error!("Config generation failed for node {}: {}", node_id_scalar, e);
+            error!("Config generation failed for node {}: {}", node_id, e);
             (StatusCode::INTERNAL_SERVER_ERROR, format!("Error: {}", e)).into_response()
         }
     }
