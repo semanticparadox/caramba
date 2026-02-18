@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 // Removed unused Subscription import
 use caramba_db::models::node::Node;
-use crate::singbox::{ConfigGenerator};
+use crate::singbox::{ConfigGenerator, RelayAuthMode};
 use crate::services::store_service::StoreService;
 
 
@@ -624,9 +624,21 @@ impl OrchestrationService {
 
         // 3.5 Fetch Relay Logic Context
         let mut relay_target_node: Option<Node> = None;
+        let mut relay_target_inbound: Option<caramba_db::models::network::Inbound> = None;
         if let Some(target_id) = node.relay_id {
             if node.is_relay {
                  relay_target_node = self.node_repo.get_node_by_id(target_id).await.unwrap_or(None);
+                 if relay_target_node.is_some() {
+                     let mut target_inbounds = self
+                         .node_repo
+                         .get_inbounds_by_node(target_id)
+                         .await
+                         .unwrap_or_default();
+                     target_inbounds.sort_by_key(|i| i.listen_port);
+                     relay_target_inbound = target_inbounds
+                         .into_iter()
+                         .find(|i| i.enable && i.protocol.eq_ignore_ascii_case("shadowsocks"));
+                 }
             }
         }
 
@@ -635,13 +647,22 @@ impl OrchestrationService {
             info!("Context: Node {} has {} relay clients", node.id, relay_clients.len());
         }
 
+        let relay_auth_mode_raw = self
+            .store_service
+            .get_setting("relay_auth_mode")
+            .await
+            .unwrap_or(None);
+        let relay_auth_mode = RelayAuthMode::from_setting(relay_auth_mode_raw.as_deref());
+
         info!("Step 4: generating final sing-box config JSON");
         // 4. Generate Config
         let config = ConfigGenerator::generate_config(
             &node,
             inbounds,
             relay_target_node,
+            relay_target_inbound,
             relay_clients,
+            relay_auth_mode,
         );
         
         // Validate Config

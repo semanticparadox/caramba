@@ -168,6 +168,19 @@
                             </div>
                         </label>
                     </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Relay Auth Mode</label>
+                        <select form="main-settings-form" name="relay_auth_mode"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all text-sm appearance-none">
+                            <option value="dual" {% if relay_auth_mode=="dual" %}selected{% endif %}>Dual (recommended rollout)</option>
+                            <option value="v1" {% if relay_auth_mode=="v1" %}selected{% endif %}>V1 (derived only)</option>
+                            <option value="legacy" {% if relay_auth_mode=="legacy" %}selected{% endif %}>Legacy (raw token)</option>
+                        </select>
+                        <p class="text-[10px] text-slate-500 mt-1.5">Controls inter-node relay credentials for Shadowsocks.</p>
+                        <p class="text-[10px] text-amber-300 mt-1">Last legacy relay traffic: {{ relay_legacy_usage_last_seen_at }} ({{ relay_legacy_usage_last_seen_bytes }} bytes)</p>
+                        <p class="text-[10px] text-slate-500 mt-1">Switch to <span class="font-semibold">v1</span> is blocked for 24h after the last observed <span class="font-mono">relay_*_legacy</span> traffic.</p>
+                    </div>
                 </div>
             </div>
         </div>

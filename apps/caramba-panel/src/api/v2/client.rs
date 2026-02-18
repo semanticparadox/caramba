@@ -80,7 +80,7 @@ pub async fn get_recommended_nodes(
     };
 
     // 2. Fetch Nodes
-    let nodes: Vec<NodeRow> = match sqlx::query_as::<_, NodeRow>("SELECT id, name, country_code, latitude, longitude, last_latency, last_cpu, last_ram FROM nodes WHERE is_enabled = 1")
+    let nodes: Vec<NodeRow> = match sqlx::query_as::<_, NodeRow>("SELECT id, name, country_code, latitude, longitude, last_latency, last_cpu, last_ram FROM nodes WHERE is_enabled = TRUE")
         .fetch_all(&state.pool)
         .await {
             Ok(n) => n,

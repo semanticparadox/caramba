@@ -145,7 +145,7 @@ async fn auth_telegram(
     };
 
     // 4. Look up user by tg_id
-    let user_row = sqlx::query("SELECT id, username, balance FROM users WHERE tg_id = ?")
+    let user_row = sqlx::query("SELECT id, username, balance FROM users WHERE tg_id = $1")
         .bind(tg_id)
         .fetch_optional(&state.pool)
         .await
@@ -160,7 +160,7 @@ async fn auth_telegram(
     let balance: i64 = user_row.try_get("balance").unwrap_or(0);
 
     // Count active subscriptions
-    let active_subs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM subscriptions WHERE user_id = ? AND status = 'active'")
+    let active_subs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM subscriptions WHERE user_id = $1 AND status = 'active'")
         .bind(user_id)
         .fetch_one(&state.pool)
         .await
@@ -244,14 +244,17 @@ async fn get_user_stats(
     let stats_opt: Option<UserStats> = sqlx::query_as(r#"
         SELECT 
             s.used_traffic as traffic_used, 
-            CAST(p.traffic_limit_gb AS INTEGER) * 1073741824 as total_traffic,
-            CAST((strftime('%s', s.expires_at) - strftime('%s', 'now')) / 86400 AS INTEGER) as days_left,
+            CAST(p.traffic_limit_gb AS BIGINT) * 1073741824 as total_traffic,
+            GREATEST(
+                0,
+                (EXTRACT(EPOCH FROM (COALESCE(s.expires_at, CURRENT_TIMESTAMP) - CURRENT_TIMESTAMP)) / 86400)::BIGINT
+            ) as days_left,
             p.name as plan_name,
             u.balance as balance
         FROM subscriptions s
         JOIN plans p ON s.plan_id = p.id
         JOIN users u ON s.user_id = u.id
-        WHERE u.tg_id = ? AND s.status = 'active'
+        WHERE u.tg_id = $1 AND s.status = 'active'
         ORDER BY s.expires_at DESC
         LIMIT 1
     "#)
@@ -274,7 +277,7 @@ async fn get_user_subscriptions(
     let tg_id: i64 = claims.sub.parse().unwrap_or(0);
 
     // Get user_id from tg_id
-    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = ?")
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
         .bind(tg_id)
         .fetch_optional(&state.pool)
         .await
@@ -346,7 +349,7 @@ async fn get_user_profile(
 ) -> impl IntoResponse {
     let tg_id: i64 = claims.sub.parse().unwrap_or(0);
 
-    let row = sqlx::query("SELECT id, username, tg_id, balance, referral_code FROM users WHERE tg_id = ?")
+    let row = sqlx::query("SELECT id, username, tg_id, balance, referral_code FROM users WHERE tg_id = $1")
         .bind(tg_id)
         .fetch_optional(&state.pool)
         .await
@@ -358,12 +361,12 @@ async fn get_user_profile(
 
         // Count active + pending subs
         let user_id: i64 = r.get("id");
-        let active_subs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM subscriptions WHERE user_id = ? AND status = 'active'")
+        let active_subs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM subscriptions WHERE user_id = $1 AND status = 'active'")
             .bind(user_id)
             .fetch_one(&state.pool)
             .await
             .unwrap_or(0);
-        let pending_subs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM subscriptions WHERE user_id = ? AND status = 'pending'")
+        let pending_subs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM subscriptions WHERE user_id = $1 AND status = 'pending'")
             .bind(user_id)
             .fetch_one(&state.pool)
             .await
@@ -463,7 +466,16 @@ async fn get_active_servers(
      headers: axum::http::HeaderMap,
      axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
 ) -> impl IntoResponse {
-    let user_id = claims.sub.parse::<i64>().unwrap_or(0);
+    let tg_id = claims.sub.parse::<i64>().unwrap_or(0);
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
     
     // (Refactored Phase 1.8: Use Plan Groups)
     let nodes: Vec<caramba_db::models::node::Node> = state.store_service.get_user_nodes(user_id)
@@ -482,7 +494,7 @@ async fn get_active_servers(
     // 2. Map to ClientNode & Calculate Distance & Load Score
     let mut client_nodes: Vec<ClientNode> = nodes.into_iter()
         .filter(|n| {
-            let users_ok = n.max_users == 0 || (n.max_users > 0 && n.config_block_ads); 
+            let users_ok = n.max_users <= 0 || n.active_connections.unwrap_or(0) < n.max_users;
             let load_ok = n.last_cpu.unwrap_or(0.0) < 95.0 && n.last_ram.unwrap_or(0.0) < 98.0;
             users_ok && load_ok
         })
@@ -553,7 +565,7 @@ async fn get_user_payments(
         SELECT p.id, p.amount, p.method, p.status, p.created_at
         FROM payments p
         JOIN users u ON p.user_id = u.id
-        WHERE u.tg_id = ?
+        WHERE u.tg_id = $1
         ORDER BY p.created_at DESC
         LIMIT 50
     "#)
@@ -582,7 +594,7 @@ async fn get_user_referrals(
         referral_link: String,
     }
 
-    let user_info: Option<(i64, String)> = sqlx::query_as("SELECT id, referral_code FROM users WHERE tg_id = ?")
+    let user_info: Option<(i64, String)> = sqlx::query_as("SELECT id, referral_code FROM users WHERE tg_id = $1")
         .bind(tg_id)
         .fetch_optional(&state.pool)
         .await
@@ -676,7 +688,7 @@ async fn add_to_cart(
     Json(body): Json<AddToCartReq>,
 ) -> impl IntoResponse {
     let tg_id: i64 = claims.sub.parse().unwrap_or(0);
-    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = ?")
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
         .bind(tg_id)
         .fetch_optional(&state.pool)
         .await
@@ -701,7 +713,7 @@ async fn get_cart(
     axum::Extension(claims): axum::Extension<Claims>,
 ) -> impl IntoResponse {
     let tg_id: i64 = claims.sub.parse().unwrap_or(0);
-    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = ?")
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
         .bind(tg_id)
         .fetch_optional(&state.pool)
         .await
@@ -739,7 +751,7 @@ async fn checkout_cart(
     axum::Extension(claims): axum::Extension<Claims>,
 ) -> impl IntoResponse {
     let tg_id: i64 = claims.sub.parse().unwrap_or(0);
-    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = ?")
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
         .bind(tg_id)
         .fetch_optional(&state.pool)
         .await
@@ -773,7 +785,7 @@ async fn purchase_plan(
     Json(body): Json<PurchaseReq>,
 ) -> impl IntoResponse {
     let tg_id: i64 = claims.sub.parse().unwrap_or(0);
-    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = ?")
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
         .bind(tg_id)
         .fetch_optional(&state.pool)
         .await
@@ -812,7 +824,7 @@ async fn pin_subscription_node(
     Json(body): Json<PinNodeReq>,
 ) -> impl IntoResponse {
     let tg_id: i64 = claims.sub.parse().unwrap_or(0);
-    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = ?")
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
         .bind(tg_id)
         .fetch_optional(&state.pool)
         .await
@@ -824,7 +836,7 @@ async fn pin_subscription_node(
     };
 
     // Verify ownership
-    let sub_owner_id: Option<i64> = sqlx::query_scalar("SELECT user_id FROM subscriptions WHERE id = ?")
+    let sub_owner_id: Option<i64> = sqlx::query_scalar("SELECT user_id FROM subscriptions WHERE id = $1")
         .bind(sub_id)
         .fetch_optional(&state.pool)
         .await

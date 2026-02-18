@@ -254,7 +254,7 @@ pub async fn update_node(
 
     // If any policy is present in the form, it's likely a targeted update or a full form submission.
     // We update policies based on checkbox presence.
-    let _ = sqlx::query("UPDATE nodes SET config_block_torrent = ?, config_block_ads = ?, config_block_porn = ?, config_qos_enabled = ? WHERE id = ?")
+    let _ = sqlx::query("UPDATE nodes SET config_block_torrent = $1, config_block_ads = $2, config_block_porn = $3, config_qos_enabled = $4 WHERE id = $5")
         .bind(b_torrent)
         .bind(b_ads)
         .bind(b_porn)
@@ -287,7 +287,7 @@ pub async fn sync_node(
     info!("Manual sync triggered for node: {}", id);
     
     // Update trigger tracking
-    let _ = sqlx::query("UPDATE nodes SET last_sync_trigger = 'Manual Update' WHERE id = ?")
+    let _ = sqlx::query("UPDATE nodes SET last_sync_trigger = 'Manual Update' WHERE id = $1")
         .bind(id)
         .execute(&state.pool)
         .await;
@@ -454,14 +454,14 @@ pub async fn get_node_logs(
 
     // 2. If not, trigger collection and return "Waiting"
     // Optimization: Only set pending flag if it's not already set to prevent spamming the agent
-    let pending: bool = sqlx::query_scalar("SELECT pending_log_collection FROM nodes WHERE id = ?")
+    let pending: bool = sqlx::query_scalar("SELECT pending_log_collection FROM nodes WHERE id = $1")
         .bind(id)
         .fetch_one(&state.pool)
         .await
         .unwrap_or(false);
 
     if !pending {
-        let _ = sqlx::query("UPDATE nodes SET pending_log_collection = 1 WHERE id = ?")
+        let _ = sqlx::query("UPDATE nodes SET pending_log_collection = TRUE WHERE id = $1")
             .bind(id)
             .execute(&state.pool)
             .await;
@@ -515,9 +515,9 @@ pub async fn get_node_manage(
             s.domain, 
             s.health_score, 
             s.is_premium,
-            EXISTS(SELECT 1 FROM node_pinned_snis WHERE node_id = ? AND sni_id = s.id) as is_pinned
+            EXISTS(SELECT 1 FROM node_pinned_snis WHERE node_id = $1 AND sni_id = s.id) as is_pinned
         FROM sni_pool s
-        WHERE s.discovered_by_node_id = ? OR s.is_premium = 1
+        WHERE s.discovered_by_node_id = $2 OR s.is_premium = TRUE
         ORDER BY is_pinned DESC, s.health_score DESC
         "#
     )
@@ -580,7 +580,7 @@ pub async fn pin_sni(
 ) -> impl IntoResponse {
     info!("Pinning SNI {} for node {}", sni_id, node_id);
     
-    let _ = sqlx::query("INSERT OR IGNORE INTO node_pinned_snis (node_id, sni_id) VALUES (?, ?)")
+    let _ = sqlx::query("INSERT INTO node_pinned_snis (node_id, sni_id) VALUES ($1, $2) ON CONFLICT (node_id, sni_id) DO NOTHING")
         .bind(node_id)
         .bind(sni_id)
         .execute(&state.pool)
@@ -601,7 +601,7 @@ pub async fn unpin_sni(
 ) -> impl IntoResponse {
     info!("Unpinning SNI {} for node {}", sni_id, node_id);
     
-    let _ = sqlx::query("DELETE FROM node_pinned_snis WHERE node_id = ? AND sni_id = ?")
+    let _ = sqlx::query("DELETE FROM node_pinned_snis WHERE node_id = $1 AND sni_id = $2")
         .bind(node_id)
         .bind(sni_id)
         .execute(&state.pool)
@@ -623,7 +623,7 @@ pub async fn block_sni(
     info!("Blocking SNI {} (requested from node {})", sni_id, node_id);
     
     // 1. Get Domain
-    let domain: Option<String> = sqlx::query_scalar("SELECT domain FROM sni_pool WHERE id = ?")
+    let domain: Option<String> = sqlx::query_scalar("SELECT domain FROM sni_pool WHERE id = $1")
         .bind(sni_id)
         .fetch_optional(&state.pool)
         .await
@@ -631,14 +631,14 @@ pub async fn block_sni(
 
     if let Some(domain) = domain {
         // 2. Add to Blacklist
-        let _ = sqlx::query("INSERT OR IGNORE INTO sni_blacklist (domain, reason) VALUES (?, ?)")
+        let _ = sqlx::query("INSERT INTO sni_blacklist (domain, reason) VALUES ($1, $2) ON CONFLICT (domain) DO NOTHING")
             .bind(&domain)
             .bind(format!("Rejected by admin on node {}", node_id))
             .execute(&state.pool)
             .await;
 
         // 3. Delete from Pool
-        let _ = sqlx::query("DELETE FROM sni_pool WHERE id = ?")
+        let _ = sqlx::query("DELETE FROM sni_pool WHERE id = $1")
             .bind(sni_id)
             .execute(&state.pool)
             .await;
@@ -662,7 +662,7 @@ pub async fn restart_node(
     }
 
     // Optional: Update last_sync_trigger to denote manual intervention
-    let _ = sqlx::query("UPDATE nodes SET last_sync_trigger = 'Manual Restart' WHERE id = ?")
+    let _ = sqlx::query("UPDATE nodes SET last_sync_trigger = 'Manual Restart' WHERE id = $1")
         .bind(id)
         .execute(&state.pool)
         .await;

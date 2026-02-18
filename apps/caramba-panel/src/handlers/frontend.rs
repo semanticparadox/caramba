@@ -34,7 +34,7 @@ pub async fn get_active_frontends(
 ) -> Result<Json<Vec<FrontendServer>>, StatusCode> {
     let frontends: Vec<FrontendServer> = sqlx::query_as(
         "SELECT * FROM frontend_servers 
-         WHERE region = $1 AND is_active = 1 
+         WHERE region = $1 AND is_active = TRUE
          ORDER BY last_heartbeat DESC"
     )
     .bind(&region)
@@ -140,7 +140,7 @@ pub async fn frontend_heartbeat(
     
     // Get frontend from database
     let frontend: FrontendServer = sqlx::query_as(
-        "SELECT * FROM frontend_servers WHERE domain = $1 AND is_active = 1"
+        "SELECT * FROM frontend_servers WHERE domain = $1 AND is_active = TRUE"
     )
     .bind(&domain)
     .fetch_optional(&state.pool)
@@ -180,33 +180,42 @@ pub async fn frontend_heartbeat(
         }
     }
     
-    // Token is valid - update heartbeat and stats
-    // Optional IP update
-    let ip_update = if let Some(ip) = &data.ip_address {
-        Some(format!(", ip_address = '{}'", ip))
+    // Token is valid - update heartbeat and stats.
+    if let Some(ip) = &data.ip_address {
+        sqlx::query(
+            "UPDATE frontend_servers
+             SET last_heartbeat = CURRENT_TIMESTAMP,
+                 status = 'online',
+                 traffic_monthly = traffic_monthly + $1,
+                 ip_address = $2
+             WHERE domain = $3",
+        )
+        .bind(data.bandwidth_used as i64)
+        .bind(ip)
+        .bind(&domain)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update heartbeat with IP: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     } else {
-        None
-    };
-
-    let query = format!(
-        "UPDATE frontend_servers 
-         SET last_heartbeat = CURRENT_TIMESTAMP,
-             status = 'online',
-             traffic_monthly = traffic_monthly + $1
-             {}
-         WHERE domain = $2",
-         ip_update.unwrap_or_default()
-    );
-
-    sqlx::query(&query)
-    .bind(data.bandwidth_used as i64)
-    .bind(&domain)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to update heartbeat: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+        sqlx::query(
+            "UPDATE frontend_servers
+             SET last_heartbeat = CURRENT_TIMESTAMP,
+                 status = 'online',
+                 traffic_monthly = traffic_monthly + $1
+             WHERE domain = $2",
+        )
+        .bind(data.bandwidth_used as i64)
+        .bind(&domain)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update heartbeat: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    }
     
     // Record stats
     sqlx::query(
@@ -350,4 +359,3 @@ fn generate_install_command(
 }
 
 // Response types
-

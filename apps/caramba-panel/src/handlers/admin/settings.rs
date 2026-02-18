@@ -12,6 +12,7 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use std::collections::HashMap;
 use tracing::{info, error};
+use chrono::{DateTime, Duration, Utc};
 
 use crate::AppState;
 
@@ -74,6 +75,9 @@ pub struct SettingsTemplate {
     pub auto_update_panel: bool,
     pub auto_update_agents: bool,
     pub auto_update_frontend: bool,
+    pub relay_auth_mode: String,
+    pub relay_legacy_usage_last_seen_at: String,
+    pub relay_legacy_usage_last_seen_bytes: String,
 }
 
 #[derive(Template, WebTemplate)]
@@ -127,6 +131,7 @@ pub struct SaveSettingsForm {
     pub auto_update_panel: Option<String>,
     pub auto_update_agents: Option<String>,
     pub auto_update_frontend: Option<String>,
+    pub relay_auth_mode: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -191,6 +196,14 @@ pub async fn get_settings(
     let auto_update_panel = state.settings.get_or_default("auto_update_panel", "false").await == "true";
     let auto_update_agents = state.settings.get_or_default("auto_update_agents", "true").await == "true";
     let auto_update_frontend = state.settings.get_or_default("auto_update_frontend", "false").await == "true";
+    let relay_auth_mode = state.settings.get_or_default("relay_auth_mode", "dual").await;
+    let relay_legacy_usage_last_seen_at_raw = state.settings.get_or_default("relay_legacy_usage_last_seen_at", "").await;
+    let relay_legacy_usage_last_seen_bytes = state.settings.get_or_default("relay_legacy_usage_last_seen_bytes", "0").await;
+    let relay_legacy_usage_last_seen_at = if relay_legacy_usage_last_seen_at_raw.trim().is_empty() {
+        "never".to_string()
+    } else {
+        relay_legacy_usage_last_seen_at_raw
+    };
 
 
     let masked_payment_api_key = if !payment_api_key.is_empty() { mask_key(&payment_api_key) } else { "".to_string() };
@@ -252,6 +265,9 @@ pub async fn get_settings(
         auto_update_panel,
         auto_update_agents,
         auto_update_frontend,
+        relay_auth_mode,
+        relay_legacy_usage_last_seen_at,
+        relay_legacy_usage_last_seen_bytes,
     };
 
     match template.render() {
@@ -386,6 +402,40 @@ pub async fn save_settings(
     if let Some(v) = form.auto_update_panel { settings.insert("auto_update_panel".to_string(), v); }
     if let Some(v) = form.auto_update_agents { settings.insert("auto_update_agents".to_string(), v); }
     if let Some(v) = form.auto_update_frontend { settings.insert("auto_update_frontend".to_string(), v); }
+    if let Some(v) = form.relay_auth_mode {
+        let normalized = v.trim().to_ascii_lowercase();
+        if matches!(normalized.as_str(), "legacy" | "v1" | "dual") {
+            if normalized == "v1" {
+                let last_seen_raw = state
+                    .settings
+                    .get_or_default("relay_legacy_usage_last_seen_at", "")
+                    .await;
+                if !last_seen_raw.trim().is_empty() {
+                    if let Ok(last_seen) = DateTime::parse_from_rfc3339(&last_seen_raw) {
+                        let last_seen_utc = last_seen.with_timezone(&Utc);
+                        let age = Utc::now().signed_duration_since(last_seen_utc);
+                        let guard_window = Duration::hours(24);
+                        if age < guard_window {
+                            let last_bytes = state
+                                .settings
+                                .get_or_default("relay_legacy_usage_last_seen_bytes", "0")
+                                .await;
+                            return (
+                                StatusCode::BAD_REQUEST,
+                                format!(
+                                    "Cannot switch relay_auth_mode to v1: legacy relay traffic was observed at {} ({} bytes). Keep dual mode until no legacy traffic is seen for 24 hours.",
+                                    last_seen_utc.to_rfc3339(),
+                                    last_bytes
+                                ),
+                            )
+                                .into_response();
+                        }
+                    }
+                }
+            }
+            settings.insert("relay_auth_mode".to_string(), normalized);
+        }
+    }
 
     match state.settings.set_multiple(settings).await {
         Ok(_) => {
@@ -540,7 +590,7 @@ pub async fn export_database(
 
     info!("Database export requested");
 
-    let export_service = crate::services::export_service::ExportService::new(state.pool.clone());
+    let export_service = crate::services::export_service::ExportService::new();
     let export_result = export_service.create_export().await;
 
     match export_result {

@@ -152,7 +152,7 @@ impl InfrastructureService {
         // 2. Automated Smart SNI selection
         if let Ok(best_sni) = security_service.get_best_sni_for_node(id).await {
             info!("🎯 Smart Setup: Auto-selected best SNI for Node {}: {}", id, best_sni);
-            let _ = sqlx::query("UPDATE nodes SET reality_sni = ? WHERE id = ?")
+            let _ = sqlx::query("UPDATE nodes SET reality_sni = $1 WHERE id = $2")
                 .bind(best_sni)
                 .bind(id)
                 .execute(&self.pool)

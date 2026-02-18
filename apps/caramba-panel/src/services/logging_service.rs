@@ -20,6 +20,7 @@ impl LoggingService {
         Self::log_internal(pool, None, action, Some(details), None).await
     }
 
+    #[allow(dead_code)]
     pub async fn log_user(pool: &PgPool, user_id: Option<i64>, action: &str, details: &str, ip: Option<&str>) -> Result<()> {
         Self::log_internal(pool, user_id, action, Some(details), ip).await
     }

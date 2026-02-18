@@ -27,9 +27,6 @@ thiserror = "2.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# Embedded static files
-rust-embed = { version = "8.0", features = ["debug-embed"] }
-
 # Config loading
 config = "0.15"
 

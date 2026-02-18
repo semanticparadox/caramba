@@ -4,9 +4,81 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tracing::error;
+use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 
 use crate::AppState;
-use crate::handlers::client::get_auth_user_id;
+
+#[derive(Debug, Clone, Deserialize)]
+struct ClientClaims {
+    sub: String,
+    #[serde(rename = "exp")]
+    _exp: usize,
+    role: String,
+}
+
+fn sign_legacy_user_id(user_id: i64, secret: &str) -> String {
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
+        .expect("HMAC accepts arbitrary key size");
+    mac.update(user_id.to_string().as_bytes());
+    let signature = hex::encode(mac.finalize().into_bytes());
+    format!("{}.{}", user_id, signature)
+}
+
+fn verify_legacy_user_id(token: &str, secret: &str) -> Option<i64> {
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    let user_id = parts[0].parse::<i64>().ok()?;
+    let expected = sign_legacy_user_id(user_id, secret);
+    let expected_signature = expected.split('.').nth(1)?;
+    if parts[1] == expected_signature {
+        Some(user_id)
+    } else {
+        None
+    }
+}
+
+fn extract_bearer_token(headers: &axum::http::HeaderMap) -> Option<&str> {
+    headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+}
+
+async fn resolve_user_id(state: &AppState, headers: &axum::http::HeaderMap) -> Option<i64> {
+    let token = extract_bearer_token(headers)?;
+
+    // 1) Preferred path: JWT issued by /api/client/auth/telegram
+    if let Ok(token_data) = decode::<ClientClaims>(
+        token,
+        &DecodingKey::from_secret(state.session_secret.as_bytes()),
+        &Validation::new(Algorithm::HS256),
+    ) {
+        if token_data.claims.role == "client" {
+            if let Ok(tg_id) = token_data.claims.sub.parse::<i64>() {
+                let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+                    .bind(tg_id)
+                    .fetch_optional(&state.pool)
+                    .await
+                    .ok()
+                    .flatten();
+                if user_id.is_some() {
+                    return user_id;
+                }
+            }
+        }
+    }
+
+    // 2) Backward compatibility: legacy signed token used by old handlers/client flow.
+    let bot_token = state.settings.get_or_default("bot_token", "").await;
+    if bot_token.is_empty() {
+        return None;
+    }
+    verify_legacy_user_id(token, &bot_token)
+}
 
 #[derive(Serialize)]
 pub struct InviteResponse {
@@ -32,7 +104,7 @@ pub async fn generate_invite(
     headers: axum::http::HeaderMap,
     Json(payload): Json<GenerateInviteRequest>,
 ) -> impl IntoResponse {
-    let user_id = match get_auth_user_id(&state, &headers).await {
+    let user_id = match resolve_user_id(&state, &headers).await {
         Some(id) => id,
         None => return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response(),
     };
@@ -66,7 +138,7 @@ pub async fn redeem_invite(
     headers: axum::http::HeaderMap,
     Json(payload): Json<RedeemInviteRequest>,
 ) -> impl IntoResponse {
-    let user_id = match get_auth_user_id(&state, &headers).await {
+    let user_id = match resolve_user_id(&state, &headers).await {
         Some(id) => id,
         None => return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response(),
     };
@@ -83,5 +155,36 @@ pub async fn redeem_invite(
             error!("Failed to redeem invite: {}", e);
             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to redeem invite").into_response()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{sign_legacy_user_id, verify_legacy_user_id};
+
+    #[test]
+    fn legacy_token_roundtrip_valid() {
+        let secret = "secret123";
+        let token = sign_legacy_user_id(42, secret);
+        assert_eq!(verify_legacy_user_id(&token, secret), Some(42));
+    }
+
+    #[test]
+    fn legacy_token_rejects_tampered_signature() {
+        let secret = "secret123";
+        let mut token = sign_legacy_user_id(42, secret);
+        token.push('x');
+        assert_eq!(verify_legacy_user_id(&token, secret), None);
+    }
+
+    #[test]
+    fn legacy_token_rejects_invalid_format() {
+        assert_eq!(verify_legacy_user_id("not-a-token", "secret123"), None);
+    }
+
+    #[test]
+    fn legacy_token_rejects_wrong_secret() {
+        let token = sign_legacy_user_id(42, "secret123");
+        assert_eq!(verify_legacy_user_id(&token, "another-secret"), None);
     }
 }

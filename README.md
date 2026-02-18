@@ -1,76 +1,67 @@
-# CARAMBA: Advanced VPN Panel & Bot
+# CARAMBA
 
-**Caramba** is a high-performance, censorship-resistant VPN management system built with Rust. It leverages Sing-box, Reality, and Hysteria 2 to provide a robust, anti-censorship solution.
+Rust workspace for censorship-resistant VPN orchestration.
 
-## 🚀 Key Features
+Caramba manages node provisioning, Sing-box config generation, subscriptions, billing/bot workflows, and disposable frontend delivery.
 
-*   **V3 Architecture:** "Disposable Front, Stable Back" design for maximum censorship resilience.
-*   **Modular:** 5 core binaries (`caramba-panel`, `caramba-node`, `caramba-bot`, `caramba-sub`, `caramba-installer`) for flexible deployment.
-*   **High Performance:** Written in Rust for speed and low resource usage.
-*   **Secure:** Admin panel hidden behind private networks; only disposable services face the public.
-*   **Automated:** Auto-updates via GitHub Releases, automated node management.
+## Components
 
-## 📚 Documentation
+- `apps/caramba-panel`: control plane (admin UI, APIs, orchestration, telemetry, billing, SNI pool, relay logic)
+- `apps/caramba-node`: node agent (heartbeat, config pull, update flow, telemetry, SNI neighbor scan)
+- `apps/caramba-sub`: edge frontend/proxy for `/sub`, `/app`, `/api`, with heartbeat to panel
+- `apps/caramba-bot`: Telegram bot binary
+- `apps/caramba-installer`: install/bootstrap utility
+- `apps/caramba-app`: user mini app frontend assets
+- `libs/caramba-db`: shared DB models/repositories/migrations
+- `libs/caramba-shared`: shared API/config contracts
 
-The full documentation is available in the `docs/` directory:
+## Current Highlights
 
-- [**Deployment Guide**](docs/DEPLOYMENT.md): Installation instructions.
-- [**Configuration**](docs/CONFIGURATION.md): Environment variables reference.
-- [**Development**](docs/DEVELOPMENT.md): Build and test instructions.
-- [**Architecture**](docs/MODULES.md): Codebase structure.
-- [**Database**](docs/DATABASE.md): Schema details.
-- [**API Reference**](docs/API.md): Integrations.
+- Relay mode supports auth rollout modes: `legacy`, `v1`, `dual` (default).
+- Guardrail: switch to `v1` is blocked if legacy relay traffic was observed within last 24h.
+- Adaptive node capacity (`max_users`) based on speed and host load.
+- Consolidation support: `/app` + `/sub` can live on one domain (panel or sub edge).
 
----
+Detailed state: `current_state_2026-02-18.md`.
 
-## 📦 Installation
-
-**Security Notice:** Always verify the GPG signature of the installer.
+## Build & Test
 
 ```bash
-# 1. Download
-curl -sSLO https://raw.githubusercontent.com/semanticparadox/CARAMBA/main/scripts/install.sh
-curl -sSLO https://raw.githubusercontent.com/semanticparadox/CARAMBA/main/scripts/install.sh.asc
-curl -sSL https://raw.githubusercontent.com/semanticparadox/CARAMBA/main/gpg-key.asc | gpg --import
-
-# 2. Verify
-gpg --verify install.sh.asc install.sh
-
-# 3. Install
-sudo bash install.sh
+cargo check --workspace
+cargo test --workspace
 ```
 
-### Quick One-Liner (Less Secure)
+Run panel locally:
+
 ```bash
-curl -sSL https://raw.githubusercontent.com/semanticparadox/CARAMBA/main/scripts/install.sh | sudo bash
+cargo run -p caramba-panel -- serve
 ```
 
----
+Run node/bot/sub binaries:
 
-## 🛠 Project Structure
+```bash
+cargo run -p caramba-node
+cargo run -p caramba-bot
+cargo run -p caramba-sub
+```
 
-*   `apps/panel`: The Core Brain (API, DB, Admin UI).
-*   `apps/agent`: The Node Logic (Sing-box manager).
-*   `apps/bot` (Planned): Separate Telegram Bot binary.
-*   `apps/sub-link` (Planned): High-performance subscription distributor.
-*   `apps/mini-app`: React-based User Frontend.
+## Docs
 
----
+- `docs/DEPLOYMENT.md`
+- `docs/CONFIGURATION.md`
+- `docs/DEVELOPMENT.md`
+- `docs/MODULES.md`
+- `docs/DATABASE.md`
+- `docs/API.md`
 
-## 🔧 Deployment Strategies
+## CI/CD
 
-### Monolith (Simple)
-Install everything on one server. Good for testing or small deployments.
+GitHub Actions workflow: `.github/workflows/release.yml`
 
-### Distributed (Anti-Censorship)
-*   **Panel:** Hosted on a secure, private server (The Bunker).
-*   **Bot:** Hosted on any cheap VPS.
-*   **Subscription Service:** Hosted on disposable VPS or Edge.
-*   **Nodes:** Distributed globally.
-
-See [docs/02_censorship.md](docs/02_censorship.md) for details.
-
----
+- Triggered on tags `v*`
+- Can be launched manually via `workflow_dispatch`
+- Performs workspace check + release build (musl target)
 
 ## License
-Proprietary / Closed Source.
+
+Proprietary / Closed Source

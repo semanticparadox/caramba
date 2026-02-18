@@ -1,8 +1,49 @@
 use crate::singbox::config::*;
 use caramba_db::models::network::{StreamSettings as DbStreamSettings, InboundType, Certificate}; // Added Certificate
+use sha2::{Digest, Sha256};
 use tracing::{error, warn};
 
 pub struct ConfigGenerator;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelayAuthMode {
+    Legacy,
+    V1,
+    Dual,
+}
+
+impl RelayAuthMode {
+    pub fn from_setting(raw: Option<&str>) -> Self {
+        match raw
+            .unwrap_or("dual")
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "legacy" => Self::Legacy,
+            "v1" | "hashed" | "derived" => Self::V1,
+            "dual" => Self::Dual,
+            _ => Self::Dual,
+        }
+    }
+}
+
+fn parse_shadowsocks_method(settings_raw: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(settings_raw).ok()?;
+    value
+        .get("method")
+        .and_then(|m| m.as_str())
+        .map(|s| s.to_string())
+}
+
+fn derive_relay_password(join_token: &str, target_node_id: i64) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(join_token.trim().as_bytes());
+    hasher.update(b":relay:");
+    hasher.update(target_node_id.to_string().as_bytes());
+    let digest = hasher.finalize();
+    hex::encode(digest)
+}
 
 impl ConfigGenerator {
     /// Generates a complete Sing-box configuration from a list of database Inbounds
@@ -10,7 +51,9 @@ impl ConfigGenerator {
         node: &caramba_db::models::node::Node,
         inbounds: Vec<caramba_db::models::network::Inbound>,
         target_node: Option<caramba_db::models::node::Node>,
+        relay_target_inbound: Option<caramba_db::models::network::Inbound>,
         relay_clients: Vec<caramba_db::models::node::Node>,
+        relay_auth_mode: RelayAuthMode,
     ) -> SingBoxConfig {
         
         let mut generated_inbounds = Vec::new();
@@ -509,13 +552,43 @@ impl ConfigGenerator {
                 InboundType::Shadowsocks(mut ss) => {
                     // Inject Relay Clients if this is a suitable Shadowsocks inbound
                     for client_node in &relay_clients {
-                        if let Some(token) = &client_node.join_token {
+                        if let Some(token) = client_node
+                            .join_token
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|t| !t.is_empty())
+                        {
                             warn!("🔗 Injecting Relay Access for Node {} ({}). User: relay_{}", client_node.name, client_node.ip, client_node.id);
-                            let password = format!("{}", token);
-                            ss.users.push(caramba_db::models::network::ShadowsocksUser {
-                                username: format!("relay_{}", client_node.id),
-                                password,
-                            });
+                            let base_username = format!("relay_{}", client_node.id);
+                            match relay_auth_mode {
+                                RelayAuthMode::Legacy => {
+                                    ss.users.push(caramba_db::models::network::ShadowsocksUser {
+                                        username: base_username,
+                                        password: token.to_string(),
+                                    });
+                                }
+                                RelayAuthMode::V1 => {
+                                    ss.users.push(caramba_db::models::network::ShadowsocksUser {
+                                        username: base_username,
+                                        password: derive_relay_password(token, node.id),
+                                    });
+                                }
+                                RelayAuthMode::Dual => {
+                                    ss.users.push(caramba_db::models::network::ShadowsocksUser {
+                                        username: base_username,
+                                        password: derive_relay_password(token, node.id),
+                                    });
+                                    ss.users.push(caramba_db::models::network::ShadowsocksUser {
+                                        username: format!("relay_{}_legacy", client_node.id),
+                                        password: token.to_string(),
+                                    });
+                                }
+                            }
+                        } else {
+                            warn!(
+                                "⚠️ Relay client node {} has no join_token. Skipping injected relay user.",
+                                client_node.id
+                            );
                         }
                     }
 
@@ -551,31 +624,44 @@ impl ConfigGenerator {
         if let Some(target) = target_node {
             if node.is_relay {
                 warn!("🔗 Configuring Node as RELAY -> Target: {} ({})", target.name, target.ip);
-                
-                // We use Shadowsocks for inter-node transport
-                // IMPORTANT: The target node MUST have a Shadowsocks inbound listening
-                // For now, we assume standard VPN port or 443 with Shadowsocks
-                
-                // We actually need to know WHICH inbound on the target node to connect to.
-                // Assuming standard Shadowsocks inbound on target.vpn_port for now.
-                // Or maybe VLESS?
-                // Let's use the target's VPN port with Shadowsocks 2022 if possible, or wait, we just use Shadowsocks.
-                
-                // IMPROVEMENT: Protocol Selection? For now, hardcode Shadowsocks.
-                outbounds.push(Outbound::Shadowsocks(ShadowsocksOutbound {
-                    tag: "relay-out".to_string(),
-                    server: target.ip.clone(),
-                    server_port: target.vpn_port as u16,
-                    method: "chacha20-ietf-poly1305".to_string(), // Safer default for variable length passwords (tokens)
-                    // ISSUE: We don't know the exact method/password of the target's inbound here easily WITHOUT fetching its inbounds.
-                    // BUT! We injected the user `relay_<id>` with password `token` into the target's SS inbound above.
-                    // effectively we need to know the METHOD of the target's SS inbound.
-                    // Fallback: This requires the TARGET node to have a matching inbound.
-                    password: node.join_token.clone().unwrap_or_default(), // We authenticate using OUR token
-                }));
-                
-                // Override default route to Relay
-                default_outbound_tag = "relay-out".to_string();
+                let relay_password = node
+                    .join_token
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|token| match relay_auth_mode {
+                        RelayAuthMode::Legacy => token.to_string(),
+                        RelayAuthMode::V1 | RelayAuthMode::Dual => {
+                            derive_relay_password(token, target.id)
+                        }
+                    });
+
+                if relay_password.is_none() {
+                    warn!(
+                        "⚠️ Relay mode requested for node {} but join_token is missing. Skipping relay detour.",
+                        node.id
+                    );
+                } else if let Some(target_inbound) = relay_target_inbound.as_ref() {
+                    let relay_port = target_inbound.listen_port as u16;
+                    let relay_method = parse_shadowsocks_method(&target_inbound.settings)
+                        .unwrap_or_else(|| "chacha20-ietf-poly1305".to_string());
+
+                    outbounds.push(Outbound::Shadowsocks(ShadowsocksOutbound {
+                        tag: "relay-out".to_string(),
+                        server: target.ip.clone(),
+                        server_port: relay_port,
+                        method: relay_method,
+                        password: relay_password.unwrap_or_default(), // We authenticate using OUR token
+                    }));
+
+                    // Override default route to Relay
+                    default_outbound_tag = "relay-out".to_string();
+                } else {
+                    warn!(
+                        "⚠️ Relay mode requested for node {} but target node {} has no active shadowsocks inbound. Skipping relay detour.",
+                        node.id, target.id
+                    );
+                }
             }
         }
 

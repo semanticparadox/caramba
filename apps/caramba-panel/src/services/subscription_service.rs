@@ -638,7 +638,7 @@ impl SubscriptionService {
 
     pub async fn get_active_nodes_for_config(&self) -> Result<Vec<NodeInfo>> {
         let nodes = sqlx::query_as::<_, Node>(
-            "SELECT * FROM nodes WHERE is_enabled = TRUE AND status = 'online'"
+            "SELECT * FROM nodes WHERE is_enabled = TRUE AND status = 'active'"
         )
         .fetch_all(&self.pool)
         .await?;

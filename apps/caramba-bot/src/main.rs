@@ -27,7 +27,6 @@ async fn main() {
     let api_client = ApiClient::new(panel_url, panel_token);
     
     let settings = crate::services::settings_service::SettingsService::new(api_client.clone());
-    let admin_service = crate::services::admin_service::AdminService::new(api_client.clone());
 
     let store_service = crate::services::store_service::StoreService::new(api_client.clone());
     let promo_service = crate::services::promo_service::PromoService::new(api_client.clone());
@@ -35,12 +34,10 @@ async fn main() {
     let logging_service = crate::services::logging_service::LoggingService::new(api_client.clone());
 
     let state = AppState {
-        api: api_client,
         settings,
         store_service,
         promo_service,
         pay_service,
-        admin_service,
         logging_service,
     };
 

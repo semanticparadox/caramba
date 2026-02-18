@@ -20,7 +20,7 @@ pub async fn trigger_update(
     let latest_version = state.settings.get_or_default("agent_latest_version", "0.0.0").await;
 
     // 2. Update Node Target Version
-    let res = sqlx::query("UPDATE nodes SET target_version = ? WHERE id = ?")
+    let res = sqlx::query("UPDATE nodes SET target_version = $1 WHERE id = $2")
         .bind(&latest_version)
         .bind(id)
         .execute(&state.pool)

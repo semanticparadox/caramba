@@ -25,7 +25,8 @@ impl PanelClient {
             .get(&url)
             .bearer_auth(&self.auth_token)
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
         
         Ok(response.json().await?)
     }
@@ -37,7 +38,8 @@ impl PanelClient {
             .get(&url)
             .bearer_auth(&self.auth_token)
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
         
         Ok(response.json().await?)
     }
@@ -49,20 +51,22 @@ impl PanelClient {
             .get(&url)
             .bearer_auth(&self.auth_token)
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
         
         Ok(response.json().await?)
     }
     
-    pub async fn send_heartbeat(&self, stats: FrontendStats) -> Result<()> {
-        let url = format!("{}/api/internal/frontend/heartbeat", self.base_url);
+    pub async fn send_heartbeat(&self, domain: &str, stats: FrontendStats) -> Result<()> {
+        let url = format!("{}/api/admin/frontends/{}/heartbeat", self.base_url, domain);
         
         self.client
             .post(&url)
             .bearer_auth(&self.auth_token)
             .json(&stats)
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
         
         Ok(())
     }
@@ -136,4 +140,3 @@ pub struct FrontendStats {
     pub requests_count: u64,
     pub bandwidth_used: u64,
 }
-

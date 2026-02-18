@@ -2,7 +2,11 @@
 mod tests {
     // use super::*; // Unused
     use caramba_db::models::network::Inbound;
+    use caramba_db::models::node::Node;
     // use caramba_db::models::store::Subscription; // Unused
+    use crate::singbox::config::Outbound;
+    use crate::singbox::{ConfigGenerator, RelayAuthMode};
+    use sha2::{Digest, Sha256};
     use crate::singbox::subscription_generator::{NodeInfo, UserKeys, generate_singbox_config, generate_v2ray_config};
     use serde_json::json;
 
@@ -41,6 +45,119 @@ mod tests {
             config_block_torrent: false,
             relay_info: None,
         }
+    }
+
+    fn create_base_enterprise_node(id: i64, name: &str, ip: &str) -> Node {
+        Node {
+            id,
+            name: name.to_string(),
+            ip: ip.to_string(),
+            status: "active".to_string(),
+            reality_pub: None,
+            reality_priv: None,
+            short_id: None,
+            domain: None,
+            root_password: None,
+            vpn_port: 443,
+            last_seen: None,
+            created_at: chrono::Utc::now(),
+            join_token: None,
+            auto_configure: true,
+            is_enabled: true,
+            country_code: None,
+            country: None,
+            city: None,
+            flag: None,
+            reality_sni: None,
+            load_stats: None,
+            check_stats_json: None,
+            sort_order: 0,
+            latitude: None,
+            longitude: None,
+            config_qos_enabled: false,
+            config_block_torrent: false,
+            config_block_ads: false,
+            config_block_porn: false,
+            last_latency: None,
+            last_cpu: None,
+            last_ram: None,
+            max_ram: 0,
+            cpu_cores: 0,
+            cpu_model: None,
+            speed_limit_mbps: 0,
+            max_users: 0,
+            current_speed_mbps: 0,
+            relay_id: None,
+            active_connections: None,
+            total_ingress: 0,
+            total_egress: 0,
+            uptime: 0,
+            last_session_ingress: 0,
+            last_session_egress: 0,
+            doomsday_password: None,
+            version: None,
+            target_version: None,
+            last_synced_at: None,
+            last_sync_trigger: None,
+            is_relay: false,
+            pending_log_collection: false,
+        }
+    }
+
+    fn create_shadowsocks_inbound(node_id: i64, port: i64, method: &str) -> Inbound {
+        Inbound {
+            id: 1,
+            node_id,
+            tag: "relay-ss".to_string(),
+            protocol: "shadowsocks".to_string(),
+            listen_port: port,
+            listen_ip: "0.0.0.0".to_string(),
+            settings: json!({
+                "method": method,
+                "users": [{"username": "relay_1", "password": "relay-token"}]
+            })
+            .to_string(),
+            stream_settings: "{}".to_string(),
+            remark: Some("Relay SS".to_string()),
+            enable: true,
+            renew_interval_mins: 0,
+            port_range_start: 0,
+            port_range_end: 0,
+            last_rotated_at: None,
+            created_at: None,
+        }
+    }
+
+    fn create_empty_shadowsocks_inbound(node_id: i64, port: i64, method: &str) -> Inbound {
+        Inbound {
+            id: 1,
+            node_id,
+            tag: "relay-ss".to_string(),
+            protocol: "shadowsocks".to_string(),
+            listen_port: port,
+            listen_ip: "0.0.0.0".to_string(),
+            settings: json!({
+                "method": method,
+                "users": []
+            })
+            .to_string(),
+            stream_settings: "{}".to_string(),
+            remark: Some("Relay SS".to_string()),
+            enable: true,
+            renew_interval_mins: 0,
+            port_range_start: 0,
+            port_range_end: 0,
+            last_rotated_at: None,
+            created_at: None,
+        }
+    }
+
+    fn expected_relay_password(join_token: &str, target_node_id: i64) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(join_token.trim().as_bytes());
+        hasher.update(b":relay:");
+        hasher.update(target_node_id.to_string().as_bytes());
+        hex::encode(hasher.finalize())
     }
 
     #[test]
@@ -301,10 +418,316 @@ mod tests {
          })).expect("Failed to create mock subscription")
     }
     #[test]
+    fn test_relay_outbound_uses_target_shadowsocks_inbound_port_and_method() {
+         let mut relay_node = create_base_enterprise_node(1, "Relay-A", "10.0.0.1");
+         relay_node.is_relay = true;
+         relay_node.join_token = Some("relay-token".to_string());
+
+         let target_node = create_base_enterprise_node(2, "Relay-Target", "10.0.0.2");
+         let target_inbound = create_shadowsocks_inbound(2, 8443, "2022-blake3-aes-128-gcm");
+
+         let config = ConfigGenerator::generate_config(
+             &relay_node,
+             vec![],
+             Some(target_node),
+             Some(target_inbound),
+             vec![],
+             RelayAuthMode::V1,
+         );
+
+         let relay_out = config.outbounds.iter().find_map(|o| match o {
+             Outbound::Shadowsocks(ss) if ss.tag == "relay-out" => Some(ss),
+             _ => None,
+         }).expect("relay-out must be present");
+
+         assert_eq!(relay_out.server, "10.0.0.2");
+         assert_eq!(relay_out.server_port, 8443);
+         assert_eq!(relay_out.method, "2022-blake3-aes-128-gcm");
+         assert_eq!(relay_out.password, expected_relay_password("relay-token", 2));
+
+         let route_rules = &config.route.as_ref().expect("route missing").rules;
+         assert!(route_rules.iter().any(|r| r.outbound.as_deref() == Some("relay-out")));
+    }
+
+    #[test]
+    fn test_relay_outbound_not_added_without_target_shadowsocks_inbound() {
+         let mut relay_node = create_base_enterprise_node(1, "Relay-A", "10.0.0.1");
+         relay_node.is_relay = true;
+         relay_node.join_token = Some("relay-token".to_string());
+
+         let target_node = create_base_enterprise_node(2, "Relay-Target", "10.0.0.2");
+
+         let config = ConfigGenerator::generate_config(
+             &relay_node,
+             vec![],
+             Some(target_node),
+             None,
+             vec![],
+             RelayAuthMode::V1,
+         );
+
+         assert!(!config.outbounds.iter().any(|o| matches!(o, Outbound::Shadowsocks(_))));
+         let route_rules = &config.route.as_ref().expect("route missing").rules;
+         assert!(!route_rules.iter().any(|r| r.outbound.as_deref() == Some("relay-out")));
+    }
+
+    #[test]
+    fn test_relay_outbound_not_added_without_join_token() {
+         let mut relay_node = create_base_enterprise_node(1, "Relay-A", "10.0.0.1");
+         relay_node.is_relay = true;
+         relay_node.join_token = None;
+
+         let target_node = create_base_enterprise_node(2, "Relay-Target", "10.0.0.2");
+         let target_inbound = create_shadowsocks_inbound(2, 8443, "2022-blake3-aes-128-gcm");
+
+         let config = ConfigGenerator::generate_config(
+             &relay_node,
+             vec![],
+             Some(target_node),
+             Some(target_inbound),
+             vec![],
+             RelayAuthMode::V1,
+         );
+
+         assert!(!config.outbounds.iter().any(|o| matches!(o, Outbound::Shadowsocks(_))));
+         let route_rules = &config.route.as_ref().expect("route missing").rules;
+         assert!(!route_rules.iter().any(|r| r.outbound.as_deref() == Some("relay-out")));
+    }
+
+    #[test]
+    fn test_relay_user_injected_with_derived_password_on_target_shadowsocks_inbound() {
+         let target_node = create_base_enterprise_node(2, "Relay-Target", "10.0.0.2");
+
+         let target_inbound = Inbound {
+             id: 1,
+             node_id: 2,
+             tag: "relay-ss".to_string(),
+             protocol: "shadowsocks".to_string(),
+             listen_port: 8443,
+             listen_ip: "0.0.0.0".to_string(),
+             settings: json!({
+                 "method": "2022-blake3-aes-128-gcm",
+                 "users": []
+             })
+             .to_string(),
+             stream_settings: "{}".to_string(),
+             remark: Some("Relay SS".to_string()),
+             enable: true,
+             renew_interval_mins: 0,
+             port_range_start: 0,
+             port_range_end: 0,
+             last_rotated_at: None,
+             created_at: None,
+         };
+
+         let mut relay_client = create_base_enterprise_node(1, "Relay-A", "10.0.0.1");
+         relay_client.join_token = Some("relay-token".to_string());
+
+         let config = ConfigGenerator::generate_config(
+             &target_node,
+             vec![target_inbound],
+             None,
+             None,
+             vec![relay_client],
+             RelayAuthMode::V1,
+         );
+
+         let injected_password = config.inbounds.iter().find_map(|inb| match inb {
+             crate::singbox::config::Inbound::Shadowsocks(ss) => ss
+                 .users
+                 .iter()
+                 .find(|u| u.name == "relay_1")
+                 .map(|u| u.password.clone()),
+             _ => None,
+         }).expect("injected relay user must exist");
+
+         assert_eq!(injected_password, expected_relay_password("relay-token", 2));
+    }
+
+    #[test]
+    fn test_relay_outbound_legacy_mode_uses_raw_join_token() {
+         let mut relay_node = create_base_enterprise_node(1, "Relay-A", "10.0.0.1");
+         relay_node.is_relay = true;
+         relay_node.join_token = Some("relay-token".to_string());
+
+         let target_node = create_base_enterprise_node(2, "Relay-Target", "10.0.0.2");
+         let target_inbound = create_shadowsocks_inbound(2, 8443, "2022-blake3-aes-128-gcm");
+
+         let config = ConfigGenerator::generate_config(
+             &relay_node,
+             vec![],
+             Some(target_node),
+             Some(target_inbound),
+             vec![],
+             RelayAuthMode::Legacy,
+         );
+
+         let relay_out = config
+             .outbounds
+             .iter()
+             .find_map(|o| match o {
+                 Outbound::Shadowsocks(ss) if ss.tag == "relay-out" => Some(ss),
+                 _ => None,
+             })
+             .expect("relay-out must be present");
+
+         assert_eq!(relay_out.password, "relay-token");
+    }
+
+    #[test]
+    fn test_relay_user_injected_with_dual_mode_adds_hashed_and_legacy_users() {
+         let target_node = create_base_enterprise_node(2, "Relay-Target", "10.0.0.2");
+         let target_inbound = create_empty_shadowsocks_inbound(2, 8443, "2022-blake3-aes-128-gcm");
+
+         let mut relay_client = create_base_enterprise_node(1, "Relay-A", "10.0.0.1");
+         relay_client.join_token = Some("relay-token".to_string());
+
+         let config = ConfigGenerator::generate_config(
+             &target_node,
+             vec![target_inbound],
+             None,
+             None,
+             vec![relay_client],
+             RelayAuthMode::Dual,
+         );
+
+         let inbound_users = config
+             .inbounds
+             .iter()
+             .find_map(|inb| match inb {
+                 crate::singbox::config::Inbound::Shadowsocks(ss) => Some(&ss.users),
+                 _ => None,
+             })
+             .expect("shadowsocks inbound must exist");
+
+         let hashed_user = inbound_users
+             .iter()
+             .find(|u| u.name == "relay_1")
+             .expect("hashed relay user missing");
+         assert_eq!(hashed_user.password, expected_relay_password("relay-token", 2));
+
+         let legacy_user = inbound_users
+             .iter()
+             .find(|u| u.name == "relay_1_legacy")
+             .expect("legacy relay user missing");
+         assert_eq!(legacy_user.password, "relay-token");
+    }
+
+    #[test]
+    fn test_relay_chain_intermediate_node_has_correct_inbound_and_outbound_auth() {
+         let mut middle_node = create_base_enterprise_node(2, "Relay-Middle", "10.0.0.2");
+         middle_node.is_relay = true;
+         middle_node.join_token = Some("middle-token".to_string());
+
+         let mut upstream_client = create_base_enterprise_node(1, "Relay-Upstream", "10.0.0.1");
+         upstream_client.join_token = Some("upstream-token".to_string());
+
+         let target_node = create_base_enterprise_node(3, "Relay-Exit", "10.0.0.3");
+         let target_inbound = create_shadowsocks_inbound(3, 9443, "2022-blake3-aes-128-gcm");
+         let middle_inbound = create_empty_shadowsocks_inbound(2, 8443, "2022-blake3-aes-128-gcm");
+
+         let config = ConfigGenerator::generate_config(
+             &middle_node,
+             vec![middle_inbound],
+             Some(target_node),
+             Some(target_inbound),
+             vec![upstream_client],
+             RelayAuthMode::Dual,
+         );
+
+         let relay_out = config
+             .outbounds
+             .iter()
+             .find_map(|o| match o {
+                 Outbound::Shadowsocks(ss) if ss.tag == "relay-out" => Some(ss),
+                 _ => None,
+             })
+             .expect("relay-out must be present");
+         assert_eq!(relay_out.server, "10.0.0.3");
+         assert_eq!(relay_out.server_port, 9443);
+         assert_eq!(relay_out.password, expected_relay_password("middle-token", 3));
+
+         let inbound_users = config
+             .inbounds
+             .iter()
+             .find_map(|inb| match inb {
+                 crate::singbox::config::Inbound::Shadowsocks(ss) => Some(&ss.users),
+                 _ => None,
+             })
+             .expect("middle inbound must exist");
+
+         let hashed_user = inbound_users
+             .iter()
+             .find(|u| u.name == "relay_1")
+             .expect("hashed upstream user missing");
+         assert_eq!(hashed_user.password, expected_relay_password("upstream-token", 2));
+
+         let legacy_user = inbound_users
+             .iter()
+             .find(|u| u.name == "relay_1_legacy")
+             .expect("legacy upstream user missing");
+         assert_eq!(legacy_user.password, "upstream-token");
+    }
+
+    #[test]
+    fn test_relay_auth_migration_dual_to_v1_removes_legacy_users() {
+         let target_node = create_base_enterprise_node(2, "Relay-Target", "10.0.0.2");
+         let target_inbound = create_empty_shadowsocks_inbound(2, 8443, "2022-blake3-aes-128-gcm");
+
+         let mut relay_client = create_base_enterprise_node(1, "Relay-A", "10.0.0.1");
+         relay_client.join_token = Some("relay-token".to_string());
+
+         let dual_config = ConfigGenerator::generate_config(
+             &target_node,
+             vec![target_inbound.clone()],
+             None,
+             None,
+             vec![relay_client.clone()],
+             RelayAuthMode::Dual,
+         );
+         let v1_config = ConfigGenerator::generate_config(
+             &target_node,
+             vec![target_inbound],
+             None,
+             None,
+             vec![relay_client],
+             RelayAuthMode::V1,
+         );
+
+         let dual_users = dual_config
+             .inbounds
+             .iter()
+             .find_map(|inb| match inb {
+                 crate::singbox::config::Inbound::Shadowsocks(ss) => Some(&ss.users),
+                 _ => None,
+             })
+             .expect("dual inbound users missing");
+         let v1_users = v1_config
+             .inbounds
+             .iter()
+             .find_map(|inb| match inb {
+                 crate::singbox::config::Inbound::Shadowsocks(ss) => Some(&ss.users),
+                 _ => None,
+             })
+             .expect("v1 inbound users missing");
+
+         assert!(dual_users.iter().any(|u| u.name == "relay_1_legacy"));
+         assert!(!v1_users.iter().any(|u| u.name == "relay_1_legacy"));
+         assert!(v1_users.iter().any(|u| u.name == "relay_1"));
+    }
+
+    #[test]
+    fn test_relay_auth_mode_parsing_defaults_to_dual() {
+        assert_eq!(RelayAuthMode::from_setting(Some("legacy")), RelayAuthMode::Legacy);
+        assert_eq!(RelayAuthMode::from_setting(Some("v1")), RelayAuthMode::V1);
+        assert_eq!(RelayAuthMode::from_setting(Some("hashed")), RelayAuthMode::V1);
+        assert_eq!(RelayAuthMode::from_setting(Some("dual")), RelayAuthMode::Dual);
+        assert_eq!(RelayAuthMode::from_setting(None), RelayAuthMode::Dual);
+        assert_eq!(RelayAuthMode::from_setting(Some("unknown")), RelayAuthMode::Dual);
+    }
+
+    #[test]
     fn test_security_policy_generation() {
-         use crate::singbox::ConfigGenerator;
-         use caramba_db::models::node::Node;
-         use caramba_db::models::network::Inbound;
 
          // 1. Create Mock Node with Policies Enabled
          let node = Node {
@@ -382,7 +805,14 @@ mod tests {
          };
 
          // 3. Generate Config
-         let config = ConfigGenerator::generate_config(&node, vec![inbound], None, vec![]);
+         let config = ConfigGenerator::generate_config(
+             &node,
+             vec![inbound],
+             None,
+             None,
+             vec![],
+             RelayAuthMode::Dual,
+         );
          
          // 4. Assertions
          

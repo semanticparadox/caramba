@@ -43,7 +43,7 @@ pub async fn get_groups_page(
 
     let mut groups_with_count = Vec::new();
     for g in groups {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM node_group_members WHERE group_id = ?")
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM node_group_members WHERE group_id = $1")
             .bind(g.id)
             .fetch_one(&state.pool)
             .await
@@ -78,7 +78,7 @@ pub async fn create_group(
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    let res = sqlx::query("INSERT INTO node_groups (name, slug, description) VALUES (?, ?, ?)")
+    let res = sqlx::query("INSERT INTO node_groups (name, slug, description) VALUES ($1, $2, $3)")
         .bind(&form.name)
         .bind(&form.slug)
         .bind(&form.description)
@@ -109,7 +109,7 @@ pub async fn delete_group(
          return (StatusCode::BAD_REQUEST, "Cannot delete default group").into_response();
     }
 
-    let _ = sqlx::query("DELETE FROM node_groups WHERE id = ?")
+    let _ = sqlx::query("DELETE FROM node_groups WHERE id = $1")
         .bind(id)
         .execute(&state.pool)
         .await;
@@ -142,7 +142,7 @@ pub async fn get_group_edit(
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    let group = match sqlx::query_as::<_, NodeGroup>("SELECT * FROM node_groups WHERE id = ?")
+    let group = match sqlx::query_as::<_, NodeGroup>("SELECT * FROM node_groups WHERE id = $1")
         .bind(id)
         .fetch_optional(&state.pool)
         .await {
@@ -153,7 +153,7 @@ pub async fn get_group_edit(
 
     // Get current members
     let members: Vec<Node> = sqlx::query_as::<_, Node>(
-        "SELECT n.* FROM nodes n JOIN node_group_members ngm ON n.id = ngm.node_id WHERE ngm.group_id = ?"
+        "SELECT n.* FROM nodes n JOIN node_group_members ngm ON n.id = ngm.node_id WHERE ngm.group_id = $1"
     )
     .bind(id)
     .fetch_all(&state.pool)
@@ -162,7 +162,7 @@ pub async fn get_group_edit(
 
     // Get available nodes (not in this group)
     let available_nodes: Result<Vec<Node>, sqlx::Error> = sqlx::query_as::<_, Node>(
-        "SELECT * FROM nodes WHERE id NOT IN (SELECT node_id FROM node_group_members WHERE group_id = ?)"
+        "SELECT * FROM nodes WHERE id NOT IN (SELECT node_id FROM node_group_members WHERE group_id = $1)"
     )
     .bind(id)
     .fetch_all(&state.pool)
@@ -177,7 +177,7 @@ pub async fn get_group_edit(
     };
 
     // Get inbounds for this group
-    let inbounds: Vec<InboundTemplate> = sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE target_group_id = ?")
+    let inbounds: Vec<InboundTemplate> = sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE target_group_id = $1")
         .bind(id)
         .fetch_all(&state.pool)
         .await
@@ -207,7 +207,7 @@ pub async fn add_group_member(
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
     
-    let _ = sqlx::query("INSERT INTO node_group_members (group_id, node_id) VALUES (?, ?)")
+    let _ = sqlx::query("INSERT INTO node_group_members (group_id, node_id) VALUES ($1, $2) ON CONFLICT (group_id, node_id) DO NOTHING")
         .bind(group_id)
         .bind(form.node_id)
         .execute(&state.pool)
@@ -232,7 +232,7 @@ pub async fn remove_group_member(
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
     
-    let _ = sqlx::query("DELETE FROM node_group_members WHERE group_id = ? AND node_id = ?")
+    let _ = sqlx::query("DELETE FROM node_group_members WHERE group_id = $1 AND node_id = $2")
         .bind(group_id)
         .bind(node_id)
         .execute(&state.pool)

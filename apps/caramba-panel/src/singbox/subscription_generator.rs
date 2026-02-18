@@ -109,21 +109,24 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
     // 2. Parse into generic Value for fields not yet in StreamSettings struct (e.g. fingerprint, tuic/hy2 extras)
     let v: Value = serde_json::from_str(raw).unwrap_or(json!({}));
 
-    let network = settings.network.clone().unwrap_or_else(|| "tcp".to_string());
-    let security = settings.security.clone().unwrap_or_else(|| "reality".to_string());
+    let network = settings.network.clone()
+        .or_else(|| v.get("network").and_then(|n| n.as_str()).map(|s| s.to_string()))
+        .unwrap_or_else(|| "tcp".to_string());
+    let security = settings.security.clone()
+        .or_else(|| v.get("security").and_then(|s| s.as_str()).map(|s| s.to_string()))
+        .unwrap_or_else(|| "reality".to_string());
 
-    // SNI Extraction (Priority: Reality -> TLS -> Node Fallback)
-    // SNI Extraction (Priority: Node Override -> Reality -> TLS -> Default)
-    let sni = if let Some(override_sni) = &node.reality_sni {
-        if !override_sni.is_empty() {
-            override_sni.clone()
-        } else {
-             // Fallback if empty string
-             extract_sni_from_settings(&settings).unwrap_or("www.google.com".to_string())
-        }
-    } else {
-        extract_sni_from_settings(&settings).unwrap_or("www.google.com".to_string())
-    };
+    // Prefer per-inbound SNI; node-level SNI is only a fallback.
+    let sni = extract_sni_from_settings(&settings)
+        .or_else(|| extract_sni_from_raw(&v))
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            node.reality_sni
+                .as_ref()
+                .filter(|s| !s.is_empty())
+                .cloned()
+        })
+        .unwrap_or_else(|| "www.google.com".to_string());
 
     // Reality Keys
     let public_key = settings.reality_settings.as_ref()
@@ -145,6 +148,29 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
     // WebSocket settings
     let ws_path = settings.ws_settings.as_ref()
         .map(|w| w.path.clone())
+        .or_else(|| settings.xhttp_settings.as_ref().map(|x| x.path.clone()))
+        .or_else(|| settings.http_upgrade_settings.as_ref().map(|h| h.path.clone()))
+        .or_else(|| {
+            v.get("wsSettings")
+                .or_else(|| v.get("ws_settings"))
+                .and_then(|w| w.get("path"))
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string())
+        })
+        .or_else(|| {
+            v.get("xhttpSettings")
+                .or_else(|| v.get("xhttp_settings"))
+                .and_then(|x| x.get("path"))
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string())
+        })
+        .or_else(|| {
+            v.get("httpUpgradeSettings")
+                .or_else(|| v.get("http_upgrade_settings"))
+                .and_then(|h| h.get("path"))
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string())
+        })
         .unwrap_or_else(|| "/".to_string());
 
     // gRPC settings (Not in StreamSettings struct fully? Let's check manual parsing fallback)
@@ -170,7 +196,12 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
     };
 
     // XHTTP / Advanced Parsing
-    let packet_encoding = settings.packet_encoding.clone();
+    let packet_encoding = settings.packet_encoding.clone().or_else(|| {
+        v.get("packet_encoding")
+            .or_else(|| v.get("packetEncoding"))
+            .and_then(|s| s.as_str())
+            .map(|s| s.to_string())
+    });
     
     // x_padding_bytes not in StreamSettings?
     let x_padding_bytes = v.get("x_padding_bytes").or_else(|| v.get("xPaddingBytes"))
@@ -215,6 +246,34 @@ fn extract_sni_from_settings(settings: &caramba_db::models::network::StreamSetti
     } else {
         None
     }
+}
+
+fn extract_sni_from_raw(v: &Value) -> Option<String> {
+    let reality_sni = v
+        .get("realitySettings")
+        .or_else(|| v.get("reality_settings"))
+        .and_then(|r| {
+            r.get("serverNames")
+                .and_then(|arr| arr.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|s| s.as_str())
+                .or_else(|| r.get("serverName").and_then(|s| s.as_str()))
+        })
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    let tls_sni = v
+        .get("tlsSettings")
+        .or_else(|| v.get("tls_settings"))
+        .and_then(|t| {
+            t.get("serverName")
+                .or_else(|| t.get("server_name"))
+                .and_then(|s| s.as_str())
+        })
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    reality_sni.or(tls_sni)
 }
 
 // ─── Helper: Parse Shadowsocks method from settings JSON ──────────────────────
@@ -463,25 +522,25 @@ pub fn generate_v2ray_config(
         }
         // Legacy fallback: VLESS Reality
         else if let Some(port) = node.reality_port {
+            let host = node.frontend_url.as_deref().unwrap_or(&node.address);
             let vless_link = format!(
                 "vless://{}@{}:{}?encryption=none&flow=xtls-rprx-vision&security=reality&sni={}&fp=chrome&pbk={}&sid={}&type=tcp#{}",
-                user_keys.user_uuid, node.address, port,
+                user_keys.user_uuid, host, port,
                 node.reality_sni.as_ref().unwrap_or(&"www.google.com".to_string()),
                 node.reality_public_key.as_ref().unwrap_or(&"".to_string()),
                 node.reality_short_id.as_ref().unwrap_or(&"".to_string()),
                 urlencoding::encode(&format!("{} VLESS", node.name))
             );
             links.push(vless_link);
-        }
-
-        // Legacy Hysteria2
-        if let Some(port) = node.hy2_port {
-            links.push(format!(
-                "hysteria2://{}@{}:{}?sni={}&insecure=1#{}",
-                user_keys.hy2_password, node.address, port,
-                node.hy2_sni.as_ref().unwrap_or(&node.address),
-                urlencoding::encode(&format!("{} HY2", node.name))
-            ));
+            // Legacy Hysteria2
+            if let Some(port) = node.hy2_port {
+                links.push(format!(
+                    "hysteria2://{}@{}:{}?sni={}&insecure=1#{}",
+                    user_keys.hy2_password, host, port,
+                    node.hy2_sni.as_deref().unwrap_or(host),
+                    urlencoding::encode(&format!("{} HY2", node.name))
+                ));
+            }
         }
     }
 
@@ -791,27 +850,17 @@ pub fn generate_singbox_config(
 
                 let si = parse_stream_settings(&inbound.stream_settings, node);
                 
-                // Human-readable tag
-                let display_name = if let Some(remark) = &inbound.remark {
-                    let remark: &String = remark;
-                    if remark.starts_with("Template: ") {
-                        remark.strip_prefix("Template: ").unwrap_or(remark).trim().to_string()
-                    } else {
-                        format!("{} - {}", node.name, remark)
-                    }
-                } else {
-                    format!("{} - Auto", node.name)
-                }
-                .replace("Template: ", "");
+                let outbound_tag = format!("{}_{}", node.name, inbound.tag);
+                let endpoint_host = node.frontend_url.as_deref().unwrap_or(&node.address);
 
                 let mut outbound = json!({
-                    "tag": display_name,
+                    "tag": outbound_tag,
                 });
 
                 match inbound.protocol.as_str() {
                     "vless" => {
                         outbound["type"] = json!("vless");
-                        outbound["server"] = json!(node.address);
+                        outbound["server"] = json!(endpoint_host);
                         outbound["server_port"] = json!(inbound.listen_port);
                         outbound["uuid"] = json!(user_keys.user_uuid);
                         outbound["flow"] = if !si.flow.is_empty() { json!(si.flow) } else { json!("") };
@@ -859,14 +908,20 @@ pub fn generate_singbox_config(
                             }
 
                             // Multiplexing
-                            if let Some(mux) = &si.xmux {
-                                outbound["multiplex"] = mux.clone();
-                            }
+                            outbound["multiplex"] = si.xmux.clone().unwrap_or_else(|| {
+                                json!({
+                                    "enabled": true,
+                                    "protocol": "smux",
+                                    "max_connections": 4,
+                                    "min_streams": 4,
+                                    "padding": true
+                                })
+                            });
                         }
                     },
                     "hysteria2" | "hy2" => {
                         outbound["type"] = json!("hysteria2");
-                        outbound["server"] = json!(node.address);
+                        outbound["server"] = json!(endpoint_host);
                         outbound["server_port"] = json!(inbound.listen_port);
                         outbound["password"] = json!(user_keys.hy2_password);
                         
@@ -884,10 +939,13 @@ pub fn generate_singbox_config(
                                 "password": obfs
                             });
                         }
+                        if let Some(ports) = &si.hy2_ports {
+                            outbound["server_ports"] = json!(ports);
+                        }
                     },
                     "tuic" => {
                         outbound["type"] = json!("tuic");
-                        outbound["server"] = json!(node.address);
+                        outbound["server"] = json!(endpoint_host);
                         outbound["server_port"] = json!(inbound.listen_port);
                         outbound["uuid"] = json!(user_keys.user_uuid);
                         outbound["password"] = json!(user_keys.hy2_password); 
@@ -903,7 +961,7 @@ pub fn generate_singbox_config(
                     },
                     "trojan" => {
                         outbound["type"] = json!("trojan");
-                        outbound["server"] = json!(node.address);
+                        outbound["server"] = json!(endpoint_host);
                         outbound["server_port"] = json!(inbound.listen_port);
                         outbound["password"] = json!(user_keys.user_uuid);
                         
@@ -928,21 +986,22 @@ pub fn generate_singbox_config(
                     },
                     "shadowsocks" | "ss" => {
                         outbound["type"] = json!("shadowsocks");
-                        outbound["server"] = json!(node.address);
+                        outbound["server"] = json!(endpoint_host);
                         outbound["server_port"] = json!(inbound.listen_port);
                         outbound["method"] = json!(parse_ss_method(&inbound.settings));
                         outbound["password"] = json!(parse_ss_password(&inbound.settings, &user_keys.user_uuid));
                     },
                     "naive" => {
                          outbound["type"] = json!("naive"); // Assuming naive plugin/support
-                         outbound["server"] = json!(node.address);
+                         outbound["server"] = json!(endpoint_host);
                          outbound["server_port"] = json!(inbound.listen_port);
                          outbound["username"] = json!(user_keys.user_uuid);
                          outbound["password"] = json!(user_keys.hy2_password);
                          outbound["tls"] = json!({
                             "enabled": true,
                             "server_name": si.sni,
-                            "alpn": ["h2", "http/1.1"]
+                            "alpn": ["h2", "http/1.1"],
+                            "utls": { "enabled": true, "fingerprint": si.fingerprint }
                          });
                     },
                     "amneziawg" => {
@@ -950,7 +1009,7 @@ pub fn generate_singbox_config(
                          let local_address = format!("10.10.0.{}/32", (client_id % 250) + 2);
                          
                          outbound["type"] = json!("wireguard");
-                         outbound["server"] = json!(node.address);
+                         outbound["server"] = json!(endpoint_host);
                          outbound["server_port"] = json!(inbound.listen_port);
                          outbound["local_address"] = json!([local_address]);
                          outbound["private_key"] = json!(user_keys._awg_private_key.clone().unwrap_or_default());
@@ -970,7 +1029,7 @@ pub fn generate_singbox_config(
                     outbound["detour"] = json!(tag);
                 }
                 
-                outbound_tags.push(display_name.clone());
+                outbound_tags.push(outbound["tag"].as_str().unwrap_or_default().to_string());
                 outbounds.push(outbound);
             }
         }
@@ -1062,7 +1121,13 @@ pub fn generate_singbox_config(
             json!({ "geoip": ["cn", "private"], "outbound": "direct" }),
             // Add RU/UA specifics if needed, for now standard
             json!({ "geosite": ["ru"], "outbound": "direct" }),
-            json!({ "geoip": ["ru"], "outbound": "direct" })
+            json!({ "geoip": ["ru"], "outbound": "direct" }),
+            json!({
+                "network": "tcp",
+                "domain_suffix": ["github.com", "githubusercontent.com", "githubassets.com"],
+                "tls_fragment": true,
+                "outbound": "proxy"
+            })
     ]);
 
     let route_config = json!({

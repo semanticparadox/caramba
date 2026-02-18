@@ -8,6 +8,7 @@ use crate::AppState;
 use caramba_shared::api::{HeartbeatRequest, HeartbeatResponse, AgentAction};
 use caramba_shared::config::ConfigResponse;
 use serde::{Deserialize, Serialize};
+use chrono::Utc;
 
 #[derive(Deserialize)]
 struct IpApiResponse {
@@ -49,7 +50,7 @@ pub async fn heartbeat(
     };
 
     // 2. Validate Node
-    let node_res: Result<Option<(i64, Option<String>, Option<String>)>, sqlx::Error> = sqlx::query_as("SELECT id, country_code, country FROM nodes WHERE join_token = ?")
+    let node_res: Result<Option<(i64, Option<String>, Option<String>)>, sqlx::Error> = sqlx::query_as("SELECT id, country_code, country FROM nodes WHERE join_token = $1")
         .bind(&token)
         .fetch_optional(&state.pool)
         .await;
@@ -66,7 +67,7 @@ pub async fn heartbeat(
     // 3. Update Telemetry & Status & IP & Version
     if let Some(lat) = req.latency {
         // Fix: Also update IP here, because if a node sends stats, we still want to fix its IP if it's pending.
-        let _ = sqlx::query("UPDATE nodes SET last_latency = ?, last_cpu = ?, last_ram = ?, current_speed_mbps = ?, max_ram = COALESCE(?, max_ram), cpu_cores = COALESCE(?, cpu_cores), cpu_model = COALESCE(?, cpu_model), active_connections = COALESCE(?, active_connections), last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN ? ELSE ip END, version = ? WHERE id = ?")
+        let _ = sqlx::query("UPDATE nodes SET last_latency = $1, last_cpu = $2, last_ram = $3, current_speed_mbps = $4, max_ram = COALESCE($5, max_ram), cpu_cores = COALESCE($6, cpu_cores), cpu_model = COALESCE($7, cpu_model), active_connections = COALESCE($8, active_connections), last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN $9 ELSE ip END, version = $10 WHERE id = $11")
             .bind(lat)
             .bind(req.cpu_usage.unwrap_or(0.0))
             .bind(req.memory_usage.unwrap_or(0.0))
@@ -82,7 +83,7 @@ pub async fn heartbeat(
             .await;
     } else {
         // Just update last_seen if no telemetry (or older agent)
-        let _ = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN ? ELSE ip END, version = ? WHERE id = ?")
+        let _ = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN $1 ELSE ip END, version = $2 WHERE id = $3")
             .bind(&remote_ip)
             .bind(&req.version)
             .bind(node_id)
@@ -100,7 +101,7 @@ pub async fn heartbeat(
                 Ok(resp) => {
                      if let Ok(json) = resp.json::<IpApiResponse>().await {
                          let flag = country_code_to_flag(&json.country_code);
-                         let _ = sqlx::query("UPDATE nodes SET country_code = ?, country = ?, city = ?, flag = ?, latitude = ?, longitude = ? WHERE id = ?")
+                         let _ = sqlx::query("UPDATE nodes SET country_code = $1, country = $2, city = $3, flag = $4, latitude = $5, longitude = $6 WHERE id = $7")
                              .bind(&json.country_code)
                              .bind(&json.country)
                              .bind(&json.city)
@@ -121,17 +122,37 @@ pub async fn heartbeat(
     
     // 4. Process Per-User Traffic Usage
     if let Some(usage_map) = req.user_usage {
+        let mut relay_legacy_usage_bytes: u64 = 0;
         for (tag, bytes) in usage_map {
             if tag.starts_with("user_") {
                 if let Ok(sub_id) = tag[5..].parse::<i64>() {
                     // Increment used_traffic and update timestamp
-                    let _ = sqlx::query("UPDATE subscriptions SET used_traffic = used_traffic + ?, traffic_updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+                    let _ = sqlx::query("UPDATE subscriptions SET used_traffic = used_traffic + $1, traffic_updated_at = CURRENT_TIMESTAMP WHERE id = $2")
                         .bind(bytes as i64)
                         .bind(sub_id)
                         .execute(&state.pool)
                         .await;
                 }
             }
+
+            if tag.starts_with("relay_") && tag.ends_with("_legacy") {
+                relay_legacy_usage_bytes = relay_legacy_usage_bytes.saturating_add(bytes);
+            }
+        }
+
+        // Record last observed legacy relay traffic, used by relay auth guardrail.
+        if relay_legacy_usage_bytes > 0 {
+            let _ = state
+                .settings
+                .set("relay_legacy_usage_last_seen_at", &Utc::now().to_rfc3339())
+                .await;
+            let _ = state
+                .settings
+                .set(
+                    "relay_legacy_usage_last_seen_bytes",
+                    &relay_legacy_usage_bytes.to_string(),
+                )
+                .await;
         }
     }
 
@@ -160,7 +181,7 @@ pub async fn heartbeat(
         Some(latest_version)
     } else {
         // If auto-update is OFF, check if specific target version is set for this node
-        let stored_target: Option<String> = sqlx::query_scalar("SELECT target_version FROM nodes WHERE id = ?")
+        let stored_target: Option<String> = sqlx::query_scalar("SELECT target_version FROM nodes WHERE id = $1")
             .bind(node_id)
             .fetch_optional(&state.pool)
             .await
@@ -171,7 +192,7 @@ pub async fn heartbeat(
 
     // 6. Action Trigger (Log Collection, etc.)
     let mut action = AgentAction::None;
-    let pending_logs: bool = sqlx::query_scalar("SELECT pending_log_collection FROM nodes WHERE id = ?")
+    let pending_logs: bool = sqlx::query_scalar("SELECT pending_log_collection FROM nodes WHERE id = $1")
         .bind(node_id)
         .fetch_one(&state.pool)
         .await
@@ -203,7 +224,7 @@ pub async fn get_update_info(
     };
 
     // 2. Validate Token (Quick Check)
-    let valid: bool = sqlx::query_scalar("SELECT count(*) > 0 FROM nodes WHERE join_token = ?")
+    let valid: bool = sqlx::query_scalar("SELECT count(*) > 0 FROM nodes WHERE join_token = $1")
         .bind(&token)
         .fetch_one(&state.pool)
         .await
@@ -251,7 +272,7 @@ pub async fn get_config(
     // 2. Validate Node
     // Using simple query_as to avoid compilation failure if DB migration is not applied locally yet.
     // At runtime, it will fail if column is missing, but it unblocks build.
-    let node_res: Result<Option<(i64, bool)>, sqlx::Error> = sqlx::query_as("SELECT id, is_enabled FROM nodes WHERE join_token = ?")
+    let node_res: Result<Option<(i64, bool)>, sqlx::Error> = sqlx::query_as("SELECT id, is_enabled FROM nodes WHERE join_token = $1")
         .bind(&token)
         .fetch_optional(&state.pool)
         .await;
@@ -284,7 +305,7 @@ pub async fn get_config(
             let hash = format!("{:x}", md5::compute(config_str.as_bytes()));
             
             // Update last_synced_at
-            let _ = sqlx::query("UPDATE nodes SET last_synced_at = CURRENT_TIMESTAMP WHERE id = ?")
+            let _ = sqlx::query("UPDATE nodes SET last_synced_at = CURRENT_TIMESTAMP WHERE id = $1")
                 .bind(node_id_scalar)
                 .execute(&state.pool)
                 .await;
@@ -315,7 +336,7 @@ pub async fn rotate_sni(
     };
 
     // 2. Validate Node
-    let node_res: Result<Option<(i64, Option<String>)>, sqlx::Error> = sqlx::query_as("SELECT id, reality_sni FROM nodes WHERE join_token = ?")
+    let node_res: Result<Option<(i64, Option<String>)>, sqlx::Error> = sqlx::query_as("SELECT id, reality_sni FROM nodes WHERE join_token = $1")
         .bind(&token)
         .fetch_optional(&state.pool)
         .await;
@@ -346,7 +367,7 @@ pub async fn rotate_sni(
     }
 
     // 4. Update Node
-    if let Err(e) = sqlx::query("UPDATE nodes SET reality_sni = ? WHERE id = ?")
+    if let Err(e) = sqlx::query("UPDATE nodes SET reality_sni = $1 WHERE id = $2")
         .bind(&next_sni)
         .bind(node_id)
         .execute(&state.pool)
@@ -408,7 +429,7 @@ pub async fn poll_updates(
     // Let's assume hitting DB is fine for now (once per 30s per node is low load).
     // Or we can rely on Redis.
     // For now, simple DB query.
-    let node_res: Result<Option<i64>, sqlx::Error> = sqlx::query_scalar("SELECT id FROM nodes WHERE join_token = ?")
+    let node_res: Result<Option<i64>, sqlx::Error> = sqlx::query_scalar("SELECT id FROM nodes WHERE join_token = $1")
         .bind(&token)
         .fetch_optional(&state.pool)
         .await;
@@ -455,7 +476,7 @@ pub async fn get_settings(
     };
 
     // 2. Validate Token (Quick Check)
-    let valid: bool = sqlx::query_scalar("SELECT count(*) > 0 FROM nodes WHERE join_token = ?")
+    let valid: bool = sqlx::query_scalar("SELECT count(*) > 0 FROM nodes WHERE join_token = $1")
         .bind(&token)
         .fetch_one(&state.pool)
         .await
@@ -511,7 +532,7 @@ pub async fn register(
     Json(payload): Json<RegisterNodeRequest>,
 ) -> impl IntoResponse {
     // 1. Validate API Key
-    let api_key_res: Result<Option<caramba_db::models::api_key::ApiKey>, _> = sqlx::query_as("SELECT * FROM api_keys WHERE key = ? AND is_active = 1")
+    let api_key_res: Result<Option<caramba_db::models::api_key::ApiKey>, _> = sqlx::query_as("SELECT * FROM api_keys WHERE key = $1 AND is_active = TRUE")
     .bind(&payload.enrollment_key)
     .fetch_optional(&state.pool)
     .await;
@@ -536,7 +557,7 @@ pub async fn register(
     }
 
     // 2. Increment Usage
-    let _ = sqlx::query("UPDATE api_keys SET current_uses = current_uses + 1 WHERE id = ?")
+    let _ = sqlx::query("UPDATE api_keys SET current_uses = current_uses + 1 WHERE id = $1")
         .bind(api_key.id)
         .execute(&state.pool)
         .await;
@@ -547,7 +568,7 @@ pub async fn register(
     // Use "pending-" prefix so our heartbeat logic picks it up!
     let ip = payload.ip.unwrap_or_else(|| format!("pending-{}", &join_token[0..8])); 
 
-    let node_id_res = sqlx::query("INSERT INTO nodes (name, ip, join_token, status, is_enabled) VALUES (?, ?, ?, 'new', 1) RETURNING id")
+    let node_id_res = sqlx::query("INSERT INTO nodes (name, ip, join_token, status, is_enabled) VALUES ($1, $2, $3, 'new', TRUE) RETURNING id")
         .bind(&payload.hostname)
         .bind(&ip)
         .bind(&join_token)
@@ -586,7 +607,7 @@ pub async fn report_node_logs(
     };
 
     // 2. Validate Node
-    let node_id: i64 = match sqlx::query_scalar("SELECT id FROM nodes WHERE join_token = ?")
+    let node_id: i64 = match sqlx::query_scalar("SELECT id FROM nodes WHERE join_token = $1")
         .bind(&token)
         .fetch_one(&state.pool)
         .await 
@@ -599,7 +620,7 @@ pub async fn report_node_logs(
     let logs_json = serde_json::to_string(&req.logs).unwrap_or_default();
     let _ = state.redis.set(&format!("node_logs:{}", node_id), &logs_json, 300).await; // Store for 5 mins
 
-    let _ = sqlx::query("UPDATE nodes SET pending_log_collection = 0 WHERE id = ?")
+    let _ = sqlx::query("UPDATE nodes SET pending_log_collection = FALSE WHERE id = $1")
         .bind(node_id)
         .execute(&state.pool)
         .await;

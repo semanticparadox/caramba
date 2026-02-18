@@ -121,7 +121,7 @@ pub async fn create_template(
         r#"
         INSERT INTO inbound_templates 
         (name, protocol, target_group_id, settings_template, stream_settings_template, port_range_start, port_range_end, renew_interval_mins) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#
     )
         .bind(&form.name)
@@ -159,7 +159,7 @@ pub async fn delete_template(
     }
     
     // Get the target group ID before deleting, so we can sync (renamed variables to avoid conflict)
-    let group_id: Option<i64> = sqlx::query_scalar("SELECT target_group_id FROM inbound_templates WHERE id = ?")
+    let group_id: Option<i64> = sqlx::query_scalar("SELECT target_group_id FROM inbound_templates WHERE id = $1")
         .bind(id)
         .fetch_optional(&state.pool)
         .await
@@ -168,13 +168,13 @@ pub async fn delete_template(
     // 1. Delete linked Inbounds (User expectation: "All linked inbounds will be removed")
     // We identify them by tag "tpl_{id}" which is how GeneratorService creates them.
     let tag = format!("tpl_{}", id);
-    let _ = sqlx::query("DELETE FROM inbounds WHERE tag = ?")
+    let _ = sqlx::query("DELETE FROM inbounds WHERE tag = $1")
         .bind(&tag)
         .execute(&state.pool)
         .await;
 
     // 2. Delete the Template
-    let res = sqlx::query("DELETE FROM inbound_templates WHERE id = ?")
+    let res = sqlx::query("DELETE FROM inbound_templates WHERE id = $1")
         .bind(id)
         .execute(&state.pool)
         .await;
@@ -205,7 +205,7 @@ pub async fn sync_template(
     }
     
     // Get group ID from template
-    let group_id: Option<i64> = sqlx::query_scalar("SELECT target_group_id FROM inbound_templates WHERE id = ?")
+    let group_id: Option<i64> = sqlx::query_scalar("SELECT target_group_id FROM inbound_templates WHERE id = $1")
         .bind(id)
         .fetch_optional(&state.pool)
         .await
@@ -253,7 +253,7 @@ pub async fn get_template_edit(
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    let tpl = match sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE id = ?")
+    let tpl = match sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE id = $1")
         .bind(id)
         .fetch_optional(&state.pool)
         .await {
@@ -289,7 +289,7 @@ pub async fn get_template_json(
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    match sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE id = ?")
+    match sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE id = $1")
         .bind(id)
         .fetch_optional(&state.pool)
         .await 
@@ -331,8 +331,8 @@ pub async fn update_template(
     let res = sqlx::query(
         r#"
         UPDATE inbound_templates 
-        SET name = ?, protocol = ?, target_group_id = ?, settings_template = ?, stream_settings_template = ?, port_range_start = ?, port_range_end = ?, renew_interval_mins = ?
-        WHERE id = ?
+        SET name = $1, protocol = $2, target_group_id = $3, settings_template = $4, stream_settings_template = $5, port_range_start = $6, port_range_end = $7, renew_interval_mins = $8
+        WHERE id = $9
         "#
     )
         .bind(&form.name)

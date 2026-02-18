@@ -392,7 +392,7 @@ pub async fn callback_handler(
                                     "SELECT DISTINCT n.id FROM nodes n
                                      JOIN node_group_members ngm ON n.id = ngm.node_id
                                      JOIN plan_groups pg ON pg.group_id = ngm.group_id
-                                     WHERE pg.plan_id = ? AND n.is_enabled = 1"
+                                     WHERE pg.plan_id = $1 AND n.is_enabled = TRUE"
                                 )
                                 .bind(plan_id)
                                 .fetch_all(&pool)

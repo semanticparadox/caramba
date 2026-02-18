@@ -9,6 +9,7 @@ use askama::Template;
 use askama_web::WebTemplate;
 use serde::Deserialize;
 use crate::AppState;
+use crate::singbox::RelayAuthMode;
 use caramba_db::models::node::Node;
 use caramba_db::models::network::Inbound;
 use caramba_db::models::store::Plan;
@@ -34,14 +35,14 @@ pub async fn get_node_inbounds(
     jar: CookieJar,
     Path(node_id): Path<i64>,
 ) -> impl IntoResponse {
-    let node_res = sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE id = ?")
+    let node_res = sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE id = $1")
         .bind(node_id)
         .fetch_optional(&state.pool)
         .await;
 
     match node_res {
         Ok(Some(node)) => {
-            let inbounds = sqlx::query_as::<_, Inbound>("SELECT * FROM inbounds WHERE node_id = ? ORDER BY listen_port ASC")
+            let inbounds = sqlx::query_as::<_, Inbound>("SELECT * FROM inbounds WHERE node_id = $1 ORDER BY listen_port ASC")
                 .bind(node_id)
                 .fetch_all(&state.pool)
                 .await
@@ -122,7 +123,7 @@ pub async fn add_inbound(
     }
 
     // Check if port is already in use
-    let port_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM inbounds WHERE node_id = ? AND listen_port = ?")
+    let port_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM inbounds WHERE node_id = $1 AND listen_port = $2")
         .bind(node_id)
         .bind(form.listen_port)
         .fetch_one(&state.pool)
@@ -133,7 +134,7 @@ pub async fn add_inbound(
          return (axum::http::StatusCode::BAD_REQUEST, format!("Port {} is already used by another inbound on this node.", form.listen_port)).into_response();
     }
 
-    let res: Result<i64, _> = sqlx::query_scalar("INSERT INTO inbounds (node_id, tag, protocol, listen_port, listen_ip, settings, stream_settings, remark) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")
+    let res: Result<i64, _> = sqlx::query_scalar("INSERT INTO inbounds (node_id, tag, protocol, listen_port, listen_ip, settings, stream_settings, remark) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id")
         .bind(node_id)
         .bind(&form.tag)
         .bind(&form.protocol)
@@ -152,11 +153,11 @@ pub async fn add_inbound(
             // This ensures manual inbounds actually HAVE users in the generated config.
             let plans_res: Result<Vec<i64>, _> = sqlx::query_scalar(
                 r#"
-                SELECT plan_id FROM plan_nodes WHERE node_id = ?
+                SELECT plan_id FROM plan_nodes WHERE node_id = $1
                 UNION
                 SELECT pg.plan_id FROM plan_groups pg
                 JOIN node_group_members ngm ON pg.group_id = ngm.group_id
-                WHERE ngm.node_id = ?
+                WHERE ngm.node_id = $2
                 "#
             )
             .bind(node_id)
@@ -166,7 +167,7 @@ pub async fn add_inbound(
 
             if let Ok(plans) = plans_res {
                 for plan_id in plans {
-                    let _ = sqlx::query("INSERT OR IGNORE INTO plan_inbounds (plan_id, inbound_id) VALUES (?, ?)")
+                    let _ = sqlx::query("INSERT INTO plan_inbounds (plan_id, inbound_id) VALUES ($1, $2) ON CONFLICT (plan_id, inbound_id) DO NOTHING")
                         .bind(plan_id)
                         .bind(inbound_id)
                         .execute(&state.pool)
@@ -195,12 +196,12 @@ pub async fn delete_inbound(
     info!("Deleting inbound {} from node {}", inbound_id, node_id);
     
     // Clean up plan_inbound links first
-    let _ = sqlx::query("DELETE FROM plan_inbounds WHERE inbound_id = ?")
+    let _ = sqlx::query("DELETE FROM plan_inbounds WHERE inbound_id = $1")
         .bind(inbound_id)
         .execute(&state.pool)
         .await;
 
-    match sqlx::query("DELETE FROM inbounds WHERE id = ? AND node_id = ?")
+    match sqlx::query("DELETE FROM inbounds WHERE id = $1 AND node_id = $2")
         .bind(inbound_id)
         .bind(node_id)
         .execute(&state.pool)
@@ -248,7 +249,7 @@ pub async fn get_plan_bindings(
     Path(plan_id): Path<i64>,
 ) -> impl IntoResponse {
     // 1. Fetch Plan
-    let plan = match sqlx::query_as::<_, Plan>("SELECT * FROM plans WHERE id = ?").bind(plan_id).fetch_optional(&state.pool).await {
+    let plan = match sqlx::query_as::<_, Plan>("SELECT * FROM plans WHERE id = $1").bind(plan_id).fetch_optional(&state.pool).await {
         Ok(Some(p)) => p,
         Ok(None) => return (axum::http::StatusCode::NOT_FOUND, "Plan not found").into_response(),
         Err(_) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response(),
@@ -258,7 +259,7 @@ pub async fn get_plan_bindings(
     let nodes = sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE status = 'active'").fetch_all(&state.pool).await.unwrap_or_default();
     
     // 3. Fetch Existing Bindings
-    let bound_ids: Vec<i64> = sqlx::query_scalar("SELECT inbound_id FROM plan_inbounds WHERE plan_id = ?")
+    let bound_ids: Vec<i64> = sqlx::query_scalar("SELECT inbound_id FROM plan_inbounds WHERE plan_id = $1")
         .bind(plan_id)
         .fetch_all(&state.pool)
         .await
@@ -267,7 +268,7 @@ pub async fn get_plan_bindings(
     let mut bindings = Vec::new();
 
     for node in nodes {
-        let inbounds = sqlx::query_as::<_, Inbound>("SELECT * FROM inbounds WHERE node_id = ? AND enable = 1 ORDER BY listen_port ASC")
+        let inbounds = sqlx::query_as::<_, Inbound>("SELECT * FROM inbounds WHERE node_id = $1 AND enable = TRUE ORDER BY listen_port ASC")
             .bind(node.id)
             .fetch_all(&state.pool)
             .await
@@ -325,7 +326,7 @@ pub async fn save_plan_bindings(
     };
 
     // 1. Clear existing
-    if let Err(e) = sqlx::query("DELETE FROM plan_inbounds WHERE plan_id = ?")
+    if let Err(e) = sqlx::query("DELETE FROM plan_inbounds WHERE plan_id = $1")
         .bind(plan_id)
         .execute(&mut *tx)
         .await 
@@ -336,7 +337,7 @@ pub async fn save_plan_bindings(
 
     // 2. Insert new
     for inbound_id in inbound_ids {
-        if let Err(e) = sqlx::query("INSERT INTO plan_inbounds (plan_id, inbound_id) VALUES (?, ?)")
+        if let Err(e) = sqlx::query("INSERT INTO plan_inbounds (plan_id, inbound_id) VALUES ($1, $2)")
             .bind(plan_id)
             .bind(inbound_id)
             .execute(&mut *tx)
@@ -370,13 +371,13 @@ pub async fn preview_node_config(
     // Optimization: Refactor OrchestrationService better later.
     
     // 1. Fetch node details
-    let node: Node = match sqlx::query_as("SELECT * FROM nodes WHERE id = ?").bind(node_id).fetch_one(&state.pool).await {
+    let node: Node = match sqlx::query_as("SELECT * FROM nodes WHERE id = $1").bind(node_id).fetch_one(&state.pool).await {
         Ok(n) => n,
         Err(_) => return (axum::http::StatusCode::NOT_FOUND, "Node not found").into_response(),
     };
 
     // 2. Fetch Inbounds
-    let mut inbounds: Vec<Inbound> = sqlx::query_as("SELECT * FROM inbounds WHERE node_id = ?")
+    let mut inbounds: Vec<Inbound> = sqlx::query_as("SELECT * FROM inbounds WHERE node_id = $1")
         .bind(node_id)
         .fetch_all(&state.pool)
         .await
@@ -384,7 +385,7 @@ pub async fn preview_node_config(
 
     // 3. Simple user injection (VLESS/UUID only for preview)
     for inbound in &mut inbounds {
-        let linked_plans: Vec<i64> = sqlx::query_scalar::<_, i64>("SELECT plan_id FROM plan_inbounds WHERE inbound_id = ?")
+        let linked_plans: Vec<i64> = sqlx::query_scalar::<_, i64>("SELECT plan_id FROM plan_inbounds WHERE inbound_id = $1")
             .bind(inbound.id)
             .fetch_all(&state.pool)
             .await
@@ -415,7 +416,16 @@ pub async fn preview_node_config(
 
     // 4. Generate Config
     // 4. Generate Config
-    let config = crate::singbox::ConfigGenerator::generate_config(&node, inbounds, None, vec![]);
+    let relay_auth_mode_raw = state.settings.get_or_default("relay_auth_mode", "dual").await;
+    let relay_auth_mode = RelayAuthMode::from_setting(Some(relay_auth_mode_raw.as_str()));
+    let config = crate::singbox::ConfigGenerator::generate_config(
+        &node,
+        inbounds,
+        None,
+        None,
+        vec![],
+        relay_auth_mode,
+    );
     let json = serde_json::to_string_pretty(&config).unwrap_or_default();
 
     (axum::http::StatusCode::OK, json).into_response()
@@ -435,7 +445,7 @@ pub async fn get_edit_inbound(
     State(state): State<AppState>,
     Path((node_id, inbound_id)): Path<(i64, i64)>,
 ) -> impl IntoResponse {
-    let inbound = match sqlx::query_as::<_, Inbound>("SELECT * FROM inbounds WHERE id = ? AND node_id = ?")
+    let inbound = match sqlx::query_as::<_, Inbound>("SELECT * FROM inbounds WHERE id = $1 AND node_id = $2")
         .bind(inbound_id).bind(node_id).fetch_one(&state.pool).await {
             Ok(i) => i,
             Err(_) => return (axum::http::StatusCode::NOT_FOUND, "Inbound not found").into_response(),
@@ -486,7 +496,7 @@ pub async fn update_inbound(
     }
 
     // Check if port is already in use (excluding self)
-    let port_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM inbounds WHERE node_id = ? AND listen_port = ? AND id != ?")
+    let port_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM inbounds WHERE node_id = $1 AND listen_port = $2 AND id != $3")
         .bind(node_id)
         .bind(form.listen_port)
         .bind(inbound_id)
@@ -498,7 +508,7 @@ pub async fn update_inbound(
          return (axum::http::StatusCode::BAD_REQUEST, format!("Port {} is already used by another inbound on this node.", form.listen_port)).into_response();
     }
 
-    let res = sqlx::query("UPDATE inbounds SET tag = ?, protocol = ?, listen_port = ?, listen_ip = ?, settings = ?, stream_settings = ?, remark = ? WHERE id = ? AND node_id = ?")
+    let res = sqlx::query("UPDATE inbounds SET tag = $1, protocol = $2, listen_port = $3, listen_ip = $4, settings = $5, stream_settings = $6, remark = $7 WHERE id = $8 AND node_id = $9")
         .bind(&form.tag).bind(&form.protocol).bind(form.listen_port).bind(&form.listen_ip)
         .bind(&form.settings).bind(&form.stream_settings).bind(&form.remark).bind(inbound_id).bind(node_id)
         .execute(&state.pool).await;
@@ -527,7 +537,7 @@ pub async fn toggle_inbound(
     }
 
     // Toggle
-    let _ = sqlx::query("UPDATE inbounds SET enable = NOT enable WHERE id = ? AND node_id = ?")
+    let _ = sqlx::query("UPDATE inbounds SET enable = NOT enable WHERE id = $1 AND node_id = $2")
         .bind(inbound_id)
         .bind(node_id)
         .execute(&state.pool)

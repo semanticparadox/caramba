@@ -56,7 +56,7 @@ pub async fn create_admin(
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Password hashing failed").into_response(),
     };
 
-    match sqlx::query("INSERT INTO admins (username, password_hash) VALUES (?, ?)")
+    match sqlx::query("INSERT INTO admins (username, password_hash) VALUES ($1, $2)")
         .bind(&form.username)
         .bind(hash)
         .execute(&state.pool)

@@ -100,10 +100,6 @@ impl StoreService {
         self.api.get::<Vec<Product>>(&format!("/store/categories/{}/products", category_id)).await
     }
     
-    pub async fn get_setting(&self, key: &str) -> Result<Option<String>> {
-        self.api.get::<Option<String>>(&format!("/settings/{}", key)).await
-    }
-
     pub async fn increment_warning_count(&self, user_id: i64) -> Result<()> {
         let _: serde_json::Value = self.api.post(&format!("/users/{}/warn", user_id), &()).await?;
         Ok(())

@@ -301,11 +301,21 @@ pub async fn message_handler(
         // Admin Commands
         if text.starts_with("/admin") {
             // Verify Admin
-            let is_admin: bool = sqlx::query_scalar("SELECT COUNT(*) FROM admins WHERE tg_id = ?")
-                .bind(tg_id)
-                .fetch_one(&state.pool)
-                .await
-                .unwrap_or(0) > 0;
+            // Admins table stores usernames; resolve Telegram user by tg_id, then match by username.
+            let is_admin: bool = sqlx::query_scalar(
+                r#"
+                SELECT EXISTS(
+                    SELECT 1
+                    FROM admins a
+                    JOIN users u ON u.username = a.username
+                    WHERE u.tg_id = $1
+                )
+                "#,
+            )
+            .bind(tg_id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or(false);
 
             if !is_admin {
                 // Silent ignore or "Unknown command"

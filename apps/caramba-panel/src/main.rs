@@ -321,7 +321,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         api_domain,
     ));
 
-    let export_service = Arc::new(services::export_service::ExportService::new(pool.clone()));
+    let export_service = Arc::new(services::export_service::ExportService::new());
     let notification_service = Arc::new(services::notification_service::NotificationService::new(pool.clone()));
     
     // Telemetry Service (Phase 3) - Depends on Security, Notification, BotManager
@@ -391,11 +391,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         admin_path: admin_path_prefix.clone(),
         system_stats,
     };
-    
-    // Note: I will only replace the top partial block first to fix the match arm, then append function.
-    // Actually, let's just do the match arm fix first.
-    let _ = state; // prevent unused variable warning if rest of function is cut off (it won't be in real file)
-    
+
     // Auto-start bot if enabled in settings
     let bot_token: String = state.settings.get_or_default("bot_token", "").await;
     let bot_status: String = state.settings.get_or_default("bot_status", "stopped").await;
@@ -452,7 +448,7 @@ use tower_http::services::ServeDir;
 
     // Routes
     let admin_routes = axum::Router::new()
-        .nest_service("/assets", ServeDir::new("apps/panel/assets"))
+        .nest_service("/assets", ServeDir::new("apps/caramba-panel/assets"))
         .route("/dashboard", axum::routing::get(handlers::admin::get_dashboard))
         .route("/settings", axum::routing::get(handlers::admin::get_settings))
         .route("/settings/save", axum::routing::post(handlers::admin::save_settings))
@@ -568,9 +564,9 @@ use tower_http::services::ServeDir;
         }))
         .route(&format!("{}/login", admin_path), axum::routing::get(handlers::admin::get_login).post(handlers::admin::login))
         // Serve Downloads (for frontend binaries)
-        .nest_service("/downloads", ServeDir::new("apps/panel/downloads"))
+        .nest_service("/downloads", ServeDir::new("apps/caramba-panel/downloads"))
         // Serve Assets (Public)
-        .nest_service("/assets", ServeDir::new("apps/panel/assets"))
+        .nest_service("/assets", ServeDir::new("apps/caramba-panel/assets"))
         // Setup Routes
         .route(&format!("{}/setup", admin_path), axum::routing::get(handlers::setup::get_setup))
         .route(&format!("{}/setup/create_admin", admin_path), axum::routing::post(handlers::setup::create_admin))
@@ -614,6 +610,7 @@ use tower_http::services::ServeDir;
         .route("/api/internal/nodes/active", axum::routing::get(handlers::api::internal::get_active_nodes))
         .route("/api/internal/subscriptions/{uuid}", axum::routing::get(handlers::api::internal::get_subscription))
         .route("/api/internal/users/{id}/keys", axum::routing::get(handlers::api::internal::get_user_keys))
+        .route("/api/internal/frontend/heartbeat", axum::routing::post(handlers::api::internal::frontend_heartbeat))
 
         // Frontend API Routes (Must be top level to match /api/admin/frontends)
         .route("/api/admin/frontends", axum::routing::get(handlers::frontend::list_frontends).post(handlers::frontend::create_frontend))

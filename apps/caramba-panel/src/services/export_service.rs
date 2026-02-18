@@ -1,17 +1,14 @@
 use anyhow::{Context, Result};
-use sqlx::PgPool;
 use std::fs;
 use std::path::Path;
 use tracing::{info, warn};
 
 /// Service for exporting database and settings for backup/migration
-pub struct ExportService {
-    pool: PgPool,
-}
+pub struct ExportService;
 
 impl ExportService {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new() -> Self {
+        Self
     }
 
     /// Create complete export archive (sanitized settings)

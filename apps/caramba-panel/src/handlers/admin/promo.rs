@@ -14,7 +14,6 @@ use caramba_db::models::promo::PromoCode;
 struct PromoManageTemplate {
     admin_path: String,
     promos: Vec<PromoCode>,
-    plans: Vec<caramba_db::models::store::Plan>,
     is_auth: bool,
     username: String,
     active_page: String,
@@ -31,12 +30,9 @@ pub async fn get_promos(
     };
     
     let promos = state.promo_service.list_promos().await.unwrap_or_default();
-    let plans = state.catalog_service.get_active_plans().await.unwrap_or_default();
-    
     Html(PromoManageTemplate {
         admin_path: state.admin_path.clone(),
         promos,
-        plans,
         is_auth: true,
         username,
         active_page: "promo".to_string(),

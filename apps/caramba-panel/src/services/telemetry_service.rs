@@ -63,11 +63,16 @@ impl TelemetryService {
             total_in += diff_in as i64;
             total_eq += diff_eg as i64;
 
-            let calculated_max = if let Some(s) = speed_mbps {
-                if s > 0 { Some(s / 8) } else { None }
-            } else {
-                None
-            };
+            let node_load: Option<(Option<f64>, Option<f64>, Option<i32>)> = sqlx::query_as(
+                "SELECT last_cpu, last_ram, max_users FROM nodes WHERE id = $1"
+            )
+            .bind(node_id)
+            .fetch_optional(&self.pool)
+            .await?;
+
+            let calculated_max = node_load.and_then(|(cpu, ram, prev_max)| {
+                derive_recommended_max_users(speed_mbps, cpu, ram, prev_max)
+            });
 
             sqlx::query(
                 "UPDATE nodes SET 
@@ -173,5 +178,72 @@ impl TelemetryService {
         }
         
         Ok(())
+    }
+}
+
+fn derive_recommended_max_users(
+    speed_mbps: Option<i32>,
+    cpu_usage: Option<f64>,
+    ram_usage: Option<f64>,
+    previous_max: Option<i32>,
+) -> Option<i32> {
+    let speed = speed_mbps?;
+    if speed <= 0 {
+        return None;
+    }
+
+    // Base capacity from measured throughput.
+    let base_capacity = (speed / 8).clamp(2, 10_000) as f64;
+
+    // Load-aware headroom factor.
+    let avg_load = match (cpu_usage, ram_usage) {
+        (Some(cpu), Some(ram)) => Some(((cpu + ram) / 2.0).clamp(0.0, 100.0)),
+        (Some(cpu), None) => Some(cpu.clamp(0.0, 100.0)),
+        (None, Some(ram)) => Some(ram.clamp(0.0, 100.0)),
+        (None, None) => None,
+    };
+
+    let load_factor = match avg_load {
+        Some(load) if load >= 90.0 => 0.35,
+        Some(load) if load >= 80.0 => 0.5,
+        Some(load) if load >= 70.0 => 0.65,
+        Some(load) if load >= 60.0 => 0.8,
+        _ => 1.0,
+    };
+
+    let raw_recommended = (base_capacity * load_factor).round() as i32;
+    let raw_recommended = raw_recommended.max(1);
+
+    // Smooth fluctuations to avoid jitter in dashboard/automation.
+    let smoothed = if let Some(prev) = previous_max.filter(|v| *v > 0) {
+        ((prev as f64 * 0.7) + (raw_recommended as f64 * 0.3)).round() as i32
+    } else {
+        raw_recommended
+    };
+
+    Some(smoothed.max(1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::derive_recommended_max_users;
+
+    #[test]
+    fn derive_recommended_max_users_low_load_tracks_speed() {
+        let result = derive_recommended_max_users(Some(800), Some(20.0), Some(30.0), None);
+        assert_eq!(result, Some(100));
+    }
+
+    #[test]
+    fn derive_recommended_max_users_high_load_reduces_capacity() {
+        let result = derive_recommended_max_users(Some(800), Some(90.0), Some(90.0), None);
+        assert_eq!(result, Some(35));
+    }
+
+    #[test]
+    fn derive_recommended_max_users_applies_smoothing() {
+        let result = derive_recommended_max_users(Some(800), Some(90.0), Some(90.0), Some(100));
+        // raw would be 35, smoothed => 70% of 100 + 30% of 35 = 80.5 => 81
+        assert_eq!(result, Some(81));
     }
 }

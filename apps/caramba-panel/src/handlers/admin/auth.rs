@@ -58,7 +58,7 @@ pub async fn is_authenticated(state: &AppState, jar: &CookieJar) -> bool {
         // Check if token exists in Redis
         if let Ok(Some(username)) = state.redis.get(&redis_key).await {
             // Verify this username actually exists in the DB
-            let user_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admins WHERE username = ?)")
+            let user_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admins WHERE username = $1)")
                 .bind(&username)
                 .fetch_one(&state.pool)
                 .await
@@ -99,7 +99,7 @@ pub async fn login(
     Form(form): Form<LoginForm>
 ) -> impl IntoResponse {
     // Check Database for user
-    let admin_opts: Option<(String,)> = sqlx::query_as("SELECT password_hash FROM admins WHERE username = ?")
+    let admin_opts: Option<(String,)> = sqlx::query_as("SELECT password_hash FROM admins WHERE username = $1")
         .bind(&form.username)
         .fetch_optional(&state.pool)
         .await
