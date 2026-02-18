@@ -167,28 +167,26 @@ pub async fn install_node(
                 error!("Failed to initialize inbounds for new node {}: {}", id, e);
             }
             
-            // IF Smart Setup (No IP provided) -> Return the Setup Modal directly
-            if check_ip.is_empty() {
-                 let node = state.infrastructure_service.get_node_by_id(id).await.ok();
-                 
-                 if let Some(node) = node {
-                     let admin_path = state.admin_path.clone();
-                     let template = NodeManualInstallTemplate { node, admin_path };
-                     
-                     let mut headers = HeaderMap::new();
-                     headers.insert("HX-Trigger", "refresh_nodes".parse().unwrap());
-                     
-                     let mut html = template.render().unwrap();
-                     html.push_str("<script>document.getElementById('add-node-modal').close(); document.getElementById('manual-install-modal').showModal();</script>");
-                     
-                     return (headers, Html(html)).into_response();
-                 }
+            // Always return installation modal with command+token, same as legacy flow.
+            let node = state.infrastructure_service.get_node_by_id(id).await.ok();
+
+            if let Some(node) = node {
+                let admin_path = state.admin_path.clone();
+                let template = NodeManualInstallTemplate { node, admin_path };
+
+                let mut headers = HeaderMap::new();
+                headers.insert("HX-Trigger", "refresh_nodes".parse().unwrap());
+
+                let mut html = template.render().unwrap();
+                html.push_str("<script>document.getElementById('add-node-modal').close(); document.getElementById('manual-install-modal').showModal();</script>");
+
+                return (headers, Html(html)).into_response();
             }
 
             let admin_path = state.admin_path.clone();
             let mut headers = HeaderMap::new();
             headers.insert("HX-Redirect", format!("{}/nodes", admin_path).parse().unwrap());
-            (axum::http::StatusCode::OK, headers, "Redirecting...").into_response()
+            (axum::http::StatusCode::OK, headers, "Node created").into_response()
         }
         Err(e) => {
             error!("Failed to insert node: {}", e);
@@ -401,20 +399,53 @@ pub async fn activate_node(
 }
 
 pub async fn get_node_install_script(
-    Path(_id): Path<i64>,
-    State(_state): State<AppState>,
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    // Return universal installer even for legacy endpoint to prevent breakage
-    match crate::scripts::Scripts::get_universal_install_script() {
-        Some(content) => (
-            [(axum::http::header::CONTENT_TYPE, "text/x-shellscript")],
-            content
-        ).into_response(),
-        None => {
-            error!("Universal install script not found in embedded assets");
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Script not found").into_response()
+    let node = match state.infrastructure_service.get_node_by_id(id).await {
+        Ok(node) => node,
+        Err(e) => {
+            error!("Failed to load node {} for install script: {}", id, e);
+            return (axum::http::StatusCode::NOT_FOUND, "Node not found").into_response();
         }
+    };
+
+    let join_token = node.join_token.unwrap_or_default();
+    if join_token.trim().is_empty() {
+        return (axum::http::StatusCode::BAD_REQUEST, "Node token is empty").into_response();
     }
+
+    let panel_url = std::env::var("PANEL_URL").ok().and_then(|v| {
+        let trimmed = v.trim().trim_end_matches('/').to_string();
+        if trimmed.is_empty() { None } else { Some(trimmed) }
+    }).or_else(|| {
+        headers
+            .get("x-forwarded-host")
+            .or_else(|| headers.get("host"))
+            .and_then(|h| h.to_str().ok())
+            .map(|host| {
+                let proto = headers
+                    .get("x-forwarded-proto")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("https");
+                format!("{}://{}", proto, host.trim_end_matches('/'))
+            })
+    }).unwrap_or_else(|| "https://YOUR_PANEL_DOMAIN".to_string());
+
+    let script = format!(
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+curl -fsSL '{panel_url}/install.sh' | sudo bash -s -- --role node --panel '{panel_url}' --token '{token}'
+"#,
+        panel_url = panel_url,
+        token = join_token,
+    );
+
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/x-shellscript")],
+        script
+    ).into_response()
 }
 
 pub async fn get_install_sh() -> impl IntoResponse {
@@ -430,8 +461,9 @@ pub async fn get_install_sh() -> impl IntoResponse {
 pub async fn get_node_raw_install_script(
     Path(id): Path<i64>,
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    get_node_install_script(Path(id), State(state)).await
+    get_node_install_script(Path(id), State(state), headers).await
 }
 
 pub async fn get_node_logs(
@@ -668,6 +700,47 @@ pub async fn restart_node(
         .await;
 
     (axum::http::StatusCode::OK, "Restart Signal Sent").into_response()
+}
+
+pub async fn rotate_node_inbounds(
+    Path(node_id): Path<i64>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    info!("Manual inbound rotation requested for node {}", node_id);
+
+    let inbound_ids: Vec<i64> = sqlx::query_scalar(
+        "SELECT id FROM inbounds WHERE node_id = $1 AND tag LIKE 'tpl_%' AND enable = TRUE"
+    )
+    .bind(node_id)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    if inbound_ids.is_empty() {
+        return (axum::http::StatusCode::BAD_REQUEST, "No templated inbounds found").into_response();
+    }
+
+    let mut rotated = 0usize;
+    let mut failed = 0usize;
+    for inbound_id in inbound_ids {
+        match state.generator_service.rotate_inbound(inbound_id).await {
+            Ok(_) => rotated += 1,
+            Err(e) => {
+                failed += 1;
+                error!("Failed to rotate inbound {} on node {}: {}", inbound_id, node_id, e);
+            }
+        }
+    }
+
+    if rotated > 0 {
+        let _ = sqlx::query("UPDATE nodes SET last_sync_trigger = 'Manual Rotation' WHERE id = $1")
+            .bind(node_id)
+            .execute(&state.pool)
+            .await;
+        let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "update").await;
+    }
+
+    (axum::http::StatusCode::OK, format!("Rotated {} inbound(s), {} failed", rotated, failed)).into_response()
 }
 
 pub async fn get_node_config_preview(

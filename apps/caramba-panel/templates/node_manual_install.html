@@ -5,6 +5,8 @@
     </header>
     <p class="text-slate-300 mb-3">Node <span class="font-semibold text-white">{{ node.name }}</span> is created in pending mode. Run command on target server:</p>
     <pre id="manual-install-command" class="bg-slate-950 border border-white/10 rounded-xl p-4 text-xs text-emerald-300 overflow-x-auto"></pre>
+    <p class="text-[11px] text-slate-500 mt-3">Raw token command (fallback):</p>
+    <pre id="manual-install-command-raw" class="bg-slate-950 border border-white/10 rounded-xl p-4 text-xs text-amber-300 overflow-x-auto"></pre>
     <div class="flex justify-end mt-4">
         <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('manual-install-command').textContent)"
             class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl">
@@ -15,8 +17,9 @@
 <script>
     (function () {
         const origin = window.location.origin;
-        const token = "{{ node.join_token.as_deref().unwrap_or("") }}";
-        const command = `curl -fsSL ${origin}/install.sh | sudo bash -s -- --role node --panel ${origin} --token ${token}`;
+        const command = `curl -fsSL ${origin}/nodes/{{ node.id }}/script | sudo bash`;
+        const raw = `curl -fsSL ${origin}/install.sh | sudo bash -s -- --role node --panel ${origin} --token {{ node.join_token.as_deref().unwrap_or("") }}`;
         document.getElementById('manual-install-command').textContent = command;
+        document.getElementById('manual-install-command-raw').textContent = raw;
     })();
 </script>

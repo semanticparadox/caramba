@@ -31,14 +31,17 @@
                 type="button"
                 data-node-id="{{ node.id }}"
                 data-node-name="{{ node.name }}"
-                data-token="{{ node.join_token.as_deref().unwrap_or("") }}"
-                onclick="showNodeInstallCommand(this.dataset.nodeId, this.dataset.nodeName, this.dataset.token)"
+                onclick="showNodeInstallCommand(this.dataset.nodeId, this.dataset.nodeName)"
                 class="px-2 py-1 text-xs rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/20">
                 Install
             </button>
             <a href="{{ admin_path }}/nodes/{{ node.id }}/manage"
                class="px-2 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/10">
                 Manage
+            </a>
+            <a href="{{ admin_path }}/nodes/{{ node.id }}/inbounds"
+               class="px-2 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/10">
+                Inbounds
             </a>
             <button
                 hx-post="{{ admin_path }}/nodes/{{ node.id }}/sync"

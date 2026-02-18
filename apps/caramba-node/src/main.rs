@@ -274,6 +274,12 @@ async fn main() -> anyhow::Result<()> {
                         info!("🔍 Manual Scan Signal Received!");
                         let _ = state.scan_trigger.try_send(());
                     },
+                    Some(SignalType::Restart) => {
+                        info!("♻️ Restart signal received from panel. Restarting sing-box...");
+                        if let Err(e) = restart_singbox() {
+                            error!("Failed to restart sing-box from signal: {}", e);
+                        }
+                    },
                     None => {}
                 }
             },
@@ -289,6 +295,7 @@ async fn main() -> anyhow::Result<()> {
 enum SignalType {
     Update,
     Scan,
+    Restart,
 }
 
 async fn poll_events(
@@ -318,6 +325,7 @@ async fn poll_events(
     // Support generic signal from PubSub message
     if let Some(msg) = json.get("message").and_then(|v| v.as_str()) {
         if msg == "scan" { return Ok(Some(SignalType::Scan)); }
+        if msg == "restart" { return Ok(Some(SignalType::Restart)); }
         if msg == "update" { return Ok(Some(SignalType::Update)); }
     }
 

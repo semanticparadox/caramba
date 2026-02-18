@@ -448,9 +448,16 @@ pub async fn poll_updates(
 
     // 4. Select with timeout (30s)
     match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
-        Ok(Ok(_payload)) => {
-            // Message received
-            (StatusCode::OK, Json(serde_json::json!({"update": true}))).into_response()
+        Ok(Ok(payload)) => {
+            // Message received from pubsub.
+            let signal = payload.trim().to_ascii_lowercase();
+            if signal == "scan" {
+                (StatusCode::OK, Json(serde_json::json!({"update": false, "message": "scan"}))).into_response()
+            } else if signal == "restart" {
+                (StatusCode::OK, Json(serde_json::json!({"update": false, "message": "restart"}))).into_response()
+            } else {
+                (StatusCode::OK, Json(serde_json::json!({"update": true, "message": signal}))).into_response()
+            }
         },
         Ok(Err(_)) => {
             // Sender dropped

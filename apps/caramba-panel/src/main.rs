@@ -474,6 +474,7 @@ use tower_http::services::ServeDir;
         .route("/nodes/install", axum::routing::post(handlers::admin::install_node))
         .route("/nodes/{id}/edit", axum::routing::get(handlers::admin::get_node_edit))
         .route("/nodes/{id}/restart", axum::routing::post(handlers::admin::nodes::restart_node))
+        .route("/nodes/{id}/rotate", axum::routing::post(handlers::admin::nodes::rotate_node_inbounds))
         .route("/nodes/{id}/rescan", axum::routing::post(handlers::admin::nodes::trigger_scan)) // Fixed alias if needed or just ensure consistency
         .route("/nodes/{id}/scan", axum::routing::post(handlers::admin::nodes::trigger_scan))
         .route("/nodes/{id}/config/preview", axum::routing::get(handlers::admin::nodes::get_node_config_preview))

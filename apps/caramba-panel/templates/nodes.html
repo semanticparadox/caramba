@@ -119,13 +119,9 @@
 <script>
     let currentNodeInstallCommand = "";
 
-    function showNodeInstallCommand(nodeId, nodeName, joinToken) {
-        if (!joinToken) {
-            alert('Join token is missing for this node.');
-            return;
-        }
+    function showNodeInstallCommand(nodeId, nodeName) {
         const origin = window.location.origin;
-        currentNodeInstallCommand = `curl -fsSL ${origin}/install.sh | sudo bash -s -- --role node --panel ${origin} --token ${joinToken}`;
+        currentNodeInstallCommand = `curl -fsSL ${origin}/nodes/${nodeId}/script | sudo bash`;
         document.getElementById('node-install-title').textContent = `Node: ${nodeName} (#${nodeId})`;
         document.getElementById('node-install-command').textContent = currentNodeInstallCommand;
         document.getElementById('node-install-modal').showModal();
