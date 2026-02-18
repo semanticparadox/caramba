@@ -25,10 +25,23 @@ jobs:
         with:
           targets: x86_64-unknown-linux-musl
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/caramba-app/package-lock.json
+
       - name: Install Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libssl-dev pkg-config cmake musl-tools
+
+      - name: Build Mini App Assets
+        run: |
+          cd apps/caramba-app
+          npm ci
+          npm run build
 
       - name: Verify Workspace
         run: cargo check --workspace
@@ -45,6 +58,7 @@ jobs:
           cp target/x86_64-unknown-linux-musl/release/caramba-bot release/
           cp target/x86_64-unknown-linux-musl/release/caramba-sub release/
           cp target/x86_64-unknown-linux-musl/release/caramba-installer release/
+          tar -czf release/caramba-app-dist.tar.gz apps/caramba-app/dist
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -56,5 +70,6 @@ jobs:
             release/caramba-bot
             release/caramba-sub
             release/caramba-installer
+            release/caramba-app-dist.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,14 +1,80 @@
-use axum::{
-    extract::{Path, State},
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
 use crate::AppState;
-use serde::Serialize;
-use serde::Deserialize;
-use caramba_db::models::node::Node;
+use axum::{
+    Json,
+    extract::{Path, State},
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+};
 use caramba_db::models::network::Inbound;
+use caramba_db::models::node::Node;
+use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
+
+#[derive(sqlx::FromRow)]
+struct FrontendTokenRow {
+    auth_token_hash: Option<String>,
+    token_expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+fn extract_bearer_token(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+}
+
+async fn is_valid_frontend_token(state: &AppState, token: &str) -> bool {
+    let rows: Vec<FrontendTokenRow> = sqlx::query_as(
+        "SELECT auth_token_hash, token_expires_at
+         FROM frontend_servers
+         WHERE is_active = TRUE AND auth_token_hash IS NOT NULL",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    for row in rows {
+        if let Some(expires_at) = row.token_expires_at {
+            if expires_at < Utc::now() {
+                continue;
+            }
+        }
+
+        if let Some(hash) = row.auth_token_hash {
+            if bcrypt::verify(token, &hash).unwrap_or(false) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+async fn authorize_internal_request(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(), StatusCode> {
+    let token = extract_bearer_token(headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    if token.trim().is_empty() {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    // Preferred authorization: dedicated internal shared token.
+    if let Ok(internal_token) = std::env::var("INTERNAL_API_TOKEN") {
+        let expected = internal_token.trim();
+        if !expected.is_empty() && expected == token {
+            return Ok(());
+        }
+    }
+
+    // Compatibility authorization: active frontend token (hashed in DB).
+    if is_valid_frontend_token(state, token).await {
+        return Ok(());
+    }
+
+    Err(StatusCode::UNAUTHORIZED)
+}
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct InternalNode {
@@ -38,7 +104,14 @@ pub struct LegacyFrontendHeartbeat {
     pub bandwidth_used: u64,
 }
 
-pub async fn get_active_nodes(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn get_active_nodes(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(status) = authorize_internal_request(&state, &headers).await {
+        return status.into_response();
+    }
+
     let nodes: Vec<Node> = sqlx::query_as(
         "SELECT * FROM nodes WHERE is_enabled = true AND status = 'active' ORDER BY sort_order ASC",
     )
@@ -49,27 +122,28 @@ pub async fn get_active_nodes(State(state): State<AppState>) -> impl IntoRespons
     let mut internal_nodes = Vec::new();
 
     for node in nodes {
-        let inbounds: Vec<Inbound> = sqlx::query_as(
-            "SELECT * FROM inbounds WHERE node_id = $1 AND enable = true",
-        )
-        .bind(node.id)
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
+        let inbounds: Vec<Inbound> =
+            sqlx::query_as("SELECT * FROM inbounds WHERE node_id = $1 AND enable = true")
+                .bind(node.id)
+                .fetch_all(&state.pool)
+                .await
+                .unwrap_or_default();
 
-        internal_nodes.push(InternalNode {
-            node,
-            inbounds,
-        });
+        internal_nodes.push(InternalNode { node, inbounds });
     }
 
-    Json(internal_nodes)
+    Json(internal_nodes).into_response()
 }
 
 pub async fn get_subscription(
     State(state): State<AppState>,
-    Path(uuid): Path<String>
+    headers: HeaderMap,
+    Path(uuid): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(status) = authorize_internal_request(&state, &headers).await {
+        return status.into_response();
+    }
+
     let sub: Option<InternalSubscription> = sqlx::query_as(
         "SELECT id, user_id, status, used_traffic, subscription_uuid FROM subscriptions WHERE subscription_uuid = $1",
     )
@@ -87,8 +161,13 @@ pub async fn get_subscription(
 
 pub async fn get_user_keys(
     State(state): State<AppState>,
-    Path(user_id): Path<i64>
+    headers: HeaderMap,
+    Path(user_id): Path<i64>,
 ) -> impl IntoResponse {
+    if let Err(status) = authorize_internal_request(&state, &headers).await {
+        return status.into_response();
+    }
+
     let user: Option<(String, i64)> = sqlx::query_as(
         r#"
         SELECT s.vless_uuid, u.tg_id
@@ -119,9 +198,7 @@ pub async fn get_user_keys(
 }
 
 /// Backward-compatible no-op endpoint used by legacy caramba-sub.
-pub async fn frontend_heartbeat(
-    Json(payload): Json<LegacyFrontendHeartbeat>,
-) -> impl IntoResponse {
+pub async fn frontend_heartbeat(Json(payload): Json<LegacyFrontendHeartbeat>) -> impl IntoResponse {
     let _ = (payload.requests_count, payload.bandwidth_used);
     StatusCode::OK
 }

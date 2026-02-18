@@ -1,5 +1,6 @@
-use dialoguer::{Input, Password, theme::ColorfulTheme};
+use anyhow::{bail, Result};
 use console::style;
+use dialoguer::{theme::ColorfulTheme, Input, Password};
 
 #[derive(Debug)]
 pub struct InstallConfig {
@@ -10,20 +11,69 @@ pub struct InstallConfig {
     pub db_pass: String,
 }
 
-pub fn interactive_setup(hub_mode: bool) -> InstallConfig {
+fn normalize_admin_path(path: String) -> String {
+    if path.starts_with('/') {
+        path
+    } else {
+        format!("/{}", path)
+    }
+}
+
+fn get_or_prompt_text(value: Option<String>, prompt: &str, default: Option<&str>) -> String {
+    if let Some(v) = value {
+        let trimmed = v.trim().to_string();
+        if !trimmed.is_empty() {
+            return trimmed;
+        }
+    }
+
+    let theme = ColorfulTheme::default();
+    let mut input = Input::with_theme(&theme).with_prompt(prompt);
+    if let Some(d) = default {
+        input = input.default(d.to_string());
+    }
+    input.interact_text().unwrap_or_default().trim().to_string()
+}
+
+fn get_or_prompt_password(value: Option<String>) -> String {
+    if let Some(v) = value {
+        let trimmed = v.trim().to_string();
+        if !trimmed.is_empty() {
+            return trimmed;
+        }
+    }
+
+    let theme = ColorfulTheme::default();
+    Password::with_theme(&theme)
+        .with_prompt("PostgreSQL Database Password")
+        .with_confirmation("Confirm Password", "Passwords mismatch")
+        .interact()
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+pub fn resolve_install_config(
+    hub_mode: bool,
+    domain: Option<String>,
+    sub_domain: Option<String>,
+    admin_path: Option<String>,
+    install_dir: Option<String>,
+    db_pass: Option<String>,
+) -> Result<InstallConfig> {
     println!("{}", style("\nConfiguring Caramba...").bold());
 
-    let domain: String = Input::with_theme(&ColorfulTheme::default())
-        .with_prompt("Panel Domain (e.g. panel.example.com)")
-        .interact_text()
-        .unwrap();
+    let domain = get_or_prompt_text(domain, "Panel Domain (e.g. panel.example.com)", None);
+    if domain.is_empty() {
+        bail!("Panel domain must not be empty");
+    }
 
     let sub_domain = if hub_mode {
-        let raw: String = Input::with_theme(&ColorfulTheme::default())
-            .with_prompt("Subscription Domain (e.g. sub.example.com)")
-            .default("".into())
-            .interact_text()
-            .unwrap();
+        let raw = get_or_prompt_text(
+            sub_domain,
+            "Subscription Domain (e.g. sub.example.com)",
+            Some(""),
+        );
         let trimmed = raw.trim().to_string();
         if trimmed.is_empty() {
             None
@@ -34,31 +84,29 @@ pub fn interactive_setup(hub_mode: bool) -> InstallConfig {
         None
     };
 
-    let admin_path: String = Input::with_theme(&ColorfulTheme::default())
-        .with_prompt("Admin Panel Path")
-        .default("/admin".into())
-        .interact_text()
-        .unwrap();
-    
-    let install_dir: String = Input::with_theme(&ColorfulTheme::default())
-        .with_prompt("Installation Directory")
-        .default("/opt/caramba".into())
-        .interact_text()
-        .unwrap();
+    let admin_path = normalize_admin_path(get_or_prompt_text(
+        admin_path,
+        "Admin Panel Path",
+        Some("/admin"),
+    ));
+    let install_dir =
+        get_or_prompt_text(install_dir, "Installation Directory", Some("/opt/caramba"));
+    if install_dir.is_empty() {
+        bail!("Installation directory must not be empty");
+    }
 
-    let db_pass: String = Password::with_theme(&ColorfulTheme::default())
-        .with_prompt("PostgreSQL Database Password")
-        .with_confirmation("Confirm Password", "Passwords mismatch")
-        .interact()
-        .unwrap();
+    let db_pass = get_or_prompt_password(db_pass);
+    if db_pass.is_empty() {
+        bail!("Database password must not be empty");
+    }
 
-    InstallConfig {
+    Ok(InstallConfig {
         domain,
         sub_domain,
         admin_path,
         install_dir,
         db_pass,
-    }
+    })
 }
 
 pub fn generate_caddyfile(config: &InstallConfig) -> String {
@@ -75,6 +123,6 @@ pub fn generate_caddyfile(config: &InstallConfig) -> String {
             "\n{sub} {{\n    reverse_proxy 127.0.0.1:8080\n}}\n"
         ));
     }
-    
+
     caddyfile
 }

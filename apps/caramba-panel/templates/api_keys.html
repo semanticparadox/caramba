@@ -125,7 +125,7 @@
     function copyInstallCommand(key) {
         const origin = window.location.origin;
         // Use the same script URL as in node_manual_install.html
-        const cmd = `curl -fsSL https://raw.githubusercontent.com/semanticparadox/CARAMBA/main/scripts/install.sh | sudo bash -s -- --role agent --panel "${origin}" --token "${key}"`;
+        const cmd = `curl -fsSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh | sudo bash -s -- --role node --panel "${origin}" --token "${key}"`;
         navigator.clipboard.writeText(cmd).then(() => {
             alert('Install command copied to clipboard!');
         });

@@ -10,7 +10,8 @@ Primary installation flow is based on release binary `caramba-installer`.
 
 - `scripts/install.sh` downloads latest release asset `caramba-installer`
 - installs it as `/usr/local/bin/caramba`
-- runs `caramba install --hub`
+- runs `caramba install --hub` by default
+- also supports role-based installs: `panel`, `node`, `sub/frontend`, `bot`
 
 ### One-liner Install
 
@@ -89,10 +90,24 @@ cargo run -p caramba-sub
 caramba install --hub
 caramba install --panel
 caramba install --node
+caramba install --sub
+caramba install --bot
 caramba upgrade
 caramba diagnose
 caramba restore --file /path/to/backup.tar.gz
 caramba uninstall
+```
+
+Role script examples:
+
+```bash
+# Node (token can be join token or enrollment key EXA-ENROLL-*)
+curl -fsSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh \
+  | sudo bash -s -- --role node --panel "https://panel.example.com" --token "EXA-ENROLL-XXXX"
+
+# Frontend/sub edge
+curl -fsSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh \
+  | sudo bash -s -- --role frontend --panel "https://panel.example.com" --domain "sub.example.com" --token "frontend_token"
 ```
 
 ## Docs

@@ -326,8 +326,8 @@ fn generate_install_command(
     domain: &str, 
     token: &str, 
     region: &str, 
-    miniapp_domain: Option<&str>,
-    sub_path: &str
+    _miniapp_domain: Option<&str>,
+    _sub_path: &str
 ) -> String {
     // Get panel URL from environment (SERVER_DOMAIN) or use fallback
     let panel_url = std::env::var("SERVER_DOMAIN")
@@ -340,22 +340,10 @@ fn generate_install_command(
         })
         .unwrap_or_else(|_| "https://panel.example.com".to_string());
     
-    let mut cmd = format!(
-        "curl -sSL https://raw.githubusercontent.com/semanticparadox/CARAMBA/main/scripts/install.sh | \\\n  sudo bash -s -- \\\n  --role frontend \\\n  --domain \"{}\" \\\n  --token \"{}\" \\\n  --region \"{}\" \\\n  --panel \"{}\"",
+    format!(
+        "curl -sSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh | \\\n  sudo bash -s -- \\\n  --role frontend \\\n  --domain \"{}\" \\\n  --token \"{}\" \\\n  --region \"{}\" \\\n  --panel \"{}\"",
         domain, token, region, panel_url
-    );
-
-    if let Some(md) = miniapp_domain {
-        if !md.is_empty() {
-            cmd.push_str(&format!(" \\\n  --miniapp-domain \"{}\"", md));
-        }
-    }
-
-    if sub_path != "/sub/" && !sub_path.is_empty() {
-        cmd.push_str(&format!(" \\\n  --sub-path \"{}\"", sub_path));
-    }
-
-    cmd
+    )
 }
 
 // Response types
