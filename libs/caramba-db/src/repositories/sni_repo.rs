@@ -90,4 +90,39 @@ impl SniRepository {
             .await
             .context("Failed to fetch blacklisted SNIs")
     }
+
+    pub async fn seed_default_global_pool_if_empty(&self) -> Result<()> {
+        let global_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sni_pool WHERE discovered_by_node_id IS NULL OR is_premium = TRUE"
+        )
+        .fetch_one(&self.pool)
+        .await
+        .context("Failed to count global SNI pool entries")?;
+
+        if global_count > 0 {
+            return Ok(());
+        }
+
+        let defaults = [
+            ("gosuslugi.ru", 0, "Public Services"),
+            ("www.cloudflare.com", 1, "CDN baseline"),
+            ("www.microsoft.com", 1, "Enterprise baseline"),
+            ("www.apple.com", 1, "Consumer baseline"),
+            ("www.amazon.com", 1, "Global baseline"),
+        ];
+
+        for (domain, tier, notes) in defaults {
+            sqlx::query(
+                "INSERT INTO sni_pool (domain, tier, notes, is_active) VALUES ($1, $2, $3, TRUE) ON CONFLICT (domain) DO NOTHING"
+            )
+            .bind(domain)
+            .bind(tier)
+            .bind(notes)
+            .execute(&self.pool)
+            .await
+            .with_context(|| format!("Failed to seed default SNI domain '{}'", domain))?;
+        }
+
+        Ok(())
+    }
 }

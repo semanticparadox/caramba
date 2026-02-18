@@ -1,6 +1,134 @@
 {% extends "base.html" %}
 {% block title %}Manage Node{% endblock %}
+{% block header_title %}Node Details{% endblock %}
 {% block content %}
-<h1>Manage {{ node.name }}</h1>
-<p>IP: {{ node.ip }}</p>
+<section class="space-y-6">
+    <div class="flex items-center justify-between gap-4">
+        <div>
+            <h2 class="text-xl font-bold text-white">{{ node.name }}</h2>
+            <p class="text-slate-400 text-sm">{{ node.ip }} · status: {{ node.status }}</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/scan" hx-swap="none"
+                class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-sm">
+                Scan Nearby SNI
+            </button>
+            <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/sync" hx-swap="none"
+                class="bg-slate-800 hover:bg-slate-700 text-slate-100 px-4 py-2 rounded-xl text-sm border border-white/10">
+                Sync Config
+            </button>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="bg-slate-900/50 border border-white/5 rounded-2xl p-4">
+            <p class="text-xs text-slate-500 uppercase">Active Connections</p>
+            <p class="text-2xl text-white font-bold">{{ node.active_connections.unwrap_or(0) }}</p>
+        </div>
+        <div class="bg-slate-900/50 border border-white/5 rounded-2xl p-4">
+            <p class="text-xs text-slate-500 uppercase">Latency</p>
+            <p class="text-2xl text-white font-bold">{{ node.latency_rounded() }} ms</p>
+        </div>
+        <div class="bg-slate-900/50 border border-white/5 rounded-2xl p-4">
+            <p class="text-xs text-slate-500 uppercase">CPU</p>
+            <p class="text-2xl text-white font-bold">{{ node.cpu_rounded() }}%</p>
+        </div>
+        <div class="bg-slate-900/50 border border-white/5 rounded-2xl p-4">
+            <p class="text-xs text-slate-500 uppercase">RAM</p>
+            <p class="text-2xl text-white font-bold">{{ node.ram_rounded() }}%</p>
+        </div>
+    </div>
+
+    <div class="bg-slate-900/50 border border-white/5 rounded-2xl overflow-hidden">
+        <div class="px-4 py-3 border-b border-white/5">
+            <h3 class="font-semibold text-white">Inbounds</h3>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                        <th class="px-4 py-3">Tag</th>
+                        <th class="px-4 py-3">Protocol</th>
+                        <th class="px-4 py-3">Port</th>
+                        <th class="px-4 py-3">Enabled</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5 text-sm">
+                    {% if inbounds.is_empty() %}
+                    <tr>
+                        <td colspan="4" class="px-4 py-8 text-center text-slate-500">No inbounds configured.</td>
+                    </tr>
+                    {% else %}
+                    {% for inbound in inbounds %}
+                    <tr class="hover:bg-white/5">
+                        <td class="px-4 py-3 text-white">{{ inbound.tag }}</td>
+                        <td class="px-4 py-3 text-slate-300">{{ inbound.protocol }}</td>
+                        <td class="px-4 py-3 font-mono text-indigo-300">{{ inbound.listen_port }}</td>
+                        <td class="px-4 py-3 text-slate-300">{% if inbound.enable %}yes{% else %}no{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="bg-slate-900/50 border border-white/5 rounded-2xl overflow-hidden">
+        <div class="px-4 py-3 border-b border-white/5">
+            <h3 class="font-semibold text-white">Discovered / Premium SNI Candidates</h3>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                        <th class="px-4 py-3">Domain</th>
+                        <th class="px-4 py-3">Health</th>
+                        <th class="px-4 py-3">Pinned</th>
+                        <th class="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5 text-sm">
+                    {% if discovered_snis.is_empty() %}
+                    <tr>
+                        <td colspan="4" class="px-4 py-8 text-center text-slate-500">No SNI candidates yet. Run scan first.</td>
+                    </tr>
+                    {% else %}
+                    {% for sni in discovered_snis %}
+                    <tr class="hover:bg-white/5">
+                        <td class="px-4 py-3 font-mono text-indigo-300">{{ sni.domain }}</td>
+                        <td class="px-4 py-3 text-slate-300">{{ sni.health_score }}%</td>
+                        <td class="px-4 py-3">
+                            {% if sni.is_pinned %}
+                            <span class="text-emerald-400">yes</span>
+                            {% else %}
+                            <span class="text-slate-400">no</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-right">
+                            <div class="inline-flex gap-2">
+                                {% if sni.is_pinned %}
+                                <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/snis/{{ sni.id }}/unpin" hx-swap="none"
+                                    class="px-2 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 border border-white/10">
+                                    Unpin
+                                </button>
+                                {% else %}
+                                <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/snis/{{ sni.id }}/pin" hx-swap="none"
+                                    class="px-2 py-1 text-xs rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/20">
+                                    Pin
+                                </button>
+                                {% endif %}
+                                <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/snis/{{ sni.id }}/block" hx-swap="none"
+                                    class="px-2 py-1 text-xs rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20">
+                                    Block
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
 {% endblock %}

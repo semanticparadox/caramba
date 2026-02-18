@@ -58,11 +58,15 @@
                         <p class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">Bot Username
                         </p>
                         <div class="flex items-center justify-between">
+                            {% if bot_username.is_empty() %}
+                            <span class="text-sm font-mono text-slate-400">Not detected yet</span>
+                            {% else %}
                             <span class="text-sm font-mono text-white">@{{ bot_username }}</span>
                             <a href="https://t.me/{{ bot_username }}" target="_blank"
                                 class="text-indigo-400 hover:text-indigo-300">
                                 <i data-lucide="external-link" class="w-3 h-3"></i>
                             </a>
+                            {% endif %}
                         </div>
                     </div>
 
@@ -98,7 +102,8 @@
                     <div class="flex gap-3">
                         <span
                             class="flex-none w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-bold text-white">2</span>
-                        <p>Select your bot (@{{ bot_username }}) and provide the <b>Mini App URL</b> shown on the left.
+                        <p>Select your bot ({% if bot_username.is_empty() %}<code
+                                class="bg-slate-800 px-1 py-0.5 rounded text-slate-200">@your_bot</code>{% else %}@{{ bot_username }}{% endif %}) and provide the <b>Mini App URL</b> shown on the left.
                         </p>
                     </div>
                     <div class="flex gap-3">

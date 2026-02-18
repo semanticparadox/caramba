@@ -150,7 +150,7 @@ pub async fn get_dashboard(
 pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
     let is_running = state.bot_manager.is_running().await;
     let bot_status = if is_running { "running" } else { "stopped" }.to_string();
-    let bot_username = state.settings.get_or_default("bot_username", "Unknown").await;
+    let bot_username = state.settings.get_or_default("bot_username", "").await;
     
     let (redis_status, redis_version) = match state.redis.get_connection().await {
         Ok(mut con) => {
@@ -195,7 +195,11 @@ pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
         admin_path,
         pg_version,
         redis_version,
-        bot_username,
+        bot_username: if bot_username.is_empty() {
+            "Not configured".to_string()
+        } else {
+            bot_username
+        },
         cpu_usage,
         ram_usage,
     };

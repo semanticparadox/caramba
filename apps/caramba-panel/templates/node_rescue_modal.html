@@ -1,3 +1,17 @@
-<div class="modal-box">
-    <h3>Rescue {{ node.name }}</h3>
+<div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-2xl p-6 m-4">
+    <header class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-semibold text-white">Node Rescue · {{ node.name }}</h3>
+        <button type="button" onclick="document.getElementById('rescue-modal').close()" class="text-slate-400 hover:text-white">✕</button>
+    </header>
+    <p class="text-sm text-slate-300 mb-3">If node agent is unhealthy, run these commands on the server:</p>
+    <pre class="bg-slate-950 border border-white/10 rounded-xl p-4 text-xs text-emerald-300 overflow-x-auto">sudo systemctl daemon-reload
+sudo systemctl enable --now caramba-node
+sudo systemctl restart caramba-node
+sudo journalctl -u caramba-node -n 100 --no-pager</pre>
+    <div class="mt-4 flex justify-end">
+        <button type="button" onclick="navigator.clipboard.writeText(this.closest('div').parentElement.querySelector('pre').textContent)"
+            class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl">
+            Copy Commands
+        </button>
+    </div>
 </div>

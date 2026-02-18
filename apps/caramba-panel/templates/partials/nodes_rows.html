@@ -1,6 +1,71 @@
-<!-- simplified nodes rows -->
 {% for node in nodes %}
-<tr>
-    <td>{{ node.name }}</td>
+<tr id="node-row-{{ node.id }}" class="hover:bg-white/5">
+    <td class="px-4 py-3">
+        <div class="flex flex-col">
+            <span class="font-semibold text-white">{{ node.name }}</span>
+            <span class="text-xs text-slate-500">#{{ node.id }}</span>
+        </div>
+    </td>
+    <td class="px-4 py-3 font-mono text-indigo-300">{{ node.ip }}</td>
+    <td class="px-4 py-3">
+        {% if node.status == "active" %}
+        <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active</span>
+        {% else %}
+        <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-slate-500/10 text-slate-400 border border-slate-500/20">{{ node.status }}</span>
+        {% endif %}
+    </td>
+    <td class="px-4 py-3 text-slate-400 text-xs">
+        {% if node.last_seen.is_some() %}
+        {{ node.last_seen.unwrap().format("%Y-%m-%d %H:%M:%S") }}
+        {% else %}
+        never
+        {% endif %}
+    </td>
+    <td class="px-4 py-3 text-slate-300 text-xs">
+        <div>{{ node.active_connections.unwrap_or(0) }} users</div>
+        <div>{{ node.current_speed_mbps }} Mbps</div>
+    </td>
+    <td class="px-4 py-3">
+        <div class="flex flex-wrap items-center gap-2">
+            <button
+                type="button"
+                data-node-id="{{ node.id }}"
+                data-node-name="{{ node.name }}"
+                data-token="{{ node.join_token.as_deref().unwrap_or("") }}"
+                onclick="showNodeInstallCommand(this.dataset.nodeId, this.dataset.nodeName, this.dataset.token)"
+                class="px-2 py-1 text-xs rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/20">
+                Install
+            </button>
+            <a href="{{ admin_path }}/nodes/{{ node.id }}/manage"
+               class="px-2 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/10">
+                Manage
+            </a>
+            <button
+                hx-post="{{ admin_path }}/nodes/{{ node.id }}/sync"
+                hx-swap="none"
+                class="px-2 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/10">
+                Sync
+            </button>
+            <button
+                hx-post="{{ admin_path }}/nodes/{{ node.id }}/toggle"
+                hx-swap="none"
+                class="px-2 py-1 text-xs rounded-lg border {% if node.is_enabled %}bg-emerald-500/10 text-emerald-300 border-emerald-500/20{% else %}bg-amber-500/10 text-amber-300 border-amber-500/20{% endif %}">
+                {% if node.is_enabled %}Enabled{% else %}Disabled{% endif %}
+            </button>
+            <button
+                hx-delete="{{ admin_path }}/nodes/{{ node.id }}/delete"
+                hx-confirm="Delete node '{{ node.name }}'?"
+                hx-target="#node-row-{{ node.id }}"
+                hx-swap="outerHTML"
+                class="px-2 py-1 text-xs rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20">
+                Delete
+            </button>
+        </div>
+    </td>
 </tr>
 {% endfor %}
+{% if nodes.is_empty() %}
+<tr>
+    <td colspan="6" class="px-4 py-10 text-center text-slate-500">No nodes yet. Create your first node to generate install script.</td>
+</tr>
+{% endif %}

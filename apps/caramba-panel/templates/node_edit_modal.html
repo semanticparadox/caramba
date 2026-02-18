@@ -1,3 +1,37 @@
-<div class="modal-box">
-    <h3>Edit {{ node.name }}</h3>
+<div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-2xl p-6 m-4">
+    <header class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-semibold text-white">Edit Node</h3>
+        <button type="button" onclick="document.getElementById('edit-node-modal').close()" class="text-slate-400 hover:text-white">✕</button>
+    </header>
+    <form hx-post="{{ admin_path }}/nodes/{{ node.id }}/update" hx-swap="none" class="space-y-4">
+        <div>
+            <label class="block text-xs text-slate-400 uppercase mb-1">Name</label>
+            <input name="name" value="{{ node.name }}" required class="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-white">
+        </div>
+        <div>
+            <label class="block text-xs text-slate-400 uppercase mb-1">IP</label>
+            <input name="ip" value="{{ node.ip }}" required class="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-white">
+        </div>
+        <div>
+            <label class="block text-xs text-slate-400 uppercase mb-1">Relay Parent (optional)</label>
+            <select name="relay_id" class="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-white">
+                <option value="">None</option>
+                {% for relay in all_nodes %}
+                {% if relay.id != node.id %}
+                <option value="{{ relay.id }}" {% if node.relay_id.unwrap_or(0) == relay.id %}selected{% endif %}>{{ relay.name }}</option>
+                {% endif %}
+                {% endfor %}
+            </select>
+        </div>
+        <label class="flex items-center gap-2 text-slate-300">
+            <input type="checkbox" name="is_relay" {% if node.is_relay %}checked{% endif %}>
+            Is relay node
+        </label>
+        <div class="flex justify-end gap-2 pt-2">
+            <button type="button" onclick="document.getElementById('edit-node-modal').close()"
+                class="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl">Cancel</button>
+            <button type="submit"
+                class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl">Save</button>
+        </div>
+    </form>
 </div>

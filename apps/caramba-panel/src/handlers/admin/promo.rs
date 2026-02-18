@@ -9,11 +9,18 @@ use tracing::error;
 use crate::AppState;
 use caramba_db::models::promo::PromoCode;
 
+#[derive(Debug, Clone)]
+struct PromoPlanOption {
+    id: i64,
+    name: String,
+}
+
 #[derive(Template)]
 #[template(path = "promo_manage.html")]
 struct PromoManageTemplate {
     admin_path: String,
     promos: Vec<PromoCode>,
+    plans: Vec<PromoPlanOption>,
     is_auth: bool,
     username: String,
     active_page: String,
@@ -30,9 +37,20 @@ pub async fn get_promos(
     };
     
     let promos = state.promo_service.list_promos().await.unwrap_or_default();
+    let plans = sqlx::query_as::<_, (i64, String)>(
+        "SELECT id, name FROM plans WHERE is_active = TRUE ORDER BY sort_order ASC, name ASC"
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(id, name)| PromoPlanOption { id, name })
+    .collect::<Vec<_>>();
+
     Html(PromoManageTemplate {
         admin_path: state.admin_path.clone(),
         promos,
+        plans,
         is_auth: true,
         username,
         active_page: "promo".to_string(),
@@ -55,6 +73,18 @@ pub async fn add_promo(
     State(state): State<AppState>,
     Form(form): Form<AddPromoForm>,
 ) -> impl IntoResponse {
+    use axum::http::StatusCode;
+    let promo_type = form.promo_type.trim().to_ascii_lowercase();
+    if !matches!(promo_type.as_str(), "balance" | "subscription" | "trial") {
+        return (StatusCode::BAD_REQUEST, "Invalid promo type").into_response();
+    }
+    if form.max_uses <= 0 {
+        return (StatusCode::BAD_REQUEST, "max_uses must be greater than 0").into_response();
+    }
+    if matches!(promo_type.as_str(), "subscription" | "trial") && form.plan_id.is_none() {
+        return (StatusCode::BAD_REQUEST, "plan_id is required for subscription/trial promo").into_response();
+    }
+
     let expires_at = form.expires_at.and_then(|s| {
         if s.is_empty() { None }
         else {
@@ -70,7 +100,7 @@ pub async fn add_promo(
 
     match state.promo_service.create_promo(
         &form.code,
-        &form.promo_type,
+        &promo_type,
         form.plan_id,
         form.balance_amount,
         form.duration_days,

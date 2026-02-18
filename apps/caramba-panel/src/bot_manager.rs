@@ -27,7 +27,7 @@ impl BotManager {
         }
     }
 
-    pub async fn start_bot(&self, token: String, _state: crate::AppState) -> bool {
+    pub async fn start_bot(&self, token: String, state: crate::AppState) -> bool {
         let mut handle_lock = self.current_handle.lock().await;
         
         if handle_lock.is_some() {
@@ -38,21 +38,26 @@ impl BotManager {
         info!("Starting new bot instance...");
         let bot = Bot::new(token.clone());
         
-        // Fetch bot username
-        let bot_username_clone = self.bot_username.clone();
-        let bot_for_me = bot.clone();
-        tokio::spawn(async move {
-            match bot_for_me.get_me().await {
-                Ok(me) => {
-                    let mut lock = bot_username_clone.write().await;
-                    *lock = me.user.username.clone();
-                    info!("Bot username initialized: @{}", me.user.username.as_deref().unwrap_or("unknown"));
+        // Validate token + fetch username before exposing bot as running.
+        match bot.get_me().await {
+            Ok(me) => {
+                let username = me.user.username.clone();
+                {
+                    let mut lock = self.bot_username.write().await;
+                    *lock = username.clone();
                 }
-                Err(e) => {
-                    error!("Failed to fetch bot username: {}", e);
+                if let Some(username) = username {
+                    let _ = state.settings.set("bot_username", &username).await;
+                    info!("Bot username initialized: @{}", username);
+                } else {
+                    info!("Bot connected but username is not set");
                 }
             }
-        });
+            Err(e) => {
+                error!("Failed to validate bot token: {}", e);
+                return false;
+            }
+        }
 
         // Store bot clone for notifications
         let mut bot_lock = self.current_bot.lock().await;
@@ -62,7 +67,7 @@ impl BotManager {
         let shutdown_rx = self.shutdown_sender.subscribe();
 
         let handle = tokio::spawn(async move {
-            info!("Bot task started in notification-only mode");
+            info!("Bot task started in lightweight mode");
             let mut rx = shutdown_rx;
             let _ = rx.recv().await;
             info!("Bot task finished/stopped");
@@ -84,6 +89,9 @@ impl BotManager {
             
             let mut bot_username = self.bot_username.write().await;
             *bot_username = None;
+
+            let mut bot_lock = self.current_bot.lock().await;
+            *bot_lock = None;
             
             true
         } else {

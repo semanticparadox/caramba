@@ -166,7 +166,7 @@ pub async fn get_settings(
     let payment_ipn_url = state.settings.get_or_default("payment_ipn_url", "").await;
     let currency_rate = state.settings.get_or_default("currency_rate", "1.0").await;
     let support_url = state.settings.get_or_default("support_url", "").await;
-    let bot_username = state.settings.get_or_default("bot_username", "caramba_bot").await;
+    let bot_username = state.settings.get_or_default("bot_username", "").await;
     let brand_name = state.settings.get_or_default("brand_name", "CARAMBA").await;
     let terms_of_service = state.settings.get_or_default("terms_of_service", "Welcome to CARAMBA.").await;
     
@@ -354,7 +354,7 @@ pub async fn save_settings(
         }
     }
 
-    let current_aaio_id = state.settings.get_or_default("aa io_merchant_id", "").await;
+    let current_aaio_id = state.settings.get_or_default("aaio_merchant_id", "").await;
     let masked_aaio_id = if !current_aaio_id.is_empty() { mask_key(&current_aaio_id) } else { "".to_string() };
     if let Some(v) = form.aaio_merchant_id {
         if !v.is_empty() && v != masked_aaio_id {
@@ -381,7 +381,9 @@ pub async fn save_settings(
     if let Some(v) = form.payment_ipn_url { settings.insert("payment_ipn_url".to_string(), v); }
     if let Some(v) = form.currency_rate { settings.insert("currency_rate".to_string(), v); }
     if let Some(v) = form.support_url { settings.insert("support_url".to_string(), v); }
-    if let Some(v) = form.bot_username { settings.insert("bot_username".to_string(), v); }
+    if let Some(v) = form.bot_username {
+        settings.insert("bot_username".to_string(), v.trim().trim_start_matches('@').to_string());
+    }
     if let Some(v) = form.brand_name { settings.insert("brand_name".to_string(), v); }
     if let Some(v) = form.terms_of_service { settings.insert("terms_of_service".to_string(), v); }
 
@@ -471,7 +473,9 @@ pub async fn toggle_bot(State(state): State<AppState>) -> impl IntoResponse {
         if token.is_empty() {
              return (StatusCode::BAD_REQUEST, "Bot token is empty").into_response();
         }
-        state.bot_manager.start_bot(token, state.clone()).await;
+        if !state.bot_manager.start_bot(token, state.clone()).await {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to start bot. Check token and logs.").into_response();
+        }
         new_status = "running".to_string();
     }
 
@@ -502,7 +506,7 @@ pub async fn bot_logs_page(
     
     let is_running = state.bot_manager.is_running().await;
     let bot_status = if is_running { "running".to_string() } else { "stopped".to_string() };
-    let bot_username = state.settings.get_or_default("bot_username", "caramba_bot").await;
+    let bot_username = state.settings.get_or_default("bot_username", "").await;
     let subscription_domain = state.settings.get_or_default("subscription_domain", "").await;
     
     let admin_path = state.admin_path.clone();

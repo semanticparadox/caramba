@@ -604,8 +604,13 @@ async fn get_user_referrals(
         use crate::services::referral_service::ReferralService;
         let count = ReferralService::get_referral_count(&state.pool, user_id).await.unwrap_or(0);
 
-        let bot_username = "caramba_bot"; // TODO: Config
-        let link = format!("https://t.me/{}?start={}", bot_username, code);
+        let bot_username = state.settings.get_or_default("bot_username", "").await;
+        let bot_username = bot_username.trim().trim_start_matches('@').to_string();
+        let link = if bot_username.is_empty() {
+            format!("https://t.me/YOUR_BOT_USERNAME?start={}", code)
+        } else {
+            format!("https://t.me/{}?start={}", bot_username, code)
+        };
 
         Json(ReferralStats {
             referral_code: code,

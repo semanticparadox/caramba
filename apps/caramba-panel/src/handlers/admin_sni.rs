@@ -3,7 +3,7 @@ use axum::{
     response::{IntoResponse, Html},
 };
 use axum_extra::extract::cookie::CookieJar;
-use crate::handlers::admin::{is_authenticated};
+use crate::handlers::admin::{is_authenticated, get_auth_user};
 use askama::Template;
 use askama_web::WebTemplate;
 use serde::Deserialize;
@@ -49,7 +49,7 @@ pub async fn get_sni_page(
     let nodes = state.infrastructure_service.get_all_nodes().await.unwrap_or_default();
     let active_sni_count = snis.iter().filter(|s| s.is_active).count();
     
-    let username = state.settings.get_or_default("admin_username", "admin").await;
+    let username = get_auth_user(&state, &jar).await.unwrap_or_else(|| "admin".to_string());
 
     let blacklist = state.sni_repo.get_blacklisted_snis().await.unwrap_or_default();
 

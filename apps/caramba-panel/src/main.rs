@@ -392,13 +392,20 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         system_stats,
     };
 
+    if let Err(e) = state.sni_repo.seed_default_global_pool_if_empty().await {
+        tracing::warn!("Failed to seed default global SNI pool: {}", e);
+    }
+
     // Auto-start bot if enabled in settings
     let bot_token: String = state.settings.get_or_default("bot_token", "").await;
     let bot_status: String = state.settings.get_or_default("bot_status", "stopped").await;
     if !bot_token.is_empty() && bot_status == "running" {
         tracing::info!("Auto-starting bot...");
         let token_clone = bot_token.clone();
-        state.bot_manager.start_bot(token_clone, state.clone()).await;
+        if !state.bot_manager.start_bot(token_clone, state.clone()).await {
+            tracing::warn!("Failed to auto-start bot, switching status to stopped");
+            let _ = state.settings.set("bot_status", "stopped").await;
+        }
     }
 
     // Start Monitoring Service

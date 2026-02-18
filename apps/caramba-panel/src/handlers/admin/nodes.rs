@@ -22,7 +22,7 @@ use chrono::Utc;
 // ============================================================================
 
 #[derive(Template)]
-#[template(source = "DEBUG", ext = "html")]
+#[template(path = "nodes.html")]
 pub struct NodesTemplate {
     pub nodes: Vec<Node>,
     pub is_auth: bool,
