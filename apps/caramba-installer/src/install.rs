@@ -67,11 +67,30 @@ pub async fn install_dependencies() -> Result<()> {
         "redis-server",
         "caddy",
         "unzip", "curl", "ufw",
-        "nodejs", "npm"
+        "nodejs"
     ];
 
     for pkg in packages {
         run_command("apt-get", &["install", "-y", pkg], &format!("Installing {}", pkg))?;
+    }
+
+    // npm is not available in some Debian/Ubuntu combinations (or is bundled with nodejs).
+    // Treat it as optional to avoid aborting installation.
+    let npm_status = Command::new("apt-get")
+        .args(["install", "-y", "npm"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
+    match npm_status {
+        Ok(status) if status.success() => {
+            println!("✅ Installing npm");
+        }
+        _ => {
+            println!(
+                "⚠️ npm package installation skipped (not available via apt). Continuing installer."
+            );
+        }
     }
 
     Ok(())
