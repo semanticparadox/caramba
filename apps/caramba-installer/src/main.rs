@@ -47,6 +47,12 @@ enum Commands {
         /// Database password
         #[arg(long)]
         db_pass: Option<String>,
+        /// Initial admin username
+        #[arg(long)]
+        admin_user: Option<String>,
+        /// Initial admin password
+        #[arg(long)]
+        admin_pass: Option<String>,
         /// Panel URL (for node/sub/bot roles)
         #[arg(long)]
         panel_url: Option<String>,
@@ -120,6 +126,63 @@ fn require_value(value: Option<String>, name: &str) -> String {
     }
 }
 
+fn print_install_summary(config: &setup::InstallConfig, bot_token: Option<&str>) {
+    let panel_host = config.domain.trim();
+    let scheme = if panel_host.starts_with("http://") || panel_host.starts_with("https://") {
+        ""
+    } else {
+        "https://"
+    };
+    let admin_path = if config.admin_path.starts_with('/') {
+        config.admin_path.clone()
+    } else {
+        format!("/{}", config.admin_path)
+    };
+    let login_url = format!(
+        "{}{}/{}/login",
+        scheme,
+        panel_host,
+        admin_path.trim_start_matches('/')
+    );
+    let sub_domain = config
+        .sub_domain
+        .as_deref()
+        .unwrap_or(config.domain.as_str())
+        .to_string();
+
+    let summary = format!(
+        "\n=== CARAMBA INSTALL SUMMARY ===\n\
+Panel domain: {panel}\n\
+Subscription domain: {sub}\n\
+Admin path: {admin_path}\n\
+Login URL: {login_url}\n\
+Database password: {db_pass}\n\
+Admin username: {admin_user}\n\
+Admin password: {admin_pass}\n\
+Install directory: {install_dir}\n\
+BOT_TOKEN: {bot_token}\n\
+===============================\n",
+        panel = config.domain,
+        sub = sub_domain,
+        admin_path = config.admin_path,
+        login_url = login_url,
+        db_pass = config.db_pass,
+        admin_user = config.admin_username,
+        admin_pass = config.admin_password,
+        install_dir = config.install_dir,
+        bot_token = bot_token.unwrap_or("<not set>"),
+    );
+
+    println!("{}", style(&summary).green());
+
+    let summary_path = format!("{}/INSTALL_SUMMARY.txt", config.install_dir.trim_end_matches('/'));
+    if let Err(e) = std::fs::write(&summary_path, summary) {
+        eprintln!("Failed to write summary file {}: {}", summary_path, e);
+    } else {
+        println!("Saved install summary to {}", summary_path);
+    }
+}
+
 async fn resolve_release_version_or_exit() -> String {
     let hint = std::env::var("CARAMBA_VERSION").unwrap_or_else(|_| "latest".to_string());
     match install::resolve_version(&hint).await {
@@ -157,6 +220,8 @@ async fn main() {
             admin_path,
             install_dir,
             db_pass,
+            admin_user,
+            admin_pass,
             panel_url,
             token,
             region,
@@ -186,6 +251,9 @@ async fn main() {
                     admin_path,
                     install_dir,
                     db_pass,
+                    pick_non_empty(admin_user, "ADMIN_USER"),
+                    pick_non_empty(admin_pass, "ADMIN_PASS"),
+                    pick_non_empty(bot_token.clone(), "BOT_TOKEN"),
                 ) {
                     Ok(c) => c,
                     Err(e) => {
@@ -221,7 +289,8 @@ async fn main() {
 
                 let maybe_node_token = pick_non_empty(token, "NODE_TOKEN")
                     .or_else(|| pick_non_empty(None, "ENROLLMENT_KEY"));
-                let maybe_bot_token = pick_non_empty(bot_token, "BOT_TOKEN");
+                let maybe_bot_token = pick_non_empty(bot_token, "BOT_TOKEN")
+                    .or_else(|| config.hub_bot_token.clone());
                 let region = pick_non_empty(region, "REGION");
 
                 if let Err(e) = install::install_hub(
@@ -238,6 +307,15 @@ async fn main() {
                     exit(1);
                 }
 
+                if let Err(e) = install::bootstrap_admin(
+                    &config.install_dir,
+                    &config.admin_username,
+                    &config.admin_password,
+                ) {
+                    eprintln!("Failed to bootstrap admin account: {}", e);
+                    exit(1);
+                }
+
                 // Configure Caddy
                 let caddyfile = setup::generate_caddyfile(&config); // Pass full config
                 if let Err(e) = install::write_caddyfile(&caddyfile) {
@@ -248,6 +326,7 @@ async fn main() {
                     "{}",
                     style("System dependencies and service installed.").green()
                 );
+                print_install_summary(&config, maybe_bot_token.as_deref());
             } else if panel {
                 let config = match setup::resolve_install_config(
                     false,
@@ -256,6 +335,9 @@ async fn main() {
                     admin_path,
                     install_dir,
                     db_pass,
+                    pick_non_empty(admin_user, "ADMIN_USER"),
+                    pick_non_empty(admin_pass, "ADMIN_PASS"),
+                    None,
                 ) {
                     Ok(c) => c,
                     Err(e) => {
@@ -293,12 +375,22 @@ async fn main() {
                     exit(1);
                 }
 
+                if let Err(e) = install::bootstrap_admin(
+                    &config.install_dir,
+                    &config.admin_username,
+                    &config.admin_password,
+                ) {
+                    eprintln!("Failed to bootstrap admin account: {}", e);
+                    exit(1);
+                }
+
                 let caddyfile = setup::generate_caddyfile(&config);
                 if let Err(e) = install::write_caddyfile(&caddyfile) {
                     eprintln!("Failed to configure Caddy: {}", e);
                 }
 
                 println!("{}", style("Panel installation completed.").green());
+                print_install_summary(&config, None);
             } else if node {
                 let panel_url = require_value(
                     pick_non_empty(panel_url, "PANEL_URL"),

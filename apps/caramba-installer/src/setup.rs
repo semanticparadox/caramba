@@ -9,6 +9,9 @@ pub struct InstallConfig {
     pub admin_path: String,
     pub install_dir: String,
     pub db_pass: String,
+    pub admin_username: String,
+    pub admin_password: String,
+    pub hub_bot_token: Option<String>,
 }
 
 fn normalize_admin_path(path: String) -> String {
@@ -53,6 +56,47 @@ fn get_or_prompt_password(value: Option<String>) -> String {
         .to_string()
 }
 
+fn get_or_prompt_admin_password(value: Option<String>) -> String {
+    if let Some(v) = value {
+        let trimmed = v.trim().to_string();
+        if !trimmed.is_empty() {
+            return trimmed;
+        }
+    }
+
+    let theme = ColorfulTheme::default();
+    Password::with_theme(&theme)
+        .with_prompt("Admin Password")
+        .with_confirmation("Confirm Admin Password", "Passwords mismatch")
+        .interact()
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+fn get_or_prompt_optional_password(value: Option<String>, prompt: &str) -> Option<String> {
+    if let Some(v) = value {
+        let trimmed = v.trim().to_string();
+        if !trimmed.is_empty() {
+            return Some(trimmed);
+        }
+        return None;
+    }
+
+    let theme = ColorfulTheme::default();
+    let raw = Password::with_theme(&theme)
+        .with_prompt(prompt)
+        .allow_empty_password(true)
+        .interact()
+        .unwrap_or_default();
+    let trimmed = raw.trim().to_string();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
 pub fn resolve_install_config(
     hub_mode: bool,
     domain: Option<String>,
@@ -60,6 +104,9 @@ pub fn resolve_install_config(
     admin_path: Option<String>,
     install_dir: Option<String>,
     db_pass: Option<String>,
+    admin_username: Option<String>,
+    admin_password: Option<String>,
+    hub_bot_token: Option<String>,
 ) -> Result<InstallConfig> {
     println!("{}", style("\nConfiguring Caramba...").bold());
 
@@ -100,12 +147,37 @@ pub fn resolve_install_config(
         bail!("Database password must not be empty");
     }
 
+    let admin_username = get_or_prompt_text(
+        admin_username,
+        "Admin Username",
+        Some("admin"),
+    );
+    if admin_username.is_empty() {
+        bail!("Admin username must not be empty");
+    }
+    let admin_password = get_or_prompt_admin_password(admin_password);
+    if admin_password.is_empty() {
+        bail!("Admin password must not be empty");
+    }
+
+    let hub_bot_token = if hub_mode {
+        get_or_prompt_optional_password(
+            hub_bot_token,
+            "Telegram BOT_TOKEN (optional, leave blank to skip)",
+        )
+    } else {
+        None
+    };
+
     Ok(InstallConfig {
         domain,
         sub_domain,
         admin_path,
         install_dir,
         db_pass,
+        admin_username,
+        admin_password,
+        hub_bot_token,
     })
 }
 

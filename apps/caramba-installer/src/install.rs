@@ -25,18 +25,26 @@ fn run_command(cmd: &str, args: &[&str], msg: &str) -> Result<()> {
     pb.set_message(format!("{}", msg));
     pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-    let status = Command::new(cmd)
+    let output = Command::new(cmd)
         .args(args)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()?;
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()?;
 
-    if status.success() {
+    if output.status.success() {
         pb.finish_with_message(format!("✅ {}", msg));
         Ok(())
     } else {
         pb.finish_with_message(format!("❌ {}", msg));
-        Err(anyhow!("Command failed: {} {:?}", cmd, args))
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Err(anyhow!(
+            "Command failed: {} {:?}\nstdout: {}\nstderr: {}",
+            cmd,
+            args,
+            if stdout.is_empty() { "<empty>" } else { &stdout },
+            if stderr.is_empty() { "<empty>" } else { &stderr },
+        ))
     }
 }
 
@@ -59,6 +67,10 @@ fn normalize_panel_url(raw: &str) -> String {
         value.pop();
     }
     value
+}
+
+fn escape_sql_literal(raw: &str) -> String {
+    raw.replace('\'', "''")
 }
 
 fn release_asset_url(version: &str, asset: &str) -> String {
@@ -280,8 +292,8 @@ pub fn install_service(service_name: &str, install_dir: &str) -> Result<()> {
     run_command("systemctl", &["daemon-reload"], "Reloading systemd")?;
     run_command(
         "systemctl",
-        &["enable", service_name],
-        &format!("Enabling {}", service_name),
+        &["enable", "--now", service_name],
+        &format!("Enabling and starting {}", service_name),
     )?;
 
     Ok(())
@@ -371,6 +383,36 @@ pub async fn install_panel(install_dir: &str, version: &str) -> Result<()> {
     download_file(&release_asset_url(version, "caramba-panel"), &binary_path).await?;
     try_install_mini_app_assets(version, install_dir).await?;
     install_service("caramba-panel.service", install_dir)?;
+    Ok(())
+}
+
+pub fn bootstrap_admin(install_dir: &str, username: &str, password: &str) -> Result<()> {
+    let panel_bin = format!("{}/caramba-panel", install_dir.trim_end_matches('/'));
+    if !std::path::Path::new(&panel_bin).exists() {
+        return Err(anyhow!("Panel binary not found: {}", panel_bin));
+    }
+
+    let output = Command::new(&panel_bin)
+        .arg("admin")
+        .arg("reset-password")
+        .arg(username)
+        .arg(password)
+        .current_dir(install_dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Err(anyhow!(
+            "Failed to bootstrap admin user.\nstdout: {}\nstderr: {}",
+            stdout.trim(),
+            stderr.trim()
+        ));
+    }
+
+    println!("✅ Admin user '{}' has been created/updated.", username);
     Ok(())
 }
 
@@ -580,7 +622,10 @@ pub fn setup_database(config: &crate::setup::InstallConfig) -> Result<()> {
         .output(); // ignore error
 
     // Set password
-    let psql_cmd = format!("ALTER USER caramba WITH PASSWORD '{}';", config.db_pass);
+    let psql_cmd = format!(
+        "ALTER USER caramba WITH PASSWORD '{}';",
+        escape_sql_literal(&config.db_pass)
+    );
     run_command(
         "sudo",
         &["-u", "postgres", "psql", "-c", &psql_cmd],
@@ -603,6 +648,7 @@ pub fn create_env_file(
     std::fs::create_dir_all(&config.install_dir)?;
 
     let panel_url = normalize_panel_url(&config.domain);
+    let encoded_db_pass = urlencoding::encode(&config.db_pass).into_owned();
     let mut env_content = format!(
         r#"DATABASE_URL=postgres://caramba:{}@localhost/caramba
 REDIS_URL=redis://127.0.0.1:6379
@@ -613,7 +659,7 @@ ADMIN_PATH={}
 PANEL_PORT=3000
 SESSION_SECRET={}
 "#,
-        config.db_pass,
+        encoded_db_pass,
         config.domain,
         config.domain, // API same as domain for now
         panel_url,
