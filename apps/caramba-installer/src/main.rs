@@ -116,12 +116,14 @@ async fn main() {
 
                 println!("{}", style("System dependencies and service installed.").green());
             }
-            if node || hub {
+            if node && !hub {
                 println!("Installing Caramba Node...");
                 // install::install_node().await;
                  if let Err(e) = install::install_service("caramba-node.service", "/opt/caramba") {
                     eprintln!("Failed to install node service: {}", e);
                 }
+            } else if hub {
+                println!("Caramba Node service already installed as part of --hub.");
             }
         },
         Commands::Upgrade => {
