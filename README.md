@@ -12,6 +12,20 @@ Primary installation flow is based on release binary `caramba-installer`.
 - installs it as `/usr/local/bin/caramba`
 - runs `caramba install --hub`
 
+### One-liner Install
+
+```bash
+curl -sSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh | sudo bash
+```
+
+Manual download:
+
+```bash
+curl -sSLO https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh
+chmod +x install.sh
+sudo bash install.sh
+```
+
 So `caramba-installer` is the control point for install/upgrade/diagnostics/restore/uninstall workflows, not just a one-time bootstrap helper.
 
 ### Interactive Setup Inputs
@@ -100,4 +114,8 @@ GitHub Actions workflow: `.github/workflows/release.yml`
 
 ## License
 
-Proprietary / Closed Source
+Source-available development repository.
+
+Important:
+- Until a formal `LICENSE` file is added, code is effectively "all rights reserved".
+- If you plan to keep repo public, define an explicit license policy (open-source or restricted source-available).
