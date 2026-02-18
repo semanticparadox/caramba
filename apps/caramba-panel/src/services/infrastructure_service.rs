@@ -129,15 +129,34 @@ impl InfrastructureService {
     }
 
     pub async fn update_node(&self, id: i64, name: &str, ip: &str, relay_id: Option<i64>, is_relay: bool) -> Result<()> {
-        sqlx::query("UPDATE nodes SET name = $1, ip = $2, relay_id = $3, is_relay = $4 WHERE id = $5")
+        let primary = sqlx::query("UPDATE nodes SET name = $1, ip = $2, relay_id = $3, is_relay = $4 WHERE id = $5")
             .bind(name)
             .bind(ip)
             .bind(relay_id)
             .bind(is_relay)
             .bind(id)
             .execute(&self.pool)
-            .await?;
-        Ok(())
+            .await;
+
+        match primary {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // Backward-compat for installations where nodes.relay_id is not migrated yet.
+                let msg = e.to_string();
+                if msg.contains("relay_id") && msg.contains("does not exist") {
+                    sqlx::query("UPDATE nodes SET name = $1, ip = $2, is_relay = $3 WHERE id = $4")
+                        .bind(name)
+                        .bind(ip)
+                        .bind(is_relay)
+                        .bind(id)
+                        .execute(&self.pool)
+                        .await?;
+                    Ok(())
+                } else {
+                    Err(e.into())
+                }
+            }
+        }
     }
 
     pub async fn toggle_node_enable(&self, id: i64) -> Result<()> {

@@ -94,7 +94,7 @@ pub struct NodeRescueModalTemplate {
 pub struct InstallNodeForm {
     pub name: String,
     pub ip: Option<String>,
-    pub vpn_port: i32,
+    pub vpn_port: Option<i32>,
     pub auto_configure: Option<bool>,
 }
 
@@ -153,14 +153,15 @@ pub async fn install_node(
     State(state): State<AppState>,
     Form(form): Form<InstallNodeForm>,
 ) -> impl IntoResponse {
-    let check_ip = form.ip.clone().unwrap_or_default();
+    let check_ip = form.ip.unwrap_or_default().trim().to_string();
+    let vpn_port = form.vpn_port.unwrap_or(443).clamp(1, 65535);
     if !check_ip.is_empty() {
         info!("Adding node: {} @ {}", form.name, check_ip);
     } else {
         info!("Adding pending node: {}", form.name);
     }
     
-    match state.infrastructure_service.create_node(&form.name, &check_ip, form.vpn_port, form.auto_configure.unwrap_or(false)).await {
+    match state.infrastructure_service.create_node(&form.name, &check_ip, vpn_port, form.auto_configure.unwrap_or(false)).await {
         Ok(id) => {
             // Trigger default inbounds via orchestration
             if let Err(e) = state.orchestration_service.init_default_inbounds(id).await {
@@ -190,7 +191,11 @@ pub async fn install_node(
         }
         Err(e) => {
             error!("Failed to insert node: {}", e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to add node").into_response()
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to add node: {}", e),
+            )
+                .into_response()
         }
     }
 }

@@ -54,7 +54,7 @@ impl NodeRepository {
     }
 
     pub async fn create_node(&self, node: &Node) -> Result<i64> {
-        let id = sqlx::query_scalar(
+        let primary_insert = sqlx::query_scalar(
             r#"
             INSERT INTO nodes (
                 name, ip, domain, country, city, flag, 
@@ -88,9 +88,54 @@ impl NodeRepository {
         .bind(node.relay_id)
         .bind(&node.doomsday_password)
         .fetch_one(&self.pool)
-        .await?;
-        
-        Ok(id)
+        .await;
+
+        match primary_insert {
+            Ok(id) => Ok(id),
+            Err(e) => {
+                // Backward-compat for installations where nodes.relay_id is not migrated yet.
+                let msg = e.to_string();
+                if msg.contains("relay_id") && msg.contains("does not exist") {
+                    let id = sqlx::query_scalar(
+                        r#"
+                        INSERT INTO nodes (
+                            name, ip, domain, country, city, flag,
+                            status, load_stats, check_stats_json, sort_order,
+                            join_token, vpn_port, auto_configure, is_enabled,
+                            reality_pub, reality_priv, short_id, reality_sni,
+                            doomsday_password
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+                        RETURNING id
+                        "#
+                    )
+                    .bind(&node.name)
+                    .bind(&node.ip)
+                    .bind(&node.domain)
+                    .bind(&node.country)
+                    .bind(&node.city)
+                    .bind(&node.flag)
+                    .bind(&node.status)
+                    .bind(&node.load_stats)
+                    .bind(&node.check_stats_json)
+                    .bind(node.sort_order)
+                    .bind(&node.join_token)
+                    .bind(node.vpn_port)
+                    .bind(node.auto_configure)
+                    .bind(node.is_enabled)
+                    .bind(&node.reality_pub)
+                    .bind(&node.reality_priv)
+                    .bind(&node.short_id)
+                    .bind(&node.reality_sni)
+                    .bind(&node.doomsday_password)
+                    .fetch_one(&self.pool)
+                    .await?;
+                    Ok(id)
+                } else {
+                    Err(e.into())
+                }
+            }
+        }
     }
 
     pub async fn update_node(&self, node: &Node) -> Result<()> {
