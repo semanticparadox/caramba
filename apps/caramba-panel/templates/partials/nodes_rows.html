@@ -8,7 +8,9 @@
     </td>
     <td class="px-4 py-3 font-mono text-indigo-300">{{ node.ip }}</td>
     <td class="px-4 py-3">
-        {% if node.status == "active" %}
+        {% if node.ip.starts_with("pending-") && node.status == "new" %}
+        <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-amber-500/10 text-amber-300 border border-amber-500/20">Pending Setup</span>
+        {% elif node.status == "active" %}
         <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active</span>
         {% else %}
         <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-slate-500/10 text-slate-400 border border-slate-500/20">{{ node.status }}</span>

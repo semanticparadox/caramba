@@ -55,7 +55,9 @@ pub struct NodeEditModalTemplate {
 #[derive(askama::Template)]
 #[template(path = "node_manual_install.html")]
 pub struct NodeManualInstallTemplate {
-    pub node: Node,
+    pub node_id: i64,
+    pub node_name: String,
+    pub join_token: String,
     pub admin_path: String,
 }
 
@@ -169,25 +171,31 @@ pub async fn install_node(
             }
             
             // Always return installation modal with command+token, same as legacy flow.
-            let node = state.infrastructure_service.get_node_by_id(id).await.ok();
-
-            if let Some(node) = node {
-                let admin_path = state.admin_path.clone();
-                let template = NodeManualInstallTemplate { node, admin_path };
-
-                let mut headers = HeaderMap::new();
-                headers.insert("HX-Trigger", "refresh_nodes".parse().unwrap());
-
-                let mut html = template.render().unwrap();
-                html.push_str("<script>document.getElementById('add-node-modal').close(); document.getElementById('manual-install-modal').showModal();</script>");
-
-                return (headers, Html(html)).into_response();
-            }
+            let join_token = sqlx::query_scalar::<_, String>(
+                "SELECT COALESCE(join_token, '') FROM nodes WHERE id = $1",
+            )
+            .bind(id)
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
 
             let admin_path = state.admin_path.clone();
+            let template = NodeManualInstallTemplate {
+                node_id: id,
+                node_name: form.name.clone(),
+                join_token,
+                admin_path,
+            };
+
             let mut headers = HeaderMap::new();
-            headers.insert("HX-Redirect", format!("{}/nodes", admin_path).parse().unwrap());
-            (axum::http::StatusCode::OK, headers, "Node created").into_response()
+            headers.insert("HX-Trigger", "refresh_nodes".parse().unwrap());
+
+            let mut html = template.render().unwrap();
+            html.push_str("<script>document.getElementById('add-node-modal').close(); document.getElementById('manual-install-modal').showModal();</script>");
+
+            (headers, Html(html)).into_response()
         }
         Err(e) => {
             error!("Failed to insert node: {}", e);
@@ -408,15 +416,27 @@ pub async fn get_node_install_script(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let node = match state.infrastructure_service.get_node_by_id(id).await {
-        Ok(node) => node,
-        Err(e) => {
-            error!("Failed to load node {} for install script: {}", id, e);
+    let join_token = match sqlx::query_scalar::<_, String>(
+        "SELECT COALESCE(join_token, '') FROM nodes WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await
+    {
+        Ok(Some(token)) => token,
+        Ok(None) => {
             return (axum::http::StatusCode::NOT_FOUND, "Node not found").into_response();
+        }
+        Err(e) => {
+            error!("Failed to load join token for node {}: {}", id, e);
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to load node token",
+            )
+                .into_response();
         }
     };
 
-    let join_token = node.join_token.unwrap_or_default();
     if join_token.trim().is_empty() {
         return (axum::http::StatusCode::BAD_REQUEST, "Node token is empty").into_response();
     }

@@ -54,7 +54,7 @@
                         <th class="px-4 py-3">Actions</th>
                     </tr>
                 </thead>
-                <tbody id="nodes-table-body" class="divide-y divide-white/5 text-sm" hx-get="{{ admin_path }}/nodes" hx-trigger="every 20s">
+                <tbody id="nodes-table-body" class="divide-y divide-white/5 text-sm" hx-get="{{ admin_path }}/nodes" hx-trigger="load, refresh_nodes from:body, every 20s">
                     {% include "partials/nodes_rows.html" %}
                 </tbody>
             </table>

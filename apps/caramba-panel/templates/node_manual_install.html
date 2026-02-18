@@ -3,7 +3,7 @@
         <h3 class="text-xl font-bold text-white">Manual Node Install</h3>
         <button type="button" onclick="document.getElementById('manual-install-modal').close()" class="text-slate-400 hover:text-white">✕</button>
     </header>
-    <p class="text-slate-300 mb-3">Node <span class="font-semibold text-white">{{ node.name }}</span> is created in pending mode. Run command on target server:</p>
+    <p class="text-slate-300 mb-3">Node <span class="font-semibold text-white">{{ node_name }}</span> is created in pending mode. Run command on target server:</p>
     <pre id="manual-install-command" class="bg-slate-950 border border-white/10 rounded-xl p-4 text-xs text-emerald-300 overflow-x-auto"></pre>
     <p class="text-[11px] text-slate-500 mt-3">Raw token command (fallback):</p>
     <pre id="manual-install-command-raw" class="bg-slate-950 border border-white/10 rounded-xl p-4 text-xs text-amber-300 overflow-x-auto"></pre>
@@ -17,8 +17,8 @@
 <script>
     (function () {
         const origin = window.location.origin;
-        const command = `curl -fsSL ${origin}/nodes/{{ node.id }}/script | sudo bash`;
-        const raw = `curl -fsSL ${origin}/install.sh | sudo bash -s -- --role node --panel ${origin} --token {{ node.join_token.as_deref().unwrap_or("") }}`;
+        const command = `curl -fsSL ${origin}/nodes/{{ node_id }}/script | sudo bash`;
+        const raw = `curl -fsSL ${origin}/install.sh | sudo bash -s -- --role node --panel ${origin} --token {{ join_token }}`;
         document.getElementById('manual-install-command').textContent = command;
         document.getElementById('manual-install-command-raw').textContent = raw;
     })();
