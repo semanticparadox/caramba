@@ -1,5 +1,6 @@
-use sqlx::PgPool;
+use chrono::{DateTime, Utc};
 use anyhow::{Context, Result};
+use sqlx::{postgres::PgRow, PgPool, Row};
 use crate::models::node::{Node};
 use crate::models::network::{Inbound};
 use crate::models::groups::{NodeGroup, NodeGroupMember, PlanGroup};
@@ -14,28 +15,164 @@ impl NodeRepository {
         Self { pool }
     }
 
+    fn row_to_node(row: &PgRow) -> Node {
+        Node {
+            id: row.try_get::<i64, _>("id").unwrap_or_default(),
+            name: row
+                .try_get::<String, _>("name")
+                .unwrap_or_else(|_| "Unknown Node".to_string()),
+            ip: row
+                .try_get::<String, _>("ip")
+                .unwrap_or_else(|_| "0.0.0.0".to_string()),
+            status: row
+                .try_get::<String, _>("status")
+                .unwrap_or_else(|_| "new".to_string()),
+            reality_pub: row.try_get::<Option<String>, _>("reality_pub").ok().flatten(),
+            reality_priv: row
+                .try_get::<Option<String>, _>("reality_priv")
+                .ok()
+                .flatten(),
+            short_id: row.try_get::<Option<String>, _>("short_id").ok().flatten(),
+            domain: row.try_get::<Option<String>, _>("domain").ok().flatten(),
+            root_password: row
+                .try_get::<Option<String>, _>("root_password")
+                .ok()
+                .flatten(),
+            vpn_port: row
+                .try_get::<i64, _>("vpn_port")
+                .or_else(|_| row.try_get::<i32, _>("vpn_port").map(|v| v as i64))
+                .unwrap_or(443),
+            last_seen: row.try_get::<Option<DateTime<Utc>>, _>("last_seen").ok().flatten(),
+            created_at: row
+                .try_get::<DateTime<Utc>, _>("created_at")
+                .unwrap_or_else(|_| Utc::now()),
+            join_token: row.try_get::<Option<String>, _>("join_token").ok().flatten(),
+            auto_configure: row.try_get::<bool, _>("auto_configure").unwrap_or(false),
+            is_enabled: row.try_get::<bool, _>("is_enabled").unwrap_or(true),
+            country_code: row
+                .try_get::<Option<String>, _>("country_code")
+                .ok()
+                .flatten(),
+            country: row.try_get::<Option<String>, _>("country").ok().flatten(),
+            city: row.try_get::<Option<String>, _>("city").ok().flatten(),
+            flag: row.try_get::<Option<String>, _>("flag").ok().flatten(),
+            reality_sni: row
+                .try_get::<Option<String>, _>("reality_sni")
+                .ok()
+                .flatten(),
+            load_stats: row.try_get::<Option<String>, _>("load_stats").ok().flatten(),
+            check_stats_json: row
+                .try_get::<Option<String>, _>("check_stats_json")
+                .ok()
+                .flatten(),
+            sort_order: row.try_get::<i32, _>("sort_order").unwrap_or_default(),
+            latitude: row.try_get::<Option<f64>, _>("latitude").ok().flatten(),
+            longitude: row.try_get::<Option<f64>, _>("longitude").ok().flatten(),
+            config_qos_enabled: row
+                .try_get::<bool, _>("config_qos_enabled")
+                .unwrap_or(false),
+            config_block_torrent: row
+                .try_get::<bool, _>("config_block_torrent")
+                .unwrap_or(false),
+            config_block_ads: row
+                .try_get::<bool, _>("config_block_ads")
+                .unwrap_or(false),
+            config_block_porn: row
+                .try_get::<bool, _>("config_block_porn")
+                .unwrap_or(false),
+            last_latency: row.try_get::<Option<f64>, _>("last_latency").ok().flatten(),
+            last_cpu: row.try_get::<Option<f64>, _>("last_cpu").ok().flatten(),
+            last_ram: row.try_get::<Option<f64>, _>("last_ram").ok().flatten(),
+            max_ram: row
+                .try_get::<i64, _>("max_ram")
+                .or_else(|_| row.try_get::<i32, _>("max_ram").map(|v| v as i64))
+                .unwrap_or_default(),
+            cpu_cores: row
+                .try_get::<i32, _>("cpu_cores")
+                .or_else(|_| row.try_get::<i16, _>("cpu_cores").map(i32::from))
+                .unwrap_or_default(),
+            cpu_model: row.try_get::<Option<String>, _>("cpu_model").ok().flatten(),
+            speed_limit_mbps: row
+                .try_get::<i32, _>("speed_limit_mbps")
+                .unwrap_or_default(),
+            max_users: row.try_get::<i32, _>("max_users").unwrap_or_default(),
+            current_speed_mbps: row
+                .try_get::<i32, _>("current_speed_mbps")
+                .unwrap_or_default(),
+            relay_id: row.try_get::<Option<i64>, _>("relay_id").ok().flatten(),
+            active_connections: row
+                .try_get::<Option<i32>, _>("active_connections")
+                .ok()
+                .flatten(),
+            total_ingress: row
+                .try_get::<i64, _>("total_ingress")
+                .or_else(|_| row.try_get::<i32, _>("total_ingress").map(|v| v as i64))
+                .unwrap_or_default(),
+            total_egress: row
+                .try_get::<i64, _>("total_egress")
+                .or_else(|_| row.try_get::<i32, _>("total_egress").map(|v| v as i64))
+                .unwrap_or_default(),
+            uptime: row
+                .try_get::<i64, _>("uptime")
+                .or_else(|_| row.try_get::<i32, _>("uptime").map(|v| v as i64))
+                .unwrap_or_default(),
+            last_session_ingress: row
+                .try_get::<i64, _>("last_session_ingress")
+                .or_else(|_| row.try_get::<i32, _>("last_session_ingress").map(|v| v as i64))
+                .unwrap_or_default(),
+            last_session_egress: row
+                .try_get::<i64, _>("last_session_egress")
+                .or_else(|_| row.try_get::<i32, _>("last_session_egress").map(|v| v as i64))
+                .unwrap_or_default(),
+            doomsday_password: row
+                .try_get::<Option<String>, _>("doomsday_password")
+                .ok()
+                .flatten(),
+            version: row.try_get::<Option<String>, _>("version").ok().flatten(),
+            target_version: row
+                .try_get::<Option<String>, _>("target_version")
+                .ok()
+                .flatten(),
+            last_synced_at: row
+                .try_get::<Option<DateTime<Utc>>, _>("last_synced_at")
+                .ok()
+                .flatten(),
+            last_sync_trigger: row
+                .try_get::<Option<String>, _>("last_sync_trigger")
+                .ok()
+                .flatten(),
+            is_relay: row.try_get::<bool, _>("is_relay").unwrap_or(false),
+            pending_log_collection: row
+                .try_get::<bool, _>("pending_log_collection")
+                .unwrap_or(false),
+        }
+    }
+
     // ==================== NODES ====================
 
     pub async fn get_all_nodes(&self) -> Result<Vec<Node>> {
-        sqlx::query_as::<_, Node>("SELECT * FROM nodes ORDER BY sort_order ASC, name ASC")
+        let rows = sqlx::query("SELECT * FROM nodes ORDER BY sort_order ASC, name ASC")
             .fetch_all(&self.pool)
             .await
-            .context("Failed to fetch all nodes")
+            .context("Failed to fetch all nodes")?;
+        Ok(rows.into_iter().map(|row| Self::row_to_node(&row)).collect())
     }
 
     pub async fn get_active_nodes(&self) -> Result<Vec<Node>> {
-        sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE status = 'active' ORDER BY sort_order ASC, name ASC")
+        let rows = sqlx::query("SELECT * FROM nodes WHERE status = 'active' ORDER BY sort_order ASC, name ASC")
             .fetch_all(&self.pool)
             .await
-            .context("Failed to fetch active nodes")
+            .context("Failed to fetch active nodes")?;
+        Ok(rows.into_iter().map(|row| Self::row_to_node(&row)).collect())
     }
 
     pub async fn get_node_by_id(&self, id: i64) -> Result<Option<Node>> {
-        sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE id = $1")
+        let row = sqlx::query("SELECT * FROM nodes WHERE id = $1")
             .bind(id)
             .fetch_optional(&self.pool)
             .await
-            .context("Failed to fetch node by ID")
+            .context("Failed to fetch node by ID")?;
+        Ok(row.map(|r| Self::row_to_node(&r)))
     }
     
     pub async fn get_active_node_ids(&self) -> Result<Vec<i64>> {
@@ -46,11 +183,12 @@ impl NodeRepository {
     }
 
     pub async fn get_relay_clients(&self, node_id: i64) -> Result<Vec<Node>> {
-        sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE relay_id = $1 AND status = 'active'")
+        let rows = sqlx::query("SELECT * FROM nodes WHERE relay_id = $1 AND status = 'active'")
             .bind(node_id)
             .fetch_all(&self.pool)
             .await
-            .context("Failed to fetch relay clients")
+            .context("Failed to fetch relay clients")?;
+        Ok(rows.into_iter().map(|row| Self::row_to_node(&row)).collect())
     }
 
     pub async fn create_node(&self, node: &Node) -> Result<i64> {
@@ -95,8 +233,8 @@ impl NodeRepository {
             Err(e) => {
                 // Backward-compat for installations where nodes.relay_id is not migrated yet.
                 let msg = e.to_string();
-                if msg.contains("relay_id") && msg.contains("does not exist") {
-                    let id = sqlx::query_scalar(
+                if msg.contains("does not exist") {
+                    let secondary = sqlx::query_scalar(
                         r#"
                         INSERT INTO nodes (
                             name, ip, domain, country, city, flag,
@@ -129,8 +267,33 @@ impl NodeRepository {
                     .bind(&node.reality_sni)
                     .bind(&node.doomsday_password)
                     .fetch_one(&self.pool)
-                    .await?;
-                    Ok(id)
+                    .await;
+
+                    match secondary {
+                        Ok(id) => Ok(id),
+                        Err(e2) => {
+                            let msg2 = e2.to_string();
+                            if msg2.contains("does not exist") {
+                                let id = sqlx::query_scalar(
+                                    r#"
+                                    INSERT INTO nodes (name, ip, status, join_token, vpn_port)
+                                    VALUES ($1, $2, $3, $4, $5)
+                                    RETURNING id
+                                    "#
+                                )
+                                .bind(&node.name)
+                                .bind(&node.ip)
+                                .bind(&node.status)
+                                .bind(&node.join_token)
+                                .bind(node.vpn_port)
+                                .fetch_one(&self.pool)
+                                .await?;
+                                Ok(id)
+                            } else {
+                                Err(e2.into())
+                            }
+                        }
+                    }
                 } else {
                     Err(e.into())
                 }
@@ -284,7 +447,7 @@ impl NodeRepository {
             return Ok(Vec::new());
         }
         
-        sqlx::query_as::<_, Node>(
+        let rows = sqlx::query(
             r#"
             SELECT DISTINCT n.* FROM nodes n
             JOIN node_group_members gn ON gn.node_id = n.id
@@ -295,7 +458,8 @@ impl NodeRepository {
         .bind(group_ids)
         .fetch_all(&self.pool)
         .await
-        .context("Failed to fetch nodes by groups")
+        .context("Failed to fetch nodes by groups")?;
+        Ok(rows.into_iter().map(|row| Self::row_to_node(&row)).collect())
     }
 
     pub async fn create_group(&self, name: &str, description: Option<&str>) -> Result<i64> {

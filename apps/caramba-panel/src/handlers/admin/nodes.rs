@@ -121,7 +121,13 @@ pub async fn get_nodes(
     headers: HeaderMap,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let nodes = state.infrastructure_service.get_all_nodes().await.unwrap_or_default();
+    let nodes = match state.infrastructure_service.get_all_nodes().await {
+        Ok(nodes) => nodes,
+        Err(e) => {
+            error!("Failed to load nodes list: {}", e);
+            Vec::new()
+        }
+    };
     
     let admin_path = state.admin_path.clone();
 

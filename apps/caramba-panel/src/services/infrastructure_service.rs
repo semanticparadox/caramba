@@ -1,6 +1,6 @@
 use sqlx::PgPool;
 use anyhow::Result;
-use tracing::info;
+use tracing::{info, warn};
 use rand::distr::{Alphanumeric, SampleString};
 use caramba_db::repositories::node_repo::NodeRepository;
 use caramba_db::models::node::Node;
@@ -113,17 +113,30 @@ impl InfrastructureService {
 
         let id = self.node_repo.create_node(&node).await?;
         
-        // Phase 16: Ensure node is added to "Default" group
-        let default_group = self.node_repo.get_group_by_name("Default").await?;
-        let group_id = match default_group {
-            Some(g) => g.id,
-            None => {
-                // Create Default Group if missing
-                self.node_repo.create_group("Default", Some("Default group for new nodes")).await?
+        // Non-critical enrichment: if group tables are out-of-sync, keep node created.
+        match self.node_repo.get_group_by_name("Default").await {
+            Ok(default_group) => {
+                let group_id = match default_group {
+                    Some(g) => g.id,
+                    None => match self
+                        .node_repo
+                        .create_group("Default", Some("Default group for new nodes"))
+                        .await
+                    {
+                        Ok(new_id) => new_id,
+                        Err(e) => {
+                            warn!("Node {} created but failed to create Default group: {}", id, e);
+                            return Ok(id);
+                        }
+                    },
+                };
+
+                if let Err(e) = self.node_repo.add_node_to_group(id, group_id).await {
+                    warn!("Node {} created but failed to attach to Default group: {}", id, e);
+                }
             }
-        };
-        
-        self.node_repo.add_node_to_group(id, group_id).await?;
+            Err(e) => warn!("Node {} created but failed to query Default group: {}", id, e),
+        }
         
         Ok(id)
     }
