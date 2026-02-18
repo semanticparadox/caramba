@@ -4,6 +4,30 @@ Rust workspace for censorship-resistant VPN orchestration.
 
 Caramba manages node provisioning, Sing-box config generation, subscriptions, billing/bot workflows, and disposable frontend delivery.
 
+## Installation Model (Installer-First)
+
+Primary installation flow is based on release binary `caramba-installer`.
+
+- `scripts/install.sh` downloads latest release asset `caramba-installer`
+- installs it as `/usr/local/bin/caramba`
+- runs `caramba install --hub`
+
+So `caramba-installer` is the control point for install/upgrade/diagnostics/restore/uninstall workflows, not just a one-time bootstrap helper.
+
+### Interactive Setup Inputs
+
+During `install --hub` installer asks for:
+
+- panel domain (`panel.example.com`)
+- subscription domain (`sub.example.com`, in hub mode)
+- admin path (`/admin` by default)
+- install directory (`/opt/caramba` by default)
+- PostgreSQL password for `caramba` DB user
+
+Installer then configures Caddy routes (panel -> `127.0.0.1:3000`, sub -> `127.0.0.1:8080`), writes `.env`, sets up DB, downloads release binaries, and installs systemd services.
+
+Admin login/password are finalized in panel setup flow after deployment.
+
 ## Components
 
 - `apps/caramba-panel`: control plane (admin UI, APIs, orchestration, telemetry, billing, SNI pool, relay logic)
@@ -43,6 +67,18 @@ Run node/bot/sub binaries:
 cargo run -p caramba-node
 cargo run -p caramba-bot
 cargo run -p caramba-sub
+```
+
+## Installer Commands
+
+```bash
+caramba install --hub
+caramba install --panel
+caramba install --node
+caramba upgrade
+caramba diagnose
+caramba restore --file /path/to/backup.tar.gz
+caramba uninstall
 ```
 
 ## Docs
