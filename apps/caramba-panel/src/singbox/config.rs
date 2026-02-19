@@ -2,11 +2,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 
-
 pub struct SingBoxConfig {
     pub log: LogConfig,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub dns: Option<DnsConfig>, 
+    pub dns: Option<DnsConfig>,
     pub inbounds: Vec<Inbound>,
     pub outbounds: Vec<Outbound>,
     pub route: Option<RouteConfig>,
@@ -57,7 +56,6 @@ pub struct ClashApiConfig {
     pub access_control_allow_private_network: Option<bool>,
 }
 
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LogConfig {
     pub level: String,
@@ -85,7 +83,7 @@ pub struct HttpInbound {
     pub listen_port: u16,
     pub users: Vec<HttpUser>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tls: Option<VlessTlsConfig>, 
+    pub tls: Option<VlessTlsConfig>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -216,16 +214,16 @@ pub struct Hysteria2Inbound {
     pub up_mbps: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub down_mbps: Option<i32>,
-    
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_client_bandwidth: Option<bool>,
-    
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub obfs: Option<Hysteria2Obfs>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub masquerade: Option<String>,
-    
+
     pub tls: Hysteria2TlsConfig,
 }
 
@@ -291,7 +289,6 @@ pub struct AmneziaWgUser {
     pub preshared_key: Option<String>,
     pub allowed_ips: Vec<String>,
 }
-
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename_all = "lowercase")]

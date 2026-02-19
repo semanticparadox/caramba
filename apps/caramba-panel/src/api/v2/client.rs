@@ -1,10 +1,10 @@
+use crate::AppState;
 use axum::{
-    extract::{State, Query},
-    response::{IntoResponse, Json},
+    extract::{Query, State},
     http::StatusCode,
+    response::{IntoResponse, Json},
 };
 use serde::{Deserialize, Serialize};
-use crate::AppState;
 use tracing::error;
 
 #[derive(Deserialize)]
@@ -73,8 +73,8 @@ pub async fn get_recommended_nodes(
                     } else {
                         (0.0, 0.0)
                     }
-                },
-                Err(_) => (0.0, 0.0)
+                }
+                Err(_) => (0.0, 0.0),
             }
         }
     };
@@ -91,33 +91,40 @@ pub async fn get_recommended_nodes(
         };
 
     // 3. Score Nodes
-    let mut scored_nodes: Vec<RecommendedNode> = nodes.into_iter().map(|n| {
-        let node_lat = n.latitude.unwrap_or(0.0);
-        let node_lon = n.longitude.unwrap_or(0.0);
-        
-        let dist = haversine(user_lat, user_lon, node_lat, node_lon);
-        let lat = n.last_latency.unwrap_or(999.0); // Penalty if no latency
-        let cpu = n.last_cpu.unwrap_or(0.0);
-        let ram = n.last_ram.unwrap_or(0.0);
-        let load = (cpu + ram) / 2.0;
+    let mut scored_nodes: Vec<RecommendedNode> = nodes
+        .into_iter()
+        .map(|n| {
+            let node_lat = n.latitude.unwrap_or(0.0);
+            let node_lon = n.longitude.unwrap_or(0.0);
 
-        // Weights: Distance (1.0), Latency (0.5), Load (5.0)
-        // Adjust these based on preference for speed vs proximity
-        let score = (dist * 1.0) + (lat * 0.5) + (load * 5.0);
-        
-        RecommendedNode {
-            id: n.id,
-            name: n.name,
-            country_code: n.country_code.unwrap_or("UNK".to_string()),
-            score,
-            distance_km: dist,
-            load_pct: load,
-            latency_ms: lat,
-        }
-    }).collect();
+            let dist = haversine(user_lat, user_lon, node_lat, node_lon);
+            let lat = n.last_latency.unwrap_or(999.0); // Penalty if no latency
+            let cpu = n.last_cpu.unwrap_or(0.0);
+            let ram = n.last_ram.unwrap_or(0.0);
+            let load = (cpu + ram) / 2.0;
+
+            // Weights: Distance (1.0), Latency (0.5), Load (5.0)
+            // Adjust these based on preference for speed vs proximity
+            let score = (dist * 1.0) + (lat * 0.5) + (load * 5.0);
+
+            RecommendedNode {
+                id: n.id,
+                name: n.name,
+                country_code: n.country_code.unwrap_or("UNK".to_string()),
+                score,
+                distance_km: dist,
+                load_pct: load,
+                latency_ms: lat,
+            }
+        })
+        .collect();
 
     // 4. Sort (Lowest score is best)
-    scored_nodes.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
+    scored_nodes.sort_by(|a, b| {
+        a.score
+            .partial_cmp(&b.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // 5. Return Top 3
     let top_nodes = scored_nodes.into_iter().take(3).collect::<Vec<_>>();
@@ -125,14 +132,16 @@ pub async fn get_recommended_nodes(
     Json(serde_json::json!({
         "user_location": { "lat": user_lat, "lon": user_lon },
         "nodes": top_nodes
-    })).into_response()
+    }))
+    .into_response()
 }
 
 fn haversine(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     let r = 6371.0; // Earth radius in km
     let dlat = (lat2 - lat1).to_radians();
     let dlon = (lon2 - lon1).to_radians();
-    let a = (dlat / 2.0).sin().powi(2) + lat1.to_radians().cos() * lat2.to_radians().cos() * (dlon / 2.0).sin().powi(2);
+    let a = (dlat / 2.0).sin().powi(2)
+        + lat1.to_radians().cos() * lat2.to_radians().cos() * (dlon / 2.0).sin().powi(2);
     let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
     r * c
 }

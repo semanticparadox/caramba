@@ -182,7 +182,10 @@ BOT_TOKEN: {bot_token}\n\
 
     println!("{}", style(&summary).green());
 
-    let summary_path = format!("{}/INSTALL_SUMMARY.txt", config.install_dir.trim_end_matches('/'));
+    let summary_path = format!(
+        "{}/INSTALL_SUMMARY.txt",
+        config.install_dir.trim_end_matches('/')
+    );
     if let Err(e) = std::fs::write(&summary_path, summary) {
         eprintln!("Failed to write summary file {}: {}", summary_path, e);
     } else {
@@ -296,8 +299,8 @@ async fn main() {
 
                 let maybe_node_token = pick_non_empty(token, "NODE_TOKEN")
                     .or_else(|| pick_non_empty(None, "ENROLLMENT_KEY"));
-                let maybe_bot_token = pick_non_empty(bot_token, "BOT_TOKEN")
-                    .or_else(|| config.hub_bot_token.clone());
+                let maybe_bot_token =
+                    pick_non_empty(bot_token, "BOT_TOKEN").or_else(|| config.hub_bot_token.clone());
                 let region = pick_non_empty(region, "REGION");
 
                 if let Err(e) = install::install_hub(

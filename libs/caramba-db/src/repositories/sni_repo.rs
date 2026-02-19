@@ -1,6 +1,6 @@
-use sqlx::PgPool;
+use crate::models::sni::{SniBlacklistItem, SniPoolItem};
 use anyhow::{Context, Result};
-use crate::models::sni::{SniPoolItem, SniBlacklistItem};
+use sqlx::PgPool;
 
 #[derive(Debug, Clone)]
 pub struct SniRepository {
@@ -27,16 +27,18 @@ impl SniRepository {
     }
 
     pub async fn get_snis_by_node(&self, node_id: i64) -> Result<Vec<SniPoolItem>> {
-        sqlx::query_as::<_, SniPoolItem>("SELECT * FROM sni_pool WHERE discovered_by_node_id = $1 ORDER BY domain ASC")
-            .bind(node_id)
-            .fetch_all(&self.pool)
-            .await
-            .context("Failed to fetch SNIs by node")
+        sqlx::query_as::<_, SniPoolItem>(
+            "SELECT * FROM sni_pool WHERE discovered_by_node_id = $1 ORDER BY domain ASC",
+        )
+        .bind(node_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch SNIs by node")
     }
 
     pub async fn add_sni(&self, domain: &str, tier: i32, notes: Option<&str>) -> Result<i64> {
         let id = sqlx::query_scalar(
-            "INSERT INTO sni_pool (domain, tier, notes) VALUES ($1, $2, $3) RETURNING id"
+            "INSERT INTO sni_pool (domain, tier, notes) VALUES ($1, $2, $3) RETURNING id",
         )
         .bind(domain)
         .bind(tier)
@@ -44,7 +46,7 @@ impl SniRepository {
         .fetch_one(&self.pool)
         .await
         .context("Failed to add SNI to pool")?;
-        
+
         Ok(id)
     }
 
@@ -54,7 +56,7 @@ impl SniRepository {
             .execute(&self.pool)
             .await
             .context("Failed to delete SNI from pool")?;
-        
+
         Ok(())
     }
 
@@ -65,11 +67,14 @@ impl SniRepository {
             .execute(&self.pool)
             .await
             .context("Failed to toggle SNI activity")?;
-        
+
         Ok(())
     }
 
-    pub async fn get_recent_logs(&self, limit: i64) -> Result<Vec<crate::models::sni_log::SniRotationLog>> {
+    pub async fn get_recent_logs(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<crate::models::sni_log::SniRotationLog>> {
         sqlx::query_as::<_, crate::models::sni_log::SniRotationLog>(
             r#"
             SELECT l.*, n.name as node_name
@@ -77,7 +82,7 @@ impl SniRepository {
             LEFT JOIN nodes n ON l.node_id = n.id
             ORDER BY l.rotated_at DESC
             LIMIT $1
-            "#
+            "#,
         )
         .bind(limit)
         .fetch_all(&self.pool)
@@ -85,10 +90,12 @@ impl SniRepository {
         .context("Failed to fetch rotation logs")
     }
     pub async fn get_blacklisted_snis(&self) -> Result<Vec<SniBlacklistItem>> {
-        sqlx::query_as::<_, SniBlacklistItem>("SELECT * FROM sni_blacklist ORDER BY blocked_at DESC")
-            .fetch_all(&self.pool)
-            .await
-            .context("Failed to fetch blacklisted SNIs")
+        sqlx::query_as::<_, SniBlacklistItem>(
+            "SELECT * FROM sni_blacklist ORDER BY blocked_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch blacklisted SNIs")
     }
 
     pub async fn seed_default_global_pool_if_empty(&self) -> Result<()> {

@@ -1,6 +1,6 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct User {
@@ -23,7 +23,6 @@ pub struct User {
     pub parent_id: Option<i64>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Plan {
     pub id: i64,
@@ -37,7 +36,6 @@ pub struct Plan {
     #[sqlx(skip)]
     pub durations: Vec<PlanDuration>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PlanDuration {
@@ -63,12 +61,10 @@ pub struct Subscription {
     pub auto_renew: Option<bool>,
     pub alerts_sent: Option<String>, // JSON array: ["80_percent", "90_percent"]
     pub is_trial: Option<bool>,
-    pub subscription_uuid: String,  // For subscription URLs
+    pub subscription_uuid: String,              // For subscription URLs
     pub last_sub_access: Option<DateTime<Utc>>, // Track subscription URL access
     pub created_at: DateTime<Utc>,
 }
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct FamilyInvite {
@@ -181,8 +177,18 @@ pub struct SniRotationLog {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RenewalResult {
-    Success { user_id: i64, sub_id: i64, amount: i64, plan_name: String },
-    InsufficientFunds { user_id: i64, sub_id: i64, required: i64, available: i64 },
+    Success {
+        user_id: i64,
+        sub_id: i64,
+        amount: i64,
+        plan_name: String,
+    },
+    InsufficientFunds {
+        user_id: i64,
+        sub_id: i64,
+        required: i64,
+        available: i64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

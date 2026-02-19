@@ -1,7 +1,7 @@
-use sqlx::PgPool;
-use anyhow::{Result, Context};
-use chrono::{DateTime, Utc};
+use anyhow::{Context, Result};
 use caramba_db::models::promo::{PromoCode, PromoCodeUsage};
+use chrono::{DateTime, Utc};
+use sqlx::PgPool;
 
 #[derive(Debug, Clone)]
 pub struct PromoService {
@@ -16,7 +16,7 @@ impl PromoService {
     /// Unified redemption: Checks Gift Codes first, then Promo Codes.
     pub async fn redeem_code(&self, user_id: i64, code: &str) -> Result<String> {
         let code = code.trim().to_uppercase();
-        
+
         // 1. Check Gift Codes (User-to-User Single Use)
         let gift: Option<(i64, i64, i32)> = sqlx::query_as::<_, (i64, i64, i32)>(
             "SELECT id, plan_id, duration_days FROM gift_codes WHERE code = $1 AND redeemed_by_user_id IS NULL"
@@ -26,7 +26,9 @@ impl PromoService {
         .await?;
 
         if let Some((gift_id, plan_id, duration)) = gift {
-            return self.redeem_gift_code(user_id, gift_id, plan_id, duration).await;
+            return self
+                .redeem_gift_code(user_id, gift_id, plan_id, duration)
+                .await;
         }
 
         // 2. Check Promo Codes (Admin/Promoter Multi-Use)
@@ -44,19 +46,26 @@ impl PromoService {
         Err(anyhow::anyhow!("Code not found or already used"))
     }
 
-    async fn redeem_gift_code(&self, user_id: i64, gift_id: i64, plan_id: i64, duration: i32) -> Result<String> {
+    async fn redeem_gift_code(
+        &self,
+        user_id: i64,
+        gift_id: i64,
+        plan_id: i64,
+        duration: i32,
+    ) -> Result<String> {
         let mut tx = self.pool.begin().await?;
-        
+
         sqlx::query("UPDATE gift_codes SET redeemed_by_user_id = $1, redeemed_at = CURRENT_TIMESTAMP WHERE id = $2")
             .bind(user_id)
             .bind(gift_id)
             .execute(&mut *tx)
             .await?;
 
-        let _traffic_gb: i64 = sqlx::query_scalar("SELECT traffic_limit_gb FROM plans WHERE id = $1")
-            .bind(plan_id)
-            .fetch_one(&mut *tx)
-            .await?;
+        let _traffic_gb: i64 =
+            sqlx::query_scalar("SELECT traffic_limit_gb FROM plans WHERE id = $1")
+                .bind(plan_id)
+                .fetch_one(&mut *tx)
+                .await?;
 
         let expires_at = Utc::now() + chrono::Duration::days(duration as i64);
         let vless_uuid = uuid::Uuid::new_v4().to_string();
@@ -74,7 +83,10 @@ impl PromoService {
         .await?;
 
         tx.commit().await?;
-        Ok(format!("Gift subscription activated for {} days!", duration))
+        Ok(format!(
+            "Gift subscription activated for {} days!",
+            duration
+        ))
     }
 
     async fn redeem_promo_code(&self, user_id: i64, promo: PromoCode) -> Result<String> {
@@ -122,9 +134,11 @@ impl PromoService {
                 format!("Success! Received {} credits to balance.", amount)
             }
             "subscription" | "trial" => {
-                let plan_id = promo.plan_id.ok_or_else(|| anyhow::anyhow!("Missing plan for subscription promo"))?;
+                let plan_id = promo
+                    .plan_id
+                    .ok_or_else(|| anyhow::anyhow!("Missing plan for subscription promo"))?;
                 let duration = promo.duration_days.unwrap_or(7);
-                
+
                 let expires_at = Utc::now() + chrono::Duration::days(duration as i64);
                 let vless_uuid = uuid::Uuid::new_v4().to_string();
                 let sub_uuid = uuid::Uuid::new_v4().to_string();
@@ -167,7 +181,18 @@ impl PromoService {
         .context("Failed to fetch promo usages")
     }
 
-    pub async fn create_promo(&self, code: &str, p_type: &str, plan_id: Option<i64>, balance: Option<i32>, duration: Option<i32>, traffic: Option<i32>, max_uses: i32, expires_at: Option<DateTime<Utc>>, admin_id: i64) -> Result<i64> {
+    pub async fn create_promo(
+        &self,
+        code: &str,
+        p_type: &str,
+        plan_id: Option<i64>,
+        balance: Option<i32>,
+        duration: Option<i32>,
+        traffic: Option<i32>,
+        max_uses: i32,
+        expires_at: Option<DateTime<Utc>>,
+        admin_id: i64,
+    ) -> Result<i64> {
         let id: i64 = sqlx::query_scalar("INSERT INTO promo_codes (code, type, plan_id, balance_amount, duration_days, traffic_gb, max_uses, expires_at, created_by_admin_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id")
             .bind(code.trim().to_uppercase())
             .bind(p_type)

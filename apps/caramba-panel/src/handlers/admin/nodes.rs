@@ -16,6 +16,7 @@ use super::auth::get_auth_user;
 use crate::AppState;
 use caramba_db::models::node::Node;
 use chrono::Utc;
+use uuid::Uuid;
 
 // ============================================================================
 // Templates
@@ -119,6 +120,37 @@ pub struct UpdateNodeForm {
     pub config_qos_enabled: Option<String>,
 }
 
+async fn ensure_node_join_token(pool: &sqlx::PgPool, node_id: i64) -> anyhow::Result<String> {
+    let existing: Option<Option<String>> =
+        sqlx::query_scalar("SELECT join_token FROM nodes WHERE id = $1")
+            .bind(node_id)
+            .fetch_optional(pool)
+            .await?;
+
+    let current = match existing {
+        Some(v) => v.unwrap_or_default(),
+        None => return Err(anyhow::anyhow!("Node not found")),
+    };
+
+    if !current.trim().is_empty() {
+        return Ok(current);
+    }
+
+    let token = Uuid::new_v4().to_string();
+    let rows = sqlx::query("UPDATE nodes SET join_token = $1 WHERE id = $2")
+        .bind(&token)
+        .bind(node_id)
+        .execute(pool)
+        .await?
+        .rows_affected();
+
+    if rows == 0 {
+        return Err(anyhow::anyhow!("Node not found"));
+    }
+
+    Ok(token)
+}
+
 // ============================================================================
 // Route Handlers
 // ============================================================================
@@ -203,15 +235,17 @@ pub async fn install_node(
             }
 
             // Always return installation modal with command+token, same as legacy flow.
-            let join_token = sqlx::query_scalar::<_, String>(
-                "SELECT COALESCE(join_token, '') FROM nodes WHERE id = $1",
-            )
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_default();
+            let join_token = match ensure_node_join_token(&state.pool, id).await {
+                Ok(token) => token,
+                Err(e) => {
+                    error!("Failed to resolve node token for {}: {}", id, e);
+                    return (
+                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                        "Failed to generate node token",
+                    )
+                        .into_response();
+                }
+            };
 
             let admin_path = state.admin_path.clone();
             let template = NodeManualInstallTemplate {
@@ -372,22 +406,22 @@ pub async fn sync_node(Path(id): Path<i64>, State(state): State<AppState>) -> im
     let pubsub = state.pubsub.clone();
 
     tokio::spawn(async move {
-        // Reset inbounds using orchestration service
-        if let Err(e) = orch.reset_inbounds(id).await {
-            error!("Failed to reset inbounds for node {}: {}", id, e);
-        } else {
-            info!(
-                "Successfully regenerated inbounds with fresh keys for node {}",
-                id
+        // Sync should be non-destructive: keep chosen/manual inbounds and only regenerate effective config.
+        if let Err(e) = orch.generate_node_config_json(id).await {
+            error!(
+                "Failed to generate config for node {} during manual sync: {}",
+                id, e
             );
+            return;
+        }
 
-            // Notify Agent
-            if let Err(e) = pubsub
-                .publish(&format!("node_events:{}", id), "update")
-                .await
-            {
-                error!("Failed to publish update event: {}", e);
-            }
+        if let Err(e) = pubsub
+            .publish(&format!("node_events:{}", id), "update")
+            .await
+        {
+            error!("Failed to publish update event: {}", e);
+        } else {
+            info!("Successfully requested config pull for node {}", id);
         }
     });
 
@@ -511,19 +545,13 @@ pub async fn get_node_install_script(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let join_token = match sqlx::query_scalar::<_, String>(
-        "SELECT COALESCE(join_token, '') FROM nodes WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await
-    {
-        Ok(Some(token)) => token,
-        Ok(None) => {
-            return (axum::http::StatusCode::NOT_FOUND, "Node not found").into_response();
-        }
+    let join_token = match ensure_node_join_token(&state.pool, id).await {
+        Ok(token) => token,
         Err(e) => {
-            error!("Failed to load join token for node {}: {}", id, e);
+            error!("Failed to load/generate join token for node {}: {}", id, e);
+            if e.to_string().contains("Node not found") {
+                return (axum::http::StatusCode::NOT_FOUND, "Node not found").into_response();
+            }
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to load node token",
@@ -532,13 +560,17 @@ pub async fn get_node_install_script(
         }
     };
 
-    if join_token.trim().is_empty() {
-        return (axum::http::StatusCode::BAD_REQUEST, "Node token is empty").into_response();
+    let panel_url = {
+        let configured = state.settings.get_or_default("panel_url", "").await;
+        let from_settings = configured.trim().trim_end_matches('/').to_string();
+        if !from_settings.is_empty() {
+            Some(from_settings)
+        } else {
+            None
+        }
     }
-
-    let panel_url = std::env::var("PANEL_URL")
-        .ok()
-        .and_then(|v| {
+    .or_else(|| {
+        std::env::var("PANEL_URL").ok().and_then(|v| {
             let trimmed = v.trim().trim_end_matches('/').to_string();
             if trimmed.is_empty() {
                 None
@@ -546,20 +578,21 @@ pub async fn get_node_install_script(
                 Some(trimmed)
             }
         })
-        .or_else(|| {
-            headers
-                .get("x-forwarded-host")
-                .or_else(|| headers.get("host"))
-                .and_then(|h| h.to_str().ok())
-                .map(|host| {
-                    let proto = headers
-                        .get("x-forwarded-proto")
-                        .and_then(|v| v.to_str().ok())
-                        .unwrap_or("https");
-                    format!("{}://{}", proto, host.trim_end_matches('/'))
-                })
-        })
-        .unwrap_or_else(|| "https://YOUR_PANEL_DOMAIN".to_string());
+    })
+    .or_else(|| {
+        headers
+            .get("x-forwarded-host")
+            .or_else(|| headers.get("host"))
+            .and_then(|h| h.to_str().ok())
+            .map(|host| {
+                let proto = headers
+                    .get("x-forwarded-proto")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("https");
+                format!("{}://{}", proto, host.trim_end_matches('/'))
+            })
+    })
+    .unwrap_or_else(|| "https://YOUR_PANEL_DOMAIN".to_string());
 
     let script = format!(
         r#"#!/usr/bin/env bash
@@ -597,7 +630,69 @@ pub async fn get_node_raw_install_script(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    get_node_install_script(Path(id), State(state), headers).await
+    let join_token = match ensure_node_join_token(&state.pool, id).await {
+        Ok(token) => token,
+        Err(e) => {
+            error!("Failed to load/generate join token for node {}: {}", id, e);
+            if e.to_string().contains("Node not found") {
+                return (axum::http::StatusCode::NOT_FOUND, "Node not found").into_response();
+            }
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to load node token",
+            )
+                .into_response();
+        }
+    };
+
+    let panel_url = {
+        let configured = state.settings.get_or_default("panel_url", "").await;
+        let from_settings = configured.trim().trim_end_matches('/').to_string();
+        if !from_settings.is_empty() {
+            Some(from_settings)
+        } else {
+            None
+        }
+    }
+    .or_else(|| {
+        std::env::var("PANEL_URL").ok().and_then(|v| {
+            let trimmed = v.trim().trim_end_matches('/').to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+    })
+    .or_else(|| {
+        headers
+            .get("x-forwarded-host")
+            .or_else(|| headers.get("host"))
+            .and_then(|h| h.to_str().ok())
+            .map(|host| {
+                let proto = headers
+                    .get("x-forwarded-proto")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("https");
+                format!("{}://{}", proto, host.trim_end_matches('/'))
+            })
+    })
+    .unwrap_or_else(|| "https://YOUR_PANEL_DOMAIN".to_string());
+
+    let command = format!(
+        "curl -fsSL '{panel_url}/install.sh' | sudo bash -s -- --role node --panel '{panel_url}' --token '{token}'",
+        panel_url = panel_url,
+        token = join_token,
+    );
+
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; charset=utf-8",
+        )],
+        command,
+    )
+        .into_response()
 }
 
 pub async fn get_node_logs(

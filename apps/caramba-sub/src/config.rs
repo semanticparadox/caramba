@@ -1,6 +1,6 @@
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use anyhow::Result;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrontendConfig {
@@ -15,18 +15,15 @@ pub struct FrontendConfig {
 impl FrontendConfig {
     pub fn load() -> Result<Self> {
         // Try to load from /etc/caramba/frontend.toml first
-        let config_paths = vec![
-            "/etc/caramba/frontend.toml",
-            "./frontend.toml",
-        ];
-        
+        let config_paths = vec!["/etc/caramba/frontend.toml", "./frontend.toml"];
+
         for path in config_paths {
             if let Ok(contents) = fs::read_to_string(path) {
                 tracing::info!("Loading config from {}", path);
                 return Ok(toml::from_str(&contents)?);
             }
         }
-        
+
         // Fallback to environment variables
         tracing::info!("Loading config from environment");
         Ok(Self {

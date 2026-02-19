@@ -79,7 +79,7 @@ impl ConnectionService {
 
         loop {
             interval.tick().await;
-            
+
             if let Err(e) = self.check_and_enforce_limits().await {
                 error!("Error in connection monitoring cycle: {:#}", e);
             }
@@ -96,8 +96,9 @@ impl ConnectionService {
         info!("Running device limit enforcement cycle...");
 
         // Get all active nodes
-        let nodes: Vec<caramba_db::models::node::Node> = self.orchestration.node_repo.get_all_nodes().await?;
-        
+        let nodes: Vec<caramba_db::models::node::Node> =
+            self.orchestration.node_repo.get_all_nodes().await?;
+
         if nodes.is_empty() {
             warn!("No active nodes found, skipping device limit check");
             return Ok(());
@@ -116,8 +117,12 @@ impl ConnectionService {
             }
             match self.fetch_node_connections(&node.ip).await {
                 Ok(connections) => {
-                    info!("Fetched {} connections from node {}", connections.len(), node.ip);
-                    
+                    info!(
+                        "Fetched {} connections from node {}",
+                        connections.len(),
+                        node.ip
+                    );
+
                     for conn in connections {
                         // Strategy 1: Check metadata.user (e.g. "user_123")
                         let mut sub_id_opt = None;
@@ -137,16 +142,18 @@ impl ConnectionService {
                                     sub_id_opt = Some(*cached_id);
                                 } else {
                                     // Resolve UUID to ID from DB
-                                    if let Ok(Some(sub)) = self.store.get_subscription_by_uuid(&uuid).await {
+                                    if let Ok(Some(sub)) =
+                                        self.store.get_subscription_by_uuid(&uuid).await
+                                    {
                                         uuid_cache.insert(uuid.clone(), sub.id);
                                         sub_id_opt = Some(sub.id);
                                     }
                                 }
                             }
                         }
-                        
+
                         if let Some(sub_id) = sub_id_opt {
-                             subscription_ips
+                            subscription_ips
                                 .entry(sub_id)
                                 .or_insert_with(HashSet::new)
                                 .insert(conn.metadata.source_ip.clone());
@@ -165,7 +172,10 @@ impl ConnectionService {
         // Check each subscription's device limit
         for (sub_id, ips) in subscription_ips {
             if let Err(e) = self.enforce_subscription_limit(sub_id, ips).await {
-                error!("Failed to enforce limit for subscription ID {}: {:#}", sub_id, e);
+                error!(
+                    "Failed to enforce limit for subscription ID {}: {:#}",
+                    sub_id, e
+                );
             }
         }
 
@@ -175,7 +185,7 @@ impl ConnectionService {
     /// Fetch active connections from a node's Clash API
     async fn fetch_node_connections(&self, node_host: &str) -> Result<Vec<ClashConnection>> {
         let url = format!("http://{}:9090/connections", node_host);
-        
+
         let response = reqwest::get(&url)
             .await
             .with_context(|| format!("Failed to fetch connections from {}", node_host))?;
@@ -193,15 +203,22 @@ impl ConnectionService {
     }
 
     /// Enforce device limit for a single subscription
-    async fn enforce_subscription_limit(&self, sub_id: i64, active_ips: HashSet<String>) -> Result<()> {
+    async fn enforce_subscription_limit(
+        &self,
+        sub_id: i64,
+        active_ips: HashSet<String>,
+    ) -> Result<()> {
         // Get device limit for this subscription
-        let device_limit = self.subscription.get_subscription_device_limit(sub_id).await?;
+        let device_limit = self
+            .subscription
+            .get_subscription_device_limit(sub_id)
+            .await?;
 
         let active_device_count = active_ips.len();
         let ips_vec: Vec<String> = active_ips.iter().cloned().collect();
 
         // Update IP tracking in database
-        self.store.sub_repo.update_ips(sub_id, ips_vec).await?; 
+        self.store.sub_repo.update_ips(sub_id, ips_vec).await?;
 
         // Check if limit exceeded (0 for Unlimited)
         if device_limit > 0 && active_device_count > device_limit as usize {
@@ -212,11 +229,16 @@ impl ConnectionService {
 
             // Kill all connections for this subscription
             self.kill_subscription_connections(sub_id).await?;
-
         } else if active_device_count > 0 {
             info!(
                 "Subscription {} within limit: {}/{} devices",
-                sub_id, active_device_count, if device_limit == 0 { "Unlimited".to_string() } else { device_limit.to_string() }
+                sub_id,
+                active_device_count,
+                if device_limit == 0 {
+                    "Unlimited".to_string()
+                } else {
+                    device_limit.to_string()
+                }
             );
         }
 
@@ -225,31 +247,41 @@ impl ConnectionService {
 
     /// Kill all active connections for a specific subscription across all nodes
     pub async fn kill_subscription_connections(&self, sub_id: i64) -> Result<()> {
-        let nodes: Vec<caramba_db::models::node::Node> = self.orchestration.node_repo.get_all_nodes().await?;
+        let nodes: Vec<caramba_db::models::node::Node> =
+            self.orchestration.node_repo.get_all_nodes().await?;
         let target_user = format!("user_{}", sub_id);
-        
+
         for node in nodes {
-             match self.fetch_node_connections(&node.ip).await {
-                 Ok(connections) => {
-                     for conn in connections {
-                         // Check metadata.user
-                         let mut match_found = false;
-                         if let Some(user) = &conn.metadata.user {
-                             if user == &target_user {
-                                 match_found = true;
-                             }
-                         }
-                         
-                         if match_found {
-                                 info!("Killing connection {} on node {} for {}", conn.id, node.name, target_user);
-                                 if let Err(e) = self.close_connection(&node.ip, &conn.id).await {
-                                     error!("Failed to close connection {} on {}: {}", conn.id, node.name, e);
-                                 }
-                         }
-                     }
-                 },
-                 Err(e) => error!("Failed to fetch connections from {} during kill: {}", node.name, e)
-             }
+            match self.fetch_node_connections(&node.ip).await {
+                Ok(connections) => {
+                    for conn in connections {
+                        // Check metadata.user
+                        let mut match_found = false;
+                        if let Some(user) = &conn.metadata.user {
+                            if user == &target_user {
+                                match_found = true;
+                            }
+                        }
+
+                        if match_found {
+                            info!(
+                                "Killing connection {} on node {} for {}",
+                                conn.id, node.name, target_user
+                            );
+                            if let Err(e) = self.close_connection(&node.ip, &conn.id).await {
+                                error!(
+                                    "Failed to close connection {} on {}: {}",
+                                    conn.id, node.name, e
+                                );
+                            }
+                        }
+                    }
+                }
+                Err(e) => error!(
+                    "Failed to fetch connections from {} during kill: {}",
+                    node.name, e
+                ),
+            }
         }
         Ok(())
     }
@@ -258,16 +290,17 @@ impl ConnectionService {
     async fn close_connection(&self, node_host: &str, connection_id: &str) -> Result<()> {
         let url = format!("http://{}:9090/connections/{}", node_host, connection_id);
         let client = reqwest::Client::new();
-        
-        let response = client.delete(&url)
+
+        let response = client
+            .delete(&url)
             .send()
             .await
             .with_context(|| format!("Failed to delete connection on {}", node_host))?;
-            
+
         if !response.status().is_success() {
             // 404 means already gone, which is fine
             if response.status() == reqwest::StatusCode::NOT_FOUND {
-                 return Ok(());
+                return Ok(());
             }
             anyhow::bail!("Clash API delete error: {}", response.status());
         }
@@ -298,5 +331,3 @@ fn is_valid_uuid(s: &str) -> bool {
         && parts[3].len() == 4
         && parts[4].len() == 12
 }
-
-

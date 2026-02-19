@@ -1,10 +1,10 @@
-use axum::{
-    extract::{State, Path},
-    Json,
-    response::IntoResponse,
-    http::StatusCode,
-};
 use crate::AppState;
+use axum::{
+    Json,
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+};
 use serde::{Deserialize, Serialize};
 
 // Helper struct for bot verification (stub)
@@ -24,7 +24,11 @@ pub async fn verify_user(
     State(state): State<AppState>,
     Json(payload): Json<VerifyUserRequest>,
 ) -> impl IntoResponse {
-    let user: Option<caramba_db::models::store::User> = state.store_service.get_user_by_tg_id(payload.telegram_id).await.unwrap_or(None);
+    let user: Option<caramba_db::models::store::User> = state
+        .store_service
+        .get_user_by_tg_id(payload.telegram_id)
+        .await
+        .unwrap_or(None);
 
     if let Some(user) = user {
         Json(VerifyUserResponse {
@@ -53,7 +57,16 @@ pub async fn upsert_user(
     State(state): State<AppState>,
     Json(payload): Json<UpsertUserRequest>,
 ) -> impl IntoResponse {
-    match state.store_service.upsert_user(payload.tg_id, payload.username.as_deref(), payload.full_name.as_deref(), payload.referrer_id).await {
+    match state
+        .store_service
+        .upsert_user(
+            payload.tg_id,
+            payload.username.as_deref(),
+            payload.full_name.as_deref(),
+            payload.referrer_id,
+        )
+        .await
+    {
         Ok(user) => (StatusCode::OK, Json(Some(user))).into_response(),
         Err(e) => {
             tracing::error!("bot upsert_user failed for tg_id {}: {}", payload.tg_id, e);
@@ -83,7 +96,11 @@ pub async fn get_user_subs(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
 ) -> impl IntoResponse {
-    match state.subscription_service.get_user_subscriptions(user_id).await {
+    match state
+        .subscription_service
+        .get_user_subscriptions(user_id)
+        .await
+    {
         Ok(subs) => Json(subs).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
@@ -100,7 +117,11 @@ pub async fn get_products_by_category(
     State(state): State<AppState>,
     Path(category_id): Path<i64>,
 ) -> impl IntoResponse {
-    match state.catalog_service.get_products_by_category(category_id).await {
+    match state
+        .catalog_service
+        .get_products_by_category(category_id)
+        .await
+    {
         Ok(prods) => Json(prods).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
@@ -116,7 +137,11 @@ pub async fn purchase_plan(
     Path(user_id): Path<i64>,
     Json(payload): Json<PurchasePlanRequest>,
 ) -> impl IntoResponse {
-    match state.store_service.purchase_plan(user_id, payload.duration_id).await {
+    match state
+        .store_service
+        .purchase_plan(user_id, payload.duration_id)
+        .await
+    {
         Ok(sub) => Json(sub).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     }
@@ -132,7 +157,11 @@ pub async fn purchase_product(
     Path(user_id): Path<i64>,
     Json(payload): Json<PurchaseProductRequest>,
 ) -> impl IntoResponse {
-    match state.store_service.purchase_product_with_balance(user_id, payload.product_id).await {
+    match state
+        .store_service
+        .purchase_product_with_balance(user_id, payload.product_id)
+        .await
+    {
         Ok(prod) => Json(prod).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     }
@@ -150,7 +179,11 @@ pub async fn get_sub_links(
     State(state): State<AppState>,
     Path(sub_id): Path<i64>,
 ) -> impl IntoResponse {
-    match state.subscription_service.get_subscription_links(sub_id).await {
+    match state
+        .subscription_service
+        .get_subscription_links(sub_id)
+        .await
+    {
         Ok(links) => Json(links).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
@@ -162,7 +195,11 @@ pub async fn activate_sub(
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     let user_id = payload.get("user_id").and_then(|v| v.as_i64()).unwrap_or(0);
-    match state.store_service.activate_subscription(sub_id, user_id).await {
+    match state
+        .store_service
+        .activate_subscription(sub_id, user_id)
+        .await
+    {
         Ok(sub) => Json(sub).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     }

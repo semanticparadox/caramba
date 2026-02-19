@@ -1,21 +1,19 @@
-use axum::{
-    extract::{State, Path, Form},
-    response::{IntoResponse, Html},
-    body::Bytes,
-};
-use axum_extra::extract::cookie::CookieJar;
+use crate::AppState;
 use crate::handlers::admin::{get_auth_user, is_authenticated};
+use crate::singbox::RelayAuthMode;
 use askama::Template;
 use askama_web::WebTemplate;
-use serde::Deserialize;
-use crate::AppState;
-use crate::singbox::RelayAuthMode;
-use caramba_db::models::node::Node;
+use axum::{
+    body::Bytes,
+    extract::{Form, Path, State},
+    response::{Html, IntoResponse},
+};
+use axum_extra::extract::cookie::CookieJar;
 use caramba_db::models::network::Inbound;
+use caramba_db::models::node::Node;
 use caramba_db::models::store::Plan;
-use tracing::{info, error};
-
-
+use serde::Deserialize;
+use tracing::{error, info};
 
 #[derive(Template, WebTemplate)]
 #[template(path = "node_inbounds.html")]
@@ -71,7 +69,9 @@ pub async fn get_node_inbounds(
         is_auth: true,
         admin_path: state.admin_path.clone(),
         active_page: "nodes".to_string(),
-        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
+        username: get_auth_user(&state, &jar)
+            .await
+            .unwrap_or("Admin".to_string()),
     };
     Html(template.render().unwrap_or_default()).into_response()
 }
@@ -92,49 +92,88 @@ pub async fn add_inbound(
     Path(node_id): Path<i64>,
     Form(form): Form<AddInboundForm>,
 ) -> impl IntoResponse {
-    info!("Adding inbound {} ({}) to node {}", form.tag, form.protocol, node_id);
+    info!(
+        "Adding inbound {} ({}) to node {}",
+        form.tag, form.protocol, node_id
+    );
 
     // Validate JSON against Models
     // 1. Stream Settings
-    if let Err(e) = serde_json::from_str::<caramba_db::models::network::StreamSettings>(&form.stream_settings) {
-         return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Stream Settings: {}", e)).into_response();
+    if let Err(e) =
+        serde_json::from_str::<caramba_db::models::network::StreamSettings>(&form.stream_settings)
+    {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            format!("Invalid Stream Settings: {}", e),
+        )
+            .into_response();
     }
 
     // 2. Protocol Settings
     match form.protocol.as_str() {
         "vless" => {
-            if let Err(e) = serde_json::from_str::<caramba_db::models::network::VlessSettings>(&form.settings) {
-                return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid VLESS Settings: {}", e)).into_response();
+            if let Err(e) =
+                serde_json::from_str::<caramba_db::models::network::VlessSettings>(&form.settings)
+            {
+                return (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    format!("Invalid VLESS Settings: {}", e),
+                )
+                    .into_response();
             }
-        },
+        }
         "hysteria2" => {
-            if let Err(e) = serde_json::from_str::<caramba_db::models::network::Hysteria2Settings>(&form.settings) {
-                return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Hysteria2 Settings: {}", e)).into_response();
+            if let Err(e) = serde_json::from_str::<caramba_db::models::network::Hysteria2Settings>(
+                &form.settings,
+            ) {
+                return (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    format!("Invalid Hysteria2 Settings: {}", e),
+                )
+                    .into_response();
             }
-        },
+        }
         "trojan" => {
-            if let Err(e) = serde_json::from_str::<caramba_db::models::network::TrojanSettings>(&form.settings) {
-                return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Trojan Settings: {}", e)).into_response();
+            if let Err(e) =
+                serde_json::from_str::<caramba_db::models::network::TrojanSettings>(&form.settings)
+            {
+                return (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    format!("Invalid Trojan Settings: {}", e),
+                )
+                    .into_response();
             }
-        },
+        }
         _ => {
             // Unknown protocol, just check valid JSON
             if let Err(e) = serde_json::from_str::<serde_json::Value>(&form.settings) {
-                return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid JSON: {}", e)).into_response();
+                return (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    format!("Invalid JSON: {}", e),
+                )
+                    .into_response();
             }
         }
     }
 
     // Check if port is already in use
-    let port_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM inbounds WHERE node_id = $1 AND listen_port = $2")
-        .bind(node_id)
-        .bind(form.listen_port)
-        .fetch_one(&state.pool)
-        .await
-        .unwrap_or(0);
+    let port_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM inbounds WHERE node_id = $1 AND listen_port = $2")
+            .bind(node_id)
+            .bind(form.listen_port)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or(0);
 
     if port_count > 0 {
-         return (axum::http::StatusCode::BAD_REQUEST, format!("Port {} is already used by another inbound on this node.", form.listen_port)).into_response();
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            format!(
+                "Port {} is already used by another inbound on this node.",
+                form.listen_port
+            ),
+        )
+            .into_response();
     }
 
     let res: Result<i64, _> = sqlx::query_scalar("INSERT INTO inbounds (node_id, tag, protocol, listen_port, listen_ip, settings, stream_settings, remark) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id")
@@ -151,7 +190,6 @@ pub async fn add_inbound(
 
     match res {
         Ok(inbound_id) => {
-
             // Phase 46: Link this inbound to all plans that use this node
             // This ensures manual inbounds actually HAVE users in the generated config.
             let plans_res: Result<Vec<i64>, _> = sqlx::query_scalar(
@@ -161,7 +199,7 @@ pub async fn add_inbound(
                 SELECT pg.plan_id FROM plan_groups pg
                 JOIN node_group_members ngm ON pg.group_id = ngm.group_id
                 WHERE ngm.node_id = $2
-                "#
+                "#,
             )
             .bind(node_id)
             .bind(node_id)
@@ -178,16 +216,46 @@ pub async fn add_inbound(
                 }
             }
 
+            if let Err(e) = state
+                .orchestration_service
+                .generate_node_config_json(node_id)
+                .await
+            {
+                error!(
+                    "Failed to generate node config after adding inbound {} on node {}: {}",
+                    inbound_id, node_id, e
+                );
+                return (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    "Inbound created but config generation failed",
+                )
+                    .into_response();
+            }
+
             // PubSub Notify
-            let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "update").await;
+            let _ = state
+                .pubsub
+                .publish(&format!("node_events:{}", node_id), "update")
+                .await;
 
             // Redirect back to the list
-             let admin_path = state.admin_path.clone();
-             ([("HX-Redirect", format!("{}/nodes/{}/inbounds", admin_path, node_id))], "Redirecting...").into_response()
-        },
+            let admin_path = state.admin_path.clone();
+            (
+                [(
+                    "HX-Redirect",
+                    format!("{}/nodes/{}/inbounds", admin_path, node_id),
+                )],
+                "Redirecting...",
+            )
+                .into_response()
+        }
         Err(e) => {
             error!("Failed to add inbound: {}", e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to add inbound: {}", e)).into_response()
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to add inbound: {}", e),
+            )
+                .into_response()
         }
     }
 }
@@ -197,7 +265,7 @@ pub async fn delete_inbound(
     Path((node_id, inbound_id)): Path<(i64, i64)>,
 ) -> impl IntoResponse {
     info!("Deleting inbound {} from node {}", inbound_id, node_id);
-    
+
     // Clean up plan_inbound links first
     let _ = sqlx::query("DELETE FROM plan_inbounds WHERE inbound_id = $1")
         .bind(inbound_id)
@@ -208,16 +276,39 @@ pub async fn delete_inbound(
         .bind(inbound_id)
         .bind(node_id)
         .execute(&state.pool)
-        .await 
+        .await
     {
         Ok(_) => {
+            if let Err(e) = state
+                .orchestration_service
+                .generate_node_config_json(node_id)
+                .await
+            {
+                error!(
+                    "Failed to generate node config after deleting inbound {} on node {}: {}",
+                    inbound_id, node_id, e
+                );
+                return (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    "Inbound deleted but config generation failed",
+                )
+                    .into_response();
+            }
+
             // PubSub Notify
-            let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "update").await;
+            let _ = state
+                .pubsub
+                .publish(&format!("node_events:{}", node_id), "update")
+                .await;
             axum::http::StatusCode::OK.into_response()
-        },
+        }
         Err(e) => {
-             error!("Failed to delete inbound: {}", e);
-             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to delete").into_response()
+            error!("Failed to delete inbound: {}", e);
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to delete",
+            )
+                .into_response()
         }
     }
 }
@@ -252,10 +343,16 @@ pub async fn get_plan_bindings(
     Path(plan_id): Path<i64>,
 ) -> impl IntoResponse {
     // 1. Fetch Plan
-    let plan = match sqlx::query_as::<_, Plan>("SELECT * FROM plans WHERE id = $1").bind(plan_id).fetch_optional(&state.pool).await {
+    let plan = match sqlx::query_as::<_, Plan>("SELECT * FROM plans WHERE id = $1")
+        .bind(plan_id)
+        .fetch_optional(&state.pool)
+        .await
+    {
         Ok(Some(p)) => p,
         Ok(None) => return (axum::http::StatusCode::NOT_FOUND, "Plan not found").into_response(),
-        Err(_) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response(),
+        Err(_) => {
+            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response();
+        }
     };
 
     // 2. Fetch All Active Nodes & Inbounds
@@ -264,13 +361,14 @@ pub async fn get_plan_bindings(
         .get_active_nodes()
         .await
         .unwrap_or_default();
-    
+
     // 3. Fetch Existing Bindings
-    let bound_ids: Vec<i64> = sqlx::query_scalar("SELECT inbound_id FROM plan_inbounds WHERE plan_id = $1")
-        .bind(plan_id)
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
+    let bound_ids: Vec<i64> =
+        sqlx::query_scalar("SELECT inbound_id FROM plan_inbounds WHERE plan_id = $1")
+            .bind(plan_id)
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default();
 
     let mut bindings = Vec::new();
 
@@ -284,10 +382,16 @@ pub async fn get_plan_bindings(
             .filter(|i| i.enable)
             .collect::<Vec<_>>();
 
-        let items = inbounds.into_iter().map(|i| {
-            let is_bound = bound_ids.contains(&i.id);
-            InboundBindingItem { inbound: i, is_bound }
-        }).collect();
+        let items = inbounds
+            .into_iter()
+            .map(|i| {
+                let is_bound = bound_ids.contains(&i.id);
+                InboundBindingItem {
+                    inbound: i,
+                    is_bound,
+                }
+            })
+            .collect();
 
         bindings.push(NodeBindingGroup {
             node_name: node.name,
@@ -297,7 +401,21 @@ pub async fn get_plan_bindings(
     }
 
     let admin_path = state.admin_path.clone();
-    Html(PlanBindingsTemplate { plan, bindings, is_auth: true, admin_path, active_page: "plans".to_string(), username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()) }.render().unwrap_or_default()).into_response()
+    Html(
+        PlanBindingsTemplate {
+            plan,
+            bindings,
+            is_auth: true,
+            admin_path,
+            active_page: "plans".to_string(),
+            username: get_auth_user(&state, &jar)
+                .await
+                .unwrap_or("Admin".to_string()),
+        }
+        .render()
+        .unwrap_or_default(),
+    )
+    .into_response()
 }
 
 pub async fn save_plan_bindings(
@@ -308,7 +426,7 @@ pub async fn save_plan_bindings(
 ) -> impl IntoResponse {
     let body_str = String::from_utf8(body.to_vec()).unwrap_or_default();
     let mut inbound_ids = Vec::new();
-    
+
     // Manual parsing of "inbound_ids=1&inbound_ids=2..."
     for pair in body_str.split('&') {
         let mut parts = pair.split('=');
@@ -317,9 +435,9 @@ pub async fn save_plan_bindings(
                 // Decode URL-encoded key/value if needed, but for simple numeric IDs it's fine.
                 // Key should match "inbound_ids"
                 if key == "inbound_ids" {
-                     if let Ok(id) = value.parse::<i64>() {
-                         inbound_ids.push(id);
-                     }
+                    if let Ok(id) = value.parse::<i64>() {
+                        inbound_ids.push(id);
+                    }
                 }
             }
         }
@@ -331,7 +449,11 @@ pub async fn save_plan_bindings(
         Ok(t) => t,
         Err(e) => {
             error!("Failed to start transaction: {}", e);
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Database Transaction Error").into_response();
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Database Transaction Error",
+            )
+                .into_response();
         }
     };
 
@@ -339,28 +461,47 @@ pub async fn save_plan_bindings(
     if let Err(e) = sqlx::query("DELETE FROM plan_inbounds WHERE plan_id = $1")
         .bind(plan_id)
         .execute(&mut *tx)
-        .await 
+        .await
     {
-         error!("Failed to delete existing bindings for plan {}: {}", plan_id, e);
-         return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to clear existing bindings").into_response();
+        error!(
+            "Failed to delete existing bindings for plan {}: {}",
+            plan_id, e
+        );
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to clear existing bindings",
+        )
+            .into_response();
     }
 
     // 2. Insert new
     for inbound_id in inbound_ids {
-        if let Err(e) = sqlx::query("INSERT INTO plan_inbounds (plan_id, inbound_id) VALUES ($1, $2)")
-            .bind(plan_id)
-            .bind(inbound_id)
-            .execute(&mut *tx)
-            .await 
+        if let Err(e) =
+            sqlx::query("INSERT INTO plan_inbounds (plan_id, inbound_id) VALUES ($1, $2)")
+                .bind(plan_id)
+                .bind(inbound_id)
+                .execute(&mut *tx)
+                .await
         {
-            error!("Failed to insert binding plan={} inbound={}: {}", plan_id, inbound_id, e);
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to insert new bindings").into_response();
+            error!(
+                "Failed to insert binding plan={} inbound={}: {}",
+                plan_id, inbound_id, e
+            );
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to insert new bindings",
+            )
+                .into_response();
         }
     }
 
     if let Err(e) = tx.commit().await {
-         error!("Failed to commit bindings transaction: {}", e);
-         return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Transaction Commit Failed").into_response();
+        error!("Failed to commit bindings transaction: {}", e);
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "Transaction Commit Failed",
+        )
+            .into_response();
     }
 
     let admin_path = state.admin_path.clone();
@@ -377,9 +518,9 @@ pub async fn preview_node_config(
 
     // This is essentially the logic from OrchestrationService minus the SSH push
     // We can't easily call sync_node_config because it's hardcoded to push via SSH.
-    // Let's implement a 'dry run' or copy the logic. 
+    // Let's implement a 'dry run' or copy the logic.
     // Optimization: Refactor OrchestrationService better later.
-    
+
     // 1. Fetch node details
     let node: Node = match state.infrastructure_service.get_node_by_id(node_id).await {
         Ok(n) => n,
@@ -395,38 +536,57 @@ pub async fn preview_node_config(
 
     // 3. Simple user injection (VLESS/UUID only for preview)
     for inbound in &mut inbounds {
-        let linked_plans: Vec<i64> = sqlx::query_scalar::<_, i64>("SELECT plan_id FROM plan_inbounds WHERE inbound_id = $1")
-            .bind(inbound.id)
-            .fetch_all(&state.pool)
-            .await
-            .unwrap_or_default();
+        let linked_plans: Vec<i64> =
+            sqlx::query_scalar::<_, i64>("SELECT plan_id FROM plan_inbounds WHERE inbound_id = $1")
+                .bind(inbound.id)
+                .fetch_all(&state.pool)
+                .await
+                .unwrap_or_default();
 
         if !linked_plans.is_empty() {
-             let plan_ids_str = linked_plans.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
-             let query = format!("SELECT * FROM subscriptions WHERE status = 'active' AND plan_id IN ({}) LIMIT 5", plan_ids_str);
-             let active_subs: Vec<caramba_db::models::store::Subscription> = sqlx::query_as::<_, caramba_db::models::store::Subscription>(&query)
-                 .fetch_all(&state.pool).await.unwrap_or_default();
+            let plan_ids_str = linked_plans
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            let query = format!(
+                "SELECT * FROM subscriptions WHERE status = 'active' AND plan_id IN ({}) LIMIT 5",
+                plan_ids_str
+            );
+            let active_subs: Vec<caramba_db::models::store::Subscription> =
+                sqlx::query_as::<_, caramba_db::models::store::Subscription>(&query)
+                    .fetch_all(&state.pool)
+                    .await
+                    .unwrap_or_default();
 
-             use caramba_db::models::network::{InboundType, VlessClient};
-             if let Ok(mut settings) = serde_json::from_str::<InboundType>(&inbound.settings) {
-                 match &mut settings {
-                     InboundType::Vless(vless) => {
-                         for sub in &active_subs {
-                             if let Some(uuid) = &sub.vless_uuid {
-                                 vless.clients.push(VlessClient { id: uuid.clone(), email: format!("user_{}", sub.user_id), flow: "xtls-rprx-vision".to_string() });
-                             }
-                         }
-                     },
-                     _ => {}
-                 }
-                 inbound.settings = serde_json::to_string(&settings).unwrap_or(inbound.settings.clone());
-             }
+            use caramba_db::models::network::{InboundType, VlessClient};
+            if let Ok(mut settings) = serde_json::from_str::<InboundType>(&inbound.settings) {
+                match &mut settings {
+                    InboundType::Vless(vless) => {
+                        for sub in &active_subs {
+                            if let Some(uuid) = &sub.vless_uuid {
+                                vless.clients.push(VlessClient {
+                                    id: uuid.clone(),
+                                    email: format!("user_{}", sub.user_id),
+                                    flow: "xtls-rprx-vision".to_string(),
+                                });
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                inbound.settings =
+                    serde_json::to_string(&settings).unwrap_or(inbound.settings.clone());
+            }
         }
     }
 
     // 4. Generate Config
     // 4. Generate Config
-    let relay_auth_mode_raw = state.settings.get_or_default("relay_auth_mode", "dual").await;
+    let relay_auth_mode_raw = state
+        .settings
+        .get_or_default("relay_auth_mode", "dual")
+        .await;
     let relay_auth_mode = RelayAuthMode::from_setting(Some(relay_auth_mode_raw.as_str()));
     let config = crate::singbox::ConfigGenerator::generate_config(
         &node,
@@ -467,7 +627,11 @@ pub async fn get_edit_inbound(
 
     let admin_path = state.admin_path.clone();
 
-    let template = InboundEditModalTemplate { node_id, inbound, admin_path };
+    let template = InboundEditModalTemplate {
+        node_id,
+        inbound,
+        admin_path,
+    };
     Html(template.render().unwrap_or_default()).into_response()
 }
 
@@ -477,49 +641,86 @@ pub async fn update_inbound(
     Form(form): Form<AddInboundForm>,
 ) -> impl IntoResponse {
     info!("Updating inbound {} on node {}", inbound_id, node_id);
-    
+
     // Validate JSON against Models
     // 1. Stream Settings
-    if let Err(e) = serde_json::from_str::<caramba_db::models::network::StreamSettings>(&form.stream_settings) {
-         return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Stream Settings: {}", e)).into_response();
+    if let Err(e) =
+        serde_json::from_str::<caramba_db::models::network::StreamSettings>(&form.stream_settings)
+    {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            format!("Invalid Stream Settings: {}", e),
+        )
+            .into_response();
     }
 
     // 2. Protocol Settings
     match form.protocol.as_str() {
         "vless" => {
-            if let Err(e) = serde_json::from_str::<caramba_db::models::network::VlessSettings>(&form.settings) {
-                return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid VLESS Settings: {}", e)).into_response();
+            if let Err(e) =
+                serde_json::from_str::<caramba_db::models::network::VlessSettings>(&form.settings)
+            {
+                return (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    format!("Invalid VLESS Settings: {}", e),
+                )
+                    .into_response();
             }
-        },
+        }
         "hysteria2" => {
-            if let Err(e) = serde_json::from_str::<caramba_db::models::network::Hysteria2Settings>(&form.settings) {
-                return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Hysteria2 Settings: {}", e)).into_response();
+            if let Err(e) = serde_json::from_str::<caramba_db::models::network::Hysteria2Settings>(
+                &form.settings,
+            ) {
+                return (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    format!("Invalid Hysteria2 Settings: {}", e),
+                )
+                    .into_response();
             }
-        },
+        }
         "trojan" => {
-            if let Err(e) = serde_json::from_str::<caramba_db::models::network::TrojanSettings>(&form.settings) {
-                return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid Trojan Settings: {}", e)).into_response();
+            if let Err(e) =
+                serde_json::from_str::<caramba_db::models::network::TrojanSettings>(&form.settings)
+            {
+                return (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    format!("Invalid Trojan Settings: {}", e),
+                )
+                    .into_response();
             }
-        },
+        }
         _ => {
             // Unknown protocol, just check valid JSON
             if let Err(e) = serde_json::from_str::<serde_json::Value>(&form.settings) {
-                return (axum::http::StatusCode::BAD_REQUEST, format!("Invalid JSON: {}", e)).into_response();
+                return (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    format!("Invalid JSON: {}", e),
+                )
+                    .into_response();
             }
         }
     }
 
     // Check if port is already in use (excluding self)
-    let port_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM inbounds WHERE node_id = $1 AND listen_port = $2 AND id != $3")
-        .bind(node_id)
-        .bind(form.listen_port)
-        .bind(inbound_id)
-        .fetch_one(&state.pool)
-        .await
-        .unwrap_or(0);
+    let port_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM inbounds WHERE node_id = $1 AND listen_port = $2 AND id != $3",
+    )
+    .bind(node_id)
+    .bind(form.listen_port)
+    .bind(inbound_id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap_or(0);
 
     if port_count > 0 {
-         return (axum::http::StatusCode::BAD_REQUEST, format!("Port {} is already used by another inbound on this node.", form.listen_port)).into_response();
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            format!(
+                "Port {} is already used by another inbound on this node.",
+                form.listen_port
+            ),
+        )
+            .into_response();
     }
 
     let res = sqlx::query("UPDATE inbounds SET tag = $1, protocol = $2, listen_port = $3, listen_ip = $4, settings = $5, stream_settings = $6, remark = $7 WHERE id = $8 AND node_id = $9")
@@ -529,13 +730,43 @@ pub async fn update_inbound(
 
     match res {
         Ok(_) => {
+            if let Err(e) = state
+                .orchestration_service
+                .generate_node_config_json(node_id)
+                .await
+            {
+                error!(
+                    "Failed to generate node config after updating inbound {} on node {}: {}",
+                    inbound_id, node_id, e
+                );
+                return (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    "Inbound updated but config generation failed",
+                )
+                    .into_response();
+            }
+
             // PubSub Notify
-            let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "update").await;
+            let _ = state
+                .pubsub
+                .publish(&format!("node_events:{}", node_id), "update")
+                .await;
 
             let admin_path = state.admin_path.clone();
-            ([("HX-Redirect", format!("{}/nodes/{}/inbounds", admin_path, node_id))], "Updated").into_response()
-        },
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)).into_response(),
+            (
+                [(
+                    "HX-Redirect",
+                    format!("{}/nodes/{}/inbounds", admin_path, node_id),
+                )],
+                "Updated",
+            )
+                .into_response()
+        }
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB Error: {}", e),
+        )
+            .into_response(),
     }
 }
 
@@ -545,9 +776,9 @@ pub async fn toggle_inbound(
     jar: CookieJar,
 ) -> impl IntoResponse {
     use axum::http::StatusCode;
-    
+
     if !is_authenticated(&state, &jar).await {
-       return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
     // Toggle
@@ -557,10 +788,36 @@ pub async fn toggle_inbound(
         .execute(&state.pool)
         .await;
 
+    if let Err(e) = state
+        .orchestration_service
+        .generate_node_config_json(node_id)
+        .await
+    {
+        error!(
+            "Failed to generate node config after toggling inbound {} on node {}: {}",
+            inbound_id, node_id, e
+        );
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Toggle applied but config generation failed",
+        )
+            .into_response();
+    }
+
     // Trigger Node Update
-    let _ = state.orchestration_service.notify_node_update(node_id).await;
-    let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "update").await;
+    let _ = state
+        .orchestration_service
+        .notify_node_update(node_id)
+        .await;
+    let _ = state
+        .pubsub
+        .publish(&format!("node_events:{}", node_id), "update")
+        .await;
 
     let admin_path = state.admin_path.clone();
-    ([("HX-Redirect", format!("{}/nodes/{}/inbounds", admin_path, node_id))]).into_response()
+    ([(
+        "HX-Redirect",
+        format!("{}/nodes/{}/inbounds", admin_path, node_id),
+    )])
+    .into_response()
 }

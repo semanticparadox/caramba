@@ -43,8 +43,16 @@ fn run_command(cmd: &str, args: &[&str], msg: &str) -> Result<()> {
             "Command failed: {} {:?}\nstdout: {}\nstderr: {}",
             cmd,
             args,
-            if stdout.is_empty() { "<empty>" } else { &stdout },
-            if stderr.is_empty() { "<empty>" } else { &stderr },
+            if stdout.is_empty() {
+                "<empty>"
+            } else {
+                &stdout
+            },
+            if stderr.is_empty() {
+                "<empty>"
+            } else {
+                &stderr
+            },
         ))
     }
 }
@@ -66,6 +74,42 @@ fn run_command_optional(cmd: &str, args: &[&str], msg: &str) -> Result<()> {
             println!("ℹ️ {} (skipped: {})", msg, stderr);
         }
     }
+    Ok(())
+}
+
+fn run_as_postgres(args: &[&str], msg: &str) -> Result<()> {
+    if command_exists("sudo") {
+        let mut full_args = vec!["-u", "postgres"];
+        full_args.extend_from_slice(args);
+        return run_command("sudo", &full_args, msg);
+    }
+
+    if command_exists("runuser") {
+        let mut full_args = vec!["-u", "postgres", "--"];
+        full_args.extend_from_slice(args);
+        return run_command("runuser", &full_args, msg);
+    }
+
+    Err(anyhow!(
+        "Neither 'sudo' nor 'runuser' is available for postgres command: {}",
+        msg
+    ))
+}
+
+fn run_as_postgres_optional(args: &[&str], msg: &str) -> Result<()> {
+    if command_exists("sudo") {
+        let mut full_args = vec!["-u", "postgres"];
+        full_args.extend_from_slice(args);
+        return run_command_optional("sudo", &full_args, msg);
+    }
+
+    if command_exists("runuser") {
+        let mut full_args = vec!["-u", "postgres", "--"];
+        full_args.extend_from_slice(args);
+        return run_command_optional("runuser", &full_args, msg);
+    }
+
+    println!("ℹ️ {} (skipped: neither sudo nor runuser available)", msg);
     Ok(())
 }
 
@@ -667,25 +711,20 @@ pub fn setup_database(config: &crate::setup::InstallConfig) -> Result<()> {
     println!("{}", style("\nConfiguring Database...").bold());
 
     // Check if user exists (ignoring error if they do)
-    let _ = Command::new("sudo")
-        .args(&["-u", "postgres", "createuser", "caramba"])
-        .output(); // ignore error
+    let _ = run_as_postgres_optional(&["createuser", "caramba"], "Ensuring DB role");
 
     // Set password
     let psql_cmd = format!(
         "ALTER USER caramba WITH PASSWORD '{}';",
         escape_sql_literal(&config.db_pass)
     );
-    run_command(
-        "sudo",
-        &["-u", "postgres", "psql", "-c", &psql_cmd],
-        "Setting DB password",
-    )?;
+    run_as_postgres(&["psql", "-c", &psql_cmd], "Setting DB password")?;
 
     // Create DB
-    let _ = Command::new("sudo")
-        .args(&["-u", "postgres", "createdb", "-O", "caramba", "caramba"])
-        .output(); // ignore if exists
+    let _ = run_as_postgres_optional(
+        &["createdb", "-O", "caramba", "caramba"],
+        "Ensuring database exists",
+    );
 
     Ok(())
 }
@@ -788,25 +827,20 @@ pub fn uninstall_caramba(install_dir: &str, purge_db: bool) -> Result<()> {
 
     if purge_db {
         println!("{}", style("\nPurging PostgreSQL database...").bold());
-        run_command_optional(
-            "sudo",
+        run_as_postgres_optional(
             &[
-                "-u",
-                "postgres",
                 "psql",
                 "-c",
                 "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'caramba';",
             ],
             "Terminating active DB sessions",
         )?;
-        run_command_optional(
-            "sudo",
-            &["-u", "postgres", "psql", "-c", "DROP DATABASE IF EXISTS caramba;"],
+        run_as_postgres_optional(
+            &["psql", "-c", "DROP DATABASE IF EXISTS caramba;"],
             "Dropping database 'caramba'",
         )?;
-        run_command_optional(
-            "sudo",
-            &["-u", "postgres", "psql", "-c", "DROP ROLE IF EXISTS caramba;"],
+        run_as_postgres_optional(
+            &["psql", "-c", "DROP ROLE IF EXISTS caramba;"],
             "Dropping role 'caramba'",
         )?;
     } else {

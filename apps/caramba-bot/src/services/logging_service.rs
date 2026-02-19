@@ -11,15 +11,32 @@ impl LoggingService {
         Self { api }
     }
 
-    pub async fn log_user(&self, tg_id: Option<i64>, action: &str, details: &str, ip: Option<&str>) -> Result<()> {
+    pub async fn log_user(
+        &self,
+        tg_id: Option<i64>,
+        action: &str,
+        details: &str,
+        ip: Option<&str>,
+    ) -> Result<()> {
         #[derive(serde::Serialize)]
         struct LogReq<'a> {
             tg_id: Option<i64>,
             action: &'a str,
             details: &'a str,
-            ip: Option<&'a str>
+            ip: Option<&'a str>,
         }
-        let _: serde_json::Value = self.api.post("/logs/user", &LogReq { tg_id, action, details, ip }).await?;
+        let _: serde_json::Value = self
+            .api
+            .post(
+                "/logs/user",
+                &LogReq {
+                    tg_id,
+                    action,
+                    details,
+                    ip,
+                },
+            )
+            .await?;
         Ok(())
     }
 }

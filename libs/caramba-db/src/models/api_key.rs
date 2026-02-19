@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 // use chrono::{DateTime, Utc}; // Removed
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ApiKey {
     pub id: i64,

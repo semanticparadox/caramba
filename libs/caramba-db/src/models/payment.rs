@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum PaymentType {
     BalanceTopup,
-    OrderPurchase(i64), // order_id
+    OrderPurchase(i64),        // order_id
     SubscriptionPurchase(i64), // plan_id
 }
 

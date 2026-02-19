@@ -1,8 +1,8 @@
-use crate::models::groups::{NodeGroup, NodeGroupMember, PlanGroup};
+use crate::models::groups::{InboundTemplate, NodeGroup, NodeGroupMember, PlanGroup};
 use crate::models::network::Inbound;
 use crate::models::node::Node;
 use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use sqlx::{PgPool, Row, postgres::PgRow};
 
 #[derive(Debug, Clone)]
@@ -15,9 +15,11 @@ impl NodeRepository {
         Self { pool }
     }
 
-    fn is_undefined_column(err: &sqlx::Error) -> bool {
+    fn is_undefined_table_or_column(err: &sqlx::Error) -> bool {
         match err {
-            sqlx::Error::Database(db_err) => db_err.code().as_deref() == Some("42703"),
+            sqlx::Error::Database(db_err) => {
+                matches!(db_err.code().as_deref(), Some("42703") | Some("42P01"))
+            }
             _ => false,
         }
     }
@@ -217,6 +219,111 @@ impl NodeRepository {
                 .try_get::<Option<DateTime<Utc>>, _>("created_at")
                 .ok()
                 .flatten(),
+        }
+    }
+
+    fn parse_datetime_utc(raw: &str) -> DateTime<Utc> {
+        if let Ok(ts) = raw.parse::<i64>() {
+            if let Some(dt) = DateTime::<Utc>::from_timestamp(ts, 0) {
+                return dt;
+            }
+        }
+
+        if let Ok(dt) = DateTime::parse_from_rfc3339(raw) {
+            return dt.with_timezone(&Utc);
+        }
+
+        for fmt in [
+            "%Y-%m-%d %H:%M:%S%.f%:z",
+            "%Y-%m-%d %H:%M:%S%.f%#z",
+            "%Y-%m-%d %H:%M:%S%:z",
+            "%Y-%m-%d %H:%M:%S%#z",
+        ] {
+            if let Ok(dt) = DateTime::parse_from_str(raw, fmt) {
+                return dt.with_timezone(&Utc);
+            }
+        }
+
+        for fmt in ["%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%d %H:%M:%S"] {
+            if let Ok(dt) = NaiveDateTime::parse_from_str(raw, fmt) {
+                return DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc);
+            }
+        }
+
+        Utc::now()
+    }
+
+    fn row_to_inbound_template(row: &PgRow) -> InboundTemplate {
+        let created_at = row
+            .try_get::<DateTime<Utc>, _>("created_at")
+            .or_else(|_| {
+                row.try_get::<NaiveDateTime, _>("created_at")
+                    .map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc))
+            })
+            .or_else(|_| {
+                row.try_get::<String, _>("created_at")
+                    .map(|raw| Self::parse_datetime_utc(&raw))
+            })
+            .unwrap_or_else(|_| Utc::now());
+
+        let target_group_id = row
+            .try_get::<Option<i64>, _>("target_group_id")
+            .ok()
+            .flatten()
+            .or_else(|| {
+                row.try_get::<Option<i32>, _>("target_group_id")
+                    .ok()
+                    .flatten()
+                    .map(|v| v as i64)
+            });
+
+        let renew_hours = row
+            .try_get::<i64, _>("renew_interval_hours")
+            .or_else(|_| {
+                row.try_get::<i32, _>("renew_interval_hours")
+                    .map(|v| v as i64)
+            })
+            .unwrap_or(0);
+        let renew_mins = row
+            .try_get::<i64, _>("renew_interval_mins")
+            .or_else(|_| {
+                row.try_get::<i32, _>("renew_interval_mins")
+                    .map(|v| v as i64)
+            })
+            .unwrap_or(0);
+        let is_active = row
+            .try_get::<bool, _>("is_active")
+            .or_else(|_| row.try_get::<i16, _>("is_active").map(|v| v != 0))
+            .or_else(|_| row.try_get::<i32, _>("is_active").map(|v| v != 0))
+            .unwrap_or(true);
+
+        InboundTemplate {
+            id: row.try_get::<i64, _>("id").unwrap_or_default(),
+            name: row
+                .try_get::<String, _>("name")
+                .unwrap_or_else(|_| "Unnamed Template".to_string()),
+            protocol: row
+                .try_get::<String, _>("protocol")
+                .unwrap_or_else(|_| "vless".to_string()),
+            settings_template: row
+                .try_get::<String, _>("settings_template")
+                .unwrap_or_else(|_| "{}".to_string()),
+            stream_settings_template: row
+                .try_get::<String, _>("stream_settings_template")
+                .unwrap_or_else(|_| "{}".to_string()),
+            target_group_id,
+            port_range_start: row
+                .try_get::<i64, _>("port_range_start")
+                .or_else(|_| row.try_get::<i32, _>("port_range_start").map(|v| v as i64))
+                .unwrap_or(10000),
+            port_range_end: row
+                .try_get::<i64, _>("port_range_end")
+                .or_else(|_| row.try_get::<i32, _>("port_range_end").map(|v| v as i64))
+                .unwrap_or(60000),
+            renew_interval_hours: renew_hours,
+            renew_interval_mins: renew_mins,
+            is_active,
+            created_at,
         }
     }
 
@@ -537,10 +644,8 @@ impl NodeRepository {
         Ok(())
     }
 
-    pub async fn get_all_inbound_templates(
-        &self,
-    ) -> Result<Vec<crate::models::groups::InboundTemplate>> {
-        let primary = sqlx::query_as::<_, crate::models::groups::InboundTemplate>(
+    pub async fn get_all_inbound_templates(&self) -> Result<Vec<InboundTemplate>> {
+        let primary = sqlx::query(
             r#"
             SELECT
                 id,
@@ -549,11 +654,11 @@ impl NodeRepository {
                 settings_template,
                 stream_settings_template,
                 target_group_id,
-                port_range_start::BIGINT AS port_range_start,
-                port_range_end::BIGINT AS port_range_end,
-                0::BIGINT AS renew_interval_hours,
-                COALESCE(renew_interval_mins, 0)::BIGINT AS renew_interval_mins,
-                COALESCE(is_active, TRUE) AS is_active,
+                port_range_start,
+                port_range_end,
+                renew_interval_hours,
+                renew_interval_mins,
+                is_active,
                 created_at
             FROM inbound_templates
             WHERE COALESCE(is_active, TRUE) = TRUE
@@ -564,9 +669,13 @@ impl NodeRepository {
         .await;
 
         match primary {
-            Ok(rows) => Ok(rows),
-            Err(e) if Self::is_undefined_column(&e) => {
-                sqlx::query_as::<_, crate::models::groups::InboundTemplate>(
+            Ok(rows) => Ok(rows
+                .into_iter()
+                .map(|row| Self::row_to_inbound_template(&row))
+                .collect()),
+            Err(e) if Self::is_undefined_table_or_column(&e) => {
+                // Legacy fallback where rotation/activity columns might not exist.
+                let rows = sqlx::query(
                     r#"
                     SELECT
                         id,
@@ -587,9 +696,69 @@ impl NodeRepository {
                 )
                 .fetch_all(&self.pool)
                 .await
-                .context("Failed to fetch all inbound templates")
+                .context("Failed to fetch all inbound templates")?;
+                Ok(rows
+                    .into_iter()
+                    .map(|row| Self::row_to_inbound_template(&row))
+                    .collect())
             }
             Err(e) => Err(e).context("Failed to fetch all inbound templates"),
+        }
+    }
+
+    pub async fn get_inbound_template_by_id(&self, id: i64) -> Result<Option<InboundTemplate>> {
+        let primary = sqlx::query(
+            r#"
+            SELECT
+                id,
+                name,
+                protocol,
+                settings_template,
+                stream_settings_template,
+                target_group_id,
+                port_range_start,
+                port_range_end,
+                renew_interval_hours,
+                renew_interval_mins,
+                is_active,
+                created_at
+            FROM inbound_templates
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await;
+
+        match primary {
+            Ok(row) => Ok(row.map(|r| Self::row_to_inbound_template(&r))),
+            Err(e) if Self::is_undefined_table_or_column(&e) => {
+                let row = sqlx::query(
+                    r#"
+                    SELECT
+                        id,
+                        name,
+                        protocol,
+                        settings_template,
+                        stream_settings_template,
+                        target_group_id,
+                        10000::BIGINT AS port_range_start,
+                        60000::BIGINT AS port_range_end,
+                        0::BIGINT AS renew_interval_hours,
+                        0::BIGINT AS renew_interval_mins,
+                        TRUE AS is_active,
+                        created_at
+                    FROM inbound_templates
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await
+                .context("Failed to fetch inbound template by id")?;
+                Ok(row.map(|r| Self::row_to_inbound_template(&r)))
+            }
+            Err(e) => Err(e).context("Failed to fetch inbound template by id"),
         }
     }
 
@@ -828,11 +997,8 @@ impl NodeRepository {
         Ok(())
     }
 
-    pub async fn get_templates_for_group(
-        &self,
-        group_id: i64,
-    ) -> Result<Vec<crate::models::groups::InboundTemplate>> {
-        let primary = sqlx::query_as::<_, crate::models::groups::InboundTemplate>(
+    pub async fn get_templates_for_group(&self, group_id: i64) -> Result<Vec<InboundTemplate>> {
+        let primary = sqlx::query(
             r#"
             SELECT
                 id,
@@ -841,11 +1007,11 @@ impl NodeRepository {
                 settings_template,
                 stream_settings_template,
                 target_group_id,
-                port_range_start::BIGINT AS port_range_start,
-                port_range_end::BIGINT AS port_range_end,
-                0::BIGINT AS renew_interval_hours,
-                COALESCE(renew_interval_mins, 0)::BIGINT AS renew_interval_mins,
-                COALESCE(is_active, TRUE) AS is_active,
+                port_range_start,
+                port_range_end,
+                renew_interval_hours,
+                renew_interval_mins,
+                is_active,
                 created_at
             FROM inbound_templates
             WHERE target_group_id = $1
@@ -858,9 +1024,12 @@ impl NodeRepository {
         .await;
 
         match primary {
-            Ok(rows) => Ok(rows),
-            Err(e) if Self::is_undefined_column(&e) => {
-                sqlx::query_as::<_, crate::models::groups::InboundTemplate>(
+            Ok(rows) => Ok(rows
+                .into_iter()
+                .map(|row| Self::row_to_inbound_template(&row))
+                .collect()),
+            Err(e) if Self::is_undefined_table_or_column(&e) => {
+                let rows = sqlx::query(
                     r#"
                     SELECT
                         id,
@@ -883,7 +1052,11 @@ impl NodeRepository {
                 .bind(group_id)
                 .fetch_all(&self.pool)
                 .await
-                .context("Failed to fetch templates for group")
+                .context("Failed to fetch templates for group")?;
+                Ok(rows
+                    .into_iter()
+                    .map(|row| Self::row_to_inbound_template(&row))
+                    .collect())
             }
             Err(e) => Err(e).context("Failed to fetch templates for group"),
         }

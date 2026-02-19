@@ -1,9 +1,8 @@
-use sqlx::PgPool;
 use anyhow::{Context, Result};
-use caramba_db::models::store::User;
 use caramba_db::models::promo::PromoCode;
+use caramba_db::models::store::User;
 use chrono::Utc;
-
+use sqlx::PgPool;
 
 #[derive(Debug, Clone)]
 pub struct BillingService {
@@ -15,7 +14,14 @@ impl BillingService {
         Self { pool }
     }
 
-    pub async fn log_payment(&self, user_id: i64, method: &str, amount_cents: i64, external_id: Option<&str>, status: &str) -> Result<()> {
+    pub async fn log_payment(
+        &self,
+        user_id: i64,
+        method: &str,
+        amount_cents: i64,
+        external_id: Option<&str>,
+        status: &str,
+    ) -> Result<()> {
         sqlx::query(
             "INSERT INTO payments (user_id, method, amount, external_id, status) VALUES ($1, $2, $3, $4, $5)"
         )
@@ -30,12 +36,18 @@ impl BillingService {
         Ok(())
     }
 
-    pub async fn apply_referral_bonus(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, user_id: i64, amount_cents: i64, payment_id: Option<i64>) -> Result<Option<(i64, i64)>> {
+    pub async fn apply_referral_bonus(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: i64,
+        amount_cents: i64,
+        payment_id: Option<i64>,
+    ) -> Result<Option<(i64, i64)>> {
         let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
             .bind(user_id)
             .fetch_one(&mut **tx)
             .await?;
-        
+
         if let Some(referrer_id) = user.referrer_id {
             let bonus = amount_cents / 10; // 10%
             if bonus > 0 {
@@ -44,7 +56,7 @@ impl BillingService {
                     .bind(referrer_id)
                     .execute(&mut **tx)
                     .await?;
-                
+
                 sqlx::query("INSERT INTO referral_bonuses (referrer_id, referred_id, amount, payment_id) VALUES ($1, $2, $3, $4)")
                     .bind(referrer_id)
                     .bind(user_id)
@@ -53,11 +65,12 @@ impl BillingService {
                     .execute(&mut **tx)
                     .await?;
 
-                let referrer_tg_id: Option<i64> = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
-                    .bind(referrer_id)
-                    .fetch_optional(&mut **tx)
-                    .await?;
-                
+                let referrer_tg_id: Option<i64> =
+                    sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
+                        .bind(referrer_id)
+                        .fetch_optional(&mut **tx)
+                        .await?;
+
                 if let Some(tg_id) = referrer_tg_id {
                     return Ok(Some((tg_id, bonus)));
                 }
@@ -87,7 +100,10 @@ impl BillingService {
     }
 
     /// Get recent orders for dashboard (limit 10)
-    pub async fn get_recent_orders(&self, limit: i64) -> Result<Vec<crate::handlers::admin::dashboard::OrderWithUser>> {
+    pub async fn get_recent_orders(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<crate::handlers::admin::dashboard::OrderWithUser>> {
         use crate::handlers::admin::dashboard::OrderWithUser;
         let orders = sqlx::query_as::<_, OrderWithUser>(
             r#"
@@ -98,18 +114,20 @@ impl BillingService {
             LEFT JOIN users u ON o.user_id = u.id
             ORDER BY o.created_at DESC
             LIMIT $1
-            "#
+            "#,
         )
         .bind(limit)
         .fetch_all(&self.pool)
         .await
         .context("Failed to fetch recent orders")?;
-        
+
         Ok(orders)
     }
 
     /// Get all orders for transactions page
-    pub async fn get_all_orders(&self) -> Result<Vec<crate::handlers::admin::dashboard::OrderWithUser>> {
+    pub async fn get_all_orders(
+        &self,
+    ) -> Result<Vec<crate::handlers::admin::dashboard::OrderWithUser>> {
         use crate::handlers::admin::dashboard::OrderWithUser;
         let orders = sqlx::query_as::<_, OrderWithUser>(
             r#"
@@ -119,16 +137,19 @@ impl BillingService {
             FROM orders o
             LEFT JOIN users u ON o.user_id = u.id
             ORDER BY o.created_at DESC
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await
         .context("Failed to fetch all orders")?;
-        
+
         Ok(orders)
     }
 
-    pub async fn get_user_orders(&self, user_id: i64) -> Result<Vec<caramba_db::models::store::Order>> {
+    pub async fn get_user_orders(
+        &self,
+        user_id: i64,
+    ) -> Result<Vec<caramba_db::models::store::Order>> {
         use caramba_db::models::store::Order;
         let orders = sqlx::query_as::<_, Order>(
             "SELECT id, user_id, total_amount, status, created_at, paid_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC"

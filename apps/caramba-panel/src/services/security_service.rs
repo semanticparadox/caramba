@@ -1,6 +1,6 @@
-use sqlx::PgPool;
 use anyhow::{Context, Result};
 use caramba_db::models::sni_log::SniRotationLog;
+use sqlx::PgPool;
 
 #[derive(Debug, Clone)]
 pub struct SecurityService {
@@ -12,7 +12,12 @@ impl SecurityService {
         Self { pool }
     }
 
-    pub async fn get_next_sni(&self, current_sni: &str, tier: i32, premium_only: bool) -> Result<String> {
+    pub async fn get_next_sni(
+        &self,
+        current_sni: &str,
+        tier: i32,
+        premium_only: bool,
+    ) -> Result<String> {
         let query = if premium_only {
             "SELECT domain FROM sni_pool 
              WHERE domain != $1 AND tier <= $2 AND is_active = TRUE AND is_premium = TRUE
@@ -31,7 +36,7 @@ impl SecurityService {
             .fetch_optional(&self.pool)
             .await
             .context("Failed to get next SNI")?;
-        
+
         Ok(sni.unwrap_or_else(|| "www.google.com".to_string()))
     }
 
@@ -45,7 +50,7 @@ impl SecurityService {
             WHERE nps.node_id = $1 AND s.is_active = TRUE
             ORDER BY s.health_score DESC, RANDOM()
             LIMIT 1
-            "#
+            "#,
         )
         .bind(node_id)
         .fetch_optional(&self.pool)
@@ -82,16 +87,16 @@ impl SecurityService {
     }
 
     pub async fn log_sni_rotation(
-        &self, 
-        node_id: i64, 
-        old_sni: &str, 
-        new_sni: &str, 
-        reason: &str
+        &self,
+        node_id: i64,
+        old_sni: &str,
+        new_sni: &str,
+        reason: &str,
     ) -> Result<SniRotationLog> {
         let log = sqlx::query_as::<_, SniRotationLog>(
             "INSERT INTO sni_rotation_log (node_id, old_sni, new_sni, reason)
              VALUES ($1, $2, $3, $4)
-             RETURNING id, node_id, old_sni, new_sni, reason, rotated_at"
+             RETURNING id, node_id, old_sni, new_sni, reason, rotated_at",
         )
         .bind(node_id)
         .bind(old_sni)
@@ -104,13 +109,18 @@ impl SecurityService {
         Ok(log)
     }
 
-    pub async fn rotate_node_sni(&self, node_id: i64, reason: &str) -> Result<(String, String, i64)> {
+    pub async fn rotate_node_sni(
+        &self,
+        node_id: i64,
+        reason: &str,
+    ) -> Result<(String, String, i64)> {
         // 1. Get current SNI and relay status
-        let node_data: Option<(Option<String>, bool)> = sqlx::query_as("SELECT reality_sni, is_relay FROM nodes WHERE id = $1")
-            .bind(node_id)
-            .fetch_optional(&self.pool)
-            .await?;
-            
+        let node_data: Option<(Option<String>, bool)> =
+            sqlx::query_as("SELECT reality_sni, is_relay FROM nodes WHERE id = $1")
+                .bind(node_id)
+                .fetch_optional(&self.pool)
+                .await?;
+
         let (current_sni, is_relay) = node_data.unwrap_or((None, false));
         let current_sni = current_sni.unwrap_or_else(|| "www.google.com".to_string());
 
@@ -122,7 +132,7 @@ impl SecurityService {
             WHERE nps.node_id = $1 AND s.domain != $2 AND s.is_active = TRUE
             ORDER BY s.health_score DESC, RANDOM()
             LIMIT 1
-            "#
+            "#,
         )
         .bind(node_id)
         .bind(&current_sni)
@@ -134,7 +144,7 @@ impl SecurityService {
         } else {
             self.get_next_sni(&current_sni, 1, is_relay).await?
         };
-        
+
         if next_sni == current_sni {
             return Err(anyhow::anyhow!("No other SNI available"));
         }
@@ -147,8 +157,10 @@ impl SecurityService {
             .await?;
 
         // 4. Log
-        let log = self.log_sni_rotation(node_id, &current_sni, &next_sni, reason).await?;
-        
+        let log = self
+            .log_sni_rotation(node_id, &current_sni, &next_sni, reason)
+            .await?;
+
         Ok((current_sni, next_sni, log.id))
     }
 }

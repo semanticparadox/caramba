@@ -1,6 +1,6 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Node {
@@ -39,17 +39,17 @@ pub struct Node {
     pub config_block_ads: bool,
     #[sqlx(default)]
     pub config_block_porn: bool,
-    
+
     // Telemetry & Load Balancing (Added Phase 1.5)
     pub last_latency: Option<f64>,
     pub last_cpu: Option<f64>,
     pub last_ram: Option<f64>,
-    
+
     // Hardware Specs (2026-02-16)
     #[sqlx(default)]
     pub max_ram: i64, // bytes
     #[sqlx(default)]
-    pub cpu_cores: i32, 
+    pub cpu_cores: i32,
     #[sqlx(default)]
     pub cpu_model: Option<String>,
     #[sqlx(default)]
@@ -58,7 +58,7 @@ pub struct Node {
     pub max_users: i32,
     #[sqlx(default)]
     pub current_speed_mbps: i32,
-    
+
     // Relay Support (Phase 8)
     #[sqlx(default)]
     pub relay_id: Option<i64>,
@@ -78,7 +78,7 @@ pub struct Node {
     pub last_session_egress: i64,
     #[sqlx(default)]
     pub doomsday_password: Option<String>,
-    
+
     #[sqlx(default)]
     pub version: Option<String>,
     #[sqlx(default)]
@@ -106,12 +106,14 @@ impl Node {
 
     pub fn format_uptime(&self) -> String {
         let total_seconds = self.uptime;
-        if total_seconds == 0 { return "0s".to_string(); }
-        
+        if total_seconds == 0 {
+            return "0s".to_string();
+        }
+
         let days = total_seconds / 86400;
         let hours = (total_seconds % 86400) / 3600;
         let minutes = (total_seconds % 3600) / 60;
-        
+
         if days > 0 {
             format!("{}d {}h", days, hours)
         } else if hours > 0 {

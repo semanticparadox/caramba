@@ -1,5 +1,5 @@
 use crate::singbox::config::*;
-use caramba_db::models::network::{StreamSettings as DbStreamSettings, InboundType, Certificate}; // Added Certificate
+use caramba_db::models::network::{Certificate, InboundType, StreamSettings as DbStreamSettings}; // Added Certificate
 use sha2::{Digest, Sha256};
 use tracing::{error, warn};
 
@@ -14,12 +14,7 @@ pub enum RelayAuthMode {
 
 impl RelayAuthMode {
     pub fn from_setting(raw: Option<&str>) -> Self {
-        match raw
-            .unwrap_or("dual")
-            .trim()
-            .to_ascii_lowercase()
-            .as_str()
-        {
+        match raw.unwrap_or("dual").trim().to_ascii_lowercase().as_str() {
             "legacy" => Self::Legacy,
             "v1" | "hashed" | "derived" => Self::V1,
             "dual" => Self::Dual,
@@ -55,42 +50,57 @@ impl ConfigGenerator {
         relay_clients: Vec<caramba_db::models::node::Node>,
         relay_auth_mode: RelayAuthMode,
     ) -> SingBoxConfig {
-        
         let mut generated_inbounds = Vec::new();
 
         // 1. Process Inbounds (Normal + Relay Injection)
         for inbound in inbounds {
             if !inbound.enable {
-                error!("🚫 Inbound {} is DISABLED, skipping generation", inbound.tag);
+                error!(
+                    "🚫 Inbound {} is DISABLED, skipping generation",
+                    inbound.tag
+                );
                 continue;
             }
 
             // Parse Protocol Settings
-            let mut settings_value: serde_json::Value = serde_json::from_str(&inbound.settings).unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-            
+            let mut settings_value: serde_json::Value = serde_json::from_str(&inbound.settings)
+                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+
             if let Some(obj) = settings_value.as_object_mut() {
                 if !obj.contains_key("protocol") {
-                    obj.insert("protocol".to_string(), serde_json::Value::String(inbound.protocol.clone().to_lowercase()));
+                    obj.insert(
+                        "protocol".to_string(),
+                        serde_json::Value::String(inbound.protocol.clone().to_lowercase()),
+                    );
                 }
             }
 
-            let protocol_settings: InboundType = match serde_json::from_value(settings_value.clone()) {
+            let protocol_settings: InboundType = match serde_json::from_value(
+                settings_value.clone(),
+            ) {
                 Ok(s) => s,
                 Err(e) => {
                     let proto = inbound.protocol.clone().to_lowercase();
-                    error!("❌ Failed to parse settings for inbound {}: {} (json: {}). Protocol: {}", inbound.tag, e, inbound.settings, proto);
+                    error!(
+                        "❌ Failed to parse settings for inbound {}: {} (json: {}). Protocol: {}",
+                        inbound.tag, e, inbound.settings, proto
+                    );
                     continue;
                 }
             };
 
             // Parse Stream Settings
-            let stream_settings: DbStreamSettings = match serde_json::from_str(&inbound.stream_settings) {
-                Ok(s) => s,
-                Err(_) => {
-                    warn!("⚠️ StreamSettings parse failed for inbound '{}', using defaults", inbound.tag);
-                    DbStreamSettings::default()
-                }
-            };
+            let stream_settings: DbStreamSettings =
+                match serde_json::from_str(&inbound.stream_settings) {
+                    Ok(s) => s,
+                    Err(_) => {
+                        warn!(
+                            "⚠️ StreamSettings parse failed for inbound '{}', using defaults",
+                            inbound.tag
+                        );
+                        DbStreamSettings::default()
+                    }
+                };
 
             // Map DB Inbound to Sing-box Inbound
             match protocol_settings {
@@ -98,87 +108,119 @@ impl ConfigGenerator {
                     // Inject Relay Clients as Users if this is a suitable inbound
                     // For now, we only inject into Shadowsocks for simplicity, but VLESS is possible too.
                     // Let's stick to Shadowsocks for inter-node transport unless VLESS is required.
-                    
+
                     let mut tls_config = None;
-                    
+
                     let security = stream_settings.security.as_deref().unwrap_or("none");
                     if security == "reality" {
                         if let Some(reality) = stream_settings.reality_settings {
-                             tls_config = Some(VlessTlsConfig {
+                            tls_config = Some(VlessTlsConfig {
                                 enabled: true,
-                                server_name: reality.server_names.first().cloned().unwrap_or_else(|| {
-                                    node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string())
-                                }),
+                                server_name: reality.server_names.first().cloned().unwrap_or_else(
+                                    || {
+                                        node.reality_sni
+                                            .clone()
+                                            .unwrap_or_else(|| "www.google.com".to_string())
+                                    },
+                                ),
                                 alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
                                 reality: RealityConfig {
                                     enabled: true,
                                     handshake: RealityHandshake {
                                         server: if reality.dest.is_empty() {
-                                            node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string())
+                                            node.reality_sni
+                                                .clone()
+                                                .unwrap_or_else(|| "www.google.com".to_string())
                                         } else {
-                                            reality.dest.split(':').next().unwrap_or(&reality.dest).to_string()
+                                            reality
+                                                .dest
+                                                .split(':')
+                                                .next()
+                                                .unwrap_or(&reality.dest)
+                                                .to_string()
                                         },
-                                        server_port: reality.dest.split(':').last().and_then(|p: &str| p.parse().ok()).unwrap_or(443),
+                                        server_port: reality
+                                            .dest
+                                            .split(':')
+                                            .last()
+                                            .and_then(|p: &str| p.parse().ok())
+                                            .unwrap_or(443),
                                     },
                                     private_key: {
-                                        let k = if reality.private_key.is_empty() { 
-                                            node.reality_priv.clone().unwrap_or_default() 
-                                        } else { 
-                                            reality.private_key 
+                                        let k = if reality.private_key.is_empty() {
+                                            node.reality_priv.clone().unwrap_or_default()
+                                        } else {
+                                            reality.private_key
                                         };
-                                        k.trim().replace('+', "-").replace('/', "_").replace('=', "")
+                                        k.trim()
+                                            .replace('+', "-")
+                                            .replace('/', "_")
+                                            .replace('=', "")
                                     },
                                     short_id: {
-                                        let ids = if reality.short_ids.is_empty() { 
-                                            node.short_id.clone().map(|s| vec![s]).unwrap_or_default() 
-                                        } else { 
-                                            reality.short_ids 
+                                        let ids = if reality.short_ids.is_empty() {
+                                            node.short_id
+                                                .clone()
+                                                .map(|s| vec![s])
+                                                .unwrap_or_default()
+                                        } else {
+                                            reality.short_ids
                                         };
-                                        ids.into_iter().map(|s: String| s.trim().to_string()).collect()
+                                        ids.into_iter()
+                                            .map(|s: String| s.trim().to_string())
+                                            .collect()
                                     },
                                 },
                                 key_path: None,
                                 certificate_path: None,
-                             });
+                            });
 
-                             if let Some(ref cfg) = tls_config {
-                                 let pkey = &cfg.reality.private_key;
-                                 let is_invalid = pkey.is_empty() || pkey.len() < 43 || pkey.contains(' ');
-                                 if cfg.reality.enabled && is_invalid {
-                                     warn!("⚠️ Skipping Reality block for inbound '{}' due to INVALID OR MISSING PRIVATE KEY (len: {})", inbound.tag, pkey.len());
-                                     tls_config = None;
-                                 }
-                             }
+                            if let Some(ref cfg) = tls_config {
+                                let pkey = &cfg.reality.private_key;
+                                let is_invalid =
+                                    pkey.is_empty() || pkey.len() < 43 || pkey.contains(' ');
+                                if cfg.reality.enabled && is_invalid {
+                                    warn!(
+                                        "⚠️ Skipping Reality block for inbound '{}' due to INVALID OR MISSING PRIVATE KEY (len: {})",
+                                        inbound.tag,
+                                        pkey.len()
+                                    );
+                                    tls_config = None;
+                                }
+                            }
                         }
                     } else if security == "tls" {
-                         let mut server_name = "www.google.com".to_string();
-                         let mut key_path = None;
-                         let mut cert_path = None;
+                        let mut server_name = "www.google.com".to_string();
+                        let mut key_path = None;
+                        let mut cert_path = None;
 
-                         if let Some(tls) = &stream_settings.tls_settings {
-                             server_name = tls.server_name.clone();
-                             if let Some(certs) = &tls.certificates {
-                                 let certs: &Vec<Certificate> = certs;
-                                 if let Some(first) = certs.get(0) {
-                                     key_path = Some(first.key_path.clone());
-                                     cert_path = Some(first.certificate_path.clone());
-                                 }
-                             }
-                         }
+                        if let Some(tls) = &stream_settings.tls_settings {
+                            server_name = tls.server_name.clone();
+                            if let Some(certs) = &tls.certificates {
+                                let certs: &Vec<Certificate> = certs;
+                                if let Some(first) = certs.get(0) {
+                                    key_path = Some(first.key_path.clone());
+                                    cert_path = Some(first.certificate_path.clone());
+                                }
+                            }
+                        }
 
-                         tls_config = Some(VlessTlsConfig {
-                             enabled: true,
-                             server_name,
-                             alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
-                             reality: RealityConfig {
-                                 enabled: false,
-                                 handshake: RealityHandshake { server: "".to_string(), server_port: 0 },
-                                 private_key: "".to_string(),
-                                 short_id: vec![],
-                             },
-                             key_path,
-                             certificate_path: cert_path,
-                         });
+                        tls_config = Some(VlessTlsConfig {
+                            enabled: true,
+                            server_name,
+                            alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                            reality: RealityConfig {
+                                enabled: false,
+                                handshake: RealityHandshake {
+                                    server: "".to_string(),
+                                    server_port: 0,
+                                },
+                                private_key: "".to_string(),
+                                short_id: vec![],
+                            },
+                            key_path,
+                            certificate_path: cert_path,
+                        });
                     }
 
                     // Transport Settings
@@ -187,54 +229,75 @@ impl ConfigGenerator {
                         let network: &String = network;
                         match network.as_str() {
                             "ws" => {
-                                if let Some(ws) = stream_settings.ws_settings.as_ref()
-                                    .or(stream_settings.ws_settings.as_ref()) {
-                                    transport_config = Some(VlessTransportConfig::Ws(WsTransport {
-                                        path: ws.path.clone(),
-                                        headers: ws.headers.clone(),
-                                    }));
+                                if let Some(ws) = stream_settings
+                                    .ws_settings
+                                    .as_ref()
+                                    .or(stream_settings.ws_settings.as_ref())
+                                {
+                                    transport_config =
+                                        Some(VlessTransportConfig::Ws(WsTransport {
+                                            path: ws.path.clone(),
+                                            headers: ws.headers.clone(),
+                                        }));
                                 }
-                            },
+                            }
                             "httpupgrade" => {
                                 if let Some(http) = stream_settings.http_upgrade_settings.as_ref() {
-                                    transport_config = Some(VlessTransportConfig::HttpUpgrade(HttpUpgradeTransport {
-                                        path: http.path.clone(),
-                                        host: http.host.clone().map(|h| vec![h]),
-                                    }));
+                                    transport_config = Some(VlessTransportConfig::HttpUpgrade(
+                                        HttpUpgradeTransport {
+                                            path: http.path.clone(),
+                                            host: http.host.clone().map(|h| vec![h]),
+                                        },
+                                    ));
                                 }
-                            },
+                            }
                             "xhttp" | "splithttp" => {
                                 if let Some(xhttp) = stream_settings.xhttp_settings.as_ref() {
-                                    transport_config = Some(VlessTransportConfig::HttpUpgrade(HttpUpgradeTransport {
-                                        path: xhttp.path.clone(),
-                                        host: if xhttp.host.is_empty() { None } else { Some(vec![xhttp.host.clone()]) },
-                                    }));
+                                    transport_config = Some(VlessTransportConfig::HttpUpgrade(
+                                        HttpUpgradeTransport {
+                                            path: xhttp.path.clone(),
+                                            host: if xhttp.host.is_empty() {
+                                                None
+                                            } else {
+                                                Some(vec![xhttp.host.clone()])
+                                            },
+                                        },
+                                    ));
                                 }
-                            },
+                            }
                             _ => {}
                         }
                     }
 
-                    let default_flow = if security == "reality" && stream_settings.network.as_deref() == Some("tcp") {
+                    let default_flow = if security == "reality"
+                        && stream_settings.network.as_deref() == Some("tcp")
+                    {
                         "xtls-rprx-vision"
                     } else {
                         ""
                     };
 
-                    let users: Vec<VlessUser> = vless.clients.iter().map(|c| VlessUser {
-                        name: c.email.clone(),
-                        uuid: c.id.clone(),
-                        flow: if !c.flow.is_empty() { 
-                            Some(c.flow.clone()) 
-                        } else if !default_flow.is_empty() {
-                            Some(default_flow.to_string())
-                        } else {
-                            None
-                        },
-                    }).collect();
+                    let users: Vec<VlessUser> = vless
+                        .clients
+                        .iter()
+                        .map(|c| VlessUser {
+                            name: c.email.clone(),
+                            uuid: c.id.clone(),
+                            flow: if !c.flow.is_empty() {
+                                Some(c.flow.clone())
+                            } else if !default_flow.is_empty() {
+                                Some(default_flow.to_string())
+                            } else {
+                                None
+                            },
+                        })
+                        .collect();
 
                     if users.is_empty() {
-                        warn!("⚠️ VLESS inbound '{}' has no users, skipping to avoid sing-box FATAL", inbound.tag);
+                        warn!(
+                            "⚠️ VLESS inbound '{}' has no users, skipping to avoid sing-box FATAL",
+                            inbound.tag
+                        );
                         continue;
                     }
 
@@ -247,45 +310,61 @@ impl ConfigGenerator {
                         transport: transport_config,
                         packet_encoding: stream_settings.packet_encoding.clone(),
                     }));
-                },
+                }
                 InboundType::Hysteria2(hy2) => {
                     let mut tls_config = Hysteria2TlsConfig {
                         enabled: true,
-                        server_name: node.reality_sni.clone().unwrap_or_else(|| "drive.google.com".to_string()),
+                        server_name: node
+                            .reality_sni
+                            .clone()
+                            .unwrap_or_else(|| "drive.google.com".to_string()),
                         key_path: Some("/etc/sing-box/certs/key.pem".to_string()),
                         certificate_path: Some("/etc/sing-box/certs/cert.pem".to_string()),
                         alpn: Some(vec!["h3".to_string()]),
                     };
 
                     if let Some(tls) = stream_settings.tls_settings {
-                         tls_config.server_name = tls.server_name;
-                         if let Some(certs) = tls.certificates {
-                             let certs: Vec<caramba_db::models::network::Certificate> = certs;
-                             if let Some(first) = certs.get(0) {
-                                 if !first.key_path.is_empty() {
-                                     tls_config.key_path = Some(first.key_path.clone());
-                                 }
-                                 if !first.certificate_path.is_empty() {
-                                     tls_config.certificate_path = Some(first.certificate_path.clone());
-                                 }
-                             }
-                         }
+                        tls_config.server_name = tls.server_name;
+                        if let Some(certs) = tls.certificates {
+                            let certs: Vec<caramba_db::models::network::Certificate> = certs;
+                            if let Some(first) = certs.get(0) {
+                                if !first.key_path.is_empty() {
+                                    tls_config.key_path = Some(first.key_path.clone());
+                                }
+                                if !first.certificate_path.is_empty() {
+                                    tls_config.certificate_path =
+                                        Some(first.certificate_path.clone());
+                                }
+                            }
+                        }
                     }
 
                     if tls_config.key_path.is_none() {
                         tls_config.key_path = Some("/etc/sing-box/certs/key.pem".to_string());
                     }
                     if tls_config.certificate_path.is_none() {
-                        tls_config.certificate_path = Some("/etc/sing-box/certs/cert.pem".to_string());
+                        tls_config.certificate_path =
+                            Some("/etc/sing-box/certs/cert.pem".to_string());
                     }
 
-                    let users: Vec<Hysteria2User> = hy2.users.iter().map(|u| Hysteria2User {
-                        name: u.name.clone(),
-                        password: format!("{}:{}", u.name.as_deref().unwrap_or("unknown"), u.password.replace("-", "")),
-                    }).collect();
+                    let users: Vec<Hysteria2User> = hy2
+                        .users
+                        .iter()
+                        .map(|u| Hysteria2User {
+                            name: u.name.clone(),
+                            password: format!(
+                                "{}:{}",
+                                u.name.as_deref().unwrap_or("unknown"),
+                                u.password.replace("-", "")
+                            ),
+                        })
+                        .collect();
 
                     if users.is_empty() {
-                        warn!("⚠️ Hysteria2 inbound '{}' has no users, skipping to avoid sing-box FATAL", inbound.tag);
+                        warn!(
+                            "⚠️ Hysteria2 inbound '{}' has no users, skipping to avoid sing-box FATAL",
+                            inbound.tag
+                        );
                         continue;
                     }
 
@@ -296,7 +375,7 @@ impl ConfigGenerator {
                         users,
                         up_mbps: Some(hy2.up_mbps),
                         down_mbps: Some(hy2.down_mbps),
-                        ignore_client_bandwidth: None, 
+                        ignore_client_bandwidth: None,
                         obfs: hy2.obfs.map(|o| Hysteria2Obfs {
                             ttype: o.ttype,
                             password: o.password,
@@ -310,14 +389,18 @@ impl ConfigGenerator {
                         }),
                         tls: tls_config,
                     }));
-                },
+                }
                 InboundType::AmneziaWg(awg) => {
-                    let peers = awg.users.iter().map(|u| AmneziaWgUser {
-                        name: u.name.clone(),
-                        public_key: u.public_key.clone(),
-                        preshared_key: u.preshared_key.clone(),
-                        allowed_ips: vec![u.client_ip.clone()],
-                    }).collect();
+                    let peers = awg
+                        .users
+                        .iter()
+                        .map(|u| AmneziaWgUser {
+                            name: u.name.clone(),
+                            public_key: u.public_key.clone(),
+                            preshared_key: u.preshared_key.clone(),
+                            allowed_ips: vec![u.client_ip.clone()],
+                        })
+                        .collect();
 
                     generated_inbounds.push(Inbound::AmneziaWg(AmneziaWgInbound {
                         tag: inbound.tag,
@@ -335,39 +418,50 @@ impl ConfigGenerator {
                         h3: Some(awg.h3),
                         h4: Some(awg.h4),
                     }));
-                },
+                }
                 InboundType::Tuic(tuic) => {
                     let mut tls_config = TuicTlsConfig {
                         enabled: true,
-                        server_name: node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string()),
+                        server_name: node
+                            .reality_sni
+                            .clone()
+                            .unwrap_or_else(|| "www.google.com".to_string()),
                         key_path: Some("/etc/sing-box/certs/key.pem".to_string()),
                         certificate_path: Some("/etc/sing-box/certs/cert.pem".to_string()),
                         alpn: Some(vec!["h3".to_string()]),
                     };
 
                     if let Some(tls) = stream_settings.tls_settings {
-                         tls_config.server_name = tls.server_name;
-                         if let Some(certs) = tls.certificates {
-                             let certs: Vec<caramba_db::models::network::Certificate> = certs;
-                             if let Some(first) = certs.get(0) {
-                                 if !first.key_path.is_empty() {
-                                     tls_config.key_path = Some(first.key_path.clone());
-                                 }
-                                 if !first.certificate_path.is_empty() {
-                                     tls_config.certificate_path = Some(first.certificate_path.clone());
-                                 }
-                             }
-                         }
+                        tls_config.server_name = tls.server_name;
+                        if let Some(certs) = tls.certificates {
+                            let certs: Vec<caramba_db::models::network::Certificate> = certs;
+                            if let Some(first) = certs.get(0) {
+                                if !first.key_path.is_empty() {
+                                    tls_config.key_path = Some(first.key_path.clone());
+                                }
+                                if !first.certificate_path.is_empty() {
+                                    tls_config.certificate_path =
+                                        Some(first.certificate_path.clone());
+                                }
+                            }
+                        }
                     }
 
-                    let users: Vec<TuicUser> = tuic.users.iter().map(|u| TuicUser {
-                        name: u.name.clone(),
-                        uuid: u.uuid.clone(),
-                        password: u.password.clone(),
-                    }).collect();
+                    let users: Vec<TuicUser> = tuic
+                        .users
+                        .iter()
+                        .map(|u| TuicUser {
+                            name: u.name.clone(),
+                            uuid: u.uuid.clone(),
+                            password: u.password.clone(),
+                        })
+                        .collect();
 
                     if users.is_empty() {
-                        warn!("⚠️ TUIC inbound '{}' has no users, skipping to avoid sing-box FATAL", inbound.tag);
+                        warn!(
+                            "⚠️ TUIC inbound '{}' has no users, skipping to avoid sing-box FATAL",
+                            inbound.tag
+                        );
                         continue;
                     }
 
@@ -382,45 +476,61 @@ impl ConfigGenerator {
                         heartbeat: tuic.heartbeat,
                         tls: tls_config,
                     }));
-                },
+                }
                 InboundType::Trojan(trojan) => {
                     let mut tls_config = None;
-                    
+
                     let security = stream_settings.security.as_deref().unwrap_or("none");
                     if security == "reality" {
                         if let Some(reality) = stream_settings.reality_settings {
-                              tls_config = Some(VlessTlsConfig {
-                                 enabled: true,
-                                 server_name: reality.server_names.first().cloned().unwrap_or_else(|| {
-                                     node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string())
-                                 }),
-                                 alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
-                                 reality: RealityConfig {
-                                     enabled: true,
-                                     handshake: RealityHandshake {
-                                         server: if reality.dest.is_empty() {
-                                             node.reality_sni.clone().unwrap_or_else(|| "www.google.com".to_string())
-                                         } else {
-                                             reality.dest.split(':').next().unwrap_or(&reality.dest).to_string()
-                                         },
-                                         server_port: reality.dest.split(':').last().and_then(|p: &str| p.parse().ok()).unwrap_or(443),
-                                     },
-                                     private_key: if reality.private_key.is_empty() {
-                                         node.reality_priv.clone().unwrap_or_default()
-                                     } else {
-                                         reality.private_key
-                                     },
-                                     short_id: if reality.short_ids.is_empty() {
-                                         node.short_id.clone().map(|s| vec![s]).unwrap_or_default()
-                                     } else {
-                                         reality.short_ids
-                                     },
-                                 },
-                                 key_path: None,
-                                 certificate_path: None,
-                              });
+                            tls_config = Some(VlessTlsConfig {
+                                enabled: true,
+                                server_name: reality.server_names.first().cloned().unwrap_or_else(
+                                    || {
+                                        node.reality_sni
+                                            .clone()
+                                            .unwrap_or_else(|| "www.google.com".to_string())
+                                    },
+                                ),
+                                alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                                reality: RealityConfig {
+                                    enabled: true,
+                                    handshake: RealityHandshake {
+                                        server: if reality.dest.is_empty() {
+                                            node.reality_sni
+                                                .clone()
+                                                .unwrap_or_else(|| "www.google.com".to_string())
+                                        } else {
+                                            reality
+                                                .dest
+                                                .split(':')
+                                                .next()
+                                                .unwrap_or(&reality.dest)
+                                                .to_string()
+                                        },
+                                        server_port: reality
+                                            .dest
+                                            .split(':')
+                                            .last()
+                                            .and_then(|p: &str| p.parse().ok())
+                                            .unwrap_or(443),
+                                    },
+                                    private_key: if reality.private_key.is_empty() {
+                                        node.reality_priv.clone().unwrap_or_default()
+                                    } else {
+                                        reality.private_key
+                                    },
+                                    short_id: if reality.short_ids.is_empty() {
+                                        node.short_id.clone().map(|s| vec![s]).unwrap_or_default()
+                                    } else {
+                                        reality.short_ids
+                                    },
+                                },
+                                key_path: None,
+                                certificate_path: None,
+                            });
                         }
-                     } else if security == "tls" {
+                    } else if security == "tls" {
                         let mut server_name = "www.google.com".to_string();
                         let mut key_path = None;
                         let mut cert_path = None;
@@ -451,15 +561,22 @@ impl ConfigGenerator {
                             key_path,
                             certificate_path: cert_path,
                         });
-                     }
+                    }
 
-                    let users: Vec<TrojanUser> = trojan.clients.iter().map(|c| TrojanUser {
-                        name: c.email.clone(),
-                        password: c.password.clone(),
-                    }).collect();
+                    let users: Vec<TrojanUser> = trojan
+                        .clients
+                        .iter()
+                        .map(|c| TrojanUser {
+                            name: c.email.clone(),
+                            password: c.password.clone(),
+                        })
+                        .collect();
 
                     if users.is_empty() {
-                        warn!("⚠️ Trojan inbound '{}' has no users, skipping to avoid sing-box FATAL", inbound.tag);
+                        warn!(
+                            "⚠️ Trojan inbound '{}' has no users, skipping to avoid sing-box FATAL",
+                            inbound.tag
+                        );
                         continue;
                     }
 
@@ -470,7 +587,7 @@ impl ConfigGenerator {
                         users,
                         tls: tls_config,
                     }));
-                },
+                }
                 InboundType::Naive(naive) => {
                     let mut tls_config = None;
                     let security = stream_settings.security.as_deref().unwrap_or("none");
@@ -479,39 +596,69 @@ impl ConfigGenerator {
                         if let Some(reality) = stream_settings.reality_settings {
                             tls_config = Some(VlessTlsConfig {
                                 enabled: true,
-                                server_name: reality.server_names.first().cloned().unwrap_or_default(),
+                                server_name: reality
+                                    .server_names
+                                    .first()
+                                    .cloned()
+                                    .unwrap_or_default(),
                                 alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
                                 reality: RealityConfig {
                                     enabled: true,
                                     handshake: RealityHandshake {
-                                        server: reality.dest.split(':').next().unwrap_or(&reality.dest).to_string(),
-                                        server_port: reality.dest.split(':').last().and_then(|p: &str| p.parse().ok()).unwrap_or(443),
+                                        server: reality
+                                            .dest
+                                            .split(':')
+                                            .next()
+                                            .unwrap_or(&reality.dest)
+                                            .to_string(),
+                                        server_port: reality
+                                            .dest
+                                            .split(':')
+                                            .last()
+                                            .and_then(|p: &str| p.parse().ok())
+                                            .unwrap_or(443),
                                     },
-                                    private_key: if reality.private_key.is_empty() { node.reality_priv.clone().unwrap_or_default() } else { reality.private_key },
-                                    short_id: if reality.short_ids.is_empty() { node.short_id.clone().map(|s| vec![s]).unwrap_or_default() } else { reality.short_ids },
+                                    private_key: if reality.private_key.is_empty() {
+                                        node.reality_priv.clone().unwrap_or_default()
+                                    } else {
+                                        reality.private_key
+                                    },
+                                    short_id: if reality.short_ids.is_empty() {
+                                        node.short_id.clone().map(|s| vec![s]).unwrap_or_default()
+                                    } else {
+                                        reality.short_ids
+                                    },
                                 },
                                 key_path: None,
                                 certificate_path: None,
                             });
                         }
                     } else {
-                        let mut server_name = stream_settings.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| "www.google.com".to_string());
+                        let mut server_name = stream_settings
+                            .tls_settings
+                            .as_ref()
+                            .map(|t| t.server_name.clone())
+                            .unwrap_or_else(|| "www.google.com".to_string());
                         let mut key_path = None;
                         let mut cert_path = None;
 
                         if let Some(tls) = &stream_settings.tls_settings {
-                             server_name = tls.server_name.clone();
-                             if let Some(certs) = &tls.certificates {
-                                 let certs: &Vec<caramba_db::models::network::Certificate> = certs;
-                                 if let Some(first) = certs.get(0) {
-                                     key_path = Some(first.key_path.clone());
-                                     cert_path = Some(first.certificate_path.clone());
-                                 }
-                             }
+                            server_name = tls.server_name.clone();
+                            if let Some(certs) = &tls.certificates {
+                                let certs: &Vec<caramba_db::models::network::Certificate> = certs;
+                                if let Some(first) = certs.get(0) {
+                                    key_path = Some(first.key_path.clone());
+                                    cert_path = Some(first.certificate_path.clone());
+                                }
+                            }
                         }
 
-                        if key_path.is_none() { key_path = Some("/etc/sing-box/certs/key.pem".to_string()); }
-                        if cert_path.is_none() { cert_path = Some("/etc/sing-box/certs/cert.pem".to_string()); }
+                        if key_path.is_none() {
+                            key_path = Some("/etc/sing-box/certs/key.pem".to_string());
+                        }
+                        if cert_path.is_none() {
+                            cert_path = Some("/etc/sing-box/certs/cert.pem".to_string());
+                        }
 
                         tls_config = Some(VlessTlsConfig {
                             enabled: true,
@@ -535,20 +682,27 @@ impl ConfigGenerator {
                         tag: inbound.tag,
                         listen: inbound.listen_ip.clone(),
                         listen_port: inbound.listen_port as u16,
-                        users: naive.users.iter().map(|u| NaiveUser {
-                            username: u.username.clone(),
-                            password: u.password.clone(),
-                        }).collect(),
+                        users: naive
+                            .users
+                            .iter()
+                            .map(|u| NaiveUser {
+                                username: u.username.clone(),
+                                password: u.password.clone(),
+                            })
+                            .collect(),
                         tls: tls_config,
                     };
-                    
+
                     if inbound_obj.users.is_empty() {
-                        warn!("⚠️ Naive inbound '{}' has no users, skipping to avoid sing-box FATAL", inbound_obj.tag);
+                        warn!(
+                            "⚠️ Naive inbound '{}' has no users, skipping to avoid sing-box FATAL",
+                            inbound_obj.tag
+                        );
                         continue;
                     }
 
                     generated_inbounds.push(Inbound::Naive(inbound_obj));
-                },
+                }
                 InboundType::Shadowsocks(mut ss) => {
                     // Inject Relay Clients if this is a suitable Shadowsocks inbound
                     for client_node in &relay_clients {
@@ -558,7 +712,10 @@ impl ConfigGenerator {
                             .map(str::trim)
                             .filter(|t| !t.is_empty())
                         {
-                            warn!("🔗 Injecting Relay Access for Node {} ({}). User: relay_{}", client_node.name, client_node.ip, client_node.id);
+                            warn!(
+                                "🔗 Injecting Relay Access for Node {} ({}). User: relay_{}",
+                                client_node.name, client_node.ip, client_node.id
+                            );
                             let base_username = format!("relay_{}", client_node.id);
                             match relay_auth_mode {
                                 RelayAuthMode::Legacy => {
@@ -592,13 +749,20 @@ impl ConfigGenerator {
                         }
                     }
 
-                    let users: Vec<crate::singbox::config::ShadowsocksUser> = ss.users.iter().map(|u| crate::singbox::config::ShadowsocksUser {
-                        name: u.username.clone(),
-                        password: u.password.clone(),
-                    }).collect();
+                    let users: Vec<crate::singbox::config::ShadowsocksUser> = ss
+                        .users
+                        .iter()
+                        .map(|u| crate::singbox::config::ShadowsocksUser {
+                            name: u.username.clone(),
+                            password: u.password.clone(),
+                        })
+                        .collect();
 
                     if users.is_empty() {
-                        warn!("⚠️ Shadowsocks inbound '{}' has no users, skipping to avoid sing-box FATAL", inbound.tag);
+                        warn!(
+                            "⚠️ Shadowsocks inbound '{}' has no users, skipping to avoid sing-box FATAL",
+                            inbound.tag
+                        );
                         continue;
                     }
 
@@ -609,21 +773,24 @@ impl ConfigGenerator {
                         method: ss.method,
                         users,
                     }));
-                },
+                }
             }
         }
 
         // 2. Generate Outbounds (Standard + Relay)
-        let mut outbounds = vec![
-            Outbound::Direct { tag: "direct".to_string() },
-        ];
+        let mut outbounds = vec![Outbound::Direct {
+            tag: "direct".to_string(),
+        }];
 
         // 3. Relay Logic: Add Relay Outbound if enabled
         let mut default_outbound_tag = "direct".to_string();
 
         if let Some(target) = target_node {
             if node.is_relay {
-                warn!("🔗 Configuring Node as RELAY -> Target: {} ({})", target.name, target.ip);
+                warn!(
+                    "🔗 Configuring Node as RELAY -> Target: {} ({})",
+                    target.name, target.ip
+                );
                 let relay_password = node
                     .join_token
                     .as_deref()
@@ -675,7 +842,10 @@ impl ConfigGenerator {
             action: Some("route".to_string()),
             protocol: Some(vec!["dns".to_string()]),
             outbound: Some("direct".to_string()),
-            port: None, domain: None, geosite: None, geoip: None,
+            port: None,
+            domain: None,
+            geosite: None,
+            geoip: None,
             domain_resolver: None,
             rule_set: None,
         });
@@ -685,15 +855,23 @@ impl ConfigGenerator {
             router_rules.push(RouteRule {
                 action: Some("reject".to_string()),
                 protocol: Some(vec!["bittorrent".to_string()]),
-                outbound: None, port: None, domain: None, geosite: None, geoip: None,
+                outbound: None,
+                port: None,
+                domain: None,
+                geosite: None,
+                geoip: None,
                 domain_resolver: None,
                 rule_set: None,
             });
             // Try to use geosite if available, but keep protocol as primary fallback
-             router_rules.push(RouteRule {
+            router_rules.push(RouteRule {
                 action: Some("reject".to_string()),
                 geosite: Some(vec!["category-p2p".to_string()]),
-                outbound: None, protocol: None, port: None, domain: None, geoip: None,
+                outbound: None,
+                protocol: None,
+                port: None,
+                domain: None,
+                geoip: None,
                 domain_resolver: None,
                 rule_set: None,
             });
@@ -712,7 +890,7 @@ impl ConfigGenerator {
             // Block in DNS
             dns_rules.push(DnsRule {
                 rule_set: Some(vec!["geosite-ads".to_string()]),
-                server: Some("block".to_string()), // "block" isn't a server, usually "reject" or 127.0.0.1. Sing-box DNS rules don't have "action": "reject". 
+                server: Some("block".to_string()), // "block" isn't a server, usually "reject" or 127.0.0.1. Sing-box DNS rules don't have "action": "reject".
                 // Wait, DNS rules map to a server. We need a "block" server or just use "reject" action in 1.10+?
                 // Sing-box 1.9+ DNS rule doesn't have action. It has `server` or `interrupt`.
                 // We'll define a fake "block" server or use the route rule to reject.
@@ -725,19 +903,24 @@ impl ConfigGenerator {
                 clash_mode: None,
                 // outbound: None, // Verified removed
             });
-            
+
             // Block in Route
             router_rules.push(RouteRule {
                 action: Some("reject".to_string()),
                 rule_set: Some(vec!["geosite-ads".to_string()]),
-                outbound: None, protocol: None, port: None, domain: None, geosite: None, geoip: None,
+                outbound: None,
+                protocol: None,
+                port: None,
+                domain: None,
+                geosite: None,
+                geoip: None,
                 domain_resolver: None,
             });
         }
 
         // 3. Adult Content (Remote RuleSet)
         if node.config_block_porn {
-             rule_sets.push(RuleSet::Remote(RemoteRuleSet {
+            rule_sets.push(RuleSet::Remote(RemoteRuleSet {
                 tag: "geosite-porn".to_string(),
                 format: "binary".to_string(),
                 url: "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-porn.srs".to_string(),
@@ -752,10 +935,15 @@ impl ConfigGenerator {
                 clash_mode: None,
             });
 
-             router_rules.push(RouteRule {
+            router_rules.push(RouteRule {
                 action: Some("reject".to_string()),
                 rule_set: Some(vec!["geosite-porn".to_string()]),
-                outbound: None, protocol: None, port: None, domain: None, geosite: None, geoip: None,
+                outbound: None,
+                protocol: None,
+                port: None,
+                domain: None,
+                geosite: None,
+                geoip: None,
                 domain_resolver: None,
             });
         }
@@ -763,10 +951,15 @@ impl ConfigGenerator {
         // 4. Default Route
         if default_outbound_tag != "direct" {
             router_rules.push(RouteRule {
-                    action: Some("route".to_string()),
-                    outbound: Some(default_outbound_tag),
-                    protocol: None, port: None, domain: None, geosite: None, geoip: None, domain_resolver: None, 
-                    rule_set: None,
+                action: Some("route".to_string()),
+                outbound: Some(default_outbound_tag),
+                protocol: None,
+                port: None,
+                domain: None,
+                geosite: None,
+                geoip: None,
+                domain_resolver: None,
+                rule_set: None,
             });
         }
 
@@ -777,14 +970,14 @@ impl ConfigGenerator {
             },
             dns: Some(DnsConfig {
                 servers: vec![
-                    DnsServer::Udp(UdpDnsServer { 
-                        tag: "google".to_string(), 
+                    DnsServer::Udp(UdpDnsServer {
+                        tag: "google".to_string(),
                         server: "8.8.8.8".to_string(),
-                        detour: None
+                        detour: None,
                     }),
-                    DnsServer::Local(LocalDnsServer { 
-                        tag: "local".to_string(), 
-                        detour: Some("direct".to_string()) 
+                    DnsServer::Local(LocalDnsServer {
+                        tag: "local".to_string(),
+                        detour: Some("direct".to_string()),
                     }),
                     // Sinkhole for AdBlock
                     DnsServer::Udp(UdpDnsServer {
@@ -795,27 +988,31 @@ impl ConfigGenerator {
                 ],
                 rules: {
                     let mut final_dns_rules = dns_rules;
-                    final_dns_rules.push(DnsRule { 
+                    final_dns_rules.push(DnsRule {
                         domain_resolver: None,
                         server: Some("local".to_string()),
                         clash_mode: None,
                         rule_set: None,
                     });
                     final_dns_rules
-                }
+                },
             }),
             inbounds: generated_inbounds,
-            outbounds, 
+            outbounds,
             route: Some(RouteConfig {
                 default_domain_resolver: Some("google".to_string()),
                 rules: router_rules,
-                rule_set: if rule_sets.is_empty() { None } else { Some(rule_sets) },
+                rule_set: if rule_sets.is_empty() {
+                    None
+                } else {
+                    Some(rule_sets)
+                },
             }),
             // Enable Clash API for device monitoring and limit enforcement
             experimental: Some(ExperimentalConfig {
                 clash_api: ClashApiConfig {
                     external_controller: "0.0.0.0:9090".to_string(),
-                    secret: None, 
+                    secret: None,
                     external_ui: None,
                     access_control_allow_origin: Some(vec!["*".to_string()]),
                     access_control_allow_private_network: Some(true),
@@ -824,23 +1021,22 @@ impl ConfigGenerator {
         }
     }
 
-
     /// Validates the configuration using the `sing-box` binary
     pub fn validate_config(config: &SingBoxConfig) -> anyhow::Result<()> {
-        use std::process::Command;
         use std::io::Write;
-        
+        use std::process::Command;
+
         // Serialize to JSON
         let config_json = serde_json::to_string_pretty(config)?;
-        
+
         // Create temp file
         let mut temp_path = std::env::temp_dir();
         temp_path.push(format!("singbox_check_{}.json", uuid::Uuid::new_v4()));
-        
+
         // Write to file
         let mut file = std::fs::File::create(&temp_path)?;
         file.write_all(config_json.as_bytes())?;
-        
+
         // Run sing-box check
         // We assume sing-box is in PATH. If not, we skip validation to allow running on servers without sing-box installed.
         let output_result = Command::new("sing-box")
@@ -848,10 +1044,10 @@ impl ConfigGenerator {
             .arg("-c")
             .arg(&temp_path)
             .output();
-            
+
         // Clean up temp file immediately
         let _ = std::fs::remove_file(&temp_path);
-        
+
         match output_result {
             Ok(out) => {
                 if !out.status.success() {
@@ -862,10 +1058,13 @@ impl ConfigGenerator {
             Err(e) => {
                 // If the binary is missing or execution fails, we log a warning but DO NOT fail the request.
                 // This enables the panel to run on environments where sing-box is not installed.
-                warn!("⚠️ Skipping Sing-box config validation (binary execution failed: {}). Proceeding blindly.", e);
+                warn!(
+                    "⚠️ Skipping Sing-box config validation (binary execution failed: {}). Proceeding blindly.",
+                    e
+                );
             }
         }
-        
+
         Ok(())
     }
 }

@@ -1,9 +1,9 @@
+use anyhow::Result;
+use futures::StreamExt;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
-use tracing::{info, error, warn};
-use futures::StreamExt;
-use anyhow::Result;
+use tracing::{error, info, warn};
 
 /// Service to handle Pub/Sub for Long Polling
 /// Maintains a list of local waiters (HTTP requests) and a Redis subscriber
@@ -18,7 +18,7 @@ pub struct PubSubService {
 impl PubSubService {
     pub async fn new(redis_url: String) -> Result<Arc<Self>> {
         let client = redis::Client::open(redis_url.clone())?;
-        
+
         let service = Arc::new(Self {
             redis_url: redis_url.clone(),
             waiters: Arc::new(Mutex::new(HashMap::new())),
@@ -59,16 +59,16 @@ impl PubSubService {
                                     Ok(s) => s,
                                     Err(_) => continue,
                                 };
-                                
+
                                 self.notify_waiters(&channel_name, payload);
                             }
                             warn!("PubSub stream ended. Reconnecting...");
-                        },
+                        }
                         Err(e) => {
                             error!("PubSub connection failed: {}", e);
                         }
                     }
-                },
+                }
                 Err(e) => error!("Redis client error: {}", e),
             }
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -97,7 +97,11 @@ impl PubSubService {
     /// Publish a message to a channel
     pub async fn publish(&self, channel: &str, message: &str) -> Result<()> {
         let mut conn = self.redis_client.get_multiplexed_async_connection().await?;
-        let _: () = redis::cmd("PUBLISH").arg(channel).arg(message).query_async(&mut conn).await?;
+        let _: () = redis::cmd("PUBLISH")
+            .arg(channel)
+            .arg(message)
+            .query_async(&mut conn)
+            .await?;
         Ok(())
     }
 }

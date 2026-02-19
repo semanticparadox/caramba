@@ -10,8 +10,10 @@ pub struct RedisService {
 impl RedisService {
     pub async fn new(redis_url: &str) -> Result<Self> {
         let client = redis::Client::open(redis_url)?;
-        let manager = ConnectionManager::new(client).await.context("Failed to create Redis connection manager")?;
-        
+        let manager = ConnectionManager::new(client)
+            .await
+            .context("Failed to create Redis connection manager")?;
+
         info!("✅ Redis connected successfully (Native ConnectionManager)");
         Ok(Self { manager })
     }
@@ -77,9 +79,14 @@ impl RedisService {
 
     // --- Rate Limiting ---
 
-    pub async fn check_rate_limit(&self, key: &str, limit: usize, window_secs: usize) -> Result<bool> {
+    pub async fn check_rate_limit(
+        &self,
+        key: &str,
+        limit: usize,
+        window_secs: usize,
+    ) -> Result<bool> {
         let mut manager = self.manager.clone();
-        
+
         // Simple Fixed Window: INCR key. If 1, set expiration.
         let count: usize = redis::cmd("INCR")
             .arg(key)

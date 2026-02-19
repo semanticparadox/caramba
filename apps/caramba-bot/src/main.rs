@@ -1,15 +1,15 @@
 use dotenvy::dotenv;
-use teloxide::prelude::*;
 use std::env;
+use teloxide::prelude::*;
 
 mod api_client;
-mod state;
-mod services;
 mod bot;
 pub mod models;
+mod services;
+mod state;
 
-use crate::state::AppState;
 use crate::api_client::ApiClient;
+use crate::state::AppState;
 
 #[tokio::main]
 async fn main() {
@@ -22,10 +22,10 @@ async fn main() {
     let panel_url = env::var("PANEL_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
     // We might need a special token for the bot to authenticate with the panel API if it's protected
     // For now assuming Panel API layout allows bot interaction or we add a shared secret
-    let panel_token = env::var("PANEL_TOKEN").unwrap_or_default(); 
+    let panel_token = env::var("PANEL_TOKEN").unwrap_or_default();
 
     let api_client = ApiClient::new(panel_url, panel_token);
-    
+
     let settings = crate::services::settings_service::SettingsService::new(api_client.clone());
 
     let store_service = crate::services::store_service::StoreService::new(api_client.clone());
@@ -42,7 +42,7 @@ async fn main() {
     };
 
     let bot = Bot::new(token);
-    
+
     // Create a dummy shutdown signal for now
     let (_tx, rx) = tokio::sync::broadcast::channel(1);
 

@@ -1,21 +1,21 @@
-// Users Module  
+// Users Module
 // User management, subscriptions, balance, devices
 
-use axum::{
-    extract::{State, Form, Path, Query},
-    response::{IntoResponse, Html},
-};
 use askama::Template;
 use askama_web::WebTemplate;
+use axum::{
+    extract::{Form, Path, Query, State},
+    response::{Html, IntoResponse},
+};
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use std::collections::HashMap;
-use tracing::{info, error};
+use tracing::{error, info};
 
-use crate::AppState;
-use caramba_db::models::store::{User, Plan, SubscriptionWithPlan};
-use crate::services::logging_service::LoggingService;
 use super::auth::{get_auth_user, is_authenticated};
+use crate::AppState;
+use crate::services::logging_service::LoggingService;
+use caramba_db::models::store::{Plan, SubscriptionWithPlan, User};
 
 // ============================================================================
 // Templates
@@ -46,8 +46,6 @@ pub struct UserDetailsTemplate {
     pub admin_path: String,
     pub active_page: String,
 }
-
-
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct UserOrderDisplay {
@@ -109,11 +107,24 @@ pub async fn get_users(
         state.user_service.search(&search).await.unwrap_or_default()
     };
 
-    let template = UsersTemplate { users, search, is_auth: true, username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()), admin_path: state.admin_path.clone(), active_page: "users".to_string() };
-    
+    let template = UsersTemplate {
+        users,
+        search,
+        is_auth: true,
+        username: get_auth_user(&state, &jar)
+            .await
+            .unwrap_or("Admin".to_string()),
+        admin_path: state.admin_path.clone(),
+        active_page: "users".to_string(),
+    };
+
     match template.render() {
         Ok(html) => Html(html).into_response(),
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Template error: {}", e)).into_response(),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Template error: {}", e),
+        )
+            .into_response(),
     }
 }
 
@@ -122,30 +133,48 @@ pub async fn admin_gift_subscription(
     State(state): State<AppState>,
     Form(form): Form<AdminGiftForm>,
 ) -> impl IntoResponse {
-    let duration = match state.catalog_service.get_plan_duration_by_id(form.duration_id).await {
+    let duration = match state
+        .catalog_service
+        .get_plan_duration_by_id(form.duration_id)
+        .await
+    {
         Ok(Some(d)) => d,
-        Ok(None) => return (axum::http::StatusCode::BAD_REQUEST, "Invalid duration ID").into_response(),
-        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)).into_response(),
+        Ok(None) => {
+            return (axum::http::StatusCode::BAD_REQUEST, "Invalid duration ID").into_response();
+        }
+        Err(e) => {
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB Error: {}", e),
+            )
+                .into_response();
+        }
     };
 
-    match state.subscription_service.admin_gift_subscription(user_id, duration.plan_id, duration.duration_days).await {
+    match state
+        .subscription_service
+        .admin_gift_subscription(user_id, duration.plan_id, duration.duration_days)
+        .await
+    {
         Ok(sub) => {
             if let Ok(Some(user)) = state.user_service.get_by_id(user_id).await {
-                 let msg = format!("🎁 *Gift Received\\!*\\n\\nYou have received a new subscription\\.\\nExpires: {}", sub.expires_at.format("%Y-%m-%d"));
-                 let _ = state.bot_manager.send_notification(
-                     user.tg_id,
-                     &msg
-                 ).await;
+                let msg = format!(
+                    "🎁 *Gift Received\\!*\\n\\nYou have received a new subscription\\.\\nExpires: {}",
+                    sub.expires_at.format("%Y-%m-%d")
+                );
+                let _ = state.bot_manager.send_notification(user.tg_id, &msg).await;
             }
 
             let admin_path = state.admin_path.clone();
-            return axum::response::Redirect::to(&format!("{}/users/{}", admin_path, user_id)).into_response();
-        },
+            return axum::response::Redirect::to(&format!("{}/users/{}", admin_path, user_id))
+                .into_response();
+        }
         Err(e) => {
             return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR, 
-                format!("Failed to gift subscription: {}", e)
-            ).into_response();
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to gift subscription: {}", e),
+            )
+                .into_response();
         }
     }
 }
@@ -162,30 +191,59 @@ pub async fn get_user_details(
         None => return (axum::http::StatusCode::NOT_FOUND, "User not found").into_response(),
     };
 
-    let subscriptions = match state.subscription_service.get_subscriptions_with_details_for_admin(id).await {
+    let subscriptions = match state
+        .subscription_service
+        .get_subscriptions_with_details_for_admin(id)
+        .await
+    {
         Ok(subs) => subs,
         Err(e) => {
             error!("Failed to fetch user subscriptions: {}", e);
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to fetch subs: {}", e)).into_response();
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to fetch subs: {}", e),
+            )
+                .into_response();
         }
     };
 
-    let db_orders = state.billing_service.get_user_orders(id).await.map_err(|e| {
-         error!("Failed to fetch user orders: {}", e);
-         e
-    }).unwrap_or_default();
+    let db_orders = state
+        .billing_service
+        .get_user_orders(id)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch user orders: {}", e);
+            e
+        })
+        .unwrap_or_default();
 
-    let orders = db_orders.into_iter().map(|o| UserOrderDisplay {
-        id: o.id,
-        total_amount: format!("{:.2}", o.total_amount as f64 / 100.0),
-        status: o.status,
-        created_at: o.created_at.format("%Y-%m-%d").to_string(),
-    }).collect();
+    let orders = db_orders
+        .into_iter()
+        .map(|o| UserOrderDisplay {
+            id: o.id,
+            total_amount: format!("{:.2}", o.total_amount as f64 / 100.0),
+            status: o.status,
+            created_at: o.created_at.format("%Y-%m-%d").to_string(),
+        })
+        .collect();
 
-    let referrals = crate::services::referral_service::ReferralService::get_user_referrals(&state.pool, id).await.unwrap_or_default();
-    let earnings_cents = crate::services::referral_service::ReferralService::get_user_referral_earnings(&state.pool, id).await.unwrap_or(0);
+    let referrals =
+        crate::services::referral_service::ReferralService::get_user_referrals(&state.pool, id)
+            .await
+            .unwrap_or_default();
+    let earnings_cents =
+        crate::services::referral_service::ReferralService::get_user_referral_earnings(
+            &state.pool,
+            id,
+        )
+        .await
+        .unwrap_or(0);
 
-    let available_plans = state.catalog_service.get_active_plans().await.unwrap_or_default();
+    let available_plans = state
+        .catalog_service
+        .get_active_plans()
+        .await
+        .unwrap_or_default();
 
     let template = UserDetailsTemplate {
         user,
@@ -195,7 +253,9 @@ pub async fn get_user_details(
         total_referral_earnings: format!("{:.2}", earnings_cents as f64 / 100.0),
         available_plans,
         is_auth: true,
-        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
+        username: get_auth_user(&state, &jar)
+            .await
+            .unwrap_or("Admin".to_string()),
         admin_path: state.admin_path.clone(),
         active_page: "users".to_string(),
     };
@@ -217,10 +277,20 @@ pub async fn update_user(
 ) -> impl IntoResponse {
     let old_user = state.user_service.get_by_id(id).await.unwrap_or(None);
 
-    let res = state.user_service.update_profile(id, form.balance, form.is_banned, form.referral_code.as_deref().map(|s| s.trim())).await;
-    
+    let res = state
+        .user_service
+        .update_profile(
+            id,
+            form.balance,
+            form.is_banned,
+            form.referral_code.as_deref().map(|s| s.trim()),
+        )
+        .await;
+
     // Update parent if changed
-    let pid = form.parent_id.as_deref()
+    let pid = form
+        .parent_id
+        .as_deref()
         .filter(|s| !s.is_empty())
         .and_then(|s| s.parse::<i64>().ok())
         .filter(|&id| id > 0);
@@ -229,8 +299,16 @@ pub async fn update_user(
 
     match res {
         Ok(_) => {
-            let _ = crate::services::activity_service::ActivityService::log(&state.pool, "User", &format!("User {} updated: Balance={}, Banned={}", id, form.balance, form.is_banned)).await;
-            
+            let _ = crate::services::activity_service::ActivityService::log(
+                &state.pool,
+                "User",
+                &format!(
+                    "User {} updated: Balance={}, Banned={}",
+                    id, form.balance, form.is_banned
+                ),
+            )
+            .await;
+
             if let Some(u) = old_user {
                 if u.is_banned != form.is_banned {
                     let msg = if form.is_banned {
@@ -245,20 +323,34 @@ pub async fn update_user(
                     let diff = form.balance - u.balance;
                     let amount = format!("{:.2}", diff.abs() as f64 / 100.0);
                     let msg = if diff > 0 {
-                        format!("💰 *Balance Updated*\\n\\nAdministrator added *${}* to your account\\.", amount)
+                        format!(
+                            "💰 *Balance Updated*\\n\\nAdministrator added *${}* to your account\\.",
+                            amount
+                        )
                     } else {
-                        format!("📉 *Balance Updated*\\n\\nAdministrator deducted *${}* from your account\\.", amount)
+                        format!(
+                            "📉 *Balance Updated*\\n\\nAdministrator deducted *${}* from your account\\.",
+                            amount
+                        )
                     };
                     let _ = state.bot_manager.send_notification(u.tg_id, &msg).await;
                 }
             }
 
             let admin_path = state.admin_path.clone();
-            ([(("HX-Redirect", format!("{}/users/{}", admin_path, id)))], "Updated").into_response()
-        },
+            (
+                [(("HX-Redirect", format!("{}/users/{}", admin_path, id)))],
+                "Updated",
+            )
+                .into_response()
+        }
         Err(e) => {
             error!("Failed to update user {}: {}", id, e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to update user").into_response()
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to update user",
+            )
+                .into_response()
         }
     }
 }
@@ -278,15 +370,24 @@ pub async fn update_user_balance(
             let _ = LoggingService::log_system(
                 &state.pool,
                 "admin_update_balance",
-                &format!("Admin updated user {} balance to {} cents", id, balance)
-            ).await;
-            
+                &format!("Admin updated user {} balance to {} cents", id, balance),
+            )
+            .await;
+
             let admin_path = state.admin_path.clone();
-            ([(("HX-Redirect", format!("{}/users", admin_path)))], "Updated").into_response()
-        },
+            (
+                [(("HX-Redirect", format!("{}/users", admin_path)))],
+                "Updated",
+            )
+                .into_response()
+        }
         Err(e) => {
             error!("Failed to update balance for user {}: {}", id, e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to update balance").into_response()
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to update balance",
+            )
+                .into_response()
         }
     }
 }
@@ -299,8 +400,12 @@ pub async fn delete_user_subscription(
     match state.subscription_service.admin_delete(id).await {
         Ok(_) => (axum::http::StatusCode::OK, "").into_response(),
         Err(e) => {
-             error!("Failed to delete subscripton {}: {}", id, e);
-             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete: {}", e)).into_response()
+            error!("Failed to delete subscripton {}: {}", id, e);
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to delete: {}", e),
+            )
+                .into_response()
         }
     }
 }
@@ -310,12 +415,23 @@ pub async fn refund_user_subscription(
     State(state): State<AppState>,
     Form(form): Form<RefundForm>,
 ) -> impl IntoResponse {
-    info!("Request to refund subscription ID: {} with amount {}", id, form.amount);
-    match state.catalog_service.admin_refund_subscription(id, form.amount).await {
+    info!(
+        "Request to refund subscription ID: {} with amount {}",
+        id, form.amount
+    );
+    match state
+        .catalog_service
+        .admin_refund_subscription(id, form.amount)
+        .await
+    {
         Ok(_) => ([(("HX-Refresh", "true"))], "Refunded").into_response(),
         Err(e) => {
-             error!("Failed to refund subscripton {}: {}", id, e);
-             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to refund: {}", e)).into_response()
+            error!("Failed to refund subscripton {}: {}", id, e);
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to refund: {}", e),
+            )
+                .into_response()
         }
     }
 }
@@ -325,12 +441,19 @@ pub async fn extend_user_subscription(
     State(state): State<AppState>,
     Form(form): Form<ExtendForm>,
 ) -> impl IntoResponse {
-    info!("Request to extend subscription ID: {} by {} days", id, form.days);
+    info!(
+        "Request to extend subscription ID: {} by {} days",
+        id, form.days
+    );
     match state.subscription_service.admin_extend(id, form.days).await {
         Ok(_) => ([(("HX-Refresh", "true"))], "Extended").into_response(),
         Err(e) => {
-             error!("Failed to extend subscripton {}: {}", id, e);
-             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to extend: {}", e)).into_response()
+            error!("Failed to extend subscripton {}: {}", id, e);
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to extend: {}", e),
+            )
+                .into_response()
         }
     }
 }
@@ -348,14 +471,18 @@ pub async fn get_subscription_devices(
         Ok(ips) => ips,
         Err(e) => {
             error!("Failed to fetch IPs for sub {}: {}", sub_id, e);
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch devices").into_response();
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to fetch devices",
+            )
+                .into_response();
         }
     };
 
     let admin_path = state.admin_path.clone();
 
     let mut html = String::new();
-    
+
     html.push_str(&format!(
         r##"
         <div class="flex justify-between items-center mb-6 p-4 rounded-2xl bg-orange-500/10 border border-orange-500/10 shadow-lg shadow-orange-500/5">
@@ -382,7 +509,9 @@ pub async fn get_subscription_devices(
     html.push_str("<tbody class='divide-y divide-white/5'>");
     for ip_record in ips {
         let time_ago = format_duration(chrono::Utc::now() - ip_record.last_seen_at);
-        let device = ip_record.user_agent.unwrap_or_else(|| "Unknown".to_string());
+        let device = ip_record
+            .user_agent
+            .unwrap_or_else(|| "Unknown".to_string());
         html.push_str(&format!(
             "<tr class='hover:bg-white/5 transition-colors'><td class='px-6 py-4 text-xs font-semibold text-white'>{}</td><td class='px-6 py-4 text-xs text-indigo-400 font-mono'>{}</td><td class='px-6 py-4 text-[10px] text-slate-400 font-medium'>{} ago</td></tr>",
             device, ip_record.client_ip, time_ago
@@ -407,9 +536,17 @@ pub async fn admin_kill_subscription_sessions(
         _ => return (axum::http::StatusCode::NOT_FOUND, "Subscription not found").into_response(),
     };
 
-    if let Err(e) = state.connection_service.kill_subscription_connections(sub.id).await {
+    if let Err(e) = state
+        .connection_service
+        .kill_subscription_connections(sub.id)
+        .await
+    {
         error!("Admin failed to kill sessions for sub {}: {}", sub_id, e);
-        return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to kill sessions: {}", e)).into_response();
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to kill sessions: {}", e),
+        )
+            .into_response();
     }
 
     let success_html = format!(
@@ -425,7 +562,8 @@ pub async fn admin_kill_subscription_sessions(
                 Refresh Device List
             </button>
         </div>
-        "##, sub_id, state.admin_path, sub_id
+        "##,
+        sub_id, state.admin_path, sub_id
     );
 
     Html(success_html).into_response()

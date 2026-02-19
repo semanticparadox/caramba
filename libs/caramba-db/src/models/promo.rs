@@ -1,6 +1,6 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PromoCode {
@@ -23,7 +23,9 @@ pub struct PromoCode {
 
 impl PromoCode {
     pub fn usage_pct(&self) -> f32 {
-        if self.max_uses == 0 { return 0.0; }
+        if self.max_uses == 0 {
+            return 0.0;
+        }
         (self.current_uses as f32 / self.max_uses as f32) * 100.0
     }
 }

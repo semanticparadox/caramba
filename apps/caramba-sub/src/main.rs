@@ -11,9 +11,9 @@ use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod config;
+mod geo_service;
 mod handlers;
 mod panel_client;
-mod geo_service;
 mod singbox_generator;
 
 use config::FrontendConfig;
@@ -58,24 +58,30 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         // Health check
         .route("/health", get(handlers::health::health_check))
-        
         // Subscription URLs
-        .route("/sub/{uuid}", get(handlers::subscription::subscription_handler))
-        
+        .route(
+            "/sub/{uuid}",
+            get(handlers::subscription::subscription_handler),
+        )
         // Mini App (static files)
         .route("/app", get(handlers::app::serve_app))
         .route("/app/{*path}", get(handlers::app::serve_app_assets))
-        
         // API proxy to main panel
-        .route("/api/{*path}", axum::routing::any(handlers::proxy::proxy_handler))
-        .layer(middleware::from_fn_with_state(state.clone(), metrics_middleware))
+        .route(
+            "/api/{*path}",
+            axum::routing::any(handlers::proxy::proxy_handler),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            metrics_middleware,
+        ))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
     // Start server
     let addr = SocketAddr::from(([0, 0, 0, 0], config.listen_port));
     tracing::info!("Frontend listening on {}", addr);
-    
+
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
 
@@ -92,11 +98,9 @@ pub struct AppState {
 
 impl AppState {
     fn new(config: FrontendConfig, geo_service: Arc<GeoService>) -> Self {
-        let panel_client = panel_client::PanelClient::new(
-            config.panel_url.clone(),
-            config.auth_token.clone(),
-        );
-        
+        let panel_client =
+            panel_client::PanelClient::new(config.panel_url.clone(), config.auth_token.clone());
+
         Self {
             config,
             panel_client,
@@ -106,11 +110,7 @@ impl AppState {
     }
 }
 
-async fn metrics_middleware(
-    State(state): State<AppState>,
-    req: Request,
-    next: Next,
-) -> Response {
+async fn metrics_middleware(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let response = next.run(req).await;
     state.metrics.requests_count.fetch_add(1, Ordering::Relaxed);
 

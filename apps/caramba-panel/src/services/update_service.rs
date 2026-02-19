@@ -1,9 +1,9 @@
-use std::sync::Arc;
-use tracing::{info, error, warn};
-use std::path::Path;
-use sha2::{Sha256, Digest};
-use std::io::Read;
 use crate::settings::SettingsService;
+use sha2::{Digest, Sha256};
+use std::io::Read;
+use std::path::Path;
+use std::sync::Arc;
+use tracing::{error, info, warn};
 
 pub struct UpdateService {
     settings: Arc<SettingsService>,
@@ -19,7 +19,10 @@ impl UpdateService {
         // Initialize Default Settings
         let _ = self.settings.get_or_set("auto_update_panel", "false").await;
         let _ = self.settings.get_or_set("auto_update_agents", "true").await;
-        let _ = self.settings.get_or_set("auto_update_frontend", "false").await;
+        let _ = self
+            .settings
+            .get_or_set("auto_update_frontend", "false")
+            .await;
 
         info!("🔄 Checking for local agent updates...");
 
@@ -28,7 +31,10 @@ impl UpdateService {
         let binary_file = download_dir.join("caramba-node-linux-amd64");
 
         if !version_file.exists() || !binary_file.exists() {
-            warn!("⚠️ Agent update files not found in {:?}. Skipping auto-update initialization.", download_dir);
+            warn!(
+                "⚠️ Agent update files not found in {:?}. Skipping auto-update initialization.",
+                download_dir
+            );
             return;
         }
 
@@ -53,19 +59,31 @@ impl UpdateService {
         info!("📦 Found Agent v{} (Hash: {})", version, hash);
 
         // 3. Update Settings
-        let current_stored_version = self.settings.get_or_default("agent_latest_version", "0.0.0").await;
-        
+        let current_stored_version = self
+            .settings
+            .get_or_default("agent_latest_version", "0.0.0")
+            .await;
+
         if version != current_stored_version {
-            info!("🚀 New agent version detected! Updating settings from {} to {}", current_stored_version, version);
-            
+            info!(
+                "🚀 New agent version detected! Updating settings from {} to {}",
+                current_stored_version, version
+            );
+
             let _ = self.settings.set("agent_latest_version", &version).await;
             let _ = self.settings.set("agent_update_hash", &hash).await;
-            
-            let _ = self.settings.set("agent_update_url", "/downloads/caramba-node-linux-amd64").await; 
+
+            let _ = self
+                .settings
+                .set("agent_update_url", "/downloads/caramba-node-linux-amd64")
+                .await;
         } else {
             // Ensure hash/url are set even if version matches (idempotency)
-             let _ = self.settings.set("agent_update_hash", &hash).await;
-             let _ = self.settings.set("agent_update_url", "/downloads/caramba-node-linux-amd64").await; 
+            let _ = self.settings.set("agent_update_hash", &hash).await;
+            let _ = self
+                .settings
+                .set("agent_update_url", "/downloads/caramba-node-linux-amd64")
+                .await;
         }
     }
 

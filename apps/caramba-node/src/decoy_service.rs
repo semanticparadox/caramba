@@ -1,7 +1,7 @@
-use tracing::{info, error, debug};
-use std::time::Duration;
 use reqwest::Client;
 use serde::Deserialize;
+use std::time::Duration;
+use tracing::{debug, error, info};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct DecoySettingsResponse {
@@ -77,8 +77,8 @@ impl DecoyService {
                 Ok(resp) => {
                     debug!("Decoy Success: Status {}", resp.status());
                     // Discard body
-                    let _ = resp.bytes().await; 
-                },
+                    let _ = resp.bytes().await;
+                }
                 Err(e) => error!("Decoy Request Failed: {}", e),
             }
         }
@@ -86,7 +86,9 @@ impl DecoyService {
 
     async fn refresh_settings(&mut self) -> anyhow::Result<()> {
         let url = format!("{}/api/v2/node/settings", self.panel_url);
-        let resp = self.client.get(&url)
+        let resp = self
+            .client
+            .get(&url)
             .header("Authorization", format!("Bearer {}", self.token))
             .send()
             .await?;

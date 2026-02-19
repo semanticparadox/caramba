@@ -28,21 +28,29 @@ impl NotificationService {
         );
 
         let users = self.get_affected_users(node_id).await?;
-        
+
         if users.is_empty() {
-            info!("No active users found on node {}, skipping notifications", node_id);
+            info!(
+                "No active users found on node {}, skipping notifications",
+                node_id
+            );
             return Ok(0);
         }
 
-        info!("Found {} active users to notify on node {}", users.len(), node_id);
+        info!(
+            "Found {} active users to notify on node {}",
+            users.len(),
+            node_id
+        );
 
         let mut notified_count = 0;
         let mut failed_count = 0;
 
         for user in &users {
             let message = self.format_rotation_message(old_sni, new_sni, rotation_id);
-            
-            match bot.send_message(ChatId(user.tg_id), message)
+
+            match bot
+                .send_message(ChatId(user.tg_id), message)
                 .parse_mode(teloxide::types::ParseMode::Html)
                 .await
             {
@@ -52,7 +60,10 @@ impl NotificationService {
                 }
                 Err(e) => {
                     failed_count += 1;
-                    warn!("✗ Failed to notify user {} (TG: {}): {}", user.username, user.tg_id, e);
+                    warn!(
+                        "✗ Failed to notify user {} (TG: {}): {}",
+                        user.username, user.tg_id, e
+                    );
                 }
             }
 
@@ -83,7 +94,7 @@ impl NotificationService {
                    s.expires_at > CURRENT_TIMESTAMP 
                    OR u.trial_expires_at > CURRENT_TIMESTAMP
                )
-             ORDER BY u.id"
+             ORDER BY u.id",
         )
         .bind(node_id)
         .fetch_all(&self.pool)
@@ -130,13 +141,9 @@ mod tests {
         // But we need to use a real lazy pool if we want to instantiate it
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap();
         let service = NotificationService::new(pool);
-        
-        let message = service.format_rotation_message(
-            "www.google.com",
-            "www.cloudflare.com",
-            42
-        );
-        
+
+        let message = service.format_rotation_message("www.google.com", "www.cloudflare.com", 42);
+
         assert!(message.contains("www.google.com"));
         assert!(message.contains("www.cloudflare.com"));
         assert!(message.contains("Rotation ID: #42"));

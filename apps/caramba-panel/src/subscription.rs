@@ -1,6 +1,6 @@
 use axum::{
-    extract::{Path, Query, State, Request},
-    http::{header, StatusCode},
+    extract::{Path, Query, Request, State},
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
@@ -21,12 +21,19 @@ pub async fn subscription_handler(
     req: Request,
 ) -> Response {
     // 0. Smart Routing: Redirect if subscription_domain is set and we are not on it
-    let sub_domain = state.settings.get_or_default("subscription_domain", "").await;
+    let sub_domain = state
+        .settings
+        .get_or_default("subscription_domain", "")
+        .await;
     if !sub_domain.is_empty() {
-        if let Some(host) = req.headers().get(header::HOST).and_then(|h| h.to_str().ok()) {
+        if let Some(host) = req
+            .headers()
+            .get(header::HOST)
+            .and_then(|h| h.to_str().ok())
+        {
             let host_clean = host.split(':').next().unwrap_or(host);
             let sub_domain_clean = sub_domain.split(':').next().unwrap_or(&sub_domain);
-            
+
             if host_clean != sub_domain_clean {
                 let proto = "https";
                 let full_url = format!("{}://{}/sub/{}", proto, sub_domain, uuid);
@@ -36,11 +43,13 @@ pub async fn subscription_handler(
     }
 
     // 0.5 Extract IP and User-Agent for tracking
-    let user_agent = req.headers()
+    let user_agent = req
+        .headers()
         .get(header::USER_AGENT)
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
-    let client_ip = req.headers()
+    let client_ip = req
+        .headers()
         .get("cf-connecting-ip")
         .or_else(|| req.headers().get("x-forwarded-for"))
         .and_then(|h| h.to_str().ok())
@@ -58,56 +67,79 @@ pub async fn subscription_handler(
             }
         }
         Err(e) => {
-             error!("Rate limit check failed: {}", e);
+            error!("Rate limit check failed: {}", e);
         }
     }
 
     // 2. Get subscription
-    let sub = match state.subscription_service.get_subscription_by_uuid(&uuid).await {
+    let sub = match state
+        .subscription_service
+        .get_subscription_by_uuid(&uuid)
+        .await
+    {
         Ok(s) => s,
         Err(_) => {
             return (StatusCode::NOT_FOUND, "Subscription not found").into_response();
         }
     };
-    
+
     // 3. Check if active
     if sub.status != "active" {
         return (StatusCode::FORBIDDEN, "Subscription inactive or expired").into_response();
     }
-    
+
     // 3.5 Enforce device limit (Phase 7)
-    let active_ips = state.subscription_service.get_active_ips(sub.id).await.unwrap_or_default();
+    let active_ips = state
+        .subscription_service
+        .get_active_ips(sub.id)
+        .await
+        .unwrap_or_default();
     let current_ip = &client_ip;
-    
+
     // Check if this is a new IP or if we're already at the limit
     let is_new_device = !active_ips.iter().any(|rec| rec.client_ip == *current_ip);
-    
+
     if is_new_device {
-        let device_limit = state.subscription_service.get_subscription_device_limit(sub.id).await.unwrap_or(0);
+        let device_limit = state
+            .subscription_service
+            .get_subscription_device_limit(sub.id)
+            .await
+            .unwrap_or(0);
         if device_limit > 0 && active_ips.len() >= device_limit as usize {
-            warn!("Device limit reached for subscription {}. Limit: {}, Active: {}", uuid, device_limit, active_ips.len());
+            warn!(
+                "Device limit reached for subscription {}. Limit: {}, Active: {}",
+                uuid,
+                device_limit,
+                active_ips.len()
+            );
             return (StatusCode::FORBIDDEN, "Device limit reached").into_response();
         }
     }
-    
+
     // 4. Update access tracking
-    let _ = state.subscription_service.track_access(sub.id, &client_ip, user_agent.as_deref()).await;
-    
+    let _ = state
+        .subscription_service
+        .track_access(sub.id, &client_ip, user_agent.as_deref())
+        .await;
+
     // 4.5 Prepare Usage Headers (for Hiddify/Sing-box)
-    let plan_details = match state.subscription_service.get_user_subscriptions(sub.user_id).await {
-        Ok(subs) => {
-            subs.iter()
-                .find(|s| s.sub.id == sub.id)
-                .map(|s| (s.plan_name.clone(), s.traffic_limit_gb.unwrap_or(0)))
-                .unwrap_or(("VPN Plan".to_string(), 0))
-        }
-        Err(_) => ("VPN Plan".to_string(), 0)
+    let plan_details = match state
+        .subscription_service
+        .get_user_subscriptions(sub.user_id)
+        .await
+    {
+        Ok(subs) => subs
+            .iter()
+            .find(|s| s.sub.id == sub.id)
+            .map(|s| (s.plan_name.clone(), s.traffic_limit_gb.unwrap_or(0)))
+            .unwrap_or(("VPN Plan".to_string(), 0)),
+        Err(_) => ("VPN Plan".to_string(), 0),
     };
-    
+
     let total_traffic_bytes = (plan_details.1 as i64) * 1024 * 1024 * 1024;
     let used_traffic_bytes = sub.used_traffic as i64;
     let expire_timestamp = sub.expires_at.timestamp();
-    
+
     // upload=0; download=used; total=limit; expire=timestamp
     let user_info_header = format!(
         "upload=0; download={}; total={}; expire={}",
@@ -118,10 +150,12 @@ pub async fn subscription_handler(
     // client autodetection or raw config mode
     // ===================================================================
     let mut selected_client = params.client.clone();
-    
+
     // Autodetect if client is not specified
     if selected_client.is_none() {
-        let detected = state.subscription_service.detect_client_type(user_agent.as_deref());
+        let detected = state
+            .subscription_service
+            .detect_client_type(user_agent.as_deref());
         if detected != "html" {
             selected_client = Some(detected);
         }
@@ -136,26 +170,44 @@ pub async fn subscription_handler(
         let limit_gb = plan_name.1;
         let traffic_pct = if limit_gb > 0 {
             ((used_gb / limit_gb as f64) * 100.0).min(100.0) as i32
-        } else { 0 };
+        } else {
+            0
+        };
         let days_left = (sub.expires_at - chrono::Utc::now()).num_days().max(0);
         let duration_days = (sub.expires_at - sub.created_at).num_days();
 
         // Build base URL for config links
         let panel_url_setting = state.settings.get_or_default("panel_url", "").await;
         let base_url = if !sub_domain.is_empty() {
-            if sub_domain.starts_with("http") { sub_domain.clone() } else { format!("https://{}", sub_domain) }
+            if sub_domain.starts_with("http") {
+                sub_domain.clone()
+            } else {
+                format!("https://{}", sub_domain)
+            }
         } else if !panel_url_setting.is_empty() {
-            if panel_url_setting.starts_with("http") { panel_url_setting.clone() } else { format!("https://{}", panel_url_setting) }
+            if panel_url_setting.starts_with("http") {
+                panel_url_setting.clone()
+            } else {
+                format!("https://{}", panel_url_setting)
+            }
         } else {
             let panel = std::env::var("PANEL_URL").unwrap_or_else(|_| "localhost".to_string());
-            if panel.starts_with("http") { panel } else { format!("https://{}", panel) }
+            if panel.starts_with("http") {
+                panel
+            } else {
+                format!("https://{}", panel)
+            }
         };
         let sub_url = format!("{}/sub/{}", base_url, uuid);
 
         let expires_display = if duration_days == 0 {
             "No expiration (Traffic Plan)".to_string()
         } else {
-            format!("{} ({} days left)", sub.expires_at.format("%Y-%m-%d"), days_left)
+            format!(
+                "{} ({} days left)",
+                sub.expires_at.format("%Y-%m-%d"),
+                days_left
+            )
         };
 
         let traffic_display = if limit_gb > 0 {
@@ -164,7 +216,8 @@ pub async fn subscription_handler(
             format!("{:.2} GB / ∞", used_gb)
         };
 
-        let html = format!(r##"<!DOCTYPE html>
+        let html = format!(
+            r##"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -321,7 +374,10 @@ function copyLink(){{
             sub_url = sub_url,
             sub_url_encoded = urlencoding::encode(&sub_url),
             progress_bar = if limit_gb > 0 {
-                format!(r#"<div class="progress"><div class="progress-fill" style="width:{}%"></div></div>"#, traffic_pct)
+                format!(
+                    r#"<div class="progress"><div class="progress-fill" style="width:{}%"></div></div>"#,
+                    traffic_pct
+                )
             } else {
                 String::new()
             },
@@ -330,11 +386,15 @@ function copyLink(){{
         return (
             [
                 (header::CONTENT_TYPE, "text/html"),
-                (header::HeaderName::from_static("subscription-userinfo"), user_info_header.as_str()),
+                (
+                    header::HeaderName::from_static("subscription-userinfo"),
+                    user_info_header.as_str(),
+                ),
                 (header::HeaderName::from_static("profile-title"), "CARAMBA"),
             ],
-            html
-        ).into_response();
+            html,
+        )
+            .into_response();
     }
 
     // ===================================================================
@@ -352,23 +412,33 @@ function copyLink(){{
 
     // Fetch and filter nodes (Refactored Phase 1.8: Use Plan Groups)
     let nodes_raw = match state.store_service.get_user_nodes(sub.user_id).await {
-         Ok(nodes) => nodes,
-         Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response(),
+        Ok(nodes) => nodes,
+        Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response(),
     };
-    
+
     let filtered_nodes = if let Some(nid) = params.node_id {
-        nodes_raw.into_iter().filter(|n| n.id == nid).collect::<Vec<_>>()
+        nodes_raw
+            .into_iter()
+            .filter(|n| n.id == nid)
+            .collect::<Vec<_>>()
     } else if let Some(pinned_id) = sub.node_id {
-        nodes_raw.into_iter().filter(|n| n.id == pinned_id).collect::<Vec<_>>()
+        nodes_raw
+            .into_iter()
+            .filter(|n| n.id == pinned_id)
+            .collect::<Vec<_>>()
     } else {
         nodes_raw
     };
-    
+
     if filtered_nodes.is_empty() {
-         return (StatusCode::NOT_FOUND, "Requested server not found").into_response();
+        return (StatusCode::NOT_FOUND, "Requested server not found").into_response();
     }
-    
-    let node_infos = match state.subscription_service.get_node_infos_with_relays(&filtered_nodes).await {
+
+    let node_infos = match state
+        .subscription_service
+        .get_node_infos_with_relays(&filtered_nodes)
+        .await
+    {
         Ok(infos) => infos,
         Err(e) => {
             error!("Failed to generate node infos: {}", e);
@@ -382,7 +452,7 @@ function copyLink(){{
     let cache_key = format!("sub_config_v2:{}:{}:{}", uuid, client_type, cache_node_id);
 
     if let Ok(Some(cached_config)) = state.redis.get(&cache_key).await {
-         let filename = match client_type {
+        let filename = match client_type {
             "clash" => "config.yaml",
             "v2ray" => "config.txt",
             _ => "config.json",
@@ -396,55 +466,82 @@ function copyLink(){{
             StatusCode::OK,
             [
                 (header::CONTENT_TYPE, content_type),
-                (header::CONTENT_DISPOSITION, format!("inline; filename={}", filename).as_str()),
-                (header::HeaderName::from_static("subscription-userinfo"), user_info_header.as_str()),
+                (
+                    header::CONTENT_DISPOSITION,
+                    format!("inline; filename={}", filename).as_str(),
+                ),
+                (
+                    header::HeaderName::from_static("subscription-userinfo"),
+                    user_info_header.as_str(),
+                ),
                 (header::HeaderName::from_static("profile-title"), "CARAMBA"),
             ],
-            cached_config
-        ).into_response();
+            cached_config,
+        )
+            .into_response();
     }
 
-    let (content, content_type, filename): (String, &'static str, &'static str) = match client_type {
+    let (content, content_type, filename): (String, &'static str, &'static str) = match client_type
+    {
         "clash" => {
-            match state.subscription_service.generate_clash(&sub, &node_infos, &user_keys) {
+            match state
+                .subscription_service
+                .generate_clash(&sub, &node_infos, &user_keys)
+            {
                 Ok(c) => (c, "application/yaml", "config.yaml"),
                 Err(e) => {
                     error!("Clash gen failed: {}", e);
-                    return (StatusCode::INTERNAL_SERVER_ERROR, "Generation failed").into_response();
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "Generation failed")
+                        .into_response();
                 }
             }
         }
         "v2ray" => {
-             match state.subscription_service.generate_v2ray(&sub, &node_infos, &user_keys) {
+            match state
+                .subscription_service
+                .generate_v2ray(&sub, &node_infos, &user_keys)
+            {
                 Ok(c) => (c, "text/plain", "config.txt"),
                 Err(e) => {
                     error!("V2Ray gen failed: {}", e);
-                    return (StatusCode::INTERNAL_SERVER_ERROR, "Generation failed").into_response();
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "Generation failed")
+                        .into_response();
                 }
             }
         }
         _ => {
-             match state.subscription_service.generate_singbox(&sub, &node_infos, &user_keys) {
+            match state
+                .subscription_service
+                .generate_singbox(&sub, &node_infos, &user_keys)
+            {
                 Ok(c) => (c, "application/json", "config.json"),
                 Err(e) => {
                     error!("Singbox gen failed: {}", e);
-                    return (StatusCode::INTERNAL_SERVER_ERROR, "Generation failed").into_response();
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "Generation failed")
+                        .into_response();
                 }
             }
         }
     };
-    
+
     // Cache
     let _ = state.redis.set(&cache_key, &content, 60).await; // 1 min cache
-    
+
     (
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, content_type),
-            (header::CONTENT_DISPOSITION, format!("inline; filename={}", filename).as_str()),
-            (header::HeaderName::from_static("subscription-userinfo"), user_info_header.as_str()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("inline; filename={}", filename).as_str(),
+            ),
+            (
+                header::HeaderName::from_static("subscription-userinfo"),
+                user_info_header.as_str(),
+            ),
             (header::HeaderName::from_static("profile-title"), "CARAMBA"),
         ],
-        content
-    ).into_response()
+        content,
+    )
+        .into_response()
 }

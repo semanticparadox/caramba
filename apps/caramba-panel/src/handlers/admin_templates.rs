@@ -11,23 +11,6 @@ use caramba_db::models::groups::{InboundTemplate, NodeGroup};
 use serde::Deserialize;
 use tracing::{error, info};
 
-const TEMPLATE_SELECT_SQL: &str = r#"
-SELECT
-    id,
-    name,
-    protocol,
-    settings_template,
-    stream_settings_template,
-    target_group_id,
-    port_range_start::BIGINT AS port_range_start,
-    port_range_end::BIGINT AS port_range_end,
-    0::BIGINT AS renew_interval_hours,
-    COALESCE(renew_interval_mins, 0)::BIGINT AS renew_interval_mins,
-    COALESCE(is_active, TRUE) AS is_active,
-    created_at
-FROM inbound_templates
-"#;
-
 #[derive(Template, WebTemplate)]
 #[template(path = "admin_templates.html")]
 pub struct AdminTemplatesTemplate {
@@ -59,11 +42,12 @@ pub async fn get_templates_page(
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    let templates: Vec<InboundTemplate> =
-        sqlx::query_as::<_, InboundTemplate>(&format!("{TEMPLATE_SELECT_SQL} ORDER BY name ASC"))
-            .fetch_all(&state.pool)
-            .await
-            .unwrap_or_default();
+    let templates = state
+        .infrastructure_service
+        .node_repo
+        .get_all_inbound_templates()
+        .await
+        .unwrap_or_default();
 
     let groups: Vec<NodeGroup> =
         sqlx::query_as::<_, NodeGroup>("SELECT * FROM node_groups ORDER BY name ASC")
@@ -171,12 +155,12 @@ pub async fn create_template(
             .into_response();
     }
 
-    let res = sqlx::query(
+    let primary = sqlx::query(
         r#"
-        INSERT INTO inbound_templates 
-        (name, protocol, target_group_id, settings_template, stream_settings_template, port_range_start, port_range_end, renew_interval_mins) 
+        INSERT INTO inbound_templates
+        (name, protocol, target_group_id, settings_template, stream_settings_template, port_range_start, port_range_end, renew_interval_mins)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        "#
+        "#,
     )
         .bind(&form.name)
         .bind(&form.protocol)
@@ -185,9 +169,62 @@ pub async fn create_template(
         .bind(&form.stream_settings_template)
         .bind(form.port_range_start)
         .bind(form.port_range_end)
-        .bind(form.renew_interval_mins)
-        .execute(&state.pool)
-        .await;
+        .bind(form.renew_interval_mins);
+
+    let res = match primary.execute(&state.pool).await {
+        Ok(done) => Ok(done),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("renew_interval_mins") || msg.contains("does not exist") {
+                // Legacy schema fallback: no renew_interval_mins.
+                let fallback = sqlx::query(
+                    r#"
+                    INSERT INTO inbound_templates
+                    (name, protocol, target_group_id, settings_template, stream_settings_template, port_range_start, port_range_end)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    "#,
+                )
+                .bind(&form.name)
+                .bind(&form.protocol)
+                .bind(form.target_group_id)
+                .bind(&final_settings)
+                .bind(&form.stream_settings_template)
+                .bind(form.port_range_start)
+                .bind(form.port_range_end)
+                .execute(&state.pool)
+                .await;
+
+                match fallback {
+                    Ok(done) => Ok(done),
+                    Err(e2) => {
+                        let msg2 = e2.to_string();
+                        if msg2.contains("target_group_id") && msg2.contains("does not exist") {
+                            // Very old schema fallback: no target_group_id either.
+                            sqlx::query(
+                                r#"
+                                INSERT INTO inbound_templates
+                                (name, protocol, settings_template, stream_settings_template, port_range_start, port_range_end)
+                                VALUES ($1, $2, $3, $4, $5, $6)
+                                "#,
+                            )
+                            .bind(&form.name)
+                            .bind(&form.protocol)
+                            .bind(&final_settings)
+                            .bind(&form.stream_settings_template)
+                            .bind(form.port_range_start)
+                            .bind(form.port_range_end)
+                            .execute(&state.pool)
+                            .await
+                        } else {
+                            Err(e2)
+                        }
+                    }
+                }
+            } else {
+                Err(e)
+            }
+        }
+    };
 
     match res {
         Ok(_) => {
@@ -325,22 +362,22 @@ pub async fn get_template_edit(
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    let tpl =
-        match sqlx::query_as::<_, InboundTemplate>(&format!("{TEMPLATE_SELECT_SQL} WHERE id = $1"))
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await
-        {
-            Ok(Some(t)) => t,
-            Ok(None) => return (StatusCode::NOT_FOUND, "Template not found").into_response(),
-            Err(e) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("DB Error: {}", e),
-                )
-                    .into_response();
-            }
-        };
+    let tpl = match state
+        .infrastructure_service
+        .node_repo
+        .get_inbound_template_by_id(id)
+        .await
+    {
+        Ok(Some(t)) => t,
+        Ok(None) => return (StatusCode::NOT_FOUND, "Template not found").into_response(),
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB Error: {}", e),
+            )
+                .into_response();
+        }
+    };
 
     let groups: Vec<NodeGroup> =
         sqlx::query_as::<_, NodeGroup>("SELECT * FROM node_groups ORDER BY name ASC")
@@ -370,9 +407,10 @@ pub async fn get_template_json(
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    match sqlx::query_as::<_, InboundTemplate>(&format!("{TEMPLATE_SELECT_SQL} WHERE id = $1"))
-        .bind(id)
-        .fetch_optional(&state.pool)
+    match state
+        .infrastructure_service
+        .node_repo
+        .get_inbound_template_by_id(id)
         .await
     {
         Ok(Some(t)) => axum::Json::<InboundTemplate>(t).into_response(),
@@ -430,12 +468,12 @@ pub async fn update_template(
             .into_response();
     }
 
-    let res = sqlx::query(
+    let primary = sqlx::query(
         r#"
-        UPDATE inbound_templates 
+        UPDATE inbound_templates
         SET name = $1, protocol = $2, target_group_id = $3, settings_template = $4, stream_settings_template = $5, port_range_start = $6, port_range_end = $7, renew_interval_mins = $8
         WHERE id = $9
-        "#
+        "#,
     )
         .bind(&form.name)
         .bind(&form.protocol)
@@ -445,9 +483,62 @@ pub async fn update_template(
         .bind(form.port_range_start)
         .bind(form.port_range_end)
         .bind(form.renew_interval_mins)
-        .bind(id)
-        .execute(&state.pool)
-        .await;
+        .bind(id);
+
+    let res = match primary.execute(&state.pool).await {
+        Ok(done) => Ok(done),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("renew_interval_mins") || msg.contains("does not exist") {
+                let fallback = sqlx::query(
+                    r#"
+                    UPDATE inbound_templates
+                    SET name = $1, protocol = $2, target_group_id = $3, settings_template = $4, stream_settings_template = $5, port_range_start = $6, port_range_end = $7
+                    WHERE id = $8
+                    "#,
+                )
+                .bind(&form.name)
+                .bind(&form.protocol)
+                .bind(form.target_group_id)
+                .bind(&final_settings)
+                .bind(&form.stream_settings_template)
+                .bind(form.port_range_start)
+                .bind(form.port_range_end)
+                .bind(id)
+                .execute(&state.pool)
+                .await;
+
+                match fallback {
+                    Ok(done) => Ok(done),
+                    Err(e2) => {
+                        let msg2 = e2.to_string();
+                        if msg2.contains("target_group_id") && msg2.contains("does not exist") {
+                            sqlx::query(
+                                r#"
+                                UPDATE inbound_templates
+                                SET name = $1, protocol = $2, settings_template = $3, stream_settings_template = $4, port_range_start = $5, port_range_end = $6
+                                WHERE id = $7
+                                "#,
+                            )
+                            .bind(&form.name)
+                            .bind(&form.protocol)
+                            .bind(&final_settings)
+                            .bind(&form.stream_settings_template)
+                            .bind(form.port_range_start)
+                            .bind(form.port_range_end)
+                            .bind(id)
+                            .execute(&state.pool)
+                            .await
+                        } else {
+                            Err(e2)
+                        }
+                    }
+                }
+            } else {
+                Err(e)
+            }
+        }
+    };
 
     match res {
         Ok(_) => {

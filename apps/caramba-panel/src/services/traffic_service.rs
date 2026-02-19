@@ -1,8 +1,8 @@
-use tracing::{info, error};
-use tokio::time::{interval, Duration};
 use crate::AppState;
-use chrono::Utc;
 use crate::services::analytics_service::AnalyticsService;
+use chrono::Utc;
+use tokio::time::{Duration, interval};
+use tracing::{error, info};
 
 pub struct TrafficService {
     state: AppState,
@@ -29,15 +29,19 @@ impl TrafficService {
         info!("Syncing traffic usage from all active nodes...");
 
         // Fetch only IDs to stay compatible across schema variants (INT4/INT8 column drift).
-        let active_node_ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM nodes WHERE status = 'active'")
-            .fetch_all(&self.state.pool)
-            .await?;
+        let active_node_ids: Vec<i64> =
+            sqlx::query_scalar("SELECT id FROM nodes WHERE status = 'active'")
+                .fetch_all(&self.state.pool)
+                .await?;
 
         for node_id in active_node_ids {
-            // Note: Per-user traffic usage is now reported via node heartbeats 
-            // and processed in api/v2/node.rs. Aggregate node stats could be 
+            // Note: Per-user traffic usage is now reported via node heartbeats
+            // and processed in api/v2/node.rs. Aggregate node stats could be
             // fetched here in the future if needed.
-            info!("Node {} traffic sync handled via heartbeat reporting", node_id);
+            info!(
+                "Node {} traffic sync handled via heartbeat reporting",
+                node_id
+            );
         }
 
         // After syncing, enforce quotas
@@ -47,7 +51,11 @@ impl TrafficService {
     }
 
     #[allow(dead_code)]
-    async fn process_node_usage(&self, _node_id: i64, usage: serde_json::Value) -> anyhow::Result<()> {
+    async fn process_node_usage(
+        &self,
+        _node_id: i64,
+        usage: serde_json::Value,
+    ) -> anyhow::Result<()> {
         if let Some(users_usage) = usage.get("users") {
             if let Some(users_map) = users_usage.as_object() {
                 let mut tx = self.state.pool.begin().await?;
@@ -63,19 +71,23 @@ impl TrafficService {
                                 .bind(sub_id)
                                 .fetch_optional(&mut *tx)
                                 .await?;
-                                
+
                                 // Simple analytics
-                                let _ = AnalyticsService::track_traffic(&self.state.pool, bytes as i64).await;
+                                let _ =
+                                    AnalyticsService::track_traffic(&self.state.pool, bytes as i64)
+                                        .await;
 
                                 // Family Plan Logic: Trickle up to parent
                                 if let Some((user_id, note, plan_id)) = sub_details {
                                     if note == "Family" {
                                         // Find parent
-                                        let parent_id: Option<i64> = sqlx::query_scalar("SELECT parent_id FROM users WHERE id = $1")
-                                            .bind(user_id)
-                                            .fetch_optional(&mut *tx)
-                                            .await?;
-                                        
+                                        let parent_id: Option<i64> = sqlx::query_scalar(
+                                            "SELECT parent_id FROM users WHERE id = $1",
+                                        )
+                                        .bind(user_id)
+                                        .fetch_optional(&mut *tx)
+                                        .await?;
+
                                         if let Some(pid) = parent_id {
                                             // Update parent's active subscription of same plan
                                             sqlx::query("UPDATE subscriptions SET used_traffic = used_traffic + $1 WHERE user_id = $2 AND plan_id = $3 AND status = 'active'")
@@ -94,7 +106,7 @@ impl TrafficService {
                 tx.commit().await?;
             }
         }
-        
+
         Ok(())
     }
 
@@ -106,7 +118,7 @@ impl TrafficService {
              JOIN plans p ON s.plan_id = p.id
              WHERE s.status = 'active' 
              AND p.traffic_limit_gb > 0 
-             AND s.used_traffic >= (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)"
+             AND s.used_traffic >= (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)",
         )
         .fetch_all(&self.state.pool)
         .await?;
@@ -115,15 +127,21 @@ impl TrafficService {
             return Ok(());
         }
 
-        info!("Found {} subscriptions exceeding quota. Suspending...", overloaded_subs.len());
+        info!(
+            "Found {} subscriptions exceeding quota. Suspending...",
+            overloaded_subs.len()
+        );
 
         for (sub_id, user_id, limit) in overloaded_subs {
             sqlx::query("UPDATE subscriptions SET status = 'expired' WHERE id = $1")
                 .bind(sub_id)
                 .execute(&self.state.pool)
                 .await?;
-            
-            info!("Subscription {} for user {} suspended (Limit: {} GB reached)", sub_id, user_id, limit);
+
+            info!(
+                "Subscription {} for user {} suspended (Limit: {} GB reached)",
+                sub_id, user_id, limit
+            );
         }
 
         // Agents pull config automatically - no sync needed

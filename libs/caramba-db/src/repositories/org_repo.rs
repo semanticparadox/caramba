@@ -1,6 +1,6 @@
-use sqlx::PgPool;
-use anyhow::{Context, Result};
 use crate::models::orgs::{Organization, OrganizationMember};
+use anyhow::{Context, Result};
+use sqlx::PgPool;
 
 #[derive(Clone)]
 pub struct OrganizationRepository {
@@ -14,7 +14,7 @@ impl OrganizationRepository {
 
     pub async fn create(&self, name: &str, slug: Option<&str>) -> Result<i64> {
         let id = sqlx::query_scalar(
-            "INSERT INTO organizations (name, slug) VALUES ($1, $2) RETURNING id"
+            "INSERT INTO organizations (name, slug) VALUES ($1, $2) RETURNING id",
         )
         .bind(name)
         .bind(slug)
@@ -33,7 +33,7 @@ impl OrganizationRepository {
 
     pub async fn add_member(&self, org_id: i64, user_id: i64, role: &str) -> Result<()> {
         sqlx::query(
-            "INSERT INTO organization_members (organization_id, user_id, role) VALUES ($1, $2, $3)"
+            "INSERT INTO organization_members (organization_id, user_id, role) VALUES ($1, $2, $3)",
         )
         .bind(org_id)
         .bind(user_id)
@@ -44,11 +44,13 @@ impl OrganizationRepository {
     }
 
     pub async fn get_members(&self, org_id: i64) -> Result<Vec<OrganizationMember>> {
-        sqlx::query_as::<_, OrganizationMember>("SELECT * FROM organization_members WHERE organization_id = $1")
-            .bind(org_id)
-            .fetch_all(&self.pool)
-            .await
-            .context("Failed to fetch organization members")
+        sqlx::query_as::<_, OrganizationMember>(
+            "SELECT * FROM organization_members WHERE organization_id = $1",
+        )
+        .bind(org_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch organization members")
     }
 
     pub async fn get_user_organizations(&self, user_id: i64) -> Result<Vec<Organization>> {
@@ -57,7 +59,7 @@ impl OrganizationRepository {
             SELECT o.* FROM organizations o
             JOIN organization_members om ON om.organization_id = o.id
             WHERE om.user_id = $1
-            "#
+            "#,
         )
         .bind(user_id)
         .fetch_all(&self.pool)

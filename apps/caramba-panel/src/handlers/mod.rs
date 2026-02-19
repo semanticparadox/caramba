@@ -1,12 +1,12 @@
 pub mod admin;
-pub mod admin_network;
 pub mod admin_groups;
-pub mod admin_templates;
+pub mod admin_network;
 pub mod admin_orgs;
+pub mod admin_sni;
+pub mod admin_templates;
+pub mod api;
 pub mod assets;
-pub mod setup;
 pub mod frontend;
 pub mod local_app;
 pub mod node_control;
-pub mod api;
-pub mod admin_sni;
+pub mod setup;

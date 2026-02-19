@@ -1,8 +1,8 @@
+use anyhow::{Context, Result};
+use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use sqlx::PgPool;
-use anyhow::{Context, Result};
 use tracing::info;
 
 #[derive(Debug, Clone)]
@@ -17,7 +17,7 @@ impl SettingsService {
             pool,
             cache: Arc::new(RwLock::new(HashMap::new())),
         };
-        
+
         service.reload_cache().await?;
         Ok(service)
     }
@@ -34,7 +34,7 @@ impl SettingsService {
         for (key, value) in rows {
             cache.insert(key, value);
         }
-        
+
         info!("Cache reloaded with {} items", cache.len());
         Ok(())
     }
@@ -52,18 +52,18 @@ impl SettingsService {
         if let Some(val) = self.get(key).await {
             return val;
         }
-        
+
         if let Err(e) = self.set(key, default).await {
             tracing::error!("Failed to set default for {}: {}", key, e);
         }
-        
+
         default.to_string()
     }
 
     pub async fn set(&self, key: &str, value: &str) -> Result<()> {
         let _ = sqlx::query(
             "INSERT INTO settings (key, value) VALUES ($1, $2) 
-             ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP"
+             ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP",
         )
         .bind(key)
         .bind(value)
@@ -73,7 +73,7 @@ impl SettingsService {
 
         let mut cache = self.cache.write().await;
         cache.insert(key.to_string(), value.to_string());
-        
+
         Ok(())
     }
 

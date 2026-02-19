@@ -1,12 +1,12 @@
+use crate::singbox_generator::ConfigGenerator;
+use crate::AppState;
 use axum::{
     extract::{Path, Query, State},
-    http::{StatusCode, header, HeaderMap},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
-use tracing::{info, error};
-use crate::AppState;
-use crate::singbox_generator::ConfigGenerator;
+use tracing::{error, info};
 
 #[derive(Deserialize)]
 pub struct SubParams {
@@ -21,13 +21,19 @@ pub async fn subscription_handler(
 ) -> Response {
     // 0. Extract Client IP
     let client_ip = get_client_ip(&headers).unwrap_or("0.0.0.0".to_string());
-    
+
     // 1. GeoIP Lookup
     let geo_data = state.geo_service.get_location(&client_ip).await;
-    let country_code = geo_data.as_ref().map(|d| d.country_code.as_str()).unwrap_or("XX");
-    
-    info!("Subscription request: UUID={}, client={:?}, IP={}, Country={}", uuid, params.client, client_ip, country_code);
-    
+    let country_code = geo_data
+        .as_ref()
+        .map(|d| d.country_code.as_str())
+        .unwrap_or("XX");
+
+    info!(
+        "Subscription request: UUID={}, client={:?}, IP={}, Country={}",
+        uuid, params.client, client_ip, country_code
+    );
+
     // 2. Get Subscription
     let sub = match state.panel_client.get_subscription(&uuid).await {
         Ok(s) => s,
@@ -36,11 +42,11 @@ pub async fn subscription_handler(
             return (StatusCode::NOT_FOUND, "Subscription not found").into_response();
         }
     };
-    
+
     if sub.status != "active" {
         return (StatusCode::FORBIDDEN, "Subscription inactive").into_response();
     }
-    
+
     // 3. Get Nodes (InternalNode structure)
     let nodes = match state.panel_client.get_active_nodes().await {
         Ok(n) => n,
@@ -49,7 +55,7 @@ pub async fn subscription_handler(
             return (StatusCode::SERVICE_UNAVAILABLE, "No nodes available").into_response();
         }
     };
-    
+
     // 4. Get User Keys
     let user_keys = match state.panel_client.get_user_keys(sub.user_id).await {
         Ok(k) => k,
@@ -58,27 +64,33 @@ pub async fn subscription_handler(
             return (StatusCode::INTERNAL_SERVER_ERROR, "Key error").into_response();
         }
     };
-    
+
     // 5. Generate Config
     let client_type = params.client.as_deref().unwrap_or("singbox");
-    
+
     let (content, content_type, filename) = match client_type {
         "clash" => {
             // Legacy Clash Gen
-            let simple_nodes: Vec<&crate::panel_client::Node> = nodes.iter().map(|n| &n.node).collect();
+            let simple_nodes: Vec<&crate::panel_client::Node> =
+                nodes.iter().map(|n| &n.node).collect();
             match generate_clash_config(&simple_nodes, &user_keys) {
                 Ok(c) => (c, "application/yaml", "config.yaml"),
-                Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+                Err(e) => {
+                    return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+                }
             }
-        },
+        }
         "v2ray" => {
-             // Legacy V2Ray Gen
-            let simple_nodes: Vec<&crate::panel_client::Node> = nodes.iter().map(|n| &n.node).collect();
-             match generate_v2ray_config(&simple_nodes, &user_keys) {
+            // Legacy V2Ray Gen
+            let simple_nodes: Vec<&crate::panel_client::Node> =
+                nodes.iter().map(|n| &n.node).collect();
+            match generate_v2ray_config(&simple_nodes, &user_keys) {
                 Ok(c) => (c, "text/plain", "config.txt"),
-                Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+                Err(e) => {
+                    return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+                }
             }
-        },
+        }
         _ => {
             // Smart Sing-box Gen
             // Pass the FULL nodes (with inbounds) and the detected region
@@ -87,14 +99,20 @@ pub async fn subscription_handler(
             (json_str, "application/json", "config.json")
         }
     };
-    
+
     // 6. Return with proper headers
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
-        .header(header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", filename))
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", filename),
+        )
         .header("X-Profile-Update-Interval", "24")
-        .header("Subscription-Userinfo", format!("upload=0; download={}; total=0; expire=0", sub.used_traffic))
+        .header(
+            "Subscription-Userinfo",
+            format!("upload=0; download={}; total=0; expire=0", sub.used_traffic),
+        )
         .body(content)
         .unwrap()
         .into_response()
@@ -105,17 +123,24 @@ fn get_client_ip(headers: &HeaderMap) -> Option<String> {
         return ip.to_str().ok().map(|s| s.to_string());
     }
     if let Some(ip) = headers.get("x-forwarded-for") {
-        return ip.to_str().ok().and_then(|s| s.split(',').next()).map(|s| s.trim().to_string());
+        return ip
+            .to_str()
+            .ok()
+            .and_then(|s| s.split(',').next())
+            .map(|s| s.trim().to_string());
     }
     None
 }
 
 // Config generators (simplified versions from main panel)
-fn generate_clash_config(nodes: &[&crate::panel_client::Node], keys: &crate::panel_client::UserKeys) -> anyhow::Result<String> {
+fn generate_clash_config(
+    nodes: &[&crate::panel_client::Node],
+    keys: &crate::panel_client::UserKeys,
+) -> anyhow::Result<String> {
     use serde_json::json;
-    
+
     let mut proxies = Vec::new();
-    
+
     for node in nodes {
         proxies.push(json!({
             "name": format!("{} VLESS", node.name),
@@ -133,11 +158,12 @@ fn generate_clash_config(nodes: &[&crate::panel_client::Node], keys: &crate::pan
             "client-fingerprint": "chrome"
         }));
     }
-    
-    let proxy_names: Vec<String> = proxies.iter()
+
+    let proxy_names: Vec<String> = proxies
+        .iter()
         .map(|p| p["name"].as_str().unwrap().to_string())
         .collect();
-    
+
     let config = json!({
         "proxies": proxies,
         "proxy-groups": [{
@@ -147,13 +173,16 @@ fn generate_clash_config(nodes: &[&crate::panel_client::Node], keys: &crate::pan
         }],
         "rules": ["MATCH,CARAMBA"]
     });
-    
+
     Ok(serde_yaml::to_string(&config)?)
 }
 
-fn generate_v2ray_config(nodes: &[&crate::panel_client::Node], keys: &crate::panel_client::UserKeys) -> anyhow::Result<String> {
+fn generate_v2ray_config(
+    nodes: &[&crate::panel_client::Node],
+    keys: &crate::panel_client::UserKeys,
+) -> anyhow::Result<String> {
     let mut links = Vec::new();
-    
+
     for node in nodes {
         let vless_link = format!(
             "vless://{}@{}:{}?encryption=none&flow=xtls-rprx-vision&security=reality&sni={}&fp=chrome&pbk={}&sid={}&type=tcp#{}",
@@ -167,7 +196,7 @@ fn generate_v2ray_config(nodes: &[&crate::panel_client::Node], keys: &crate::pan
         );
         links.push(vless_link);
     }
-    
+
     use base64::Engine;
     Ok(base64::engine::general_purpose::STANDARD.encode(links.join("\n")))
 }

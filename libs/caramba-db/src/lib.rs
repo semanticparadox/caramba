@@ -1,10 +1,10 @@
-pub mod models;
 pub mod db;
+pub mod models;
 pub mod repositories;
 pub mod utils;
 
-pub use sqlx;
 use anyhow::{Context, Result};
+pub use sqlx;
 
 pub async fn connect(url: &str) -> Result<sqlx::PgPool> {
     let pool = sqlx::PgPool::connect(url)

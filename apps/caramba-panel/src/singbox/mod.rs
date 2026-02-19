@@ -1,6 +1,6 @@
 pub mod config;
-pub mod reality;
 pub mod generator;
+pub mod reality;
 pub mod subscription_generator;
 
 pub use generator::{ConfigGenerator, RelayAuthMode};

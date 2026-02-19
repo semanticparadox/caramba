@@ -1,14 +1,14 @@
-use axum::{
-    extract::{State, Form, Multipart},
-    response::IntoResponse,
-    http::StatusCode,
-};
+use crate::AppState;
 use askama::Template;
 use askama_web::WebTemplate;
-use serde::Deserialize;
-use crate::AppState;
+use axum::{
+    extract::{Form, Multipart, State},
+    http::StatusCode,
+    response::IntoResponse,
+};
 use axum_extra::extract::cookie::{Cookie, CookieJar};
-use tracing::{info, error};
+use serde::Deserialize;
+use tracing::{error, info};
 
 #[derive(Template, WebTemplate)]
 #[template(path = "setup.html")]
@@ -27,8 +27,8 @@ pub struct CreateAdminForm {
 
 pub async fn get_setup(State(state): State<AppState>) -> SetupTemplate {
     let admin_path = state.admin_path.clone();
-    
-    SetupTemplate { 
+
+    SetupTemplate {
         admin_path,
         is_auth: false,
         active_page: "setup".to_string(),
@@ -53,7 +53,9 @@ pub async fn create_admin(
 
     let hash = match bcrypt::hash(&form.password, bcrypt::DEFAULT_COST) {
         Ok(h) => h,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Password hashing failed").into_response(),
+        Err(_) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Password hashing failed").into_response();
+        }
     };
 
     match sqlx::query("INSERT INTO admins (username, password_hash) VALUES ($1, $2)")
@@ -64,19 +66,22 @@ pub async fn create_admin(
     {
         Ok(_) => {
             info!("Setup: Admin {} created successfully.", form.username);
-            
+
             // Auto-login
             let admin_path = state.admin_path.clone();
             let cookie = Cookie::build(("admin_session", state.session_secret.clone()))
                 .path("/")
                 .http_only(true)
                 .build();
-                
+
             let mut headers = axum::http::HeaderMap::new();
-            headers.insert("HX-Redirect", format!("{}/dashboard", admin_path).parse().unwrap());
+            headers.insert(
+                "HX-Redirect",
+                format!("{}/dashboard", admin_path).parse().unwrap(),
+            );
 
             (StatusCode::OK, jar.add(cookie), headers).into_response()
-        },
+        }
         Err(e) => {
             error!("Failed to create admin: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response()
@@ -92,47 +97,51 @@ pub async fn restore_backup(
     // However, writing to open DB file is risky.
     // Strategy: Write to temp file, then rename/move over caramba.db.
     // Then exit process.
-    
+
     while let Ok(Some(field)) = multipart.next_field().await {
         if field.name() == Some("backup_file") {
             if let Ok(bytes) = field.bytes().await {
-                if bytes.len() > 10 * 1024 * 1024 { // 10MB limit
+                if bytes.len() > 10 * 1024 * 1024 {
+                    // 10MB limit
                     return (StatusCode::BAD_REQUEST, "File too large").into_response();
                 }
-                
+
                 // Determine DB path
                 // We assume current working dir has caramba.db (standard install)
                 let db_path = "caramba.db";
-                
+
                 // Backup current just in case (though install.sh does it too)
                 let _ = std::fs::copy(db_path, format!("{}.pre_restore.bak", db_path));
-                
+
                 // Overwrite
                 if let Err(e) = std::fs::write(db_path, bytes) {
-                     error!("Failed to write restored DB: {}", e);
-                     return (StatusCode::INTERNAL_SERVER_ERROR, "Write failed").into_response();
+                    error!("Failed to write restored DB: {}", e);
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "Write failed").into_response();
                 }
-                
+
                 info!("Database restored. Restarting server...");
-                
+
                 // Trigger client-side reload after delay
                 // Return script to reload page? No, better return header.
                 // But the server will die soon.
-                
+
                 // Spawn a thread to kill process after 1s allow response to send
                 std::thread::spawn(|| {
                     std::thread::sleep(std::time::Duration::from_millis(1000));
                     std::process::exit(0);
                 });
-                
+
                 let admin_path = state.admin_path.clone();
                 let mut headers = axum::http::HeaderMap::new();
-                headers.insert("HX-Redirect", format!("{}/login", admin_path).parse().unwrap());
-                
+                headers.insert(
+                    "HX-Redirect",
+                    format!("{}/login", admin_path).parse().unwrap(),
+                );
+
                 return (StatusCode::OK, headers, "Restored. Restarting...").into_response();
             }
         }
     }
-    
+
     (StatusCode::BAD_REQUEST, "No file uploaded").into_response()
 }

@@ -73,7 +73,7 @@ pub mod api {
 
 pub mod config {
     use super::*;
-    
+
     #[derive(Debug, Serialize, Deserialize)]
     pub struct ConfigResponse {
         pub hash: String,

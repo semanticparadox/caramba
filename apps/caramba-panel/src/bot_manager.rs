@@ -157,25 +157,25 @@ async fn run_panel_bot(
     mut shutdown_signal: tokio::sync::broadcast::Receiver<()>,
     state: crate::AppState,
 ) {
-    info!("Starting embedded panel bot dispatcher...");
+    let handler = Update::filter_message().endpoint(handle_message);
+    let callback_handler = Update::filter_callback_query().endpoint(handle_callback);
 
-    let handler = dptree::entry()
-        .branch(Update::filter_message().endpoint(handle_message))
-        .branch(Update::filter_callback_query().endpoint(handle_callback));
-
-    let mut dispatcher = Dispatcher::builder(bot, handler)
-        .dependencies(dptree::deps![state])
-        .default_handler(|upd: std::sync::Arc<Update>| async move {
-            info!("Unhandled bot update: {:?}", upd);
-        })
-        .build();
+    let mut dispatcher = Dispatcher::builder(
+        bot,
+        dptree::entry().branch(handler).branch(callback_handler),
+    )
+    .dependencies(dptree::deps![state])
+    .default_handler(|upd: std::sync::Arc<Update>| async move {
+        info!("Unhandled update: {:?}", upd);
+    })
+    .build();
 
     tokio::select! {
         _ = dispatcher.dispatch() => {
-            info!("Embedded bot dispatcher exited");
+            info!("Bot dispatcher exited naturally");
         }
         _ = shutdown_signal.recv() => {
-            info!("Embedded bot received shutdown signal");
+            info!("Bot received shutdown signal, stopping...");
         }
     }
 }
@@ -190,7 +190,11 @@ async fn handle_message(
     };
 
     let tg_id = msg.chat.id.0 as i64;
-    let command = text.split_whitespace().next().unwrap_or("").to_ascii_lowercase();
+    let command = text
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
 
     match command.as_str() {
         "/start" => {
@@ -235,24 +239,104 @@ async fn handle_message(
 
             send_welcome(&bot, msg.chat.id, &state).await
         }
-        "/app" => {
-            match state.store_service.get_user_by_tg_id(tg_id).await {
-                Ok(Some(user)) => {
-                    if user.terms_accepted_at.is_none() {
-                        return send_terms(&bot, msg.chat.id, &state).await;
-                    }
-                    send_welcome(&bot, msg.chat.id, &state).await
+        "/app" => match state.store_service.get_user_by_tg_id(tg_id).await {
+            Ok(Some(user)) => {
+                if user.terms_accepted_at.is_none() {
+                    return send_terms(&bot, msg.chat.id, &state).await;
                 }
-                _ => {
-                    bot.send_message(msg.chat.id, "Use /start first to initialize your profile.")
-                        .await?;
-                    Ok(())
-                }
+                send_welcome(&bot, msg.chat.id, &state).await
             }
-        }
+            _ => {
+                bot.send_message(msg.chat.id, "Use /start first to initialize your profile.")
+                    .await?;
+                Ok(())
+            }
+        },
         "/help" => {
-            let help_text = "<b>Commands</b>\n\n/start - initialize profile\n/app - open mini app button\n/help - show this help";
+            let help_text = "<b>Commands</b>\n\n/start - initialize profile\n/app - open mini app button\n/plans - list active plans\n/my - my subscriptions\n/help - show this help";
             bot.send_message(msg.chat.id, help_text)
+                .parse_mode(ParseMode::Html)
+                .await?;
+            Ok(())
+        }
+        "/plans" => {
+            let plans = state
+                .catalog_service
+                .get_active_plans()
+                .await
+                .unwrap_or_default();
+
+            if plans.is_empty() {
+                bot.send_message(msg.chat.id, "No active plans yet.")
+                    .await?;
+                return Ok(());
+            }
+
+            let mut text = String::from("<b>Available Plans</b>\n\n");
+            for plan in plans {
+                text.push_str(&format!(
+                    "• <b>{}</b> — {} GB, {} devices\n",
+                    plan.name,
+                    plan.traffic_limit_gb,
+                    if plan.device_limit == 0 {
+                        "unlimited".to_string()
+                    } else {
+                        plan.device_limit.to_string()
+                    }
+                ));
+                if plan.durations.is_empty() {
+                    text.push_str("  No prices configured\n");
+                } else {
+                    for d in plan.durations {
+                        text.push_str(&format!(
+                            "  {} days: ${}.{:02}\n",
+                            d.duration_days,
+                            d.price / 100,
+                            d.price % 100
+                        ));
+                    }
+                }
+                text.push('\n');
+            }
+
+            bot.send_message(msg.chat.id, text)
+                .parse_mode(ParseMode::Html)
+                .await?;
+            Ok(())
+        }
+        "/my" => {
+            let user = match state.store_service.get_user_by_tg_id(tg_id).await {
+                Ok(Some(u)) => u,
+                _ => {
+                    bot.send_message(msg.chat.id, "Use /start first to initialize profile.")
+                        .await?;
+                    return Ok(());
+                }
+            };
+
+            let subs = state
+                .subscription_service
+                .get_user_subscriptions(user.id)
+                .await
+                .unwrap_or_default();
+
+            if subs.is_empty() {
+                bot.send_message(msg.chat.id, "You have no subscriptions yet.")
+                    .await?;
+                return Ok(());
+            }
+
+            let mut text = String::from("<b>Your Subscriptions</b>\n\n");
+            for sub in subs {
+                text.push_str(&format!(
+                    "• <b>{}</b> — {}\n  expires: {}\n\n",
+                    sub.plan_name,
+                    sub.sub.status,
+                    sub.sub.expires_at.format("%Y-%m-%d %H:%M UTC")
+                ));
+            }
+
+            bot.send_message(msg.chat.id, text)
                 .parse_mode(ParseMode::Html)
                 .await?;
             Ok(())

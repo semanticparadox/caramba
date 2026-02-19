@@ -14,13 +14,16 @@ impl PromoService {
     pub async fn redeem_code(&self, user_id: i64, code: &str) -> Result<String> {
         #[derive(serde::Serialize)]
         struct RedeemReq<'a> {
-            code: &'a str
+            code: &'a str,
         }
         #[derive(serde::Deserialize)]
         struct RedeemResp {
-            message: String
+            message: String,
         }
-        let resp: RedeemResp = self.api.post(&format!("/users/{}/redeem", user_id), &RedeemReq { code }).await?;
+        let resp: RedeemResp = self
+            .api
+            .post(&format!("/users/{}/redeem", user_id), &RedeemReq { code })
+            .await?;
         Ok(resp.message)
     }
 }

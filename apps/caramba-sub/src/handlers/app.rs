@@ -34,7 +34,11 @@ async fn read_asset(path: &str) -> Option<Response> {
 
     let bytes = tokio::fs::read(&full_path).await.ok()?;
     let mime = mime_guess::from_path(path).first_or_octet_stream();
-    Some(build_asset_response(bytes, mime.as_ref(), "public, max-age=3600"))
+    Some(build_asset_response(
+        bytes,
+        mime.as_ref(),
+        "public, max-age=3600",
+    ))
 }
 
 /// Serve Mini App main page

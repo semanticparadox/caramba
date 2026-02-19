@@ -1,11 +1,10 @@
+use anyhow::{Context, Result};
 use sqlx::PgPool;
-use anyhow::{Result, Context};
-use std::fs;
 use std::env;
+use std::fs;
 
 pub async fn reset_password(pool: &PgPool, username: &str, new_pass: &str) -> Result<()> {
-    let hash = bcrypt::hash(new_pass, bcrypt::DEFAULT_COST)
-        .context("Failed to hash password")?;
+    let hash = bcrypt::hash(new_pass, bcrypt::DEFAULT_COST).context("Failed to hash password")?;
 
     // Try update first
     let result = sqlx::query("UPDATE admins SET password_hash = $1 WHERE username = $2")
@@ -25,9 +24,12 @@ pub async fn reset_password(pool: &PgPool, username: &str, new_pass: &str) -> Re
             .context("Failed to create new admin")?;
         println!("New admin user '{}' created successfully.", username);
     } else {
-        println!("Password for user '{}' has been successfully reset.", username);
+        println!(
+            "Password for user '{}' has been successfully reset.",
+            username
+        );
     }
-    
+
     Ok(())
 }
 
@@ -58,10 +60,12 @@ WantedBy=multi-user.target
     );
 
     let service_path = format!("/etc/systemd/system/{}.service", exe_name);
-    
+
     // Check if running as root
     if unsafe { libc::getuid() } != 0 {
-        return Err(anyhow::anyhow!("This command must be run as root (sudo) to install systemd service."));
+        return Err(anyhow::anyhow!(
+            "This command must be run as root (sudo) to install systemd service."
+        ));
     }
 
     fs::write(&service_path, service_content)

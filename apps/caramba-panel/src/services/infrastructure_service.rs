@@ -1,9 +1,9 @@
-use sqlx::PgPool;
-use anyhow::{anyhow, Result};
-use tracing::{info, warn};
-use rand::distr::{Alphanumeric, SampleString};
-use caramba_db::repositories::node_repo::NodeRepository;
+use anyhow::{Result, anyhow};
 use caramba_db::models::node::Node;
+use caramba_db::repositories::node_repo::NodeRepository;
+use rand::distr::{Alphanumeric, SampleString};
+use sqlx::PgPool;
+use tracing::{info, warn};
 
 #[derive(Debug, Clone)]
 pub struct InfrastructureService {
@@ -18,7 +18,9 @@ impl InfrastructureService {
     }
 
     pub async fn get_node_by_id(&self, node_id: i64) -> Result<Node> {
-        self.node_repo.get_node_by_id(node_id).await?
+        self.node_repo
+            .get_node_by_id(node_id)
+            .await?
             .ok_or_else(|| anyhow::anyhow!("Node not found"))
     }
 
@@ -30,11 +32,17 @@ impl InfrastructureService {
         self.node_repo.get_active_nodes().await
     }
 
-    pub async fn get_node_groups(&self, node_id: i64) -> Result<Vec<caramba_db::models::groups::NodeGroup>> {
+    pub async fn get_node_groups(
+        &self,
+        node_id: i64,
+    ) -> Result<Vec<caramba_db::models::groups::NodeGroup>> {
         self.node_repo.get_groups_by_node(node_id).await
     }
 
-    pub async fn get_node_inbounds(&self, node_id: i64) -> Result<Vec<caramba_db::models::network::Inbound>> {
+    pub async fn get_node_inbounds(
+        &self,
+        node_id: i64,
+    ) -> Result<Vec<caramba_db::models::network::Inbound>> {
         let mut inbounds = self.node_repo.get_inbounds_by_node(node_id).await?;
         inbounds.sort_by_key(|i| i.listen_port);
         Ok(inbounds)
@@ -44,14 +52,20 @@ impl InfrastructureService {
         self.node_repo.get_active_nodes().await
     }
 
-    pub async fn create_node(&self, name: &str, ip: &str, vpn_port: i32, auto_configure: bool) -> Result<i64> {
+    pub async fn create_node(
+        &self,
+        name: &str,
+        ip: &str,
+        vpn_port: i32,
+        auto_configure: bool,
+    ) -> Result<i64> {
         let token = uuid::Uuid::new_v4().to_string();
         let doomsday_password = Alphanumeric.sample_string(&mut rand::rng(), 12);
-        
-        let final_ip = if ip.is_empty() { 
-            format!("pending-{}", &token[0..8]) 
-        } else { 
-            ip.to_string() 
+
+        let final_ip = if ip.is_empty() {
+            format!("pending-{}", &token[0..8])
+        } else {
+            ip.to_string()
         };
 
         let node = Node {
@@ -110,7 +124,7 @@ impl InfrastructureService {
         };
 
         let id = self.node_repo.create_node(&node).await?;
-        
+
         // Non-critical enrichment: if group tables are out-of-sync, keep node created.
         match self.node_repo.get_group_by_name("Default").await {
             Ok(default_group) => {
@@ -123,31 +137,49 @@ impl InfrastructureService {
                     {
                         Ok(new_id) => new_id,
                         Err(e) => {
-                            warn!("Node {} created but failed to create Default group: {}", id, e);
+                            warn!(
+                                "Node {} created but failed to create Default group: {}",
+                                id, e
+                            );
                             return Ok(id);
                         }
                     },
                 };
 
                 if let Err(e) = self.node_repo.add_node_to_group(id, group_id).await {
-                    warn!("Node {} created but failed to attach to Default group: {}", id, e);
+                    warn!(
+                        "Node {} created but failed to attach to Default group: {}",
+                        id, e
+                    );
                 }
             }
-            Err(e) => warn!("Node {} created but failed to query Default group: {}", id, e),
+            Err(e) => warn!(
+                "Node {} created but failed to query Default group: {}",
+                id, e
+            ),
         }
-        
+
         Ok(id)
     }
 
-    pub async fn update_node(&self, id: i64, name: &str, ip: &str, relay_id: Option<i64>, is_relay: bool) -> Result<()> {
-        let primary = sqlx::query("UPDATE nodes SET name = $1, ip = $2, relay_id = $3, is_relay = $4 WHERE id = $5")
-            .bind(name)
-            .bind(ip)
-            .bind(relay_id)
-            .bind(is_relay)
-            .bind(id)
-            .execute(&self.pool)
-            .await;
+    pub async fn update_node(
+        &self,
+        id: i64,
+        name: &str,
+        ip: &str,
+        relay_id: Option<i64>,
+        is_relay: bool,
+    ) -> Result<()> {
+        let primary = sqlx::query(
+            "UPDATE nodes SET name = $1, ip = $2, relay_id = $3, is_relay = $4 WHERE id = $5",
+        )
+        .bind(name)
+        .bind(ip)
+        .bind(relay_id)
+        .bind(is_relay)
+        .bind(id)
+        .execute(&self.pool)
+        .await;
 
         match primary {
             Ok(_) => Ok(()),
@@ -175,13 +207,20 @@ impl InfrastructureService {
         Ok(())
     }
 
-    pub async fn activate_node(&self, id: i64, security_service: &crate::services::security_service::SecurityService) -> Result<()> {
+    pub async fn activate_node(
+        &self,
+        id: i64,
+        security_service: &crate::services::security_service::SecurityService,
+    ) -> Result<()> {
         // 1. Mark as active
         self.node_repo.update_status(id, "active").await?;
 
         // 2. Automated Smart SNI selection
         if let Ok(best_sni) = security_service.get_best_sni_for_node(id).await {
-            info!("🎯 Smart Setup: Auto-selected best SNI for Node {}: {}", id, best_sni);
+            info!(
+                "🎯 Smart Setup: Auto-selected best SNI for Node {}: {}",
+                id, best_sni
+            );
             let _ = sqlx::query("UPDATE nodes SET reality_sni = $1 WHERE id = $2")
                 .bind(best_sni)
                 .bind(id)
@@ -277,7 +316,10 @@ impl InfrastructureService {
             Ok(_) => Ok(()),
             Err(e) => {
                 if is_undefined_table_or_column(&e) {
-                    warn!("Skipping {} for node {} (legacy schema): {}", step, node_id, e);
+                    warn!(
+                        "Skipping {} for node {} (legacy schema): {}",
+                        step, node_id, e
+                    );
                     Ok(())
                 } else {
                     Err(e.into())

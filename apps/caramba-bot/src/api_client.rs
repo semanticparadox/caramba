@@ -1,6 +1,6 @@
+use anyhow::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use anyhow::Result;
 
 #[derive(Clone)]
 pub struct ApiClient {
@@ -20,30 +20,38 @@ impl ApiClient {
 
     pub async fn get<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T> {
         let url = format!("{}/api/v2/bot{}", self.base_url, path);
-        let resp = self.client.get(&url)
+        let resp = self
+            .client
+            .get(&url)
             .header("X-Bot-Token", &self.token)
             .send()
             .await?;
-        
+
         if !resp.status().is_success() {
-             return Err(anyhow::anyhow!("Request failed: {}", resp.status()));
+            return Err(anyhow::anyhow!("Request failed: {}", resp.status()));
         }
-        
+
         Ok(resp.json().await?)
     }
 
-    pub async fn post<T: for<'de> Deserialize<'de>, B: Serialize>(&self, path: &str, body: &B) -> Result<T> {
+    pub async fn post<T: for<'de> Deserialize<'de>, B: Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T> {
         let url = format!("{}/api/v2/bot{}", self.base_url, path);
-        let resp = self.client.post(&url)
+        let resp = self
+            .client
+            .post(&url)
             .header("X-Bot-Token", &self.token)
             .json(body)
             .send()
             .await?;
-            
+
         if !resp.status().is_success() {
-             return Err(anyhow::anyhow!("Request failed: {}", resp.status()));
+            return Err(anyhow::anyhow!("Request failed: {}", resp.status()));
         }
-        
+
         Ok(resp.json().await?)
     }
 

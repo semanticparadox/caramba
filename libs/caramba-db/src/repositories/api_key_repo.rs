@@ -1,6 +1,6 @@
-use sqlx::PgPool;
-use anyhow::{Result, Context};
 use crate::models::api_key::ApiKey;
+use anyhow::{Context, Result};
+use sqlx::PgPool;
 
 #[derive(Clone, Debug)]
 pub struct ApiKeyRepository {
@@ -46,13 +46,11 @@ impl ApiKeyRepository {
     }
 
     pub async fn delete(&self, id: i64) -> Result<()> {
-        sqlx::query(
-            "DELETE FROM api_keys WHERE id = $1"
-        )
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        .context("Failed to delete API key")?;
+        sqlx::query("DELETE FROM api_keys WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .context("Failed to delete API key")?;
 
         Ok(())
     }

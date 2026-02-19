@@ -1,7 +1,7 @@
 use crate::api_client::ApiClient;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct SettingsService {
@@ -30,7 +30,7 @@ impl SettingsService {
                 let mut cache = self.cache.write().await;
                 cache.insert(key.to_string(), val.clone());
                 Some(val)
-            },
+            }
             Err(_) => None,
         }
     }

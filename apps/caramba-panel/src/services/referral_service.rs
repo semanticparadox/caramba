@@ -1,6 +1,6 @@
-use sqlx::PgPool;
+use anyhow::{Context, Result};
 use serde::Serialize;
-use anyhow::{Result, Context};
+use sqlx::PgPool;
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct LeaderboardEntry {
@@ -20,9 +20,13 @@ pub struct ReferralService;
 
 impl ReferralService {
     /// Get top referrers
-    pub async fn get_leaderboard(pool: &PgPool, limit: i64) -> Result<Vec<LeaderboardDisplayEntry>> {
+    pub async fn get_leaderboard(
+        pool: &PgPool,
+        limit: i64,
+    ) -> Result<Vec<LeaderboardDisplayEntry>> {
         // Query to count referrals per user
-        let rows: Vec<LeaderboardEntry> = sqlx::query_as(r#"
+        let rows: Vec<LeaderboardEntry> = sqlx::query_as(
+            r#"
             SELECT 
                 u.username,
                 COUNT(r.id) as referral_count
@@ -31,7 +35,8 @@ impl ReferralService {
             GROUP BY u.id, u.username
             ORDER BY referral_count DESC
             LIMIT $1
-        "#)
+        "#,
+        )
         .bind(limit)
         .fetch_all(pool)
         .await?;
@@ -60,7 +65,10 @@ impl ReferralService {
         Ok(display_rows)
     }
 
-    pub async fn get_user_referrals(pool: &PgPool, referrer_id: i64) -> Result<Vec<caramba_db::models::store::DetailedReferral>> {
+    pub async fn get_user_referrals(
+        pool: &PgPool,
+        referrer_id: i64,
+    ) -> Result<Vec<caramba_db::models::store::DetailedReferral>> {
         sqlx::query_as::<_, caramba_db::models::store::DetailedReferral>(
             r#"
             SELECT 
@@ -90,10 +98,12 @@ impl ReferralService {
     }
 
     pub async fn get_user_referral_earnings(pool: &PgPool, referrer_id: i64) -> Result<i64> {
-        let total: Option<i64> = sqlx::query_scalar("SELECT CAST(SUM(bonus_value) AS BIGINT) FROM referral_bonuses WHERE user_id = $1")
-            .bind(referrer_id)
-            .fetch_optional(pool)
-            .await?;
+        let total: Option<i64> = sqlx::query_scalar(
+            "SELECT CAST(SUM(bonus_value) AS BIGINT) FROM referral_bonuses WHERE user_id = $1",
+        )
+        .bind(referrer_id)
+        .fetch_optional(pool)
+        .await?;
         Ok(total.unwrap_or(0))
     }
 
@@ -105,7 +115,11 @@ impl ReferralService {
         Ok(count.0)
     }
 
-    pub async fn update_user_referral_code(pool: &PgPool, user_id: i64, new_code: &str) -> Result<()> {
+    pub async fn update_user_referral_code(
+        pool: &PgPool,
+        user_id: i64,
+        new_code: &str,
+    ) -> Result<()> {
         let clean_code = new_code.trim();
         if clean_code.is_empty() {
             return Err(anyhow::anyhow!("Referral code cannot be empty"));
@@ -121,15 +135,19 @@ impl ReferralService {
         Ok(())
     }
 
-
-    pub async fn apply_referral_bonus(pool: &mut sqlx::Transaction<'_, sqlx::Postgres>, user_id: i64, amount_cents: i64, _payment_id: Option<i64>) -> Result<Option<(i64, i64)>> {
+    pub async fn apply_referral_bonus(
+        pool: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: i64,
+        amount_cents: i64,
+        _payment_id: Option<i64>,
+    ) -> Result<Option<(i64, i64)>> {
         // 10% bonus for the referrer
         let user = sqlx::query_as::<_, (Option<i64>, Option<i64>)>(
             "SELECT referrer_id, referred_by FROM users WHERE id = $1",
         )
-            .bind(user_id)
-            .fetch_one(&mut **pool)
-            .await?;
+        .bind(user_id)
+        .fetch_one(&mut **pool)
+        .await?;
 
         let referrer_id = user.0.or(user.1);
 
@@ -142,7 +160,7 @@ impl ReferralService {
                     .bind(r_id)
                     .execute(&mut **pool)
                     .await?;
-                
+
                 // 2. Log to referral_bonuses
                 sqlx::query("INSERT INTO referral_bonuses (user_id, referred_user_id, bonus_type, bonus_value, status, applied_at) VALUES ($1, $2, 'payment', $3, 'completed', CURRENT_TIMESTAMP)")
                     .bind(r_id)
@@ -151,14 +169,20 @@ impl ReferralService {
                     .execute(&mut **pool)
                     .await?;
 
-                tracing::info!("Applied referral bonus of {} to user {} (from user {})", bonus, r_id, user_id);
+                tracing::info!(
+                    "Applied referral bonus of {} to user {} (from user {})",
+                    bonus,
+                    r_id,
+                    user_id
+                );
 
                 // Fetch referrer tg_id for notification
-                let referrer_tg_id: Option<i64> = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
-                    .bind(r_id)
-                    .fetch_optional(&mut **pool)
-                    .await?;
-                
+                let referrer_tg_id: Option<i64> =
+                    sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
+                        .bind(r_id)
+                        .fetch_optional(&mut **pool)
+                        .await?;
+
                 if let Some(tg_id) = referrer_tg_id {
                     return Ok(Some((tg_id, bonus)));
                 }
@@ -169,7 +193,7 @@ impl ReferralService {
 
     fn mask_username(username: &str) -> String {
         if username.len() <= 3 {
-             return "***".to_string();
+            return "***".to_string();
         }
         let len = username.len();
         let visible = if len > 6 { 3 } else { 1 };

@@ -1,14 +1,14 @@
+use crate::AppState;
 use axum::{
     extract::State,
-    response::{IntoResponse, Json},
     http::StatusCode,
+    response::{IntoResponse, Json},
 };
-use tracing::{info, warn, error};
-use crate::AppState;
-use caramba_shared::api::{HeartbeatRequest, HeartbeatResponse, AgentAction};
+use caramba_shared::api::{AgentAction, HeartbeatRequest, HeartbeatResponse};
 use caramba_shared::config::ConfigResponse;
-use serde::{Deserialize, Serialize};
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use tracing::{error, info, warn};
 
 #[derive(Deserialize)]
 struct IpApiResponse {
@@ -22,11 +22,17 @@ struct IpApiResponse {
 
 fn country_code_to_flag(code: &str) -> String {
     let code = code.to_uppercase();
-    if code.len() != 2 { return "🌐".to_string(); }
+    if code.len() != 2 {
+        return "🌐".to_string();
+    }
     let offset = 127397u32;
     let first = code.chars().next().unwrap() as u32 + offset;
     let second = code.chars().nth(1).unwrap() as u32 + offset;
-    format!("{}{}", char::from_u32(first).unwrap_or('🌐'), char::from_u32(second).unwrap_or(' '))
+    format!(
+        "{}{}",
+        char::from_u32(first).unwrap_or('🌐'),
+        char::from_u32(second).unwrap_or(' ')
+    )
 }
 
 /// Agent Heartbeat
@@ -45,12 +51,15 @@ pub async fn heartbeat(
 
     // 1. Extract Token
     let token = match headers.get("Authorization") {
-         Some(hv) => hv.to_str().unwrap_or("").replace("Bearer ", ""),
-         None => return (StatusCode::UNAUTHORIZED, "Missing Token").into_response(),
+        Some(hv) => hv.to_str().unwrap_or("").replace("Bearer ", ""),
+        None => return (StatusCode::UNAUTHORIZED, "Missing Token").into_response(),
     };
 
     // 2. Validate Node
-    let (node_id, node_country_code, node_country) = match sqlx::query_as::<_, (i64, Option<String>, Option<String>)>(
+    let (node_id, node_country_code, node_country) = match sqlx::query_as::<
+        _,
+        (i64, Option<String>, Option<String>),
+    >(
         "SELECT id, country_code, country FROM nodes WHERE join_token = $1",
     )
     .bind(&token)
@@ -62,12 +71,10 @@ pub async fn heartbeat(
         Err(e) => {
             let msg = e.to_string();
             if msg.contains("does not exist") {
-                match sqlx::query_scalar::<_, i64>(
-                    "SELECT id FROM nodes WHERE join_token = $1",
-                )
-                .bind(&token)
-                .fetch_optional(&state.pool)
-                .await
+                match sqlx::query_scalar::<_, i64>("SELECT id FROM nodes WHERE join_token = $1")
+                    .bind(&token)
+                    .fetch_optional(&state.pool)
+                    .await
                 {
                     Ok(Some(id)) => (id, None, None),
                     Ok(None) => return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response(),
@@ -111,7 +118,10 @@ pub async fn heartbeat(
     };
 
     if let Err(e) = update_result {
-        warn!("Primary node heartbeat update failed for node {}: {}", node_id, e);
+        warn!(
+            "Primary node heartbeat update failed for node {}: {}",
+            node_id, e
+        );
         // Compatibility fallback for legacy schemas: update only core online fields.
         let _ = sqlx::query(
             "UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN $1 ELSE ip END WHERE id = $2",
@@ -127,12 +137,15 @@ pub async fn heartbeat(
         let pool = state.pool.clone();
         let ip_target = remote_ip.clone();
         tokio::spawn(async move {
-            let url = format!("http://ip-api.com/json/{}?fields=countryCode,country,city,lat,lon", ip_target);
+            let url = format!(
+                "http://ip-api.com/json/{}?fields=countryCode,country,city,lat,lon",
+                ip_target
+            );
             match reqwest::get(&url).await {
                 Ok(resp) => {
-                     if let Ok(json) = resp.json::<IpApiResponse>().await {
-                         let flag = country_code_to_flag(&json.country_code);
-                         let _ = sqlx::query("UPDATE nodes SET country_code = $1, country = $2, city = $3, flag = $4, latitude = $5, longitude = $6 WHERE id = $7")
+                    if let Ok(json) = resp.json::<IpApiResponse>().await {
+                        let flag = country_code_to_flag(&json.country_code);
+                        let _ = sqlx::query("UPDATE nodes SET country_code = $1, country = $2, city = $3, flag = $4, latitude = $5, longitude = $6 WHERE id = $7")
                              .bind(&json.country_code)
                              .bind(&json.country)
                              .bind(&json.city)
@@ -142,15 +155,17 @@ pub async fn heartbeat(
                              .bind(node_id)
                              .execute(&pool)
                              .await;
-                         info!("🗺️ [GeoIP] Detected location {} {}, {} ({}, {}) for node {}", flag, json.city, json.country, json.lat, json.lon, node_id);
-                     }
-                },
-                Err(e) => error!("GeoIP failed: {}", e)
+                        info!(
+                            "🗺️ [GeoIP] Detected location {} {}, {} ({}, {}) for node {}",
+                            flag, json.city, json.country, json.lat, json.lon, node_id
+                        );
+                    }
+                }
+                Err(e) => error!("GeoIP failed: {}", e),
             }
         });
     }
 
-    
     // 4. Process Per-User Traffic Usage
     if let Some(usage_map) = req.user_usage {
         let mut relay_legacy_usage_bytes: u64 = 0;
@@ -196,48 +211,73 @@ pub async fn heartbeat(
     let speed = req.speed_mbps;
     let discoveries = req.discovered_snis;
     let uptime = req.uptime;
-    
+
     tokio::spawn(async move {
-        if let Err(e) = telemetry_svc.process_heartbeat(node_id, active_conns, traffic_up, traffic_down, speed, discoveries, uptime).await {
+        if let Err(e) = telemetry_svc
+            .process_heartbeat(
+                node_id,
+                active_conns,
+                traffic_up,
+                traffic_down,
+                speed,
+                discoveries,
+                uptime,
+            )
+            .await
+        {
             error!("Telemetry processing failed for node {}: {}", node_id, e);
         }
     });
 
     // 5. Agent Update Logic (Phase 67)
-    let auto_update_agents: bool = state.settings.get_or_default("auto_update_agents", "true").await.parse().unwrap_or(true);
-    let latest_version: String = state.settings.get_or_default("agent_latest_version", "0.0.0").await;
-    
+    let auto_update_agents: bool = state
+        .settings
+        .get_or_default("auto_update_agents", "true")
+        .await
+        .parse()
+        .unwrap_or(true);
+    let latest_version: String = state
+        .settings
+        .get_or_default("agent_latest_version", "0.0.0")
+        .await;
+
     let target_version = if auto_update_agents {
         // If auto-update is ON, force latest version
         Some(latest_version)
     } else {
         // If auto-update is OFF, check if specific target version is set for this node
-        let stored_target: Option<String> = sqlx::query_scalar("SELECT target_version FROM nodes WHERE id = $1")
-            .bind(node_id)
-            .fetch_optional(&state.pool)
-            .await
-            .unwrap_or(None);
-        
+        let stored_target: Option<String> =
+            sqlx::query_scalar("SELECT target_version FROM nodes WHERE id = $1")
+                .bind(node_id)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap_or(None);
+
         stored_target
     };
 
     // 6. Action Trigger (Log Collection, etc.)
     let mut action = AgentAction::None;
-    let pending_logs: bool = sqlx::query_scalar("SELECT pending_log_collection FROM nodes WHERE id = $1")
-        .bind(node_id)
-        .fetch_one(&state.pool)
-        .await
-        .unwrap_or(false);
+    let pending_logs: bool =
+        sqlx::query_scalar("SELECT pending_log_collection FROM nodes WHERE id = $1")
+            .bind(node_id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or(false);
 
     if pending_logs {
         action = AgentAction::CollectLogs;
     }
 
-    (StatusCode::OK, Json(HeartbeatResponse {
-        success: true,
-        action,
-        latest_version: target_version,
-    })).into_response()
+    (
+        StatusCode::OK,
+        Json(HeartbeatResponse {
+            success: true,
+            action,
+            latest_version: target_version,
+        }),
+    )
+        .into_response()
 }
 
 // ... (existing code) ...
@@ -262,18 +302,25 @@ pub async fn get_update_info(
         .unwrap_or(false);
 
     if !valid {
-         return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response();
+        return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response();
     }
 
     // 3. Fetch Update Info from Settings
-    let version = state.settings.get_or_default("agent_latest_version", "0.0.0").await;
+    let version = state
+        .settings
+        .get_or_default("agent_latest_version", "0.0.0")
+        .await;
     let mut url = state.settings.get_or_default("agent_update_url", "").await;
     let hash = state.settings.get_or_default("agent_update_hash", "").await;
 
     // Resolve relative URL
     if url.starts_with('/') {
         if let Some(host) = headers.get("host").and_then(|h| h.to_str().ok()) {
-            let protocol = if host.contains("localhost") || host.contains("127.0.0.1") { "http" } else { "https" };
+            let protocol = if host.contains("localhost") || host.contains("127.0.0.1") {
+                "http"
+            } else {
+                "https"
+            };
             url = format!("{}://{}{}", protocol, host, url);
         }
     }
@@ -282,10 +329,9 @@ pub async fn get_update_info(
         "version": version,
         "url": url,
         "hash": hash
-    })).into_response()
+    }))
+    .into_response()
 }
-
-
 
 /// Get Node Configuration
 /// GET /api/v2/node/config
@@ -315,12 +361,10 @@ pub async fn get_config(
         Err(e) => {
             let msg = e.to_string();
             if msg.contains("does not exist") {
-                match sqlx::query_scalar::<_, i64>(
-                    "SELECT id FROM nodes WHERE join_token = $1",
-                )
-                .bind(&token)
-                .fetch_optional(&state.pool)
-                .await
+                match sqlx::query_scalar::<_, i64>("SELECT id FROM nodes WHERE join_token = $1")
+                    .bind(&token)
+                    .fetch_optional(&state.pool)
+                    .await
                 {
                     Ok(Some(id)) => (id, true),
                     Ok(None) => return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response(),
@@ -339,24 +383,33 @@ pub async fn get_config(
     if !is_enabled {
         return (StatusCode::FORBIDDEN, "Node is disabled").into_response();
     }
-    
+
     // 3. Generate Config
-    match state.orchestration_service.generate_node_config_json(node_id).await {
+    match state
+        .orchestration_service
+        .generate_node_config_json(node_id)
+        .await
+    {
         Ok((_, config_value)) => {
             let config_str: String = config_value.to_string();
             let hash = format!("{:x}", md5::compute(config_str.as_bytes()));
-            
-            // Update last_synced_at
-            let _ = sqlx::query("UPDATE nodes SET last_synced_at = CURRENT_TIMESTAMP WHERE id = $1")
-                .bind(node_id)
-                .execute(&state.pool)
-                .await;
 
-            (StatusCode::OK, Json(ConfigResponse {
-                hash,
-                content: config_value,
-            })).into_response()
-        },
+            // Update last_synced_at
+            let _ =
+                sqlx::query("UPDATE nodes SET last_synced_at = CURRENT_TIMESTAMP WHERE id = $1")
+                    .bind(node_id)
+                    .execute(&state.pool)
+                    .await;
+
+            (
+                StatusCode::OK,
+                Json(ConfigResponse {
+                    hash,
+                    content: config_value,
+                }),
+            )
+                .into_response()
+        }
         Err(e) => {
             error!("Config generation failed for node {}: {}", node_id, e);
             (StatusCode::INTERNAL_SERVER_ERROR, format!("Error: {}", e)).into_response()
@@ -378,25 +431,33 @@ pub async fn rotate_sni(
     };
 
     // 2. Validate Node
-    let node_res: Result<Option<(i64, Option<String>)>, sqlx::Error> = sqlx::query_as("SELECT id, reality_sni FROM nodes WHERE join_token = $1")
-        .bind(&token)
-        .fetch_optional(&state.pool)
-        .await;
+    let node_res: Result<Option<(i64, Option<String>)>, sqlx::Error> =
+        sqlx::query_as("SELECT id, reality_sni FROM nodes WHERE join_token = $1")
+            .bind(&token)
+            .fetch_optional(&state.pool)
+            .await;
 
     let (node_id, current_sni) = match node_res {
         Ok(Some((id, sni))) => (id, sni.unwrap_or_else(|| "www.google.com".to_string())),
         Ok(None) => return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response(),
         Err(e) => {
-             error!("DB Error in rotate_sni: {}", e);
-             return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response();
+            error!("DB Error in rotate_sni: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response();
         }
     };
 
-    let reason = payload.get("reason").and_then(|v| v.as_str()).unwrap_or("manual");
-    
+    let reason = payload
+        .get("reason")
+        .and_then(|v| v.as_str())
+        .unwrap_or("manual");
+
     // 3. Get Next SNI
     // Assume Tier 1 for now, or fetch from node settings
-    let next_sni: String = match state.security_service.get_next_sni(&current_sni, 1, false).await {
+    let next_sni: String = match state
+        .security_service
+        .get_next_sni(&current_sni, 1, false)
+        .await
+    {
         Ok(s) => s,
         Err(e) => {
             error!("Failed to get next SNI: {}", e);
@@ -413,14 +474,18 @@ pub async fn rotate_sni(
         .bind(&next_sni)
         .bind(node_id)
         .execute(&state.pool)
-        .await 
+        .await
     {
         error!("Failed to update node SNI: {}", e);
         return (StatusCode::INTERNAL_SERVER_ERROR, "DB Update Failed").into_response();
     }
 
     // 5. Log Rotation
-    let rotation_id = match state.security_service.log_sni_rotation(node_id, &current_sni, &next_sni, reason).await {
+    let rotation_id = match state
+        .security_service
+        .log_sni_rotation(node_id, &current_sni, &next_sni, reason)
+        .await
+    {
         Ok(log) => log.id,
         Err(e) => {
             warn!("Failed to log SNI rotation: {}", e);
@@ -429,28 +494,47 @@ pub async fn rotate_sni(
     };
 
     // 6. Notify Affected Users (async, non-blocking)
-    if let Some(bot) = state.bot_manager.get_bot().await.ok().map(|b| b as teloxide::Bot) {
+    if let Some(bot) = state
+        .bot_manager
+        .get_bot()
+        .await
+        .ok()
+        .map(|b| b as teloxide::Bot)
+    {
         let notification_service = state.notification_service.clone();
         let old_sni = current_sni.clone();
         let new_sni_clone = next_sni.clone();
-        
+
         tokio::spawn(async move {
-            match notification_service.notify_sni_rotation(&bot, node_id, &old_sni, &new_sni_clone, rotation_id).await {
-                Ok(count) => info!("📱 Notified {} users about SNI rotation on node {}", count, node_id),
+            match notification_service
+                .notify_sni_rotation(&bot, node_id, &old_sni, &new_sni_clone, rotation_id)
+                .await
+            {
+                Ok(count) => info!(
+                    "📱 Notified {} users about SNI rotation on node {}",
+                    count, node_id
+                ),
                 Err(e) => error!("Failed to send SNI rotation notifications: {}", e),
             }
         });
     } else {
         warn!("Bot not available, skipping user notifications for SNI rotation");
     }
-    
-    info!("✅ SNI Rotated for Node {}: {} → {} (rotation #{})", node_id, current_sni, next_sni, rotation_id);
 
-    (StatusCode::OK, Json(serde_json::json!({
-        "status": "rotated",
-        "new_sni": next_sni,
-        "rotation_id": rotation_id
-    }))).into_response()
+    info!(
+        "✅ SNI Rotated for Node {}: {} → {} (rotation #{})",
+        node_id, current_sni, next_sni, rotation_id
+    );
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "status": "rotated",
+            "new_sni": next_sni,
+            "rotation_id": rotation_id
+        })),
+    )
+        .into_response()
 }
 
 /// Long Polling for Config Updates
@@ -471,17 +555,18 @@ pub async fn poll_updates(
     // Let's assume hitting DB is fine for now (once per 30s per node is low load).
     // Or we can rely on Redis.
     // For now, simple DB query.
-    let node_res: Result<Option<i64>, sqlx::Error> = sqlx::query_scalar("SELECT id FROM nodes WHERE join_token = $1")
-        .bind(&token)
-        .fetch_optional(&state.pool)
-        .await;
+    let node_res: Result<Option<i64>, sqlx::Error> =
+        sqlx::query_scalar("SELECT id FROM nodes WHERE join_token = $1")
+            .bind(&token)
+            .fetch_optional(&state.pool)
+            .await;
 
     let node_id = match node_res {
         Ok(Some(id)) => id,
         Ok(None) => return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response(),
         Err(e) => {
-             error!("DB Error in poll_updates: {}", e);
-             return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response();
+            error!("DB Error in poll_updates: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response();
         }
     };
 
@@ -494,20 +579,32 @@ pub async fn poll_updates(
             // Message received from pubsub.
             let signal = payload.trim().to_ascii_lowercase();
             if signal == "scan" {
-                (StatusCode::OK, Json(serde_json::json!({"update": false, "message": "scan"}))).into_response()
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({"update": false, "message": "scan"})),
+                )
+                    .into_response()
             } else if signal == "restart" {
-                (StatusCode::OK, Json(serde_json::json!({"update": false, "message": "restart"}))).into_response()
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({"update": false, "message": "restart"})),
+                )
+                    .into_response()
             } else {
-                (StatusCode::OK, Json(serde_json::json!({"update": true, "message": signal}))).into_response()
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({"update": true, "message": signal})),
+                )
+                    .into_response()
             }
-        },
+        }
         Ok(Err(_)) => {
             // Sender dropped
-             (StatusCode::OK, Json(serde_json::json!({"update": false}))).into_response()
-        },
+            (StatusCode::OK, Json(serde_json::json!({"update": false}))).into_response()
+        }
         Err(_) => {
             // Timeout
-             (StatusCode::OK, Json(serde_json::json!({"update": false}))).into_response()
+            (StatusCode::OK, Json(serde_json::json!({"update": false}))).into_response()
         }
     }
 }
@@ -532,20 +629,51 @@ pub async fn get_settings(
         .unwrap_or(false);
 
     if !valid {
-         return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response();
+        return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response();
     }
 
     // 3. Fetch Decoy Settings
-    let decoy_enabled: bool = state.settings.get_or_default("decoy_enabled", "false").await.parse().unwrap_or(false);
-    let decoy_urls_str = state.settings.get_or_default("decoy_urls", "[\"https://www.google.com\", \"https://www.azure.com\", \"https://www.netflix.com\"]").await;
-    let min_interval: u64 = state.settings.get_or_default("decoy_min_interval", "60").await.parse().unwrap_or(60);
-    let max_interval: u64 = state.settings.get_or_default("decoy_max_interval", "600").await.parse().unwrap_or(600);
+    let decoy_enabled: bool = state
+        .settings
+        .get_or_default("decoy_enabled", "false")
+        .await
+        .parse()
+        .unwrap_or(false);
+    let decoy_urls_str = state
+        .settings
+        .get_or_default(
+            "decoy_urls",
+            "[\"https://www.google.com\", \"https://www.azure.com\", \"https://www.netflix.com\"]",
+        )
+        .await;
+    let min_interval: u64 = state
+        .settings
+        .get_or_default("decoy_min_interval", "60")
+        .await
+        .parse()
+        .unwrap_or(60);
+    let max_interval: u64 = state
+        .settings
+        .get_or_default("decoy_max_interval", "600")
+        .await
+        .parse()
+        .unwrap_or(600);
 
     let decoy_urls: Vec<String> = serde_json::from_str(&decoy_urls_str).unwrap_or_default();
 
     // 4. Fetch Kill Switch Settings
-    let kill_switch_enabled: bool = state.settings.get_or_default("kill_switch_enabled", "false").await.parse().unwrap_or(false);
-    let kill_switch_timeout: u64 = state.settings.get_or_default("kill_switch_timeout", "300").await.parse().unwrap_or(300);
+    let kill_switch_enabled: bool = state
+        .settings
+        .get_or_default("kill_switch_enabled", "false")
+        .await
+        .parse()
+        .unwrap_or(false);
+    let kill_switch_timeout: u64 = state
+        .settings
+        .get_or_default("kill_switch_timeout", "300")
+        .await
+        .parse()
+        .unwrap_or(300);
 
     Json(serde_json::json!({
         "decoy": {
@@ -558,7 +686,8 @@ pub async fn get_settings(
             "enabled": kill_switch_enabled,
             "timeout": kill_switch_timeout
         }
-    })).into_response()
+    }))
+    .into_response()
 }
 
 #[derive(Deserialize)]
@@ -581,17 +710,18 @@ pub async fn register(
     Json(payload): Json<RegisterNodeRequest>,
 ) -> impl IntoResponse {
     // 1. Validate API Key
-    let api_key_res: Result<Option<caramba_db::models::api_key::ApiKey>, _> = sqlx::query_as("SELECT * FROM api_keys WHERE key = $1 AND is_active = TRUE")
-    .bind(&payload.enrollment_key)
-    .fetch_optional(&state.pool)
-    .await;
+    let api_key_res: Result<Option<caramba_db::models::api_key::ApiKey>, _> =
+        sqlx::query_as("SELECT * FROM api_keys WHERE key = $1 AND is_active = TRUE")
+            .bind(&payload.enrollment_key)
+            .fetch_optional(&state.pool)
+            .await;
 
     let api_key = match api_key_res {
         Ok(Some(k)) => k,
         Ok(None) => return (StatusCode::UNAUTHORIZED, "Invalid API Key").into_response(),
         Err(e) => {
-             error!("DB Error checking API key: {}", e);
-             return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response();
+            error!("DB Error checking API key: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response();
         }
     };
 
@@ -601,7 +731,7 @@ pub async fn register(
 
     if let Some(max) = api_key.max_uses {
         if api_key.current_uses >= max {
-             return (StatusCode::FORBIDDEN, "Key Usage Limit Reached").into_response();
+            return (StatusCode::FORBIDDEN, "Key Usage Limit Reached").into_response();
         }
     }
 
@@ -615,7 +745,9 @@ pub async fn register(
     let join_token = uuid::Uuid::new_v4().to_string();
     // Default to pending IP to ensure it's updated later. OR use 0.0.0.0.
     // Use "pending-" prefix so our heartbeat logic picks it up!
-    let ip = payload.ip.unwrap_or_else(|| format!("pending-{}", &join_token[0..8])); 
+    let ip = payload
+        .ip
+        .unwrap_or_else(|| format!("pending-{}", &join_token[0..8]));
 
     let node_id_res = sqlx::query("INSERT INTO nodes (name, ip, join_token, status, is_enabled) VALUES ($1, $2, $3, 'new', TRUE) RETURNING id")
         .bind(&payload.hostname)
@@ -624,17 +756,24 @@ pub async fn register(
         .fetch_one(&state.pool)
         .await;
 
-     match node_id_res {
+    match node_id_res {
         Ok(row) => {
-             use sqlx::Row;
-             let node_id: i64 = row.get("id");
-             info!("✅ Node registered via API Key {}: {} (ID: {})", api_key.name, payload.hostname, node_id);
-             
-             (StatusCode::OK, Json(RegisterNodeResponse {
-                 node_id,
-                 join_token,
-             })).into_response()
-        },
+            use sqlx::Row;
+            let node_id: i64 = row.get("id");
+            info!(
+                "✅ Node registered via API Key {}: {} (ID: {})",
+                api_key.name, payload.hostname, node_id
+            );
+
+            (
+                StatusCode::OK,
+                Json(RegisterNodeResponse {
+                    node_id,
+                    join_token,
+                }),
+            )
+                .into_response()
+        }
         Err(e) => {
             error!("Failed to create node: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create node").into_response()
@@ -659,7 +798,7 @@ pub async fn report_node_logs(
     let node_id: i64 = match sqlx::query_scalar("SELECT id FROM nodes WHERE join_token = $1")
         .bind(&token)
         .fetch_one(&state.pool)
-        .await 
+        .await
     {
         Ok(id) => id,
         Err(_) => return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response(),
@@ -667,7 +806,10 @@ pub async fn report_node_logs(
 
     // 3. Store Logs (In Redis for quick retrieval, and reset pending flag)
     let logs_json = serde_json::to_string(&req.logs).unwrap_or_default();
-    let _ = state.redis.set(&format!("node_logs:{}", node_id), &logs_json, 300).await; // Store for 5 mins
+    let _ = state
+        .redis
+        .set(&format!("node_logs:{}", node_id), &logs_json, 300)
+        .await; // Store for 5 mins
 
     let _ = sqlx::query("UPDATE nodes SET pending_log_collection = FALSE WHERE id = $1")
         .bind(node_id)
@@ -675,7 +817,10 @@ pub async fn report_node_logs(
         .await;
 
     // 4. Notify UI via PubSub
-    let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "logs_ready").await;
+    let _ = state
+        .pubsub
+        .publish(&format!("node_events:{}", node_id), "logs_ready")
+        .await;
 
     info!("✅ Logs received and stored for node {}", node_id);
     StatusCode::OK.into_response()

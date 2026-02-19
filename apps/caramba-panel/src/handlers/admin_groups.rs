@@ -1,16 +1,16 @@
-use axum::{
-    extract::{State, Path, Form},
-    response::{IntoResponse, Html},
-};
-use axum_extra::extract::cookie::CookieJar;
+use crate::AppState;
 use crate::handlers::admin::{get_auth_user, is_authenticated};
 use askama::Template;
 use askama_web::WebTemplate;
-use serde::Deserialize;
-use crate::AppState;
-use caramba_db::models::groups::{NodeGroup, InboundTemplate};
+use axum::{
+    extract::{Form, Path, State},
+    response::{Html, IntoResponse},
+};
+use axum_extra::extract::cookie::CookieJar;
+use caramba_db::models::groups::{InboundTemplate, NodeGroup};
 use caramba_db::models::node::Node;
 use caramba_db::repositories::node_repo::NodeRepository;
+use serde::Deserialize;
 use tracing::error;
 
 #[derive(Template, WebTemplate)]
@@ -28,28 +28,30 @@ pub struct GroupWithCount {
     pub node_count: i64,
 }
 
-pub async fn get_groups_page(
-    State(state): State<AppState>,
-    jar: CookieJar,
-) -> impl IntoResponse {
+pub async fn get_groups_page(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {
     use axum::http::StatusCode;
     if !is_authenticated(&state, &jar).await {
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    let groups: Vec<NodeGroup> = sqlx::query_as::<_, NodeGroup>("SELECT * FROM node_groups ORDER BY name ASC")
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
+    let groups: Vec<NodeGroup> =
+        sqlx::query_as::<_, NodeGroup>("SELECT * FROM node_groups ORDER BY name ASC")
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default();
 
     let mut groups_with_count = Vec::new();
     for g in groups {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM node_group_members WHERE group_id = $1")
-            .bind(g.id)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap_or(0);
-        groups_with_count.push(GroupWithCount { group: g, node_count: count });
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM node_group_members WHERE group_id = $1")
+                .bind(g.id)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap_or(0);
+        groups_with_count.push(GroupWithCount {
+            group: g,
+            node_count: count,
+        });
     }
 
     let template = AdminGroupsTemplate {
@@ -57,7 +59,9 @@ pub async fn get_groups_page(
         is_auth: true,
         admin_path: state.admin_path.clone(),
         active_page: "groups".to_string(),
-        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
+        username: get_auth_user(&state, &jar)
+            .await
+            .unwrap_or("Admin".to_string()),
     };
     Html(template.render().unwrap_or_default()).into_response()
 }
@@ -90,8 +94,12 @@ pub async fn create_group(
         Ok(_) => {
             let admin_path = state.admin_path.clone();
             axum::response::Redirect::to(&format!("{}/groups", admin_path)).into_response()
-        },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create group: {}", e)).into_response(),
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create group: {}", e),
+        )
+            .into_response(),
     }
 }
 
@@ -104,10 +112,10 @@ pub async fn delete_group(
     if !is_authenticated(&state, &jar).await {
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
-    
+
     // Safety: Don't delete Default group (id=1)
     if id == 1 {
-         return (StatusCode::BAD_REQUEST, "Cannot delete default group").into_response();
+        return (StatusCode::BAD_REQUEST, "Cannot delete default group").into_response();
     }
 
     let _ = sqlx::query("DELETE FROM node_groups WHERE id = $1")
@@ -146,11 +154,12 @@ pub async fn get_group_edit(
     let group = match sqlx::query_as::<_, NodeGroup>("SELECT * FROM node_groups WHERE id = $1")
         .bind(id)
         .fetch_optional(&state.pool)
-        .await {
-            Ok(Some(g)) => g,
-            Ok(None) => return (StatusCode::NOT_FOUND, "Group not found").into_response(),
-            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response(),
-        };
+        .await
+    {
+        Ok(Some(g)) => g,
+        Ok(None) => return (StatusCode::NOT_FOUND, "Group not found").into_response(),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response(),
+    };
 
     let node_repo = NodeRepository::new(state.pool.clone());
 
@@ -212,7 +221,9 @@ pub async fn get_group_edit(
         is_auth: true,
         admin_path: state.admin_path.clone(),
         active_page: "groups".to_string(),
-        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
+        username: get_auth_user(&state, &jar)
+            .await
+            .unwrap_or("Admin".to_string()),
     };
     Html(template.render().unwrap_or_default()).into_response()
 }
@@ -227,7 +238,7 @@ pub async fn add_group_member(
     if !is_authenticated(&state, &jar).await {
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
-    
+
     let _ = sqlx::query("INSERT INTO node_group_members (group_id, node_id) VALUES ($1, $2) ON CONFLICT (group_id, node_id) DO NOTHING")
         .bind(group_id)
         .bind(form.node_id)
@@ -238,7 +249,7 @@ pub async fn add_group_member(
     if let Err(e) = state.generator_service.sync_group_inbounds(group_id).await {
         error!("Failed to sync group inbounds: {}", e);
     }
-        
+
     let admin_path = state.admin_path.clone();
     axum::response::Redirect::to(&format!("{}/groups/{}", admin_path, group_id)).into_response()
 }
@@ -252,7 +263,7 @@ pub async fn remove_group_member(
     if !is_authenticated(&state, &jar).await {
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
-    
+
     let _ = sqlx::query("DELETE FROM node_group_members WHERE group_id = $1 AND node_id = $2")
         .bind(group_id)
         .bind(node_id)
@@ -277,14 +288,23 @@ pub async fn rotate_group_inbounds(
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    match state.generator_service.rotate_group_inbounds(group_id).await {
+    match state
+        .generator_service
+        .rotate_group_inbounds(group_id)
+        .await
+    {
         Ok(_) => {
             let admin_path = state.admin_path.clone();
-            axum::response::Redirect::to(&format!("{}/groups/{}", admin_path, group_id)).into_response()
-        },
+            axum::response::Redirect::to(&format!("{}/groups/{}", admin_path, group_id))
+                .into_response()
+        }
         Err(e) => {
             error!("Failed to rotate inbounds: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to rotate inbounds: {}", e)).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to rotate inbounds: {}", e),
+            )
+                .into_response()
         }
     }
 }

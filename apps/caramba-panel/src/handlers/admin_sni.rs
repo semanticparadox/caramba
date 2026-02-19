@@ -1,16 +1,16 @@
-use axum::{
-    extract::{State, Path, Form},
-    response::{IntoResponse, Html},
-};
-use axum_extra::extract::cookie::CookieJar;
-use crate::handlers::admin::{is_authenticated, get_auth_user};
+use crate::AppState;
+use crate::handlers::admin::{get_auth_user, is_authenticated};
 use askama::Template;
 use askama_web::WebTemplate;
-use serde::Deserialize;
-use crate::AppState;
-use caramba_db::models::sni::{SniPoolItem, SniBlacklistItem};
+use axum::{
+    extract::{Form, Path, State},
+    response::{Html, IntoResponse},
+};
+use axum_extra::extract::cookie::CookieJar;
+use caramba_db::models::sni::{SniBlacklistItem, SniPoolItem};
 use caramba_db::models::sni_log::SniRotationLog;
-use tracing::{info, error};
+use serde::Deserialize;
+use tracing::{error, info};
 
 #[derive(Template, WebTemplate)]
 #[template(path = "admin_sni.html")]
@@ -40,18 +40,32 @@ pub async fn get_sni_page(
     let node_id = query.get("node_id").and_then(|id| id.parse::<i64>().ok());
 
     let snis = if let Some(id) = node_id {
-        state.sni_repo.get_snis_by_node(id).await.unwrap_or_default()
+        state
+            .sni_repo
+            .get_snis_by_node(id)
+            .await
+            .unwrap_or_default()
     } else {
         state.sni_repo.get_all_snis().await.unwrap_or_default()
     };
 
     let logs = state.sni_repo.get_recent_logs(10).await.unwrap_or_default();
-    let nodes = state.infrastructure_service.get_all_nodes().await.unwrap_or_default();
+    let nodes = state
+        .infrastructure_service
+        .get_all_nodes()
+        .await
+        .unwrap_or_default();
     let active_sni_count = snis.iter().filter(|s| s.is_active).count();
-    
-    let username = get_auth_user(&state, &jar).await.unwrap_or_else(|| "admin".to_string());
 
-    let blacklist = state.sni_repo.get_blacklisted_snis().await.unwrap_or_default();
+    let username = get_auth_user(&state, &jar)
+        .await
+        .unwrap_or_else(|| "admin".to_string());
+
+    let blacklist = state
+        .sni_repo
+        .get_blacklisted_snis()
+        .await
+        .unwrap_or_default();
 
     let template = AdminSniTemplate {
         snis,
@@ -86,7 +100,11 @@ pub async fn add_sni(
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    match state.sni_repo.add_sni(&form.domain, form.tier, form.notes.as_deref()).await {
+    match state
+        .sni_repo
+        .add_sni(&form.domain, form.tier, form.notes.as_deref())
+        .await
+    {
         Ok(_) => {
             info!("Added SNI {} to pool", form.domain);
             axum::response::Redirect::to(&format!("{}/sni", state.admin_path)).into_response()
@@ -137,14 +155,20 @@ pub async fn bulk_add_sni(
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    let domains: Vec<&str> = form.domains.lines()
+    let domains: Vec<&str> = form
+        .domains
+        .lines()
         .map(|l| l.trim())
         .filter(|l| !l.is_empty())
         .collect();
 
     let mut count = 0;
     for domain in domains {
-        if let Ok(_) = state.sni_repo.add_sni(domain, form.tier, form.notes.as_deref()).await {
+        if let Ok(_) = state
+            .sni_repo
+            .add_sni(domain, form.tier, form.notes.as_deref())
+            .await
+        {
             count += 1;
         }
     }

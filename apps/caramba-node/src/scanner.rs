@@ -1,13 +1,13 @@
+use caramba_shared::DiscoveredSni;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
-use tokio_rustls::rustls::{ClientConfig, RootCertStore};
-use tokio_rustls::rustls::pki_types::{ServerName, CertificateDer, UnixTime};
-use tokio_rustls::rustls::client::danger::{ServerCertVerifier, HandshakeSignatureValid};
-use tokio_rustls::rustls::DigitallySignedStruct;
 use tokio_rustls::TlsConnector;
-use std::sync::Arc;
-use caramba_shared::DiscoveredSni;
+use tokio_rustls::rustls::DigitallySignedStruct;
+use tokio_rustls::rustls::client::danger::{HandshakeSignatureValid, ServerCertVerifier};
+use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 use tracing::info;
 use x509_parser::prelude::*;
 
@@ -22,7 +22,8 @@ impl ServerCertVerifier for NoCertificateVerification {
         _server_name: &ServerName<'_>,
         _ocsp_response: &[u8],
         _now: UnixTime,
-    ) -> Result<tokio_rustls::rustls::client::danger::ServerCertVerified, tokio_rustls::rustls::Error> {
+    ) -> Result<tokio_rustls::rustls::client::danger::ServerCertVerified, tokio_rustls::rustls::Error>
+    {
         Ok(tokio_rustls::rustls::client::danger::ServerCertVerified::assertion())
     }
 
@@ -70,21 +71,34 @@ impl NeighborScanner {
             _ => return discovered, // IPv6 not implemented for sniper yet
         };
 
-        info!("🎯 Neighbor Sniper: Starting scan on {}.{}.{}.0/24", base_ip[0], base_ip[1], base_ip[2]);
+        info!(
+            "🎯 Neighbor Sniper: Starting scan on {}.{}.{}.0/24",
+            base_ip[0], base_ip[1], base_ip[2]
+        );
 
         // Scan the /24 range
         for i in 1..=254 {
-            if i == base_ip[3] { continue; } // Skip self
-            
-            let target_ip = IpAddr::V4(std::net::Ipv4Addr::new(base_ip[0], base_ip[1], base_ip[2], i));
-            
+            if i == base_ip[3] {
+                continue;
+            } // Skip self
+
+            let target_ip = IpAddr::V4(std::net::Ipv4Addr::new(
+                base_ip[0], base_ip[1], base_ip[2], i,
+            ));
+
             // Optimization: Skip if we already found this IP recently?
             // For now, simple scan.
-            
+
             if let Ok(sni) = self.probe_ip(target_ip).await {
                 // Filter out obviously bad domains
-                if !sni.domain.contains("localhost") && !sni.domain.contains("invalid") && !sni.domain.contains("example") {
-                    info!("✨ Neighbor Sniper: Discovered potential SNI: {} at {}", sni.domain, sni.ip);
+                if !sni.domain.contains("localhost")
+                    && !sni.domain.contains("invalid")
+                    && !sni.domain.contains("example")
+                {
+                    info!(
+                        "✨ Neighbor Sniper: Discovered potential SNI: {} at {}",
+                        sni.domain, sni.ip
+                    );
                     discovered.push(sni);
                 }
             }
@@ -103,33 +117,36 @@ impl NeighborScanner {
 
         // 2. TLS Handshake (Insecure/Blind)
         // We use a custom verifier to accept ANY certificate, so we can see who they claim to be.
-        
+
         let root_store = RootCertStore::empty();
-        
+
         let mut config = ClientConfig::builder()
             .with_root_certificates(root_store)
             .with_no_client_auth();
-            
+
         // Use dangerous configuration to disable verification
-        config.dangerous().set_certificate_verifier(Arc::new(NoCertificateVerification));
+        config
+            .dangerous()
+            .set_certificate_verifier(Arc::new(NoCertificateVerification));
         config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
         let connector = TlsConnector::from(Arc::new(config));
-        // We use a generic name for SNI just to trigger the handshake. 
+        // We use a generic name for SNI just to trigger the handshake.
         // Many servers will return their default cert if SNI doesn't match, or the cert matching the IP.
         let domain_name = ServerName::try_from("www.google.com")?.to_owned();
-        
+
         // Connect
-        let tls_stream = tokio::time::timeout(timeout, connector.connect(domain_name, stream)).await??;
-        
+        let tls_stream =
+            tokio::time::timeout(timeout, connector.connect(domain_name, stream)).await??;
+
         let latency = start.elapsed().as_millis() as u32;
 
         // 3. Extract Certificate
         let (_, session) = tls_stream.get_ref();
-        
+
         // Check ALPN
         let h2 = session.alpn_protocol() == Some(b"h2");
-        
+
         if let Some(certs) = session.peer_certificates() {
             if let Some(cert) = certs.first() {
                 // Parse the certificate
@@ -144,25 +161,26 @@ impl NeighborScanner {
                 }
             }
         }
-        
+
         Err(anyhow::anyhow!("No valid certificate or domain found"))
     }
-    
+
     fn extract_best_domain(&self, cert_der: &[u8]) -> anyhow::Result<String> {
-        let (_, cert) = X509Certificate::from_der(cert_der).map_err(|e| anyhow::anyhow!("Cert parse error: {:?}", e))?;
-        
+        let (_, cert) = X509Certificate::from_der(cert_der)
+            .map_err(|e| anyhow::anyhow!("Cert parse error: {:?}", e))?;
+
         // 1. Try Subject Alternative Names (SANs) - DNS
         if let Ok(Some(sans)) = cert.subject_alternative_name() {
             for entry in sans.value.general_names.iter() {
                 if let GeneralName::DNSName(dns) = entry {
                     let dns_str = dns.to_string();
                     if self.is_valid_public_domain(&dns_str) {
-                         return Ok(dns_str);
+                        return Ok(dns_str);
                     }
                 }
             }
         }
-        
+
         // 2. Fallback to Subject Common Name (CN)
         if let Some(subject) = cert.subject().iter_common_name().next() {
             if let Ok(cn_str) = subject.as_str() {
@@ -172,21 +190,29 @@ impl NeighborScanner {
                 }
             }
         }
-        
+
         Err(anyhow::anyhow!("No valid public domain found in cert"))
     }
-    
+
     fn is_valid_public_domain(&self, domain: &str) -> bool {
-        if domain.len() < 4 { return false; }
-        if domain.contains('*') { return false; } // Wildcards are good for matching, but we want a concrete host for Reality? actually wildcards are fine for SNI usually but Reality prefers concrete. Let's skip wildcards for now to be safe.
+        if domain.len() < 4 {
+            return false;
+        }
+        if domain.contains('*') {
+            return false;
+        } // Wildcards are good for matching, but we want a concrete host for Reality? actually wildcards are fine for SNI usually but Reality prefers concrete. Let's skip wildcards for now to be safe.
         // Or specific logic: we want a realistic "stealable" domain.
-        
+
         // Exclude IPs
-        if domain.parse::<IpAddr>().is_ok() { return false; }
-        
+        if domain.parse::<IpAddr>().is_ok() {
+            return false;
+        }
+
         // Exclude internal/local
-        if domain.ends_with(".local") || domain.ends_with(".lan") { return false; }
-        
+        if domain.ends_with(".local") || domain.ends_with(".lan") {
+            return false;
+        }
+
         true
     }
 }

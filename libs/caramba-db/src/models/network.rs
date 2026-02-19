@@ -1,6 +1,6 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Inbound {
@@ -10,10 +10,10 @@ pub struct Inbound {
     pub protocol: String, // 'vless', 'hysteria2', 'trojan', etc.
     pub listen_port: i64, // SQLite integer is i64
     pub listen_ip: String,
-    
+
     // Stored as raw JSON strings in DB, parsed to structs in app logic if needed
     // or kept as serde_json::Value for flexibility
-    pub settings: String, 
+    pub settings: String,
     pub stream_settings: String,
 
     pub remark: Option<String>,
@@ -24,7 +24,6 @@ pub struct Inbound {
     pub last_rotated_at: Option<DateTime<Utc>>,
     pub created_at: Option<DateTime<Utc>>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 #[allow(dead_code)]
@@ -108,7 +107,7 @@ pub struct VlessSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VlessClient {
-    pub id: String, // UUID
+    pub id: String,   // UUID
     pub flow: String, // "xtls-rprx-vision"
     pub email: String,
 }
@@ -127,7 +126,9 @@ pub struct Hysteria2Settings {
     pub masquerade: Option<String>,
 }
 
-fn default_bw() -> i32 { 100 }
+fn default_bw() -> i32 {
+    100
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Hysteria2Obfs {
@@ -155,9 +156,15 @@ pub struct TuicSettings {
     pub heartbeat: String,
 }
 
-fn default_congestion() -> String { "cubic".to_string() }
-fn default_auth_timeout() -> String { "3s".to_string() }
-fn default_heartbeat() -> String { "10s".to_string() }
+fn default_congestion() -> String {
+    "cubic".to_string()
+}
+fn default_auth_timeout() -> String {
+    "3s".to_string()
+}
+fn default_heartbeat() -> String {
+    "10s".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TuicUser {
@@ -188,7 +195,7 @@ pub struct Fallback {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct StreamSettings {
-    pub network: Option<String>, // "tcp", "udp", "quic", "grpc"
+    pub network: Option<String>,  // "tcp", "udp", "quic", "grpc"
     pub security: Option<String>, // "none", "tls", "reality"
     #[serde(alias = "tlsSettings", default)]
     pub tls_settings: Option<TlsSettings>,

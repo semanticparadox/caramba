@@ -1,6 +1,6 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct FrontendServer {
@@ -11,10 +11,10 @@ pub struct FrontendServer {
     pub miniapp_domain: Option<String>,
     pub sub_path: Option<String>,
     /// Hashed authentication token (bcrypt) - never expose to client
-    #[serde(skip_serializing)]  // Never send hash to client
+    #[serde(skip_serializing)] // Never send hash to client
     pub auth_token_hash: Option<String>,
     /// Legacy plaintext token - will be removed after migration
-    #[serde(skip_serializing)]  // Never send to client
+    #[serde(skip_serializing)] // Never send to client
     #[allow(dead_code)]
     pub auth_token: Option<String>,
     pub is_active: bool,

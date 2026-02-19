@@ -1,10 +1,10 @@
+use crate::AppState;
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::Response,
 };
-use crate::AppState;
 use std::path::PathBuf;
 
 const MINI_APP_DIST_DIR: &str = "apps/caramba-app/dist";
@@ -35,21 +35,28 @@ async fn read_asset(path: &str) -> Option<Response> {
 
     let bytes = tokio::fs::read(&full_path).await.ok()?;
     let mime = mime_guess::from_path(path).first_or_octet_stream();
-    Some(build_asset_response(bytes, mime.as_ref(), "public, max-age=3600"))
+    Some(build_asset_response(
+        bytes,
+        mime.as_ref(),
+        "public, max-age=3600",
+    ))
 }
 
 pub async fn serve_app(State(state): State<AppState>) -> Response {
     // Check if local app serving is enabled in settings
-    let enabled = state.settings.get_or_default("miniapp_enabled", "true")
-        .await == "true";
-    
-    if !enabled { 
+    let enabled = state
+        .settings
+        .get_or_default("miniapp_enabled", "true")
+        .await
+        == "true";
+
+    if !enabled {
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(Body::from("MiniApp disabled"))
             .expect("response builder should work");
     }
-    
+
     serve_app_assets(Path("index.html".to_string())).await
 }
 

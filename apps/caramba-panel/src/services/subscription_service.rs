@@ -1,14 +1,16 @@
-use sqlx::PgPool;
-use anyhow::{Context, Result};
-use caramba_db::models::store::{Plan, Subscription, SubscriptionWithDetails, GiftCode, PlanDuration, RenewalResult, SubscriptionIpTracking, AlertType};
-use caramba_db::models::node::Node;
-use caramba_db::models::network::InboundType;
-use caramba_db::repositories::node_repo::NodeRepository;
-use crate::singbox::subscription_generator::{NodeInfo, UserKeys};
 use crate::services::activity_service::ActivityService;
+use crate::singbox::subscription_generator::{NodeInfo, UserKeys};
+use anyhow::{Context, Result};
+use caramba_db::models::network::InboundType;
+use caramba_db::models::node::Node;
+use caramba_db::models::store::{
+    AlertType, GiftCode, Plan, PlanDuration, RenewalResult, Subscription, SubscriptionIpTracking,
+    SubscriptionWithDetails,
+};
+use caramba_db::repositories::node_repo::NodeRepository;
+use chrono::{Duration, Utc};
+use sqlx::PgPool;
 use uuid::Uuid;
-use chrono::{Utc, Duration};
-
 
 #[derive(Debug, Clone)]
 pub struct SubscriptionService {
@@ -53,15 +55,17 @@ impl SubscriptionService {
         }
 
         let plan_ids: Vec<i64> = plans.iter().map(|p| p.id).collect();
-        let query = "SELECT * FROM plan_durations WHERE plan_id = ANY($1) ORDER BY duration_days ASC";
-        
+        let query =
+            "SELECT * FROM plan_durations WHERE plan_id = ANY($1) ORDER BY duration_days ASC";
+
         let all_durations = sqlx::query_as::<_, PlanDuration>(&query)
             .bind(&plan_ids)
             .fetch_all(&self.pool)
             .await?;
 
         for plan in &mut plans {
-            plan.durations = all_durations.iter()
+            plan.durations = all_durations
+                .iter()
                 .filter(|d| d.plan_id == plan.id)
                 .cloned()
                 .collect();
@@ -73,15 +77,19 @@ impl SubscriptionService {
     pub async fn convert_to_gift(&self, sub_id: i64, user_id: i64) -> Result<String> {
         let mut tx = self.pool.begin().await?;
 
-        let sub = sqlx::query_as::<_, Subscription>("SELECT * FROM subscriptions WHERE id = $1 AND user_id = $2")
-            .bind(sub_id)
-            .bind(user_id)
-            .fetch_one(&mut *tx)
-            .await
-            .context("Subscription not found")?;
+        let sub = sqlx::query_as::<_, Subscription>(
+            "SELECT * FROM subscriptions WHERE id = $1 AND user_id = $2",
+        )
+        .bind(sub_id)
+        .bind(user_id)
+        .fetch_one(&mut *tx)
+        .await
+        .context("Subscription not found")?;
 
         if sub.status != "pending" {
-            return Err(anyhow::anyhow!("Only pending subscriptions can be converted to gifts"));
+            return Err(anyhow::anyhow!(
+                "Only pending subscriptions can be converted to gifts"
+            ));
         }
 
         let duration = sub.expires_at - sub.created_at;
@@ -92,7 +100,15 @@ impl SubscriptionService {
             .execute(&mut *tx)
             .await?;
 
-        let code = format!("CARAMBA-GIFT-{}", Uuid::new_v4().to_string().split('-').next().unwrap_or("CODE").to_uppercase());
+        let code = format!(
+            "CARAMBA-GIFT-{}",
+            Uuid::new_v4()
+                .to_string()
+                .split('-')
+                .next()
+                .unwrap_or("CODE")
+                .to_uppercase()
+        );
 
         sqlx::query(
             "INSERT INTO gift_codes (code, plan_id, duration_days, created_by_user_id) VALUES ($1, $2, $3, $4)"
@@ -104,7 +120,13 @@ impl SubscriptionService {
         .execute(&mut *tx)
         .await?;
 
-        let _ = ActivityService::log_tx(&mut *tx, Some(user_id), "Gift Code", &format!("Converted sub {} to gift: {}", sub_id, code)).await;
+        let _ = ActivityService::log_tx(
+            &mut *tx,
+            Some(user_id),
+            "Gift Code",
+            &format!("Converted sub {} to gift: {}", sub_id, code),
+        )
+        .await;
 
         tx.commit().await?;
         Ok(code)
@@ -114,17 +136,22 @@ impl SubscriptionService {
         let mut tx = self.pool.begin().await?;
 
         let gift_code_opt = sqlx::query_as::<_, GiftCode>(
-            "SELECT * FROM gift_codes WHERE code = $1 AND redeemed_by_user_id IS NULL"
+            "SELECT * FROM gift_codes WHERE code = $1 AND redeemed_by_user_id IS NULL",
         )
         .bind(code)
         .fetch_optional(&mut *tx)
         .await?;
 
-        let gift_code = gift_code_opt.ok_or_else(|| anyhow::anyhow!("Invalid or already redeemed code"))?;
+        let gift_code =
+            gift_code_opt.ok_or_else(|| anyhow::anyhow!("Invalid or already redeemed code"))?;
 
-        let days = gift_code.duration_days.ok_or_else(|| anyhow::anyhow!("Gift code invalid (no duration)"))?;
-        let plan_id = gift_code.plan_id.ok_or_else(|| anyhow::anyhow!("Gift code invalid (no plan)"))?;
-        
+        let days = gift_code
+            .duration_days
+            .ok_or_else(|| anyhow::anyhow!("Gift code invalid (no duration)"))?;
+        let plan_id = gift_code
+            .plan_id
+            .ok_or_else(|| anyhow::anyhow!("Gift code invalid (no plan)"))?;
+
         let expires_at = Utc::now() + Duration::days(days as i64);
         let vless_uuid = Uuid::new_v4().to_string();
         let subscription_uuid = Uuid::new_v4().to_string();
@@ -154,9 +181,14 @@ impl SubscriptionService {
         Ok(sub)
     }
 
-    pub async fn transfer(&self, sub_id: i64, current_user_id: i64, target_user_id: i64) -> Result<Subscription> {
+    pub async fn transfer(
+        &self,
+        sub_id: i64,
+        current_user_id: i64,
+        target_user_id: i64,
+    ) -> Result<Subscription> {
         let sub = sqlx::query_as::<_, Subscription>(
-            "UPDATE subscriptions SET user_id = $1 WHERE id = $2 AND user_id = $3 RETURNING *"
+            "UPDATE subscriptions SET user_id = $1 WHERE id = $2 AND user_id = $3 RETURNING *",
         )
         .bind(target_user_id)
         .bind(sub_id)
@@ -164,7 +196,15 @@ impl SubscriptionService {
         .fetch_one(&self.pool)
         .await?;
 
-        let _ = ActivityService::log(&self.pool, "Transfer", &format!("Transferred sub {} from {} to {}", sub_id, current_user_id, target_user_id)).await;
+        let _ = ActivityService::log(
+            &self.pool,
+            "Transfer",
+            &format!(
+                "Transferred sub {} from {} to {}",
+                sub_id, current_user_id, target_user_id
+            ),
+        )
+        .await;
 
         Ok(sub)
     }
@@ -185,19 +225,30 @@ impl SubscriptionService {
             .execute(&self.pool)
             .await
             .context("Failed to extend subscription")?;
-        
-        let _ = ActivityService::log(&self.pool, "Admin Action", &format!("Admin extended sub {} by {} days", sub_id, days)).await;
+
+        let _ = ActivityService::log(
+            &self.pool,
+            "Admin Action",
+            &format!("Admin extended sub {} by {} days", sub_id, days),
+        )
+        .await;
 
         Ok(())
     }
 
-    pub async fn admin_gift_subscription(&self, user_id: i64, plan_id: i64, duration_days: i32) -> Result<Subscription> {
+    pub async fn admin_gift_subscription(
+        &self,
+        user_id: i64,
+        plan_id: i64,
+        duration_days: i32,
+    ) -> Result<Subscription> {
         let mut tx = self.pool.begin().await?;
 
-        let node_id: i64 = sqlx::query_scalar("SELECT id FROM nodes WHERE status = 'active' LIMIT 1")
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("No active nodes available to assign"))?;
+        let node_id: i64 =
+            sqlx::query_scalar("SELECT id FROM nodes WHERE status = 'active' LIMIT 1")
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("No active nodes available to assign"))?;
 
         let vless_uuid = Uuid::new_v4().to_string();
         let expires_at = Utc::now() + Duration::days(duration_days as i64);
@@ -219,13 +270,22 @@ impl SubscriptionService {
         .fetch_one(&mut *tx)
         .await?;
 
-        let _ = ActivityService::log_tx(&mut *tx, Some(user_id), "Admin Action", &format!("Admin gifted sub to user {}", user_id)).await;
+        let _ = ActivityService::log_tx(
+            &mut *tx,
+            Some(user_id),
+            "Admin Action",
+            &format!("Admin gifted sub to user {}", user_id),
+        )
+        .await;
 
         tx.commit().await?;
         Ok(sub)
     }
 
-    pub async fn get_subscriptions_with_details_for_admin(&self, user_id: i64) -> Result<Vec<caramba_db::models::store::SubscriptionWithPlan>> {
+    pub async fn get_subscriptions_with_details_for_admin(
+        &self,
+        user_id: i64,
+    ) -> Result<Vec<caramba_db::models::store::SubscriptionWithPlan>> {
         let subs = sqlx::query_as::<_, caramba_db::models::store::SubscriptionWithPlan>(
             r#"
             SELECT 
@@ -246,19 +306,22 @@ impl SubscriptionService {
             FROM subscriptions s
             JOIN plans p ON s.plan_id = p.id
             WHERE s.user_id = $1
-            "#
+            "#,
         )
         .bind(user_id)
         .fetch_all(&self.pool)
         .await
         .context("Failed to fetch user subscriptions with details")?;
-        
+
         Ok(subs)
     }
 
-    pub async fn get_user_subscriptions(&self, user_id: i64) -> Result<Vec<SubscriptionWithDetails>> {
+    pub async fn get_user_subscriptions(
+        &self,
+        user_id: i64,
+    ) -> Result<Vec<SubscriptionWithDetails>> {
         let subs = sqlx::query_as::<_, Subscription>(
-            "SELECT * FROM subscriptions WHERE user_id = $1 ORDER BY created_at DESC"
+            "SELECT * FROM subscriptions WHERE user_id = $1 ORDER BY created_at DESC",
         )
         .bind(user_id)
         .fetch_all(&self.pool)
@@ -268,13 +331,17 @@ impl SubscriptionService {
             return Ok(Vec::new());
         }
 
-        let plans = self.get_active_plans().await?; 
+        let plans = self.get_active_plans().await?;
         let mut result = Vec::new();
 
         for sub in subs {
             let plan = plans.iter().find(|p| p.id == sub.plan_id);
             let (name, desc, limit) = if let Some(p) = plan {
-                (p.name.clone(), p.description.clone(), Some(p.traffic_limit_gb))
+                (
+                    p.name.clone(),
+                    p.description.clone(),
+                    Some(p.traffic_limit_gb),
+                )
             } else {
                 ("Unknown Plan".to_string(), None, None)
             };
@@ -300,18 +367,20 @@ impl SubscriptionService {
     }
 
     pub async fn toggle_auto_renewal(&self, subscription_id: i64) -> Result<bool> {
-        let current: Option<bool> = sqlx::query_scalar::<_, Option<bool>>("SELECT auto_renew FROM subscriptions WHERE id = $1")
-            .bind(subscription_id)
-            .fetch_one(&self.pool)
-            .await?;
-        
+        let current: Option<bool> = sqlx::query_scalar::<_, Option<bool>>(
+            "SELECT auto_renew FROM subscriptions WHERE id = $1",
+        )
+        .bind(subscription_id)
+        .fetch_one(&self.pool)
+        .await?;
+
         let new_value = !current.unwrap_or(false);
         sqlx::query("UPDATE subscriptions SET auto_renew = $1 WHERE id = $2")
             .bind(new_value)
             .bind(subscription_id)
             .execute(&self.pool)
             .await?;
-        
+
         Ok(new_value)
     }
 
@@ -323,11 +392,11 @@ impl SubscriptionService {
              JOIN plans p ON s.plan_id = p.id
              WHERE s.auto_renew = TRUE
              AND s.status = 'active'
-             AND s.expires_at BETWEEN CURRENT_TIMESTAMP AND CURRENT_TIMESTAMP + interval '1 day'"
+             AND s.expires_at BETWEEN CURRENT_TIMESTAMP AND CURRENT_TIMESTAMP + interval '1 day'",
         )
         .fetch_all(&self.pool)
         .await?;
-        
+
         let mut results = vec![];
         for (sub_id, user_id, plan_id, plan_name, balance) in subs {
             let price = sqlx::query_scalar::<_, i64>(
@@ -336,22 +405,32 @@ impl SubscriptionService {
             .bind(plan_id)
             .fetch_one(&self.pool)
             .await?;
-            
+
             if balance >= price {
                 sqlx::query("UPDATE subscriptions SET expires_at = expires_at + interval '30 days' WHERE id = $1")
                     .bind(sub_id)
                     .execute(&self.pool)
                     .await?;
-                
+
                 sqlx::query("UPDATE users SET balance = balance - $1 WHERE id = $2")
                     .bind(price)
                     .bind(user_id)
                     .execute(&self.pool)
                     .await?;
-                
-                results.push(RenewalResult::Success { user_id, sub_id, amount: price, plan_name });
+
+                results.push(RenewalResult::Success {
+                    user_id,
+                    sub_id,
+                    amount: price,
+                    plan_name,
+                });
             } else {
-                results.push(RenewalResult::InsufficientFunds { user_id, sub_id, required: price, available: balance });
+                results.push(RenewalResult::InsufficientFunds {
+                    user_id,
+                    sub_id,
+                    required: price,
+                    available: balance,
+                });
             }
         }
         Ok(results)
@@ -359,21 +438,27 @@ impl SubscriptionService {
 
     pub async fn get_trial_plan(&self) -> Result<Plan> {
         let mut plan = sqlx::query_as::<_, Plan>(
-            "SELECT * FROM plans WHERE is_trial = TRUE AND is_active = TRUE LIMIT 1"
+            "SELECT * FROM plans WHERE is_trial = TRUE AND is_active = TRUE LIMIT 1",
         )
         .fetch_one(&self.pool)
         .await
         .context("Trial plan not configured")?;
-        
-        plan.durations = sqlx::query_as::<_, PlanDuration>("SELECT * FROM plan_durations WHERE plan_id = $1")
-            .bind(plan.id)
-            .fetch_all(&self.pool)
-            .await?;
-        
+
+        plan.durations =
+            sqlx::query_as::<_, PlanDuration>("SELECT * FROM plan_durations WHERE plan_id = $1")
+                .bind(plan.id)
+                .fetch_all(&self.pool)
+                .await?;
+
         Ok(plan)
     }
 
-    pub async fn create_trial_subscription(&self, user_id: i64, plan_id: i64, duration_days: i64) -> Result<i64> {
+    pub async fn create_trial_subscription(
+        &self,
+        user_id: i64,
+        plan_id: i64,
+        duration_days: i64,
+    ) -> Result<i64> {
         let sub_id: i64 = sqlx::query_scalar(
             "INSERT INTO subscriptions 
              (user_id, plan_id, status, expires_at, used_traffic, is_trial, created_at, subscription_uuid) 
@@ -386,7 +471,7 @@ impl SubscriptionService {
         .bind(Uuid::new_v4().to_string())
         .fetch_one(&self.pool)
         .await?;
-        
+
         Ok(sub_id)
     }
 
@@ -396,12 +481,11 @@ impl SubscriptionService {
             .bind(sub_id)
             .fetch_optional(&self.pool)
             .await?;
-        
+
         if let Some(sub) = sub {
             let uuid = sub.vless_uuid.clone().unwrap_or_default();
-            let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>(
-                &format!(
-                    r#"
+            let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>(&format!(
+                r#"
                 SELECT DISTINCT i.id,
                        i.node_id,
                        i.tag,
@@ -424,30 +508,42 @@ impl SubscriptionService {
                 LEFT JOIN plan_groups pg ON pg.group_id = ngm.group_id
                 WHERE (pi.plan_id = $1 OR pn.plan_id = $1 OR pg.plan_id = $1) AND i.enable = TRUE
                 "#
-                ),
-            )
+            ))
             .bind(sub.plan_id)
             .fetch_all(&self.pool)
             .await?;
-            
+
             for inbound in inbounds {
                 use caramba_db::models::network::StreamSettings;
-                let stream: StreamSettings = serde_json::from_str(&inbound.stream_settings).unwrap_or_default();
+                let stream: StreamSettings =
+                    serde_json::from_str(&inbound.stream_settings).unwrap_or_default();
                 let security = stream.security.as_deref().unwrap_or("none");
                 let network = stream.network.as_deref().unwrap_or("tcp");
 
-                let (address, reality_pub, short_id) = if inbound.listen_ip == "::" || inbound.listen_ip == "0.0.0.0" {
-                    let node_details: Option<(String, Option<String>, Option<String>)> = sqlx::query_as("SELECT ip, reality_pub, short_id FROM nodes WHERE id = $1")
-                        .bind(inbound.node_id)
-                        .fetch_optional(&self.pool)
-                        .await?;
-                    if let Some((ip, pub_key, sid)) = node_details { (ip, pub_key, sid) } else { (inbound.listen_ip.clone(), None, None) }
+                let (address, reality_pub, short_id) = if inbound.listen_ip == "::"
+                    || inbound.listen_ip == "0.0.0.0"
+                {
+                    let node_details: Option<(String, Option<String>, Option<String>)> =
+                        sqlx::query_as("SELECT ip, reality_pub, short_id FROM nodes WHERE id = $1")
+                            .bind(inbound.node_id)
+                            .fetch_optional(&self.pool)
+                            .await?;
+                    if let Some((ip, pub_key, sid)) = node_details {
+                        (ip, pub_key, sid)
+                    } else {
+                        (inbound.listen_ip.clone(), None, None)
+                    }
                 } else {
-                     let node_details: Option<(Option<String>, Option<String>)> = sqlx::query_as("SELECT reality_pub, short_id FROM nodes WHERE id = $1")
-                        .bind(inbound.node_id)
-                        .fetch_optional(&self.pool)
-                        .await?;
-                     if let Some((pub_key, sid)) = node_details { (inbound.listen_ip.clone(), pub_key, sid) } else { (inbound.listen_ip.clone(), None, None) }
+                    let node_details: Option<(Option<String>, Option<String>)> =
+                        sqlx::query_as("SELECT reality_pub, short_id FROM nodes WHERE id = $1")
+                            .bind(inbound.node_id)
+                            .fetch_optional(&self.pool)
+                            .await?;
+                    if let Some((pub_key, sid)) = node_details {
+                        (inbound.listen_ip.clone(), pub_key, sid)
+                    } else {
+                        (inbound.listen_ip.clone(), None, None)
+                    }
                 };
 
                 let port = inbound.listen_port;
@@ -459,30 +555,55 @@ impl SubscriptionService {
                         params.push(format!("security={}", security));
                         if security == "reality" {
                             if let Some(reality) = stream.reality_settings {
-                                let sni = reality.server_names.first().cloned().unwrap_or_else(|| address.clone());
+                                let sni = reality
+                                    .server_names
+                                    .first()
+                                    .cloned()
+                                    .unwrap_or_else(|| address.clone());
                                 params.push(format!("sni={}", sni));
-                                params.push(format!("pbk={}", reality_pub.unwrap_or_default())); 
-                                if let Some(sid) = &short_id { params.push(format!("sid={}", sid)); }
+                                params.push(format!("pbk={}", reality_pub.unwrap_or_default()));
+                                if let Some(sid) = &short_id {
+                                    params.push(format!("sid={}", sid));
+                                }
                                 params.push("fp=chrome".to_string());
                             }
                         } else if security == "tls" {
-                            let sni = stream.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| address.clone());
+                            let sni = stream
+                                .tls_settings
+                                .as_ref()
+                                .map(|t| t.server_name.clone())
+                                .unwrap_or_else(|| address.clone());
                             params.push(format!("sni={}", sni));
                         }
                         params.push(format!("type={}", network));
                         if network == "tcp" {
-                             params.push("headerType=none".to_string());
-                             if security == "reality" { params.push("flow=xtls-rprx-vision".to_string()); }
+                            params.push("headerType=none".to_string());
+                            if security == "reality" {
+                                params.push("flow=xtls-rprx-vision".to_string());
+                            }
                         }
-                        links.push(format!("vless://{}@{}:{}?{}#{}", uuid, address, port, params.join("&"), remark));
-                    },
+                        links.push(format!(
+                            "vless://{}@{}:{}?{}#{}",
+                            uuid,
+                            address,
+                            port,
+                            params.join("&"),
+                            remark
+                        ));
+                    }
                     "hysteria2" => {
                         let mut params = Vec::new();
-                        let sni = stream.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| address.clone());
+                        let sni = stream
+                            .tls_settings
+                            .as_ref()
+                            .map(|t| t.server_name.clone())
+                            .unwrap_or_else(|| address.clone());
                         params.push(format!("sni={}", sni));
                         params.push("insecure=1".to_string());
 
-                        if let Ok(InboundType::Hysteria2(settings)) = serde_json::from_str::<InboundType>(&inbound.settings) {
+                        if let Ok(InboundType::Hysteria2(settings)) =
+                            serde_json::from_str::<InboundType>(&inbound.settings)
+                        {
                             if let Some(obfs) = settings.obfs {
                                 if obfs.ttype == "salamander" {
                                     params.push("obfs=salamander".to_string());
@@ -491,49 +612,104 @@ impl SubscriptionService {
                             }
                         }
 
-                        let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1").bind(sub.user_id).fetch_optional(&self.pool).await?.unwrap_or(0);
+                        let tg_id: i64 =
+                            sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
+                                .bind(sub.user_id)
+                                .fetch_optional(&self.pool)
+                                .await?
+                                .unwrap_or(0);
                         let auth = format!("{}:{}", tg_id, uuid.replace("-", ""));
-                        links.push(format!("hysteria2://{}@{}:{}?{}#{}", auth, address, port, params.join("&"), remark));
-                    },
+                        links.push(format!(
+                            "hysteria2://{}@{}:{}?{}#{}",
+                            auth,
+                            address,
+                            port,
+                            params.join("&"),
+                            remark
+                        ));
+                    }
                     "trojan" => {
                         let mut params = Vec::new();
                         params.push("security=tls".to_string());
-                        let sni = stream.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| address.clone());
+                        let sni = stream
+                            .tls_settings
+                            .as_ref()
+                            .map(|t| t.server_name.clone())
+                            .unwrap_or_else(|| address.clone());
                         params.push(format!("sni={}", sni));
                         params.push("fp=chrome".to_string());
                         params.push(format!("type={}", network));
-                        links.push(format!("trojan://{}@{}:{}?{}#{}", uuid, address, port, params.join("&"), remark));
-                    },
+                        links.push(format!(
+                            "trojan://{}@{}:{}?{}#{}",
+                            uuid,
+                            address,
+                            port,
+                            params.join("&"),
+                            remark
+                        ));
+                    }
                     "tuic" => {
                         let mut params = Vec::new();
-                        let sni = stream.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| address.clone());
+                        let sni = stream
+                            .tls_settings
+                            .as_ref()
+                            .map(|t| t.server_name.clone())
+                            .unwrap_or_else(|| address.clone());
                         params.push(format!("sni={}", sni));
                         params.push("alpn=h3".to_string());
-                        
-                        let congestion = if let Ok(InboundType::Tuic(settings)) = serde_json::from_str::<InboundType>(&inbound.settings) {
+
+                        let congestion = if let Ok(InboundType::Tuic(settings)) =
+                            serde_json::from_str::<InboundType>(&inbound.settings)
+                        {
                             settings.congestion_control
                         } else {
                             "cubic".to_string()
                         };
                         params.push(format!("congestion_control={}", congestion));
-                        links.push(format!("tuic://{}:{}@{}:{}?{}#{}", uuid, uuid.replace("-", ""), address, port, params.join("&"), remark));
-                    },
+                        links.push(format!(
+                            "tuic://{}:{}@{}:{}?{}#{}",
+                            uuid,
+                            uuid.replace("-", ""),
+                            address,
+                            port,
+                            params.join("&"),
+                            remark
+                        ));
+                    }
                     "naive" => {
                         let mut params = Vec::new();
-                        let sni = stream.tls_settings.as_ref().map(|t| t.server_name.clone()).unwrap_or_else(|| address.clone());
+                        let sni = stream
+                            .tls_settings
+                            .as_ref()
+                            .map(|t| t.server_name.clone())
+                            .unwrap_or_else(|| address.clone());
                         params.push(format!("sni={}", sni));
 
                         if security == "reality" {
                             if let Some(_reality) = stream.reality_settings {
                                 params.push(format!("pbk={}", reality_pub.unwrap_or_default()));
-                                if let Some(sid) = &short_id { params.push(format!("sid={}", sid)); }
+                                if let Some(sid) = &short_id {
+                                    params.push(format!("sid={}", sid));
+                                }
                             }
                         }
 
-                        let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1").bind(sub.user_id).fetch_optional(&self.pool).await?.unwrap_or(0);
+                        let tg_id: i64 =
+                            sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
+                                .bind(sub.user_id)
+                                .fetch_optional(&self.pool)
+                                .await?
+                                .unwrap_or(0);
                         let auth = format!("{}:{}", tg_id, uuid.replace("-", ""));
-                        links.push(format!("naive+https://{}@{}:{}?{}#{}", auth, address, port, params.join("&"), remark));
-                    },
+                        links.push(format!(
+                            "naive+https://{}@{}:{}?{}#{}",
+                            auth,
+                            address,
+                            port,
+                            params.join("&"),
+                            remark
+                        ));
+                    }
                     _ => {}
                 }
             }
@@ -554,7 +730,10 @@ impl SubscriptionService {
 
     pub async fn update_ips(&self, subscription_id: i64, ip_list: Vec<String>) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM subscription_ip_tracking WHERE subscription_id = $1").bind(subscription_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM subscription_ip_tracking WHERE subscription_id = $1")
+            .bind(subscription_id)
+            .execute(&mut *tx)
+            .await?;
         let now = Utc::now();
         for ip in ip_list {
             sqlx::query("INSERT INTO subscription_ip_tracking (subscription_id, client_ip, last_seen_at) VALUES ($1, $2, $3)").bind(subscription_id).bind(ip).bind(now).execute(&mut *tx).await?;
@@ -563,7 +742,10 @@ impl SubscriptionService {
         Ok(())
     }
 
-    pub async fn get_active_ips(&self, subscription_id: i64) -> Result<Vec<SubscriptionIpTracking>> {
+    pub async fn get_active_ips(
+        &self,
+        subscription_id: i64,
+    ) -> Result<Vec<SubscriptionIpTracking>> {
         let cutoff = Utc::now() - Duration::minutes(15);
         sqlx::query_as::<_, SubscriptionIpTracking>(
             "SELECT * FROM subscription_ip_tracking WHERE subscription_id = $1 AND last_seen_at > $2 ORDER BY last_seen_at DESC"
@@ -577,13 +759,16 @@ impl SubscriptionService {
 
     pub async fn cleanup_old_ip_tracking(&self) -> Result<u64> {
         let cutoff = Utc::now() - Duration::hours(1);
-        let result = sqlx::query("DELETE FROM subscription_ip_tracking WHERE last_seen_at < $1").bind(cutoff).execute(&self.pool).await?;
+        let result = sqlx::query("DELETE FROM subscription_ip_tracking WHERE last_seen_at < $1")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await?;
         Ok(result.rows_affected())
     }
 
     pub async fn get_subscription_by_uuid(&self, uuid: &str) -> Result<Subscription> {
         let sub = sqlx::query_as::<_, Subscription>(
-            "SELECT * FROM subscriptions WHERE subscription_uuid = $1"
+            "SELECT * FROM subscriptions WHERE subscription_uuid = $1",
         )
         .bind(uuid)
         .fetch_optional(&self.pool)
@@ -604,20 +789,44 @@ impl SubscriptionService {
 
     pub fn parse_device_name(&self, ua: &str) -> String {
         let ua_lower = ua.to_lowercase();
-        
-        if ua_lower.contains("iphone") { return "iPhone".to_string(); }
-        if ua_lower.contains("ipad") { return "iPad".to_string(); }
-        if ua_lower.contains("android") { return "Android Device".to_string(); }
-        if ua_lower.contains("windows") { return "Windows PC".to_string(); }
-        if ua_lower.contains("macintosh") || ua_lower.contains("mac os x") { return "MacBook/iMac".to_string(); }
-        if ua_lower.contains("linux") { return "Linux Device".to_string(); }
-        if ua_lower.contains("sing-box") { return "Sing-box Client".to_string(); }
-        if ua_lower.contains("clash") { return "Clash Client".to_string(); }
-        if ua_lower.contains("v2ray") || ua_lower.contains("xray") { return "Xray/V2Ray Client".to_string(); }
-        if ua_lower.contains("streisand") { return "Streisand (iOS)".to_string(); }
-        if ua_lower.contains("shadowrocket") { return "Shadowrocket (iOS)".to_string(); }
-        if ua_lower.contains("v2box") { return "V2Box".to_string(); }
-        
+
+        if ua_lower.contains("iphone") {
+            return "iPhone".to_string();
+        }
+        if ua_lower.contains("ipad") {
+            return "iPad".to_string();
+        }
+        if ua_lower.contains("android") {
+            return "Android Device".to_string();
+        }
+        if ua_lower.contains("windows") {
+            return "Windows PC".to_string();
+        }
+        if ua_lower.contains("macintosh") || ua_lower.contains("mac os x") {
+            return "MacBook/iMac".to_string();
+        }
+        if ua_lower.contains("linux") {
+            return "Linux Device".to_string();
+        }
+        if ua_lower.contains("sing-box") {
+            return "Sing-box Client".to_string();
+        }
+        if ua_lower.contains("clash") {
+            return "Clash Client".to_string();
+        }
+        if ua_lower.contains("v2ray") || ua_lower.contains("xray") {
+            return "Xray/V2Ray Client".to_string();
+        }
+        if ua_lower.contains("streisand") {
+            return "Streisand (iOS)".to_string();
+        }
+        if ua_lower.contains("shadowrocket") {
+            return "Shadowrocket (iOS)".to_string();
+        }
+        if ua_lower.contains("v2box") {
+            return "V2Box".to_string();
+        }
+
         if ua.len() > 20 {
             format!("{}...", &ua[0..17])
         } else if ua.is_empty() {
@@ -637,7 +846,11 @@ impl SubscriptionService {
             "singbox".to_string()
         } else if ua.contains("clash") || ua.contains("stash") {
             "clash".to_string()
-        } else if ua.contains("v2ray") || ua.contains("xray") || ua.contains("fair") || ua.contains("shadowrocket") {
+        } else if ua.contains("v2ray")
+            || ua.contains("xray")
+            || ua.contains("fair")
+            || ua.contains("shadowrocket")
+        {
             "v2ray".to_string()
         } else if ua.contains("mozilla") || ua.contains("chrome") || ua.contains("safari") {
             "html".to_string()
@@ -646,7 +859,12 @@ impl SubscriptionService {
         }
     }
 
-    pub async fn track_access(&self, sub_id: i64, ip: &str, user_agent: Option<&str>) -> Result<()> {
+    pub async fn track_access(
+        &self,
+        sub_id: i64,
+        ip: &str,
+        user_agent: Option<&str>,
+    ) -> Result<()> {
         sqlx::query(
             "UPDATE subscriptions SET last_sub_access = $1, last_access_ip = $2, last_access_ua = $3 WHERE id = $4"
         )
@@ -659,7 +877,7 @@ impl SubscriptionService {
 
         let ua = user_agent.unwrap_or("");
         let device_name = self.parse_device_name(ua);
-        
+
         sqlx::query(
             "INSERT INTO subscription_ip_tracking (subscription_id, client_ip, user_agent, last_seen_at) 
              VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
@@ -682,28 +900,35 @@ impl SubscriptionService {
             .into_iter()
             .filter(|n| n.is_enabled && n.status == "active")
             .collect::<Vec<Node>>();
-        
+
         let node_ids: Vec<i64> = nodes.iter().map(|n| n.id).collect();
         let inbounds_map = if node_ids.is_empty() {
             std::collections::HashMap::new()
         } else {
-            let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>("SELECT * FROM inbounds WHERE enable = TRUE AND node_id = ANY($1)")
-                .bind(&node_ids)
-                .fetch_all(&self.pool)
-                .await?;
-                
+            let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>(
+                "SELECT * FROM inbounds WHERE enable = TRUE AND node_id = ANY($1)",
+            )
+            .bind(&node_ids)
+            .fetch_all(&self.pool)
+            .await?;
+
             let mut map = std::collections::HashMap::new();
             for inbound in inbounds {
-                map.entry(inbound.node_id).or_insert_with(Vec::new).push(inbound);
+                map.entry(inbound.node_id)
+                    .or_insert_with(Vec::new)
+                    .push(inbound);
             }
             map
         };
 
-        let node_infos = nodes.iter().map(|n| {
-            let node_inbounds = inbounds_map.get(&n.id).cloned().unwrap_or_default();
-            NodeInfo::new(n, node_inbounds)
-        }).collect();
-        
+        let node_infos = nodes
+            .iter()
+            .map(|n| {
+                let node_inbounds = inbounds_map.get(&n.id).cloned().unwrap_or_default();
+                NodeInfo::new(n, node_inbounds)
+            })
+            .collect();
+
         Ok(node_infos)
     }
 
@@ -715,7 +940,8 @@ impl SubscriptionService {
         let node_ids: Vec<i64> = nodes.iter().map(|n| n.id).collect();
         let inbounds_map = self.fetch_inbounds_for_nodes(&node_ids).await?;
 
-        let relay_ids: Vec<i64> = nodes.iter()
+        let relay_ids: Vec<i64> = nodes
+            .iter()
             .filter_map(|n| n.relay_id)
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
@@ -732,7 +958,7 @@ impl SubscriptionService {
                 }
             }
             let relay_inbounds_map = self.fetch_inbounds_for_nodes(&relay_ids).await?;
-            
+
             let mut map = std::collections::HashMap::new();
             for r in relay_nodes {
                 let r_id = r.id;
@@ -746,7 +972,7 @@ impl SubscriptionService {
         for n in nodes {
             let n_inbounds = inbounds_map.get(&n.id).cloned().unwrap_or_default();
             let mut ni = NodeInfo::new(n, n_inbounds);
-            
+
             if let Some(r_id) = n.relay_id {
                 if let Some(r_info) = relays_map.get(&r_id) {
                     ni.relay_info = Some(Box::new(r_info.clone()));
@@ -758,36 +984,42 @@ impl SubscriptionService {
         Ok(node_infos)
     }
 
-    async fn fetch_inbounds_for_nodes(&self, node_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<caramba_db::models::network::Inbound>>> {
+    async fn fetch_inbounds_for_nodes(
+        &self,
+        node_ids: &[i64],
+    ) -> Result<std::collections::HashMap<i64, Vec<caramba_db::models::network::Inbound>>> {
         if node_ids.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
-        let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>(
-            &format!(
-                "{} WHERE enable = TRUE AND node_id = ANY($1)",
-                Self::INBOUND_SELECT_SQL
-            ),
-        )
-            .bind(node_ids)
-            .fetch_all(&self.pool)
-            .await?;
-            
+        let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>(&format!(
+            "{} WHERE enable = TRUE AND node_id = ANY($1)",
+            Self::INBOUND_SELECT_SQL
+        ))
+        .bind(node_ids)
+        .fetch_all(&self.pool)
+        .await?;
+
         let mut map = std::collections::HashMap::new();
         for inbound in inbounds {
-            map.entry(inbound.node_id).or_insert_with(Vec::new).push(inbound);
+            map.entry(inbound.node_id)
+                .or_insert_with(Vec::new)
+                .push(inbound);
         }
         Ok(map)
     }
 
     pub async fn get_user_keys(&self, sub: &Subscription) -> Result<UserKeys> {
-        let user_uuid = sub.vless_uuid.clone().ok_or_else(|| anyhow::anyhow!("No VLESS UUID for subscription"))?;
-        
+        let user_uuid = sub
+            .vless_uuid
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("No VLESS UUID for subscription"))?;
+
         let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
             .bind(sub.user_id)
             .fetch_optional(&self.pool)
             .await?
             .unwrap_or(0);
-            
+
         let hy2_password = format!("{}:{}", tg_id, user_uuid.replace("-", ""));
         let awg_private_key = self.derive_awg_key(&user_uuid);
 
@@ -805,47 +1037,49 @@ impl SubscriptionService {
     pub async fn check_and_send_alerts(&self) -> Result<Vec<(i64, AlertType)>> {
         use caramba_db::models::store::AlertType;
         let mut alerts_to_send = vec![];
-        
+
         // Traffic alerts (80%, 90%)
         let subs = sqlx::query_as::<_, (i64, i64, i64, String)>(
             "SELECT s.id, s.user_id, s.used_traffic, COALESCE(s.alerts_sent, '[]') 
              FROM subscriptions s
              JOIN plans p ON s.plan_id = p.id
-             WHERE s.status = 'active' AND p.traffic_limit_gb > 0"
+             WHERE s.status = 'active' AND p.traffic_limit_gb > 0",
         )
         .fetch_all(&self.pool)
         .await?;
-        
+
         for (sub_id, user_id, used_traffic_bytes, alerts_json) in subs {
             // Get traffic limit from plan
             let traffic_limit_gb: i32 = sqlx::query_scalar(
                 "SELECT p.traffic_limit_gb FROM plans p
                  JOIN subscriptions s ON s.plan_id = p.id
-                 WHERE s.id = $1 LIMIT 1"
+                 WHERE s.id = $1 LIMIT 1",
             )
             .bind(sub_id)
             .fetch_one(&self.pool)
             .await?;
-            
-            if traffic_limit_gb == 0 { continue; }
-            
+
+            if traffic_limit_gb == 0 {
+                continue;
+            }
+
             let total_traffic_bytes = traffic_limit_gb as i64 * 1024 * 1024 * 1024;
             let percentage = (used_traffic_bytes as f64 / total_traffic_bytes as f64) * 100.0;
-            
+
             let mut alerts: Vec<String> = serde_json::from_str(&alerts_json).unwrap_or_default();
-            
+
             // Check 80% threshold
             if percentage >= 80.0 && !alerts.contains(&"80_percent".to_string()) {
                 alerts_to_send.push((user_id, AlertType::Traffic80));
                 alerts.push("80_percent".to_string());
             }
-            
+
             // Check 90% threshold
             if percentage >= 90.0 && !alerts.contains(&"90_percent".to_string()) {
                 alerts_to_send.push((user_id, AlertType::Traffic90));
                 alerts.push("90_percent".to_string());
             }
-            
+
             // Update alerts_sent
             if !alerts.is_empty() {
                 let alerts_json = serde_json::to_string(&alerts)?;
@@ -856,7 +1090,7 @@ impl SubscriptionService {
                     .await?;
             }
         }
-        
+
         // Expiry alerts (3 days before)
         let expiring_subs = sqlx::query_as::<_, (i64, String)>(
             "SELECT s.user_id, COALESCE(s.alerts_sent, '[]')
@@ -866,26 +1100,41 @@ impl SubscriptionService {
         )
         .fetch_all(&self.pool)
         .await?;
-        
+
         for (user_id, alerts_json) in expiring_subs {
             let alerts: Vec<String> = serde_json::from_str(&alerts_json).unwrap_or_default();
             if !alerts.contains(&"expiry_3d".to_string()) {
                 alerts_to_send.push((user_id, AlertType::Expiry3Days));
             }
         }
-        
+
         Ok(alerts_to_send)
     }
 
-    pub fn generate_clash(&self, sub: &Subscription, nodes: &[NodeInfo], keys: &UserKeys) -> Result<String> {
+    pub fn generate_clash(
+        &self,
+        sub: &Subscription,
+        nodes: &[NodeInfo],
+        keys: &UserKeys,
+    ) -> Result<String> {
         crate::singbox::subscription_generator::generate_clash_config(sub, nodes, keys)
     }
-    
-    pub fn generate_v2ray(&self, sub: &Subscription, nodes: &[NodeInfo], keys: &UserKeys) -> Result<String> {
+
+    pub fn generate_v2ray(
+        &self,
+        sub: &Subscription,
+        nodes: &[NodeInfo],
+        keys: &UserKeys,
+    ) -> Result<String> {
         crate::singbox::subscription_generator::generate_v2ray_config(sub, nodes, keys)
     }
-    
-    pub fn generate_singbox(&self, sub: &Subscription, nodes: &[NodeInfo], keys: &UserKeys) -> Result<String> {
+
+    pub fn generate_singbox(
+        &self,
+        sub: &Subscription,
+        nodes: &[NodeInfo],
+        keys: &UserKeys,
+    ) -> Result<String> {
         crate::singbox::subscription_generator::generate_singbox_config(sub, nodes, keys)
     }
 
@@ -899,19 +1148,19 @@ impl SubscriptionService {
     }
 
     fn generate_amneziawg_key(uuid: &str) -> String {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(uuid.as_bytes());
         hasher.update(b"amneziawg-key-salt");
         let result = hasher.finalize();
-        
+
         let mut key = [0u8; 32];
         key.copy_from_slice(&result[..32]);
-        
+
         key[0] &= 248;
         key[31] &= 127;
         key[31] |= 64;
-        
+
         base64::Engine::encode(&base64::prelude::BASE64_STANDARD, key)
     }
 }

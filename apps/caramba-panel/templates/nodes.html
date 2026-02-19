@@ -118,9 +118,23 @@
 <script>
     let currentNodeInstallCommand = "";
 
-    function showNodeInstallCommand(nodeId, nodeName) {
-        const origin = window.location.origin;
-        currentNodeInstallCommand = `curl -fsSL ${origin}/nodes/${nodeId}/script | sudo bash`;
+    async function showNodeInstallCommand(nodeId, nodeName) {
+        currentNodeInstallCommand = "";
+        try {
+            const res = await fetch(`/nodes/${nodeId}/raw-install`, { credentials: "same-origin" });
+            if (res.ok) {
+                const raw = (await res.text()).trim();
+                if (raw.length > 0) {
+                    currentNodeInstallCommand = raw;
+                }
+            } else {
+                const msg = (await res.text()).trim();
+                currentNodeInstallCommand = `# Failed to load installer command for node ${nodeId}: ${msg || `HTTP ${res.status}`}`;
+            }
+        } catch (err) {
+            currentNodeInstallCommand = `# Failed to load installer command for node ${nodeId}`;
+            console.error("Failed to fetch installer command:", err);
+        }
         document.getElementById('node-install-title').textContent = `Node: ${nodeName} (#${nodeId})`;
         document.getElementById('node-install-command').textContent = currentNodeInstallCommand;
         document.getElementById('node-install-modal').showModal();

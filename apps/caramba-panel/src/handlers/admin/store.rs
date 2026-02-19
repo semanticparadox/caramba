@@ -1,18 +1,18 @@
 // Store Module
 // Store categories and products management
 
-use axum::{
-    extract::{State, Form, Path},
-    response::{IntoResponse, Html},
-};
 use askama::Template;
 use askama_web::WebTemplate;
+use axum::{
+    extract::{Form, Path, State},
+    response::{Html, IntoResponse},
+};
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use tracing::info;
 
-use crate::AppState;
 use super::auth::get_auth_user;
+use crate::AppState;
 
 // ============================================================================
 // Templates
@@ -64,21 +64,31 @@ pub async fn get_store_categories_page(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let categories: Vec<caramba_db::models::store::StoreCategory> = state.catalog_service.get_categories().await.unwrap_or_default();
-    
+    let categories: Vec<caramba_db::models::store::StoreCategory> = state
+        .catalog_service
+        .get_categories()
+        .await
+        .unwrap_or_default();
+
     let admin_path = state.admin_path.clone();
 
     let template = StoreCategoriesTemplate {
         categories,
         is_auth: true,
-        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
+        username: get_auth_user(&state, &jar)
+            .await
+            .unwrap_or("Admin".to_string()),
         admin_path,
         active_page: "store".to_string(),
     };
 
     match template.render() {
         Ok(html) => Html(html).into_response(),
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Template error: {}", e)).into_response(),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Template error: {}", e),
+        )
+            .into_response(),
     }
 }
 
@@ -88,13 +98,22 @@ pub async fn create_category(
 ) -> impl IntoResponse {
     let admin_path = state.admin_path.clone();
 
-    match state.catalog_service.create_category(&form.name, form.description.as_deref(), form.sort_order).await {
+    match state
+        .catalog_service
+        .create_category(&form.name, form.description.as_deref(), form.sort_order)
+        .await
+    {
         Ok(_) => (
-            axum::http::StatusCode::OK, 
+            axum::http::StatusCode::OK,
             [("HX-Redirect", format!("{}/store/categories", admin_path))],
-            "Redirecting..."
-        ).into_response(),
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)).into_response(),
+            "Redirecting...",
+        )
+            .into_response(),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {}", e),
+        )
+            .into_response(),
     }
 }
 
@@ -105,11 +124,19 @@ pub async fn delete_category(
     match state.catalog_service.delete_category(id).await {
         Ok(_) => (axum::http::StatusCode::OK, "").into_response(),
         Err(e) => {
-             // Check if it's a constraint error (existing products)
-             if e.to_string().contains("products") {
-                 return (axum::http::StatusCode::BAD_REQUEST, "Cannot delete category with existing products.").into_response();
-             }
-             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete: {}", e)).into_response()
+            // Check if it's a constraint error (existing products)
+            if e.to_string().contains("products") {
+                return (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    "Cannot delete category with existing products.",
+                )
+                    .into_response();
+            }
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to delete: {}", e),
+            )
+                .into_response()
         }
     }
 }
@@ -118,24 +145,38 @@ pub async fn get_store_products_page(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let products = state.catalog_service.get_all_products().await.unwrap_or_default();
+    let products = state
+        .catalog_service
+        .get_all_products()
+        .await
+        .unwrap_or_default();
 
-    let categories: Vec<caramba_db::models::store::StoreCategory> = state.catalog_service.get_categories().await.unwrap_or_default();
-    
+    let categories: Vec<caramba_db::models::store::StoreCategory> = state
+        .catalog_service
+        .get_categories()
+        .await
+        .unwrap_or_default();
+
     let admin_path = state.admin_path.clone();
 
     let template = StoreProductsTemplate {
         products,
         categories,
         is_auth: true,
-        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
+        username: get_auth_user(&state, &jar)
+            .await
+            .unwrap_or("Admin".to_string()),
         admin_path,
         active_page: "store".to_string(),
     };
 
     match template.render() {
         Ok(html) => Html(html).into_response(),
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Template error: {}", e)).into_response(),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Template error: {}", e),
+        )
+            .into_response(),
     }
 }
 
@@ -143,7 +184,10 @@ pub async fn create_product(
     State(state): State<AppState>,
     Form(form): Form<ProductForm>,
 ) -> impl IntoResponse {
-    info!("Adding new product: {} to category {}", form.name, form.category_id);
+    info!(
+        "Adding new product: {} to category {}",
+        form.name, form.category_id
+    );
 
     let category_id = form.category_id;
     let name = form.name;
@@ -154,13 +198,29 @@ pub async fn create_product(
 
     let admin_path = state.admin_path.clone();
 
-    match state.catalog_service.create_product(category_id, &name, Some(&description), price, &product_type, Some(&content)).await {
+    match state
+        .catalog_service
+        .create_product(
+            category_id,
+            &name,
+            Some(&description),
+            price,
+            &product_type,
+            Some(&content),
+        )
+        .await
+    {
         Ok(_) => (
-            axum::http::StatusCode::OK, 
+            axum::http::StatusCode::OK,
             [("HX-Redirect", format!("{}/store/products", admin_path))],
-            "Redirecting..."
-        ).into_response(),
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)).into_response(),
+            "Redirecting...",
+        )
+            .into_response(),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {}", e),
+        )
+            .into_response(),
     }
 }
 
@@ -169,7 +229,11 @@ pub async fn delete_product(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     match state.catalog_service.delete_product(id).await {
-        Ok(_) => (axum::http::StatusCode::OK, "").into_response(), 
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete: {}", e)).into_response(),
+        Ok(_) => (axum::http::StatusCode::OK, "").into_response(),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to delete: {}", e),
+        )
+            .into_response(),
     }
 }

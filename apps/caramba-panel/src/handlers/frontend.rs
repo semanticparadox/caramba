@@ -1,29 +1,28 @@
 use axum::{
+    Json,
     extract::{Path, State},
     http::StatusCode,
-    Json,
 };
 
 use crate::AppState;
 use caramba_db::models::frontend::{
-    FrontendServer, CreateFrontendServer, FrontendHeartbeat,
-    FrontendCreatedResponse, TokenRotateResponse,
+    CreateFrontendServer, FrontendCreatedResponse, FrontendHeartbeat, FrontendServer,
+    TokenRotateResponse,
 };
 
 /// List all frontend servers
 pub async fn list_frontends(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<FrontendServer>>, StatusCode> {
-    let frontends: Vec<FrontendServer> = sqlx::query_as(
-        "SELECT * FROM frontend_servers ORDER BY created_at DESC"
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch frontends: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-    
+    let frontends: Vec<FrontendServer> =
+        sqlx::query_as("SELECT * FROM frontend_servers ORDER BY created_at DESC")
+            .fetch_all(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to fetch frontends: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
     Ok(Json(frontends))
 }
 
@@ -35,7 +34,7 @@ pub async fn get_active_frontends(
     let frontends: Vec<FrontendServer> = sqlx::query_as(
         "SELECT * FROM frontend_servers 
          WHERE region = $1 AND is_active = TRUE
-         ORDER BY last_heartbeat DESC"
+         ORDER BY last_heartbeat DESC",
     )
     .bind(&region)
     .fetch_all(&state.pool)
@@ -44,7 +43,7 @@ pub async fn get_active_frontends(
         tracing::error!("Failed to fetch active frontends: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
+
     Ok(Json(frontends))
 }
 
@@ -56,11 +55,20 @@ pub async fn create_frontend(
     // Generate token and hash (secure)
     let (token, token_hash) = generate_frontend_token_with_hash(&payload.domain)?;
     let expires_at = calculate_token_expiration();
-    
-    let ip_address = payload.ip_address.filter(|s: &String| !s.is_empty()).unwrap_or_else(|| "0.0.0.0".to_string());
-    let region = payload.region.filter(|s: &String| !s.is_empty()).unwrap_or_else(|| "global".to_string());
+
+    let ip_address = payload
+        .ip_address
+        .filter(|s: &String| !s.is_empty())
+        .unwrap_or_else(|| "0.0.0.0".to_string());
+    let region = payload
+        .region
+        .filter(|s: &String| !s.is_empty())
+        .unwrap_or_else(|| "global".to_string());
     // Default sub_path to /sub/ if not provided
-    let sub_path = payload.sub_path.filter(|s: &String| !s.is_empty()).unwrap_or_else(|| "/sub/".to_string());
+    let sub_path = payload
+        .sub_path
+        .filter(|s: &String| !s.is_empty())
+        .unwrap_or_else(|| "/sub/".to_string());
 
     let frontend_id: i64 = sqlx::query_scalar(
         "INSERT INTO frontend_servers 
@@ -81,25 +89,23 @@ pub async fn create_frontend(
         tracing::error!("Failed to create frontend: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
+
     // Get the created frontend
-    let frontend: FrontendServer = sqlx::query_as(
-        "SELECT * FROM frontend_servers WHERE id = $1"
-    )
-    .bind(frontend_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+    let frontend: FrontendServer = sqlx::query_as("SELECT * FROM frontend_servers WHERE id = $1")
+        .bind(frontend_id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     Ok(Json(FrontendCreatedResponse {
         frontend,
-        auth_token: token.clone(),  // Clone to use in next line
+        auth_token: token.clone(), // Clone to use in next line
         install_command: generate_install_command(
-            &payload.domain, 
-            &token, 
+            &payload.domain,
+            &token,
             &region,
             payload.miniapp_domain.as_deref(),
-            &sub_path
+            &sub_path,
         ),
     }))
 }
@@ -117,7 +123,7 @@ pub async fn delete_frontend(
             tracing::error!("Failed to delete frontend: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-    
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -125,7 +131,7 @@ pub async fn delete_frontend(
 pub async fn frontend_heartbeat(
     Path(domain): Path<String>,
     State(state): State<AppState>,
-    headers: axum::http::HeaderMap,  // Get headers for auth
+    headers: axum::http::HeaderMap, // Get headers for auth
     Json(data): Json<FrontendHeartbeat>,
 ) -> Result<StatusCode, StatusCode> {
     // Extract and validate bearer token
@@ -137,49 +143,50 @@ pub async fn frontend_heartbeat(
             tracing::warn!("Missing Authorization header for frontend: {}", domain);
             StatusCode::UNAUTHORIZED
         })?;
-    
+
     // Get frontend from database
-    let frontend: FrontendServer = sqlx::query_as(
-        "SELECT * FROM frontend_servers WHERE domain = $1 AND is_active = TRUE"
-    )
-    .bind(&domain)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Database error: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?
-    .ok_or_else(|| {
-        tracing::warn!("Frontend not found or inactive: {}", domain);
-        StatusCode::NOT_FOUND
-    })?;
-    
+    let frontend: FrontendServer =
+        sqlx::query_as("SELECT * FROM frontend_servers WHERE domain = $1 AND is_active = TRUE")
+            .bind(&domain)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Database error: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
+            .ok_or_else(|| {
+                tracing::warn!("Frontend not found or inactive: {}", domain);
+                StatusCode::NOT_FOUND
+            })?;
+
     // Validate token hash
-    let token_hash = frontend.auth_token_hash
-        .ok_or_else(|| {
-            tracing::warn!("Frontend {} has no token hash (needs rotation)", domain);
-            StatusCode::UNAUTHORIZED
-        })?;
-    
-    let valid = bcrypt::verify(token, &token_hash)
-        .map_err(|e| {
-            tracing::error!("Token verification error: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-    
+    let token_hash = frontend.auth_token_hash.ok_or_else(|| {
+        tracing::warn!("Frontend {} has no token hash (needs rotation)", domain);
+        StatusCode::UNAUTHORIZED
+    })?;
+
+    let valid = bcrypt::verify(token, &token_hash).map_err(|e| {
+        tracing::error!("Token verification error: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
     if !valid {
         tracing::warn!("Invalid token for frontend: {}", domain);
         return Err(StatusCode::UNAUTHORIZED);
     }
-    
+
     // Check expiration
     if let Some(expires) = frontend.token_expires_at {
         if expires < chrono::Utc::now() {
-            tracing::warn!("Expired token for frontend: {} (expired: {})", domain, expires);
+            tracing::warn!(
+                "Expired token for frontend: {} (expired: {})",
+                domain,
+                expires
+            );
             return Err(StatusCode::UNAUTHORIZED);
         }
     }
-    
+
     // Token is valid - update heartbeat and stats.
     if let Some(ip) = &data.ip_address {
         sqlx::query(
@@ -216,11 +223,11 @@ pub async fn frontend_heartbeat(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
     }
-    
+
     // Record stats
     sqlx::query(
         "INSERT INTO frontend_server_stats (frontend_id, requests_count, bandwidth_used)
-         VALUES ($1, $2, $3)"
+         VALUES ($1, $2, $3)",
     )
     .bind(frontend.id)
     .bind(data.requests_count as i64)
@@ -231,7 +238,7 @@ pub async fn frontend_heartbeat(
         tracing::error!("Failed to record stats: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
+
     Ok(StatusCode::OK)
 }
 
@@ -241,13 +248,11 @@ pub async fn rotate_token(
     State(state): State<AppState>,
 ) -> Result<Json<TokenRotateResponse>, StatusCode> {
     // 1. Get frontend
-    let frontend: FrontendServer = sqlx::query_as(
-        "SELECT * FROM frontend_servers WHERE id = $1"
-    )
-    .bind(id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|_| StatusCode::NOT_FOUND)?;
+    let frontend: FrontendServer = sqlx::query_as("SELECT * FROM frontend_servers WHERE id = $1")
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
 
     // 2. Generate new token
     let (token, token_hash) = generate_frontend_token_with_hash(&frontend.domain)?;
@@ -259,7 +264,7 @@ pub async fn rotate_token(
          SET auth_token_hash = $1, 
              token_expires_at = $2,
              updated_at = CURRENT_TIMESTAMP 
-         WHERE id = $3"
+         WHERE id = $3",
     )
     .bind(&token_hash)
     .bind(&expires_at)
@@ -275,20 +280,19 @@ pub async fn rotate_token(
         token: token.clone(),
         expires_at: expires_at,
         instructions: generate_install_command(
-            &frontend.domain, 
-            &token, 
+            &frontend.domain,
+            &token,
             &frontend.region,
             frontend.miniapp_domain.as_deref(),
-            frontend.sub_path.as_deref().unwrap_or("/sub/")
+            frontend.sub_path.as_deref().unwrap_or("/sub/"),
         ),
     }))
 }
 
-
 // Helper functions
 /// Generate frontend token with bcrypt hash
 /// Returns (plaintext_token, bcrypt_hash) - plaintext shown ONCE, hash stored in DB
-/// 
+///
 /// Security improvements:
 /// - Uses bcrypt for one-way hashing (cost 12)
 /// - Token includes 256 bits of cryptographically random data
@@ -296,24 +300,23 @@ pub async fn rotate_token(
 fn generate_frontend_token_with_hash(domain: &str) -> Result<(String, String), StatusCode> {
     use rand::Rng;
     let mut rng = rand::rng();
-    
+
     // Generate 32 bytes of randomness (256 bits)
     let random_bytes: Vec<u8> = (0..32).map(|_| rng.random()).collect();
-    
+
     // Create token with domain prefix for identification
     let token = format!(
         "fe_{}_{}",
         domain.replace('.', "_"),
         hex::encode(&random_bytes)
     );
-    
+
     // Hash token for storage (bcrypt cost 12 for good security/performance balance)
-    let hash = bcrypt::hash(&token, 12)
-        .map_err(|e| {
-            tracing::error!("Failed to hash frontend token: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-    
+    let hash = bcrypt::hash(&token, 12).map_err(|e| {
+        tracing::error!("Failed to hash frontend token: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
     Ok((token, hash))
 }
 
@@ -323,11 +326,11 @@ fn calculate_token_expiration() -> chrono::DateTime<chrono::Utc> {
 }
 
 fn generate_install_command(
-    domain: &str, 
-    token: &str, 
-    region: &str, 
+    domain: &str,
+    token: &str,
+    region: &str,
     _miniapp_domain: Option<&str>,
-    _sub_path: &str
+    _sub_path: &str,
 ) -> String {
     // Get panel URL from environment (SERVER_DOMAIN) or use fallback
     let panel_url = std::env::var("SERVER_DOMAIN")
@@ -339,7 +342,7 @@ fn generate_install_command(
             }
         })
         .unwrap_or_else(|_| "https://panel.example.com".to_string());
-    
+
     format!(
         "curl -sSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh | \\\n  sudo bash -s -- \\\n  --role frontend \\\n  --domain \"{}\" \\\n  --token \"{}\" \\\n  --region \"{}\" \\\n  --panel \"{}\"",
         domain, token, region, panel_url

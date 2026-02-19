@@ -1,6 +1,6 @@
-use sqlx::PgPool;
 use anyhow::Result;
 use chrono::Utc;
+use sqlx::PgPool;
 
 #[derive(Clone)]
 pub struct AnalyticsService {
@@ -23,19 +23,35 @@ impl AnalyticsService {
     }
 
     pub async fn get_system_stats(&self) -> Result<SystemStats> {
-        let active_nodes = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM nodes WHERE status = 'active'")
-            .fetch_one(&self.pool).await.unwrap_or(0);
+        let active_nodes =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM nodes WHERE status = 'active'")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(0);
         let total_users = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users")
-            .fetch_one(&self.pool).await.unwrap_or(0);
-        let active_subs = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM subscriptions WHERE status = 'active'")
-            .fetch_one(&self.pool).await.unwrap_or(0);
-        let revenue_cents = sqlx::query_scalar::<_, i64>("SELECT SUM(total_amount) FROM orders WHERE status = 'completed'")
-            .fetch_one(&self.pool).await.unwrap_or(0);
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0);
+        let active_subs = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM subscriptions WHERE status = 'active'",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .unwrap_or(0);
+        let revenue_cents = sqlx::query_scalar::<_, i64>(
+            "SELECT SUM(total_amount) FROM orders WHERE status = 'completed'",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .unwrap_or(0);
         let total_revenue = revenue_cents as f64 / 100.0;
-        
-        let total_traffic_bytes = sqlx::query_scalar::<_, i64>("SELECT SUM(total_ingress + total_egress) FROM nodes")
-            .fetch_one(&self.pool).await.unwrap_or(0);
-            
+
+        let total_traffic_bytes =
+            sqlx::query_scalar::<_, i64>("SELECT SUM(total_ingress + total_egress) FROM nodes")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(0);
+
         Ok(SystemStats {
             active_nodes,
             total_users,
@@ -62,7 +78,7 @@ impl AnalyticsService {
     /// Track user activity (logins/interactions). Ensures unique DAU count.
     pub async fn track_active_user(pool: &PgPool, user_id: i64) -> Result<()> {
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        
+
         // 1. Insert into unique user_daily_activity to ensure uniqueness
         let res = sqlx::query(
             "INSERT INTO user_daily_activity (user_id, date) VALUES ($1, $2) ON CONFLICT DO NOTHING"
@@ -71,10 +87,10 @@ impl AnalyticsService {
         .bind(&today)
         .execute(pool)
         .await?;
-        
+
         // 2. If inserted (rows_affected > 0), increment aggregate daily_stats
         if res.rows_affected() > 0 {
-             sqlx::query(
+            sqlx::query(
                 "INSERT INTO daily_stats (date, active_users) VALUES ($1, 1) 
                  ON CONFLICT(date) DO UPDATE SET active_users = daily_stats.active_users + 1, updated_at = CURRENT_TIMESTAMP"
             )
@@ -82,10 +98,9 @@ impl AnalyticsService {
             .execute(pool)
             .await?;
         }
-        
+
         Ok(())
     }
-
 
     /// Track revenue (in cents)
     pub async fn track_revenue(pool: &PgPool, amount_cents: i64) -> Result<()> {
@@ -101,7 +116,7 @@ impl AnalyticsService {
         .await?;
         Ok(())
     }
-    
+
     /// Track order count
     pub async fn track_order(pool: &PgPool) -> Result<()> {
         let today = Utc::now().format("%Y-%m-%d").to_string();
@@ -143,7 +158,7 @@ impl AnalyticsService {
              WHERE s.used_traffic > 0
              GROUP BY u.id
              ORDER BY total_traffic DESC
-             LIMIT 10"
+             LIMIT 10",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -160,7 +175,7 @@ impl AnalyticsService {
              LEFT JOIN subscriptions s ON n.id = s.node_id
              WHERE n.status = 'active'
              GROUP BY n.id
-             ORDER BY total_traffic DESC"
+             ORDER BY total_traffic DESC",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -175,7 +190,7 @@ impl AnalyticsService {
                 traffic_used 
              FROM daily_stats 
              ORDER BY date DESC 
-             LIMIT 30"
+             LIMIT 30",
         )
         .fetch_all(&self.pool)
         .await?;

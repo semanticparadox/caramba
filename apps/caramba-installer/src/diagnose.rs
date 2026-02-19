@@ -1,12 +1,17 @@
 use anyhow::Result;
 use console::style;
-use std::process::Command;
 use std::path::Path;
+use std::process::Command;
 
 pub fn run_diagnostics() -> Result<()> {
-    println!("{}", style("\n=== CARAMBA DEEP DIAGNOSTIC TOOL ===").bold().yellow());
+    println!(
+        "{}",
+        style("\n=== CARAMBA DEEP DIAGNOSTIC TOOL ===")
+            .bold()
+            .yellow()
+    );
     println!("Date: {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
-    
+
     // 1. System Checks
     println!("\n{}", style("--- 1. System Checks ---").bold());
     check_command("sing-box");
@@ -42,9 +47,24 @@ pub fn run_diagnostics() -> Result<()> {
     let cert_path = "/etc/sing-box/certs/cert.pem";
     if Path::new(cert_path).exists() {
         println!("Certificate found at {}", cert_path);
-        run_cmd("openssl", &["x509", "-in", cert_path, "-noout", "-subject", "-dates", "-fingerprint"], "");
+        run_cmd(
+            "openssl",
+            &[
+                "x509",
+                "-in",
+                cert_path,
+                "-noout",
+                "-subject",
+                "-dates",
+                "-fingerprint",
+            ],
+            "",
+        );
     } else {
-        println!("{}", style(format!("Certificate missing at {}", cert_path)).red());
+        println!(
+            "{}",
+            style(format!("Certificate missing at {}", cert_path)).red()
+        );
     }
 
     // 6. Config Validation
@@ -52,22 +72,41 @@ pub fn run_diagnostics() -> Result<()> {
     let config_path = "/etc/sing-box/config.json";
     if Path::new(config_path).exists() {
         println!("Checking config syntax...");
-        let status = Command::new("sing-box").args(&["check", "-c", config_path]).status();
+        let status = Command::new("sing-box")
+            .args(&["check", "-c", config_path])
+            .status();
         match status {
             Ok(s) if s.success() => println!("{}", style("Config Valid").green()),
             _ => println!("{}", style("Config Invalid").red()),
         }
     } else {
-        println!("{}", style(format!("Config missing at {}", config_path)).red());
+        println!(
+            "{}",
+            style(format!("Config missing at {}", config_path)).red()
+        );
     }
 
     // 7. Recent Log Errors
     println!("\n{}", style("--- 7. Recent Logs (Errors) ---").bold());
     println!("Checking caramba-panel logs for errors...");
-    run_cmd("bash", &["-c", "journalctl -u caramba-panel -n 50 --no-pager | grep -i error"], "");
-    
+    run_cmd(
+        "bash",
+        &[
+            "-c",
+            "journalctl -u caramba-panel -n 50 --no-pager | grep -i error",
+        ],
+        "",
+    );
+
     println!("Checking caramba-node logs for errors...");
-    run_cmd("bash", &["-c", "journalctl -u caramba-node -n 50 --no-pager | grep -i error"], "");
+    run_cmd(
+        "bash",
+        &[
+            "-c",
+            "journalctl -u caramba-node -n 50 --no-pager | grep -i error",
+        ],
+        "",
+    );
 
     println!("\n{}", style("=== END OF DIAGNOSTICS ===").bold().yellow());
     Ok(())
@@ -75,28 +114,43 @@ pub fn run_diagnostics() -> Result<()> {
 
 fn check_command(cmd: &str) {
     if check_command_silent(cmd) {
-         println!("[{}] Command '{}' found", style("OK").green(), cmd);
+        println!("[{}] Command '{}' found", style("OK").green(), cmd);
     } else {
-         println!("[{}] Command '{}' NOT found", style("FAIL").red(), cmd);
+        println!("[{}] Command '{}' NOT found", style("FAIL").red(), cmd);
     }
 }
 
 fn check_command_silent(cmd: &str) -> bool {
-    Command::new("which").arg(cmd).output().map(|o| o.status.success()).unwrap_or(false)
+    Command::new("which")
+        .arg(cmd)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 fn check_service(service: &str) {
-    let output = Command::new("systemctl").args(&["is-active", service]).output();
+    let output = Command::new("systemctl")
+        .args(&["is-active", service])
+        .output();
     match output {
         Ok(o) => {
             let status = String::from_utf8_lossy(&o.stdout).trim().to_string();
             if status == "active" {
                 println!("[{}] Service '{}' is active", style("OK").green(), service);
             } else {
-                println!("[{}] Service '{}' is {}", style("WARN").yellow(), service, status);
+                println!(
+                    "[{}] Service '{}' is {}",
+                    style("WARN").yellow(),
+                    service,
+                    status
+                );
             }
-        },
-        Err(_) => println!("[{}] Service '{}' check failed", style("FAIL").red(), service),
+        }
+        Err(_) => println!(
+            "[{}] Service '{}' check failed",
+            style("FAIL").red(),
+            service
+        ),
     }
 }
 
@@ -114,7 +168,7 @@ fn run_cmd(cmd: &str, args: &[&str], grep: &str) {
                     }
                 }
             }
-        },
+        }
         Err(e) => println!("Error running {}: {}", cmd, e),
     }
 }

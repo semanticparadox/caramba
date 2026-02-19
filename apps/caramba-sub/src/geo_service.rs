@@ -1,9 +1,9 @@
-use maxminddb::{Reader, geoip2};
-use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
-use std::time::{Instant, Duration};
-use serde::{Serialize, Deserialize};
+use maxminddb::{geoip2, Reader};
 use reqwest;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeoData {
@@ -28,13 +28,13 @@ struct IpApiResponse {
 impl GeoService {
     pub fn new(db_path: Option<&str>) -> Self {
         let reader = if let Some(path) = db_path {
-             match Reader::open_readfile(path) {
-                 Ok(r) => Some(Arc::new(r)),
-                 Err(e) => {
-                     tracing::warn!("Failed to open GeoIP DB at {}: {}", path, e);
-                     None
-                 }
-             }
+            match Reader::open_readfile(path) {
+                Ok(r) => Some(Arc::new(r)),
+                Err(e) => {
+                    tracing::warn!("Failed to open GeoIP DB at {}: {}", path, e);
+                    None
+                }
+            }
         } else {
             None
         };
@@ -62,35 +62,53 @@ impl GeoService {
         if let Some(reader) = &self.reader {
             // Parse IP
             if let Ok(ip_addr) = ip.parse::<std::net::IpAddr>() {
-                 if let Ok(city) = reader.lookup::<geoip2::City>(ip_addr) {
-                     let country = city.country.and_then(|c| c.iso_code).unwrap_or("XX").to_string();
-                     let lat = city.location.as_ref().and_then(|l| l.latitude).unwrap_or(0.0);
-                     let lon = city.location.as_ref().and_then(|l| l.longitude).unwrap_or(0.0);
-                     
-                     let data = GeoData { country_code: country, lat, lon };
-                     
-                     let mut cache = self.cache.lock().unwrap();
-                     cache.insert(ip.to_string(), (data.clone(), Instant::now()));
-                     return Some(data);
-                 }
+                if let Ok(city) = reader.lookup::<geoip2::City>(ip_addr) {
+                    let country = city
+                        .country
+                        .and_then(|c| c.iso_code)
+                        .unwrap_or("XX")
+                        .to_string();
+                    let lat = city
+                        .location
+                        .as_ref()
+                        .and_then(|l| l.latitude)
+                        .unwrap_or(0.0);
+                    let lon = city
+                        .location
+                        .as_ref()
+                        .and_then(|l| l.longitude)
+                        .unwrap_or(0.0);
+
+                    let data = GeoData {
+                        country_code: country,
+                        lat,
+                        lon,
+                    };
+
+                    let mut cache = self.cache.lock().unwrap();
+                    cache.insert(ip.to_string(), (data.clone(), Instant::now()));
+                    return Some(data);
+                }
             }
         }
 
         // 3. Fallback API
-        if ip == "127.0.0.1" || ip == "::1" { return None; }
-        
+        if ip == "127.0.0.1" || ip == "::1" {
+            return None;
+        }
+
         let url = format!("http://ip-api.com/json/{}?fields=countryCode,lat,lon", ip);
         match reqwest::get(&url).await {
             Ok(resp) => {
                 if let Ok(json) = resp.json::<IpApiResponse>().await {
-                     let data = GeoData {
-                         country_code: json.country_code,
-                         lat: json.lat,
-                         lon: json.lon,
-                     };
-                     let mut cache = self.cache.lock().unwrap();
-                     cache.insert(ip.to_string(), (data.clone(), Instant::now()));
-                     return Some(data);
+                    let data = GeoData {
+                        country_code: json.country_code,
+                        lat: json.lat,
+                        lon: json.lon,
+                    };
+                    let mut cache = self.cache.lock().unwrap();
+                    cache.insert(ip.to_string(), (data.clone(), Instant::now()));
+                    return Some(data);
                 }
             }
             Err(e) => tracing::warn!("GeoIP API failed for {}: {}", ip, e),

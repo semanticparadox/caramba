@@ -147,11 +147,7 @@ pub fn resolve_install_config(
         bail!("Database password must not be empty");
     }
 
-    let admin_username = get_or_prompt_text(
-        admin_username,
-        "Admin Username",
-        Some("admin"),
-    );
+    let admin_username = get_or_prompt_text(admin_username, "Admin Username", Some("admin"));
     if admin_username.is_empty() {
         bail!("Admin username must not be empty");
     }

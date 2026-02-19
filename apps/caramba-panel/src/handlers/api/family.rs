@@ -1,12 +1,12 @@
 use axum::{
-    extract::{State, Json},
+    extract::{Json, State},
     response::IntoResponse,
 };
-use serde::{Deserialize, Serialize};
-use tracing::error;
-use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
 use hmac::{Hmac, Mac};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use tracing::error;
 
 use crate::AppState;
 
@@ -19,8 +19,8 @@ struct ClientClaims {
 }
 
 fn sign_legacy_user_id(user_id: i64, secret: &str) -> String {
-    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
-        .expect("HMAC accepts arbitrary key size");
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("HMAC accepts arbitrary key size");
     mac.update(user_id.to_string().as_bytes());
     let signature = hex::encode(mac.finalize().into_bytes());
     format!("{}.{}", user_id, signature)
@@ -59,12 +59,13 @@ async fn resolve_user_id(state: &AppState, headers: &axum::http::HeaderMap) -> O
     ) {
         if token_data.claims.role == "client" {
             if let Ok(tg_id) = token_data.claims.sub.parse::<i64>() {
-                let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
-                    .bind(tg_id)
-                    .fetch_optional(&state.pool)
-                    .await
-                    .ok()
-                    .flatten();
+                let user_id: Option<i64> =
+                    sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+                        .bind(tg_id)
+                        .fetch_optional(&state.pool)
+                        .await
+                        .ok()
+                        .flatten();
                 if user_id.is_some() {
                     return user_id;
                 }
@@ -90,7 +91,7 @@ pub struct InviteResponse {
 
 #[derive(Deserialize)]
 pub struct GenerateInviteRequest {
-    pub max_uses: Option<i32>, // Default 1
+    pub max_uses: Option<i32>,      // Default 1
     pub duration_days: Option<i32>, // Default 7
 }
 
@@ -117,18 +118,25 @@ pub async fn generate_invite(
     let max_uses = payload.max_uses.unwrap_or(1).max(1).min(100); // specific limits
     let duration = payload.duration_days.unwrap_or(7).max(1).min(30);
 
-    match state.store_service.create_family_invite(user_id, max_uses, duration).await {
-        Ok(invite) => {
-             Json(InviteResponse {
-                 code: invite.code,
-                 expires_at: invite.expires_at.to_rfc3339(),
-                 max_uses: invite.max_uses,
-                 used_count: invite.used_count,
-             }).into_response()
-        },
+    match state
+        .store_service
+        .create_family_invite(user_id, max_uses, duration)
+        .await
+    {
+        Ok(invite) => Json(InviteResponse {
+            code: invite.code,
+            expires_at: invite.expires_at.to_rfc3339(),
+            max_uses: invite.max_uses,
+            used_count: invite.used_count,
+        })
+        .into_response(),
         Err(e) => {
             error!("Failed to generate invite: {}", e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to generate invite").into_response()
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to generate invite",
+            )
+                .into_response()
         }
     }
 }
@@ -143,17 +151,23 @@ pub async fn redeem_invite(
         None => return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response(),
     };
 
-    match state.store_service.redeem_family_invite(user_id, &payload.code).await {
-        Ok(_) => {
-            (axum::http::StatusCode::OK, "Successfully joined family").into_response()
-        },
+    match state
+        .store_service
+        .redeem_family_invite(user_id, &payload.code)
+        .await
+    {
+        Ok(_) => (axum::http::StatusCode::OK, "Successfully joined family").into_response(),
         Err(e) => {
             let err_msg = e.to_string();
             if err_msg.contains("Invalid or expired") || err_msg.contains("already") {
                 return (axum::http::StatusCode::BAD_REQUEST, err_msg).into_response();
             }
             error!("Failed to redeem invite: {}", e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to redeem invite").into_response()
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to redeem invite",
+            )
+                .into_response()
         }
     }
 }

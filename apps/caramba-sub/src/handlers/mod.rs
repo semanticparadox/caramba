@@ -1,4 +1,4 @@
-pub mod health;
-pub mod subscription;
 pub mod app;
+pub mod health;
 pub mod proxy;
+pub mod subscription;

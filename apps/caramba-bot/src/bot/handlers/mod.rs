@@ -1,3 +1,3 @@
-pub mod command;
 pub mod callback;
+pub mod command;
 pub mod payment;
