@@ -411,24 +411,47 @@ function copyLink(){{
     };
 
     // Fetch and filter nodes (Refactored Phase 1.8: Use Plan Groups)
-    let nodes_raw = match state.store_service.get_user_nodes(sub.user_id).await {
-        Ok(nodes) => nodes,
-        Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response(),
+    // Fallback to all active nodes if plan bindings are temporarily missing.
+    let mut nodes_raw = match state.store_service.get_user_nodes(sub.user_id).await {
+        Ok(nodes) if !nodes.is_empty() => nodes,
+        Ok(_) => match state.store_service.get_active_nodes().await {
+            Ok(nodes) => nodes,
+            Err(_) => {
+                return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response();
+            }
+        },
+        Err(_) => match state.store_service.get_active_nodes().await {
+            Ok(nodes) => nodes,
+            Err(_) => {
+                return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response();
+            }
+        },
     };
 
-    let filtered_nodes = if let Some(nid) = params.node_id {
+    if nodes_raw.is_empty() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response();
+    }
+
+    let mut filtered_nodes = if let Some(nid) = params.node_id {
         nodes_raw
-            .into_iter()
+            .iter()
             .filter(|n| n.id == nid)
+            .cloned()
             .collect::<Vec<_>>()
     } else if let Some(pinned_id) = sub.node_id {
         nodes_raw
-            .into_iter()
+            .iter()
             .filter(|n| n.id == pinned_id)
+            .cloned()
             .collect::<Vec<_>>()
     } else {
-        nodes_raw
+        nodes_raw.clone()
     };
+
+    // If subscription has stale pinned node (deleted/disabled), fall back to full set.
+    if filtered_nodes.is_empty() && params.node_id.is_none() {
+        filtered_nodes = std::mem::take(&mut nodes_raw);
+    }
 
     if filtered_nodes.is_empty() {
         return (StatusCode::NOT_FOUND, "Requested server not found").into_response();

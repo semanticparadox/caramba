@@ -593,7 +593,16 @@ impl SubscriptionService {
 
                 let node_sni = node_reality_sni.filter(|s| !Self::is_placeholder_sni(s));
                 let port = inbound.listen_port;
-                let remark = format!("{}-{} ({})", node_name, inbound.node_id, inbound.tag);
+                let protocol_label = inbound.protocol.to_lowercase();
+                let transport_label = if network.trim().is_empty() {
+                    "tcp".to_string()
+                } else {
+                    network.to_lowercase()
+                };
+                let remark = format!(
+                    "{}-{} ({}/{})",
+                    node_name, inbound.node_id, protocol_label, transport_label
+                );
                 let encoded_remark = urlencoding::encode(&remark).to_string();
 
                 match inbound.protocol.as_str() {
