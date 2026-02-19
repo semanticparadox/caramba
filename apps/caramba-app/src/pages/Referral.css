@@ -34,6 +34,7 @@
 .referral-stats {
     display: flex;
     justify-content: center;
+    gap: var(--space-lg);
 }
 
 .ref-stat {
@@ -75,6 +76,59 @@
     text-align: center;
 }
 
+.invite-row {
+    display: flex;
+    gap: var(--space-sm);
+}
+
+.invite-row input {
+    flex: 1;
+}
+
+.invite-row .btn-secondary {
+    min-width: 72px;
+}
+
 .btn-primary.copied {
     background: var(--accent-gradient-green);
+}
+
+.btn-secondary.copied {
+    border-color: rgba(16, 185, 129, 0.35);
+    color: #34d399;
+}
+
+.referral-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.referral-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+}
+
+.referral-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.referral-meta {
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--text-tertiary);
+}
+
+.referral-earned {
+    font-size: 13px;
+    font-weight: 700;
+    color: #34d399;
 }

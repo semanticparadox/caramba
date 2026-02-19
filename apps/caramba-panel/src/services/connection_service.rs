@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use std::collections::{HashMap, HashSet};
+use std::net::IpAddr;
 use std::sync::Arc;
 use tokio::time;
 use tracing::{error, info, warn};
@@ -153,6 +154,9 @@ impl ConnectionService {
                         }
 
                         if let Some(sub_id) = sub_id_opt {
+                            if should_skip_source_ip(&conn.metadata.source_ip, &node.ip) {
+                                continue;
+                            }
                             subscription_ips
                                 .entry(sub_id)
                                 .or_insert_with(HashSet::new)
@@ -316,6 +320,25 @@ fn extract_uuid_from_chain(conn: &ClashConnection) -> Option<String> {
         }
     }
     None
+}
+
+fn should_skip_source_ip(source_ip: &str, node_ip: &str) -> bool {
+    let source = source_ip.trim();
+    let node = node_ip.trim();
+
+    if source.is_empty() || source == "0.0.0.0" || source == "::" {
+        return true;
+    }
+
+    if !node.is_empty() && source == node {
+        return true;
+    }
+
+    if let Ok(ip) = source.parse::<IpAddr>() {
+        return ip.is_loopback() || ip.is_unspecified();
+    }
+
+    false
 }
 
 /// Simple UUID validation (format check only)

@@ -305,10 +305,14 @@ impl SubscriptionService {
                 COALESCE(s.status, 'pending') as status,
                 0::bigint as price, 
                 COALESCE(
-                    (SELECT COUNT(DISTINCT client_ip) 
-                     FROM subscription_ip_tracking 
-                     WHERE subscription_id = s.id 
-                     AND last_seen_at > CURRENT_TIMESTAMP - interval '15 minutes'),
+                    (SELECT COUNT(DISTINCT sip.client_ip)
+                     FROM subscription_ip_tracking sip
+                     WHERE sip.subscription_id = s.id
+                     AND sip.last_seen_at > CURRENT_TIMESTAMP - interval '15 minutes'
+                     AND sip.client_ip <> '0.0.0.0'
+                     AND NOT EXISTS (
+                        SELECT 1 FROM nodes n WHERE n.ip = sip.client_ip
+                     )),
                     0
                 )::bigint as active_devices,
                 COALESCE(p.device_limit, 0)::bigint as device_limit
@@ -818,7 +822,13 @@ impl SubscriptionService {
     ) -> Result<Vec<SubscriptionIpTracking>> {
         let cutoff = Utc::now() - Duration::minutes(15);
         sqlx::query_as::<_, SubscriptionIpTracking>(
-            "SELECT * FROM subscription_ip_tracking WHERE subscription_id = $1 AND last_seen_at > $2 ORDER BY last_seen_at DESC"
+            "SELECT sip.*
+             FROM subscription_ip_tracking sip
+             WHERE sip.subscription_id = $1
+               AND sip.last_seen_at > $2
+               AND sip.client_ip <> '0.0.0.0'
+               AND NOT EXISTS (SELECT 1 FROM nodes n WHERE n.ip = sip.client_ip)
+             ORDER BY sip.last_seen_at DESC",
         )
         .bind(subscription_id)
         .bind(cutoff)
@@ -935,11 +945,27 @@ impl SubscriptionService {
         ip: &str,
         user_agent: Option<&str>,
     ) -> Result<()> {
+        let normalized_ip = ip.trim();
+        if normalized_ip.is_empty() || normalized_ip == "0.0.0.0" || normalized_ip == "::" {
+            return Ok(());
+        }
+
+        let is_node_ip: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM nodes WHERE ip = $1)")
+                .bind(normalized_ip)
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(false);
+        if is_node_ip {
+            // Ignore self/infra requests so they don't pollute device accounting.
+            return Ok(());
+        }
+
         sqlx::query(
             "UPDATE subscriptions SET last_sub_access = $1, last_access_ip = $2, last_access_ua = $3 WHERE id = $4"
         )
         .bind(Utc::now())
-        .bind(ip)
+        .bind(normalized_ip)
         .bind(user_agent)
         .bind(sub_id)
         .execute(&self.pool)
@@ -954,7 +980,7 @@ impl SubscriptionService {
              ON CONFLICT(subscription_id, client_ip) DO UPDATE SET last_seen_at = CURRENT_TIMESTAMP, user_agent = excluded.user_agent"
         )
         .bind(sub_id)
-        .bind(ip)
+        .bind(normalized_ip)
         .bind(device_name)
         .execute(&self.pool)
         .await?;

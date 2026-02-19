@@ -462,6 +462,64 @@ async fn get_user_subscriptions(
 
     let base_url = resolve_subscription_base_url(&state).await;
 
+    let sub_ids: Vec<i64> = subs.iter().map(|s| s.sub.id).collect();
+    let mut active_devices_by_sub: HashMap<i64, i64> = HashMap::new();
+    if !sub_ids.is_empty() {
+        let rows = sqlx::query_as::<_, (i64, i64)>(
+            r#"
+            SELECT
+                sip.subscription_id,
+                COUNT(DISTINCT sip.client_ip)::BIGINT AS active_devices
+            FROM subscription_ip_tracking sip
+            WHERE sip.subscription_id = ANY($1)
+              AND sip.last_seen_at > CURRENT_TIMESTAMP - interval '15 minutes'
+              AND sip.client_ip <> '0.0.0.0'
+              AND NOT EXISTS (SELECT 1 FROM nodes n WHERE n.ip = sip.client_ip)
+            GROUP BY sip.subscription_id
+            "#,
+        )
+        .bind(&sub_ids)
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+
+        for (sub_id, active_devices) in rows {
+            active_devices_by_sub.insert(sub_id, active_devices);
+        }
+    }
+
+    let plan_ids: Vec<i64> = subs.iter().map(|s| s.sub.plan_id).collect();
+    let mut device_limits_by_plan: HashMap<i64, i64> = HashMap::new();
+    if !plan_ids.is_empty() {
+        let rows = sqlx::query_as::<_, (i64, i64)>(
+            "SELECT id, COALESCE(device_limit, 0)::BIGINT FROM plans WHERE id = ANY($1)",
+        )
+        .bind(&plan_ids)
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+
+        for (plan_id, device_limit) in rows {
+            device_limits_by_plan.insert(plan_id, device_limit);
+        }
+    }
+
+    let node_ids: Vec<i64> = subs.iter().filter_map(|s| s.sub.node_id).collect();
+    let mut node_by_id: HashMap<i64, (String, Option<String>)> = HashMap::new();
+    if !node_ids.is_empty() {
+        let rows = sqlx::query_as::<_, (i64, String, Option<String>)>(
+            "SELECT id, name, flag FROM nodes WHERE id = ANY($1)",
+        )
+        .bind(&node_ids)
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+
+        for (node_id, node_name, node_flag) in rows {
+            node_by_id.insert(node_id, (node_name, node_flag));
+        }
+    }
+
     let mut result: Vec<serde_json::Value> = Vec::with_capacity(subs.len());
     for s in &subs {
         let all_links = match state
@@ -488,6 +546,17 @@ async fn get_user_subscriptions(
         let sub_url = format!("{}/sub/{}", base_url, s.sub.subscription_uuid);
         let days_left = (s.sub.expires_at - chrono::Utc::now()).num_days().max(0);
         let duration_days = (s.sub.expires_at - s.sub.created_at).num_days();
+        let active_devices = active_devices_by_sub.get(&s.sub.id).copied().unwrap_or(0);
+        let device_limit = device_limits_by_plan
+            .get(&s.sub.plan_id)
+            .copied()
+            .unwrap_or(0);
+        let (last_node_name, last_node_flag) = s
+            .sub
+            .node_id
+            .and_then(|node_id| node_by_id.get(&node_id).cloned())
+            .map(|(name, flag)| (Some(name), flag))
+            .unwrap_or((None, None));
 
         result.push(serde_json::json!({
             "id": s.sub.id,
@@ -505,6 +574,12 @@ async fn get_user_subscriptions(
             "auto_renew": s.sub.auto_renew.unwrap_or(false),
             "is_trial": s.sub.is_trial.unwrap_or(false),
             "subscription_uuid": s.sub.subscription_uuid,
+            "active_devices": active_devices,
+            "device_limit": device_limit,
+            "last_node_id": s.sub.node_id,
+            "last_node_name": last_node_name,
+            "last_node_flag": last_node_flag,
+            "last_sub_access": s.sub.last_sub_access.as_ref().map(|dt| dt.to_rfc3339()),
             "subscription_url": sub_url,
             "vless_links": vless_links,
             "primary_vless_link": primary_vless_link,
@@ -814,6 +889,18 @@ async fn get_user_referrals(
         referral_code: String,
         referred_count: i64,
         referral_link: String,
+        total_earned_cents: i64,
+        total_earned_usd: f64,
+        referrals: Vec<ReferralEntry>,
+    }
+
+    #[derive(Serialize)]
+    struct ReferralEntry {
+        id: i64,
+        username: Option<String>,
+        full_name: Option<String>,
+        joined_at: String,
+        total_earned_cents: i64,
     }
 
     let user_info: Option<(i64, String)> =
@@ -828,6 +915,12 @@ async fn get_user_referrals(
         let count = ReferralService::get_referral_count(&state.pool, user_id)
             .await
             .unwrap_or(0);
+        let total_earned_cents = ReferralService::get_user_referral_earnings(&state.pool, user_id)
+            .await
+            .unwrap_or(0);
+        let referrals_raw = ReferralService::get_user_referrals(&state.pool, user_id)
+            .await
+            .unwrap_or_default();
 
         let bot_username = state.settings.get_or_default("bot_username", "").await;
         let bot_username = bot_username.trim().trim_start_matches('@').to_string();
@@ -837,10 +930,24 @@ async fn get_user_referrals(
             format!("https://t.me/{}?start={}", bot_username, code)
         };
 
+        let referrals = referrals_raw
+            .into_iter()
+            .map(|r| ReferralEntry {
+                id: r.id,
+                username: r.username,
+                full_name: r.full_name,
+                joined_at: r.created_at.to_rfc3339(),
+                total_earned_cents: r.total_earned,
+            })
+            .collect::<Vec<_>>();
+
         Json(ReferralStats {
             referral_code: code,
             referred_count: count,
             referral_link: link,
+            total_earned_cents,
+            total_earned_usd: total_earned_cents as f64 / 100.0,
+            referrals,
         })
         .into_response()
     } else {

@@ -1,6 +1,7 @@
 use caramba_shared::api::{HeartbeatRequest, HeartbeatResponse};
 use caramba_shared::config::ConfigResponse;
 use clap::Parser;
+use std::collections::HashSet;
 use std::path::Path;
 use std::time::Duration;
 use sysinfo::System;
@@ -757,7 +758,7 @@ async fn collect_telemetry(
         None
     };
 
-    let connections = count_active_connections();
+    let connections = count_active_connections(client).await;
 
     let max_ram = Some(sys.total_memory());
     let cpu_cores = Some(sys.cpus().len() as i32);
@@ -774,18 +775,58 @@ async fn collect_telemetry(
     )
 }
 
-fn count_active_connections() -> Option<u32> {
-    // count_active_connections now filters for sing-box
-    // Try using `ss` (Socket Statistics) - Linux standard
-    // ss -t -n -p state established
-    // We want to count lines containing "sing-box"
+async fn count_active_connections(client: &reqwest::Client) -> Option<u32> {
+    // Primary source of truth: sing-box clash-api active connections.
+    // Count unique logical users first, fallback to source IP when user tag is absent.
+    if let Ok(resp) = client
+        .get("http://127.0.0.1:9090/connections")
+        .timeout(Duration::from_secs(2))
+        .send()
+        .await
+    {
+        if resp.status().is_success() {
+            if let Ok(value) = resp.json::<serde_json::Value>().await {
+                if let Some(items) = value.get("connections").and_then(|v| v.as_array()) {
+                    let mut unique = HashSet::new();
+                    for item in items {
+                        let user = item
+                            .pointer("/metadata/user")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .trim()
+                            .to_string();
+                        if user.starts_with("user_") {
+                            unique.insert(user);
+                            continue;
+                        }
+
+                        let source_ip = item
+                            .pointer("/metadata/sourceIP")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .trim();
+                        if !source_ip.is_empty()
+                            && source_ip != "0.0.0.0"
+                            && source_ip != "::"
+                            && source_ip != "127.0.0.1"
+                            && source_ip != "::1"
+                        {
+                            unique.insert(source_ip.to_string());
+                        }
+                    }
+                    return Some(unique.len() as u32);
+                }
+            }
+        }
+    }
+
+    // Fallback: legacy estimate by counting established sing-box sockets.
     if let Ok(output) = std::process::Command::new("ss")
-        .args(&["-t", "-n", "-p", "state", "established"])
+        .args(["-t", "-n", "-p", "state", "established"])
         .output()
     {
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            // Count lines containing "sing-box"
             let count = stdout
                 .lines()
                 .filter(|line| line.contains("\"sing-box\"") || line.contains("sing-box"))
@@ -794,11 +835,6 @@ fn count_active_connections() -> Option<u32> {
         }
     }
 
-    // Fallback: Read /proc/net/tcp (More robust if ss missing)
-    // But harder to filter by process without scanning /proc/pid/fd
-    // For now, if ss fails, we return 0 or None to avoid "4" fallback
-    // Or just return total count but warn it's inaccurate?
-    // Let's return None to indicate "Can't determine VPN users"
     None
 }
 

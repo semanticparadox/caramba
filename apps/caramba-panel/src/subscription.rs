@@ -457,6 +457,16 @@ function copyLink(){{
         return (StatusCode::NOT_FOUND, "Requested server not found").into_response();
     }
 
+    // Persist last explicitly selected node so UI/miniapp can show where the user last pulled config from.
+    if let Some(selected_node_id) = params.node_id {
+        if filtered_nodes.iter().any(|n| n.id == selected_node_id) {
+            let _ = state
+                .subscription_service
+                .update_subscription_node(sub.id, Some(selected_node_id))
+                .await;
+        }
+    }
+
     let node_infos = match state
         .subscription_service
         .get_node_infos_with_relays(&filtered_nodes)

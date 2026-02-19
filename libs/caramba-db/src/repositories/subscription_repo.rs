@@ -2,6 +2,7 @@ use crate::models::store::{Subscription, SubscriptionWithDetails};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
 pub struct SubscriptionRepository {
@@ -306,17 +307,41 @@ impl SubscriptionRepository {
     pub async fn update_ips(&self, sub_id: i64, ips: Vec<String>) -> Result<()> {
         let mut tx = self.pool.begin().await?;
 
-        sqlx::query("DELETE FROM subscription_ip_tracking WHERE subscription_id = $1")
+        // Remove invalid/self-referential rows that should never be counted as client devices.
+        sqlx::query(
+            "DELETE FROM subscription_ip_tracking
+             WHERE subscription_id = $1
+               AND (
+                    client_ip = ''
+                    OR client_ip = '0.0.0.0'
+                    OR EXISTS (SELECT 1 FROM nodes n WHERE n.ip = subscription_ip_tracking.client_ip)
+               )",
+        )
             .bind(sub_id)
             .execute(&mut *tx)
             .await?;
 
-        for ip in ips {
-            sqlx::query("INSERT INTO subscription_ip_tracking (subscription_id, client_ip, last_seen_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING")
-                .bind(sub_id)
-                .bind(ip)
-                .execute(&mut *tx)
-                .await?;
+        let mut dedup = HashSet::new();
+        for ip in ips
+            .into_iter()
+            .map(|ip| ip.trim().to_string())
+            .filter(|ip| !ip.is_empty() && ip != "0.0.0.0")
+        {
+            if !dedup.insert(ip.clone()) {
+                continue;
+            }
+
+            sqlx::query(
+                "INSERT INTO subscription_ip_tracking (subscription_id, client_ip, last_seen_at)
+                 SELECT $1, $2, CURRENT_TIMESTAMP
+                 WHERE NOT EXISTS (SELECT 1 FROM nodes n WHERE n.ip = $2)
+                 ON CONFLICT (subscription_id, client_ip)
+                 DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at",
+            )
+            .bind(sub_id)
+            .bind(ip)
+            .execute(&mut *tx)
+            .await?;
         }
 
         tx.commit().await?;

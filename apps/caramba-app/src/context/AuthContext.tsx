@@ -28,6 +28,12 @@ export interface UserSubscription {
     auto_renew: boolean;
     is_trial: boolean;
     subscription_uuid: string;
+    active_devices?: number;
+    device_limit?: number;
+    last_node_id?: number | null;
+    last_node_name?: string | null;
+    last_node_flag?: string | null;
+    last_sub_access?: string | null;
     subscription_url: string;
     primary_vless_link?: string | null;
     vless_links?: string[];

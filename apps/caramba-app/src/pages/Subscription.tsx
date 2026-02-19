@@ -9,6 +9,13 @@ function formatTraffic(gb: number): string {
     return `${gb} GB`;
 }
 
+function formatDateTime(value?: string | null): string {
+    if (!value) return '—';
+    const ts = new Date(value);
+    if (Number.isNaN(ts.getTime())) return value;
+    return ts.toLocaleString();
+}
+
 export default function Subscription() {
     const { subscriptions, isLoading, refreshData, token } = useAuth();
     const navigate = useNavigate();
@@ -156,6 +163,21 @@ export default function Subscription() {
                                     📝 {sub.note}
                                 </div>
                             )}
+
+                            <div className="sub-extra-row">
+                                <span>
+                                    📱 Devices: {sub.active_devices ?? 0}/{(sub.device_limit ?? 0) > 0 ? sub.device_limit : '∞'}
+                                </span>
+                                {sub.last_node_name && (
+                                    <span>
+                                        🌍 Last node: {sub.last_node_flag ? `${sub.last_node_flag} ` : ''}{sub.last_node_name}
+                                        {sub.last_node_id ? ` (#${sub.last_node_id})` : ''}
+                                    </span>
+                                )}
+                            </div>
+                            <div className="sub-extra-row">
+                                <span>🕒 Last config pull: {formatDateTime(sub.last_sub_access)}</span>
+                            </div>
 
                             {/* Actions Row */}
                             {sub.status === 'active' && (

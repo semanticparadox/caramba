@@ -205,6 +205,14 @@
                                         No direct VLESS link yet. Check plan bindings and node inbounds.
                                     </div>
                                     {% endif %}
+                                    <div class="text-[10px] text-slate-500 space-y-0.5">
+                                        {% if let Some(last_node) = sub.last_node_label %}
+                                        <div>Last node: <span class="text-slate-300">{{ last_node }}</span></div>
+                                        {% endif %}
+                                        {% if let Some(last_access) = sub.last_sub_access_label %}
+                                        <div>Last config pull: <span class="text-slate-300">{{ last_access }}</span></div>
+                                        {% endif %}
+                                    </div>
                                 </div>
                             </td>
                             <td class="px-6 py-4">

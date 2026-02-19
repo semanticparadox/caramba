@@ -69,6 +69,8 @@ pub struct AdminSubscriptionView {
     pub subscription_url: String,
     pub primary_vless_link: Option<String>,
     pub vless_links_count: usize,
+    pub last_node_label: Option<String>,
+    pub last_sub_access_label: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -243,13 +245,49 @@ pub async fn get_user_details(
 
     let mut subscriptions = Vec::with_capacity(raw_subscriptions.len());
     for sub in raw_subscriptions {
-        let sub_uuid = match state.subscription_service.get_by_id(sub.id).await {
-            Ok(Some(full)) => full.subscription_uuid,
-            Ok(None) => format!("legacy-{}", sub.id),
+        let full_sub = match state.subscription_service.get_by_id(sub.id).await {
+            Ok(Some(full)) => Some(full),
+            Ok(None) => None,
             Err(e) => {
                 error!("Failed to fetch full subscription {}: {}", sub.id, e);
-                format!("legacy-{}", sub.id)
+                None
             }
+        };
+        let sub_uuid = full_sub
+            .as_ref()
+            .map(|full| full.subscription_uuid.clone())
+            .unwrap_or_else(|| format!("legacy-{}", sub.id));
+
+        let last_sub_access_label = full_sub.as_ref().and_then(|full| {
+            full.last_sub_access
+                .as_ref()
+                .map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string())
+        });
+
+        let last_node_label = if let Some(node_id) = full_sub.as_ref().and_then(|full| full.node_id)
+        {
+            match sqlx::query_as::<_, (String, Option<String>)>(
+                "SELECT name, flag FROM nodes WHERE id = $1",
+            )
+            .bind(node_id)
+            .fetch_optional(&state.pool)
+            .await
+            {
+                Ok(Some((name, flag))) => Some(match flag {
+                    Some(f) if !f.trim().is_empty() => format!("{} {} (#{})", f, name, node_id),
+                    _ => format!("{} (#{})", name, node_id),
+                }),
+                Ok(None) => Some(format!("#{}", node_id)),
+                Err(e) => {
+                    error!(
+                        "Failed to resolve node label for subscription {} node {}: {}",
+                        sub.id, node_id, e
+                    );
+                    Some(format!("#{}", node_id))
+                }
+            }
+        } else {
+            None
         };
 
         let direct_links = match state
@@ -284,6 +322,8 @@ pub async fn get_user_details(
             subscription_url: format!("{}/sub/{}", base_url, sub_uuid),
             primary_vless_link,
             vless_links_count: vless_links.len(),
+            last_node_label,
+            last_sub_access_label,
         });
     }
 
