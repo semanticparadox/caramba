@@ -10,12 +10,13 @@ use axum::{
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::env;
 use tracing::{error, info};
 
 use super::auth::{get_auth_user, is_authenticated};
 use crate::AppState;
 use crate::services::logging_service::LoggingService;
-use caramba_db::models::store::{Plan, SubscriptionWithPlan, User};
+use caramba_db::models::store::{Plan, User};
 
 // ============================================================================
 // Templates
@@ -36,7 +37,7 @@ pub struct UsersTemplate {
 #[template(path = "user_details.html")]
 pub struct UserDetailsTemplate {
     pub user: User,
-    pub subscriptions: Vec<SubscriptionWithPlan>,
+    pub subscriptions: Vec<AdminSubscriptionView>,
     pub orders: Vec<UserOrderDisplay>,
     pub referrals: Vec<caramba_db::models::store::DetailedReferral>,
     pub total_referral_earnings: String,
@@ -53,6 +54,21 @@ pub struct UserOrderDisplay {
     pub total_amount: String,
     pub status: String,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AdminSubscriptionView {
+    pub id: i64,
+    pub plan_name: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub status: String,
+    pub price: i64,
+    pub active_devices: i64,
+    pub device_limit: i64,
+    pub subscription_url: String,
+    pub primary_vless_link: Option<String>,
+    pub vless_links_count: usize,
 }
 
 #[derive(Deserialize)]
@@ -191,7 +207,7 @@ pub async fn get_user_details(
         None => return (axum::http::StatusCode::NOT_FOUND, "User not found").into_response(),
     };
 
-    let subscriptions = match state
+    let raw_subscriptions = match state
         .subscription_service
         .get_subscriptions_with_details_for_admin(id)
         .await
@@ -206,6 +222,70 @@ pub async fn get_user_details(
                 .into_response();
         }
     };
+
+    let sub_domain = state
+        .settings
+        .get_or_default("subscription_domain", "")
+        .await;
+    let panel_url = state.settings.get_or_default("panel_url", "").await;
+    let base_domain = if !sub_domain.is_empty() {
+        sub_domain
+    } else if !panel_url.is_empty() {
+        panel_url
+    } else {
+        env::var("PANEL_URL").unwrap_or_else(|_| "localhost".to_string())
+    };
+    let base_url = if base_domain.starts_with("http") {
+        base_domain
+    } else {
+        format!("https://{}", base_domain)
+    };
+
+    let mut subscriptions = Vec::with_capacity(raw_subscriptions.len());
+    for sub in raw_subscriptions {
+        let sub_uuid = match state.subscription_service.get_by_id(sub.id).await {
+            Ok(Some(full)) => full.subscription_uuid,
+            Ok(None) => format!("legacy-{}", sub.id),
+            Err(e) => {
+                error!("Failed to fetch full subscription {}: {}", sub.id, e);
+                format!("legacy-{}", sub.id)
+            }
+        };
+
+        let direct_links = match state
+            .subscription_service
+            .get_subscription_links(sub.id)
+            .await
+        {
+            Ok(links) => links,
+            Err(e) => {
+                error!(
+                    "Failed to fetch direct connection links for sub {}: {}",
+                    sub.id, e
+                );
+                Vec::new()
+            }
+        };
+        let vless_links: Vec<String> = direct_links
+            .into_iter()
+            .filter(|link| link.starts_with("vless://"))
+            .collect();
+        let primary_vless_link = vless_links.first().cloned();
+
+        subscriptions.push(AdminSubscriptionView {
+            id: sub.id,
+            plan_name: sub.plan_name,
+            expires_at: sub.expires_at,
+            created_at: sub.created_at,
+            status: sub.status,
+            price: sub.price,
+            active_devices: sub.active_devices,
+            device_limit: sub.device_limit,
+            subscription_url: format!("{}/sub/{}", base_url, sub_uuid),
+            primary_vless_link,
+            vless_links_count: vless_links.len(),
+        });
+    }
 
     let db_orders = state
         .billing_service

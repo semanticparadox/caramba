@@ -10,15 +10,57 @@ function formatTraffic(gb: number): string {
 }
 
 export default function Subscription() {
-    const { subscriptions, isLoading } = useAuth();
+    const { subscriptions, isLoading, refreshData, token } = useAuth();
     const navigate = useNavigate();
     const [expandedId, setExpandedId] = useState<number | null>(null);
     const [copied, setCopied] = useState<number | null>(null);
+    const [copiedVless, setCopiedVless] = useState<number | null>(null);
+    const [activatingId, setActivatingId] = useState<number | null>(null);
+    const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
     const handleCopy = (sub: UserSubscription) => {
         navigator.clipboard.writeText(sub.subscription_url);
         setCopied(sub.id);
         setTimeout(() => setCopied(null), 2000);
+    };
+
+    const handleCopyVless = (sub: UserSubscription) => {
+        if (!sub.primary_vless_link) return;
+        navigator.clipboard.writeText(sub.primary_vless_link);
+        setCopiedVless(sub.id);
+        setTimeout(() => setCopiedVless(null), 2000);
+    };
+
+    const handleActivate = async (subId: number) => {
+        if (!token) return;
+
+        setActivatingId(subId);
+        setMessage(null);
+        try {
+            const res = await fetch(`/api/client/subscription/${subId}/activate`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                setMessage({
+                    type: 'success',
+                    text: data?.message || 'Subscription activated successfully.',
+                });
+                await refreshData();
+                setExpandedId(subId);
+            } else {
+                const err = await res.text();
+                setMessage({ type: 'error', text: err || 'Failed to activate subscription.' });
+            }
+        } catch {
+            setMessage({ type: 'error', text: 'Network error while activating subscription.' });
+        } finally {
+            setActivatingId(null);
+        }
     };
 
     const toggleExpand = (id: number) => {
@@ -44,6 +86,12 @@ export default function Subscription() {
                     <span className="badge badge-success">{subscriptions.filter(s => s.status === 'active').length} active</span>
                 )}
             </header>
+
+            {message && (
+                <div className={`purchase-msg ${message.type}`}>
+                    {message.text}
+                </div>
+            )}
 
             {sorted.length === 0 ? (
                 <div className="empty-state">
@@ -120,6 +168,20 @@ export default function Subscription() {
                                     </button>
                                 </div>
                             )}
+                            {sub.status === 'pending' && (
+                                <div className="sub-actions">
+                                    <button
+                                        className="btn-text"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleActivate(sub.id);
+                                        }}
+                                        disabled={activatingId !== null}
+                                    >
+                                        {activatingId === sub.id ? '⏳ Activating...' : '✅ Activate Now'}
+                                    </button>
+                                </div>
+                            )}
 
                             {/* Expanded: QR + Link */}
                             {expandedId === sub.id && sub.status === 'active' && (
@@ -145,6 +207,18 @@ export default function Subscription() {
                                             {copied === sub.id ? '✓' : '📋'}
                                         </button>
                                     </div>
+
+                                    {sub.primary_vless_link && (
+                                        <div className="link-row">
+                                            <input type="text" readOnly value={sub.primary_vless_link} onClick={e => e.currentTarget.select()} />
+                                            <button
+                                                className={`btn-secondary copy-btn ${copiedVless === sub.id ? 'copied' : ''}`}
+                                                onClick={() => handleCopyVless(sub)}
+                                            >
+                                                {copiedVless === sub.id ? '✓' : 'VLESS'}
+                                            </button>
+                                        </div>
+                                    )}
 
                                     {sub.is_trial && (
                                         <div className="badge badge-warning trial-badge">Free Trial</div>

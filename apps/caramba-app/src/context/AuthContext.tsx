@@ -29,6 +29,8 @@ export interface UserSubscription {
     is_trial: boolean;
     subscription_uuid: string;
     subscription_url: string;
+    primary_vless_link?: string | null;
+    vless_links?: string[];
 }
 
 interface User {

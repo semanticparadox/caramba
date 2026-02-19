@@ -14,6 +14,7 @@ use sha2::Sha256;
 use sqlx::Row;
 use std::collections::HashMap;
 use std::env;
+use tracing::warn;
 
 #[derive(Deserialize)]
 pub struct InitDataRequest {
@@ -170,6 +171,34 @@ pub fn routes(state: AppState) -> Router<AppState> {
         .route(
             "/subscription/{id}/server",
             post(pin_subscription_node).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/subscription/{id}/activate",
+            post(activate_subscription).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/subscription/{id}/links",
+            get(get_subscription_links_for_user).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/promo/redeem",
+            post(redeem_promo_code).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/user/referrer",
+            post(set_referrer_code).layer(middleware::from_fn_with_state(
                 state.clone(),
                 auth_middleware,
             )),
@@ -431,7 +460,61 @@ async fn get_user_subscriptions(
         }
     };
 
-    // Build subscription URL base
+    let base_url = resolve_subscription_base_url(&state).await;
+
+    let mut result: Vec<serde_json::Value> = Vec::with_capacity(subs.len());
+    for s in &subs {
+        let all_links = match state
+            .subscription_service
+            .get_subscription_links(s.sub.id)
+            .await
+        {
+            Ok(links) => links,
+            Err(err) => {
+                warn!(
+                    "Failed to build direct links for subscription {}: {}",
+                    s.sub.id, err
+                );
+                Vec::new()
+            }
+        };
+        let vless_links: Vec<String> = all_links
+            .into_iter()
+            .filter(|link| link.starts_with("vless://"))
+            .collect();
+        let primary_vless_link = vless_links.first().cloned();
+        let used_gb = s.sub.used_traffic as f64 / 1024.0 / 1024.0 / 1024.0;
+        let traffic_limit_gb = s.traffic_limit_gb.unwrap_or(0);
+        let sub_url = format!("{}/sub/{}", base_url, s.sub.subscription_uuid);
+        let days_left = (s.sub.expires_at - chrono::Utc::now()).num_days().max(0);
+        let duration_days = (s.sub.expires_at - s.sub.created_at).num_days();
+
+        result.push(serde_json::json!({
+            "id": s.sub.id,
+            "plan_name": s.plan_name,
+            "plan_description": s.plan_description,
+            "status": s.sub.status,
+            "used_traffic_bytes": s.sub.used_traffic,
+            "used_traffic_gb": format!("{:.2}", used_gb),
+            "traffic_limit_gb": traffic_limit_gb,
+            "expires_at": s.sub.expires_at.to_rfc3339(),
+            "created_at": s.sub.created_at.to_rfc3339(),
+            "days_left": days_left,
+            "duration_days": duration_days,
+            "note": s.sub.note,
+            "auto_renew": s.sub.auto_renew.unwrap_or(false),
+            "is_trial": s.sub.is_trial.unwrap_or(false),
+            "subscription_uuid": s.sub.subscription_uuid,
+            "subscription_url": sub_url,
+            "vless_links": vless_links,
+            "primary_vless_link": primary_vless_link,
+        }));
+    }
+
+    Json(result).into_response()
+}
+
+async fn resolve_subscription_base_url(state: &AppState) -> String {
     let sub_domain = state
         .settings
         .get_or_default("subscription_domain", "")
@@ -446,44 +529,12 @@ async fn get_user_subscriptions(
             env::var("PANEL_URL").unwrap_or_else(|_| "localhost".to_string())
         }
     };
-    let base_url = if base_domain.starts_with("http") {
+
+    if base_domain.starts_with("http") {
         base_domain
     } else {
         format!("https://{}", base_domain)
-    };
-
-    // Map to JSON-friendly format
-    let result: Vec<serde_json::Value> = subs
-        .iter()
-        .map(|s| {
-            let used_gb = s.sub.used_traffic as f64 / 1024.0 / 1024.0 / 1024.0;
-            let traffic_limit_gb = s.traffic_limit_gb.unwrap_or(0);
-            let sub_url = format!("{}/sub/{}", base_url, s.sub.subscription_uuid);
-            let days_left = (s.sub.expires_at - chrono::Utc::now()).num_days().max(0);
-            let duration_days = (s.sub.expires_at - s.sub.created_at).num_days();
-
-            serde_json::json!({
-                "id": s.sub.id,
-                "plan_name": s.plan_name,
-                "plan_description": s.plan_description,
-                "status": s.sub.status,
-                "used_traffic_bytes": s.sub.used_traffic,
-                "used_traffic_gb": format!("{:.2}", used_gb),
-                "traffic_limit_gb": traffic_limit_gb,
-                "expires_at": s.sub.expires_at.to_rfc3339(),
-                "created_at": s.sub.created_at.to_rfc3339(),
-                "days_left": days_left,
-                "duration_days": duration_days,
-                "note": s.sub.note,
-                "auto_renew": s.sub.auto_renew.unwrap_or(false),
-                "is_trial": s.sub.is_trial.unwrap_or(false),
-                "subscription_uuid": s.sub.subscription_uuid,
-                "subscription_url": sub_url,
-            })
-        })
-        .collect();
-
-    Json(result).into_response()
+    }
 }
 
 // User Profile Endpoint
@@ -1077,5 +1128,192 @@ async fn pin_subscription_node(
             "Subscription not found or access denied",
         )
             .into_response(),
+    }
+}
+
+async fn activate_subscription(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path(sub_id): Path<i64>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    let sub_owner_id: Option<i64> =
+        sqlx::query_scalar("SELECT user_id FROM subscriptions WHERE id = $1")
+            .bind(sub_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
+
+    match sub_owner_id {
+        Some(owner_id) if owner_id == user_id => {}
+        _ => {
+            return (
+                StatusCode::FORBIDDEN,
+                "Subscription not found or access denied",
+            )
+                .into_response();
+        }
+    }
+
+    match state
+        .store_service
+        .activate_subscription(sub_id, user_id)
+        .await
+    {
+        Ok(sub) => Json(serde_json::json!({
+            "ok": true,
+            "subscription_id": sub.id,
+            "status": sub.status,
+            "message": "Subscription activated",
+        }))
+        .into_response(),
+        Err(err) => (StatusCode::BAD_REQUEST, err.to_string()).into_response(),
+    }
+}
+
+async fn get_subscription_links_for_user(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path(sub_id): Path<i64>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    let sub_row: Option<(i64, String)> =
+        sqlx::query_as("SELECT user_id, subscription_uuid FROM subscriptions WHERE id = $1")
+            .bind(sub_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
+
+    let (_owner_id, subscription_uuid) = match sub_row {
+        Some((owner_id, sub_uuid)) if owner_id == user_id => (owner_id, sub_uuid),
+        _ => {
+            return (
+                StatusCode::FORBIDDEN,
+                "Subscription not found or access denied",
+            )
+                .into_response();
+        }
+    };
+
+    let links = match state
+        .subscription_service
+        .get_subscription_links(sub_id)
+        .await
+    {
+        Ok(v) => v,
+        Err(err) => {
+            warn!("Failed to build subscription links for {}: {}", sub_id, err);
+            Vec::new()
+        }
+    };
+    let vless_links: Vec<String> = links
+        .iter()
+        .filter(|link| link.starts_with("vless://"))
+        .cloned()
+        .collect();
+    let base_url = resolve_subscription_base_url(&state).await;
+
+    Json(serde_json::json!({
+        "subscription_url": format!("{}/sub/{}", base_url, subscription_uuid),
+        "links": links,
+        "vless_links": vless_links,
+        "primary_vless_link": vless_links.first().cloned(),
+    }))
+    .into_response()
+}
+
+#[derive(Deserialize)]
+struct RedeemCodeReq {
+    code: String,
+}
+
+async fn redeem_promo_code(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Json(body): Json<RedeemCodeReq>,
+) -> impl IntoResponse {
+    let code = body.code.trim();
+    if code.is_empty() {
+        return (StatusCode::BAD_REQUEST, "Code cannot be empty").into_response();
+    }
+
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    match state.promo_service.redeem_code(user_id, code).await {
+        Ok(message) => Json(serde_json::json!({
+            "ok": true,
+            "message": message,
+        }))
+        .into_response(),
+        Err(err) => (StatusCode::BAD_REQUEST, err.to_string()).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct SetReferrerReq {
+    code: String,
+}
+
+async fn set_referrer_code(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Json(body): Json<SetReferrerReq>,
+) -> impl IntoResponse {
+    let code = body.code.trim();
+    if code.is_empty() {
+        return (StatusCode::BAD_REQUEST, "Referral code cannot be empty").into_response();
+    }
+
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    match state.user_service.set_referrer(user_id, code).await {
+        Ok(_) => Json(serde_json::json!({
+            "ok": true,
+            "message": "Referrer linked successfully",
+        }))
+        .into_response(),
+        Err(err) => (StatusCode::BAD_REQUEST, err.to_string()).into_response(),
     }
 }

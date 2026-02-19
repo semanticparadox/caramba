@@ -14,10 +14,7 @@ function formatBytes(bytes: number, decimals = 2): string {
 const MENU_ITEMS = [
     { path: '/plans', icon: '🛍', title: 'Buy Subscription', subtitle: 'Browse plans & purchase', gradient: 'linear-gradient(135deg, #F59E0B 0%, #EF4444 100%)' },
     { path: '/subscription', icon: '🔐', title: 'My Services', subtitle: 'Subscriptions & config', gradient: 'var(--accent-gradient)' },
-    { path: '/servers', icon: '🌐', title: 'Servers', subtitle: 'Choose location', gradient: 'var(--accent-gradient-green)' },
-    { path: '/store', icon: '📦', title: 'Store', subtitle: 'Digital products', gradient: 'linear-gradient(135deg, #8B5CF6 0%, #D946EF 100%)' },
-    { path: '/statistics', icon: '📊', title: 'Statistics', subtitle: 'Usage charts', gradient: 'var(--accent-gradient-pink)' },
-    { path: '/billing', icon: '💎', title: 'Billing', subtitle: 'Balance & Top up', gradient: 'var(--accent-gradient-warm)' },
+    { path: '/promo', icon: '🎫', title: 'Promo Center', subtitle: 'Redeem promo & gift codes', gradient: 'linear-gradient(135deg, #8B5CF6 0%, #D946EF 100%)' },
     { path: '/referral', icon: '🎁', title: 'Referral', subtitle: 'Invite & Earn', gradient: 'linear-gradient(135deg, #F59E0B 0%, #10B981 100%)' },
     { path: '/support', icon: '💬', title: 'Support', subtitle: 'Help & FAQ', gradient: 'linear-gradient(135deg, #6366F1 0%, #EC4899 100%)' },
 ]

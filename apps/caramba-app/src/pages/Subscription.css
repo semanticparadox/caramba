@@ -12,6 +12,25 @@
     margin-bottom: var(--space-sm);
 }
 
+.purchase-msg {
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.purchase-msg.success {
+    background: rgba(16, 185, 129, 0.14);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    color: #34d399;
+}
+
+.purchase-msg.error {
+    background: rgba(239, 68, 68, 0.14);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    color: #f87171;
+}
+
 /* Subscription List */
 .subs-list {
     display: flex;
@@ -126,6 +145,25 @@
     padding: var(--space-sm) var(--space-md);
     border-radius: var(--radius-sm);
     font-style: italic;
+}
+
+.sub-actions {
+    display: flex;
+    justify-content: flex-start;
+}
+
+.btn-text {
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.05);
+    color: #dbeafe;
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.btn-text:disabled {
+    opacity: 0.6;
 }
 
 /* Expanded Section */

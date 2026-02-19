@@ -1,0 +1,74 @@
+.promo-page {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.promo-banner {
+    border-radius: 14px;
+    padding: 12px 14px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.promo-banner.success {
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    color: #34d399;
+}
+
+.promo-banner.error {
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    color: #f87171;
+}
+
+.promo-card {
+    padding: 18px;
+    border-radius: 18px;
+}
+
+.promo-card h3 {
+    margin: 0 0 6px 0;
+    font-size: 18px;
+}
+
+.promo-card p {
+    margin: 0 0 14px 0;
+    color: rgba(255, 255, 255, 0.68);
+    font-size: 14px;
+}
+
+.promo-input-row {
+    display: flex;
+    gap: 10px;
+}
+
+.promo-input-row input {
+    flex: 1;
+    min-width: 0;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(10, 10, 22, 0.7);
+    color: #fff;
+    padding: 11px 12px;
+    outline: none;
+}
+
+.promo-input-row input:focus {
+    border-color: rgba(99, 102, 241, 0.7);
+}
+
+.promo-input-row button {
+    min-width: 110px;
+}
+
+@media (max-width: 560px) {
+    .promo-input-row {
+        flex-direction: column;
+    }
+
+    .promo-input-row button {
+        width: 100%;
+    }
+}

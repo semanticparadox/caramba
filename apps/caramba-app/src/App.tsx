@@ -9,6 +9,7 @@ import ServerSelector from './pages/ServerSelector'
 import Statistics from './pages/Statistics'
 import Billing from './pages/Billing'
 import Referral from './pages/Referral'
+import Promo from './pages/Promo'
 import Support from './pages/Support'
 import './App.css'
 
@@ -27,6 +28,7 @@ function App() {
                         <Route path="/statistics" element={<Statistics />} />
                         <Route path="/billing" element={<Billing />} />
                         <Route path="/referral" element={<Referral />} />
+                        <Route path="/promo" element={<Promo />} />
                         <Route path="/support" element={<Support />} />
                     </Routes>
                 </div>
