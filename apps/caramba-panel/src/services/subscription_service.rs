@@ -43,6 +43,14 @@ impl SubscriptionService {
         Self { pool }
     }
 
+    fn is_placeholder_sni(sni: &str) -> bool {
+        let sni = sni.trim().to_ascii_lowercase();
+        sni.is_empty()
+            || sni == "www.google.com"
+            || sni == "google.com"
+            || sni == "drive.google.com"
+    }
+
     pub async fn get_active_plans(&self) -> Result<Vec<Plan>> {
         let mut plans = sqlx::query_as::<_, Plan>(
             "SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans WHERE is_active = TRUE"
@@ -551,58 +559,70 @@ impl SubscriptionService {
                 let security = stream.security.as_deref().unwrap_or("none");
                 let network = stream.network.as_deref().unwrap_or("tcp");
 
-                let (address, reality_pub, short_id) = if inbound.listen_ip == "::"
-                    || inbound.listen_ip == "0.0.0.0"
-                {
-                    let node_details: Option<(String, Option<String>, Option<String>)> =
-                        sqlx::query_as("SELECT ip, reality_pub, short_id FROM nodes WHERE id = $1")
-                            .bind(inbound.node_id)
-                            .fetch_optional(&self.pool)
-                            .await?;
-                    if let Some((ip, pub_key, sid)) = node_details {
-                        (ip, pub_key, sid)
+                let node_details: Option<(
+                    String,
+                    Option<String>,
+                    Option<String>,
+                    String,
+                    Option<String>,
+                )> = sqlx::query_as(
+                    "SELECT ip, reality_pub, short_id, name, reality_sni FROM nodes WHERE id = $1",
+                )
+                .bind(inbound.node_id)
+                .fetch_optional(&self.pool)
+                .await?;
+
+                let (node_ip, reality_pub, short_id, node_name, node_reality_sni) =
+                    if let Some((ip, pub_key, sid, name, reality_sni)) = node_details {
+                        (ip, pub_key, sid, name, reality_sni)
                     } else {
-                        (inbound.listen_ip.clone(), None, None)
-                    }
+                        (
+                            inbound.listen_ip.clone(),
+                            None,
+                            None,
+                            format!("node-{}", inbound.node_id),
+                            None,
+                        )
+                    };
+
+                let address = if inbound.listen_ip == "::" || inbound.listen_ip == "0.0.0.0" {
+                    node_ip
                 } else {
-                    let node_details: Option<(Option<String>, Option<String>)> =
-                        sqlx::query_as("SELECT reality_pub, short_id FROM nodes WHERE id = $1")
-                            .bind(inbound.node_id)
-                            .fetch_optional(&self.pool)
-                            .await?;
-                    if let Some((pub_key, sid)) = node_details {
-                        (inbound.listen_ip.clone(), pub_key, sid)
-                    } else {
-                        (inbound.listen_ip.clone(), None, None)
-                    }
+                    inbound.listen_ip.clone()
                 };
 
+                let node_sni = node_reality_sni.filter(|s| !Self::is_placeholder_sni(s));
                 let port = inbound.listen_port;
-                let remark = inbound.tag.clone();
+                let remark = format!("{}-{} ({})", node_name, inbound.node_id, inbound.tag);
+                let encoded_remark = urlencoding::encode(&remark).to_string();
 
                 match inbound.protocol.as_str() {
                     "vless" => {
                         let mut params = Vec::new();
                         params.push(format!("security={}", security));
                         if security == "reality" {
-                            if let Some(reality) = stream.reality_settings {
-                                let sni = reality
-                                    .server_names
-                                    .first()
-                                    .cloned()
-                                    .unwrap_or_else(|| address.clone());
-                                params.push(format!("sni={}", sni));
-                                params.push(format!("pbk={}", reality_pub.unwrap_or_default()));
-                                if let Some(sid) = &short_id {
-                                    params.push(format!("sid={}", sid));
-                                }
-                                params.push("fp=chrome".to_string());
+                            let inbound_sni = stream
+                                .reality_settings
+                                .as_ref()
+                                .and_then(|reality| reality.server_names.first().cloned())
+                                .filter(|s| !Self::is_placeholder_sni(s));
+                            let sni = inbound_sni
+                                .or_else(|| node_sni.clone())
+                                .unwrap_or_else(|| address.clone());
+                            params.push(format!("sni={}", sni));
+                            params.push(format!("pbk={}", reality_pub.clone().unwrap_or_default()));
+                            if let Some(sid) = &short_id {
+                                params.push(format!("sid={}", sid));
                             }
+                            params.push("fp=chrome".to_string());
                         } else if security == "tls" {
-                            let sni = stream
+                            let tls_sni = stream
                                 .tls_settings
                                 .as_ref()
                                 .map(|t| t.server_name.clone())
+                                .filter(|s| !Self::is_placeholder_sni(s));
+                            let sni = tls_sni
+                                .or_else(|| node_sni.clone())
                                 .unwrap_or_else(|| address.clone());
                             params.push(format!("sni={}", sni));
                         }
@@ -619,15 +639,18 @@ impl SubscriptionService {
                             address,
                             port,
                             params.join("&"),
-                            remark
+                            encoded_remark
                         ));
                     }
                     "hysteria2" => {
                         let mut params = Vec::new();
-                        let sni = stream
+                        let tls_sni = stream
                             .tls_settings
                             .as_ref()
                             .map(|t| t.server_name.clone())
+                            .filter(|s| !Self::is_placeholder_sni(s));
+                        let sni = tls_sni
+                            .or_else(|| node_sni.clone())
                             .unwrap_or_else(|| address.clone());
                         params.push(format!("sni={}", sni));
                         params.push("insecure=1".to_string());
@@ -656,16 +679,19 @@ impl SubscriptionService {
                             address,
                             port,
                             params.join("&"),
-                            remark
+                            encoded_remark
                         ));
                     }
                     "trojan" => {
                         let mut params = Vec::new();
                         params.push("security=tls".to_string());
-                        let sni = stream
+                        let tls_sni = stream
                             .tls_settings
                             .as_ref()
                             .map(|t| t.server_name.clone())
+                            .filter(|s| !Self::is_placeholder_sni(s));
+                        let sni = tls_sni
+                            .or_else(|| node_sni.clone())
                             .unwrap_or_else(|| address.clone());
                         params.push(format!("sni={}", sni));
                         params.push("fp=chrome".to_string());
@@ -676,15 +702,18 @@ impl SubscriptionService {
                             address,
                             port,
                             params.join("&"),
-                            remark
+                            encoded_remark
                         ));
                     }
                     "tuic" => {
                         let mut params = Vec::new();
-                        let sni = stream
+                        let tls_sni = stream
                             .tls_settings
                             .as_ref()
                             .map(|t| t.server_name.clone())
+                            .filter(|s| !Self::is_placeholder_sni(s));
+                        let sni = tls_sni
+                            .or_else(|| node_sni.clone())
                             .unwrap_or_else(|| address.clone());
                         params.push(format!("sni={}", sni));
                         params.push("alpn=h3".to_string());
@@ -704,24 +733,25 @@ impl SubscriptionService {
                             address,
                             port,
                             params.join("&"),
-                            remark
+                            encoded_remark
                         ));
                     }
                     "naive" => {
                         let mut params = Vec::new();
-                        let sni = stream
+                        let tls_sni = stream
                             .tls_settings
                             .as_ref()
                             .map(|t| t.server_name.clone())
+                            .filter(|s| !Self::is_placeholder_sni(s));
+                        let sni = tls_sni
+                            .or_else(|| node_sni.clone())
                             .unwrap_or_else(|| address.clone());
                         params.push(format!("sni={}", sni));
 
-                        if security == "reality" {
-                            if let Some(_reality) = stream.reality_settings {
-                                params.push(format!("pbk={}", reality_pub.unwrap_or_default()));
-                                if let Some(sid) = &short_id {
-                                    params.push(format!("sid={}", sid));
-                                }
+                        if security == "reality" && stream.reality_settings.is_some() {
+                            params.push(format!("pbk={}", reality_pub.clone().unwrap_or_default()));
+                            if let Some(sid) = &short_id {
+                                params.push(format!("sid={}", sid));
                             }
                         }
 
@@ -738,7 +768,7 @@ impl SubscriptionService {
                             address,
                             port,
                             params.join("&"),
-                            remark
+                            encoded_remark
                         ));
                     }
                     _ => {}

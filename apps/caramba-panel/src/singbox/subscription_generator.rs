@@ -105,6 +105,11 @@ struct StreamInfo {
     tuic_zero_rtt_handshake: Option<bool>,
 }
 
+fn is_placeholder_sni(sni: &str) -> bool {
+    let sni = sni.trim().to_ascii_lowercase();
+    sni.is_empty() || sni == "www.google.com" || sni == "google.com" || sni == "drive.google.com"
+}
+
 fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
     // 1. Parse into strongly-typed struct for robust alias handling (SNI, Settings, etc.)
     let settings: caramba_db::models::network::StreamSettings =
@@ -132,11 +137,16 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
         })
         .unwrap_or_else(|| "reality".to_string());
 
-    // Prefer per-inbound SNI; node-level SNI is only a fallback.
+    // Prefer per-inbound SNI unless it is a legacy placeholder like drive.google.com.
     let sni = extract_sni_from_settings(&settings)
         .or_else(|| extract_sni_from_raw(&v))
-        .filter(|s| !s.is_empty())
-        .or_else(|| node.reality_sni.as_ref().filter(|s| !s.is_empty()).cloned())
+        .filter(|s| !is_placeholder_sni(s))
+        .or_else(|| {
+            node.reality_sni
+                .as_ref()
+                .filter(|s| !is_placeholder_sni(s))
+                .cloned()
+        })
         .unwrap_or_else(|| "www.google.com".to_string());
 
     // Reality Keys

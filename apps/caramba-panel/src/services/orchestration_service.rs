@@ -307,7 +307,7 @@ impl OrchestrationService {
     async fn bootstrap_default_templates(&self, group_id: i64) -> anyhow::Result<()> {
         // VLESS Reality
         let vless_settings = r#"{"clients":[],"decryption":"none"}"#;
-        let vless_stream = r#"{"network":"tcp","security":"reality","reality_settings":{"show":false,"xver":0,"dest":"drive.google.com:443","server_names":["drive.google.com"],"private_key":"","short_ids":[""]}}"#;
+        let vless_stream = r#"{"network":"tcp","security":"reality","reality_settings":{"show":false,"xver":0,"dest":"{{SNI}}:443","server_names":["{{SNI}}"],"private_key":"","short_ids":[""]}}"#;
         self.create_template(
             "VLESS Reality",
             "vless",

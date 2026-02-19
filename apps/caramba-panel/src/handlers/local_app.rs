@@ -10,17 +10,31 @@ use std::path::PathBuf;
 const MINI_APP_DIST_DIR: &str = "apps/caramba-app/dist";
 
 fn build_asset_response(bytes: Vec<u8>, mime: &str, cache_control: &str) -> Response {
-    Response::builder()
+    let mut builder = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, mime)
-        .header(header::CACHE_CONTROL, cache_control)
-        .body(Body::from(bytes))
-        .unwrap_or_else(|_| {
-            Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from("Failed to build response"))
-                .expect("response builder should work")
-        })
+        .header(header::CACHE_CONTROL, cache_control);
+
+    if cache_control.starts_with("no-store") {
+        builder = builder
+            .header(header::PRAGMA, "no-cache")
+            .header(header::EXPIRES, "0");
+    }
+
+    builder.body(Body::from(bytes)).unwrap_or_else(|_| {
+        Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from("Failed to build response"))
+            .expect("response builder should work")
+    })
+}
+
+fn cache_control_for_path(path: &str) -> &'static str {
+    if path == "index.html" {
+        "no-store, no-cache, must-revalidate, max-age=0"
+    } else {
+        "public, max-age=300, must-revalidate"
+    }
 }
 
 async fn read_asset(path: &str) -> Option<Response> {
@@ -38,7 +52,7 @@ async fn read_asset(path: &str) -> Option<Response> {
     Some(build_asset_response(
         bytes,
         mime.as_ref(),
-        "public, max-age=3600",
+        cache_control_for_path(path),
     ))
 }
 

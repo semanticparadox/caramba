@@ -3,6 +3,20 @@ use serde_json::{json, Value};
 
 pub struct ConfigGenerator;
 
+fn is_placeholder_sni(sni: &str) -> bool {
+    let sni = sni.trim().to_ascii_lowercase();
+    sni.is_empty() || sni == "www.google.com" || sni == "google.com" || sni == "drive.google.com"
+}
+
+fn best_node_sni(node: &crate::panel_client::Node) -> String {
+    node.reality_sni
+        .as_ref()
+        .or(node.domain.as_ref())
+        .filter(|s| !is_placeholder_sni(s))
+        .cloned()
+        .unwrap_or_else(|| node.ip.clone())
+}
+
 impl ConfigGenerator {
     pub fn generate(
         internal_nodes: Vec<InternalNode>,
@@ -48,15 +62,19 @@ impl ConfigGenerator {
                     let mut tls = json!({ "enabled": true });
 
                     // Extract Reality/TLS settings
+                    let fallback_sni = best_node_sni(node);
                     if let Some(security) = stream_settings.get("security").and_then(|s| s.as_str())
                     {
                         if security == "reality" {
                             if let Some(reality) = stream_settings.get("reality_settings") {
-                                tls["server_name"] = reality
+                                let inbound_sni = reality
                                     .get("server_names")
                                     .and_then(|v| v.get(0))
-                                    .unwrap_or(&json!("www.google.com"))
-                                    .clone();
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string())
+                                    .filter(|s| !is_placeholder_sni(s));
+                                tls["server_name"] =
+                                    json!(inbound_sni.unwrap_or(fallback_sni.clone()));
                                 tls["reality"] = json!({
                                     "enabled": true,
                                     "public_key": reality.get("public_key").cloned().unwrap_or(json!(node.reality_pub.clone().unwrap_or_default())),
@@ -66,10 +84,13 @@ impl ConfigGenerator {
                             }
                         } else if security == "tls" {
                             if let Some(t) = stream_settings.get("tls_settings") {
-                                tls["server_name"] = t
+                                let inbound_sni = t
                                     .get("server_name")
-                                    .unwrap_or(&json!("www.google.com"))
-                                    .clone();
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string())
+                                    .filter(|s| !is_placeholder_sni(s));
+                                tls["server_name"] =
+                                    json!(inbound_sni.unwrap_or(fallback_sni.clone()));
                             }
                         }
                     }
@@ -96,10 +117,7 @@ impl ConfigGenerator {
 
                     let mut tls = json!({ "enabled": true });
                     // Hysteria2 usually uses Node's SNI matching Reality/Cert
-                    tls["server_name"] = json!(node
-                        .reality_sni
-                        .clone()
-                        .unwrap_or("www.google.com".to_string()));
+                    tls["server_name"] = json!(best_node_sni(node));
 
                     outbounds.push(json!({
                         "type": "hysteria2",

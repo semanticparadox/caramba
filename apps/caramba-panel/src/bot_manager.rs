@@ -433,9 +433,22 @@ async fn send_terms(
 }
 
 async fn resolve_miniapp_url(state: &crate::AppState) -> Option<String> {
+    fn with_cache_bust(mut url: String) -> String {
+        let version = crate::utils::current_panel_version();
+        let encoded_version = urlencoding::encode(&version);
+        if url.contains('?') {
+            url.push_str("&v=");
+            url.push_str(&encoded_version);
+        } else {
+            url.push_str("?v=");
+            url.push_str(&encoded_version);
+        }
+        url
+    }
+
     let explicit = state.settings.get_or_default("mini_app_url", "").await;
     if !explicit.trim().is_empty() {
-        return Some(explicit.trim().to_string());
+        return Some(with_cache_bust(explicit.trim().to_string()));
     }
 
     let sub_domain = state
@@ -446,7 +459,10 @@ async fn resolve_miniapp_url(state: &crate::AppState) -> Option<String> {
         return None;
     }
 
-    Some(format!("https://{}/app", sub_domain.trim()))
+    Some(with_cache_bust(format!(
+        "https://{}/app",
+        sub_domain.trim()
+    )))
 }
 
 fn terms_keyboard() -> InlineKeyboardMarkup {

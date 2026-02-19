@@ -2,8 +2,26 @@
 <tr id="node-row-{{ node.id }}" class="hover:bg-white/5">
     <td class="px-4 py-3">
         <div class="flex flex-col">
-            <span class="font-semibold text-white">{{ node.name }}</span>
+            <span class="font-semibold text-white">
+                {% if let Some(flag) = node.flag.as_ref() %}
+                {{ flag }}
+                {% endif %}
+                {{ node.name }}
+            </span>
             <span class="text-xs text-slate-500">#{{ node.id }}</span>
+            {% if node.city.is_some() || node.country.is_some() %}
+            <span class="text-xs text-slate-400">
+                {% if let Some(city) = node.city.as_ref() %}
+                {{ city }}
+                {% endif %}
+                {% if node.city.is_some() && node.country.is_some() %}, {% endif %}
+                {% if let Some(country) = node.country.as_ref() %}
+                {{ country }}
+                {% endif %}
+            </span>
+            {% else %}
+            <span class="text-xs text-slate-500">Locating...</span>
+            {% endif %}
         </div>
     </td>
     <td class="px-4 py-3 font-mono text-indigo-300">{{ node.ip }}</td>

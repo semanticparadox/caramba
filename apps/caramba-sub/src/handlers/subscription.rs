@@ -132,6 +132,20 @@ fn get_client_ip(headers: &HeaderMap) -> Option<String> {
     None
 }
 
+fn is_placeholder_sni(sni: &str) -> bool {
+    let sni = sni.trim().to_ascii_lowercase();
+    sni.is_empty() || sni == "www.google.com" || sni == "google.com" || sni == "drive.google.com"
+}
+
+fn resolve_node_sni(node: &crate::panel_client::Node) -> String {
+    node.reality_sni
+        .as_ref()
+        .or(node.domain.as_ref())
+        .filter(|s| !is_placeholder_sni(s))
+        .cloned()
+        .unwrap_or_else(|| node.ip.clone())
+}
+
 // Config generators (simplified versions from main panel)
 fn generate_clash_config(
     nodes: &[&crate::panel_client::Node],
@@ -142,6 +156,7 @@ fn generate_clash_config(
     let mut proxies = Vec::new();
 
     for node in nodes {
+        let node_sni = resolve_node_sni(node);
         proxies.push(json!({
             "name": format!("{} VLESS", node.name),
             "type": "vless",
@@ -150,7 +165,7 @@ fn generate_clash_config(
             "uuid": keys.user_uuid,
             "network": "tcp",
             "tls": true,
-            "servername": node.domain.as_ref().unwrap_or(&"www.google.com".to_string()),
+            "servername": node_sni,
             "reality-opts": {
                 "public-key": node.reality_pub.as_ref().unwrap_or(&"".to_string()),
                 "short-id": node.short_id.as_ref().unwrap_or(&"".to_string())
@@ -184,12 +199,13 @@ fn generate_v2ray_config(
     let mut links = Vec::new();
 
     for node in nodes {
+        let node_sni = resolve_node_sni(node);
         let vless_link = format!(
             "vless://{}@{}:{}?encryption=none&flow=xtls-rprx-vision&security=reality&sni={}&fp=chrome&pbk={}&sid={}&type=tcp#{}",
             keys.user_uuid,
             node.ip,
             node.vpn_port,
-            node.domain.as_ref().unwrap_or(&"www.google.com".to_string()),
+            node_sni,
             node.reality_pub.as_ref().unwrap_or(&"".to_string()),
             node.short_id.as_ref().unwrap_or(&"".to_string()),
             urlencoding::encode(&format!("{} VLESS", node.name))
