@@ -22,6 +22,8 @@ use bot_manager::BotManager;
 use caramba_db::{connect as init_db, repositories};
 
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::filter::Targets;
+use tracing_subscriber::Layer;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use axum::{
@@ -170,12 +172,24 @@ async fn main() -> Result<()> {
     // Initialize tracing
     let file_appender = tracing_appender::rolling::never(".", "server.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    let bot_file_appender = tracing_appender::rolling::never(".", "bot.log");
+    let (bot_non_blocking, _bot_guard) = tracing_appender::non_blocking(bot_file_appender);
+    let bot_targets = Targets::new()
+        .with_target("caramba_panel::bot", tracing::Level::TRACE)
+        .with_target("caramba_panel::bot_manager", tracing::Level::INFO)
+        .with_target("teloxide", tracing::Level::INFO);
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| "caramba=debug,axum=info,tower_http=info,sqlx=warn".into()))
         .with(tracing_subscriber::fmt::layer().with_writer(io::stdout))
         .with(tracing_subscriber::fmt::layer().with_writer(non_blocking).with_ansi(false))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(bot_non_blocking)
+                .with_ansi(false)
+                .with_filter(bot_targets),
+        )
         .init();
 
     // Initialize database (needed for most commands)

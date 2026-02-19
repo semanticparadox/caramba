@@ -11,6 +11,8 @@ use askama_web::WebTemplate;
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{info, error};
 use chrono::{DateTime, Duration, Utc};
 
@@ -529,18 +531,17 @@ pub async fn bot_logs_history(
     if !is_authenticated(&_state, &jar).await {
         return "Unauthorized".to_string();
     }
-    
-    match std::fs::read_to_string("server.log") {
-        Ok(content) => {
-            let lines: Vec<&str> = content.lines().collect();
-            let start = if lines.len() > 100 { lines.len() - 100 } else { 0 };
-            lines[start..].join("\n")
-        }
-        Err(_) => "Error reading log file".to_string()
+
+    // Prefer dedicated bot.log stream. Fallback to filtered server.log for legacy installs.
+    if let Some(history) = read_log_history("bot.log", 300, false) {
+        return history;
     }
+
+    read_log_history("server.log", 300, true).unwrap_or_else(|| "No bot logs available yet".to_string())
 }
 
-static mut LAST_LOG_POS: u64 = 0;
+static LAST_BOT_LOG_POS: AtomicU64 = AtomicU64::new(0);
+static LAST_SERVER_LOG_POS: AtomicU64 = AtomicU64::new(0);
 
 pub async fn bot_logs_tail(
     State(_state): State<AppState>,
@@ -550,38 +551,59 @@ pub async fn bot_logs_tail(
         return String::new();
     }
     
+    if Path::new("bot.log").exists() {
+        return read_log_tail("bot.log", &LAST_BOT_LOG_POS, false).unwrap_or_default();
+    }
+
+    read_log_tail("server.log", &LAST_SERVER_LOG_POS, true).unwrap_or_default()
+}
+
+fn read_log_history(path: &str, limit: usize, filter_bot_only: bool) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let lines = content
+        .lines()
+        .filter(|line| !filter_bot_only || is_bot_log_line(line))
+        .collect::<Vec<_>>();
+    let start = lines.len().saturating_sub(limit);
+    Some(lines[start..].join("\n"))
+}
+
+fn read_log_tail(path: &str, pos: &AtomicU64, filter_bot_only: bool) -> Option<String> {
     use std::fs::File;
     use std::io::{BufRead, BufReader, Seek, SeekFrom};
-    
-    let current_pos = unsafe { LAST_LOG_POS };
-    
-    match File::open("server.log") {
-        Ok(mut file) => {
-            let metadata = file.metadata().unwrap();
-            let file_len = metadata.len();
-            
-            if file_len < current_pos {
-                unsafe { LAST_LOG_POS = 0; }
-                file.seek(SeekFrom::Start(0)).ok();
-            } else {
-                file.seek(SeekFrom::Start(current_pos)).ok();
-            }
-            
-            let reader = BufReader::new(file);
-            let mut new_lines = Vec::new();
-            
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    new_lines.push(line);
-                }
-            }
-            
-            unsafe { LAST_LOG_POS = file_len; }
-            
-            new_lines.join("\n")
-        }
-        Err(_) => String::new()
+
+    let mut file = File::open(path).ok()?;
+    let metadata = file.metadata().ok()?;
+    let file_len = metadata.len();
+    let current_pos = pos.load(Ordering::Relaxed);
+
+    if file_len < current_pos {
+        pos.store(0, Ordering::Relaxed);
+        file.seek(SeekFrom::Start(0)).ok()?;
+    } else {
+        file.seek(SeekFrom::Start(current_pos)).ok()?;
     }
+
+    let reader = BufReader::new(file);
+    let mut new_lines = Vec::new();
+    for line in reader.lines() {
+        let line = line.ok()?;
+        if !filter_bot_only || is_bot_log_line(&line) {
+            new_lines.push(line);
+        }
+    }
+
+    pos.store(file_len, Ordering::Relaxed);
+    Some(new_lines.join("\n"))
+}
+
+fn is_bot_log_line(line: &str) -> bool {
+    line.contains("caramba_panel::bot")
+        || line.contains("caramba_panel::bot_manager")
+        || line.contains("teloxide")
+        || line.contains("Bot connected as")
+        || line.contains("Received message:")
+        || line.contains("Received callback:")
 }
 
 pub async fn export_database(

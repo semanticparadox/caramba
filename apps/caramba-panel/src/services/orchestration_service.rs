@@ -104,8 +104,13 @@ impl OrchestrationService {
         // 2. Fetch Templates for these groups (Active Only)
         let mut templates = Vec::new();
         for gid in &group_ids {
-            let group_templates = self.node_repo.get_templates_for_group(*gid).await?;
-            templates.extend(group_templates);
+            match self.node_repo.get_templates_for_group(*gid).await {
+                Ok(group_templates) => templates.extend(group_templates),
+                Err(e) => warn!(
+                    "Failed to fetch templates for group {} (node {}): {}",
+                    gid, node_id, e
+                ),
+            }
         }
 
         // 3. Bootstrap Defaults if NO templates found (Fresh Install Scenario)

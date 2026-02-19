@@ -2,7 +2,6 @@ use tracing::{info, error};
 use tokio::time::{interval, Duration};
 use crate::AppState;
 use chrono::Utc;
-use caramba_db::models::node::Node;
 use crate::services::analytics_service::AnalyticsService;
 
 pub struct TrafficService {
@@ -28,16 +27,17 @@ impl TrafficService {
 
     async fn sync_traffic(&self) -> anyhow::Result<()> {
         info!("Syncing traffic usage from all active nodes...");
-        
-        let active_nodes: Vec<Node> = sqlx::query_as("SELECT * FROM nodes WHERE status = 'active'")
+
+        // Fetch only IDs to stay compatible across schema variants (INT4/INT8 column drift).
+        let active_node_ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM nodes WHERE status = 'active'")
             .fetch_all(&self.state.pool)
             .await?;
 
-        for node in active_nodes {
+        for node_id in active_node_ids {
             // Note: Per-user traffic usage is now reported via node heartbeats 
             // and processed in api/v2/node.rs. Aggregate node stats could be 
             // fetched here in the future if needed.
-            info!("Node {} traffic sync handled via heartbeat reporting", node.id);
+            info!("Node {} traffic sync handled via heartbeat reporting", node_id);
         }
 
         // After syncing, enforce quotas
