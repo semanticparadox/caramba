@@ -532,8 +532,8 @@ pub async fn bot_logs_history(
         return "Unauthorized".to_string();
     }
 
-    // Prefer dedicated bot.log stream. Fallback to filtered server.log for legacy installs.
-    if let Some(history) = read_log_history("bot.log", 300, false) {
+    // Prefer dedicated bot.log stream, but still filter because old releases could mix targets.
+    if let Some(history) = read_log_history("bot.log", 300, true) {
         return history;
     }
 
@@ -552,7 +552,7 @@ pub async fn bot_logs_tail(
     }
     
     if Path::new("bot.log").exists() {
-        return read_log_tail("bot.log", &LAST_BOT_LOG_POS, false).unwrap_or_default();
+        return read_log_tail("bot.log", &LAST_BOT_LOG_POS, true).unwrap_or_default();
     }
 
     read_log_tail("server.log", &LAST_SERVER_LOG_POS, true).unwrap_or_default()
@@ -600,10 +600,13 @@ fn read_log_tail(path: &str, pos: &AtomicU64, filter_bot_only: bool) -> Option<S
 fn is_bot_log_line(line: &str) -> bool {
     line.contains("caramba_panel::bot")
         || line.contains("caramba_panel::bot_manager")
+        || line.contains("caramba_bot::")
         || line.contains("teloxide")
-        || line.contains("Bot connected as")
+        || line.contains("Bot connected")
         || line.contains("Received message:")
         || line.contains("Received callback:")
+        || line.contains("Unknown command. Use /help.")
+        || line.contains("Failed to upsert user on /start")
 }
 
 pub async fn export_database(

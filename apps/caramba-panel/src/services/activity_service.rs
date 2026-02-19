@@ -62,7 +62,7 @@ impl ActivityService {
     #[allow(dead_code)]
     pub async fn get_latest(pool: &PgPool, limit: i64) -> Result<Vec<caramba_db::models::activity::Activity>> {
         sqlx::query_as::<_, caramba_db::models::activity::Activity>(
-            "SELECT id, category, event, created_at FROM panel_activities ORDER BY created_at DESC LIMIT $1"
+            "SELECT id, action AS category, COALESCE(details, '') AS event, created_at FROM activity_log ORDER BY created_at DESC LIMIT $1"
         )
         .bind(limit)
         .fetch_all(pool)

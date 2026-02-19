@@ -898,30 +898,22 @@ async fn report_logs(
                 "-u",
                 service,
                 "--since",
-                "6 hours ago",
+                "2 hours ago",
                 "-n",
-                "300",
+                "200",
                 "--no-pager",
             ])
             .output();
 
         match recent {
             Ok(out) => {
-                let mut content = String::from_utf8_lossy(&out.stdout).to_string();
-                if content.trim().is_empty() {
-                    // Fallback for low-traffic services where the last 6h window can be empty.
-                    if let Ok(fallback) = std::process::Command::new("journalctl")
-                        .args(&["-u", service, "-n", "120", "--no-pager"])
-                        .output()
-                    {
-                        content = String::from_utf8_lossy(&fallback.stdout).to_string();
-                    }
-                }
+                let content = String::from_utf8_lossy(&out.stdout).to_string();
 
                 if content.trim().is_empty() {
                     logs.insert(
                         service.to_string(),
-                        "No recent logs found or service not installed.".to_string(),
+                        "No logs for the last 2 hours (service may be idle or not installed)."
+                            .to_string(),
                     );
                 } else {
                     logs.insert(service.to_string(), content);

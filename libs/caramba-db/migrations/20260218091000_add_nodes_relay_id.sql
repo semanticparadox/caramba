@@ -1,4 +1,0 @@
-ALTER TABLE nodes
-ADD COLUMN IF NOT EXISTS relay_id BIGINT REFERENCES nodes(id) ON DELETE SET NULL;
-
-CREATE INDEX IF NOT EXISTS idx_nodes_relay_id ON nodes(relay_id);

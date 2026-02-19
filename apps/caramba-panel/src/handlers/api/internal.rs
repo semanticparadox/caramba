@@ -7,6 +7,7 @@ use axum::{
 };
 use caramba_db::models::network::Inbound;
 use caramba_db::models::node::Node;
+use caramba_db::repositories::node_repo::NodeRepository;
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
@@ -112,22 +113,25 @@ pub async fn get_active_nodes(
         return status.into_response();
     }
 
-    let nodes: Vec<Node> = sqlx::query_as(
-        "SELECT * FROM nodes WHERE is_enabled = true AND status = 'active' ORDER BY sort_order ASC",
-    )
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
+    let node_repo = NodeRepository::new(state.pool.clone());
+    let nodes: Vec<Node> = node_repo
+        .get_all_nodes()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|n| n.is_enabled && n.status == "active")
+        .collect();
 
     let mut internal_nodes = Vec::new();
 
     for node in nodes {
-        let inbounds: Vec<Inbound> =
-            sqlx::query_as("SELECT * FROM inbounds WHERE node_id = $1 AND enable = true")
-                .bind(node.id)
-                .fetch_all(&state.pool)
-                .await
-                .unwrap_or_default();
+        let inbounds: Vec<Inbound> = node_repo
+            .get_inbounds_by_node(node.id)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|inb| inb.enable)
+            .collect();
 
         internal_nodes.push(InternalNode { node, inbounds });
     }

@@ -89,7 +89,14 @@ enum Commands {
         file: String,
     },
     /// Uninstall Caramba
-    Uninstall,
+    Uninstall {
+        /// Installation directory
+        #[arg(long)]
+        install_dir: Option<String>,
+        /// Keep PostgreSQL database and role
+        #[arg(long)]
+        keep_db: bool,
+    },
 }
 
 mod assets;
@@ -493,8 +500,18 @@ async fn main() {
         Commands::Admin => {
             println!("Admin tools...");
         }
-        Commands::Uninstall => {
-            println!("Uninstalling Caramba...");
+        Commands::Uninstall {
+            install_dir,
+            keep_db,
+        } => {
+            let install_dir = pick_non_empty(install_dir, "INSTALL_DIR")
+                .unwrap_or_else(|| "/opt/caramba".to_string());
+            println!("Uninstalling Caramba from {} ...", install_dir);
+            if let Err(e) = install::uninstall_caramba(&install_dir, !keep_db) {
+                eprintln!("Uninstall failed: {}", e);
+                exit(1);
+            }
+            println!("{}", style("Caramba uninstall completed.").green());
         }
     }
 }

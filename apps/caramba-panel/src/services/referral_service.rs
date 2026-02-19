@@ -68,7 +68,7 @@ impl ReferralService {
                 u.tg_id,
                 u.username,
                 u.full_name,
-                u.balance,
+                u.balance::BIGINT AS balance,
                 u.referral_code,
                 u.referrer_id,
                 u.referred_by,
@@ -124,12 +124,14 @@ impl ReferralService {
 
     pub async fn apply_referral_bonus(pool: &mut sqlx::Transaction<'_, sqlx::Postgres>, user_id: i64, amount_cents: i64, _payment_id: Option<i64>) -> Result<Option<(i64, i64)>> {
         // 10% bonus for the referrer
-        let user = sqlx::query_as::<_, caramba_db::models::store::User>("SELECT * FROM users WHERE id = $1")
+        let user = sqlx::query_as::<_, (Option<i64>, Option<i64>)>(
+            "SELECT referrer_id, referred_by FROM users WHERE id = $1",
+        )
             .bind(user_id)
             .fetch_one(&mut **pool)
             .await?;
-        
-        let referrer_id = user.referrer_id.or(user.referred_by);
+
+        let referrer_id = user.0.or(user.1);
 
         if let Some(r_id) = referrer_id {
             let bonus = amount_cents / 10;

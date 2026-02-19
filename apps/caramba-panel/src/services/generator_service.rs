@@ -1,8 +1,9 @@
 use crate::services::orchestration_service::OrchestrationService;
 use crate::services::security_service::SecurityService;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use caramba_db::models::groups::InboundTemplate;
 use caramba_db::models::node::Node;
+use caramba_db::repositories::node_repo::NodeRepository;
 use sqlx::PgPool;
 use std::sync::Arc;
 use tracing::{error, info, warn};
@@ -32,30 +33,24 @@ impl GeneratorService {
 
     /// Syncs inbounds for all nodes in a specific group based on active templates.
     pub async fn sync_group_inbounds(&self, group_id: i64) -> Result<()> {
-        // 1. Get Templates for this group
-        let templates = sqlx::query_as::<_, InboundTemplate>(
-            "SELECT * FROM inbound_templates WHERE target_group_id = $1 AND is_active = TRUE",
-        )
-        .bind(group_id)
-        .fetch_all(&self.pool)
-        .await?;
+        let node_repo = NodeRepository::new(self.pool.clone());
+
+        // 1. Get templates for this group through repository compatibility query.
+        let templates = node_repo.get_templates_for_group(group_id).await?;
 
         if templates.is_empty() {
             warn!("⚠️ No active templates found for group {}", group_id);
             return Ok(());
         }
 
-        // 2. Get Nodes in this group
-        let nodes = sqlx::query_as::<_, Node>(
-            r#"
-            SELECT n.* FROM nodes n
-            JOIN node_group_members ngm ON n.id = ngm.node_id
-            WHERE ngm.group_id = $1
-            "#,
-        )
-        .bind(group_id)
-        .fetch_all(&self.pool)
-        .await?;
+        // 2. Get nodes in this group through repository parser.
+        let node_ids = node_repo.get_group_nodes(group_id).await?;
+        let mut nodes: Vec<Node> = Vec::new();
+        for node_id in node_ids {
+            if let Some(node) = node_repo.get_node_by_id(node_id).await? {
+                nodes.push(node);
+            }
+        }
 
         info!(
             "🔄 Syncing {} templates to {} nodes in group {}",
@@ -244,29 +239,45 @@ impl GeneratorService {
     }
 
     pub async fn rotate_inbound(&self, inbound_id: i64) -> Result<()> {
-        let inbound = sqlx::query_as::<_, caramba_db::models::network::Inbound>(
-            "SELECT * FROM inbounds WHERE id = $1",
-        )
-        .bind(inbound_id)
-        .fetch_one(&self.pool)
-        .await
-        .context("Inbound not found")?;
+        let node_repo = NodeRepository::new(self.pool.clone());
+        let inbound = node_repo
+            .get_inbound_by_id(inbound_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Inbound not found"))?;
 
-        let node = sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE id = $1")
-            .bind(inbound.node_id)
-            .fetch_one(&self.pool)
-            .await
-            .context("Node not found")?;
+        let node = node_repo
+            .get_node_by_id(inbound.node_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Node not found"))?;
 
         if !inbound.tag.starts_with("tpl_") {
             return Err(anyhow::anyhow!("Inbound is not tied to a template"));
         }
 
         let template = if let Some(remark) = &inbound.remark {
-            sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE name = $1")
-                .bind(remark)
-                .fetch_optional(&self.pool)
-                .await?
+            sqlx::query_as::<_, InboundTemplate>(
+                r#"
+                SELECT
+                    id,
+                    name,
+                    protocol,
+                    settings_template,
+                    stream_settings_template,
+                    target_group_id,
+                    COALESCE(port_range_start, 10000)::BIGINT AS port_range_start,
+                    COALESCE(port_range_end, 60000)::BIGINT AS port_range_end,
+                    0::BIGINT AS renew_interval_hours,
+                    COALESCE(renew_interval_mins, 0)::BIGINT AS renew_interval_mins,
+                    COALESCE(is_active, TRUE) AS is_active,
+                    created_at
+                FROM inbound_templates
+                WHERE name = $1
+                LIMIT 1
+                "#,
+            )
+            .bind(remark)
+            .fetch_optional(&self.pool)
+            .await?
         } else {
             None
         };
@@ -335,9 +346,9 @@ impl GeneratorService {
     }
 
     pub async fn rotate_group_inbounds(&self, group_id: i64) -> Result<()> {
-        let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>(
+        let inbound_ids: Vec<i64> = sqlx::query_scalar(
             r#"
-            SELECT i.* FROM inbounds i
+            SELECT i.id FROM inbounds i
             JOIN nodes n ON i.node_id = n.id
             JOIN node_group_members ngm ON n.id = ngm.node_id
             WHERE ngm.group_id = $1 AND i.tag LIKE 'tpl_%'
@@ -347,9 +358,9 @@ impl GeneratorService {
         .fetch_all(&self.pool)
         .await?;
 
-        for inbound in inbounds {
-            if let Err(e) = self.rotate_inbound(inbound.id).await {
-                warn!("Failed to rotate inbound {}: {}", inbound.id, e);
+        for inbound_id in inbound_ids {
+            if let Err(e) = self.rotate_inbound(inbound_id).await {
+                warn!("Failed to rotate inbound {}: {}", inbound_id, e);
             }
         }
 

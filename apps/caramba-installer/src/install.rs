@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use anyhow::{anyhow, Result};
@@ -46,6 +47,26 @@ fn run_command(cmd: &str, args: &[&str], msg: &str) -> Result<()> {
             if stderr.is_empty() { "<empty>" } else { &stderr },
         ))
     }
+}
+
+fn run_command_optional(cmd: &str, args: &[&str], msg: &str) -> Result<()> {
+    let output = Command::new(cmd)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()?;
+
+    if output.status.success() {
+        println!("✅ {}", msg);
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if stderr.is_empty() {
+            println!("ℹ️ {} (skipped)", msg);
+        } else {
+            println!("ℹ️ {} (skipped: {})", msg, stderr);
+        }
+    }
+    Ok(())
 }
 
 fn command_exists(cmd: &str) -> bool {
@@ -705,5 +726,94 @@ SESSION_SECRET={}
     let path = format!("{}/.env", config.install_dir);
     std::fs::write(&path, env_content)?;
     println!("✅ Written .env to {}", path);
+    Ok(())
+}
+
+pub fn uninstall_caramba(install_dir: &str, purge_db: bool) -> Result<()> {
+    println!("{}", style("\nUninstalling Caramba...").bold());
+    let install_dir = install_dir.trim_end_matches('/');
+
+    let services = [
+        "caramba-panel.service",
+        "caramba-sub.service",
+        "caramba-node.service",
+        "caramba-bot.service",
+    ];
+
+    for service in services {
+        run_command_optional(
+            "systemctl",
+            &["disable", "--now", service],
+            &format!("Stopping {}", service),
+        )?;
+
+        let service_path = format!("/etc/systemd/system/{}", service);
+        if Path::new(&service_path).exists() {
+            std::fs::remove_file(&service_path)?;
+            println!("✅ Removed {}", service_path);
+        } else {
+            println!("ℹ️ {} not found, skipping", service_path);
+        }
+    }
+
+    run_command_optional("systemctl", &["daemon-reload"], "Reloading systemd")?;
+    run_command_optional("systemctl", &["reset-failed"], "Resetting failed units")?;
+
+    let files_to_remove = [
+        "caramba-panel",
+        "caramba-sub",
+        "caramba-node",
+        "caramba-bot",
+        ".env",
+        "sub.env",
+        "node.env",
+        "bot.env",
+        "INSTALL_SUMMARY.txt",
+    ];
+
+    for file in files_to_remove {
+        let path = format!("{}/{}", install_dir, file);
+        if Path::new(&path).exists() {
+            std::fs::remove_file(&path)?;
+            println!("✅ Removed {}", path);
+        }
+    }
+
+    if Path::new(install_dir).exists() {
+        std::fs::remove_dir_all(install_dir)?;
+        println!("✅ Removed install directory {}", install_dir);
+    } else {
+        println!("ℹ️ Install directory {} not found, skipping", install_dir);
+    }
+
+    if purge_db {
+        println!("{}", style("\nPurging PostgreSQL database...").bold());
+        run_command_optional(
+            "sudo",
+            &[
+                "-u",
+                "postgres",
+                "psql",
+                "-c",
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'caramba';",
+            ],
+            "Terminating active DB sessions",
+        )?;
+        run_command_optional(
+            "sudo",
+            &["-u", "postgres", "psql", "-c", "DROP DATABASE IF EXISTS caramba;"],
+            "Dropping database 'caramba'",
+        )?;
+        run_command_optional(
+            "sudo",
+            &["-u", "postgres", "psql", "-c", "DROP ROLE IF EXISTS caramba;"],
+            "Dropping role 'caramba'",
+        )?;
+    } else {
+        println!("ℹ️ Keeping PostgreSQL database and role by request.");
+    }
+
+    // Keep binary by default to allow reinstall/diagnostics from the same command.
+    println!("ℹ️ /usr/local/bin/caramba was kept so you can reinstall quickly.");
     Ok(())
 }

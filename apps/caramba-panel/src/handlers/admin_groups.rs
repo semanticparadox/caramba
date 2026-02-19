@@ -10,6 +10,7 @@ use serde::Deserialize;
 use crate::AppState;
 use caramba_db::models::groups::{NodeGroup, InboundTemplate};
 use caramba_db::models::node::Node;
+use caramba_db::repositories::node_repo::NodeRepository;
 use tracing::error;
 
 #[derive(Template, WebTemplate)]
@@ -151,37 +152,57 @@ pub async fn get_group_edit(
             Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response(),
         };
 
-    // Get current members
-    let members: Vec<Node> = sqlx::query_as::<_, Node>(
-        "SELECT n.* FROM nodes n JOIN node_group_members ngm ON n.id = ngm.node_id WHERE ngm.group_id = $1"
-    )
-    .bind(id)
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
+    let node_repo = NodeRepository::new(state.pool.clone());
 
-    // Get available nodes (not in this group)
-    let available_nodes: Result<Vec<Node>, sqlx::Error> = sqlx::query_as::<_, Node>(
-        "SELECT * FROM nodes WHERE id NOT IN (SELECT node_id FROM node_group_members WHERE group_id = $1)"
-    )
-    .bind(id)
-    .fetch_all(&state.pool)
-    .await;
+    // Get current members via repository parser (handles INT4/INT8 drift).
+    let member_ids = node_repo.get_group_nodes(id).await.unwrap_or_default();
+    let mut members: Vec<Node> = Vec::new();
+    for node_id in &member_ids {
+        if let Ok(Some(node)) = node_repo.get_node_by_id(*node_id).await {
+            members.push(node);
+        }
+    }
 
-    let available_nodes = match available_nodes {
-        Ok(nodes) => nodes,
+    // Get available nodes (not in this group).
+    let available_nodes = match node_repo.get_all_nodes().await {
+        Ok(nodes) => {
+            let member_set: std::collections::HashSet<i64> = member_ids.into_iter().collect();
+            nodes
+                .into_iter()
+                .filter(|n| !member_set.contains(&n.id))
+                .collect()
+        }
         Err(e) => {
             error!("Failed to fetch available nodes for group {}: {}", id, e);
             Vec::new()
         }
     };
 
-    // Get inbounds for this group
-    let inbounds: Vec<InboundTemplate> = sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE target_group_id = $1")
-        .bind(id)
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
+    // Get templates for this group with explicit casts for compatibility.
+    let inbounds: Vec<InboundTemplate> = sqlx::query_as::<_, InboundTemplate>(
+        r#"
+        SELECT
+            id,
+            name,
+            protocol,
+            settings_template,
+            stream_settings_template,
+            target_group_id,
+            COALESCE(port_range_start, 10000)::BIGINT AS port_range_start,
+            COALESCE(port_range_end, 60000)::BIGINT AS port_range_end,
+            0::BIGINT AS renew_interval_hours,
+            COALESCE(renew_interval_mins, 0)::BIGINT AS renew_interval_mins,
+            COALESCE(is_active, TRUE) AS is_active,
+            created_at
+        FROM inbound_templates
+        WHERE target_group_id = $1
+        ORDER BY name ASC
+        "#,
+    )
+    .bind(id)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
 
     let template = AdminGroupEditTemplate {
         group,

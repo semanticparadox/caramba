@@ -11,6 +11,23 @@ use caramba_db::models::groups::{InboundTemplate, NodeGroup};
 use serde::Deserialize;
 use tracing::{error, info};
 
+const TEMPLATE_SELECT_SQL: &str = r#"
+SELECT
+    id,
+    name,
+    protocol,
+    settings_template,
+    stream_settings_template,
+    target_group_id,
+    port_range_start::BIGINT AS port_range_start,
+    port_range_end::BIGINT AS port_range_end,
+    0::BIGINT AS renew_interval_hours,
+    COALESCE(renew_interval_mins, 0)::BIGINT AS renew_interval_mins,
+    COALESCE(is_active, TRUE) AS is_active,
+    created_at
+FROM inbound_templates
+"#;
+
 #[derive(Template, WebTemplate)]
 #[template(path = "admin_templates.html")]
 pub struct AdminTemplatesTemplate {
@@ -43,7 +60,7 @@ pub async fn get_templates_page(
     }
 
     let templates: Vec<InboundTemplate> =
-        sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates ORDER BY name ASC")
+        sqlx::query_as::<_, InboundTemplate>(&format!("{TEMPLATE_SELECT_SQL} ORDER BY name ASC"))
             .fetch_all(&state.pool)
             .await
             .unwrap_or_default();
@@ -309,7 +326,7 @@ pub async fn get_template_edit(
     }
 
     let tpl =
-        match sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE id = $1")
+        match sqlx::query_as::<_, InboundTemplate>(&format!("{TEMPLATE_SELECT_SQL} WHERE id = $1"))
             .bind(id)
             .fetch_optional(&state.pool)
             .await
@@ -353,7 +370,7 @@ pub async fn get_template_json(
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    match sqlx::query_as::<_, InboundTemplate>("SELECT * FROM inbound_templates WHERE id = $1")
+    match sqlx::query_as::<_, InboundTemplate>(&format!("{TEMPLATE_SELECT_SQL} WHERE id = $1"))
         .bind(id)
         .fetch_optional(&state.pool)
         .await

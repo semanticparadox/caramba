@@ -259,7 +259,11 @@ pub async fn get_plan_bindings(
     };
 
     // 2. Fetch All Active Nodes & Inbounds
-    let nodes = sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE status = 'active'").fetch_all(&state.pool).await.unwrap_or_default();
+    let nodes = state
+        .infrastructure_service
+        .get_active_nodes()
+        .await
+        .unwrap_or_default();
     
     // 3. Fetch Existing Bindings
     let bound_ids: Vec<i64> = sqlx::query_scalar("SELECT inbound_id FROM plan_inbounds WHERE plan_id = $1")
@@ -271,11 +275,14 @@ pub async fn get_plan_bindings(
     let mut bindings = Vec::new();
 
     for node in nodes {
-        let inbounds = sqlx::query_as::<_, Inbound>("SELECT * FROM inbounds WHERE node_id = $1 AND enable = TRUE ORDER BY listen_port ASC")
-            .bind(node.id)
-            .fetch_all(&state.pool)
+        let inbounds = state
+            .infrastructure_service
+            .get_node_inbounds(node.id)
             .await
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|i| i.enable)
+            .collect::<Vec<_>>();
 
         let items = inbounds.into_iter().map(|i| {
             let is_bound = bound_ids.contains(&i.id);
@@ -374,15 +381,15 @@ pub async fn preview_node_config(
     // Optimization: Refactor OrchestrationService better later.
     
     // 1. Fetch node details
-    let node: Node = match sqlx::query_as("SELECT * FROM nodes WHERE id = $1").bind(node_id).fetch_one(&state.pool).await {
+    let node: Node = match state.infrastructure_service.get_node_by_id(node_id).await {
         Ok(n) => n,
         Err(_) => return (axum::http::StatusCode::NOT_FOUND, "Node not found").into_response(),
     };
 
     // 2. Fetch Inbounds
-    let mut inbounds: Vec<Inbound> = sqlx::query_as("SELECT * FROM inbounds WHERE node_id = $1")
-        .bind(node_id)
-        .fetch_all(&state.pool)
+    let mut inbounds: Vec<Inbound> = state
+        .infrastructure_service
+        .get_node_inbounds(node_id)
         .await
         .unwrap_or_default();
 
@@ -448,11 +455,15 @@ pub async fn get_edit_inbound(
     State(state): State<AppState>,
     Path((node_id, inbound_id)): Path<(i64, i64)>,
 ) -> impl IntoResponse {
-    let inbound = match sqlx::query_as::<_, Inbound>("SELECT * FROM inbounds WHERE id = $1 AND node_id = $2")
-        .bind(inbound_id).bind(node_id).fetch_one(&state.pool).await {
-            Ok(i) => i,
-            Err(_) => return (axum::http::StatusCode::NOT_FOUND, "Inbound not found").into_response(),
-        };
+    let inbound = match state
+        .infrastructure_service
+        .node_repo
+        .get_inbound_by_id(inbound_id)
+        .await
+    {
+        Ok(Some(i)) if i.node_id == node_id => i,
+        _ => return (axum::http::StatusCode::NOT_FOUND, "Inbound not found").into_response(),
+    };
 
     let admin_path = state.admin_path.clone();
 

@@ -15,6 +15,13 @@ impl NodeRepository {
         Self { pool }
     }
 
+    fn is_undefined_column(err: &sqlx::Error) -> bool {
+        match err {
+            sqlx::Error::Database(db_err) => db_err.code().as_deref() == Some("42703"),
+            _ => false,
+        }
+    }
+
     fn row_to_node(row: &PgRow) -> Node {
         Node {
             id: row.try_get::<i64, _>("id").unwrap_or_default(),
@@ -533,12 +540,57 @@ impl NodeRepository {
     pub async fn get_all_inbound_templates(
         &self,
     ) -> Result<Vec<crate::models::groups::InboundTemplate>> {
-        sqlx::query_as::<_, crate::models::groups::InboundTemplate>(
-            "SELECT * FROM inbound_templates WHERE is_active = TRUE",
+        let primary = sqlx::query_as::<_, crate::models::groups::InboundTemplate>(
+            r#"
+            SELECT
+                id,
+                name,
+                protocol,
+                settings_template,
+                stream_settings_template,
+                target_group_id,
+                port_range_start::BIGINT AS port_range_start,
+                port_range_end::BIGINT AS port_range_end,
+                0::BIGINT AS renew_interval_hours,
+                COALESCE(renew_interval_mins, 0)::BIGINT AS renew_interval_mins,
+                COALESCE(is_active, TRUE) AS is_active,
+                created_at
+            FROM inbound_templates
+            WHERE COALESCE(is_active, TRUE) = TRUE
+            ORDER BY name ASC
+            "#,
         )
         .fetch_all(&self.pool)
-        .await
-        .context("Failed to fetch all inbound templates")
+        .await;
+
+        match primary {
+            Ok(rows) => Ok(rows),
+            Err(e) if Self::is_undefined_column(&e) => {
+                sqlx::query_as::<_, crate::models::groups::InboundTemplate>(
+                    r#"
+                    SELECT
+                        id,
+                        name,
+                        protocol,
+                        settings_template,
+                        stream_settings_template,
+                        target_group_id,
+                        10000::BIGINT AS port_range_start,
+                        60000::BIGINT AS port_range_end,
+                        0::BIGINT AS renew_interval_hours,
+                        0::BIGINT AS renew_interval_mins,
+                        TRUE AS is_active,
+                        created_at
+                    FROM inbound_templates
+                    ORDER BY name ASC
+                    "#,
+                )
+                .fetch_all(&self.pool)
+                .await
+                .context("Failed to fetch all inbound templates")
+            }
+            Err(e) => Err(e).context("Failed to fetch all inbound templates"),
+        }
     }
 
     // ==================== GROUPS (NODES) ====================
@@ -780,12 +832,60 @@ impl NodeRepository {
         &self,
         group_id: i64,
     ) -> Result<Vec<crate::models::groups::InboundTemplate>> {
-        sqlx::query_as::<_, crate::models::groups::InboundTemplate>(
-            "SELECT * FROM inbound_templates WHERE target_group_id = $1 AND is_active = TRUE",
+        let primary = sqlx::query_as::<_, crate::models::groups::InboundTemplate>(
+            r#"
+            SELECT
+                id,
+                name,
+                protocol,
+                settings_template,
+                stream_settings_template,
+                target_group_id,
+                port_range_start::BIGINT AS port_range_start,
+                port_range_end::BIGINT AS port_range_end,
+                0::BIGINT AS renew_interval_hours,
+                COALESCE(renew_interval_mins, 0)::BIGINT AS renew_interval_mins,
+                COALESCE(is_active, TRUE) AS is_active,
+                created_at
+            FROM inbound_templates
+            WHERE target_group_id = $1
+              AND COALESCE(is_active, TRUE) = TRUE
+            ORDER BY name ASC
+            "#,
         )
         .bind(group_id)
         .fetch_all(&self.pool)
-        .await
-        .context("Failed to fetch templates for group")
+        .await;
+
+        match primary {
+            Ok(rows) => Ok(rows),
+            Err(e) if Self::is_undefined_column(&e) => {
+                sqlx::query_as::<_, crate::models::groups::InboundTemplate>(
+                    r#"
+                    SELECT
+                        id,
+                        name,
+                        protocol,
+                        settings_template,
+                        stream_settings_template,
+                        target_group_id,
+                        10000::BIGINT AS port_range_start,
+                        60000::BIGINT AS port_range_end,
+                        0::BIGINT AS renew_interval_hours,
+                        0::BIGINT AS renew_interval_mins,
+                        TRUE AS is_active,
+                        created_at
+                    FROM inbound_templates
+                    WHERE target_group_id = $1
+                    ORDER BY name ASC
+                    "#,
+                )
+                .bind(group_id)
+                .fetch_all(&self.pool)
+                .await
+                .context("Failed to fetch templates for group")
+            }
+            Err(e) => Err(e).context("Failed to fetch templates for group"),
+        }
     }
 }

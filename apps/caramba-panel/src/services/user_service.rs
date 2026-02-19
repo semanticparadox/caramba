@@ -141,10 +141,11 @@ impl UserService {
             return Err(anyhow::anyhow!("You cannot refer yourself"));
         }
 
-        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_one(&self.pool)
-            .await?;
+        let user = self
+            .user_repo
+            .get_by_id(user_id)
+            .await?
+            .context("User not found")?;
 
         if user.referrer_id.is_some() {
             return Err(anyhow::anyhow!("Referrer is already set and cannot be changed"));

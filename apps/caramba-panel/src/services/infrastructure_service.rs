@@ -1,5 +1,5 @@
 use sqlx::PgPool;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use tracing::{info, warn};
 use rand::distr::{Alphanumeric, SampleString};
 use caramba_db::repositories::node_repo::NodeRepository;
@@ -193,51 +193,105 @@ impl InfrastructureService {
     }
 
     pub async fn delete_node(&self, id: i64) -> Result<()> {
-        // 1. Delete plan_inbound links for this node's inbounds
-        let _ = sqlx::query(
-            "DELETE FROM plan_inbounds WHERE inbound_id IN (SELECT id FROM inbounds WHERE node_id = $1)"
+        let mut tx = self.pool.begin().await?;
+
+        Self::run_cleanup_optional(
+            &mut tx,
+            "DELETE FROM plan_inbounds WHERE inbound_id IN (SELECT id FROM inbounds WHERE node_id = $1)",
+            id,
+            "plan_inbounds cleanup",
         )
-            .bind(id)
-            .execute(&self.pool)
-            .await;
+        .await?;
+        Self::run_cleanup_optional(
+            &mut tx,
+            "DELETE FROM inbounds WHERE node_id = $1",
+            id,
+            "inbounds cleanup",
+        )
+        .await?;
+        Self::run_cleanup_optional(
+            &mut tx,
+            "DELETE FROM plan_nodes WHERE node_id = $1",
+            id,
+            "plan_nodes cleanup",
+        )
+        .await?;
+        Self::run_cleanup_optional(
+            &mut tx,
+            "DELETE FROM node_group_members WHERE node_id = $1",
+            id,
+            "node_group_members cleanup",
+        )
+        .await?;
+        Self::run_cleanup_optional(
+            &mut tx,
+            "DELETE FROM sni_rotation_log WHERE node_id = $1",
+            id,
+            "sni_rotation_log cleanup",
+        )
+        .await?;
+        Self::run_cleanup_optional(
+            &mut tx,
+            "UPDATE sni_pool SET discovered_by_node_id = NULL WHERE discovered_by_node_id = $1",
+            id,
+            "sni_pool unlink",
+        )
+        .await?;
+        Self::run_cleanup_optional(
+            &mut tx,
+            "UPDATE subscriptions SET node_id = NULL WHERE node_id = $1",
+            id,
+            "subscriptions unlink",
+        )
+        .await?;
 
-        // 2. Delete inbounds belonging to this node
-        let _ = sqlx::query("DELETE FROM inbounds WHERE node_id = $1")
+        let result = sqlx::query("DELETE FROM nodes WHERE id = $1")
             .bind(id)
-            .execute(&self.pool)
-            .await;
+            .execute(&mut *tx)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("Node {} not found", id));
+        }
 
-        // 3. Delete plan-node links
-        let _ = sqlx::query("DELETE FROM plan_nodes WHERE node_id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await;
+        // Keep UX deterministic for fresh labs: if all nodes were removed, reset sequence.
+        let remaining: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM nodes")
+            .fetch_one(&mut *tx)
+            .await?;
+        if remaining == 0 {
+            let _ = sqlx::query("SELECT setval(pg_get_serial_sequence('nodes', 'id'), 1, false)")
+                .execute(&mut *tx)
+                .await;
+        }
 
-        // 4. Delete node group memberships
-        let _ = sqlx::query("DELETE FROM node_group_members WHERE node_id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await;
-
-        // 5. Clear SNI rotation logs
-        let _ = sqlx::query("DELETE FROM sni_rotation_log WHERE node_id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await;
-
-        // 6. Nullify SNI pool discovered_by references
-        let _ = sqlx::query("UPDATE sni_pool SET discovered_by_node_id = NULL WHERE discovered_by_node_id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await;
-
-        // 7. Unlink subscriptions
-        let _ = sqlx::query("UPDATE subscriptions SET node_id = NULL WHERE node_id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await;
-
-        // 8. Finally, delete the node itself
-        self.node_repo.delete_node(id).await.map_err(|e| e.into())
+        tx.commit().await?;
+        Ok(())
     }
+
+    async fn run_cleanup_optional(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        sql: &str,
+        node_id: i64,
+        step: &str,
+    ) -> Result<()> {
+        match sqlx::query(sql).bind(node_id).execute(&mut **tx).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                if is_undefined_table_or_column(&e) {
+                    warn!("Skipping {} for node {} (legacy schema): {}", step, node_id, e);
+                    Ok(())
+                } else {
+                    Err(e.into())
+                }
+            }
+        }
+    }
+}
+
+fn is_undefined_table_or_column(err: &sqlx::Error) -> bool {
+    if let sqlx::Error::Database(db_err) = err {
+        if let Some(code) = db_err.code() {
+            return code == "42P01" || code == "42703";
+        }
+    }
+    false
 }

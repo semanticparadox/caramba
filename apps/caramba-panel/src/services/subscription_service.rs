@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use caramba_db::models::store::{Plan, Subscription, SubscriptionWithDetails, GiftCode, PlanDuration, RenewalResult, SubscriptionIpTracking, AlertType};
 use caramba_db::models::node::Node;
 use caramba_db::models::network::InboundType;
+use caramba_db::repositories::node_repo::NodeRepository;
 use crate::singbox::subscription_generator::{NodeInfo, UserKeys};
 use crate::services::activity_service::ActivityService;
 use uuid::Uuid;
@@ -15,6 +16,26 @@ pub struct SubscriptionService {
 }
 
 impl SubscriptionService {
+    const INBOUND_SELECT_SQL: &'static str = r#"
+        SELECT
+            id,
+            node_id,
+            tag,
+            protocol,
+            listen_port::BIGINT AS listen_port,
+            COALESCE(listen_ip, '::') AS listen_ip,
+            COALESCE(settings, '{}') AS settings,
+            COALESCE(stream_settings, '{}') AS stream_settings,
+            remark,
+            COALESCE(enable, TRUE) AS enable,
+            COALESCE(renew_interval_mins, 0)::BIGINT AS renew_interval_mins,
+            COALESCE(port_range_start, 10000)::BIGINT AS port_range_start,
+            COALESCE(port_range_end, 60000)::BIGINT AS port_range_end,
+            last_rotated_at,
+            created_at
+        FROM inbounds
+    "#;
+
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
@@ -379,14 +400,31 @@ impl SubscriptionService {
         if let Some(sub) = sub {
             let uuid = sub.vless_uuid.clone().unwrap_or_default();
             let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>(
-                r#"
-                SELECT DISTINCT i.* FROM inbounds i
+                &format!(
+                    r#"
+                SELECT DISTINCT i.id,
+                       i.node_id,
+                       i.tag,
+                       i.protocol,
+                       i.listen_port::BIGINT AS listen_port,
+                       COALESCE(i.listen_ip, '::') AS listen_ip,
+                       COALESCE(i.settings, '{{}}') AS settings,
+                       COALESCE(i.stream_settings, '{{}}') AS stream_settings,
+                       i.remark,
+                       COALESCE(i.enable, TRUE) AS enable,
+                       COALESCE(i.renew_interval_mins, 0)::BIGINT AS renew_interval_mins,
+                       COALESCE(i.port_range_start, 10000)::BIGINT AS port_range_start,
+                       COALESCE(i.port_range_end, 60000)::BIGINT AS port_range_end,
+                       i.last_rotated_at,
+                       i.created_at
+                FROM inbounds i
                 LEFT JOIN plan_inbounds pi ON pi.inbound_id = i.id
                 LEFT JOIN plan_nodes pn ON pn.node_id = i.node_id
                 LEFT JOIN node_group_members ngm ON ngm.node_id = i.node_id
                 LEFT JOIN plan_groups pg ON pg.group_id = ngm.group_id
                 WHERE (pi.plan_id = $1 OR pn.plan_id = $1 OR pg.plan_id = $1) AND i.enable = TRUE
                 "#
+                ),
             )
             .bind(sub.plan_id)
             .fetch_all(&self.pool)
@@ -637,11 +675,13 @@ impl SubscriptionService {
     }
 
     pub async fn get_active_nodes_for_config(&self) -> Result<Vec<NodeInfo>> {
-        let nodes = sqlx::query_as::<_, Node>(
-            "SELECT * FROM nodes WHERE is_enabled = TRUE AND status = 'active'"
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let node_repo = NodeRepository::new(self.pool.clone());
+        let nodes = node_repo
+            .get_all_nodes()
+            .await?
+            .into_iter()
+            .filter(|n| n.is_enabled && n.status == "active")
+            .collect::<Vec<Node>>();
         
         let node_ids: Vec<i64> = nodes.iter().map(|n| n.id).collect();
         let inbounds_map = if node_ids.is_empty() {
@@ -684,7 +724,13 @@ impl SubscriptionService {
         let relays_map = if relay_ids.is_empty() {
             std::collections::HashMap::new()
         } else {
-            let relay_nodes = sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE id = ANY($1)").bind(&relay_ids).fetch_all(&self.pool).await?;
+            let node_repo = NodeRepository::new(self.pool.clone());
+            let mut relay_nodes = Vec::new();
+            for relay_id in &relay_ids {
+                if let Some(node) = node_repo.get_node_by_id(*relay_id).await? {
+                    relay_nodes.push(node);
+                }
+            }
             let relay_inbounds_map = self.fetch_inbounds_for_nodes(&relay_ids).await?;
             
             let mut map = std::collections::HashMap::new();
@@ -716,7 +762,12 @@ impl SubscriptionService {
         if node_ids.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
-        let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>("SELECT * FROM inbounds WHERE enable = TRUE AND node_id = ANY($1)")
+        let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>(
+            &format!(
+                "{} WHERE enable = TRUE AND node_id = ANY($1)",
+                Self::INBOUND_SELECT_SQL
+            ),
+        )
             .bind(node_ids)
             .fetch_all(&self.pool)
             .await?;

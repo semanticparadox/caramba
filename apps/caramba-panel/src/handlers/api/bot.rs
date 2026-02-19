@@ -55,7 +55,10 @@ pub async fn upsert_user(
 ) -> impl IntoResponse {
     match state.store_service.upsert_user(payload.tg_id, payload.username.as_deref(), payload.full_name.as_deref(), payload.referrer_id).await {
         Ok(user) => (StatusCode::OK, Json(Some(user))).into_response(),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR).into_response(),
+        Err(e) => {
+            tracing::error!("bot upsert_user failed for tg_id {}: {}", payload.tg_id, e);
+            (StatusCode::INTERNAL_SERVER_ERROR).into_response()
+        }
     }
 }
 

@@ -104,6 +104,7 @@ pub struct InstallNodeForm {
 pub struct NodeLogsQuery {
     pub lines: Option<usize>,
     pub page: Option<usize>,
+    pub force: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -607,9 +608,32 @@ pub async fn get_node_logs(
     let lines = query.lines.unwrap_or(120).clamp(20, 1000);
     let page = query.page.unwrap_or(0);
     let base_url = format!("{}/nodes/{}/logs", state.admin_path, id);
+    let cache_key = format!("node_logs:{}", id);
+    let force_refresh = query.force.unwrap_or(false);
+
+    if force_refresh {
+        let _ = state.redis.del(&cache_key).await;
+        let _ = sqlx::query("UPDATE nodes SET pending_log_collection = TRUE WHERE id = $1")
+            .bind(id)
+            .execute(&state.pool)
+            .await;
+
+        return Html(format!(
+            r###"
+        <div class="p-8 text-center" hx-get="{base_url}?lines={lines}&page=0" hx-trigger="every 3s" hx-target="this">
+            <div class="animate-spin w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+            <p class="text-slate-400">Refreshing logs from agent...</p>
+            <p class="text-[10px] text-slate-500 mt-2 italic">Please wait a few seconds.</p>
+        </div>
+    "###,
+            base_url = base_url,
+            lines = lines
+        ))
+        .into_response();
+    }
 
     // 1. Check if logs are already in Redis
-    if let Ok(Some(logs_json)) = state.redis.get(&format!("node_logs:{}", id)).await {
+    if let Ok(Some(logs_json)) = state.redis.get(&cache_key).await {
         return Html(format!(r###"
             <div class="space-y-4">
                 <div class="flex flex-wrap items-center justify-between gap-2">
@@ -619,7 +643,7 @@ pub async fn get_node_logs(
                         <button hx-get="{base_url}?lines=120&page=0" hx-target="#logs-modal-content" class="px-2 py-1 rounded border border-white/10 hover:bg-white/5">120</button>
                         <button hx-get="{base_url}?lines=300&page=0" hx-target="#logs-modal-content" class="px-2 py-1 rounded border border-white/10 hover:bg-white/5">300</button>
                     </div>
-                    <button hx-get="{base_url}?lines={lines}&page={page}" hx-target="#logs-modal-content" class="text-xs text-indigo-400 hover:text-indigo-300">Refresh Logs</button>
+                    <button hx-get="{base_url}?lines={lines}&page={page}&force=true" hx-target="#logs-modal-content" class="text-xs text-indigo-400 hover:text-indigo-300">Refresh Logs</button>
                 </div>
                 <div class="custom-scrollbar overflow-auto max-h-[60vh] space-y-4 font-mono text-[11px]">
                     {}

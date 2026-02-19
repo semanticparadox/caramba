@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     ip TEXT NOT NULL UNIQUE,
     status TEXT NOT NULL DEFAULT 'new',
     root_password TEXT,
-    vpn_port INTEGER NOT NULL DEFAULT 443,
+    vpn_port BIGINT NOT NULL DEFAULT 443,
     last_seen TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     
@@ -78,7 +78,10 @@ CREATE TABLE IF NOT EXISTS nodes (
     doomsday_password TEXT,
     
     version TEXT,
+    target_version TEXT,
+    last_synced_at TIMESTAMPTZ,
     is_relay BOOLEAN NOT NULL DEFAULT FALSE,
+    relay_id BIGINT REFERENCES nodes(id) ON DELETE SET NULL,
     last_sync_trigger TEXT,
     pending_log_collection BOOLEAN NOT NULL DEFAULT FALSE,
     
@@ -90,6 +93,7 @@ CREATE TABLE IF NOT EXISTS nodes (
 CREATE INDEX IF NOT EXISTS idx_nodes_ip ON nodes (ip);
 CREATE INDEX IF NOT EXISTS idx_nodes_status ON nodes (status);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_nodes_join_token ON nodes (join_token);
+CREATE INDEX IF NOT EXISTS idx_nodes_relay_id ON nodes (relay_id);
 
 -- ================================================
 -- NETWORK CONFIGURATION
@@ -138,7 +142,7 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     last_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     
-    balance INTEGER DEFAULT 0,
+    balance BIGINT DEFAULT 0,
     trial_used BOOLEAN DEFAULT FALSE,
     trial_used_at TIMESTAMPTZ NULL,
     
@@ -162,7 +166,7 @@ CREATE TABLE IF NOT EXISTS organizations (
     id BIGSERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     slug TEXT UNIQUE,
-    balance INTEGER NOT NULL DEFAULT 0,
+    balance BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -210,7 +214,7 @@ CREATE TABLE IF NOT EXISTS plan_durations (
     plan_id BIGINT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
     duration_days INTEGER NOT NULL,
     traffic_gb INTEGER,
-    price INTEGER NOT NULL,
+    price BIGINT NOT NULL,
     discount_percent REAL DEFAULT 0,
     is_active BOOLEAN DEFAULT TRUE,
     is_default BOOLEAN DEFAULT FALSE,
@@ -269,12 +273,21 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_uuid ON subscriptions(subscription_
 -- PRODUCTS & CART
 -- ================================================
 
-CREATE TABLE IF NOT EXISTS products (
+CREATE TABLE IF NOT EXISTS categories (
     id BIGSERIAL PRIMARY KEY,
-    category_id BIGINT,
     name TEXT NOT NULL,
     description TEXT,
-    price INTEGER NOT NULL,
+    sort_order BIGINT DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS products (
+    id BIGSERIAL PRIMARY KEY,
+    category_id BIGINT REFERENCES categories(id) ON DELETE SET NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    price BIGINT NOT NULL,
     product_type TEXT NOT NULL DEFAULT 'subscription',
     content TEXT,
     is_active BOOLEAN DEFAULT TRUE,
@@ -285,8 +298,9 @@ CREATE TABLE IF NOT EXISTS cart_items (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     product_id BIGINT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    quantity INTEGER NOT NULL DEFAULT 1,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    quantity BIGINT NOT NULL DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, product_id)
 );
 
 -- ================================================
@@ -296,10 +310,10 @@ CREATE TABLE IF NOT EXISTS cart_items (
 CREATE TABLE IF NOT EXISTS orders (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    plan_id BIGINT NOT NULL REFERENCES plans(id),
-    duration_days INTEGER NOT NULL,
-    amount DOUBLE PRECISION NOT NULL,
-    total_amount INTEGER NOT NULL,
+    plan_id BIGINT REFERENCES plans(id),
+    duration_days INTEGER,
+    amount DOUBLE PRECISION DEFAULT 0,
+    total_amount BIGINT NOT NULL DEFAULT 0,
     currency TEXT DEFAULT 'USD',
     status TEXT NOT NULL DEFAULT 'pending',
     payment_provider TEXT,
@@ -311,12 +325,21 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE TABLE IF NOT EXISTS payments (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(id),
-    amount INTEGER NOT NULL,
+    amount BIGINT NOT NULL,
     method TEXT NOT NULL,
+    external_id TEXT,
     status TEXT NOT NULL,
-    created_at BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL,
-    transaction_id TEXT
+    created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::BIGINT),
+    updated_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::BIGINT)
+);
+
+CREATE TABLE IF NOT EXISTS order_items (
+    id BIGSERIAL PRIMARY KEY,
+    order_id BIGINT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    product_id BIGINT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    quantity BIGINT NOT NULL DEFAULT 1,
+    price BIGINT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ================================================
@@ -422,6 +445,8 @@ CREATE TABLE IF NOT EXISTS sni_pool (
     notes TEXT,
     discovered_by_node_id BIGINT REFERENCES nodes(id) ON DELETE SET NULL
 );
+CREATE INDEX IF NOT EXISTS idx_sni_pool_discovered_by_node ON sni_pool(discovered_by_node_id);
+CREATE INDEX IF NOT EXISTS idx_sni_pool_health_score ON sni_pool(health_score DESC);
 
 CREATE TABLE IF NOT EXISTS node_pinned_snis (
     node_id BIGINT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
