@@ -145,6 +145,12 @@ fn release_asset_url(version: &str, asset: &str) -> String {
     )
 }
 
+fn write_version_marker(install_dir: &str, version: &str) -> Result<()> {
+    let path = std::path::Path::new(install_dir).join(".caramba-version");
+    std::fs::write(path, format!("{}\n", version.trim()))?;
+    Ok(())
+}
+
 #[derive(Deserialize)]
 struct GitHubRelease {
     tag_name: String,
@@ -476,6 +482,7 @@ pub async fn install_panel(install_dir: &str, version: &str) -> Result<()> {
     let binary_path = format!("{}/caramba-panel", install_dir.trim_end_matches('/'));
     download_file(&release_asset_url(version, "caramba-panel"), &binary_path).await?;
     try_install_mini_app_assets(version, install_dir).await?;
+    let _ = write_version_marker(install_dir, version);
     install_service("caramba-panel.service", install_dir)?;
     Ok(())
 }
@@ -590,6 +597,7 @@ pub async fn install_node(
             ("NODE_TOKEN".to_string(), join_token),
         ],
     )?;
+    let _ = write_version_marker(install_dir, version);
     install_service("caramba-node.service", install_dir)?;
     Ok(())
 }
@@ -620,6 +628,7 @@ pub async fn install_sub(
             ("LISTEN_PORT".to_string(), listen_port.to_string()),
         ],
     )?;
+    let _ = write_version_marker(install_dir, version);
     install_service("caramba-sub.service", install_dir)?;
     Ok(())
 }
@@ -647,6 +656,7 @@ pub async fn install_bot(
         }
     }
     write_role_env_file(install_dir, "bot.env", vars)?;
+    let _ = write_version_marker(install_dir, version);
     install_service("caramba-bot.service", install_dir)?;
     Ok(())
 }

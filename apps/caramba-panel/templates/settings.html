@@ -477,8 +477,7 @@
 
                 <div class="flex items-center justify-between" id="update-status-container">
                     <div>
-                        <p class="text-sm text-slate-400">Current Version: <span class="text-white font-mono">v1.2.0
-                                (Caramba)</span></p>
+                        <p class="text-sm text-slate-400">Current Version: <span class="text-white font-mono">{{ current_version }}</span></p>
                     </div>
                     <button hx-post="{{ admin_path }}/settings/update/check" hx-target="#update-status-container"
                         hx-swap="outerHTML"

@@ -44,6 +44,7 @@ pub struct DashboardTemplate {
 #[derive(Template, WebTemplate)]
 #[template(path = "partials/statusbar.html")]
 pub struct StatusbarPartial {
+    pub panel_version: String,
     pub bot_status: String,
     pub db_status: String,
     pub redis_status: String,
@@ -217,6 +218,7 @@ pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
     let admin_path = state.admin_path.clone();
 
     let template = StatusbarPartial {
+        panel_version: crate::utils::current_panel_version(),
         bot_status,
         db_status,
         redis_status,

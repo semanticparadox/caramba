@@ -37,6 +37,7 @@ fn mask_key(key: &str) -> String {
 #[derive(Template, WebTemplate)]
 #[template(path = "settings.html")]
 pub struct SettingsTemplate {
+    pub current_version: String,
     pub username: String,
     pub masked_bot_token: String,
     pub masked_payment_api_key: String,
@@ -351,6 +352,7 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     };
 
     let template = SettingsTemplate {
+        current_version: crate::utils::current_panel_version(),
         username: get_auth_user(&state, &jar)
             .await
             .unwrap_or("Admin".to_string()),
@@ -940,12 +942,166 @@ pub async fn update_trial_config(
     Redirect::to(&format!("{}/settings", state.admin_path)).into_response()
 }
 
-pub async fn check_update(State(_state): State<AppState>) -> impl IntoResponse {
-    // Stub for update check
+#[derive(serde::Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+}
+
+fn is_stable_semver_tag(tag: &str) -> bool {
+    if !tag.starts_with('v') || tag.contains('-') {
+        return false;
+    }
+    let trimmed = &tag[1..];
+    let parts: Vec<&str> = trimmed.split('.').collect();
+    if parts.len() != 3 {
+        return false;
+    }
+    parts
+        .iter()
+        .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+async fn resolve_latest_release_version() -> anyhow::Result<String> {
+    let client = reqwest::Client::new();
+
+    let releases_resp = client
+        .get("https://api.github.com/repos/semanticparadox/caramba/releases")
+        .header("User-Agent", "caramba-panel")
+        .send()
+        .await?;
+
+    if releases_resp.status().is_success() {
+        let releases: Vec<GitHubRelease> = releases_resp.json().await.unwrap_or_default();
+        for release in releases {
+            if is_stable_semver_tag(&release.tag_name) {
+                return Ok(release.tag_name);
+            }
+        }
+    }
+
+    let latest_resp = client
+        .get("https://api.github.com/repos/semanticparadox/caramba/releases/latest")
+        .header("User-Agent", "caramba-panel")
+        .send()
+        .await?;
+    if !latest_resp.status().is_success() {
+        return Err(anyhow::anyhow!(
+            "latest release endpoint returned {}",
+            latest_resp.status()
+        ));
+    }
+    let latest: GitHubRelease = latest_resp.json().await?;
+    if !is_stable_semver_tag(&latest.tag_name) {
+        return Err(anyhow::anyhow!(
+            "latest tag '{}' is not stable semver",
+            latest.tag_name
+        ));
+    }
+    Ok(latest.tag_name)
+}
+
+fn parse_semver_tuple(version: &str) -> (u32, u32, u32) {
+    let clean = version.trim().trim_start_matches('v');
+    let mut parts = clean.split('.');
+    let major = parts
+        .next()
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(0);
+    let minor = parts
+        .next()
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(0);
+    let patch = parts
+        .next()
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(0);
+    (major, minor, patch)
+}
+
+pub async fn check_update(State(state): State<AppState>) -> impl IntoResponse {
+    let current = crate::utils::current_panel_version();
+    let latest = resolve_latest_release_version().await;
+
+    let panel_url_setting = state.settings.get_or_default("panel_url", "").await;
+    let panel_url_env = std::env::var("PANEL_URL").unwrap_or_default();
+    let panel_url = if !panel_url_setting.trim().is_empty() {
+        panel_url_setting.trim().trim_end_matches('/').to_string()
+    } else if !panel_url_env.trim().is_empty() {
+        panel_url_env.trim().trim_end_matches('/').to_string()
+    } else {
+        "https://YOUR_PANEL_DOMAIN".to_string()
+    };
+    let panel_url = if panel_url.starts_with("http://") || panel_url.starts_with("https://") {
+        panel_url
+    } else {
+        format!("https://{}", panel_url)
+    };
+
+    let body = match latest {
+        Ok(latest_version) => {
+            let update_available =
+                parse_semver_tuple(&latest_version) > parse_semver_tuple(&current);
+            let status_line = if update_available {
+                format!(
+                    r#"<p class="text-sm text-emerald-400">Update available: <span class="font-mono">{}</span></p>"#,
+                    latest_version
+                )
+            } else {
+                format!(
+                    r#"<p class="text-sm text-emerald-400">Up to date (<span class="font-mono">{}</span>)</p>"#,
+                    current
+                )
+            };
+
+            let command = format!(
+                "curl -fsSL {}/install.sh | sudo bash -s -- --role hub --version {}",
+                panel_url, latest_version
+            );
+            format!(
+                r##"
+<div class="flex items-center justify-between" id="update-status-container">
+    <div>
+        <p class="text-sm text-slate-400">Current Version: <span class="text-white font-mono">{current}</span></p>
+        {status_line}
+        <p class="text-xs text-slate-500 mt-1">Installer command: <span class="font-mono text-slate-300">{command}</span></p>
+    </div>
+    <button hx-post="{admin_path}/settings/update/check" hx-target="#update-status-container" hx-swap="outerHTML"
+        class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-medium py-2 px-4 rounded-lg transition-all border border-white/5">
+        <i data-lucide="refresh-cw" class="w-4 h-4"></i> Check Again
+    </button>
+</div>
+                "##,
+                current = current,
+                status_line = status_line,
+                command = command,
+                admin_path = state.admin_path.clone()
+            )
+        }
+        Err(e) => {
+            error!("Failed to check updates: {}", e);
+            format!(
+                r##"
+<div class="flex items-center justify-between" id="update-status-container">
+    <div>
+        <p class="text-sm text-slate-400">Current Version: <span class="text-white font-mono">{current}</span></p>
+        <p class="text-sm text-amber-400">Unable to check updates right now.</p>
+    </div>
+    <button hx-post="{admin_path}/settings/update/check" hx-target="#update-status-container" hx-swap="outerHTML"
+        class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-medium py-2 px-4 rounded-lg transition-all border border-white/5">
+        <i data-lucide="refresh-cw" class="w-4 h-4"></i> Retry
+    </button>
+</div>
+                "##,
+                current = current,
+                admin_path = state.admin_path.clone()
+            )
+        }
+    };
+
     (
         axum::http::StatusCode::OK,
         [("HX-Trigger", "update-checked")],
-        "Up to date",
+        Html(body),
     )
         .into_response()
 }

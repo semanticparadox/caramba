@@ -22,3 +22,32 @@ pub fn format_bytes(s: &i64) -> Result<String> {
 
 // Askama filters are functions.
 // I can define `format_bytes_i64` or just expect i64 since DB uses i64.
+
+pub fn current_panel_version() -> String {
+    if let Ok(v) = std::env::var("CARAMBA_VERSION") {
+        let trimmed = v.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+
+    for path in [
+        "/opt/caramba/.caramba-version",
+        "/opt/caramba/VERSION",
+        ".caramba-version",
+    ] {
+        if let Ok(raw) = std::fs::read_to_string(path) {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
+
+    let cargo_version = env!("CARGO_PKG_VERSION");
+    if cargo_version.starts_with('v') {
+        cargo_version.to_string()
+    } else {
+        format!("v{}", cargo_version)
+    }
+}

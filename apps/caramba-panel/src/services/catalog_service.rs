@@ -2,7 +2,9 @@ use crate::services::activity_service::ActivityService;
 use anyhow::{Context, Result};
 use caramba_db::models::store::{CartItem, Plan, PlanDuration, Product, StoreCategory};
 use chrono::Utc;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
+use std::collections::HashMap;
+use tracing::warn;
 
 #[derive(Debug, Clone)]
 pub struct CatalogService {
@@ -15,23 +17,129 @@ impl CatalogService {
     }
 
     pub async fn get_active_plans(&self) -> Result<Vec<Plan>> {
-        let mut plans = sqlx::query_as::<_, Plan>(
-            "SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans WHERE is_active = TRUE"
+        let mut plans = match sqlx::query_as::<_, Plan>(
+            "SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans WHERE is_active = TRUE",
         )
         .fetch_all(&self.pool)
-        .await?;
+        .await
+        {
+            Ok(plans) => plans,
+            Err(primary_err) => {
+                // Legacy fallback: older schemas may not have plans.is_trial.
+                warn!(
+                    "Primary active plans query failed (trying legacy fallback): {}",
+                    primary_err
+                );
+                sqlx::query_as::<_, Plan>(
+                    "SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, FALSE as is_trial FROM plans WHERE is_active = TRUE",
+                )
+                .fetch_all(&self.pool)
+                .await
+                .context("Failed to fetch active plans (legacy fallback)")?
+            }
+        };
 
         if plans.is_empty() {
             return Ok(Vec::new());
         }
 
         let plan_ids: Vec<i64> = plans.iter().map(|p| p.id).collect();
-        let durations = sqlx::query_as::<_, PlanDuration>(
-            "SELECT * FROM plan_durations WHERE plan_id = ANY($1) ORDER BY duration_days ASC",
+        let mut base_prices: HashMap<i64, i64> = HashMap::new();
+        let price_rows =
+            sqlx::query("SELECT id, price::bigint AS price FROM plans WHERE id = ANY($1)")
+                .bind(&plan_ids)
+                .fetch_all(&self.pool)
+                .await
+                .unwrap_or_default();
+        for row in price_rows {
+            let id = row.try_get::<i64, _>("id").unwrap_or_default();
+            let price = row.try_get::<i64, _>("price").unwrap_or_default();
+            base_prices.insert(id, price);
+        }
+
+        let mut durations = match sqlx::query_as::<_, PlanDuration>(
+            "SELECT id, plan_id, duration_days, price::bigint AS price, created_at FROM plan_durations WHERE plan_id = ANY($1) ORDER BY duration_days ASC",
         )
         .bind(&plan_ids)
         .fetch_all(&self.pool)
-        .await?;
+        .await
+        {
+            Ok(rows) => rows,
+            Err(err) => {
+                warn!("Failed to fetch plan_durations (legacy schema?): {}", err);
+
+                if err
+                    .to_string()
+                    .to_lowercase()
+                    .contains("relation \"plan_durations\" does not exist")
+                {
+                    let _ = sqlx::query(
+                        r#"
+                        CREATE TABLE IF NOT EXISTS plan_durations (
+                            id BIGSERIAL PRIMARY KEY,
+                            plan_id BIGINT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+                            duration_days INTEGER NOT NULL,
+                            price BIGINT NOT NULL,
+                            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                        )
+                        "#,
+                    )
+                    .execute(&self.pool)
+                    .await;
+                }
+
+                Vec::new()
+            }
+        };
+
+        // Self-heal legacy data: if a plan has no durations, derive a default one from plans.price.
+        for plan in &plans {
+            let has_duration = durations.iter().any(|d| d.plan_id == plan.id);
+            if has_duration {
+                continue;
+            }
+
+            let default_days = if plan.is_trial.unwrap_or(false) {
+                3
+            } else {
+                30
+            };
+            let default_price = *base_prices.get(&plan.id).unwrap_or(&0);
+
+            let inserted = match sqlx::query_as::<_, PlanDuration>(
+                r#"
+                INSERT INTO plan_durations (plan_id, duration_days, price, is_default, is_active)
+                VALUES ($1, $2, $3, TRUE, TRUE)
+                RETURNING id, plan_id, duration_days, price::bigint AS price, created_at
+                "#,
+            )
+            .bind(plan.id)
+            .bind(default_days)
+            .bind(default_price)
+            .fetch_one(&self.pool)
+            .await
+            {
+                Ok(duration) => Ok(duration),
+                Err(_) => {
+                    sqlx::query_as::<_, PlanDuration>(
+                        r#"
+                        INSERT INTO plan_durations (plan_id, duration_days, price)
+                        VALUES ($1, $2, $3)
+                        RETURNING id, plan_id, duration_days, price::bigint AS price, created_at
+                        "#,
+                    )
+                    .bind(plan.id)
+                    .bind(default_days)
+                    .bind(default_price)
+                    .fetch_one(&self.pool)
+                    .await
+                }
+            };
+
+            if let Ok(duration) = inserted {
+                durations.push(duration);
+            }
+        }
 
         for plan in &mut plans {
             plan.durations = durations

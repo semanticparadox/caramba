@@ -10,6 +10,7 @@ use caramba_db::models::store::{
 use caramba_db::repositories::node_repo::NodeRepository;
 use chrono::{Duration, Utc};
 use sqlx::PgPool;
+use tracing::warn;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -291,18 +292,18 @@ impl SubscriptionService {
             SELECT 
                 s.id, 
                 p.name as plan_name, 
-                s.expires_at, 
-                s.created_at,
-                s.status,
-                0 as price, 
+                COALESCE(s.expires_at, s.created_at, CURRENT_TIMESTAMP) as expires_at, 
+                COALESCE(s.created_at, CURRENT_TIMESTAMP) as created_at,
+                COALESCE(s.status, 'pending') as status,
+                0::bigint as price, 
                 COALESCE(
                     (SELECT COUNT(DISTINCT client_ip) 
                      FROM subscription_ip_tracking 
                      WHERE subscription_id = s.id 
                      AND last_seen_at > CURRENT_TIMESTAMP - interval '15 minutes'),
                     0
-                ) as active_devices,
-                p.device_limit::bigint as device_limit
+                )::bigint as active_devices,
+                COALESCE(p.device_limit, 0)::bigint as device_limit
             FROM subscriptions s
             JOIN plans p ON s.plan_id = p.id
             WHERE s.user_id = $1
@@ -321,7 +322,28 @@ impl SubscriptionService {
         user_id: i64,
     ) -> Result<Vec<SubscriptionWithDetails>> {
         let subs = sqlx::query_as::<_, Subscription>(
-            "SELECT * FROM subscriptions WHERE user_id = $1 ORDER BY created_at DESC",
+            r#"
+            SELECT
+                id,
+                user_id,
+                plan_id,
+                node_id,
+                vless_uuid,
+                COALESCE(expires_at, created_at, CURRENT_TIMESTAMP) AS expires_at,
+                COALESCE(status, 'pending') AS status,
+                COALESCE(used_traffic, 0)::bigint AS used_traffic,
+                traffic_updated_at,
+                note,
+                COALESCE(auto_renew, FALSE) AS auto_renew,
+                COALESCE(alerts_sent, '[]') AS alerts_sent,
+                COALESCE(is_trial, FALSE) AS is_trial,
+                COALESCE(subscription_uuid, CONCAT('legacy-', id::text)) AS subscription_uuid,
+                last_sub_access,
+                COALESCE(created_at, CURRENT_TIMESTAMP) AS created_at
+            FROM subscriptions
+            WHERE user_id = $1
+            ORDER BY COALESCE(created_at, CURRENT_TIMESTAMP) DESC
+            "#,
         )
         .bind(user_id)
         .fetch_all(&self.pool)
@@ -331,7 +353,16 @@ impl SubscriptionService {
             return Ok(Vec::new());
         }
 
-        let plans = self.get_active_plans().await?;
+        let plans = match self.get_active_plans().await {
+            Ok(plans) => plans,
+            Err(e) => {
+                warn!(
+                    "Failed to fetch active plans while building user subscriptions for {}: {}",
+                    user_id, e
+                );
+                Vec::new()
+            }
+        };
         let mut result = Vec::new();
 
         for sub in subs {
