@@ -69,6 +69,49 @@
         </div>
     </div>
 
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="bg-slate-900/40 border border-white/5 rounded-2xl p-4">
+            <p class="text-xs text-slate-500 uppercase">Current SNI</p>
+            <p class="text-sm text-indigo-300 font-mono break-all">
+                {% if let Some(sni) = node.reality_sni.as_ref() %}
+                {{ sni }}
+                {% else %}
+                not selected
+                {% endif %}
+            </p>
+        </div>
+        <div class="bg-slate-900/40 border border-white/5 rounded-2xl p-4">
+            <p class="text-xs text-slate-500 uppercase">Agent Version</p>
+            <p class="text-sm text-white font-mono">
+                {% if let Some(ver) = node.version.as_ref() %}
+                {{ ver }}
+                {% else %}
+                unknown
+                {% endif %}
+            </p>
+        </div>
+        <div class="bg-slate-900/40 border border-white/5 rounded-2xl p-4">
+            <p class="text-xs text-slate-500 uppercase">CPU</p>
+            <p class="text-sm text-white">
+                {% if let Some(cpu_model) = node.cpu_model.as_ref() %}
+                {{ cpu_model }}{% if node.cpu_cores > 0 %} · {{ node.cpu_cores }} cores{% endif %}
+                {% else %}
+                {% if node.cpu_cores > 0 %}{{ node.cpu_cores }} cores{% else %}unknown{% endif %}
+                {% endif %}
+            </p>
+        </div>
+        <div class="bg-slate-900/40 border border-white/5 rounded-2xl p-4">
+            <p class="text-xs text-slate-500 uppercase">Hardware / Speed</p>
+            <p class="text-sm text-white">{{ node.format_max_ram() }} RAM</p>
+            <p class="text-xs text-slate-400 mt-1">{{ node.current_speed_mbps }} Mbps measured</p>
+        </div>
+    </div>
+
+    <div class="rounded-2xl border border-indigo-500/20 bg-indigo-500/5 p-3 text-xs text-indigo-200">
+        <span class="font-semibold">How to use:</span> first run <span class="font-mono">Scan Nearby SNI</span>, then pin best candidates, then <span class="font-mono">Sync Config</span>. 
+        If inbounds are empty, open <span class="font-mono">Inbounds</span> and sync templates or add one inbound manually.
+    </div>
+
     <div class="bg-slate-900/50 border border-white/5 rounded-2xl overflow-hidden">
         <div class="px-4 py-3 border-b border-white/5">
             <h3 class="font-semibold text-white">Inbounds</h3>

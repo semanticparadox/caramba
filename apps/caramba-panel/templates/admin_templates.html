@@ -189,22 +189,24 @@
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Port
                             Start</label>
-                        <input type="number" name="port_range_start" id="tpl_port_start" value="10000" required
+                        <input type="number" name="port_range_start" id="tpl_port_start" value="10000" min="1" max="65535" required
                             class="input-field font-mono">
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Port
                             End</label>
-                        <input type="number" name="port_range_end" id="tpl_port_end" value="20000" required
+                        <input type="number" name="port_range_end" id="tpl_port_end" value="20000" min="1" max="65535" required
                             class="input-field font-mono">
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Rotation
                             (Mins)</label>
-                        <input type="number" name="renew_interval_mins" id="tpl_renew_mins" value="0" required
+                        <input type="number" name="renew_interval_mins" id="tpl_renew_mins" value="0" min="0" required
                             class="input-field font-mono" title="0 = no automatic rotation">
                     </div>
                 </div>
+                <p class="text-[11px] text-slate-500 -mt-3">Tip: for a fixed port set the same start and end (example:
+                    <span class="font-mono">443 / 443</span>). For rotation set a valid range where start ≤ end.</p>
 
                 <!-- Settings JSON -->
                 <div class="space-y-3">

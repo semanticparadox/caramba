@@ -1,11 +1,11 @@
+use anyhow::Result;
 use sqlx::PgPool;
 use std::sync::Arc;
 use tracing::{info, warn};
-use anyhow::Result;
 
-use crate::services::security_service::SecurityService;
-use crate::services::notification_service::NotificationService;
 use crate::bot_manager::BotManager;
+use crate::services::notification_service::NotificationService;
+use crate::services::security_service::SecurityService;
 
 #[derive(Clone)]
 pub struct TelemetryService {
@@ -22,11 +22,11 @@ impl TelemetryService {
         notification_service: Arc<NotificationService>,
         bot_manager: Arc<BotManager>,
     ) -> Self {
-        Self { 
-            pool, 
-            security_service, 
+        Self {
+            pool,
+            security_service,
             notification_service,
-            bot_manager 
+            bot_manager,
         }
     }
 
@@ -51,24 +51,23 @@ impl TelemetryService {
             let diff_in = if traffic_up >= last_sess_in as u64 {
                 traffic_up - last_sess_in as u64
             } else {
-                traffic_up 
+                traffic_up
             };
 
             let diff_eg = if traffic_down >= last_sess_eg as u64 {
                 traffic_down - last_sess_eg as u64
             } else {
-                traffic_down 
+                traffic_down
             };
 
             total_in += diff_in as i64;
             total_eq += diff_eg as i64;
 
-            let node_load: Option<(Option<f64>, Option<f64>, Option<i32>)> = sqlx::query_as(
-                "SELECT last_cpu, last_ram, max_users FROM nodes WHERE id = $1"
-            )
-            .bind(node_id)
-            .fetch_optional(&self.pool)
-            .await?;
+            let node_load: Option<(Option<f64>, Option<f64>, Option<i32>)> =
+                sqlx::query_as("SELECT last_cpu, last_ram, max_users FROM nodes WHERE id = $1")
+                    .bind(node_id)
+                    .fetch_optional(&self.pool)
+                    .await?;
 
             let calculated_max = node_load.and_then(|(cpu, ram, prev_max)| {
                 derive_recommended_max_users(speed_mbps, cpu, ram, prev_max)
@@ -84,7 +83,7 @@ impl TelemetryService {
                     uptime = $6,
                     current_speed_mbps = COALESCE($7, current_speed_mbps),
                     max_users = COALESCE($8, max_users)
-                 WHERE id = $9"
+                 WHERE id = $9",
             )
             .bind(active_connections.map(|c| c as i32))
             .bind(total_in)
@@ -99,56 +98,91 @@ impl TelemetryService {
             .await?;
 
             if let Some(conns) = active_connections {
-                 if conns > 50 && (diff_in + diff_eg) < 1024 {
-                     warn!("⚠️ Potential Censorship Detected on Node {}: {} connections but only {} bytes traffic.", 
-                         node_id, conns, diff_in + diff_eg);
-                     
-                     let _ = self.trigger_mitigation(node_id).await;
-                 }
+                if conns > 50 && (diff_in + diff_eg) < 1024 {
+                    warn!(
+                        "⚠️ Potential Censorship Detected on Node {}: {} connections but only {} bytes traffic.",
+                        node_id,
+                        conns,
+                        diff_in + diff_eg
+                    );
+
+                    let _ = self.trigger_mitigation(node_id).await;
+                }
             }
         }
-        
+
         if let Some(snis) = discovered_snis {
             for sni in snis {
-                let domain = sni.domain.to_lowercase();
-                if domain.split('.').count() > 4 || domain.contains("traefik") || domain.contains("localhost") || domain.len() > 50 {
+                let domain = sni.domain.trim().to_lowercase();
+                if !is_valid_discovered_domain(&domain) {
                     continue;
                 }
 
-                let is_blacklisted: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sni_blacklist WHERE domain = $1)")
-                    .bind(&domain)
-                    .fetch_one(&self.pool)
-                    .await
-                    .unwrap_or(false);
-                
+                let is_blacklisted: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM sni_blacklist WHERE domain = $1)",
+                )
+                .bind(&domain)
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(false);
+
                 if is_blacklisted {
                     continue;
                 }
 
-                let _ = sqlx::query("INSERT INTO sni_pool (domain, tier, notes, is_active, discovered_by_node_id, health_score) VALUES ($1, 1, $2, TRUE, $3, 100) ON CONFLICT(domain) DO UPDATE SET notes = EXCLUDED.notes")
+                let insert_primary = sqlx::query(
+                    "INSERT INTO sni_pool (domain, tier, notes, is_active, discovered_by_node_id, health_score) VALUES ($1, 1, $2, TRUE, $3, 100) ON CONFLICT(domain) DO UPDATE SET notes = EXCLUDED.notes, discovered_by_node_id = COALESCE(sni_pool.discovered_by_node_id, EXCLUDED.discovered_by_node_id)"
+                )
                     .bind(&domain)
                     .bind(format!("Discovered by Node {} (Sniper)", node_id))
                     .bind(node_id)
                     .execute(&self.pool)
                     .await;
-                
-                info!("💎 Neighbor Sniper: Persisted discovered SNI {} from Node {}", domain, node_id);
 
-                let node_sni: Option<String> = sqlx::query_scalar("SELECT reality_sni FROM nodes WHERE id = $1")
-                    .bind(node_id)
-                    .fetch_one(&self.pool)
+                if let Err(e) = insert_primary {
+                    warn!(
+                        "SNI insert with full schema failed for '{}': {}. Trying compatibility fallback.",
+                        domain, e
+                    );
+                    if let Err(e2) = sqlx::query(
+                        "INSERT INTO sni_pool (domain) VALUES ($1) ON CONFLICT(domain) DO NOTHING",
+                    )
+                    .bind(&domain)
+                    .execute(&self.pool)
                     .await
-                    .unwrap_or(None);
+                    {
+                        warn!("SNI fallback insert failed for '{}': {}", domain, e2);
+                        continue;
+                    }
+                }
 
-                let is_generic = node_sni.as_deref().map(|s| s == "www.google.com" || s == "google.com" || s == "www.microsoft.com").unwrap_or(true);
-                
+                info!(
+                    "💎 Neighbor Sniper: Persisted discovered SNI {} from Node {}",
+                    domain, node_id
+                );
+
+                let node_sni: Option<String> =
+                    sqlx::query_scalar("SELECT reality_sni FROM nodes WHERE id = $1")
+                        .bind(node_id)
+                        .fetch_one(&self.pool)
+                        .await
+                        .unwrap_or(None);
+
+                let is_generic = node_sni
+                    .as_deref()
+                    .map(|s| s == "www.google.com" || s == "google.com" || s == "www.microsoft.com")
+                    .unwrap_or(true);
+
                 if is_generic {
                     let _ = sqlx::query("UPDATE nodes SET reality_sni = $1 WHERE id = $2")
                         .bind(&domain)
                         .bind(node_id)
                         .execute(&self.pool)
                         .await;
-                    info!("✨ Neighbor Sniper: Automatically assigned discovered SNI {} to Node {}", domain, node_id);
+                    info!(
+                        "✨ Neighbor Sniper: Automatically assigned discovered SNI {} to Node {}",
+                        domain, node_id
+                    );
                 }
             }
         }
@@ -157,28 +191,87 @@ impl TelemetryService {
     }
 
     async fn trigger_mitigation(&self, node_id: i64) -> Result<()> {
-        info!("🔧 Triggering SNI Rotation for Node {} due to detected censorship.", node_id);
-        
-        match self.security_service.rotate_node_sni(node_id, "Auto-Heal: Connection Freezing").await {
+        info!(
+            "🔧 Triggering SNI Rotation for Node {} due to detected censorship.",
+            node_id
+        );
+
+        match self
+            .security_service
+            .rotate_node_sni(node_id, "Auto-Heal: Connection Freezing")
+            .await
+        {
             Ok((old_sni, new_sni, rotation_id)) => {
-                 info!("✅ Auto-Healed Node {}: {} -> {}", node_id, old_sni, new_sni);
-                 
-                 if let Some(bot) = self.bot_manager.get_bot().await.ok().map(|b| b as teloxide::Bot) {
-                     let notify_svc = self.notification_service.clone();
-                     let old = old_sni.clone();
-                     let new = new_sni.clone();
-                     tokio::spawn(async move {
-                         let _ = notify_svc.notify_sni_rotation(&bot, node_id, &old, &new, rotation_id).await;
-                     });
-                 }
-            },
+                info!(
+                    "✅ Auto-Healed Node {}: {} -> {}",
+                    node_id, old_sni, new_sni
+                );
+
+                if let Some(bot) = self
+                    .bot_manager
+                    .get_bot()
+                    .await
+                    .ok()
+                    .map(|b| b as teloxide::Bot)
+                {
+                    let notify_svc = self.notification_service.clone();
+                    let old = old_sni.clone();
+                    let new = new_sni.clone();
+                    tokio::spawn(async move {
+                        let _ = notify_svc
+                            .notify_sni_rotation(&bot, node_id, &old, &new, rotation_id)
+                            .await;
+                    });
+                }
+            }
             Err(e) => {
                 warn!("❌ Failed to auto-heal node {}: {}", node_id, e);
             }
         }
-        
+
         Ok(())
     }
+}
+
+fn is_valid_discovered_domain(domain: &str) -> bool {
+    if domain.is_empty() || domain.len() > 120 {
+        return false;
+    }
+    if !domain.contains('.') {
+        return false;
+    }
+    if domain.contains(' ') || domain.contains('_') {
+        return false;
+    }
+    if domain.contains("localhost")
+        || domain.contains("traefik")
+        || domain.ends_with(".local")
+        || domain.ends_with(".internal")
+    {
+        return false;
+    }
+
+    if !domain
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '.' || ch == '-')
+    {
+        return false;
+    }
+
+    let labels: Vec<&str> = domain.split('.').collect();
+    if labels.len() < 2 || labels.len() > 8 {
+        return false;
+    }
+    for label in labels {
+        if label.is_empty() || label.len() > 63 {
+            return false;
+        }
+        if label.starts_with('-') || label.ends_with('-') {
+            return false;
+        }
+    }
+
+    true
 }
 
 fn derive_recommended_max_users(
@@ -226,7 +319,7 @@ fn derive_recommended_max_users(
 
 #[cfg(test)]
 mod tests {
-    use super::derive_recommended_max_users;
+    use super::{derive_recommended_max_users, is_valid_discovered_domain};
 
     #[test]
     fn derive_recommended_max_users_low_load_tracks_speed() {
@@ -245,5 +338,19 @@ mod tests {
         let result = derive_recommended_max_users(Some(800), Some(90.0), Some(90.0), Some(100));
         // raw would be 35, smoothed => 70% of 100 + 30% of 35 = 80.5 => 81
         assert_eq!(result, Some(81));
+    }
+
+    #[test]
+    fn discovered_domain_filter_accepts_normal_domains() {
+        assert!(is_valid_discovered_domain("hitchhive.app"));
+        assert!(is_valid_discovered_domain("api.kd367.fr"));
+    }
+
+    #[test]
+    fn discovered_domain_filter_rejects_noise() {
+        assert!(!is_valid_discovered_domain("Plesk"));
+        assert!(!is_valid_discovered_domain("traefik.default"));
+        assert!(!is_valid_discovered_domain("with space.example.com"));
+        assert!(!is_valid_discovered_domain("localhost"));
     }
 }

@@ -27,6 +27,10 @@
             <input type="checkbox" name="is_relay" {% if node.is_relay %}checked{% endif %}>
             Is relay node
         </label>
+        <div class="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-200">
+            Relay logic: mark this node as <span class="font-semibold">relay</span> if other edge nodes should chain through it.
+            For client nodes, choose a <span class="font-semibold">Relay Parent</span>. Leave both empty for standalone edge mode.
+        </div>
         <div class="flex justify-end gap-2 pt-2">
             <button type="button" onclick="document.getElementById('edit-node-modal').close()"
                 class="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl">Cancel</button>

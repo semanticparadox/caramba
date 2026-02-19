@@ -1,20 +1,20 @@
 // Nodes Module
 // Node management, installation, configuration
 
-use axum::{
-    extract::{State, Form, Path},
-    http::HeaderMap,
-    response::{IntoResponse, Html},
-};
 use askama::Template;
 use askama_web::WebTemplate;
+use axum::{
+    extract::{Form, Path, Query, State},
+    http::HeaderMap,
+    response::{Html, IntoResponse},
+};
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
-use tracing::{info, error};
+use tracing::{error, info};
 
+use super::auth::get_auth_user;
 use crate::AppState;
 use caramba_db::models::node::Node;
-use super::auth::get_auth_user;
 use chrono::Utc;
 
 // ============================================================================
@@ -100,6 +100,12 @@ pub struct InstallNodeForm {
     pub auto_configure: Option<bool>,
 }
 
+#[derive(Deserialize, Default)]
+pub struct NodeLogsQuery {
+    pub lines: Option<usize>,
+    pub page: Option<usize>,
+}
+
 #[derive(Deserialize)]
 pub struct UpdateNodeForm {
     pub name: String,
@@ -128,12 +134,20 @@ pub async fn get_nodes(
             Vec::new()
         }
     };
-    
+
     let admin_path = state.admin_path.clone();
 
     // Fetch Update Settings (Phase 67)
-    let agent_latest_version = state.settings.get_or_default("agent_latest_version", "0.0.0").await;
-    let auto_update_agents: bool = state.settings.get_or_default("auto_update_agents", "true").await.parse().unwrap_or(true);
+    let agent_latest_version = state
+        .settings
+        .get_or_default("agent_latest_version", "0.0.0")
+        .await;
+    let auto_update_agents: bool = state
+        .settings
+        .get_or_default("auto_update_agents", "true")
+        .await
+        .parse()
+        .unwrap_or(true);
 
     if headers.contains_key("hx-request") {
         let template = NodesRowsPartial {
@@ -144,11 +158,13 @@ pub async fn get_nodes(
         };
         return Html(template.render().unwrap()).into_response();
     }
-    
-    let template = NodesTemplate { 
-        nodes, 
-        is_auth: true, 
-        username: get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string()),
+
+    let template = NodesTemplate {
+        nodes,
+        is_auth: true,
+        username: get_auth_user(&state, &jar)
+            .await
+            .unwrap_or("Admin".to_string()),
         admin_path,
         active_page: "nodes".to_string(),
         agent_latest_version,
@@ -168,14 +184,23 @@ pub async fn install_node(
     } else {
         info!("Adding pending node: {}", form.name);
     }
-    
-    match state.infrastructure_service.create_node(&form.name, &check_ip, vpn_port, form.auto_configure.unwrap_or(false)).await {
+
+    match state
+        .infrastructure_service
+        .create_node(
+            &form.name,
+            &check_ip,
+            vpn_port,
+            form.auto_configure.unwrap_or(false),
+        )
+        .await
+    {
         Ok(id) => {
             // Trigger default inbounds via orchestration
             if let Err(e) = state.orchestration_service.init_default_inbounds(id).await {
                 error!("Failed to initialize inbounds for new node {}: {}", id, e);
             }
-            
+
             // Always return installation modal with command+token, same as legacy flow.
             let join_token = sqlx::query_scalar::<_, String>(
                 "SELECT COALESCE(join_token, '') FROM nodes WHERE id = $1",
@@ -219,10 +244,10 @@ pub async fn get_node_edit(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     let node = match state.infrastructure_service.get_node_by_id(id).await {
-            Ok(n) => n,
-            Err(e) => {
-                error!("Failed to fetch node for edit: {}", e);
-                return Html(format!(r###"
+        Ok(n) => n,
+        Err(e) => {
+            error!("Failed to fetch node for edit: {}", e);
+            return Html(format!(r###"
                     <header>
                         <a href="#close" aria-label="Close" class="close" onclick="document.getElementById('edit-node-modal').close()"></a>
                         Error
@@ -234,18 +259,34 @@ pub async fn get_node_edit(
                     </div>
                     <footer><button onclick="document.getElementById('edit-node-modal').close()">Close</button></footer>
                 "###, e)).into_response();
-            }
-        };
+        }
+    };
 
     let admin_path = state.admin_path.clone();
-    let admin_path = if admin_path.starts_with('/') { admin_path } else { format!("/{}", admin_path) };
+    let admin_path = if admin_path.starts_with('/') {
+        admin_path
+    } else {
+        format!("/{}", admin_path)
+    };
 
-    let all_nodes = state.infrastructure_service.get_active_nodes().await.unwrap_or_default();
+    let all_nodes = state
+        .infrastructure_service
+        .get_active_nodes()
+        .await
+        .unwrap_or_default();
 
-    let template = NodeEditModalTemplate { node, all_nodes, admin_path };
-     match template.render() {
+    let template = NodeEditModalTemplate {
+        node,
+        all_nodes,
+        admin_path,
+    };
+    match template.render() {
         Ok(html) => Html(html).into_response(),
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Template error: {}", e)).into_response(),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Template error: {}", e),
+        )
+            .into_response(),
     }
 }
 
@@ -256,11 +297,19 @@ pub async fn update_node(
 ) -> impl IntoResponse {
     let is_relay = form.is_relay.is_some();
     info!("Updating node ID: {} (Relay: {})", id, is_relay);
-    
+
     // 1. Update core fields
-    if let Err(e) = state.infrastructure_service.update_node(id, &form.name, &form.ip, form.relay_id, is_relay).await {
+    if let Err(e) = state
+        .infrastructure_service
+        .update_node(id, &form.name, &form.ip, form.relay_id, is_relay)
+        .await
+    {
         error!("Failed to update node core: {}", e);
-        return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to update node").into_response();
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to update node",
+        )
+            .into_response();
     }
 
     // 2. Update security policies (Partial updates supported by HTMX)
@@ -282,27 +331,36 @@ pub async fn update_node(
 
     // 3. Trigger sync if policies changed (Policy changes need config regent)
     let _ = state.orchestration_service.reset_inbounds(id).await;
-    let _ = state.pubsub.publish(&format!("node_events:{}", id), "update").await;
+    let _ = state
+        .pubsub
+        .publish(&format!("node_events:{}", id), "update")
+        .await;
 
     let admin_path = state.admin_path.clone();
     let mut headers = HeaderMap::new();
-    
+
     // Check if HTMX request
-    if let Some(_) = form.config_block_torrent.as_ref().or(form.config_block_ads.as_ref()).or(form.config_block_porn.as_ref()).or(form.config_qos_enabled.as_ref()) {
+    if let Some(_) = form
+        .config_block_torrent
+        .as_ref()
+        .or(form.config_block_ads.as_ref())
+        .or(form.config_block_porn.as_ref())
+        .or(form.config_qos_enabled.as_ref())
+    {
         // Targeted update from managing page switches
         return (axum::http::StatusCode::OK, "Saved").into_response();
     }
 
-    headers.insert("HX-Redirect", format!("{}/nodes", admin_path).parse().unwrap());
+    headers.insert(
+        "HX-Redirect",
+        format!("{}/nodes", admin_path).parse().unwrap(),
+    );
     (axum::http::StatusCode::OK, headers, "Updated").into_response()
 }
 
-pub async fn sync_node(
-    Path(id): Path<i64>,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+pub async fn sync_node(Path(id): Path<i64>, State(state): State<AppState>) -> impl IntoResponse {
     info!("Manual sync triggered for node: {}", id);
-    
+
     // Update trigger tracking
     let _ = sqlx::query("UPDATE nodes SET last_sync_trigger = 'Manual Update' WHERE id = $1")
         .bind(id)
@@ -317,10 +375,16 @@ pub async fn sync_node(
         if let Err(e) = orch.reset_inbounds(id).await {
             error!("Failed to reset inbounds for node {}: {}", id, e);
         } else {
-            info!("Successfully regenerated inbounds with fresh keys for node {}", id);
-            
+            info!(
+                "Successfully regenerated inbounds with fresh keys for node {}",
+                id
+            );
+
             // Notify Agent
-            if let Err(e) = pubsub.publish(&format!("node_events:{}", id), "update").await {
+            if let Err(e) = pubsub
+                .publish(&format!("node_events:{}", id), "update")
+                .await
+            {
                 error!("Failed to publish update event: {}", e);
             }
         }
@@ -338,19 +402,31 @@ pub async fn test_node_connection(
         Err(_) => return (axum::http::StatusCode::NOT_FOUND, "Node not found").into_response(),
     };
 
-    let is_online = node.last_seen.map(|ls| (Utc::now() - ls).num_seconds() < 60).unwrap_or(false);
+    let is_online = node
+        .last_seen
+        .map(|ls| (Utc::now() - ls).num_seconds() < 60)
+        .unwrap_or(false);
 
     if is_online {
-        (axum::http::StatusCode::OK, format!("✅ Node '{}' is ONLINE (Last seen: {}s ago)", node.name, (Utc::now() - node.last_seen.unwrap()).num_seconds())).into_response()
+        (
+            axum::http::StatusCode::OK,
+            format!(
+                "✅ Node '{}' is ONLINE (Last seen: {}s ago)",
+                node.name,
+                (Utc::now() - node.last_seen.unwrap()).num_seconds()
+            ),
+        )
+            .into_response()
     } else {
-        (axum::http::StatusCode::OK, format!("❌ Node '{}' is OFFLINE or UNREACHABLE", node.name)).into_response()
+        (
+            axum::http::StatusCode::OK,
+            format!("❌ Node '{}' is OFFLINE or UNREACHABLE", node.name),
+        )
+            .into_response()
     }
 }
 
-pub async fn delete_node(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-) -> impl IntoResponse {
+pub async fn delete_node(State(state): State<AppState>, Path(id): Path<i64>) -> impl IntoResponse {
     info!("Request to delete node ID: {}", id);
 
     match state.infrastructure_service.delete_node(id).await {
@@ -358,21 +434,19 @@ pub async fn delete_node(
             info!("Node {} deleted successfully", id);
             (
                 axum::http::StatusCode::OK,
-                [
-                    ("HX-Trigger", "refresh_nodes"),
-                ],
+                [("HX-Trigger", "refresh_nodes")],
                 "",
-            ).into_response()
+            )
+                .into_response()
         }
         Err(e) => {
             error!("Failed to delete node {}: {}", id, e);
             (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                [
-                    ("HX-Reswap", "none"),
-                ],
+                [("HX-Reswap", "none")],
                 format!("Failed to delete node: {}", e),
-            ).into_response()
+            )
+                .into_response()
         }
     }
 }
@@ -382,7 +456,7 @@ pub async fn toggle_node_enable(
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
     info!("Request to toggle enable status for node ID: {}", id);
-    
+
     // Toggle enable status
     match state.infrastructure_service.toggle_node_enable(id).await {
         Ok(_) => {
@@ -390,12 +464,17 @@ pub async fn toggle_node_enable(
             (
                 axum::http::StatusCode::OK,
                 [("HX-Redirect", format!("{}/nodes", admin_path))],
-                "Toggled"
-            ).into_response()
+                "Toggled",
+            )
+                .into_response()
         }
         Err(e) => {
             error!("Failed to toggle node {}: {}", id, e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to toggle node").into_response()
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to toggle node",
+            )
+                .into_response()
         }
     }
 }
@@ -404,16 +483,25 @@ pub async fn activate_node(
     Path(id): Path<i64>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    match state.infrastructure_service.activate_node(id, &state.security_service).await {
+    match state
+        .infrastructure_service
+        .activate_node(id, &state.security_service)
+        .await
+    {
         Ok(_) => {
             let admin_path = state.admin_path.clone();
             (
                 axum::http::StatusCode::OK,
                 [("HX-Redirect", format!("{}/nodes", admin_path))],
-                "Activated"
-            ).into_response()
-        },
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to activate: {}", e)).into_response(),
+                "Activated",
+            )
+                .into_response()
+        }
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to activate: {}", e),
+        )
+            .into_response(),
     }
 }
 
@@ -447,22 +535,30 @@ pub async fn get_node_install_script(
         return (axum::http::StatusCode::BAD_REQUEST, "Node token is empty").into_response();
     }
 
-    let panel_url = std::env::var("PANEL_URL").ok().and_then(|v| {
-        let trimmed = v.trim().trim_end_matches('/').to_string();
-        if trimmed.is_empty() { None } else { Some(trimmed) }
-    }).or_else(|| {
-        headers
-            .get("x-forwarded-host")
-            .or_else(|| headers.get("host"))
-            .and_then(|h| h.to_str().ok())
-            .map(|host| {
-                let proto = headers
-                    .get("x-forwarded-proto")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("https");
-                format!("{}://{}", proto, host.trim_end_matches('/'))
-            })
-    }).unwrap_or_else(|| "https://YOUR_PANEL_DOMAIN".to_string());
+    let panel_url = std::env::var("PANEL_URL")
+        .ok()
+        .and_then(|v| {
+            let trimmed = v.trim().trim_end_matches('/').to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+        .or_else(|| {
+            headers
+                .get("x-forwarded-host")
+                .or_else(|| headers.get("host"))
+                .and_then(|h| h.to_str().ok())
+                .map(|host| {
+                    let proto = headers
+                        .get("x-forwarded-proto")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("https");
+                    format!("{}://{}", proto, host.trim_end_matches('/'))
+                })
+        })
+        .unwrap_or_else(|| "https://YOUR_PANEL_DOMAIN".to_string());
 
     let script = format!(
         r#"#!/usr/bin/env bash
@@ -475,17 +571,23 @@ curl -fsSL '{panel_url}/install.sh' | sudo bash -s -- --role node --panel '{pane
 
     (
         [(axum::http::header::CONTENT_TYPE, "text/x-shellscript")],
-        script
-    ).into_response()
+        script,
+    )
+        .into_response()
 }
 
 pub async fn get_install_sh() -> impl IntoResponse {
     match crate::scripts::Scripts::get_universal_install_script() {
         Some(content) => (
             [(axum::http::header::CONTENT_TYPE, "text/x-shellscript")],
-            content
-        ).into_response(),
-        None => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Script not found").into_response(),
+            content,
+        )
+            .into_response(),
+        None => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "Script not found",
+        )
+            .into_response(),
     }
 }
 
@@ -500,28 +602,40 @@ pub async fn get_node_raw_install_script(
 pub async fn get_node_logs(
     Path(id): Path<i64>,
     State(state): State<AppState>,
+    Query(query): Query<NodeLogsQuery>,
 ) -> impl IntoResponse {
+    let lines = query.lines.unwrap_or(120).clamp(20, 1000);
+    let page = query.page.unwrap_or(0);
+    let base_url = format!("{}/nodes/{}/logs", state.admin_path, id);
+
     // 1. Check if logs are already in Redis
     if let Ok(Some(logs_json)) = state.redis.get(&format!("node_logs:{}", id)).await {
         return Html(format!(r###"
             <div class="space-y-4">
-                <div class="flex justify-end">
-                    <button hx-get="{}/nodes/{}/logs" hx-target="#logs-modal-content" class="text-xs text-indigo-400 hover:text-indigo-300">Refresh Logs</button>
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="inline-flex items-center gap-2 text-xs text-slate-400">
+                        <span>Lines:</span>
+                        <button hx-get="{base_url}?lines=60&page=0" hx-target="#logs-modal-content" class="px-2 py-1 rounded border border-white/10 hover:bg-white/5">60</button>
+                        <button hx-get="{base_url}?lines=120&page=0" hx-target="#logs-modal-content" class="px-2 py-1 rounded border border-white/10 hover:bg-white/5">120</button>
+                        <button hx-get="{base_url}?lines=300&page=0" hx-target="#logs-modal-content" class="px-2 py-1 rounded border border-white/10 hover:bg-white/5">300</button>
+                    </div>
+                    <button hx-get="{base_url}?lines={lines}&page={page}" hx-target="#logs-modal-content" class="text-xs text-indigo-400 hover:text-indigo-300">Refresh Logs</button>
                 </div>
                 <div class="custom-scrollbar overflow-auto max-h-[60vh] space-y-4 font-mono text-[11px]">
                     {}
                 </div>
             </div>
-        "###, state.admin_path, id, format_logs_html(&logs_json))).into_response();
+        "###, format_logs_html(&logs_json, &base_url, lines, page))).into_response();
     }
 
     // 2. If not, trigger collection and return "Waiting"
     // Optimization: Only set pending flag if it's not already set to prevent spamming the agent
-    let pending: bool = sqlx::query_scalar("SELECT pending_log_collection FROM nodes WHERE id = $1")
-        .bind(id)
-        .fetch_one(&state.pool)
-        .await
-        .unwrap_or(false);
+    let pending: bool =
+        sqlx::query_scalar("SELECT pending_log_collection FROM nodes WHERE id = $1")
+            .bind(id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or(false);
 
     if !pending {
         let _ = sqlx::query("UPDATE nodes SET pending_log_collection = TRUE WHERE id = $1")
@@ -531,27 +645,63 @@ pub async fn get_node_logs(
     }
 
     Html(format!(r###"
-        <div class="p-8 text-center" hx-get="{}/nodes/{}/logs" hx-trigger="every 3s" hx-target="this">
+        <div class="p-8 text-center" hx-get="{}?lines={}&page=0" hx-trigger="every 3s" hx-target="this">
             <div class="animate-spin w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full mx-auto mb-4"></div>
             <p class="text-slate-400">Requesting real-time logs from agent...</p>
             <p class="text-[10px] text-slate-500 mt-2 italic">Ensure the node is online. This may take up to 30 seconds.</p>
         </div>
-    "###, state.admin_path, id)).into_response()
+    "###, base_url, lines)).into_response()
 }
 
-fn format_logs_html(json_str: &str) -> String {
-    let logs: std::collections::HashMap<String, String> = serde_json::from_str(json_str).unwrap_or_default();
-    let mut html = String::new();
+fn escape_html(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
 
-    for (service, content) in logs {
+fn format_logs_html(json_str: &str, base_url: &str, lines: usize, page: usize) -> String {
+    let logs: std::collections::HashMap<String, String> =
+        serde_json::from_str(json_str).unwrap_or_default();
+    let mut html = String::new();
+    let mut entries: Vec<(String, String)> = logs.into_iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+    for (service, content) in entries {
+        let all_lines: Vec<&str> = content.lines().collect();
+        let total = all_lines.len();
+        let page_size = lines.max(1);
+        let offset = page.saturating_mul(page_size);
+        let end = total.saturating_sub(offset);
+        let start = end.saturating_sub(page_size);
+        let slice = if start < end {
+            &all_lines[start..end]
+        } else {
+            &[]
+        };
+        let visible = escape_html(&slice.join("\n"));
+        let prev_page = page.saturating_sub(1);
+        let next_page = page.saturating_add(1);
+        let can_next = start > 0;
+        let range_label = if total == 0 {
+            "no lines".to_string()
+        } else {
+            format!("lines {}-{} of {}", start + 1, end, total)
+        };
+
         html.push_str(&format!(r###"
             <div class="bg-slate-950/50 rounded-lg border border-white/5 overflow-hidden">
                 <div class="bg-white/5 px-3 py-1.5 flex justify-between items-center text-[10px] uppercase font-bold text-slate-400">
                     <span>{}</span>
+                    <div class="flex items-center gap-2 normal-case text-[10px] text-slate-500 font-medium">
+                        <span>{}</span>
+                        <button hx-get="{}?lines={}&page={}" hx-target="#logs-modal-content" class="px-1.5 py-0.5 rounded border border-white/10 hover:bg-white/5 {}">Prev</button>
+                        <button hx-get="{}?lines={}&page={}" hx-target="#logs-modal-content" class="px-1.5 py-0.5 rounded border border-white/10 hover:bg-white/5 {}">Next</button>
+                    </div>
                 </div>
                 <pre class="p-3 text-emerald-400 overflow-x-auto">{}</pre>
             </div>
-        "###, service, content));
+        "###, service, range_label, base_url, lines, prev_page, if page == 0 { "opacity-40 pointer-events-none" } else { "" }, base_url, lines, next_page, if can_next { "" } else { "opacity-40 pointer-events-none" }, visible));
     }
 
     html
@@ -567,31 +717,79 @@ pub async fn get_node_manage(
         Err(_) => return (axum::http::StatusCode::NOT_FOUND, "Node not found").into_response(),
     };
 
-    let all_nodes = state.infrastructure_service.get_active_nodes().await.unwrap_or_default();
-    let inbounds = state.infrastructure_service.get_node_inbounds(id).await.unwrap_or_default();
-    
-    // Fetch discovered SNIs with pinning status
-    let discovered_snis = sqlx::query_as::<_, NodeSniDisplay>(
-        r#"
-        SELECT 
-            s.id, 
-            s.domain, 
-            s.health_score, 
-            s.is_premium,
-            EXISTS(SELECT 1 FROM node_pinned_snis WHERE node_id = $1 AND sni_id = s.id) as is_pinned
-        FROM sni_pool s
-        WHERE s.discovered_by_node_id = $2 OR s.is_premium = TRUE
-        ORDER BY is_pinned DESC, s.health_score DESC
-        "#
-    )
-    .bind(id)
-    .bind(id)
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
-    
+    let all_nodes = state
+        .infrastructure_service
+        .get_active_nodes()
+        .await
+        .unwrap_or_default();
+    let inbounds = state
+        .infrastructure_service
+        .get_node_inbounds(id)
+        .await
+        .unwrap_or_default();
+
+    // Fetch discovered SNIs with pinning status, with compatibility fallback for legacy schemas.
+    let discovered_snis = {
+        use sqlx::Row;
+        let primary = sqlx::query(
+            r#"
+            SELECT 
+                s.id,
+                s.domain,
+                COALESCE(s.health_score, 100) AS health_score,
+                COALESCE(s.is_premium, FALSE) AS is_premium,
+                EXISTS(SELECT 1 FROM node_pinned_snis p WHERE p.node_id = $1 AND p.sni_id = s.id) AS is_pinned
+            FROM sni_pool s
+            WHERE (s.discovered_by_node_id = $1 OR COALESCE(s.is_premium, FALSE) = TRUE)
+              AND COALESCE(s.is_active, TRUE) = TRUE
+            ORDER BY is_pinned DESC, is_premium DESC, health_score DESC
+            LIMIT 200
+            "#,
+        )
+        .bind(id)
+        .fetch_all(&state.pool)
+        .await;
+
+        match primary {
+            Ok(rows) => rows
+                .into_iter()
+                .map(|row| NodeSniDisplay {
+                    id: row.try_get::<i64, _>("id").unwrap_or_default(),
+                    domain: row.try_get::<String, _>("domain").unwrap_or_default(),
+                    is_pinned: row.try_get::<bool, _>("is_pinned").unwrap_or(false),
+                    health_score: row.try_get::<i32, _>("health_score").unwrap_or(100),
+                    is_premium: row.try_get::<bool, _>("is_premium").unwrap_or(false),
+                })
+                .collect::<Vec<_>>(),
+            Err(e) => {
+                error!(
+                    "Primary discovered_snis query failed for node {}: {}. Using compatibility fallback.",
+                    id, e
+                );
+                let fallback = sqlx::query(
+                    "SELECT id, domain, COALESCE(health_score, 100) AS health_score FROM sni_pool ORDER BY health_score DESC LIMIT 200",
+                )
+                .fetch_all(&state.pool)
+                .await
+                .unwrap_or_default();
+                fallback
+                    .into_iter()
+                    .map(|row| NodeSniDisplay {
+                        id: row.try_get::<i64, _>("id").unwrap_or_default(),
+                        domain: row.try_get::<String, _>("domain").unwrap_or_default(),
+                        is_pinned: false,
+                        health_score: row.try_get::<i32, _>("health_score").unwrap_or(100),
+                        is_premium: false,
+                    })
+                    .collect::<Vec<_>>()
+            }
+        }
+    };
+
     let admin_path = state.admin_path.clone();
-    let username = get_auth_user(&state, &jar).await.unwrap_or("Admin".to_string());
+    let username = get_auth_user(&state, &jar)
+        .await
+        .unwrap_or("Admin".to_string());
 
     let template = NodeManageTemplate {
         node,
@@ -613,7 +811,13 @@ pub async fn get_node_rescue(
 ) -> impl IntoResponse {
     let node = match state.infrastructure_service.get_node_by_id(id).await {
         Ok(n) => n,
-        Err(e) => return (axum::http::StatusCode::NOT_FOUND, format!("Node not found: {}", e)).into_response(),
+        Err(e) => {
+            return (
+                axum::http::StatusCode::NOT_FOUND,
+                format!("Node not found: {}", e),
+            )
+                .into_response();
+        }
     };
 
     let template = NodeRescueModalTemplate {
@@ -623,16 +827,21 @@ pub async fn get_node_rescue(
     Html(template.render().unwrap()).into_response()
 }
 
-pub async fn trigger_scan(
-    Path(id): Path<i64>,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+pub async fn trigger_scan(Path(id): Path<i64>, State(state): State<AppState>) -> impl IntoResponse {
     info!("Manual Neighbor Sniper scan triggered for node: {}", id);
-    
+
     // Notify Agent via PubSub
-    if let Err(e) = state.pubsub.publish(&format!("node_events:{}", id), "scan").await {
+    if let Err(e) = state
+        .pubsub
+        .publish(&format!("node_events:{}", id), "scan")
+        .await
+    {
         error!("Failed to publish scan event: {}", e);
-        return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Signal failed").into_response();
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "Signal failed",
+        )
+            .into_response();
     }
 
     axum::http::StatusCode::ACCEPTED.into_response()
@@ -642,7 +851,7 @@ pub async fn pin_sni(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     info!("Pinning SNI {} for node {}", sni_id, node_id);
-    
+
     let _ = sqlx::query("INSERT INTO node_pinned_snis (node_id, sni_id) VALUES ($1, $2) ON CONFLICT (node_id, sni_id) DO NOTHING")
         .bind(node_id)
         .bind(sni_id)
@@ -651,7 +860,10 @@ pub async fn pin_sni(
 
     // Trigger sync to apply the pinned SNI
     let _ = state.orchestration_service.reset_inbounds(node_id).await;
-    let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "update").await;
+    let _ = state
+        .pubsub
+        .publish(&format!("node_events:{}", node_id), "update")
+        .await;
 
     let mut headers = HeaderMap::new();
     headers.insert("HX-Refresh", "true".parse().unwrap());
@@ -663,7 +875,7 @@ pub async fn unpin_sni(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     info!("Unpinning SNI {} for node {}", sni_id, node_id);
-    
+
     let _ = sqlx::query("DELETE FROM node_pinned_snis WHERE node_id = $1 AND sni_id = $2")
         .bind(node_id)
         .bind(sni_id)
@@ -672,7 +884,10 @@ pub async fn unpin_sni(
 
     // Trigger sync
     let _ = state.orchestration_service.reset_inbounds(node_id).await;
-    let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "update").await;
+    let _ = state
+        .pubsub
+        .publish(&format!("node_events:{}", node_id), "update")
+        .await;
 
     let mut headers = HeaderMap::new();
     headers.insert("HX-Refresh", "true".parse().unwrap());
@@ -684,7 +899,7 @@ pub async fn block_sni(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     info!("Blocking SNI {} (requested from node {})", sni_id, node_id);
-    
+
     // 1. Get Domain
     let domain: Option<String> = sqlx::query_scalar("SELECT domain FROM sni_pool WHERE id = $1")
         .bind(sni_id)
@@ -712,16 +927,21 @@ pub async fn block_sni(
     (axum::http::StatusCode::OK, headers, "").into_response()
 }
 
-pub async fn restart_node(
-    Path(id): Path<i64>,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+pub async fn restart_node(Path(id): Path<i64>, State(state): State<AppState>) -> impl IntoResponse {
     info!("Manual restart triggered for node: {}", id);
-    
+
     // Publish restart event
-    if let Err(e) = state.pubsub.publish(&format!("node_events:{}", id), "restart").await {
+    if let Err(e) = state
+        .pubsub
+        .publish(&format!("node_events:{}", id), "restart")
+        .await
+    {
         error!("Failed to publish restart event: {}", e);
-        return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Signal failed").into_response();
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "Signal failed",
+        )
+            .into_response();
     }
 
     // Optional: Update last_sync_trigger to denote manual intervention
@@ -740,7 +960,7 @@ pub async fn rotate_node_inbounds(
     info!("Manual inbound rotation requested for node {}", node_id);
 
     let inbound_ids: Vec<i64> = sqlx::query_scalar(
-        "SELECT id FROM inbounds WHERE node_id = $1 AND tag LIKE 'tpl_%' AND enable = TRUE"
+        "SELECT id FROM inbounds WHERE node_id = $1 AND tag LIKE 'tpl_%' AND enable = TRUE",
     )
     .bind(node_id)
     .fetch_all(&state.pool)
@@ -748,7 +968,11 @@ pub async fn rotate_node_inbounds(
     .unwrap_or_default();
 
     if inbound_ids.is_empty() {
-        return (axum::http::StatusCode::BAD_REQUEST, "No templated inbounds found").into_response();
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            "No templated inbounds found",
+        )
+            .into_response();
     }
 
     let mut rotated = 0usize;
@@ -758,7 +982,10 @@ pub async fn rotate_node_inbounds(
             Ok(_) => rotated += 1,
             Err(e) => {
                 failed += 1;
-                error!("Failed to rotate inbound {} on node {}: {}", inbound_id, node_id, e);
+                error!(
+                    "Failed to rotate inbound {} on node {}: {}",
+                    inbound_id, node_id, e
+                );
             }
         }
     }
@@ -768,17 +995,28 @@ pub async fn rotate_node_inbounds(
             .bind(node_id)
             .execute(&state.pool)
             .await;
-        let _ = state.pubsub.publish(&format!("node_events:{}", node_id), "update").await;
+        let _ = state
+            .pubsub
+            .publish(&format!("node_events:{}", node_id), "update")
+            .await;
     }
 
-    (axum::http::StatusCode::OK, format!("Rotated {} inbound(s), {} failed", rotated, failed)).into_response()
+    (
+        axum::http::StatusCode::OK,
+        format!("Rotated {} inbound(s), {} failed", rotated, failed),
+    )
+        .into_response()
 }
 
 pub async fn get_node_config_preview(
     Path(id): Path<i64>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    match state.orchestration_service.generate_node_config_json(id).await {
+    match state
+        .orchestration_service
+        .generate_node_config_json(id)
+        .await
+    {
         Ok((_, config)) => {
             let json_str = serde_json::to_string_pretty(&config).unwrap_or_default();
             Html(format!(r###"
@@ -807,10 +1045,10 @@ pub async fn get_node_config_preview(
                     </script>
                 </div>
             "###, json_str)).into_response()
-        },
+        }
         Err(e) => {
             error!("Failed to generate config for preview: {}", e);
-             Html(format!(r###"
+            Html(format!(r###"
                 <div class="p-6 text-center text-red-400">
                     <p class="font-bold">Failed to generate config</p>
                     <p class="text-sm mt-2">{}</p>

@@ -1,9 +1,9 @@
-use chrono::{DateTime, Utc};
-use anyhow::{Context, Result};
-use sqlx::{postgres::PgRow, PgPool, Row};
-use crate::models::node::{Node};
-use crate::models::network::{Inbound};
 use crate::models::groups::{NodeGroup, NodeGroupMember, PlanGroup};
+use crate::models::network::Inbound;
+use crate::models::node::Node;
+use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
+use sqlx::{PgPool, Row, postgres::PgRow};
 
 #[derive(Debug, Clone)]
 pub struct NodeRepository {
@@ -27,7 +27,10 @@ impl NodeRepository {
             status: row
                 .try_get::<String, _>("status")
                 .unwrap_or_else(|_| "new".to_string()),
-            reality_pub: row.try_get::<Option<String>, _>("reality_pub").ok().flatten(),
+            reality_pub: row
+                .try_get::<Option<String>, _>("reality_pub")
+                .ok()
+                .flatten(),
             reality_priv: row
                 .try_get::<Option<String>, _>("reality_priv")
                 .ok()
@@ -42,11 +45,17 @@ impl NodeRepository {
                 .try_get::<i64, _>("vpn_port")
                 .or_else(|_| row.try_get::<i32, _>("vpn_port").map(|v| v as i64))
                 .unwrap_or(443),
-            last_seen: row.try_get::<Option<DateTime<Utc>>, _>("last_seen").ok().flatten(),
+            last_seen: row
+                .try_get::<Option<DateTime<Utc>>, _>("last_seen")
+                .ok()
+                .flatten(),
             created_at: row
                 .try_get::<DateTime<Utc>, _>("created_at")
                 .unwrap_or_else(|_| Utc::now()),
-            join_token: row.try_get::<Option<String>, _>("join_token").ok().flatten(),
+            join_token: row
+                .try_get::<Option<String>, _>("join_token")
+                .ok()
+                .flatten(),
             auto_configure: row.try_get::<bool, _>("auto_configure").unwrap_or(false),
             is_enabled: row.try_get::<bool, _>("is_enabled").unwrap_or(true),
             country_code: row
@@ -60,7 +69,10 @@ impl NodeRepository {
                 .try_get::<Option<String>, _>("reality_sni")
                 .ok()
                 .flatten(),
-            load_stats: row.try_get::<Option<String>, _>("load_stats").ok().flatten(),
+            load_stats: row
+                .try_get::<Option<String>, _>("load_stats")
+                .ok()
+                .flatten(),
             check_stats_json: row
                 .try_get::<Option<String>, _>("check_stats_json")
                 .ok()
@@ -74,12 +86,8 @@ impl NodeRepository {
             config_block_torrent: row
                 .try_get::<bool, _>("config_block_torrent")
                 .unwrap_or(false),
-            config_block_ads: row
-                .try_get::<bool, _>("config_block_ads")
-                .unwrap_or(false),
-            config_block_porn: row
-                .try_get::<bool, _>("config_block_porn")
-                .unwrap_or(false),
+            config_block_ads: row.try_get::<bool, _>("config_block_ads").unwrap_or(false),
+            config_block_porn: row.try_get::<bool, _>("config_block_porn").unwrap_or(false),
             last_latency: row.try_get::<Option<f64>, _>("last_latency").ok().flatten(),
             last_cpu: row.try_get::<Option<f64>, _>("last_cpu").ok().flatten(),
             last_ram: row.try_get::<Option<f64>, _>("last_ram").ok().flatten(),
@@ -118,11 +126,17 @@ impl NodeRepository {
                 .unwrap_or_default(),
             last_session_ingress: row
                 .try_get::<i64, _>("last_session_ingress")
-                .or_else(|_| row.try_get::<i32, _>("last_session_ingress").map(|v| v as i64))
+                .or_else(|_| {
+                    row.try_get::<i32, _>("last_session_ingress")
+                        .map(|v| v as i64)
+                })
                 .unwrap_or_default(),
             last_session_egress: row
                 .try_get::<i64, _>("last_session_egress")
-                .or_else(|_| row.try_get::<i32, _>("last_session_egress").map(|v| v as i64))
+                .or_else(|_| {
+                    row.try_get::<i32, _>("last_session_egress")
+                        .map(|v| v as i64)
+                })
                 .unwrap_or_default(),
             doomsday_password: row
                 .try_get::<Option<String>, _>("doomsday_password")
@@ -175,7 +189,10 @@ impl NodeRepository {
             enable: row.try_get::<bool, _>("enable").unwrap_or(true),
             renew_interval_mins: row
                 .try_get::<i64, _>("renew_interval_mins")
-                .or_else(|_| row.try_get::<i32, _>("renew_interval_mins").map(|v| v as i64))
+                .or_else(|_| {
+                    row.try_get::<i32, _>("renew_interval_mins")
+                        .map(|v| v as i64)
+                })
                 .unwrap_or(0),
             port_range_start: row
                 .try_get::<i64, _>("port_range_start")
@@ -203,15 +220,23 @@ impl NodeRepository {
             .fetch_all(&self.pool)
             .await
             .context("Failed to fetch all nodes")?;
-        Ok(rows.into_iter().map(|row| Self::row_to_node(&row)).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| Self::row_to_node(&row))
+            .collect())
     }
 
     pub async fn get_active_nodes(&self) -> Result<Vec<Node>> {
-        let rows = sqlx::query("SELECT * FROM nodes WHERE status = 'active' ORDER BY sort_order ASC, name ASC")
-            .fetch_all(&self.pool)
-            .await
-            .context("Failed to fetch active nodes")?;
-        Ok(rows.into_iter().map(|row| Self::row_to_node(&row)).collect())
+        let rows = sqlx::query(
+            "SELECT * FROM nodes WHERE status = 'active' ORDER BY sort_order ASC, name ASC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch active nodes")?;
+        Ok(rows
+            .into_iter()
+            .map(|row| Self::row_to_node(&row))
+            .collect())
     }
 
     pub async fn get_node_by_id(&self, id: i64) -> Result<Option<Node>> {
@@ -222,9 +247,9 @@ impl NodeRepository {
             .context("Failed to fetch node by ID")?;
         Ok(row.map(|r| Self::row_to_node(&r)))
     }
-    
+
     pub async fn get_active_node_ids(&self) -> Result<Vec<i64>> {
-         sqlx::query_scalar("SELECT id FROM nodes WHERE status = 'active'")
+        sqlx::query_scalar("SELECT id FROM nodes WHERE status = 'active'")
             .fetch_all(&self.pool)
             .await
             .context("Failed to fetch active node IDs")
@@ -236,7 +261,10 @@ impl NodeRepository {
             .fetch_all(&self.pool)
             .await
             .context("Failed to fetch relay clients")?;
-        Ok(rows.into_iter().map(|row| Self::row_to_node(&row)).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| Self::row_to_node(&row))
+            .collect())
     }
 
     pub async fn create_node(&self, node: &Node) -> Result<i64> {
@@ -327,7 +355,7 @@ impl NodeRepository {
                                     INSERT INTO nodes (name, ip, status, join_token, vpn_port)
                                     VALUES ($1, $2, $3, $4, $5)
                                     RETURNING id
-                                    "#
+                                    "#,
                                 )
                                 .bind(&node.name)
                                 .bind(&node.ip)
@@ -383,7 +411,7 @@ impl NodeRepository {
         .bind(node.id)
         .execute(&self.pool)
         .await?;
-        
+
         Ok(())
     }
 
@@ -400,9 +428,9 @@ impl NodeRepository {
             .map(|row| Self::row_to_inbound(&row))
             .collect())
     }
-    
+
     pub async fn get_all_inbounds(&self) -> Result<Vec<Inbound>> {
-         let rows = sqlx::query("SELECT * FROM inbounds")
+        let rows = sqlx::query("SELECT * FROM inbounds")
             .fetch_all(&self.pool)
             .await
             .context("Failed to fetch all inbounds")?;
@@ -413,7 +441,7 @@ impl NodeRepository {
     }
 
     pub async fn upsert_inbound(&self, inbound: &Inbound) -> Result<()> {
-        sqlx::query(
+        let primary = sqlx::query(
             r#"
             INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings, enable, listen_ip, remark)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -437,9 +465,52 @@ impl NodeRepository {
         .bind(&inbound.listen_ip)
         .bind(&inbound.remark)
         .execute(&self.pool)
-        .await?;
-        
-        Ok(())
+        .await;
+
+        match primary {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let msg = e.to_string();
+
+                // Compatibility fallback for legacy schemas where ON CONFLICT pair or some columns are missing.
+                if msg.contains("no unique or exclusion constraint")
+                    || msg.contains("listen_ip")
+                    || msg.contains("remark")
+                    || msg.contains("enable")
+                    || msg.contains("does not exist")
+                {
+                    // Try update existing row by node+tag first.
+                    let _ = sqlx::query(
+                        "UPDATE inbounds SET protocol = $1, listen_port = $2, settings = $3, stream_settings = $4 WHERE node_id = $5 AND tag = $6",
+                    )
+                    .bind(&inbound.protocol)
+                    .bind(inbound.listen_port)
+                    .bind(&inbound.settings)
+                    .bind(&inbound.stream_settings)
+                    .bind(inbound.node_id)
+                    .bind(&inbound.tag)
+                    .execute(&self.pool)
+                    .await;
+
+                    // Insert if no row exists for this tag.
+                    sqlx::query(
+                        "INSERT INTO inbounds (node_id, tag, protocol, listen_port, settings, stream_settings) SELECT $1, $2, $3, $4, $5, $6 WHERE NOT EXISTS (SELECT 1 FROM inbounds WHERE node_id = $1 AND tag = $2)",
+                    )
+                    .bind(inbound.node_id)
+                    .bind(&inbound.tag)
+                    .bind(&inbound.protocol)
+                    .bind(inbound.listen_port)
+                    .bind(&inbound.settings)
+                    .bind(&inbound.stream_settings)
+                    .execute(&self.pool)
+                    .await?;
+
+                    Ok(())
+                } else {
+                    Err(e.into())
+                }
+            }
+        }
     }
 
     pub async fn get_inbound_by_id(&self, id: i64) -> Result<Option<Inbound>> {
@@ -459,11 +530,15 @@ impl NodeRepository {
         Ok(())
     }
 
-    pub async fn get_all_inbound_templates(&self) -> Result<Vec<crate::models::groups::InboundTemplate>> {
-        sqlx::query_as::<_, crate::models::groups::InboundTemplate>("SELECT * FROM inbound_templates WHERE is_active = TRUE")
-            .fetch_all(&self.pool)
-            .await
-            .context("Failed to fetch all inbound templates")
+    pub async fn get_all_inbound_templates(
+        &self,
+    ) -> Result<Vec<crate::models::groups::InboundTemplate>> {
+        sqlx::query_as::<_, crate::models::groups::InboundTemplate>(
+            "SELECT * FROM inbound_templates WHERE is_active = TRUE",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch all inbound templates")
     }
 
     // ==================== GROUPS (NODES) ====================
@@ -498,25 +573,28 @@ impl NodeRepository {
             .await
             .context("Failed to fetch plan groups")
     }
-    
+
     pub async fn get_active_nodes_by_groups(&self, group_ids: &[i64]) -> Result<Vec<Node>> {
         if group_ids.is_empty() {
             return Ok(Vec::new());
         }
-        
+
         let rows = sqlx::query(
             r#"
             SELECT DISTINCT n.* FROM nodes n
             JOIN node_group_members gn ON gn.node_id = n.id
             WHERE n.status = 'active' AND gn.group_id = ANY($1)
             ORDER BY n.sort_order ASC
-            "#
+            "#,
         )
         .bind(group_ids)
         .fetch_all(&self.pool)
         .await
         .context("Failed to fetch nodes by groups")?;
-        Ok(rows.into_iter().map(|row| Self::row_to_node(&row)).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| Self::row_to_node(&row))
+            .collect())
     }
 
     pub async fn create_group(&self, name: &str, description: Option<&str>) -> Result<i64> {
@@ -531,12 +609,17 @@ impl NodeRepository {
         Ok(id)
     }
 
-    pub async fn get_group_by_name(&self, name: &str) -> Result<Option<crate::models::groups::NodeGroup>> {
-        sqlx::query_as::<_, crate::models::groups::NodeGroup>("SELECT * FROM node_groups WHERE name = $1")
-            .bind(name)
-            .fetch_optional(&self.pool)
-            .await
-            .context("Failed to fetch group by name")
+    pub async fn get_group_by_name(
+        &self,
+        name: &str,
+    ) -> Result<Option<crate::models::groups::NodeGroup>> {
+        sqlx::query_as::<_, crate::models::groups::NodeGroup>(
+            "SELECT * FROM node_groups WHERE name = $1",
+        )
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to fetch group by name")
     }
 
     pub async fn add_node_to_group(&self, node_id: i64, group_id: i64) -> Result<()> {
@@ -548,8 +631,11 @@ impl NodeRepository {
             .context("Failed to add node to group")?;
         Ok(())
     }
-    
-    pub async fn get_groups_by_node(&self, node_id: i64) -> Result<Vec<crate::models::groups::NodeGroup>> {
+
+    pub async fn get_groups_by_node(
+        &self,
+        node_id: i64,
+    ) -> Result<Vec<crate::models::groups::NodeGroup>> {
         sqlx::query_as::<_, crate::models::groups::NodeGroup>(
             "SELECT g.* FROM node_groups g JOIN node_group_members m ON m.group_id = g.id WHERE m.node_id = $1"
         )
@@ -570,26 +656,29 @@ impl NodeRepository {
             JOIN plan_groups pg ON ngm.group_id = pg.group_id
             WHERE pg.plan_id = $1 AND n.status = 'active'
             ORDER BY n.sort_order ASC
-            "#
+            "#,
         )
         .bind(plan_id)
         .fetch_all(&self.pool)
         .await?;
-        let nodes: Vec<Node> = rows.into_iter().map(|row| Self::row_to_node(&row)).collect();
-        
+        let nodes: Vec<Node> = rows
+            .into_iter()
+            .map(|row| Self::row_to_node(&row))
+            .collect();
+
         if !nodes.is_empty() {
-             return Ok(nodes);
+            return Ok(nodes);
         }
-        
+
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_groups WHERE plan_id = $1")
             .bind(plan_id)
             .fetch_one(&self.pool)
             .await?;
-            
+
         if count == 0 {
             return self.get_active_nodes().await;
         }
-        
+
         Ok(Vec::new())
     }
 
@@ -602,7 +691,7 @@ impl NodeRepository {
             LEFT JOIN node_group_members ngm ON ngm.node_id = i.node_id
             LEFT JOIN plan_groups pg ON pg.group_id = ngm.group_id
             WHERE (pi.plan_id = $1 OR pn.plan_id = $2 OR pg.plan_id = $3) AND i.enable = TRUE
-            "#
+            "#,
         )
         .bind(plan_id)
         .bind(plan_id)
@@ -638,7 +727,7 @@ impl NodeRepository {
             .bind(id)
             .fetch_one(&self.pool)
             .await?;
-        
+
         let new_val = !current;
         sqlx::query("UPDATE nodes SET is_enabled = $1 WHERE id = $2")
             .bind(new_val)
@@ -659,7 +748,7 @@ impl NodeRepository {
             FROM plan_groups pg
             JOIN node_group_members ngm ON pg.group_id = ngm.group_id
             WHERE ngm.node_id = $3
-            "#
+            "#,
         )
         .bind(inbound_id)
         .bind(node_id)
@@ -687,11 +776,16 @@ impl NodeRepository {
         Ok(())
     }
 
-    pub async fn get_templates_for_group(&self, group_id: i64) -> Result<Vec<crate::models::groups::InboundTemplate>> {
-        sqlx::query_as::<_, crate::models::groups::InboundTemplate>("SELECT * FROM inbound_templates WHERE target_group_id = $1 AND is_active = TRUE")
-            .bind(group_id)
-            .fetch_all(&self.pool)
-            .await
-            .context("Failed to fetch templates for group")
+    pub async fn get_templates_for_group(
+        &self,
+        group_id: i64,
+    ) -> Result<Vec<crate::models::groups::InboundTemplate>> {
+        sqlx::query_as::<_, crate::models::groups::InboundTemplate>(
+            "SELECT * FROM inbound_templates WHERE target_group_id = $1 AND is_active = TRUE",
+        )
+        .bind(group_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch templates for group")
     }
 }

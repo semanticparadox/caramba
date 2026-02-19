@@ -186,6 +186,9 @@
             </header>
 
             <form hx-post="{{ admin_path }}/nodes/{{ node.id }}/inbounds" hx-swap="none" class="space-y-4">
+                <div class="p-3 rounded-xl bg-slate-800/60 border border-white/10 text-xs text-slate-400">
+                    Recommended flow: pick a template first, verify port/SNI values, then save. Manual JSON is for advanced overrides.
+                </div>
 
                 <!-- BORROW TEMPLATE -->
                 <div class="p-4 rounded-xl bg-indigo-500/5 border border-indigo-500/10 mb-6">
@@ -228,7 +231,7 @@
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-400 uppercase mb-1">Listen Port</label>
-                        <input type="number" name="listen_port" required placeholder="443"
+                        <input type="number" name="listen_port" required value="443" min="1" max="65535" placeholder="443"
                             class="w-full bg-slate-950 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors font-mono">
                     </div>
                 </div>
