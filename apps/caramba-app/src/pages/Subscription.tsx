@@ -23,6 +23,7 @@ export default function Subscription() {
     const [copied, setCopied] = useState<number | null>(null);
     const [copiedVless, setCopiedVless] = useState<number | null>(null);
     const [activatingId, setActivatingId] = useState<number | null>(null);
+    const [giftingId, setGiftingId] = useState<number | null>(null);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
     const handleCopy = (sub: UserSubscription) => {
@@ -67,6 +68,41 @@ export default function Subscription() {
             setMessage({ type: 'error', text: 'Network error while activating subscription.' });
         } finally {
             setActivatingId(null);
+        }
+    };
+
+    const handleConvertToGift = async (subId: number) => {
+        if (!token) return;
+
+        setGiftingId(subId);
+        setMessage(null);
+        try {
+            const res = await fetch(`/api/client/subscription/${subId}/gift`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                const code = data?.code ? ` ${data.code}` : '';
+                if (data?.code) {
+                    navigator.clipboard.writeText(data.code).catch(() => undefined);
+                }
+                setMessage({
+                    type: 'success',
+                    text: `Gift code created.${code ? ` Copied:${code}` : ''}`,
+                });
+                await refreshData();
+            } else {
+                const err = await res.text();
+                setMessage({ type: 'error', text: err || 'Failed to convert subscription to gift code.' });
+            }
+        } catch {
+            setMessage({ type: 'error', text: 'Network error while converting to gift code.' });
+        } finally {
+            setGiftingId(null);
         }
     };
 
@@ -198,9 +234,19 @@ export default function Subscription() {
                                             e.stopPropagation();
                                             handleActivate(sub.id);
                                         }}
-                                        disabled={activatingId !== null}
+                                        disabled={activatingId !== null || giftingId !== null}
                                     >
                                         {activatingId === sub.id ? '⏳ Activating...' : '✅ Activate Now'}
+                                    </button>
+                                    <button
+                                        className="btn-text"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleConvertToGift(sub.id);
+                                        }}
+                                        disabled={activatingId !== null || giftingId !== null}
+                                    >
+                                        {giftingId === sub.id ? '⏳ Creating code...' : '🎁 Make Gift Code'}
                                     </button>
                                 </div>
                             )}

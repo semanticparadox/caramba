@@ -158,6 +158,8 @@
 .sub-actions {
     display: flex;
     justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 
 .btn-text {

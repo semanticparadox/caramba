@@ -31,7 +31,7 @@ impl ReferralService {
                 u.username,
                 COUNT(r.id) as referral_count
             FROM users u
-            JOIN users r ON u.id = r.referrer_id
+            JOIN users r ON COALESCE(r.referrer_id, r.referred_by) = u.id
             GROUP BY u.id, u.username
             ORDER BY referral_count DESC
             LIMIT $1
@@ -85,7 +85,7 @@ impl ReferralService {
                 COALESCE(CAST(SUM(rb.bonus_value) AS BIGINT), 0) as total_earned
             FROM users u
             LEFT JOIN referral_bonuses rb ON u.id = rb.referred_user_id AND rb.user_id = $1
-            WHERE u.referrer_id = $2
+            WHERE COALESCE(u.referrer_id, u.referred_by) = $2
             GROUP BY u.id, u.tg_id, u.username, u.full_name, u.balance, u.referral_code, u.referrer_id, u.referred_by, u.is_banned, u.created_at
             ORDER BY u.created_at DESC
             "#
@@ -108,10 +108,12 @@ impl ReferralService {
     }
 
     pub async fn get_referral_count(pool: &PgPool, user_id: i64) -> Result<i64> {
-        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE referrer_id = $1")
-            .bind(user_id)
-            .fetch_one(pool)
-            .await?;
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM users WHERE COALESCE(referrer_id, referred_by) = $1",
+        )
+        .bind(user_id)
+        .fetch_one(pool)
+        .await?;
         Ok(count.0)
     }
 

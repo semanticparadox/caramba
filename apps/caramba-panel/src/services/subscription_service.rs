@@ -145,7 +145,11 @@ impl SubscriptionService {
         let mut tx = self.pool.begin().await?;
 
         let gift_code_opt = sqlx::query_as::<_, GiftCode>(
-            "SELECT * FROM gift_codes WHERE code = $1 AND redeemed_by_user_id IS NULL",
+            "SELECT * FROM gift_codes
+             WHERE code = $1
+               AND redeemed_by_user_id IS NULL
+               AND COALESCE(status, 'active') = 'active'
+               AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)",
         )
         .bind(code)
         .fetch_optional(&mut *tx)

@@ -5,7 +5,7 @@ use axum::{
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Json},
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use hmac::{Hmac, Mac};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
@@ -183,6 +183,13 @@ pub fn routes(state: AppState) -> Router<AppState> {
             )),
         )
         .route(
+            "/subscription/{id}/gift",
+            post(convert_subscription_to_gift).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
             "/subscription/{id}/links",
             get(get_subscription_links_for_user).layer(middleware::from_fn_with_state(
                 state.clone(),
@@ -192,6 +199,20 @@ pub fn routes(state: AppState) -> Router<AppState> {
         .route(
             "/promo/redeem",
             post(redeem_promo_code).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/promo/my-codes",
+            get(get_my_gift_codes).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/promo/my-codes/{id}",
+            delete(revoke_my_gift_code).layer(middleware::from_fn_with_state(
                 state.clone(),
                 auth_middleware,
             )),
@@ -1289,6 +1310,38 @@ async fn activate_subscription(
     }
 }
 
+async fn convert_subscription_to_gift(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path(sub_id): Path<i64>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    match state
+        .store_service
+        .convert_subscription_to_gift(sub_id, user_id)
+        .await
+    {
+        Ok(code) => Json(serde_json::json!({
+            "ok": true,
+            "code": code,
+            "message": "Gift code created from pending subscription",
+        }))
+        .into_response(),
+        Err(err) => (StatusCode::BAD_REQUEST, err.to_string()).into_response(),
+    }
+}
+
 async fn get_subscription_links_for_user(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<Claims>,
@@ -1349,6 +1402,156 @@ async fn get_subscription_links_for_user(
         "primary_vless_link": vless_links.first().cloned(),
     }))
     .into_response()
+}
+
+async fn get_my_gift_codes(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    let rows = sqlx::query_as::<
+        _,
+        (
+            i64,
+            String,
+            Option<i64>,
+            Option<String>,
+            Option<i32>,
+            Option<String>,
+            chrono::DateTime<chrono::Utc>,
+            Option<chrono::DateTime<chrono::Utc>>,
+            Option<i64>,
+            Option<chrono::DateTime<chrono::Utc>>,
+        ),
+    >(
+        r#"
+        SELECT
+            gc.id,
+            gc.code,
+            gc.plan_id,
+            p.name AS plan_name,
+            gc.duration_days,
+            gc.status,
+            gc.created_at,
+            gc.redeemed_at,
+            gc.redeemed_by_user_id,
+            gc.expires_at
+        FROM gift_codes gc
+        LEFT JOIN plans p ON p.id = gc.plan_id
+        WHERE gc.created_by_user_id = $1
+        ORDER BY gc.created_at DESC
+        LIMIT 100
+        "#,
+    )
+    .bind(user_id)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    let now = chrono::Utc::now();
+    let payload: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(
+            |(
+                id,
+                code,
+                plan_id,
+                plan_name,
+                duration_days,
+                status_raw,
+                created_at,
+                redeemed_at,
+                redeemed_by_user_id,
+                expires_at,
+            )| {
+                let status = if redeemed_by_user_id.is_some() {
+                    "redeemed".to_string()
+                } else if expires_at.is_some_and(|exp| exp <= now) {
+                    "expired".to_string()
+                } else {
+                    status_raw
+                        .unwrap_or_else(|| "active".to_string())
+                        .to_ascii_lowercase()
+                };
+                let can_revoke = status == "active";
+
+                serde_json::json!({
+                    "id": id,
+                    "code": code,
+                    "plan_id": plan_id,
+                    "plan_name": plan_name,
+                    "duration_days": duration_days,
+                    "status": status,
+                    "created_at": created_at.to_rfc3339(),
+                    "redeemed_at": redeemed_at.map(|dt| dt.to_rfc3339()),
+                    "redeemed_by_user_id": redeemed_by_user_id,
+                    "expires_at": expires_at.map(|dt| dt.to_rfc3339()),
+                    "can_revoke": can_revoke,
+                })
+            },
+        )
+        .collect();
+
+    Json(payload).into_response()
+}
+
+async fn revoke_my_gift_code(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path(gift_id): Path<i64>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    let updated = sqlx::query(
+        r#"
+        UPDATE gift_codes
+        SET status = 'revoked',
+            expires_at = COALESCE(expires_at, CURRENT_TIMESTAMP)
+        WHERE id = $1
+          AND created_by_user_id = $2
+          AND redeemed_by_user_id IS NULL
+          AND COALESCE(status, 'active') = 'active'
+        "#,
+    )
+    .bind(gift_id)
+    .bind(user_id)
+    .execute(&state.pool)
+    .await;
+
+    match updated {
+        Ok(done) if done.rows_affected() > 0 => Json(serde_json::json!({
+            "ok": true,
+            "message": "Gift code revoked",
+        }))
+        .into_response(),
+        Ok(_) => (
+            StatusCode::NOT_FOUND,
+            "Gift code not found or already inactive",
+        )
+            .into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    }
 }
 
 #[derive(Deserialize)]

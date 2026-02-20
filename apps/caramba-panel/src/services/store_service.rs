@@ -541,7 +541,14 @@ impl StoreService {
     pub async fn convert_subscription_to_gift(&self, sub_id: i64, user_id: i64) -> Result<String> {
         let mut tx = self.pool.begin().await?;
 
-        let sub = self.get_subscription(sub_id, user_id).await?;
+        let sub = sqlx::query_as::<_, Subscription>(
+            "SELECT * FROM subscriptions WHERE id = $1 AND user_id = $2 FOR UPDATE",
+        )
+        .bind(sub_id)
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Subscription not found"))?;
 
         if sub.status != "pending" {
             return Err(anyhow::anyhow!(
@@ -552,7 +559,10 @@ impl StoreService {
         let duration = sub.expires_at - sub.created_at;
         let duration_days = duration.num_days() as i32;
 
-        self.sub_repo.delete(sub_id).await?;
+        sqlx::query("DELETE FROM subscriptions WHERE id = $1")
+            .bind(sub_id)
+            .execute(&mut *tx)
+            .await?;
 
         let code = format!(
             "CARAMBA-GIFT-{}",
@@ -582,7 +592,12 @@ impl StoreService {
         let mut tx = self.pool.begin().await?;
 
         let gift_code_opt = sqlx::query_as::<_, caramba_db::models::store::GiftCode>(
-            "SELECT * FROM gift_codes WHERE code = $1 AND redeemed_by_user_id IS NULL FOR UPDATE",
+            "SELECT * FROM gift_codes
+             WHERE code = $1
+               AND redeemed_by_user_id IS NULL
+               AND COALESCE(status, 'active') = 'active'
+               AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+             FOR UPDATE",
         )
         .bind(code)
         .fetch_optional(&mut *tx)
@@ -861,9 +876,17 @@ impl StoreService {
 
     pub async fn get_user_gift_codes(&self, user_id: i64) -> Result<Vec<GiftCode>> {
         sqlx::query_as::<_, GiftCode>(
-            "SELECT * FROM gift_codes WHERE created_by_user_id = $1 AND redeemed_by_user_id IS NULL ORDER BY created_at DESC"
+            "SELECT * FROM gift_codes
+             WHERE created_by_user_id = $1
+               AND redeemed_by_user_id IS NULL
+               AND COALESCE(status, 'active') = 'active'
+               AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+             ORDER BY created_at DESC",
         )
-        .bind(user_id).fetch_all(&self.pool).await.context("Failed to fetch user gift codes")
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch user gift codes")
     }
 
     pub async fn update_subscription_note(&self, sub_id: i64, note: String) -> Result<()> {

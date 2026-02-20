@@ -19,7 +19,12 @@ impl PromoService {
 
         // 1. Check Gift Codes (User-to-User Single Use)
         let gift: Option<(i64, i64, i32)> = sqlx::query_as::<_, (i64, i64, i32)>(
-            "SELECT id, plan_id, duration_days FROM gift_codes WHERE code = $1 AND redeemed_by_user_id IS NULL"
+            "SELECT id, plan_id, duration_days
+             FROM gift_codes
+             WHERE code = $1
+               AND redeemed_by_user_id IS NULL
+               AND COALESCE(status, 'active') = 'active'
+               AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)",
         )
         .bind(&code)
         .fetch_optional(&self.pool)

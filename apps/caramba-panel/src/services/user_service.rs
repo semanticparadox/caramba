@@ -171,12 +171,12 @@ impl UserService {
     }
 
     pub async fn set_referrer(&self, user_id: i64, referrer_code: &str) -> Result<()> {
-        let referrer = self
-            .get_by_referral_code(referrer_code.trim())
+        let resolved_referrer_id = self
+            .resolve_referrer_id(referrer_code.trim())
             .await?
             .context("Referrer not found")?;
 
-        if referrer.id == user_id {
+        if resolved_referrer_id == user_id {
             return Err(anyhow::anyhow!("You cannot refer yourself"));
         }
 
@@ -186,14 +186,16 @@ impl UserService {
             .await?
             .context("User not found")?;
 
-        if user.referrer_id.is_some() {
+        if user.referrer_id.is_some() || user.referred_by.is_some() {
             return Err(anyhow::anyhow!(
                 "Referrer is already set and cannot be changed"
             ));
         }
 
-        sqlx::query("UPDATE users SET referrer_id = $1 WHERE id = $2")
-            .bind(referrer.id)
+        sqlx::query(
+            "UPDATE users SET referrer_id = $1, referred_by = COALESCE(referred_by, $1) WHERE id = $2",
+        )
+            .bind(resolved_referrer_id)
             .bind(user_id)
             .execute(&self.pool)
             .await?;
