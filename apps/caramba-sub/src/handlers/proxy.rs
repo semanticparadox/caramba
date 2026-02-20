@@ -7,8 +7,11 @@ use axum::{
 };
 use reqwest::Client;
 use std::collections::HashSet;
+use std::time::Duration;
 
 const MAX_PROXY_BODY_BYTES: usize = 8 * 1024 * 1024;
+const MAX_PROXY_HOPS: u32 = 3;
+const HOP_HEADER: &str = "x-caramba-proxy-hop";
 
 fn should_skip_request_header(name: &HeaderName) -> bool {
     let key = name.as_str();
@@ -29,38 +32,52 @@ fn candidate_targets(panel_url: &str, frontend_domain: &str, path: &str) -> Vec<
         }
     };
 
-    // Primary configured target.
-    push_target(
-        &mut targets,
-        &mut seen,
-        format!("{}/api/{}", normalized, path),
-    );
-
     if let Ok(parsed) = reqwest::Url::parse(normalized) {
+        let host = parsed.host_str().unwrap_or_default();
+        let is_same_host = host.eq_ignore_ascii_case(frontend_domain)
+            || host.eq_ignore_ascii_case("localhost")
+            || host == "127.0.0.1";
+
+        // In same-host deployments we must avoid forwarding back to domain URL,
+        // otherwise /api may loop sub -> caddy -> sub and end in 502.
+        if is_same_host {
+            push_target(
+                &mut targets,
+                &mut seen,
+                format!("http://127.0.0.1:3000/api/{}", path),
+            );
+            push_target(
+                &mut targets,
+                &mut seen,
+                format!("http://localhost:3000/api/{}", path),
+            );
+        } else {
+            push_target(
+                &mut targets,
+                &mut seen,
+                format!("{}/api/{}", normalized, path),
+            );
+        }
+
         // Fallback to plain HTTP on same host when HTTPS between local services is broken.
         if parsed.scheme().eq_ignore_ascii_case("https") {
             let mut http_url = parsed.clone();
             let _ = http_url.set_scheme("http");
-            push_target(
-                &mut targets,
-                &mut seen,
-                format!("{}/api/{}", http_url.as_str().trim_end_matches('/'), path),
-            );
-        }
-
-        // If panel host equals frontend host, prefer direct local panel port as a final fallback.
-        if let Some(host) = parsed.host_str() {
-            if host.eq_ignore_ascii_case(frontend_domain)
-                || host.eq_ignore_ascii_case("localhost")
-                || host == "127.0.0.1"
-            {
+            if !is_same_host {
                 push_target(
                     &mut targets,
                     &mut seen,
-                    format!("http://127.0.0.1:3000/api/{}", path),
+                    format!("{}/api/{}", http_url.as_str().trim_end_matches('/'), path),
                 );
             }
         }
+    } else {
+        // If URL parsing failed, still try raw target first.
+        push_target(
+            &mut targets,
+            &mut seen,
+            format!("{}/api/{}", normalized, path),
+        );
     }
 
     // Universal fallback for single-host deployments.
@@ -83,8 +100,43 @@ pub async fn proxy_handler(
     State(state): State<AppState>,
     req: Request<Body>,
 ) -> Response {
-    let client = Client::new();
     let (parts, body) = req.into_parts();
+    let hop_count = parts
+        .headers
+        .get(HOP_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(0);
+
+    if hop_count >= MAX_PROXY_HOPS {
+        tracing::error!(
+            "Proxy loop detected for /api/{} (hop_count={})",
+            path,
+            hop_count
+        );
+        return (
+            StatusCode::BAD_GATEWAY,
+            "Proxy loop detected while routing API request",
+        )
+            .into_response();
+    }
+
+    let client = match Client::builder()
+        .connect_timeout(Duration::from_secs(3))
+        .timeout(Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(err) => {
+            tracing::error!("Failed to initialize proxy client: {}", err);
+            return (
+                StatusCode::BAD_GATEWAY,
+                "Proxy upstream client initialization failed",
+            )
+                .into_response();
+        }
+    };
+
     let body_bytes = match to_bytes(body, MAX_PROXY_BODY_BYTES).await {
         Ok(bytes) => bytes,
         Err(err) => {
@@ -113,6 +165,7 @@ pub async fn proxy_handler(
             }
             proxy_req = proxy_req.header(key, value);
         }
+        proxy_req = proxy_req.header(HOP_HEADER, (hop_count + 1).to_string());
 
         match proxy_req.send().await {
             Ok(res) => {
