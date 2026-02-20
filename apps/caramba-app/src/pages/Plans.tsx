@@ -21,7 +21,7 @@ interface Plan {
 
 export default function Plans() {
     const navigate = useNavigate();
-    const { token, refreshData, user } = useAuth();
+    const { token, refreshData, user, error } = useAuth();
     const [plans, setPlans] = useState<Plan[]>([]);
     const [loading, setLoading] = useState(true);
     const [purchasing, setPurchasing] = useState<number | null>(null);
@@ -30,12 +30,48 @@ export default function Plans() {
     const headers = { Authorization: `Bearer ${token}` };
 
     useEffect(() => {
-        if (!token) return;
-        fetch('/api/client/plans', { headers })
-            .then(r => r.json())
-            .then(data => setPlans(Array.isArray(data) ? data : []))
-            .catch(console.error)
-            .finally(() => setLoading(false));
+        if (!token) {
+            setLoading(false);
+            setMessage({
+                type: 'error',
+                text: error || 'Authorization required. Reopen Mini App from bot.',
+            });
+            return;
+        }
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 12000);
+
+        (async () => {
+            try {
+                const res = await fetch('/api/client/plans', {
+                    headers,
+                    signal: controller.signal,
+                });
+                if (!res.ok) {
+                    const errText = await res.text().catch(() => '');
+                    throw new Error(errText || `Failed to fetch plans (${res.status})`);
+                }
+                const data = await res.json();
+                setPlans(Array.isArray(data) ? data : []);
+                setMessage(null);
+            } catch (e: any) {
+                console.error(e);
+                setPlans([]);
+                setMessage({
+                    type: 'error',
+                    text: e?.name === 'AbortError' ? 'Loading plans timed out. Try again.' : (e?.message || 'Failed to load plans.'),
+                });
+            } finally {
+                clearTimeout(timeout);
+                setLoading(false);
+            }
+        })();
+
+        return () => {
+            clearTimeout(timeout);
+            controller.abort();
+        };
     }, [token]);
 
     const handlePurchase = async (durationId: number) => {

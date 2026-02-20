@@ -78,15 +78,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    const fetchWithTimeout = async (input: RequestInfo | URL, init?: RequestInit, timeoutMs = 12000) => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            return await fetch(input, { ...init, signal: controller.signal });
+        } finally {
+            clearTimeout(timeout);
+        }
+    };
+
     // Initial Auth
     useEffect(() => {
         const initAuth = async () => {
             try {
+                setError(null);
+                WebApp.ready();
                 WebApp.expand();
-                const initData = WebApp.initData;
+                let initData = (WebApp.initData || '').trim();
+                if (!initData) {
+                    const fallbackData = (window as any)?.Telegram?.WebApp?.initData;
+                    if (typeof fallbackData === 'string') {
+                        initData = fallbackData.trim();
+                    }
+                }
 
                 if (initData) {
-                    const response = await fetch('/api/client/auth/telegram', {
+                    const response = await fetchWithTimeout('/api/client/auth/telegram', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ init_data: initData }),
@@ -97,19 +115,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         setToken(data.token);
                         setUser(data.user);
                         localStorage.setItem('jwt_token', data.token);
+                        setError(null);
                     } else {
                         const errText = await response.text();
                         console.error("Auth failed:", errText);
-                        setError(errText);
+                        setError(errText || `Auth failed (${response.status})`);
                     }
                 } else if (!import.meta.env.DEV) {
                     console.warn("No initData found");
+                    setError('Telegram auth data is missing. Reopen Mini App from bot.');
                 } else {
                     console.warn("Dev mode — no Telegram initData");
+                    setError('Dev mode: no Telegram initData');
                 }
             } catch (e: any) {
                 console.error("Auth error:", e);
-                setError(e.message);
+                setError(e?.name === 'AbortError' ? 'Auth request timed out' : e.message);
             }
         };
 
@@ -129,13 +150,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, [token]);
 
     const refreshData = async () => {
-        if (!token) return;
+        if (!token) {
+            setIsLoading(false);
+            return;
+        }
         setIsLoading(true);
         try {
             const [statsRes, subsRes] = await Promise.all([
-                fetch('/api/client/user/stats', { headers: { Authorization: `Bearer ${token}` } }),
-                fetch('/api/client/user/subscriptions', { headers: { Authorization: `Bearer ${token}` } })
+                fetchWithTimeout('/api/client/user/stats', { headers: { Authorization: `Bearer ${token}` } }),
+                fetchWithTimeout('/api/client/user/subscriptions', { headers: { Authorization: `Bearer ${token}` } })
             ]);
+
+            if (statsRes.status === 401 || subsRes.status === 401) {
+                localStorage.removeItem('jwt_token');
+                setToken(null);
+                setSubscriptions([]);
+                setUserStats(null);
+                setError('Session expired. Reopen Mini App from bot.');
+                return;
+            }
 
             if (statsRes.ok) {
                 const s = await statsRes.json();
@@ -155,10 +188,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setSubscriptions(Array.isArray(data) ? data : [data]);
             } else {
                 console.error("Subscriptions fetch failed:", subsRes.status, await subsRes.text().catch(() => ''));
+                setSubscriptions([]);
             }
         } catch (e: any) {
             console.error("Data fetch error:", e);
-            setError(e.message);
+            setError(e?.name === 'AbortError' ? 'Data request timed out' : e.message);
         } finally {
             setIsLoading(false);
         }

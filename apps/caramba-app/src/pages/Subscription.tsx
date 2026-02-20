@@ -17,7 +17,7 @@ function formatDateTime(value?: string | null): string {
 }
 
 export default function Subscription() {
-    const { subscriptions, isLoading, refreshData, token } = useAuth();
+    const { subscriptions, isLoading, refreshData, token, error } = useAuth();
     const navigate = useNavigate();
     const [expandedId, setExpandedId] = useState<number | null>(null);
     const [copied, setCopied] = useState<number | null>(null);
@@ -111,6 +111,22 @@ export default function Subscription() {
     };
 
     if (isLoading) return <div className="page"><div className="loading">Loading subscriptions...</div></div>;
+
+    if (!token) {
+        return (
+            <div className="page sub-page">
+                <header className="page-header">
+                    <button className="back-button" onClick={() => navigate('/')}>←</button>
+                    <h2>My Services</h2>
+                </header>
+                <div className="empty-state">
+                    <div className="empty-icon">🔐</div>
+                    <h3>Authorization Required</h3>
+                    <p>{error || 'Reopen Mini App from Telegram bot to load your subscriptions.'}</p>
+                </div>
+            </div>
+        );
+    }
 
     // Sort: active first, then pending, then by created_at desc
     const sorted = [...subscriptions].sort((a, b) => {
