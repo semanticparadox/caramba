@@ -21,16 +21,34 @@ const MENU_ITEMS = [
 
 export default function Home() {
     const navigate = useNavigate()
-    const { userStats: stats, isLoading, user } = useAuth()
+    const { userStats: stats, isLoading, user, subscriptions } = useAuth()
 
-    const percentage = stats && stats.traffic_limit > 0
-        ? Math.min(100, Math.round((stats.traffic_used / stats.traffic_limit) * 100))
-        : 0;
+    const activeSubscriptions = subscriptions.filter((s) => s.status === 'active')
+    const totalUsedFromSubs = activeSubscriptions.reduce((acc, sub) => acc + (sub.used_traffic_bytes || 0), 0)
+    const totalLimitFromSubs = activeSubscriptions.reduce((acc, sub) => {
+        const limitBytes = Math.max(0, sub.traffic_limit_gb || 0) * 1024 * 1024 * 1024
+        return acc + limitBytes
+    }, 0)
+
+    const effectiveUsed = totalLimitFromSubs > 0 ? totalUsedFromSubs : (stats?.traffic_used || 0)
+    const effectiveLimit = totalLimitFromSubs > 0 ? totalLimitFromSubs : (stats?.traffic_limit || 0)
+    const effectiveDaysLeft = activeSubscriptions.length > 0
+        ? Math.min(...activeSubscriptions.map((s) => Math.max(0, s.days_left || 0)))
+        : (stats?.days_left ?? null)
+
+    const percentage = effectiveLimit > 0
+        ? Math.min(100, Math.round((effectiveUsed / effectiveLimit) * 100))
+        : 0
 
     // SVG circular progress
     const radius = 54;
     const circumference = 2 * Math.PI * radius;
     const strokeOffset = circumference - (percentage / 100) * circumference;
+
+    const subscriptionsPreview = activeSubscriptions
+        .slice()
+        .sort((a, b) => (a.days_left || 0) - (b.days_left || 0))
+        .slice(0, 3)
 
     return (
         <div className="page home-page">
@@ -63,19 +81,52 @@ export default function Home() {
                 <div className="traffic-meta">
                     <div className="traffic-stat">
                         <span className="stat-label">Used</span>
-                        <span className="stat-value">{stats ? formatBytes(stats.traffic_used) : '—'}</span>
+                        <span className="stat-value">{isLoading ? '...' : formatBytes(effectiveUsed)}</span>
                     </div>
                     <div className="traffic-divider" />
                     <div className="traffic-stat">
                         <span className="stat-label">Limit</span>
-                        <span className="stat-value">{stats ? formatBytes(stats.traffic_limit) : '—'}</span>
+                        <span className="stat-value">{isLoading ? '...' : formatBytes(effectiveLimit)}</span>
                     </div>
                     <div className="traffic-divider" />
                     <div className="traffic-stat">
                         <span className="stat-label">Days left</span>
-                        <span className="stat-value">{stats?.days_left ?? '—'}</span>
+                        <span className="stat-value">{isLoading ? '...' : (effectiveDaysLeft ?? '—')}</span>
                     </div>
                 </div>
+            </div>
+
+            <div className="subs-overview glass-card">
+                <div className="subs-overview-header">
+                    <h3>My Active Subscriptions</h3>
+                    <span className="subs-counter">{activeSubscriptions.length}</span>
+                </div>
+                {subscriptionsPreview.length === 0 ? (
+                    <p className="subs-empty">
+                        No active subscriptions yet. Open Buy Subscription to get started.
+                    </p>
+                ) : (
+                    <div className="subs-list">
+                        {subscriptionsPreview.map((sub) => (
+                            <button
+                                key={sub.id}
+                                className="subs-item"
+                                onClick={() => navigate('/subscription')}
+                            >
+                                <div className="subs-item-title">{sub.plan_name}</div>
+                                <div className="subs-item-meta">
+                                    <span>{sub.used_traffic_gb} GB / {sub.traffic_limit_gb || '∞'} GB</span>
+                                    <span>{sub.days_left}d left</span>
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+                )}
+                {activeSubscriptions.length > subscriptionsPreview.length && (
+                    <button className="subs-view-all" onClick={() => navigate('/subscription')}>
+                        View all subscriptions
+                    </button>
+                )}
             </div>
 
             {/* Quick Actions Grid */}

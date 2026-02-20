@@ -188,7 +188,7 @@ pub fn generate_caddyfile(config: &InstallConfig) -> String {
             return caddyfile;
         }
         caddyfile.push_str(&format!(
-            "\n{sub} {{\n    reverse_proxy 127.0.0.1:8080\n}}\n"
+            "\n{sub} {{\n    @panel_api path /api/*\n    handle @panel_api {{\n        reverse_proxy 127.0.0.1:3000\n    }}\n\n    handle {{\n        reverse_proxy 127.0.0.1:8080\n    }}\n}}\n"
         ));
     }
 

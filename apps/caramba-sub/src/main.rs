@@ -20,6 +20,13 @@ use config::FrontendConfig;
 use geo_service::GeoService;
 use std::sync::Arc;
 
+fn init_rustls_provider() {
+    // rustls 0.23 may require explicit process-level provider selection.
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+}
+
 #[derive(Default)]
 pub struct FrontendMetrics {
     requests_count: AtomicU64,
@@ -28,6 +35,8 @@ pub struct FrontendMetrics {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    init_rustls_provider();
+
     // Initialize tracing
     tracing_subscriber::registry()
         .with(

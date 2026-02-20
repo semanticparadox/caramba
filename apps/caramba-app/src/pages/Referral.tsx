@@ -25,18 +25,32 @@ export default function Referral() {
     const navigate = useNavigate()
     const [stats, setStats] = useState<ReferralStats | null>(null)
     const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
     const [copied, setCopied] = useState(false)
     const [copiedCode, setCopiedCode] = useState(false)
 
     useEffect(() => {
-        if (!token) return
+        if (!token) {
+            setLoading(false)
+            setError('Authorization required. Reopen Mini App from bot.')
+            return
+        }
         const fetchStats = async () => {
             try {
+                setError(null)
                 const res = await fetch('/api/client/user/referrals', {
                     headers: { 'Authorization': `Bearer ${token}` }
                 })
-                if (res.ok) setStats(await res.json())
-            } catch (e) { console.error(e); }
+                if (res.ok) {
+                    setStats(await res.json())
+                } else {
+                    const text = await res.text().catch(() => '')
+                    setError(text || `Failed to load referral stats (${res.status})`)
+                }
+            } catch (e: any) {
+                console.error(e);
+                setError(e?.message || 'Failed to load referral stats')
+            }
             finally { setLoading(false); }
         }
         fetchStats()
@@ -59,6 +73,7 @@ export default function Referral() {
     }
 
     if (loading) return <div className="page"><div className="loading">Loading...</div></div>
+    if (error) return <div className="page"><div className="empty-state"><h3>Authorization Required</h3><p>{error}</p></div></div>
 
     return (
         <div className="page referral-page">
