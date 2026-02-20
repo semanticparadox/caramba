@@ -40,7 +40,7 @@ bcrypt = "0.18"
 x25519-dalek = { version = "2.0", features = ["static_secrets"] }
 base64 = "0.22"
 hex = "0.4"
-jsonwebtoken = "10.3"
+jsonwebtoken = { version = "10.3", default-features = false, features = ["rust_crypto"] }
 redis = { version = "1.0.3", features = ["tokio-comp", "tokio-rustls-comp", "connection-manager"] }
 # removal of bb8-redis and bb8
 sha2 = "0.10"
@@ -69,4 +69,3 @@ maxminddb = "0.24"
 [build-dependencies]
 # For embedding scripts later if needed
 # rust-embed = "8.0"
-
