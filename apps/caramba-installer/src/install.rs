@@ -717,6 +717,154 @@ pub async fn install_hub(
     Ok(())
 }
 
+fn service_unit_exists(service_name: &str) -> bool {
+    let candidates = [
+        format!("/etc/systemd/system/{}", service_name),
+        format!("/usr/lib/systemd/system/{}", service_name),
+        format!("/lib/systemd/system/{}", service_name),
+    ];
+
+    candidates.iter().any(|p| Path::new(p).exists())
+}
+
+fn detect_installed_component(
+    install_dir: &str,
+    binary: &str,
+    env_file: &str,
+    service_name: &str,
+) -> bool {
+    let base = install_dir.trim_end_matches('/');
+    Path::new(&format!("{}/{}", base, binary)).exists()
+        || Path::new(&format!("{}/{}", base, env_file)).exists()
+        || service_unit_exists(service_name)
+}
+
+pub async fn upgrade_caramba(install_dir: &str, version: &str, restart_services: bool) -> Result<()> {
+    let install_dir = install_dir.trim_end_matches('/');
+    std::fs::create_dir_all(install_dir)?;
+
+    println!(
+        "{}",
+        style(format!(
+            "\nUpgrading Caramba installation in {} to {}...",
+            install_dir, version
+        ))
+        .bold()
+    );
+
+    let panel_installed = detect_installed_component(
+        install_dir,
+        "caramba-panel",
+        ".env",
+        "caramba-panel.service",
+    );
+    let sub_installed =
+        detect_installed_component(install_dir, "caramba-sub", "sub.env", "caramba-sub.service");
+    let node_installed = detect_installed_component(
+        install_dir,
+        "caramba-node",
+        "node.env",
+        "caramba-node.service",
+    );
+    let bot_installed =
+        detect_installed_component(install_dir, "caramba-bot", "bot.env", "caramba-bot.service");
+
+    if !panel_installed && !sub_installed && !node_installed && !bot_installed {
+        return Err(anyhow!(
+            "No installed components detected in {}. Nothing to upgrade.",
+            install_dir
+        ));
+    }
+
+    let mut upgraded: Vec<&str> = Vec::new();
+
+    if panel_installed {
+        let path = format!("{}/caramba-panel", install_dir);
+        download_file(&release_asset_url(version, "caramba-panel"), &path).await?;
+        upgraded.push("panel");
+    }
+    if sub_installed {
+        let path = format!("{}/caramba-sub", install_dir);
+        download_file(&release_asset_url(version, "caramba-sub"), &path).await?;
+        upgraded.push("sub");
+    }
+    if node_installed {
+        let path = format!("{}/caramba-node", install_dir);
+        download_file(&release_asset_url(version, "caramba-node"), &path).await?;
+        upgraded.push("node");
+    }
+    if bot_installed {
+        let path = format!("{}/caramba-bot", install_dir);
+        download_file(&release_asset_url(version, "caramba-bot"), &path).await?;
+        upgraded.push("bot");
+    }
+
+    // Mini app assets are shipped as one bundle and can be served by panel or sub.
+    if panel_installed || sub_installed {
+        try_install_mini_app_assets(version, install_dir).await?;
+    }
+
+    // Upgrade installer binary itself (safe atomic rename in download_file()).
+    if Path::new("/usr/local/bin/caramba").exists() {
+        download_file(
+            &release_asset_url(version, "caramba-installer"),
+            "/usr/local/bin/caramba",
+        )
+        .await?;
+        upgraded.push("installer");
+    }
+
+    let _ = write_version_marker(install_dir, version);
+
+    if restart_services {
+        if panel_installed {
+            run_command_optional(
+                "systemctl",
+                &["restart", "caramba-panel.service"],
+                "Restarting caramba-panel.service",
+            )?;
+        }
+        if sub_installed {
+            run_command_optional(
+                "systemctl",
+                &["restart", "caramba-sub.service"],
+                "Restarting caramba-sub.service",
+            )?;
+        }
+        if node_installed {
+            run_command_optional(
+                "systemctl",
+                &["restart", "caramba-node.service"],
+                "Restarting caramba-node.service",
+            )?;
+        }
+        if bot_installed {
+            run_command_optional(
+                "systemctl",
+                &["restart", "caramba-bot.service"],
+                "Restarting caramba-bot.service",
+            )?;
+        }
+        // Harmless if not installed.
+        run_command_optional("systemctl", &["reload", "caddy"], "Reloading Caddy")?;
+    }
+
+    println!(
+        "{}",
+        style(format!(
+            "✅ Upgrade complete to {}. Updated components: {}",
+            version,
+            upgraded.join(", ")
+        ))
+        .green()
+    );
+    println!(
+        "ℹ️ Existing configuration files were preserved (.env, sub.env, node.env, bot.env)."
+    );
+
+    Ok(())
+}
+
 pub fn setup_database(config: &crate::setup::InstallConfig) -> Result<()> {
     println!("{}", style("\nConfiguring Database...").bold());
 

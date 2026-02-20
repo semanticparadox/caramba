@@ -78,7 +78,17 @@ enum Commands {
         skip_deps: bool,
     },
     /// Upgrade Caramba components
-    Upgrade,
+    Upgrade {
+        /// Installation directory
+        #[arg(long)]
+        install_dir: Option<String>,
+        /// Target version tag (e.g. v0.3.24). Defaults to latest stable release.
+        #[arg(long)]
+        version: Option<String>,
+        /// Do not restart services after upgrade
+        #[arg(long)]
+        no_restart: bool,
+    },
     /// Run diagnostics
     Diagnose,
     /// Administrative tools
@@ -487,8 +497,30 @@ async fn main() {
                 }
             }
         }
-        Commands::Upgrade => {
-            println!("Checking for updates...");
+        Commands::Upgrade {
+            install_dir,
+            version,
+            no_restart,
+        } => {
+            let install_dir = pick_non_empty(install_dir, "INSTALL_DIR")
+                .unwrap_or_else(|| "/opt/caramba".to_string());
+            let version_hint = version
+                .or_else(|| std::env::var("CARAMBA_VERSION").ok())
+                .unwrap_or_else(|| "latest".to_string());
+            let resolved_version = match install::resolve_version(&version_hint).await {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("Failed to resolve release version: {}", e);
+                    exit(1);
+                }
+            };
+
+            if let Err(e) =
+                install::upgrade_caramba(&install_dir, &resolved_version, !no_restart).await
+            {
+                eprintln!("Upgrade failed: {}", e);
+                exit(1);
+            }
         }
         Commands::Diagnose => {
             if let Err(e) = diagnose::run_diagnostics() {
