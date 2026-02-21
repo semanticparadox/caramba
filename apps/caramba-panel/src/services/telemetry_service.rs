@@ -1,6 +1,7 @@
 use anyhow::Result;
 use sqlx::PgPool;
 use std::collections::HashSet;
+use std::net::IpAddr;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -113,6 +114,18 @@ impl TelemetryService {
         }
 
         if let Some(snis) = discovered_snis {
+            let reserved_control_plane_hosts =
+                match load_reserved_control_plane_hosts(&self.pool).await {
+                    Ok(hosts) => hosts,
+                    Err(e) => {
+                        warn!(
+                            "Failed to load reserved control-plane hosts for SNI filtering: {}",
+                            e
+                        );
+                        HashSet::new()
+                    }
+                };
+
             // Reduce repeated churn from node scans:
             // - keep only first unique domain entries in this heartbeat
             // - hard-cap processing to avoid DB spikes on noisy /24 blocks
@@ -123,7 +136,9 @@ impl TelemetryService {
                     continue;
                 }
 
-                if let Err(reason) = classify_discovered_domain(&domain) {
+                if let Err(reason) = classify_discovered_domain(&domain)
+                    .and_then(|_| classify_reserved_domain(&domain, &reserved_control_plane_hosts))
+                {
                     if let Err(e) = auto_blacklist_domain(
                         &self.pool,
                         &domain,
@@ -271,6 +286,9 @@ fn classify_discovered_domain(domain: &str) -> Result<(), String> {
     if !domain.contains('.') {
         return Err("not a fqdn".to_string());
     }
+    if domain.parse::<IpAddr>().is_ok() {
+        return Err("ip address instead of domain".to_string());
+    }
     if domain.contains(' ') || domain.contains('_') {
         return Err("contains invalid characters".to_string());
     }
@@ -298,9 +316,28 @@ fn classify_discovered_domain(domain: &str) -> Result<(), String> {
         "access denied",
         "forbidden",
         "sni-support-required",
+        "autodiscover",
+        "webmail",
+        "cpcalendars",
+        "cpcontacts",
+        "error-",
+        "blocked",
+        "default-page",
     ];
     if DENY_SUBSTRINGS.iter().any(|needle| domain.contains(needle)) {
         return Err("service/control-plane noise".to_string());
+    }
+
+    if let Ok(extra) = std::env::var("SNI_SCANNER_DENY_PATTERNS") {
+        for pattern in extra
+            .split(',')
+            .map(|v| v.trim().to_ascii_lowercase())
+            .filter(|v| !v.is_empty())
+        {
+            if domain.contains(&pattern) {
+                return Err("matches custom deny pattern".to_string());
+            }
+        }
     }
 
     const DENY_SUFFIXES: &[&str] = &[
@@ -332,6 +369,24 @@ fn classify_discovered_domain(domain: &str) -> Result<(), String> {
         if label.starts_with('-') || label.ends_with('-') {
             return Err("label starts/ends with '-'".to_string());
         }
+        if looks_high_entropy_label(label) {
+            return Err("high entropy/generated label".to_string());
+        }
+
+        const DENY_EXACT_LABELS: &[&str] = &[
+            "traefik",
+            "default",
+            "plesk",
+            "cpanel",
+            "parallels",
+            "easypanel",
+            "webmail",
+            "autodiscover",
+            "localhost",
+        ];
+        if DENY_EXACT_LABELS.contains(label) {
+            return Err("infra/control-plane label".to_string());
+        }
     }
 
     let tld = labels.last().copied().unwrap_or_default();
@@ -346,6 +401,158 @@ fn classify_discovered_domain(domain: &str) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn classify_reserved_domain(domain: &str, reserved_hosts: &HashSet<String>) -> Result<(), String> {
+    if reserved_hosts.is_empty() {
+        return Ok(());
+    }
+
+    for reserved in reserved_hosts {
+        if domain_matches_reserved(domain, reserved) {
+            return Err(format!(
+                "matches reserved control-plane domain '{}'",
+                reserved
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn domain_matches_reserved(domain: &str, reserved: &str) -> bool {
+    let domain = domain.trim().trim_end_matches('.');
+    let reserved = reserved.trim().trim_end_matches('.');
+    if domain.is_empty() || reserved.is_empty() {
+        return false;
+    }
+    if domain == reserved {
+        return true;
+    }
+
+    domain.ends_with(&format!(".{}", reserved)) || reserved.ends_with(&format!(".{}", domain))
+}
+
+async fn load_reserved_control_plane_hosts(pool: &PgPool) -> Result<HashSet<String>> {
+    let mut hosts = HashSet::new();
+
+    let setting_rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT key, value FROM settings WHERE key IN ('panel_url', 'subscription_domain', 'support_url')",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    for (_key, value) in setting_rows {
+        collect_host_candidates(&mut hosts, &value);
+    }
+
+    for key in [
+        "PANEL_URL",
+        "SERVER_DOMAIN",
+        "API_DOMAIN",
+        "SUBSCRIPTION_DOMAIN",
+    ] {
+        if let Ok(value) = std::env::var(key) {
+            collect_host_candidates(&mut hosts, &value);
+        }
+    }
+
+    let frontends: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT domain, miniapp_domain FROM frontend_servers WHERE is_active = TRUE",
+    )
+    .fetch_all(pool)
+    .await?;
+    for (domain, miniapp_domain) in frontends {
+        collect_host_candidates(&mut hosts, &domain);
+        if let Some(miniapp) = miniapp_domain {
+            collect_host_candidates(&mut hosts, &miniapp);
+        }
+    }
+
+    Ok(hosts)
+}
+
+fn collect_host_candidates(target: &mut HashSet<String>, raw: &str) {
+    for part in raw.split(',').map(|p| p.trim()).filter(|p| !p.is_empty()) {
+        if let Some(host) = normalize_host_candidate(part) {
+            target.insert(host);
+        }
+    }
+}
+
+fn normalize_host_candidate(raw: &str) -> Option<String> {
+    let mut value = raw
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_lowercase();
+    if value.is_empty() {
+        return None;
+    }
+
+    if let Some((_, tail)) = value.split_once("://") {
+        value = tail.to_string();
+    }
+    if let Some((head, _)) = value.split_once('/') {
+        value = head.to_string();
+    }
+    if let Some((head, _)) = value.split_once('?') {
+        value = head.to_string();
+    }
+    if let Some((head, _)) = value.split_once('#') {
+        value = head.to_string();
+    }
+    if let Some((_, host)) = value.rsplit_once('@') {
+        value = host.to_string();
+    }
+
+    if value.starts_with('[') && value.ends_with(']') {
+        value = value.trim_matches(|ch| ch == '[' || ch == ']').to_string();
+    }
+
+    if value.matches(':').count() == 1 {
+        if let Some((host, port)) = value.split_once(':') {
+            if !port.is_empty() && port.chars().all(|ch| ch.is_ascii_digit()) {
+                value = host.to_string();
+            }
+        }
+    }
+
+    value = value.trim().trim_end_matches('.').to_string();
+    if value.is_empty() {
+        return None;
+    }
+
+    if value.parse::<IpAddr>().is_ok() {
+        return Some(value);
+    }
+    if !value.contains('.') {
+        return None;
+    }
+
+    Some(value)
+}
+
+fn looks_high_entropy_label(label: &str) -> bool {
+    if label.len() < 14 {
+        return false;
+    }
+
+    let len = label.len() as f32;
+    let digits = label.chars().filter(|ch| ch.is_ascii_digit()).count() as f32;
+    let hex = label.chars().filter(|ch| ch.is_ascii_hexdigit()).count() as f32;
+
+    if label.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return true;
+    }
+    if digits / len >= 0.45 {
+        return true;
+    }
+    if hex / len >= 0.85 && !label.contains('-') {
+        return true;
+    }
+
+    false
 }
 
 async fn auto_blacklist_domain(pool: &PgPool, domain: &str, reason: &str) -> Result<()> {
@@ -411,7 +618,11 @@ fn derive_recommended_max_users(
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_discovered_domain, derive_recommended_max_users};
+    use super::{
+        classify_discovered_domain, classify_reserved_domain, derive_recommended_max_users,
+        normalize_host_candidate,
+    };
+    use std::collections::HashSet;
 
     #[test]
     fn derive_recommended_max_users_low_load_tracks_speed() {
@@ -447,5 +658,35 @@ mod tests {
         assert!(classify_discovered_domain("Parallels Panel").is_err());
         assert!(classify_discovered_domain("vps-40d02f7d.vps.ovh.net").is_err());
         assert!(classify_discovered_domain("sni-support-required-for-valid-ssl").is_err());
+        assert!(
+            classify_discovered_domain(
+                "9549ca1c6e517b1f5f8db4e7624e0916.f7021182bba21dbfeaa0c9111f25c92d.traefik.default"
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn reserved_domain_filter_rejects_control_plane_hosts() {
+        let mut reserved = HashSet::new();
+        reserved.insert("dev.webq.pro".to_string());
+
+        assert!(classify_reserved_domain("dev.webq.pro", &reserved).is_err());
+        assert!(classify_reserved_domain("sub.dev.webq.pro", &reserved).is_err());
+        assert!(classify_reserved_domain("webq.pro", &reserved).is_err());
+        assert!(classify_reserved_domain("hitchhive.app", &reserved).is_ok());
+    }
+
+    #[test]
+    fn normalize_host_candidate_extracts_host_from_urls() {
+        assert_eq!(
+            normalize_host_candidate("https://dev.webq.pro/admin"),
+            Some("dev.webq.pro".to_string())
+        );
+        assert_eq!(
+            normalize_host_candidate("sub.webq.pro:443"),
+            Some("sub.webq.pro".to_string())
+        );
+        assert_eq!(normalize_host_candidate("@admin_support"), None);
     }
 }

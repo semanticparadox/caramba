@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::DigitallySignedStruct;
@@ -150,6 +151,11 @@ impl NeighborScanner {
             if let Some(cert) = certs.first() {
                 // Parse the certificate
                 if let Ok(domain) = self.extract_best_domain(cert.as_ref()) {
+                    if self.has_http_deny_fingerprint(ip, &domain).await {
+                        return Err(anyhow::anyhow!(
+                            "domain appears blocked (access denied fingerprint)"
+                        ));
+                    }
                     return Ok(DiscoveredSni {
                         domain,
                         ip: ip.to_string(),
@@ -237,9 +243,28 @@ impl NeighborScanner {
             "access denied",
             "forbidden",
             "sni-support-required",
+            "autodiscover",
+            "webmail",
+            "cpcalendars",
+            "cpcontacts",
+            "error-",
+            "blocked",
+            "default-page",
         ];
         if DENY_SUBSTRINGS.iter().any(|needle| domain.contains(needle)) {
             return false;
+        }
+
+        if let Ok(extra) = std::env::var("SNI_SCANNER_DENY_PATTERNS") {
+            for pattern in extra
+                .split(',')
+                .map(|v| v.trim().to_ascii_lowercase())
+                .filter(|v| !v.is_empty())
+            {
+                if domain.contains(&pattern) {
+                    return false;
+                }
+            }
         }
 
         const DENY_SUFFIXES: &[&str] = &[
@@ -273,11 +298,22 @@ impl NeighborScanner {
             }
 
             // Drop machine-generated high-entropy labels typical for infra noise.
-            if label.len() >= 24
-                && label
-                    .chars()
-                    .all(|ch| ch.is_ascii_hexdigit() || ch.is_ascii_digit())
-            {
+            if looks_high_entropy_label(label) {
+                return false;
+            }
+
+            const DENY_EXACT_LABELS: &[&str] = &[
+                "traefik",
+                "default",
+                "plesk",
+                "cpanel",
+                "parallels",
+                "easypanel",
+                "webmail",
+                "autodiscover",
+                "localhost",
+            ];
+            if DENY_EXACT_LABELS.contains(label) {
                 return false;
             }
         }
@@ -295,6 +331,100 @@ impl NeighborScanner {
 
         true
     }
+
+    async fn has_http_deny_fingerprint(&self, ip: IpAddr, domain: &str) -> bool {
+        let addr = SocketAddr::new(ip, 443);
+        let timeout = Duration::from_millis(900);
+
+        let stream = match tokio::time::timeout(timeout, TcpStream::connect(addr)).await {
+            Ok(Ok(s)) => s,
+            _ => return false,
+        };
+
+        let root_store = RootCertStore::empty();
+        let mut config = ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+        config
+            .dangerous()
+            .set_certificate_verifier(Arc::new(NoCertificateVerification));
+        config.alpn_protocols = vec![b"http/1.1".to_vec()];
+
+        let connector = TlsConnector::from(Arc::new(config));
+        let server_name = match ServerName::try_from(domain.to_string()) {
+            Ok(name) => name,
+            Err(_) => return false,
+        };
+
+        let mut tls_stream =
+            match tokio::time::timeout(timeout, connector.connect(server_name, stream)).await {
+                Ok(Ok(s)) => s,
+                _ => return false,
+            };
+
+        let request = format!(
+            "HEAD / HTTP/1.1\r\nHost: {host}\r\nUser-Agent: caramba-neighbor-sniper/1.0\r\nAccept: */*\r\nConnection: close\r\n\r\n",
+            host = domain
+        );
+
+        if tls_stream.write_all(request.as_bytes()).await.is_err() {
+            return false;
+        }
+
+        let mut buf = [0u8; 2048];
+        let read = match tokio::time::timeout(timeout, tls_stream.read(&mut buf)).await {
+            Ok(Ok(n)) => n,
+            _ => 0,
+        };
+        if read == 0 {
+            return false;
+        }
+
+        let response = String::from_utf8_lossy(&buf[..read]).to_ascii_lowercase();
+        let first_line = response.lines().next().unwrap_or_default();
+        if first_line.contains(" 401 ")
+            || first_line.contains(" 403 ")
+            || first_line.contains(" 451 ")
+        {
+            return true;
+        }
+
+        const DENY_BODY_PATTERNS: &[&str] = &[
+            "access denied",
+            "request blocked",
+            "permission denied",
+            "forbidden",
+            "not authorized",
+            "unauthorized",
+            "error 1020",
+            "this site is blocked",
+        ];
+        DENY_BODY_PATTERNS
+            .iter()
+            .any(|needle| response.contains(needle))
+    }
+}
+
+fn looks_high_entropy_label(label: &str) -> bool {
+    if label.len() < 14 {
+        return false;
+    }
+
+    let len = label.len() as f32;
+    let digits = label.chars().filter(|ch| ch.is_ascii_digit()).count() as f32;
+    let hex = label.chars().filter(|ch| ch.is_ascii_hexdigit()).count() as f32;
+
+    if label.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return true;
+    }
+    if digits / len >= 0.45 {
+        return true;
+    }
+    if hex / len >= 0.85 && !label.contains('-') {
+        return true;
+    }
+
+    false
 }
 
 #[cfg(test)]
