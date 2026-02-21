@@ -18,7 +18,7 @@ interface GiftCode {
 
 export default function Promo() {
     const navigate = useNavigate();
-    const { token, refreshData, subscriptions } = useAuth();
+    const { token, refreshData, subscriptions, error } = useAuth();
     const [promoCode, setPromoCode] = useState('');
     const [referrerCode, setReferrerCode] = useState('');
     const [giftCodes, setGiftCodes] = useState<GiftCode[]>([]);
@@ -61,9 +61,24 @@ export default function Promo() {
     };
 
     useEffect(() => {
-        if (!token) return;
+        if (!token) {
+            setLoadingCodes(false);
+            setBanner({
+                type: 'error',
+                text: error || 'Authorization required. Reopen Mini App from bot.',
+            });
+            return;
+        }
         loadGiftCodes();
-    }, [token]);
+    }, [token, error]);
+
+    const goBack = () => {
+        if (window.history.length > 1) {
+            navigate(-1);
+        } else {
+            navigate('/');
+        }
+    };
 
     const redeemPromo = async () => {
         const code = promoCode.trim();
@@ -194,7 +209,7 @@ export default function Promo() {
     return (
         <div className="page promo-page">
             <header className="page-header">
-                <button className="back-button" onClick={() => navigate('/')}>←</button>
+                <button className="back-button" onClick={goBack}>←</button>
                 <h2>Promo Center</h2>
             </header>
 

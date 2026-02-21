@@ -14,7 +14,7 @@ ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarEle
 ChartJS.defaults.color = 'rgba(255, 255, 255, 0.6)';
 
 export default function Statistics() {
-    const { userStats: stats, isLoading, token } = useAuth()
+    const { userStats: stats, isLoading, token, error } = useAuth()
     const navigate = useNavigate()
 
     const [speeds, setSpeeds] = useState<number[]>(Array(10).fill(0))
@@ -46,8 +46,40 @@ export default function Statistics() {
         return () => clearInterval(interval)
     }, [token])
 
-    if (isLoading) return <div className="page"><div className="loading">Loading stats...</div></div>
-    if (!stats) return <div className="page"><div className="loading">Failed to load statistics</div></div>
+    const goBack = () => {
+        if (window.history.length > 1) {
+            navigate(-1)
+        } else {
+            navigate('/')
+        }
+    }
+
+    if (isLoading) {
+        return (
+            <div className="page stats-page">
+                <header className="page-header">
+                    <button className="back-button" onClick={goBack}>←</button>
+                    <h2>Statistics</h2>
+                </header>
+                <div className="loading">Loading stats...</div>
+            </div>
+        )
+    }
+    if (!stats) {
+        return (
+            <div className="page stats-page">
+                <header className="page-header">
+                    <button className="back-button" onClick={goBack}>←</button>
+                    <h2>Statistics</h2>
+                </header>
+                <div className="empty-state">
+                    <div className="empty-icon">🔐</div>
+                    <h3>Statistics Unavailable</h3>
+                    <p>{error || 'No active session. Reopen Mini App from the bot.'}</p>
+                </div>
+            </div>
+        )
+    }
 
     const usedGb = stats.traffic_used / 1024 / 1024 / 1024
     const limitGb = stats.traffic_limit / 1024 / 1024 / 1024
@@ -102,7 +134,7 @@ export default function Statistics() {
     return (
         <div className="page stats-page">
             <header className="page-header">
-                <button className="back-button" onClick={() => navigate('/')}>←</button>
+                <button className="back-button" onClick={goBack}>←</button>
                 <h2>Statistics</h2>
             </header>
 

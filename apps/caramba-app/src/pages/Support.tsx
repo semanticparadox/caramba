@@ -22,11 +22,18 @@ const FAQS = [
 
 export default function Support() {
     const navigate = useNavigate()
+    const goBack = () => {
+        if (window.history.length > 1) {
+            navigate(-1)
+        } else {
+            navigate('/')
+        }
+    }
 
     return (
         <div className="page support-page">
             <header className="page-header">
-                <button className="back-button" onClick={() => navigate(-1)}>←</button>
+                <button className="back-button" onClick={goBack}>←</button>
                 <h2>Support</h2>
             </header>
 

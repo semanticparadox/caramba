@@ -99,6 +99,7 @@ impl ConnectionService {
         // Get all active nodes
         let nodes: Vec<caramba_db::models::node::Node> =
             self.orchestration.node_repo.get_all_nodes().await?;
+        let infra_ips: HashSet<IpAddr> = nodes.iter().filter_map(|n| parse_ip_maybe(&n.ip)).collect();
 
         if nodes.is_empty() {
             warn!("No active nodes found, skipping device limit check");
@@ -154,7 +155,7 @@ impl ConnectionService {
                         }
 
                         if let Some(sub_id) = sub_id_opt {
-                            if should_skip_source_ip(&conn.metadata.source_ip, &node.ip) {
+                            if should_skip_source_ip(&conn.metadata.source_ip, &infra_ips) {
                                 continue;
                             }
                             subscription_ips
@@ -322,20 +323,43 @@ fn extract_uuid_from_chain(conn: &ClashConnection) -> Option<String> {
     None
 }
 
-fn should_skip_source_ip(source_ip: &str, node_ip: &str) -> bool {
+fn parse_ip_maybe(value: &str) -> Option<IpAddr> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    if let Ok(ip) = value.parse::<IpAddr>() {
+        return Some(ip);
+    }
+
+    if let Ok(sock) = value.parse::<std::net::SocketAddr>() {
+        return Some(sock.ip());
+    }
+
+    if let Some((host, _port)) = value.rsplit_once(':') {
+        if let Ok(ip) = host.parse::<IpAddr>() {
+            return Some(ip);
+        }
+    }
+
+    None
+}
+
+fn should_skip_source_ip(source_ip: &str, infra_ips: &HashSet<IpAddr>) -> bool {
     let source = source_ip.trim();
-    let node = node_ip.trim();
 
     if source.is_empty() || source == "0.0.0.0" || source == "::" {
         return true;
     }
 
-    if !node.is_empty() && source == node {
-        return true;
-    }
-
-    if let Ok(ip) = source.parse::<IpAddr>() {
-        return ip.is_loopback() || ip.is_unspecified();
+    if let Some(ip) = parse_ip_maybe(source) {
+        if ip.is_loopback() || ip.is_unspecified() || ip.is_multicast() {
+            return true;
+        }
+        if infra_ips.contains(&ip) {
+            return true;
+        }
     }
 
     false
@@ -353,4 +377,30 @@ fn is_valid_uuid(s: &str) -> bool {
         && parts[2].len() == 4
         && parts[3].len() == 4
         && parts[4].len() == 12
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_ip_maybe, should_skip_source_ip};
+    use std::collections::HashSet;
+    use std::net::IpAddr;
+    use std::str::FromStr;
+
+    #[test]
+    fn parse_ip_maybe_supports_host_port() {
+        assert_eq!(
+            parse_ip_maybe("137.74.119.200:443"),
+            Some(IpAddr::from_str("137.74.119.200").unwrap())
+        );
+    }
+
+    #[test]
+    fn should_skip_node_and_loopback_ips() {
+        let mut infra = HashSet::new();
+        infra.insert(IpAddr::from_str("137.74.119.200").unwrap());
+
+        assert!(should_skip_source_ip("137.74.119.200", &infra));
+        assert!(should_skip_source_ip("127.0.0.1", &infra));
+        assert!(!should_skip_source_ip("100.6.144.142", &infra));
+    }
 }

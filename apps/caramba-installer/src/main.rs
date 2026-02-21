@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use console::style;
+use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
 use std::process::exit;
 
 #[derive(Parser)]
@@ -7,7 +8,7 @@ use std::process::exit;
 #[command(about = "Caramba VPN Installer & Manager", long_about = None)]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -143,6 +144,187 @@ fn require_value(value: Option<String>, name: &str) -> String {
     }
 }
 
+fn prompt_text(prompt: &str, default: Option<&str>) -> String {
+    let theme = ColorfulTheme::default();
+    let mut input = Input::<String>::with_theme(&theme).with_prompt(prompt.to_string());
+    if let Some(d) = default {
+        input = input.default(d.to_string());
+    }
+    input.interact_text().unwrap_or_default().trim().to_string()
+}
+
+fn prompt_optional_text(prompt: &str) -> Option<String> {
+    let value = prompt_text(prompt, Some(""));
+    if value.is_empty() { None } else { Some(value) }
+}
+
+fn prompt_bool(prompt: &str, default: bool) -> bool {
+    Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt(prompt)
+        .default(default)
+        .interact()
+        .unwrap_or(default)
+}
+
+fn run_self_command(args: &[String]) {
+    let exe = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(e) => {
+            eprintln!("Failed to locate installer binary: {}", e);
+            return;
+        }
+    };
+
+    let status = std::process::Command::new(exe).args(args).status();
+    match status {
+        Ok(s) if s.success() => {}
+        Ok(s) => eprintln!("Command failed with status: {}", s),
+        Err(e) => eprintln!("Failed to run command: {}", e),
+    }
+}
+
+fn run_tui_menu() {
+    let theme = ColorfulTheme::default();
+
+    loop {
+        println!();
+        let options = vec![
+            "Install Hub (Panel + Sub + optional Bot)",
+            "Upgrade existing installation",
+            "Install Node",
+            "Install Frontend/Sub service",
+            "Install Bot service",
+            "Run diagnostics",
+            "Uninstall Caramba",
+            "Exit",
+        ];
+
+        let selected = Select::with_theme(&theme)
+            .with_prompt("Caramba Installer")
+            .default(0)
+            .items(&options)
+            .interact()
+            .unwrap_or(options.len() - 1);
+
+        match selected {
+            0 => {
+                let mut args = vec!["install".to_string(), "--hub".to_string()];
+                if prompt_bool("Skip apt/system dependencies?", false) {
+                    args.push("--skip-deps".to_string());
+                }
+                run_self_command(&args);
+            }
+            1 => {
+                let install_dir = prompt_text("Install directory", Some("/opt/caramba"));
+                let version = prompt_optional_text("Target version (e.g. v0.3.24, empty = latest)");
+                let no_restart = prompt_bool("Do not restart services after upgrade?", false);
+
+                let mut args = vec![
+                    "upgrade".to_string(),
+                    "--install-dir".to_string(),
+                    install_dir,
+                ];
+                if let Some(v) = version {
+                    args.push("--version".to_string());
+                    args.push(v);
+                }
+                if no_restart {
+                    args.push("--no-restart".to_string());
+                }
+                run_self_command(&args);
+            }
+            2 => {
+                let panel_url = prompt_text("Panel URL (https://panel.example.com)", None);
+                let token = prompt_text("Node token (join/enrollment token)", None);
+                let install_dir = prompt_text("Install directory", Some("/opt/caramba"));
+                let mut args = vec![
+                    "install".to_string(),
+                    "--node".to_string(),
+                    "--panel-url".to_string(),
+                    panel_url,
+                    "--token".to_string(),
+                    token,
+                    "--install-dir".to_string(),
+                    install_dir,
+                ];
+                if prompt_bool("Skip apt/system dependencies?", false) {
+                    args.push("--skip-deps".to_string());
+                }
+                run_self_command(&args);
+            }
+            3 => {
+                let domain = prompt_text("Frontend domain", None);
+                let panel_url = prompt_text("Panel URL (https://panel.example.com)", None);
+                let token = prompt_text("Frontend auth token", None);
+                let region = prompt_text("Region", Some("global"));
+                let listen_port = prompt_text("Listen port", Some("8080"));
+                let install_dir = prompt_text("Install directory", Some("/opt/caramba"));
+                let mut args = vec![
+                    "install".to_string(),
+                    "--sub".to_string(),
+                    "--domain".to_string(),
+                    domain,
+                    "--panel-url".to_string(),
+                    panel_url,
+                    "--token".to_string(),
+                    token,
+                    "--region".to_string(),
+                    region,
+                    "--listen-port".to_string(),
+                    listen_port,
+                    "--install-dir".to_string(),
+                    install_dir,
+                ];
+                if prompt_bool("Skip apt/system dependencies?", false) {
+                    args.push("--skip-deps".to_string());
+                }
+                run_self_command(&args);
+            }
+            4 => {
+                let panel_url = prompt_text("Panel URL (https://panel.example.com)", None);
+                let bot_token = prompt_text("BOT_TOKEN", None);
+                let panel_token = prompt_optional_text("Optional PANEL_TOKEN");
+                let install_dir = prompt_text("Install directory", Some("/opt/caramba"));
+                let mut args = vec![
+                    "install".to_string(),
+                    "--bot".to_string(),
+                    "--panel-url".to_string(),
+                    panel_url,
+                    "--bot-token".to_string(),
+                    bot_token,
+                    "--install-dir".to_string(),
+                    install_dir,
+                ];
+                if let Some(token) = panel_token {
+                    args.push("--panel-token".to_string());
+                    args.push(token);
+                }
+                if prompt_bool("Skip apt/system dependencies?", false) {
+                    args.push("--skip-deps".to_string());
+                }
+                run_self_command(&args);
+            }
+            5 => {
+                run_self_command(&["diagnose".to_string()]);
+            }
+            6 => {
+                let install_dir = prompt_text("Install directory", Some("/opt/caramba"));
+                let keep_db = prompt_bool("Keep PostgreSQL database and role?", false);
+                let mut args = vec![
+                    "uninstall".to_string(),
+                    "--install-dir".to_string(),
+                    install_dir,
+                ];
+                if keep_db {
+                    args.push("--keep-db".to_string());
+                }
+                run_self_command(&args);
+            }
+            _ => break,
+        }
+    }
+}
+
 fn print_install_summary(config: &setup::InstallConfig, bot_token: Option<&str>) {
     let panel_host = config.domain.trim();
     let scheme = if panel_host.starts_with("http://") || panel_host.starts_with("https://") {
@@ -227,7 +409,12 @@ async fn main() {
         exit(1);
     }
 
-    match cli.command {
+    if cli.command.is_none() {
+        run_tui_menu();
+        return;
+    }
+
+    match cli.command.expect("checked is_some") {
         Commands::Install {
             panel,
             node,

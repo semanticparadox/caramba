@@ -15,7 +15,7 @@ mod sni_check; // NEW
 fn init_rustls_provider() {
     // rustls 0.23 requires explicit process-wide provider in some feature combinations.
     if tokio_rustls::rustls::crypto::CryptoProvider::get_default().is_none() {
-        let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
+        let _ = tokio_rustls::rustls::crypto::aws_lc_rs::default_provider().install_default();
     }
 }
 
@@ -49,6 +49,7 @@ struct AgentState {
     cached_speed_mbps: Option<i32>,
     recent_discoveries: std::sync::Arc<tokio::sync::Mutex<Vec<caramba_shared::DiscoveredSni>>>,
     scan_trigger: tokio::sync::mpsc::Sender<()>, // NEW: Pulse for neighbor sniper
+    last_user_usage_totals: std::collections::HashMap<String, u64>,
 }
 
 #[tokio::main]
@@ -100,6 +101,7 @@ async fn main() -> anyhow::Result<()> {
         cached_speed_mbps: None,
         recent_discoveries: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
         scan_trigger: scan_tx,
+        last_user_usage_totals: std::collections::HashMap::new(),
     };
 
     // Initialize HTTP Client
@@ -151,7 +153,7 @@ async fn main() -> anyhow::Result<()> {
         let uptime = start_time.elapsed().as_secs();
 
         // Send Heartbeat
-        match send_heartbeat(&client, &panel_url, &token, uptime, &state, &mut sys).await {
+        match send_heartbeat(&client, &panel_url, &token, uptime, &mut state, &mut sys).await {
             Ok(resp) => {
                 failures = 0;
                 state.last_successful_contact = std::time::Instant::now(); // Update contact time
@@ -438,7 +440,7 @@ async fn send_heartbeat(
     panel_url: &str,
     token: &str,
     uptime: u64,
-    state: &AgentState,
+    state: &mut AgentState,
     sys: &mut System,
 ) -> anyhow::Result<HeartbeatResponse> {
     let url = format!("{}/api/v2/node/heartbeat", panel_url);
@@ -446,14 +448,16 @@ async fn send_heartbeat(
     // Collect Telemetry
     let (latency, cpu, ram, connections, max_ram, cpu_cores, cpu_model) =
         collect_telemetry(client, sys).await;
+    let (traffic_up, traffic_down) = collect_total_traffic(client).await.unwrap_or((0, 0));
+    let user_usage = collect_user_usage_delta(client, &mut state.last_user_usage_totals).await;
 
     let payload = HeartbeatRequest {
         version: env!("CARGO_PKG_VERSION").to_string(),
         uptime,
         status: "running".to_string(),
         config_hash: state.current_hash.clone(),
-        traffic_up: 0,
-        traffic_down: 0,
+        traffic_up,
+        traffic_down,
         certificates: Some(
             check_certificates(
                 &state
@@ -472,7 +476,7 @@ async fn send_heartbeat(
         max_ram,
         cpu_cores,
         cpu_model,
-        user_usage: None,
+        user_usage,
         discovered_snis: {
             let mut lock = state.recent_discoveries.lock().await;
             if lock.is_empty() {
@@ -497,6 +501,163 @@ async fn send_heartbeat(
     }
 
     Ok(resp.json::<HeartbeatResponse>().await?)
+}
+
+fn extract_counter_field(obj: &serde_json::Value, keys: &[&str]) -> Option<u64> {
+    for key in keys {
+        let Some(candidate) = obj.get(*key) else {
+            continue;
+        };
+        if let Some(v) = candidate.as_u64() {
+            return Some(v);
+        }
+        if let Some(v) = candidate.as_i64() {
+            if v >= 0 {
+                return Some(v as u64);
+            }
+        }
+        if let Some(v) = candidate.as_str() {
+            if let Ok(parsed) = v.trim().parse::<u64>() {
+                return Some(parsed);
+            }
+        }
+    }
+    None
+}
+
+async fn fetch_clash_connections(client: &reqwest::Client) -> Option<Vec<serde_json::Value>> {
+    let resp = client
+        .get("http://127.0.0.1:9090/connections")
+        .timeout(Duration::from_secs(2))
+        .send()
+        .await
+        .ok()?;
+
+    if !resp.status().is_success() {
+        return None;
+    }
+
+    let value = resp.json::<serde_json::Value>().await.ok()?;
+    value
+        .get("connections")
+        .and_then(|v| v.as_array())
+        .cloned()
+}
+
+async fn collect_total_traffic(client: &reqwest::Client) -> Option<(u64, u64)> {
+    if let Ok(resp) = client
+        .get("http://127.0.0.1:9090/traffic")
+        .timeout(Duration::from_secs(2))
+        .send()
+        .await
+    {
+        if resp.status().is_success() {
+            if let Ok(value) = resp.json::<serde_json::Value>().await {
+                let up = extract_counter_field(
+                    &value,
+                    &["up", "upload", "uploadTotal", "uplink", "totalUp"],
+                );
+                let down = extract_counter_field(
+                    &value,
+                    &["down", "download", "downloadTotal", "downlink", "totalDown"],
+                );
+                if let (Some(up), Some(down)) = (up, down) {
+                    return Some((up, down));
+                }
+            }
+        }
+    }
+
+    // Fallback: aggregate from active connection counters.
+    let mut up_total = 0u64;
+    let mut down_total = 0u64;
+    let mut has_any = false;
+    if let Some(connections) = fetch_clash_connections(client).await {
+        for conn in connections {
+            let up = extract_counter_field(
+                &conn,
+                &["upload", "uploadTotal", "uplink", "sent", "upload_bytes"],
+            )
+            .unwrap_or(0);
+            let down = extract_counter_field(
+                &conn,
+                &[
+                    "download",
+                    "downloadTotal",
+                    "downlink",
+                    "received",
+                    "download_bytes",
+                ],
+            )
+            .unwrap_or(0);
+            if up > 0 || down > 0 {
+                has_any = true;
+            }
+            up_total = up_total.saturating_add(up);
+            down_total = down_total.saturating_add(down);
+        }
+    }
+
+    if has_any {
+        Some((up_total, down_total))
+    } else {
+        None
+    }
+}
+
+async fn collect_user_usage_delta(
+    client: &reqwest::Client,
+    last_totals: &mut std::collections::HashMap<String, u64>,
+) -> Option<std::collections::HashMap<String, u64>> {
+    let connections = fetch_clash_connections(client).await?;
+    let mut current_totals: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+
+    for conn in connections {
+        let user = conn
+            .pointer("/metadata/user")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+
+        if !user.starts_with("user_") {
+            continue;
+        }
+
+        let upload =
+            extract_counter_field(&conn, &["upload", "uploadTotal", "uplink", "sent"]).unwrap_or(0);
+        let download = extract_counter_field(
+            &conn,
+            &["download", "downloadTotal", "downlink", "received"],
+        )
+        .unwrap_or(0);
+
+        let total = upload.saturating_add(download);
+        let entry = current_totals.entry(user).or_insert(0);
+        *entry = entry.saturating_add(total);
+    }
+
+    let mut delta_map = std::collections::HashMap::new();
+    for (user, current_total) in &current_totals {
+        let previous_total = last_totals.get(user).copied().unwrap_or(0);
+        let delta = if *current_total >= previous_total {
+            current_total.saturating_sub(previous_total)
+        } else {
+            // Counter reset (agent restart/sing-box reload) — send the observed value once.
+            *current_total
+        };
+
+        if delta > 0 {
+            delta_map.insert(user.clone(), delta);
+        }
+    }
+
+    *last_totals = current_totals;
+    if delta_map.is_empty() {
+        None
+    } else {
+        Some(delta_map)
+    }
 }
 
 async fn check_and_update_config(
@@ -778,6 +939,8 @@ async fn collect_telemetry(
 async fn count_active_connections(client: &reqwest::Client) -> Option<u32> {
     // Primary source of truth: sing-box clash-api active connections.
     // Count unique logical users first, fallback to source IP when user tag is absent.
+    let local_ip = get_local_ip();
+
     if let Ok(resp) = client
         .get("http://127.0.0.1:9090/connections")
         .timeout(Duration::from_secs(2))
@@ -805,12 +968,8 @@ async fn count_active_connections(client: &reqwest::Client) -> Option<u32> {
                             .and_then(|v| v.as_str())
                             .unwrap_or_default()
                             .trim();
-                        if !source_ip.is_empty()
-                            && source_ip != "0.0.0.0"
-                            && source_ip != "::"
-                            && source_ip != "127.0.0.1"
-                            && source_ip != "::1"
-                        {
+
+                        if !is_non_client_source(source_ip, local_ip) {
                             unique.insert(source_ip.to_string());
                         }
                     }
@@ -836,6 +995,39 @@ async fn count_active_connections(client: &reqwest::Client) -> Option<u32> {
     }
 
     None
+}
+
+fn is_non_client_source(source_ip: &str, local_ip: Option<std::net::IpAddr>) -> bool {
+    let source_ip = source_ip.trim();
+    if source_ip.is_empty() || source_ip == "0.0.0.0" || source_ip == "::" {
+        return true;
+    }
+
+    if let Ok(source) = source_ip.parse::<std::net::IpAddr>() {
+        if source.is_loopback() || source.is_unspecified() || source.is_multicast() {
+            return true;
+        }
+
+        // Ignore node self-traffic and local/private technical traffic.
+        if local_ip.is_some_and(|local| local == source) {
+            return true;
+        }
+
+        match source {
+            std::net::IpAddr::V4(v4) => {
+                if v4.is_private() || v4.is_link_local() {
+                    return true;
+                }
+            }
+            std::net::IpAddr::V6(v6) => {
+                if v6.is_unique_local() || v6.is_unicast_link_local() {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
 }
 
 async fn run_speed_test(client: &reqwest::Client) -> Option<i32> {

@@ -16,6 +16,11 @@ function formatDateTime(value?: string | null): string {
     return ts.toLocaleString();
 }
 
+function withClient(url: string, client: string): string {
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}client=${encodeURIComponent(client)}`;
+}
+
 export default function Subscription() {
     const { subscriptions, isLoading, refreshData, token, error } = useAuth();
     const navigate = useNavigate();
@@ -37,6 +42,10 @@ export default function Subscription() {
         navigator.clipboard.writeText(sub.primary_vless_link);
         setCopiedVless(sub.id);
         setTimeout(() => setCopiedVless(null), 2000);
+    };
+
+    const openExternal = (url: string) => {
+        window.location.href = url;
     };
 
     const handleActivate = async (subId: number) => {
@@ -303,6 +312,35 @@ export default function Subscription() {
                                             </button>
                                         </div>
                                     )}
+
+                                    <div className="app-links-grid">
+                                        <button
+                                            className="btn-text btn-app"
+                                            onClick={() => openExternal(withClient(sub.subscription_url, 'singbox'))}
+                                        >
+                                            Sing-box
+                                        </button>
+                                        <button
+                                            className="btn-text btn-app"
+                                            onClick={() => openExternal(`hiddify://import/${encodeURIComponent(withClient(sub.subscription_url, 'hiddify'))}`)}
+                                        >
+                                            Hiddify
+                                        </button>
+                                        <button
+                                            className="btn-text btn-app"
+                                            onClick={() => openExternal(`happ://add?url=${encodeURIComponent(withClient(sub.subscription_url, 'happ'))}`)}
+                                        >
+                                            Happ
+                                        </button>
+                                        {sub.primary_vless_link && (
+                                            <button
+                                                className="btn-text btn-app"
+                                                onClick={() => openExternal(sub.primary_vless_link!)}
+                                            >
+                                                Open VLESS
+                                            </button>
+                                        )}
+                                    </div>
 
                                     {sub.is_trial && (
                                         <div className="badge badge-warning trial-badge">Free Trial</div>

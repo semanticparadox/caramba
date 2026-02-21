@@ -36,7 +36,7 @@ pub use store::{
 pub use users::{
     admin_gift_subscription, admin_kill_subscription_sessions, delete_user_subscription,
     extend_user_subscription, get_subscription_devices, get_user_details, get_users,
-    refund_user_subscription, update_user, update_user_balance,
+    notify_all_users, notify_user, refund_user_subscription, update_user, update_user_balance,
 };
 
 // Stubs removed

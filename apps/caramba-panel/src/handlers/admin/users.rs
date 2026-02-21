@@ -96,6 +96,11 @@ pub struct ExtendForm {
     pub days: i32,
 }
 
+#[derive(Deserialize)]
+pub struct NotifyForm {
+    pub message: String,
+}
+
 // Helper function
 fn format_duration(duration: chrono::TimeDelta) -> String {
     if duration.num_seconds() < 60 {
@@ -576,6 +581,99 @@ pub async fn extend_user_subscription(
                 .into_response()
         }
     }
+}
+
+pub async fn notify_user(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+    Form(form): Form<NotifyForm>,
+) -> impl IntoResponse {
+    let message = form.message.trim();
+    if message.is_empty() {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            "Message cannot be empty",
+        )
+            .into_response();
+    }
+
+    let user = match state.user_service.get_by_id(id).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            return (axum::http::StatusCode::NOT_FOUND, "User not found").into_response();
+        }
+        Err(e) => {
+            error!("Failed to fetch user {} for notification: {}", id, e);
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to fetch user",
+            )
+                .into_response();
+        }
+    };
+
+    match state.bot_manager.send_notification(user.tg_id, message).await {
+        Ok(_) => (
+            axum::http::StatusCode::OK,
+            format!("Notification sent to user {}", id),
+        )
+            .into_response(),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to send notification: {}", e),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn notify_all_users(
+    State(state): State<AppState>,
+    Form(form): Form<NotifyForm>,
+) -> impl IntoResponse {
+    let message = form.message.trim();
+    if message.is_empty() {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            "Message cannot be empty",
+        )
+            .into_response();
+    }
+
+    let users = match state.user_service.get_all().await {
+        Ok(users) => users,
+        Err(e) => {
+            error!("Failed to fetch users for broadcast: {}", e);
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to fetch users",
+            )
+                .into_response();
+        }
+    };
+
+    let mut sent = 0usize;
+    let mut failed = 0usize;
+    for user in users {
+        if user.tg_id <= 0 {
+            continue;
+        }
+        match state.bot_manager.send_notification(user.tg_id, message).await {
+            Ok(_) => sent += 1,
+            Err(e) => {
+                failed += 1;
+                error!(
+                    "Failed to send broadcast notification to tg_id {}: {}",
+                    user.tg_id, e
+                );
+            }
+        }
+    }
+
+    (
+        axum::http::StatusCode::OK,
+        format!("Broadcast complete: sent={}, failed={}", sent, failed),
+    )
+        .into_response()
 }
 
 pub async fn get_subscription_devices(

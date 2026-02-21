@@ -29,7 +29,7 @@ interface CartItem {
 
 export default function Store() {
     const navigate = useNavigate();
-    const { token } = useAuth();
+    const { token, error } = useAuth();
     const [categories, setCategories] = useState<Category[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
     const [cart, setCart] = useState<CartItem[]>([]);
@@ -42,7 +42,10 @@ export default function Store() {
     const headers = { Authorization: `Bearer ${token}` };
 
     useEffect(() => {
-        if (!token) return;
+        if (!token) {
+            setLoading(false);
+            return;
+        }
         fetch('/api/client/store/categories', { headers })
             .then(r => r.json())
             .then(data => {
@@ -55,6 +58,14 @@ export default function Store() {
             .catch(console.error)
             .finally(() => setLoading(false));
     }, [token]);
+
+    const goBack = () => {
+        if (window.history.length > 1) {
+            navigate(-1);
+        } else {
+            navigate('/');
+        }
+    };
 
     const loadProducts = async (catId: number) => {
         setActiveCat(catId);
@@ -116,15 +127,23 @@ export default function Store() {
     return (
         <div className="page store-page">
             <header className="page-header">
-                <button className="back-button" onClick={() => navigate('/')}>←</button>
+                <button className="back-button" onClick={goBack}>←</button>
                 <h2>📦 Store</h2>
                 <button className="cart-toggle" onClick={openCart}>
                     🛒 {cart.length > 0 && <span className="cart-count">{cart.length}</span>}
                 </button>
             </header>
 
+            {!token && (
+                <div className="empty-state">
+                    <div className="empty-icon">🔐</div>
+                    <h3>Authorization Required</h3>
+                    <p>{error || 'Reopen Mini App from bot to access the store.'}</p>
+                </div>
+            )}
+
             {/* Category Tabs */}
-            {categories.length > 0 && (
+            {token && categories.length > 0 && (
                 <div className="cat-tabs">
                     {categories.map(c => (
                         <button
@@ -139,7 +158,7 @@ export default function Store() {
             )}
 
             {/* Products */}
-            {categories.length === 0 ? (
+            {token && (categories.length === 0 ? (
                 <div className="empty-state">
                     <div className="empty-icon">📦</div>
                     <h3>Store is empty</h3>
@@ -170,10 +189,10 @@ export default function Store() {
                         </div>
                     ))}
                 </div>
-            )}
+            ))}
 
             {/* Cart Overlay */}
-            {showCart && (
+            {token && showCart && (
                 <div className="cart-overlay" onClick={() => setShowCart(false)}>
                     <div className="cart-panel glass-card" onClick={e => e.stopPropagation()}>
                         <div className="cart-header">

@@ -12,13 +12,16 @@ interface Payment {
 }
 
 export default function Billing() {
-    const { user, token } = useAuth()
+    const { user, token, error } = useAuth()
     const navigate = useNavigate()
     const [payments, setPayments] = useState<Payment[]>([])
     const [loading, setLoading] = useState(true)
 
     useEffect(() => {
-        if (!token) return
+        if (!token) {
+            setLoading(false)
+            return
+        }
         const fetchPayments = async () => {
             try {
                 const res = await fetch('/api/client/user/payments', {
@@ -31,6 +34,14 @@ export default function Billing() {
         fetchPayments()
     }, [token])
 
+    const goBack = () => {
+        if (window.history.length > 1) {
+            navigate(-1)
+        } else {
+            navigate('/')
+        }
+    }
+
     const formatDate = (ts: number) => new Date(ts * 1000).toLocaleDateString()
     const formatCurrency = (amount: number) =>
         new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
@@ -38,11 +49,19 @@ export default function Billing() {
     return (
         <div className="page billing-page">
             <header className="page-header">
-                <button className="back-button" onClick={() => navigate('/')}>←</button>
+                <button className="back-button" onClick={goBack}>←</button>
                 <h2>Billing</h2>
             </header>
 
-            <div className="balance-hero glass-card">
+            {!token && (
+                <div className="empty-state">
+                    <div className="empty-icon">🔐</div>
+                    <h3>Authorization Required</h3>
+                    <p>{error || 'Reopen Mini App from bot to manage billing.'}</p>
+                </div>
+            )}
+
+            {token && <div className="balance-hero glass-card">
                 <span className="balance-label">Current Balance</span>
                 <span className="balance-amount gradient-text">
                     {user ? formatCurrency(user.balance || 0) : '...'}
@@ -50,9 +69,9 @@ export default function Billing() {
                 <button className="btn-secondary" disabled>
                     💳 Deposit (Coming Soon)
                 </button>
-            </div>
+            </div>}
 
-            <div className="transactions-section">
+            {token && <div className="transactions-section">
                 <h3>Recent Transactions</h3>
                 {loading ? (
                     <div className="loading">Loading history...</div>
@@ -81,7 +100,7 @@ export default function Billing() {
                         <p>No transactions yet</p>
                     </div>
                 )}
-            </div>
+            </div>}
         </div>
     )
 }

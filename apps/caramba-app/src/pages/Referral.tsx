@@ -28,6 +28,13 @@ export default function Referral() {
     const [error, setError] = useState<string | null>(null)
     const [copied, setCopied] = useState(false)
     const [copiedCode, setCopiedCode] = useState(false)
+    const goBack = () => {
+        if (window.history.length > 1) {
+            navigate(-1)
+        } else {
+            navigate('/')
+        }
+    }
 
     useEffect(() => {
         if (!token) {
@@ -72,13 +79,37 @@ export default function Referral() {
         }
     }
 
-    if (loading) return <div className="page"><div className="loading">Loading...</div></div>
-    if (error) return <div className="page"><div className="empty-state"><h3>Authorization Required</h3><p>{error}</p></div></div>
+    if (loading) {
+        return (
+            <div className="page referral-page">
+                <header className="page-header">
+                    <button className="back-button" onClick={goBack}>←</button>
+                    <h2>Refer & Earn</h2>
+                </header>
+                <div className="loading">Loading...</div>
+            </div>
+        )
+    }
+    if (error) {
+        return (
+            <div className="page referral-page">
+                <header className="page-header">
+                    <button className="back-button" onClick={goBack}>←</button>
+                    <h2>Refer & Earn</h2>
+                </header>
+                <div className="empty-state">
+                    <div className="empty-icon">🔐</div>
+                    <h3>Authorization Required</h3>
+                    <p>{error}</p>
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="page referral-page">
             <header className="page-header">
-                <button className="back-button" onClick={() => navigate(-1)}>←</button>
+                <button className="back-button" onClick={goBack}>←</button>
                 <h2>Refer & Earn</h2>
             </header>
 

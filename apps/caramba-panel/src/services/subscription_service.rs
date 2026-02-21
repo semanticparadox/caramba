@@ -608,7 +608,7 @@ impl SubscriptionService {
                     network.to_lowercase()
                 };
                 let remark = format!(
-                    "{}-{} ({}/{})",
+                    "{}-{} {}-{}",
                     node_name, inbound.node_id, protocol_label, transport_label
                 );
                 let encoded_remark = urlencoding::encode(&remark).to_string();

@@ -92,6 +92,21 @@
                     </button>
                 </div>
             </form>
+
+            <div class="h-px bg-white/5 my-5"></div>
+
+            <form hx-post="{{ admin_path }}/users/{{ user.id }}/notify" hx-target="#notify-result" hx-swap="innerHTML"
+                class="space-y-2">
+                <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Send Telegram Notification</label>
+                <textarea name="message" rows="3" required maxlength="800"
+                    placeholder="Type message for this user..."
+                    class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700"></textarea>
+                <button type="submit"
+                    class="w-full py-2.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 font-medium rounded-lg border border-indigo-500/30 transition-colors">
+                    Send Notification
+                </button>
+                <div id="notify-result" class="text-xs text-slate-400"></div>
+            </form>
         </article>
 
         <!-- Referral Stats -->

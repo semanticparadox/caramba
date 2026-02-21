@@ -29,6 +29,12 @@ use tracing_subscriber::Layer;
 use tracing_subscriber::filter::Targets;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+fn init_jwt_crypto_provider() {
+    // jsonwebtoken 10.x requires a process-wide crypto provider when
+    // multiple provider features are present in the dependency graph.
+    let _ = jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER.install_default();
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub pool: sqlx::PgPool,
@@ -168,6 +174,9 @@ async fn main() -> Result<()> {
         "Caramba Panel binary started. Version: {}",
         env!("CARGO_PKG_VERSION")
     );
+
+    init_jwt_crypto_provider();
+
     // Load .env
     if let Err(e) = dotenvy::dotenv() {
         // Only warn if we are not in a test/dev environment where it might be intentional
@@ -671,6 +680,14 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         .route(
             "/users/{id}/gift",
             post(handlers::admin::admin_gift_subscription),
+        )
+        .route(
+            "/users/{id}/notify",
+            post(handlers::admin::notify_user),
+        )
+        .route(
+            "/users/notify/all",
+            post(handlers::admin::notify_all_users),
         )
         .route(
             "/users/subs/{id}",

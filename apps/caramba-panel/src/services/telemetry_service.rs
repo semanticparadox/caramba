@@ -114,7 +114,24 @@ impl TelemetryService {
         if let Some(snis) = discovered_snis {
             for sni in snis {
                 let domain = sni.domain.trim().to_lowercase();
-                if !is_valid_discovered_domain(&domain) {
+
+                if let Err(reason) = classify_discovered_domain(&domain) {
+                    if !domain.is_empty() {
+                        if let Err(e) = auto_blacklist_domain(
+                            &self.pool,
+                            &domain,
+                            &format!("Auto-filter: {}", reason),
+                        )
+                        .await
+                        {
+                            warn!("Failed to auto-blacklist discovered SNI '{}': {}", domain, e);
+                        } else {
+                            info!(
+                                "🚫 Neighbor Sniper: Auto-blacklisted noisy SNI '{}' ({})",
+                                domain, reason
+                            );
+                        }
+                    }
                     continue;
                 }
 
@@ -233,45 +250,109 @@ impl TelemetryService {
     }
 }
 
-fn is_valid_discovered_domain(domain: &str) -> bool {
-    if domain.is_empty() || domain.len() > 120 {
-        return false;
+fn classify_discovered_domain(domain: &str) -> Result<(), String> {
+    let domain = domain.trim().to_lowercase();
+
+    if domain.is_empty() {
+        return Err("empty domain".to_string());
+    }
+    if domain.len() > 120 {
+        return Err("domain is too long".to_string());
     }
     if !domain.contains('.') {
-        return false;
+        return Err("not a fqdn".to_string());
     }
     if domain.contains(' ') || domain.contains('_') {
-        return false;
-    }
-    if domain.contains("localhost")
-        || domain.contains("traefik")
-        || domain.ends_with(".local")
-        || domain.ends_with(".internal")
-    {
-        return false;
+        return Err("contains invalid characters".to_string());
     }
 
     if !domain
         .chars()
         .all(|ch| ch.is_ascii_alphanumeric() || ch == '.' || ch == '-')
     {
-        return false;
+        return Err("contains non-dns characters".to_string());
+    }
+
+    if domain.starts_with('.') || domain.ends_with('.') || domain.contains("..") {
+        return Err("malformed fqdn".to_string());
+    }
+
+    const DENY_SUBSTRINGS: &[&str] = &[
+        "localhost",
+        "traefik",
+        "plesk",
+        "parallels",
+        "easypanel",
+        "directadmin",
+        "cpanel",
+        "access-denied",
+        "access denied",
+        "forbidden",
+        "sni-support-required",
+    ];
+    if DENY_SUBSTRINGS.iter().any(|needle| domain.contains(needle)) {
+        return Err("service/control-plane noise".to_string());
+    }
+
+    const DENY_SUFFIXES: &[&str] = &[
+        ".local",
+        ".localdomain",
+        ".internal",
+        ".lan",
+        ".invalid",
+        ".example",
+        ".test",
+        ".home.arpa",
+        ".traefik.default",
+        ".plesk.page",
+        ".vps.ovh.net",
+    ];
+    if DENY_SUFFIXES.iter().any(|suffix| domain.ends_with(suffix)) {
+        return Err("reserved/internal/provider suffix".to_string());
     }
 
     let labels: Vec<&str> = domain.split('.').collect();
     if labels.len() < 2 || labels.len() > 8 {
-        return false;
+        return Err("invalid label count".to_string());
     }
-    for label in labels {
+
+    for label in &labels {
         if label.is_empty() || label.len() > 63 {
-            return false;
+            return Err("invalid label length".to_string());
         }
         if label.starts_with('-') || label.ends_with('-') {
-            return false;
+            return Err("label starts/ends with '-'".to_string());
         }
     }
 
-    true
+    let tld = labels.last().copied().unwrap_or_default();
+    const RESERVED_TLDS: &[&str] = &["local", "internal", "lan", "invalid", "example", "test", "default"];
+    if RESERVED_TLDS.contains(&tld) {
+        return Err("reserved tld".to_string());
+    }
+    if tld.len() < 2 {
+        return Err("invalid tld".to_string());
+    }
+
+    Ok(())
+}
+
+async fn auto_blacklist_domain(pool: &PgPool, domain: &str, reason: &str) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO sni_blacklist (domain, reason) VALUES ($1, $2) ON CONFLICT (domain) DO NOTHING",
+    )
+    .bind(domain)
+    .bind(reason)
+    .execute(pool)
+    .await?;
+
+    // Keep pool clean if this domain was already inserted before filtering hardened.
+    sqlx::query("UPDATE sni_pool SET is_active = FALSE, health_score = 0 WHERE domain = $1")
+        .bind(domain)
+        .execute(pool)
+        .await?;
+
+    Ok(())
 }
 
 fn derive_recommended_max_users(
@@ -319,7 +400,7 @@ fn derive_recommended_max_users(
 
 #[cfg(test)]
 mod tests {
-    use super::{derive_recommended_max_users, is_valid_discovered_domain};
+    use super::{classify_discovered_domain, derive_recommended_max_users};
 
     #[test]
     fn derive_recommended_max_users_low_load_tracks_speed() {
@@ -342,15 +423,18 @@ mod tests {
 
     #[test]
     fn discovered_domain_filter_accepts_normal_domains() {
-        assert!(is_valid_discovered_domain("hitchhive.app"));
-        assert!(is_valid_discovered_domain("api.kd367.fr"));
+        assert!(classify_discovered_domain("hitchhive.app").is_ok());
+        assert!(classify_discovered_domain("api.kd367.fr").is_ok());
     }
 
     #[test]
     fn discovered_domain_filter_rejects_noise() {
-        assert!(!is_valid_discovered_domain("Plesk"));
-        assert!(!is_valid_discovered_domain("traefik.default"));
-        assert!(!is_valid_discovered_domain("with space.example.com"));
-        assert!(!is_valid_discovered_domain("localhost"));
+        assert!(classify_discovered_domain("Plesk").is_err());
+        assert!(classify_discovered_domain("traefik.default").is_err());
+        assert!(classify_discovered_domain("with space.example.com").is_err());
+        assert!(classify_discovered_domain("localhost").is_err());
+        assert!(classify_discovered_domain("Parallels Panel").is_err());
+        assert!(classify_discovered_domain("vps-40d02f7d.vps.ovh.net").is_err());
+        assert!(classify_discovered_domain("sni-support-required-for-valid-ssl").is_err());
     }
 }
