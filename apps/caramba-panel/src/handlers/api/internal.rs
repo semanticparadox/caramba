@@ -62,9 +62,23 @@ async fn authorize_internal_request(
     }
 
     // Preferred authorization: dedicated internal shared token.
-    if let Ok(internal_token) = std::env::var("INTERNAL_API_TOKEN") {
-        let expected = internal_token.trim();
-        if !expected.is_empty() && expected == token {
+    let env_internal_token = std::env::var("INTERNAL_API_TOKEN")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !env_internal_token.is_empty() && env_internal_token == token {
+        return Ok(());
+    }
+
+    // Fallback authorization when env token is absent: token persisted in panel settings.
+    if env_internal_token.is_empty() {
+        let settings_token = state
+            .settings
+            .get_or_default("internal_api_token", "")
+            .await
+            .trim()
+            .to_string();
+        if !settings_token.is_empty() && settings_token == token {
             return Ok(());
         }
     }

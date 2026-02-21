@@ -892,8 +892,18 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         .route(
             "/",
             axum::routing::get({
-                let path = admin_path.clone(); // Clone for closure
-                move || async move { axum::response::Redirect::to(&format!("{}/dashboard", path)) } // Redirect to dashboard
+                let path = admin_path.clone();
+                move || async move {
+                    let expose_root = std::env::var("EXPOSE_PANEL_ROOT_REDIRECT")
+                        .unwrap_or_default()
+                        .to_ascii_lowercase();
+                    if expose_root == "1" || expose_root == "true" || expose_root == "yes" {
+                        return axum::response::Redirect::to(&format!("{}/dashboard", path))
+                            .into_response();
+                    }
+
+                    (axum::http::StatusCode::NOT_FOUND, "Not found").into_response()
+                }
             }),
         )
         .route(

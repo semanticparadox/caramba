@@ -24,33 +24,16 @@
 
     <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-4 rounded-2xl space-y-3">
         <h3 class="text-sm font-semibold text-slate-200 uppercase tracking-wide">Broadcast Notification</h3>
-        <form hx-post="{{ admin_path }}/users/notify/all" hx-target="#broadcast-result" hx-swap="innerHTML"
-            class="space-y-3">
-            <input type="text" name="campaign_title" maxlength="120"
-                placeholder="Campaign title (for history/audit)"
-                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+        <p class="text-xs text-slate-500">Compose once, preview how it looks in Telegram, then send by audience segment.</p>
 
-            <div class="flex flex-wrap gap-2 text-[11px]">
-                <button type="button"
-                    class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
-                    onclick="notifyFormatWrap('broadcast-message','**','**')">Bold</button>
-                <button type="button"
-                    class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
-                    onclick="notifyFormatWrap('broadcast-message','_','_')">Italic</button>
-                <button type="button"
-                    class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
-                    onclick="notifyFormatWrap('broadcast-message','`','`')">Code</button>
-                <button type="button"
-                    class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
-                    onclick="notifyInsertLink('broadcast-message')">Link</button>
-                <span class="text-slate-500 self-center">tip: in HTML mode use tags like &lt;b&gt;...&lt;/b&gt;</span>
-            </div>
+        <form id="broadcast-notify-form" data-preview-url="{{ admin_path }}/users/notify/preview"
+            hx-post="{{ admin_path }}/users/notify/all" hx-target="#broadcast-result" hx-swap="innerHTML"
+            class="space-y-4">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                <input type="text" name="campaign_title" maxlength="120"
+                    placeholder="Campaign title (for history/audit)"
+                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
 
-            <textarea id="broadcast-message" name="message" rows="4" required maxlength="4000"
-                placeholder="Message for all users (Telegram). Supports plain, MarkdownV2, or HTML."
-                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all"></textarea>
-
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <select name="segment"
                     class="bg-slate-950 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
                     <option value="all" selected>All users</option>
@@ -60,72 +43,114 @@
                     <option value="no_active">No active subscription</option>
                     <option value="banned">Banned users</option>
                 </select>
-                <select name="parse_mode"
-                    class="bg-slate-950 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                    <option value="plain" selected>Plain Text</option>
-                    <option value="html">HTML</option>
-                    <option value="markdown">MarkdownV2</option>
-                </select>
-                <select name="media_type"
-                    class="bg-slate-950 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                    <option value="none" selected>No media</option>
-                    <option value="photo">Photo</option>
-                    <option value="video">Video</option>
-                    <option value="document">Document</option>
-                </select>
             </div>
 
-            <div class="grid grid-cols-1 gap-2">
-                <input type="url" name="media_url" maxlength="1000"
-                    placeholder="Optional media URL (https://...)"
-                    class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+            <div class="rounded-2xl border border-white/10 bg-slate-950/40 p-3 space-y-3">
+                <div class="flex flex-wrap items-center gap-2 text-[11px]">
+                    <button type="button"
+                        class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
+                        onclick="notifyWrap('broadcast-message','**','**')">Bold</button>
+                    <button type="button"
+                        class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
+                        onclick="notifyWrap('broadcast-message','_','_')">Italic</button>
+                    <button type="button"
+                        class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
+                        onclick="notifyWrap('broadcast-message','`','`')">Code</button>
+                    <button type="button"
+                        class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
+                        onclick="notifyInsertLink('broadcast-message','broadcast-parse-mode')">Link</button>
+                    <button type="button"
+                        class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
+                        onclick="notifyInsertText('broadcast-message','\n• ')">Bullet</button>
+                    <button type="button"
+                        class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
+                        onclick="notifyInsertText('broadcast-message','\n\n')">New Block</button>
+
+                    <div class="ml-auto flex flex-wrap items-center gap-2">
+                        <select id="broadcast-parse-mode" name="parse_mode"
+                            class="bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                            <option value="plain" selected>Plain</option>
+                            <option value="html">HTML</option>
+                            <option value="markdown">MarkdownV2</option>
+                        </select>
+                        <select id="broadcast-media-type" name="media_type"
+                            class="bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                            <option value="none" selected>No media</option>
+                            <option value="photo">Photo</option>
+                            <option value="video">Video</option>
+                            <option value="document">Document</option>
+                        </select>
+                        <label class="inline-flex items-center gap-1.5 text-slate-400">
+                            <input id="broadcast-autopreview" type="checkbox" checked
+                                class="rounded border-white/20 bg-slate-900 text-indigo-500 focus:ring-indigo-500/40">
+                            Live preview
+                        </label>
+                    </div>
+                </div>
+
+                <textarea id="broadcast-message" name="message" rows="6" required maxlength="4000"
+                    placeholder="Write Telegram message for selected users..."
+                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all"></textarea>
+
+                <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span id="broadcast-counter" class="text-slate-500">0 / 4000</span>
+                    <span class="text-slate-600">When media is selected, Telegram caption limit is 1024 symbols.</span>
+                </div>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <input type="text" name="button_text" maxlength="64"
-                    placeholder="Primary button text"
-                class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                <input type="url" name="button_url" maxlength="1000"
-                    placeholder="Primary button URL (https://...)"
-                    class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-            </div>
+            <details class="group rounded-2xl border border-white/10 bg-slate-950/20 p-3">
+                <summary class="cursor-pointer text-xs text-slate-300 select-none">
+                    Advanced delivery options
+                </summary>
+                <div class="mt-3 space-y-2">
+                    <input type="url" name="media_url" maxlength="1000"
+                        placeholder="Optional media URL (https://...)"
+                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <input type="text" name="button2_text" maxlength="64"
-                    placeholder="Secondary button text"
-                    class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                <input type="url" name="button2_url" maxlength="1000"
-                    placeholder="Secondary button URL (https://...)"
-                    class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-            </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <input type="text" name="button_text" maxlength="64"
+                            placeholder="Primary button text"
+                            class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                        <input type="url" name="button_url" maxlength="1000"
+                            placeholder="Primary button URL (https://...)"
+                            class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                    </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <input type="text" name="button3_text" maxlength="64"
-                    placeholder="Tertiary button text"
-                    class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                <input type="url" name="button3_url" maxlength="1000"
-                    placeholder="Tertiary button URL (https://...)"
-                    class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-            </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <input type="text" name="button2_text" maxlength="64"
+                            placeholder="Secondary button text"
+                            class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                        <input type="url" name="button2_url" maxlength="1000"
+                            placeholder="Secondary button URL (https://...)"
+                            class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                    </div>
 
-            <label class="inline-flex items-center gap-2 text-xs text-slate-400">
-                <input type="checkbox" name="disable_link_preview"
-                    class="rounded border-white/20 bg-slate-900 text-indigo-500 focus:ring-indigo-500/40">
-                Disable link preview for text message
-            </label>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <input type="text" name="button3_text" maxlength="64"
+                            placeholder="Tertiary button text"
+                            class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                        <input type="url" name="button3_url" maxlength="1000"
+                            placeholder="Tertiary button URL (https://...)"
+                            class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                    </div>
+
+                    <label class="inline-flex items-center gap-2 text-xs text-slate-400">
+                        <input type="checkbox" name="disable_link_preview"
+                            class="rounded border-white/20 bg-slate-900 text-indigo-500 focus:ring-indigo-500/40">
+                        Disable link preview for text message
+                    </label>
+                </div>
+            </details>
 
             <div class="flex flex-wrap gap-2">
                 <button type="button"
-                    hx-post="{{ admin_path }}/users/notify/preview"
-                    hx-include="closest form"
-                    hx-target="#broadcast-preview"
-                    hx-swap="innerHTML"
+                    onclick="notifyRunPreview('broadcast-notify-form','broadcast-preview')"
                     class="w-full sm:w-auto px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium rounded-xl transition-colors border border-white/10">
                     Preview
                 </button>
                 <button type="submit"
                     class="w-full sm:w-auto px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-xl transition-colors shadow-lg shadow-indigo-500/20">
-                    Send to All
+                    Send to Segment
                 </button>
             </div>
             <div id="broadcast-preview"></div>
@@ -264,7 +289,19 @@
 </section>
 
 <script>
-    function notifyFormatWrap(textareaId, left, right) {
+    const notifyPreviewTimers = {};
+
+    function notifyInsertAtCursor(textarea, text) {
+        const start = textarea.selectionStart ?? 0;
+        const end = textarea.selectionEnd ?? 0;
+        const value = textarea.value;
+        textarea.value = `${value.substring(0, start)}${text}${value.substring(end)}`;
+        const cursor = start + text.length;
+        textarea.focus();
+        textarea.setSelectionRange(cursor, cursor);
+    }
+
+    function notifyWrap(textareaId, left, right) {
         const textarea = document.getElementById(textareaId);
         if (!textarea) return;
         const start = textarea.selectionStart ?? 0;
@@ -272,26 +309,108 @@
         const value = textarea.value;
         const selected = value.substring(start, end) || 'text';
         const wrapped = `${left}${selected}${right}`;
-        textarea.value = `${value.substring(0, start)}${wrapped}${value.substring(end)}`;
-        const cursor = start + wrapped.length;
-        textarea.focus();
-        textarea.setSelectionRange(cursor, cursor);
+        notifyInsertAtCursor(textarea, wrapped);
     }
 
-    function notifyInsertLink(textareaId) {
+    function notifyInsertText(textareaId, text) {
+        const textarea = document.getElementById(textareaId);
+        if (!textarea) return;
+        notifyInsertAtCursor(textarea, text);
+    }
+
+    function notifyInsertLink(textareaId, parseModeId) {
         const url = prompt('Link URL (https://...)');
         if (!url) return;
         const textarea = document.getElementById(textareaId);
         if (!textarea) return;
+        const mode = document.getElementById(parseModeId)?.value || 'plain';
         const start = textarea.selectionStart ?? 0;
         const end = textarea.selectionEnd ?? 0;
         const value = textarea.value;
         const selected = value.substring(start, end) || 'link text';
-        const link = `[${selected}](${url})`;
-        textarea.value = `${value.substring(0, start)}${link}${value.substring(end)}`;
-        const cursor = start + link.length;
-        textarea.focus();
-        textarea.setSelectionRange(cursor, cursor);
+        let link = `${selected} - ${url}`;
+        if (mode === 'html') {
+            link = `<a href="${url}">${selected}</a>`;
+        } else if (mode === 'markdown') {
+            link = `[${selected}](${url})`;
+        }
+        notifyInsertAtCursor(textarea, link);
     }
+
+    function notifyLimitForForm(formId) {
+        const form = document.getElementById(formId);
+        if (!form) return 4000;
+        const mediaType = form.querySelector('select[name="media_type"]')?.value || 'none';
+        return mediaType === 'none' ? 4000 : 1024;
+    }
+
+    function notifyRefreshCounter(formId, textareaId, counterId) {
+        const textarea = document.getElementById(textareaId);
+        const counter = document.getElementById(counterId);
+        if (!textarea || !counter) return;
+        const limit = notifyLimitForForm(formId);
+        const used = textarea.value.length;
+        counter.textContent = `${used} / ${limit}`;
+        counter.classList.toggle('text-red-400', used > limit);
+        counter.classList.toggle('text-amber-300', used > Math.floor(limit * 0.85) && used <= limit);
+        counter.classList.toggle('text-slate-500', used <= Math.floor(limit * 0.85));
+    }
+
+    async function notifyRunPreview(formId, previewId) {
+        const form = document.getElementById(formId);
+        const preview = document.getElementById(previewId);
+        if (!form || !preview) return;
+        const url = form.dataset.previewUrl;
+        if (!url) return;
+
+        const params = new URLSearchParams();
+        for (const [key, value] of new FormData(form).entries()) {
+            params.append(key, value.toString());
+        }
+
+        try {
+            preview.innerHTML = '<div class="text-xs text-slate-500 px-1 py-2">Rendering preview...</div>';
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'HX-Request': 'true'
+                },
+                body: params.toString(),
+                credentials: 'same-origin'
+            });
+            preview.innerHTML = await response.text();
+        } catch (_err) {
+            preview.innerHTML = '<div class="mt-3 text-xs text-red-400">Preview request failed.</div>';
+        }
+    }
+
+    function notifySchedulePreview(formId, previewId, autoPreviewId) {
+        const auto = document.getElementById(autoPreviewId);
+        if (auto && !auto.checked) return;
+        clearTimeout(notifyPreviewTimers[formId]);
+        notifyPreviewTimers[formId] = setTimeout(() => {
+            notifyRunPreview(formId, previewId);
+        }, 350);
+    }
+
+    function notifyBindComposer(formId, textareaId, counterId, previewId, autoPreviewId) {
+        const form = document.getElementById(formId);
+        if (!form) return;
+
+        form.addEventListener('input', () => {
+            notifyRefreshCounter(formId, textareaId, counterId);
+            notifySchedulePreview(formId, previewId, autoPreviewId);
+        });
+        form.addEventListener('change', () => {
+            notifyRefreshCounter(formId, textareaId, counterId);
+            notifySchedulePreview(formId, previewId, autoPreviewId);
+        });
+
+        notifyRefreshCounter(formId, textareaId, counterId);
+        notifyRunPreview(formId, previewId);
+    }
+
+    notifyBindComposer('broadcast-notify-form', 'broadcast-message', 'broadcast-counter', 'broadcast-preview', 'broadcast-autopreview');
 </script>
 {% endblock %}

@@ -471,7 +471,7 @@
                     </div>
                     <div>
                         <h3 class="text-lg font-semibold text-white">Deployment Topology</h3>
-                        <p class="text-xs text-slate-500">Choose architecture mode and service placement for first-time admins.</p>
+                        <p class="text-xs text-slate-500">Choose architecture mode and service placement. Root URL is hidden; admin UI works only via configured path.</p>
                     </div>
                 </header>
 
@@ -486,12 +486,18 @@
                         <p class="text-[11px] text-slate-500 mt-1">In distributed mode, frontend mode is forced to distributed.</p>
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Panel Public URL</label>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Panel API URL (base)</label>
                         <input type="text" form="main-settings-form" name="panel_url"
                             value="{{ panel_url }}" placeholder="https://panel.example.com"
                             class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-cyan-500 outline-none transition-all font-mono text-sm">
-                        <p class="text-[11px] text-slate-500 mt-1">Used for install commands, bot links and subscription pages.</p>
+                        <p class="text-[11px] text-slate-500 mt-1">Base URL for API, installer and node/sub/bot agents. Do not append admin path here.</p>
                     </div>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Admin UI URL (hidden path)</label>
+                    <input type="text" value="{{ admin_ui_url_display }}" readonly
+                        class="w-full bg-slate-950/60 border border-cyan-500/30 rounded-xl px-4 py-3 text-cyan-200 font-mono text-sm">
+                    <p class="text-[11px] text-slate-500 mt-1">Root URL is intentionally hidden; access panel only via this path.</p>
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
@@ -566,20 +572,64 @@
                 </div>
                 <div id="topology-apply-result"></div>
 
-                <div class="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4 space-y-3">
-                    <div>
-                        <p class="text-xs text-slate-300 mb-2">Role install commands (first setup on target servers):</p>
-                        <div class="space-y-2 text-[11px]">
-                            <div class="font-mono text-slate-300 break-all">Node: curl -fsSL {{ panel_url_display }}/install.sh | sudo bash -s -- --role node --panel {{ panel_url_display }} --token &lt;NODE_TOKEN&gt;</div>
-                            <div class="font-mono text-slate-300 break-all">Sub: curl -fsSL {{ panel_url_display }}/install.sh | sudo bash -s -- --role sub --panel {{ panel_url_display }} --domain {% if subscription_domain == "" %}&lt;SUB_DOMAIN&gt;{% else %}{{ subscription_domain }}{% endif %} --token &lt;FRONTEND_TOKEN&gt; --region global</div>
-                            <div class="font-mono text-slate-300 break-all">Bot: curl -fsSL {{ panel_url_display }}/install.sh | sudo bash -s -- --role bot --panel {{ panel_url_display }} --bot-token &lt;BOT_TOKEN&gt; --panel-token &lt;INTERNAL_API_TOKEN&gt;</div>
+                <div class="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4 space-y-4">
+                    <div class="flex items-center justify-between gap-3">
+                        <p class="text-xs text-slate-200">Quick install commands (ready to run)</p>
+                        <a href="{{ admin_path }}/api-keys" class="text-[11px] text-cyan-300 hover:text-cyan-200">Manage Enrollment Keys</a>
+                    </div>
+
+                    <div class="space-y-2">
+                        <div class="rounded-lg border border-white/10 bg-slate-950/50 p-2.5">
+                            <div class="flex items-center justify-between mb-1.5">
+                                <span class="text-[11px] text-slate-300 font-semibold uppercase tracking-wide">Node Server</span>
+                                <button type="button" onclick="copyInstallerCommand('install-cmd-node', this)"
+                                    class="text-[11px] px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors">Copy</button>
+                            </div>
+                            <div id="install-cmd-node" class="font-mono text-[11px] text-slate-300 break-all">{{ installer_node_command }}</div>
+                        </div>
+
+                        <div class="rounded-lg border border-white/10 bg-slate-950/50 p-2.5">
+                            <div class="flex items-center justify-between mb-1.5">
+                                <span class="text-[11px] text-slate-300 font-semibold uppercase tracking-wide">Sub Worker</span>
+                                <button type="button" onclick="copyInstallerCommand('install-cmd-sub', this)"
+                                    class="text-[11px] px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors">Copy</button>
+                            </div>
+                            <div id="install-cmd-sub" class="font-mono text-[11px] text-slate-300 break-all">{{ installer_sub_command }}</div>
+                        </div>
+
+                        <div class="rounded-lg border border-white/10 bg-slate-950/50 p-2.5">
+                            <div class="flex items-center justify-between mb-1.5">
+                                <span class="text-[11px] text-slate-300 font-semibold uppercase tracking-wide">Bot Worker</span>
+                                <button type="button" onclick="copyInstallerCommand('install-cmd-bot', this)"
+                                    class="text-[11px] px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors">Copy</button>
+                            </div>
+                            <div id="install-cmd-bot" class="font-mono text-[11px] text-slate-300 break-all">{{ installer_bot_command }}</div>
                         </div>
                     </div>
+
+                    <div class="rounded-lg border border-white/10 bg-slate-950/40 p-3 text-[11px] text-slate-400 space-y-1.5">
+                        <p><span class="text-slate-200">Auto-generated enrollment key:</span> <span class="font-mono text-cyan-300 break-all">{{ installer_enrollment_key }}</span></p>
+                        <p><span class="text-slate-200">Internal API token:</span>
+                            {% if installer_sub_token_ready %}
+                            <span class="font-mono text-cyan-300 break-all">{{ installer_sub_token }}</span>
+                            {% if internal_api_token_source == "env" %}
+                            <span class="ml-1 text-emerald-300">(from environment)</span>
+                            {% else if internal_api_token_source == "generated" %}
+                            <span class="ml-1 text-emerald-300">(auto-generated and saved)</span>
+                            {% else if internal_api_token_source == "settings" %}
+                            <span class="ml-1 text-cyan-300">(loaded from panel settings)</span>
+                            {% endif %}
+                            {% else %}
+                            <span class="text-rose-300">unavailable (failed to generate)</span>
+                            {% endif %}
+                        </p>
+                        <p>Node-specific one-time token is still available from <a href="{{ admin_path }}/nodes" class="text-cyan-300 hover:text-cyan-200">Nodes → Add Node → Install</a>.</p>
+                    </div>
+
                     <div>
                         <p class="text-xs text-slate-300 mb-2">Role upgrade command (already installed host):</p>
                         <div class="font-mono text-slate-300 break-all text-[11px]">sudo caramba upgrade</div>
                     </div>
-                    <div class="font-mono text-slate-500 break-all text-[11px]">Disable local hub extras: sudo systemctl disable --now caramba-sub.service caramba-bot.service</div>
                 </div>
             </div>
 
@@ -630,6 +680,25 @@
                 </div>
             </div>
 
+            <!-- Advanced Controls -->
+            <details
+                class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6 hover:border-indigo-500/20 transition-all">
+                <summary class="cursor-pointer flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                        <div
+                            class="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-300">
+                            <i data-lucide="settings-2" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-white">Advanced Controls</h3>
+                            <p class="text-xs text-slate-500">Rollout internals, worker diagnostics and safety/obfuscation toggles. Optional for normal operation.</p>
+                        </div>
+                    </div>
+                    <span class="text-xs text-slate-400">click to expand</span>
+                </summary>
+
+                <div class="mt-6 space-y-6">
+
             <!-- Agent Rollout -->
             <div
                 class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6 hover:border-indigo-500/20 transition-all">
@@ -640,17 +709,17 @@
                     </div>
                     <div>
                         <h3 class="text-lg font-semibold text-white">Node Agent Rollout</h3>
-                        <p class="text-xs text-slate-500">Configures node-agent self-update metadata and triggers rollout signal to active nodes.</p>
+                        <p class="text-xs text-slate-500">Default flow: prepare latest release, then rollout to active nodes.</p>
                     </div>
                 </header>
 
                 <div class="space-y-4">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Agent Version</label>
-                            <input type="text" form="main-settings-form" name="agent_latest_version"
-                                value="{{ agent_latest_version }}" placeholder="v0.3.26"
-                                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
+                        <div class="rounded-xl border border-white/10 bg-slate-950/40 p-4 space-y-2">
+                            <p class="text-[11px] uppercase tracking-wider text-slate-500">Current Agent Release Metadata</p>
+                            <p class="text-sm text-white"><span class="text-slate-400">Version:</span> <span class="font-mono">{{ agent_latest_version }}</span></p>
+                            <p class="text-sm text-white break-all"><span class="text-slate-400">Binary URL:</span> <span class="font-mono text-xs">{{ agent_update_url }}</span></p>
+                            <p class="text-sm text-white break-all"><span class="text-slate-400">SHA256:</span> <span class="font-mono text-xs">{{ agent_update_hash }}</span></p>
                         </div>
                         <div>
                             <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Auto-rollout on heartbeat</label>
@@ -669,19 +738,6 @@
                                 </label>
                             </div>
                         </div>
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Agent Binary URL</label>
-                        <input type="text" form="main-settings-form" name="agent_update_url"
-                            value="{{ agent_update_url }}" placeholder="https://github.com/.../caramba-node"
-                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Agent SHA256 Hash</label>
-                        <input type="text" form="main-settings-form" name="agent_update_hash"
-                            value="{{ agent_update_hash }}" placeholder="64-char sha256"
-                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
                     </div>
 
                     <div class="flex flex-wrap gap-2 pt-2">
@@ -705,145 +761,173 @@
                     <div class="text-[11px] text-slate-500">
                         Tip: after changing fields manually, click global <span class="text-slate-300">Save Configuration</span>, then run rollout.
                     </div>
+
+                    <details class="rounded-xl border border-white/10 bg-slate-950/30 p-4">
+                        <summary class="cursor-pointer text-sm text-slate-200 font-medium">Manual Override (Advanced)</summary>
+                        <p class="text-xs text-slate-500 mt-2 mb-3">Only use this if you need a custom binary or pin specific version/hash.</p>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Agent Version</label>
+                                <input type="text" form="main-settings-form" name="agent_latest_version"
+                                    value="{{ agent_latest_version }}" placeholder="v0.3.26"
+                                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Agent Binary URL</label>
+                                <input type="text" form="main-settings-form" name="agent_update_url"
+                                    value="{{ agent_update_url }}" placeholder="https://github.com/.../caramba-node"
+                                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Agent SHA256 Hash</label>
+                                <input type="text" form="main-settings-form" name="agent_update_hash"
+                                    value="{{ agent_update_hash }}" placeholder="64-char sha256"
+                                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
+                            </div>
+                        </div>
+                    </details>
                 </div>
             </div>
 
             <!-- Worker Rollout -->
-            <div
+            <details
                 class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6 hover:border-cyan-500/20 transition-all">
-                <header class="flex items-center gap-3 mb-6">
-                    <div
-                        class="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center text-cyan-300">
-                        <i data-lucide="satellite" class="w-5 h-5"></i>
+                <summary class="cursor-pointer flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                        <div
+                            class="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center text-cyan-300">
+                            <i data-lucide="satellite" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-white">Advanced: Sub/Bot Worker Rollout</h3>
+                            <p class="text-xs text-slate-500">Open only if you run remote sub/bot workers and need rollout diagnostics.</p>
+                        </div>
                     </div>
-                    <div>
-                        <h3 class="text-lg font-semibold text-white">Sub/Bot Worker Rollout</h3>
-                        <p class="text-xs text-slate-500">Publishes target version for remote workers. Worker reports are shown below.</p>
-                    </div>
-                </header>
+                    <span class="text-xs text-slate-400">Workers: {{ worker_total_count }} / Online: {{ worker_online_count }}</span>
+                </summary>
 
-                <div class="flex flex-wrap items-center gap-2 mb-4 text-xs">
-                    <span class="rounded-full border border-white/10 bg-slate-950/40 px-3 py-1 text-slate-300">Workers detected: <span class="text-white font-semibold">{{ worker_total_count }}</span></span>
-                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-emerald-300">Online: <span class="font-semibold">{{ worker_online_count }}</span></span>
+                <div class="mt-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div class="rounded-xl border border-white/10 bg-slate-950/40 p-4">
+                            <p class="text-xs text-slate-400 uppercase tracking-wider">Sub Worker</p>
+                            <p class="text-sm text-white mt-1 font-mono">{% if sub_worker_target_version == "" %}not set{% else %}{{ sub_worker_target_version }}{% endif %}</p>
+                            <p class="text-[11px] text-slate-500 mt-1 break-all">{% if sub_worker_update_url == "" %}URL is not set{% else %}{{ sub_worker_update_url }}{% endif %}</p>
+                        </div>
+                        <div class="rounded-xl border border-white/10 bg-slate-950/40 p-4">
+                            <p class="text-xs text-slate-400 uppercase tracking-wider">Bot Worker</p>
+                            <p class="text-sm text-white mt-1 font-mono">{% if bot_worker_target_version == "" %}not set{% else %}{{ bot_worker_target_version }}{% endif %}</p>
+                            <p class="text-[11px] text-slate-500 mt-1 break-all">{% if bot_worker_update_url == "" %}URL is not set{% else %}{{ bot_worker_update_url }}{% endif %}</p>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap gap-2">
+                        <button type="button"
+                            hx-post="{{ admin_path }}/settings/update/worker/queue"
+                            hx-vals='{"role":"sub"}'
+                            hx-target="#worker-update-result"
+                            hx-swap="innerHTML"
+                            class="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-cyan-500/20">
+                            <i data-lucide="send" class="w-4 h-4"></i> Queue Latest Sub Update
+                        </button>
+                        <button type="button"
+                            hx-post="{{ admin_path }}/settings/update/worker/queue"
+                            hx-vals='{"role":"bot"}'
+                            hx-target="#worker-update-result"
+                            hx-swap="innerHTML"
+                            class="flex items-center gap-2 bg-cyan-700 hover:bg-cyan-600 text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-cyan-700/20">
+                            <i data-lucide="send" class="w-4 h-4"></i> Queue Latest Bot Update
+                        </button>
+                    </div>
+                    <div id="worker-update-result"></div>
+
+                    <div class="mt-4 rounded-xl border border-white/10 bg-slate-950/30 overflow-hidden">
+                        <div class="px-4 py-2 border-b border-white/10">
+                            <p class="text-xs text-slate-300">Worker Inventory</p>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead class="text-slate-500 text-xs uppercase tracking-wider">
+                                    <tr>
+                                        <th class="text-left px-4 py-2">Role</th>
+                                        <th class="text-left px-4 py-2">Worker</th>
+                                        <th class="text-left px-4 py-2">Reachability</th>
+                                        <th class="text-left px-4 py-2">Last State</th>
+                                        <th class="text-left px-4 py-2">Version</th>
+                                        <th class="text-left px-4 py-2">Last Seen</th>
+                                        <th class="text-left px-4 py-2">Message</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="text-slate-300">
+                                    {% if worker_inventory.len() == 0 %}
+                                    <tr>
+                                        <td colspan="7" class="px-4 py-3 text-slate-500">No workers have polled yet.</td>
+                                    </tr>
+                                    {% endif %}
+                                    {% for w in worker_inventory %}
+                                    <tr class="border-t border-white/5">
+                                        <td class="px-4 py-2">{{ w.role }}</td>
+                                        <td class="px-4 py-2 font-mono text-xs">{{ w.worker_id }}</td>
+                                        <td class="px-4 py-2">
+                                            {% if w.is_online %}
+                                            <span class="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-emerald-300 text-xs">online</span>
+                                            {% else %}
+                                            <span class="rounded-full bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 text-rose-300 text-xs">offline</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="px-4 py-2 text-xs">{{ w.last_state }}</td>
+                                        <td class="px-4 py-2 font-mono text-xs">{{ w.current_version }} → {{ w.target_version }}</td>
+                                        <td class="px-4 py-2 text-xs text-slate-400">{{ w.last_seen_ago }}<br>{{ w.last_seen }}</td>
+                                        <td class="px-4 py-2 text-xs text-slate-400">{{ w.last_message }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 rounded-xl border border-white/10 bg-slate-950/30 overflow-hidden">
+                        <div class="px-4 py-2 border-b border-white/10">
+                            <p class="text-xs text-slate-300">Recent Worker Update Reports</p>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead class="text-slate-500 text-xs uppercase tracking-wider">
+                                    <tr>
+                                        <th class="text-left px-4 py-2">Time</th>
+                                        <th class="text-left px-4 py-2">Role</th>
+                                        <th class="text-left px-4 py-2">Worker</th>
+                                        <th class="text-left px-4 py-2">Status</th>
+                                        <th class="text-left px-4 py-2">Version</th>
+                                        <th class="text-left px-4 py-2">Message</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="text-slate-300">
+                                    {% if worker_update_reports.len() == 0 %}
+                                    <tr>
+                                        <td colspan="6" class="px-4 py-3 text-slate-500">No worker reports yet.</td>
+                                    </tr>
+                                    {% endif %}
+                                    {% for row in worker_update_reports %}
+                                    <tr class="border-t border-white/5">
+                                        <td class="px-4 py-2 text-xs text-slate-400">{{ row.created_at }}</td>
+                                        <td class="px-4 py-2">{{ row.role }}</td>
+                                        <td class="px-4 py-2 font-mono text-xs">{{ row.worker_id }}</td>
+                                        <td class="px-4 py-2">{{ row.status }}</td>
+                                        <td class="px-4 py-2 font-mono text-xs">{{ row.current_version }} → {{ row.target_version }}</td>
+                                        <td class="px-4 py-2 text-xs text-slate-400">{{ row.message }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <p class="text-[11px] text-slate-500 mt-3">
+                        For Bot worker polling, install bot with
+                        <span class="font-mono">--panel-token {% if installer_sub_token_ready %}{{ installer_sub_token }}{% else %}&lt;INTERNAL_API_TOKEN&gt;{% endif %}</span>.
+                    </p>
                 </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div class="rounded-xl border border-white/10 bg-slate-950/40 p-4">
-                        <p class="text-xs text-slate-400 uppercase tracking-wider">Sub Worker</p>
-                        <p class="text-sm text-white mt-1 font-mono">{% if sub_worker_target_version == "" %}not set{% else %}{{ sub_worker_target_version }}{% endif %}</p>
-                        <p class="text-[11px] text-slate-500 mt-1 break-all">{% if sub_worker_update_url == "" %}URL is not set{% else %}{{ sub_worker_update_url }}{% endif %}</p>
-                    </div>
-                    <div class="rounded-xl border border-white/10 bg-slate-950/40 p-4">
-                        <p class="text-xs text-slate-400 uppercase tracking-wider">Bot Worker</p>
-                        <p class="text-sm text-white mt-1 font-mono">{% if bot_worker_target_version == "" %}not set{% else %}{{ bot_worker_target_version }}{% endif %}</p>
-                        <p class="text-[11px] text-slate-500 mt-1 break-all">{% if bot_worker_update_url == "" %}URL is not set{% else %}{{ bot_worker_update_url }}{% endif %}</p>
-                    </div>
-                </div>
-
-                <div class="flex flex-wrap gap-2">
-                    <button type="button"
-                        hx-post="{{ admin_path }}/settings/update/worker/queue"
-                        hx-vals='{"role":"sub"}'
-                        hx-target="#worker-update-result"
-                        hx-swap="innerHTML"
-                        class="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-cyan-500/20">
-                        <i data-lucide="send" class="w-4 h-4"></i> Queue Latest Sub Update
-                    </button>
-                    <button type="button"
-                        hx-post="{{ admin_path }}/settings/update/worker/queue"
-                        hx-vals='{"role":"bot"}'
-                        hx-target="#worker-update-result"
-                        hx-swap="innerHTML"
-                        class="flex items-center gap-2 bg-cyan-700 hover:bg-cyan-600 text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-cyan-700/20">
-                        <i data-lucide="send" class="w-4 h-4"></i> Queue Latest Bot Update
-                    </button>
-                </div>
-                <div id="worker-update-result"></div>
-
-                <div class="mt-4 rounded-xl border border-white/10 bg-slate-950/30 overflow-hidden">
-                    <div class="px-4 py-2 border-b border-white/10">
-                        <p class="text-xs text-slate-300">Worker Inventory</p>
-                    </div>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-sm">
-                            <thead class="text-slate-500 text-xs uppercase tracking-wider">
-                                <tr>
-                                    <th class="text-left px-4 py-2">Role</th>
-                                    <th class="text-left px-4 py-2">Worker</th>
-                                    <th class="text-left px-4 py-2">Reachability</th>
-                                    <th class="text-left px-4 py-2">Last State</th>
-                                    <th class="text-left px-4 py-2">Version</th>
-                                    <th class="text-left px-4 py-2">Last Seen</th>
-                                    <th class="text-left px-4 py-2">Message</th>
-                                </tr>
-                            </thead>
-                            <tbody class="text-slate-300">
-                                {% if worker_inventory.len() == 0 %}
-                                <tr>
-                                    <td colspan="7" class="px-4 py-3 text-slate-500">No workers have polled yet.</td>
-                                </tr>
-                                {% endif %}
-                                {% for w in worker_inventory %}
-                                <tr class="border-t border-white/5">
-                                    <td class="px-4 py-2">{{ w.role }}</td>
-                                    <td class="px-4 py-2 font-mono text-xs">{{ w.worker_id }}</td>
-                                    <td class="px-4 py-2">
-                                        {% if w.is_online %}
-                                        <span class="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-emerald-300 text-xs">online</span>
-                                        {% else %}
-                                        <span class="rounded-full bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 text-rose-300 text-xs">offline</span>
-                                        {% endif %}
-                                    </td>
-                                    <td class="px-4 py-2 text-xs">{{ w.last_state }}</td>
-                                    <td class="px-4 py-2 font-mono text-xs">{{ w.current_version }} → {{ w.target_version }}</td>
-                                    <td class="px-4 py-2 text-xs text-slate-400">{{ w.last_seen_ago }}<br>{{ w.last_seen }}</td>
-                                    <td class="px-4 py-2 text-xs text-slate-400">{{ w.last_message }}</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <div class="mt-4 rounded-xl border border-white/10 bg-slate-950/30 overflow-hidden">
-                    <div class="px-4 py-2 border-b border-white/10">
-                        <p class="text-xs text-slate-300">Recent Worker Update Reports</p>
-                    </div>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-sm">
-                            <thead class="text-slate-500 text-xs uppercase tracking-wider">
-                                <tr>
-                                    <th class="text-left px-4 py-2">Time</th>
-                                    <th class="text-left px-4 py-2">Role</th>
-                                    <th class="text-left px-4 py-2">Worker</th>
-                                    <th class="text-left px-4 py-2">Status</th>
-                                    <th class="text-left px-4 py-2">Version</th>
-                                    <th class="text-left px-4 py-2">Message</th>
-                                </tr>
-                            </thead>
-                            <tbody class="text-slate-300">
-                                {% if worker_update_reports.len() == 0 %}
-                                <tr>
-                                    <td colspan="6" class="px-4 py-3 text-slate-500">No worker reports yet.</td>
-                                </tr>
-                                {% endif %}
-                                {% for row in worker_update_reports %}
-                                <tr class="border-t border-white/5">
-                                    <td class="px-4 py-2 text-xs text-slate-400">{{ row.created_at }}</td>
-                                    <td class="px-4 py-2">{{ row.role }}</td>
-                                    <td class="px-4 py-2 font-mono text-xs">{{ row.worker_id }}</td>
-                                    <td class="px-4 py-2">{{ row.status }}</td>
-                                    <td class="px-4 py-2 font-mono text-xs">{{ row.current_version }} → {{ row.target_version }}</td>
-                                    <td class="px-4 py-2 text-xs text-slate-400">{{ row.message }}</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <p class="text-[11px] text-slate-500 mt-3">For Bot worker polling, install bot with <span class="font-mono">--panel-token &lt;INTERNAL_API_TOKEN&gt;</span> so it can call internal rollout API.</p>
-            </div>
+            </details>
 
             <!-- Backup Section (Moved from Tools) -->
             <div
@@ -952,6 +1036,9 @@
                         class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-red-500 outline-none transition-all text-sm">
                 </div>
             </div>
+
+                </div>
+            </details>
         </div>
     </div>
 
@@ -992,6 +1079,31 @@
 </style>
 
 <script>
+    function copyInstallerCommand(elementId, button) {
+        const el = document.getElementById(elementId);
+        if (!el) return;
+        const text = el.innerText.trim();
+        if (!text) return;
+
+        navigator.clipboard.writeText(text).then(() => {
+            if (button) {
+                const prev = button.innerText;
+                button.innerText = 'Copied';
+                button.classList.add('text-emerald-300');
+                setTimeout(() => {
+                    button.innerText = prev;
+                    button.classList.remove('text-emerald-300');
+                }, 900);
+            }
+        }).catch(() => {
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+        });
+    }
+
     function switchTab(tabId) {
         // Build tab IDs
         const tabs = ['general', 'payments', 'frontend', 'trials', 'system'];

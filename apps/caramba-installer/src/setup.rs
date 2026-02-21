@@ -357,18 +357,59 @@ pub fn resolve_install_config(
 }
 
 pub fn generate_caddyfile(config: &InstallConfig) -> String {
+    let admin_path = normalize_admin_path(config.admin_path.clone());
+    let same_domain_sub = config.sub_domain.as_ref() == Some(&config.domain);
+    let has_external_sub_domain = config.sub_domain.as_ref().is_some() && !same_domain_sub;
+
+    let mut main_path_rules = vec![
+        "/api".to_string(),
+        "/api/*".to_string(),
+        "/assets/*".to_string(),
+        "/downloads/*".to_string(),
+        "/install.sh".to_string(),
+        "/nodes/*".to_string(),
+        admin_path.clone(),
+        format!("{}/*", admin_path),
+    ];
+
+    if !same_domain_sub {
+        // Panel-only mode (or dedicated sub domain): panel serves /app and /sub URLs.
+        main_path_rules.push("/app".to_string());
+        main_path_rules.push("/app/*".to_string());
+        main_path_rules.push("/sub/*".to_string());
+    }
+
+    let main_paths = main_path_rules.join(" ");
     let mut caddyfile = format!(
-        "{domain} {{\n    reverse_proxy 127.0.0.1:3000\n}}\n",
-        domain = config.domain
+        "{domain} {{
+    encode zstd gzip
+
+{same_domain_frontend}
+    @panel_routes path {main_paths}
+    handle @panel_routes {{
+        reverse_proxy 127.0.0.1:3000
+    }}
+
+    handle {{
+        respond \"Not found\" 404
+    }}
+}}
+",
+        domain = config.domain,
+        same_domain_frontend = if same_domain_sub {
+            "    @same_domain_frontend path /app /app/* /sub/* /health\n    handle @same_domain_frontend {\n        reverse_proxy 127.0.0.1:8080\n    }\n\n"
+        } else {
+            ""
+        },
+        main_paths = main_paths
     );
 
-    if let Some(sub) = &config.sub_domain {
-        if sub == &config.domain {
-            return caddyfile;
+    if has_external_sub_domain {
+        if let Some(sub) = &config.sub_domain {
+            caddyfile.push_str(&format!(
+                "\n{sub} {{\n    encode zstd gzip\n\n    handle {{\n        reverse_proxy 127.0.0.1:8080\n    }}\n}}\n"
+            ));
         }
-        caddyfile.push_str(&format!(
-            "\n{sub} {{\n    @panel_api path /api/*\n    handle @panel_api {{\n        reverse_proxy 127.0.0.1:3000\n    }}\n\n    handle {{\n        reverse_proxy 127.0.0.1:8080\n    }}\n}}\n"
-        ));
     }
 
     caddyfile

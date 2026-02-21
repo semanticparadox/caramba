@@ -17,6 +17,7 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{error, info};
+use uuid::Uuid;
 
 use crate::AppState;
 
@@ -44,6 +45,105 @@ fn normalize_base_url(raw: &str) -> String {
         value.pop();
     }
     value
+}
+
+fn normalize_url_path(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed == "/" {
+        return "/".to_string();
+    }
+    let mut normalized = if trimmed.starts_with('/') {
+        trimmed.to_string()
+    } else {
+        format!("/{}", trimmed)
+    };
+    while normalized.ends_with('/') && normalized.len() > 1 {
+        normalized.pop();
+    }
+    normalized
+}
+
+fn join_base_and_path(base_url: &str, path: &str) -> String {
+    let normalized_path = normalize_url_path(path);
+    if base_url.trim().is_empty() {
+        return format!("https://YOUR_PANEL_DOMAIN{}", normalized_path);
+    }
+    format!("{}{}", normalize_base_url(base_url), normalized_path)
+}
+
+fn release_asset_url(version: &str, asset_name: &str) -> String {
+    format!(
+        "https://github.com/semanticparadox/caramba/releases/download/{}/{}",
+        version, asset_name
+    )
+}
+
+async fn ensure_installer_enrollment_key(pool: &sqlx::PgPool) -> Result<String, sqlx::Error> {
+    if let Some(existing) = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT key
+        FROM api_keys
+        WHERE is_active = TRUE
+          AND type = 'enrollment'
+          AND (max_uses IS NULL OR current_uses < max_uses)
+          AND (expires_at IS NULL OR expires_at > NOW())
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .fetch_optional(pool)
+    .await?
+    {
+        return Ok(existing);
+    }
+
+    let new_key = format!("EXA-ENROLL-{}", Uuid::new_v4().to_string().to_uppercase());
+    sqlx::query(
+        r#"
+        INSERT INTO api_keys (key, name, type, max_uses, current_uses, is_active, created_at)
+        VALUES ($1, 'Auto Installer Enrollment Key', 'enrollment', NULL, 0, TRUE, CURRENT_TIMESTAMP)
+        "#,
+    )
+    .bind(&new_key)
+    .execute(pool)
+    .await?;
+
+    Ok(new_key)
+}
+
+async fn resolve_internal_api_token(state: &AppState) -> (String, bool, String) {
+    let env_token = std::env::var("INTERNAL_API_TOKEN")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !env_token.is_empty() {
+        return (env_token, true, "env".to_string());
+    }
+
+    let saved_token = state
+        .settings
+        .get_or_default("internal_api_token", "")
+        .await
+        .trim()
+        .to_string();
+    if !saved_token.is_empty() {
+        return (saved_token, true, "settings".to_string());
+    }
+
+    let generated = format!(
+        "EXA-INTERNAL-{}",
+        Uuid::new_v4().simple().to_string().to_uppercase()
+    );
+    match state.settings.set("internal_api_token", &generated).await {
+        Ok(_) => (generated, true, "generated".to_string()),
+        Err(e) => {
+            error!(
+                "Failed to generate/persist internal API token in settings: {}",
+                e
+            );
+            ("".to_string(), false, "missing".to_string())
+        }
+    }
 }
 
 fn service_file_candidates(service_name: &str) -> [String; 3] {
@@ -193,6 +293,10 @@ pub struct SettingsTemplate {
     pub support_url: String,
     pub panel_url: String,
     pub panel_url_display: String,
+    pub admin_ui_url_display: String,
+    pub internal_api_token: String,
+    pub internal_api_token_present: bool,
+    pub internal_api_token_source: String,
     pub bot_username: String,
     pub brand_name: String,
     pub terms_of_service: String,
@@ -242,6 +346,12 @@ pub struct SettingsTemplate {
     pub relay_auth_mode: String,
     pub relay_legacy_usage_last_seen_at: String,
     pub relay_legacy_usage_last_seen_bytes: String,
+    pub installer_enrollment_key: String,
+    pub installer_sub_token: String,
+    pub installer_node_command: String,
+    pub installer_sub_command: String,
+    pub installer_bot_command: String,
+    pub installer_sub_token_ready: bool,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -403,6 +513,9 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     } else {
         panel_url.clone()
     };
+    let admin_ui_url_display = join_base_and_path(&panel_url_display, &state.admin_path);
+    let (internal_api_token, internal_api_token_present, internal_api_token_source) =
+        resolve_internal_api_token(&state).await;
     let bot_username = state.settings.get_or_default("bot_username", "").await;
     let brand_name = state.settings.get_or_default("brand_name", "CARAMBA").await;
     let terms_of_service = state
@@ -435,7 +548,7 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .get_or_default("kill_switch_timeout", "300")
         .await;
 
-    let admin_path = state.admin_path.clone();
+    let admin_path = normalize_url_path(&state.admin_path);
 
     let free_trial_days = state
         .settings
@@ -499,28 +612,86 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .get_or_default("auto_update_agents", "true")
         .await
         == "true";
-    let agent_latest_version = state
+    let mut agent_latest_version = state
         .settings
         .get_or_default("agent_latest_version", "0.0.0")
         .await;
-    let agent_update_url = state.settings.get_or_default("agent_update_url", "").await;
+    let mut agent_update_url = state.settings.get_or_default("agent_update_url", "").await;
     let agent_update_hash = state.settings.get_or_default("agent_update_hash", "").await;
-    let sub_worker_target_version = state
+    let mut sub_worker_target_version = state
         .settings
         .get_or_default("worker_sub_target_version", "")
         .await;
-    let sub_worker_update_url = state
+    let mut sub_worker_update_url = state
         .settings
         .get_or_default("worker_sub_update_url", "")
         .await;
-    let bot_worker_target_version = state
+    let mut bot_worker_target_version = state
         .settings
         .get_or_default("worker_bot_target_version", "")
         .await;
-    let bot_worker_update_url = state
+    let mut bot_worker_update_url = state
         .settings
         .get_or_default("worker_bot_update_url", "")
         .await;
+
+    let mut auto_fill_updates = HashMap::new();
+    let current_version = crate::utils::current_panel_version();
+    let default_version =
+        if agent_latest_version.trim().is_empty() || agent_latest_version.trim() == "0.0.0" {
+            current_version.clone()
+        } else {
+            agent_latest_version.clone()
+        };
+    if default_version != agent_latest_version {
+        agent_latest_version = default_version.clone();
+        auto_fill_updates.insert(
+            "agent_latest_version".to_string(),
+            agent_latest_version.clone(),
+        );
+    }
+    let normalized_agent_version = if agent_latest_version.starts_with('v') {
+        agent_latest_version.clone()
+    } else {
+        format!("v{}", agent_latest_version)
+    };
+    if agent_update_url.trim().is_empty() {
+        agent_update_url = release_asset_url(&normalized_agent_version, "caramba-node");
+        auto_fill_updates.insert("agent_update_url".to_string(), agent_update_url.clone());
+    }
+    if sub_worker_target_version.trim().is_empty() {
+        sub_worker_target_version = normalized_agent_version.clone();
+        auto_fill_updates.insert(
+            "worker_sub_target_version".to_string(),
+            sub_worker_target_version.clone(),
+        );
+    }
+    if bot_worker_target_version.trim().is_empty() {
+        bot_worker_target_version = normalized_agent_version.clone();
+        auto_fill_updates.insert(
+            "worker_bot_target_version".to_string(),
+            bot_worker_target_version.clone(),
+        );
+    }
+    if sub_worker_update_url.trim().is_empty() && !sub_worker_target_version.trim().is_empty() {
+        sub_worker_update_url = release_asset_url(&sub_worker_target_version, "caramba-sub");
+        auto_fill_updates.insert(
+            "worker_sub_update_url".to_string(),
+            sub_worker_update_url.clone(),
+        );
+    }
+    if bot_worker_update_url.trim().is_empty() && !bot_worker_target_version.trim().is_empty() {
+        bot_worker_update_url = release_asset_url(&bot_worker_target_version, "caramba-bot");
+        auto_fill_updates.insert(
+            "worker_bot_update_url".to_string(),
+            bot_worker_update_url.clone(),
+        );
+    }
+    if !auto_fill_updates.is_empty() {
+        if let Err(e) = state.settings.set_multiple(auto_fill_updates).await {
+            error!("Failed to persist auto-filled rollout settings: {}", e);
+        }
+    }
     if let Err(e) = crate::handlers::api::internal::ensure_worker_update_tables(&state.pool).await {
         error!("Failed to ensure worker update tables: {}", e);
     }
@@ -545,6 +716,36 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     } else {
         relay_legacy_usage_last_seen_at_raw
     };
+    let installer_enrollment_key = match ensure_installer_enrollment_key(&state.pool).await {
+        Ok(v) => v,
+        Err(e) => {
+            error!("Failed to ensure installer enrollment key: {}", e);
+            "<ENROLLMENT_KEY>".to_string()
+        }
+    };
+    let installer_sub_token_ready = internal_api_token_present;
+    let installer_sub_token = if internal_api_token_present {
+        internal_api_token.clone()
+    } else {
+        "<INTERNAL_API_TOKEN>".to_string()
+    };
+    let installer_sub_domain = if subscription_domain.trim().is_empty() {
+        "<SUB_DOMAIN>".to_string()
+    } else {
+        subscription_domain.trim().to_string()
+    };
+    let installer_node_command = format!(
+        "curl -fsSL {}/install.sh | sudo bash -s -- --role node --panel {} --token {}",
+        panel_url_display, panel_url_display, installer_enrollment_key
+    );
+    let installer_sub_command = format!(
+        "curl -fsSL {}/install.sh | sudo bash -s -- --role sub --panel {} --domain {} --token {} --region global",
+        panel_url_display, panel_url_display, installer_sub_domain, installer_sub_token
+    );
+    let installer_bot_command = format!(
+        "curl -fsSL {}/install.sh | sudo bash -s -- --role bot --panel {} --bot-token <BOT_TOKEN> --panel-token {}",
+        panel_url_display, panel_url_display, installer_sub_token
+    );
     let local_panel_detected =
         Path::new("/opt/caramba/caramba-panel").exists() || service_exists("caramba-panel.service");
     let local_sub_detected =
@@ -628,7 +829,7 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     };
 
     let template = SettingsTemplate {
-        current_version: crate::utils::current_panel_version(),
+        current_version: current_version.clone(),
         username: get_auth_user(&state, &jar)
             .await
             .unwrap_or("Admin".to_string()),
@@ -648,6 +849,10 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         support_url,
         panel_url,
         panel_url_display,
+        admin_ui_url_display,
+        internal_api_token,
+        internal_api_token_present,
+        internal_api_token_source,
         bot_username,
         brand_name,
         terms_of_service,
@@ -697,6 +902,12 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         relay_auth_mode,
         relay_legacy_usage_last_seen_at,
         relay_legacy_usage_last_seen_bytes,
+        installer_enrollment_key,
+        installer_sub_token,
+        installer_node_command,
+        installer_sub_command,
+        installer_bot_command,
+        installer_sub_token_ready,
     };
 
     match template.render() {
@@ -1513,6 +1724,19 @@ pub async fn check_update(State(state): State<AppState>) -> impl IntoResponse {
     } else {
         "https://YOUR_PANEL_DOMAIN".to_string()
     };
+    let admin_ui_url = join_base_and_path(&panel_url, &state.admin_path);
+    let (internal_api_token, internal_api_token_present, internal_api_token_source) =
+        resolve_internal_api_token(&state).await;
+    let installer_enrollment_key = match ensure_installer_enrollment_key(&state.pool).await {
+        Ok(v) => v,
+        Err(e) => {
+            error!(
+                "Failed to ensure installer enrollment key for update panel: {}",
+                e
+            );
+            "<ENROLLMENT_KEY>".to_string()
+        }
+    };
     let update_role = if distributed_mode { "panel" } else { "hub" };
     let sub_domain_setting = state
         .settings
@@ -1552,17 +1776,38 @@ pub async fn check_update(State(state): State<AppState>) -> impl IntoResponse {
             let local_upgrade_command =
                 format!("sudo caramba upgrade --version {}", latest_version);
             let node_command = format!(
-                "curl -fsSL {}/install.sh | sudo bash -s -- --role node --panel {} --token <NODE_TOKEN> --version {}",
-                panel_url, panel_url, latest_version
+                "curl -fsSL {}/install.sh | sudo bash -s -- --role node --panel {} --token {} --version {}",
+                panel_url, panel_url, installer_enrollment_key, latest_version
             );
             let sub_command = format!(
-                "curl -fsSL {}/install.sh | sudo bash -s -- --role sub --panel {} --domain {} --token <FRONTEND_TOKEN> --region <REGION> --version {}",
-                panel_url, panel_url, sub_domain, latest_version
+                "curl -fsSL {}/install.sh | sudo bash -s -- --role sub --panel {} --domain {} --token {} --region global --version {}",
+                panel_url,
+                panel_url,
+                sub_domain,
+                if internal_api_token_present {
+                    internal_api_token.clone()
+                } else {
+                    "<INTERNAL_API_TOKEN>".to_string()
+                },
+                latest_version
             );
             let bot_command = format!(
-                "curl -fsSL {}/install.sh | sudo bash -s -- --role bot --panel {} --bot-token <BOT_TOKEN> --panel-token <INTERNAL_API_TOKEN> --version {}",
-                panel_url, panel_url, latest_version
+                "curl -fsSL {}/install.sh | sudo bash -s -- --role bot --panel {} --bot-token <BOT_TOKEN> --panel-token {} --version {}",
+                panel_url,
+                panel_url,
+                if internal_api_token_present {
+                    internal_api_token.clone()
+                } else {
+                    "<INTERNAL_API_TOKEN>".to_string()
+                },
+                latest_version
             );
+            let token_source_badge = match internal_api_token_source.as_str() {
+                "env" => "INTERNAL_API_TOKEN source: environment",
+                "settings" => "INTERNAL_API_TOKEN source: panel settings",
+                "generated" => "INTERNAL_API_TOKEN source: auto-generated (panel settings)",
+                _ => "INTERNAL_API_TOKEN source: missing",
+            };
             format!(
                 r##"
 <div class="flex items-center justify-between" id="update-status-container">
@@ -1570,6 +1815,8 @@ pub async fn check_update(State(state): State<AppState>) -> impl IntoResponse {
         <p class="text-sm text-slate-400">Current Version: <span class="text-white font-mono">{current}</span></p>
         {status_line}
         <p class="text-xs text-slate-500 mt-1">{update_scope}</p>
+        <p class="text-xs text-cyan-300 mt-1">Admin UI URL (hidden path): <span class="font-mono">{admin_ui_url}</span></p>
+        <p class="text-xs text-slate-500 mt-1">{token_source_badge}</p>
         <div class="mt-3 grid grid-cols-1 gap-2 text-[11px]">
             <div class="rounded-lg border border-white/10 bg-slate-900/40 p-2">
                 <p class="text-slate-400 mb-1">Recommended on already installed host:</p>
@@ -1612,6 +1859,8 @@ pub async fn check_update(State(state): State<AppState>) -> impl IntoResponse {
                 sub_command = sub_command,
                 bot_command = bot_command,
                 update_scope = update_scope,
+                admin_ui_url = admin_ui_url,
+                token_source_badge = token_source_badge,
                 admin_path = state.admin_path.clone()
             )
         }
