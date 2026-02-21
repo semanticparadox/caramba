@@ -10,6 +10,12 @@ use tracing::error;
 
 use crate::AppState;
 
+#[inline]
+fn ensure_jwt_crypto_provider() {
+    // Idempotent process-wide install for jsonwebtoken 10.x.
+    let _ = jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER.install_default();
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct ClientClaims {
     sub: String,
@@ -49,6 +55,8 @@ fn extract_bearer_token(headers: &axum::http::HeaderMap) -> Option<&str> {
 }
 
 async fn resolve_user_id(state: &AppState, headers: &axum::http::HeaderMap) -> Option<i64> {
+    ensure_jwt_crypto_provider();
+
     let token = extract_bearer_token(headers)?;
 
     // 1) Preferred path: JWT issued by /api/client/auth/telegram

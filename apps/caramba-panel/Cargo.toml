@@ -26,7 +26,8 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 futures = "0.3"
 async-trait = "0.1"
 anyhow = "1.0"
-reqwest = { version = "0.13", features = ["json", "rustls", "form", "multipart", "cookies"] }
+reqwest = { version = "0.13", features = ["json", "rustls-no-provider", "form", "multipart", "cookies"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 thiserror = "2.0"
 tracing = "0.1"

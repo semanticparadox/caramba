@@ -35,6 +35,14 @@ fn init_jwt_crypto_provider() {
     let _ = jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER.install_default();
 }
 
+fn init_rustls_provider() {
+    // rustls 0.23 may require explicit process-level provider selection when
+    // multiple provider features are present transitively.
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub pool: sqlx::PgPool,
@@ -175,6 +183,7 @@ async fn main() -> Result<()> {
         env!("CARGO_PKG_VERSION")
     );
 
+    init_rustls_provider();
     init_jwt_crypto_provider();
 
     // Load .env
@@ -681,14 +690,8 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/users/{id}/gift",
             post(handlers::admin::admin_gift_subscription),
         )
-        .route(
-            "/users/{id}/notify",
-            post(handlers::admin::notify_user),
-        )
-        .route(
-            "/users/notify/all",
-            post(handlers::admin::notify_all_users),
-        )
+        .route("/users/{id}/notify", post(handlers::admin::notify_user))
+        .route("/users/notify/all", post(handlers::admin::notify_all_users))
         .route(
             "/users/subs/{id}",
             axum::routing::delete(handlers::admin::delete_user_subscription),

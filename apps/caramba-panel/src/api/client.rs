@@ -16,6 +16,12 @@ use std::collections::HashMap;
 use std::env;
 use tracing::warn;
 
+#[inline]
+fn ensure_jwt_crypto_provider() {
+    // Idempotent process-wide install for jsonwebtoken 10.x.
+    let _ = jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER.install_default();
+}
+
 #[derive(Deserialize)]
 pub struct InitDataRequest {
     /// Accept both "initData" (from AuthProvider.tsx) and "init_data" (from AuthContext.tsx)
@@ -231,6 +237,7 @@ async fn auth_telegram(
     Json(payload): Json<InitDataRequest>,
 ) -> impl IntoResponse {
     tracing::info!("Received auth request");
+    ensure_jwt_crypto_provider();
 
     // 1. Parse initData
     let mut params: HashMap<String, String> = HashMap::new();
@@ -374,6 +381,8 @@ async fn auth_middleware(
     mut req: Request,
     next: Next,
 ) -> Result<impl IntoResponse, StatusCode> {
+    ensure_jwt_crypto_provider();
+
     let auth_header = req
         .headers()
         .get(header::AUTHORIZATION)
