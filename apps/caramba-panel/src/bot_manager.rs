@@ -41,6 +41,17 @@ impl NotificationPayload {
             disable_link_preview: false,
         }
     }
+
+    pub fn legacy_markdown_v2(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            parse_mode: NotificationParseMode::MarkdownV2,
+            image_url: None,
+            button_text: None,
+            button_url: None,
+            disable_link_preview: false,
+        }
+    }
 }
 
 pub struct BotManager {
@@ -171,7 +182,7 @@ impl BotManager {
         chat_id: i64,
         text: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let payload = NotificationPayload::plain(text);
+        let payload = NotificationPayload::legacy_markdown_v2(text);
         self.send_rich_notification(chat_id, payload).await
     }
 
