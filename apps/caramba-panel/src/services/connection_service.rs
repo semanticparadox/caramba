@@ -248,8 +248,8 @@ impl ConnectionService {
         let active_device_count = active_ips.len();
         let ips_vec: Vec<String> = active_ips.iter().cloned().collect();
 
-        // Update IP tracking in database
-        self.store.sub_repo.update_ips(sub_id, ips_vec).await?;
+        // Update live tracking in database (legacy IP tracking + device lease heartbeat).
+        self.subscription.update_ips(sub_id, ips_vec).await?;
 
         // Check if limit exceeded (0 for Unlimited)
         if device_limit > 0 && active_device_count > device_limit as usize {

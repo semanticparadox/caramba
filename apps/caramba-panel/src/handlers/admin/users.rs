@@ -1450,10 +1450,16 @@ pub async fn get_subscription_devices(
         }
     };
 
-    let infra_rows: Vec<String> = sqlx::query_scalar("SELECT ip FROM nodes")
+    let mut infra_rows: Vec<String> = sqlx::query_scalar("SELECT ip FROM nodes")
         .fetch_all(&state.pool)
         .await
         .unwrap_or_default();
+    let mut frontend_rows: Vec<String> =
+        sqlx::query_scalar("SELECT ip_address FROM frontend_servers")
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default();
+    infra_rows.append(&mut frontend_rows);
     let infra_ips: HashSet<IpAddr> = infra_rows
         .into_iter()
         .filter_map(|ip| parse_ip_maybe(&ip))

@@ -9,6 +9,7 @@ use caramba_db::models::store::{
 };
 use caramba_db::repositories::node_repo::NodeRepository;
 use chrono::{Duration, Utc};
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::collections::HashSet;
 use std::net::IpAddr;
@@ -96,13 +97,140 @@ impl SubscriptionService {
     }
 
     async fn infrastructure_ips(&self) -> HashSet<IpAddr> {
-        let rows: Vec<String> = sqlx::query_scalar("SELECT ip FROM nodes")
+        let mut rows: Vec<String> = sqlx::query_scalar("SELECT ip FROM nodes")
             .fetch_all(&self.pool)
             .await
             .unwrap_or_default();
+        let mut frontend_rows: Vec<String> =
+            sqlx::query_scalar("SELECT ip_address FROM frontend_servers")
+                .fetch_all(&self.pool)
+                .await
+                .unwrap_or_default();
+        rows.append(&mut frontend_rows);
         rows.into_iter()
             .filter_map(|ip| Self::parse_ip_maybe(&ip))
             .collect()
+    }
+
+    fn should_track_device_ip(raw: &str, infra_ips: &HashSet<IpAddr>) -> bool {
+        let Some(ip) = Self::parse_ip_maybe(raw) else {
+            return false;
+        };
+        if ip.is_loopback() || ip.is_unspecified() || ip.is_multicast() {
+            return false;
+        }
+        !infra_ips.contains(&ip)
+    }
+
+    fn normalize_user_agent(user_agent: Option<&str>) -> Option<String> {
+        user_agent
+            .map(str::trim)
+            .filter(|ua| !ua.is_empty())
+            .map(|ua| ua.to_string())
+    }
+
+    fn device_fingerprint(
+        subscription_id: i64,
+        normalized_ip: &str,
+        user_agent: Option<&str>,
+    ) -> String {
+        let material = match Self::normalize_user_agent(user_agent) {
+            Some(ua) => format!(
+                "sub:{}|ua:{}|ip:{}",
+                subscription_id,
+                ua.to_ascii_lowercase(),
+                normalized_ip
+            ),
+            None => format!("sub:{}|ip:{}", subscription_id, normalized_ip),
+        };
+        let mut hasher = Sha256::new();
+        hasher.update(material.as_bytes());
+        hex::encode(hasher.finalize())
+    }
+
+    async fn upsert_device_lease(
+        &self,
+        subscription_id: i64,
+        normalized_ip: &str,
+        user_agent: Option<&str>,
+        node_id: Option<i64>,
+    ) -> Result<()> {
+        let normalized_ua = Self::normalize_user_agent(user_agent);
+
+        // Heartbeats from nodes often don't include UA. In that case, first try to refresh an
+        // existing lease for the same IP to avoid creating duplicate device records.
+        if normalized_ua.is_none() {
+            let touched = sqlx::query(
+                "UPDATE subscription_device_leases
+                 SET last_seen_at = CURRENT_TIMESTAMP,
+                     last_node_id = COALESCE($3, last_node_id)
+                 WHERE subscription_id = $1 AND last_ip = $2",
+            )
+            .bind(subscription_id)
+            .bind(normalized_ip)
+            .bind(node_id)
+            .execute(&self.pool)
+            .await
+            .context("Failed to refresh existing device lease by IP")?;
+
+            if touched.rows_affected() > 0 {
+                return Ok(());
+            }
+        }
+
+        let device_name = normalized_ua
+            .as_deref()
+            .map(|ua| self.parse_device_name(ua))
+            .unwrap_or_else(|| "Connection Client".to_string());
+        let fingerprint =
+            Self::device_fingerprint(subscription_id, normalized_ip, normalized_ua.as_deref());
+
+        sqlx::query(
+            r#"
+            INSERT INTO subscription_device_leases
+                (subscription_id, device_fingerprint, device_name, user_agent, last_ip, first_seen_at, last_seen_at, last_node_id)
+            VALUES
+                ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $6)
+            ON CONFLICT (subscription_id, device_fingerprint)
+            DO UPDATE SET
+                device_name = EXCLUDED.device_name,
+                user_agent = COALESCE(EXCLUDED.user_agent, subscription_device_leases.user_agent),
+                last_ip = EXCLUDED.last_ip,
+                last_seen_at = CURRENT_TIMESTAMP,
+                last_node_id = COALESCE(EXCLUDED.last_node_id, subscription_device_leases.last_node_id)
+            "#,
+        )
+        .bind(subscription_id)
+        .bind(fingerprint)
+        .bind(device_name)
+        .bind(normalized_ua)
+        .bind(normalized_ip)
+        .bind(node_id)
+        .execute(&self.pool)
+        .await
+        .context("Failed to upsert subscription device lease")?;
+
+        Ok(())
+    }
+
+    async fn get_active_ips_legacy(
+        &self,
+        subscription_id: i64,
+        cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<SubscriptionIpTracking>> {
+        sqlx::query_as::<_, SubscriptionIpTracking>(
+            "SELECT sip.*
+             FROM subscription_ip_tracking sip
+             WHERE sip.subscription_id = $1
+               AND sip.last_seen_at > $2
+               AND sip.client_ip <> '0.0.0.0'
+             ORDER BY sip.last_seen_at DESC",
+        )
+        .bind(subscription_id)
+        .bind(cutoff)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch active IPs from legacy tracking")
     }
 
     pub async fn get_active_plans(&self) -> Result<Vec<Plan>> {
@@ -353,7 +481,7 @@ impl SubscriptionService {
         &self,
         user_id: i64,
     ) -> Result<Vec<caramba_db::models::store::SubscriptionWithPlan>> {
-        let subs = sqlx::query_as::<_, caramba_db::models::store::SubscriptionWithPlan>(
+        let mut subs = sqlx::query_as::<_, caramba_db::models::store::SubscriptionWithPlan>(
             r#"
             SELECT 
                 s.id, 
@@ -362,21 +490,7 @@ impl SubscriptionService {
                 COALESCE(s.created_at, CURRENT_TIMESTAMP) as created_at,
                 COALESCE(s.status, 'pending') as status,
                 0::bigint as price, 
-                COALESCE(
-                    (SELECT COUNT(DISTINCT sip.client_ip)
-                     FROM subscription_ip_tracking sip
-                     WHERE sip.subscription_id = s.id
-                     AND sip.last_seen_at > CURRENT_TIMESTAMP - interval '15 minutes'
-                     AND sip.client_ip <> '0.0.0.0'
-                     AND NOT EXISTS (
-                        SELECT 1
-                        FROM nodes n
-                        WHERE n.ip = sip.client_ip
-                           OR n.ip = split_part(sip.client_ip, ':', 1)
-                           OR n.ip = regexp_replace(sip.client_ip, '^::ffff:', '')
-                     )),
-                    0
-                )::bigint as active_devices,
+                0::bigint as active_devices,
                 COALESCE(p.device_limit, 0)::bigint as device_limit
             FROM subscriptions s
             JOIN plans p ON s.plan_id = p.id
@@ -387,6 +501,14 @@ impl SubscriptionService {
         .fetch_all(&self.pool)
         .await
         .context("Failed to fetch user subscriptions with details")?;
+
+        for sub in &mut subs {
+            sub.active_devices = self
+                .get_active_ips(sub.id)
+                .await
+                .map(|ips| ips.len() as i64)
+                .unwrap_or(0);
+        }
 
         Ok(subs)
     }
@@ -961,8 +1083,26 @@ impl SubscriptionService {
             .collect();
 
         caramba_db::repositories::subscription_repo::SubscriptionRepository::new(self.pool.clone())
-            .update_ips(subscription_id, normalized)
-            .await
+            .update_ips(subscription_id, normalized.clone())
+            .await?;
+
+        let mut dedup = HashSet::new();
+        for ip in normalized {
+            if !dedup.insert(ip.clone()) {
+                continue;
+            }
+            if let Err(e) = self
+                .upsert_device_lease(subscription_id, &ip, None, None)
+                .await
+            {
+                warn!(
+                    "Failed to refresh device lease from node connection for sub {} ip {}: {}",
+                    subscription_id, ip, e
+                );
+            }
+        }
+
+        Ok(())
     }
 
     pub async fn get_active_ips(
@@ -970,27 +1110,47 @@ impl SubscriptionService {
         subscription_id: i64,
     ) -> Result<Vec<SubscriptionIpTracking>> {
         let cutoff = Utc::now() - Duration::minutes(15);
-        sqlx::query_as::<_, SubscriptionIpTracking>(
-            "SELECT sip.*
-             FROM subscription_ip_tracking sip
-             WHERE sip.subscription_id = $1
-               AND sip.last_seen_at > $2
-               AND sip.client_ip <> '0.0.0.0'
-               AND NOT EXISTS (
-                   SELECT 1
-                   FROM nodes n
-                   WHERE n.ip = sip.client_ip
-                      OR split_part(n.ip, ':', 1) = sip.client_ip
-                      OR regexp_replace(n.ip, '^::ffff:', '') = regexp_replace(sip.client_ip, '^::ffff:', '')
-                      OR regexp_replace(split_part(n.ip, ':', 1), '^::ffff:', '') = regexp_replace(sip.client_ip, '^::ffff:', '')
-               )
-             ORDER BY sip.last_seen_at DESC",
+        let mut rows = match sqlx::query_as::<_, SubscriptionIpTracking>(
+            r#"
+            SELECT
+                sdl.id,
+                sdl.subscription_id,
+                sdl.last_ip AS client_ip,
+                COALESCE(NULLIF(sdl.device_name, ''), sdl.user_agent) AS user_agent,
+                sdl.last_seen_at
+            FROM subscription_device_leases sdl
+            WHERE sdl.subscription_id = $1
+              AND sdl.last_seen_at > $2
+              AND sdl.last_ip <> '0.0.0.0'
+            ORDER BY sdl.last_seen_at DESC
+            "#,
         )
         .bind(subscription_id)
         .bind(cutoff)
         .fetch_all(&self.pool)
         .await
-        .context("Failed to fetch active IPs")
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                warn!(
+                    "Device lease query failed for sub {} (falling back to legacy tracking): {}",
+                    subscription_id, e
+                );
+                Vec::new()
+            }
+        };
+
+        if rows.is_empty() {
+            rows = self.get_active_ips_legacy(subscription_id, cutoff).await?;
+        }
+
+        let infra_ips = self.infrastructure_ips().await;
+        let filtered = rows
+            .into_iter()
+            .filter(|row| Self::should_track_device_ip(&row.client_ip, &infra_ips))
+            .collect::<Vec<_>>();
+
+        Ok(filtered)
     }
 
     pub async fn cleanup_old_ip_tracking(&self) -> Result<u64> {
@@ -999,7 +1159,18 @@ impl SubscriptionService {
             .bind(cutoff)
             .execute(&self.pool)
             .await?;
-        Ok(result.rows_affected())
+        let mut affected = result.rows_affected();
+
+        match sqlx::query("DELETE FROM subscription_device_leases WHERE last_seen_at < $1")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+        {
+            Ok(r) => affected += r.rows_affected(),
+            Err(e) => warn!("Failed to cleanup device leases: {}", e),
+        }
+
+        Ok(affected)
     }
 
     pub async fn remove_tracked_ips(
@@ -1020,7 +1191,24 @@ impl SubscriptionService {
         .await
         .context("Failed to delete tracked IPs")?;
 
-        Ok(result.rows_affected())
+        let mut affected = result.rows_affected();
+
+        match sqlx::query(
+            "DELETE FROM subscription_device_leases WHERE subscription_id = $1 AND last_ip = ANY($2)",
+        )
+        .bind(subscription_id)
+        .bind(ip_list)
+        .execute(&self.pool)
+        .await
+        {
+            Ok(r) => affected += r.rows_affected(),
+            Err(e) => warn!(
+                "Failed to delete matching device lease rows for sub {}: {}",
+                subscription_id, e
+            ),
+        }
+
+        Ok(affected)
     }
 
     pub async fn get_subscription_by_uuid(&self, uuid: &str) -> Result<Subscription> {
@@ -1157,6 +1345,16 @@ impl SubscriptionService {
         .bind(device_name)
         .execute(&self.pool)
         .await?;
+
+        if let Err(e) = self
+            .upsert_device_lease(sub_id, &normalized_ip, user_agent, None)
+            .await
+        {
+            warn!(
+                "Failed to upsert device lease for subscription {} (ip {}): {}",
+                sub_id, normalized_ip, e
+            );
+        }
 
         Ok(())
     }

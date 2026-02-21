@@ -436,45 +436,108 @@ async fn get_user_stats(
 ) -> impl IntoResponse {
     let tg_id: i64 = claims.sub.parse().unwrap_or(0);
 
-    // Find active subscription
-    // Assuming 1 active sub for simplicity, or sum them up
-    // Let's get the PRIMARY active subscription
+    #[derive(sqlx::FromRow)]
+    struct AggregatedUsage {
+        traffic_used: i64,
+        total_traffic: i64,
+        days_left: i64,
+        active_subscriptions: i64,
+        plan_names: Option<String>,
+    }
 
-    #[derive(Serialize, sqlx::FromRow)]
+    #[derive(Serialize)]
     struct UserStats {
         traffic_used: i64,
         total_traffic: i64,
         days_left: i64,
         plan_name: String,
+        active_subscriptions: i64,
         balance: i64,
+        total_download: i64,
+        total_upload: i64,
     }
 
-    let stats_opt: Option<UserStats> = sqlx::query_as(r#"
-        SELECT 
-            s.used_traffic as traffic_used, 
-            CAST(p.traffic_limit_gb AS BIGINT) * 1073741824 as total_traffic,
-            GREATEST(
-                0,
-                (EXTRACT(EPOCH FROM (COALESCE(s.expires_at, CURRENT_TIMESTAMP) - CURRENT_TIMESTAMP)) / 86400)::BIGINT
-            ) as days_left,
-            p.name as plan_name,
-            u.balance as balance
+    let balance_opt: Option<i64> = sqlx::query_scalar("SELECT balance FROM users WHERE tg_id = $1")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    let balance = match balance_opt {
+        Some(v) => v,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    let usage = match sqlx::query_as::<_, AggregatedUsage>(
+        r#"
+        SELECT
+            COALESCE(SUM(COALESCE(s.used_traffic, 0)), 0)::BIGINT AS traffic_used,
+            COALESCE(
+                SUM(
+                    CASE
+                        WHEN COALESCE(p.traffic_limit_gb, 0) > 0
+                            THEN CAST(p.traffic_limit_gb AS BIGINT) * 1073741824
+                        ELSE 0
+                    END
+                ),
+                0
+            )::BIGINT AS total_traffic,
+            COALESCE(
+                MIN(
+                    GREATEST(
+                        0,
+                        (EXTRACT(EPOCH FROM (COALESCE(s.expires_at, CURRENT_TIMESTAMP) - CURRENT_TIMESTAMP)) / 86400)::BIGINT
+                    )
+                ),
+                0
+            )::BIGINT AS days_left,
+            COUNT(*)::BIGINT AS active_subscriptions,
+            STRING_AGG(DISTINCT p.name, ', ' ORDER BY p.name) AS plan_names
         FROM subscriptions s
         JOIN plans p ON s.plan_id = p.id
         JOIN users u ON s.user_id = u.id
-        WHERE u.tg_id = $1 AND s.status = 'active'
-        ORDER BY s.expires_at DESC
-        LIMIT 1
-    "#)
+        WHERE u.tg_id = $1
+          AND s.status = 'active'
+        "#,
+    )
     .bind(tg_id)
-    .fetch_optional(&state.pool)
+    .fetch_one(&state.pool)
     .await
-    .unwrap_or(None);
+    {
+        Ok(row) => row,
+        Err(e) => {
+            tracing::error!("Failed to fetch aggregated user stats for {}: {}", tg_id, e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to fetch user statistics",
+            )
+                .into_response();
+        }
+    };
 
-    match stats_opt {
-        Some(stats) => Json(stats).into_response(),
-        None => (StatusCode::NOT_FOUND, "No active subscription").into_response(),
-    }
+    let plan_name = if usage.active_subscriptions <= 0 {
+        "No active subscription".to_string()
+    } else if usage.active_subscriptions == 1 {
+        usage
+            .plan_names
+            .clone()
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or_else(|| "Active subscription".to_string())
+    } else {
+        format!("{} active subscriptions", usage.active_subscriptions)
+    };
+
+    Json(UserStats {
+        traffic_used: usage.traffic_used,
+        total_traffic: usage.total_traffic,
+        days_left: usage.days_left,
+        plan_name,
+        active_subscriptions: usage.active_subscriptions,
+        balance,
+        total_download: usage.traffic_used,
+        total_upload: 0,
+    })
+    .into_response()
 }
 
 // Subscriptions Endpoint — returns ALL user subscriptions with full details
@@ -514,38 +577,6 @@ async fn get_user_subscriptions(
     };
 
     let base_url = resolve_subscription_base_url(&state).await;
-
-    let sub_ids: Vec<i64> = subs.iter().map(|s| s.sub.id).collect();
-    let mut active_devices_by_sub: HashMap<i64, i64> = HashMap::new();
-    if !sub_ids.is_empty() {
-        let rows = sqlx::query_as::<_, (i64, i64)>(
-            r#"
-            SELECT
-                sip.subscription_id,
-                COUNT(DISTINCT sip.client_ip)::BIGINT AS active_devices
-            FROM subscription_ip_tracking sip
-            WHERE sip.subscription_id = ANY($1)
-              AND sip.last_seen_at > CURRENT_TIMESTAMP - interval '15 minutes'
-              AND sip.client_ip <> '0.0.0.0'
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM nodes n
-                  WHERE n.ip = sip.client_ip
-                     OR n.ip = split_part(sip.client_ip, ':', 1)
-                     OR n.ip = regexp_replace(sip.client_ip, '^::ffff:', '')
-              )
-            GROUP BY sip.subscription_id
-            "#,
-        )
-        .bind(&sub_ids)
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
-
-        for (sub_id, active_devices) in rows {
-            active_devices_by_sub.insert(sub_id, active_devices);
-        }
-    }
 
     let plan_ids: Vec<i64> = subs.iter().map(|s| s.sub.plan_id).collect();
     let mut device_limits_by_plan: HashMap<i64, i64> = HashMap::new();
@@ -605,7 +636,12 @@ async fn get_user_subscriptions(
         let sub_url = format!("{}/sub/{}", base_url, s.sub.subscription_uuid);
         let days_left = (s.sub.expires_at - chrono::Utc::now()).num_days().max(0);
         let duration_days = (s.sub.expires_at - s.sub.created_at).num_days();
-        let active_devices = active_devices_by_sub.get(&s.sub.id).copied().unwrap_or(0);
+        let active_devices = state
+            .subscription_service
+            .get_active_ips(s.sub.id)
+            .await
+            .map(|ips| ips.len() as i64)
+            .unwrap_or(0);
         let device_limit = device_limits_by_plan
             .get(&s.sub.plan_id)
             .copied()

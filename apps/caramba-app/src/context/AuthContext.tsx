@@ -6,6 +6,7 @@ export interface UserStats {
     total_traffic: number;
     days_left: number;
     plan_name: string;
+    active_subscriptions?: number;
     balance: number;
     total_download: number;
     total_upload: number;

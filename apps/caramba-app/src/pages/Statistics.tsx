@@ -14,7 +14,7 @@ ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarEle
 ChartJS.defaults.color = 'rgba(255, 255, 255, 0.6)';
 
 export default function Statistics() {
-    const { userStats: stats, isLoading, token, error } = useAuth()
+    const { userStats: stats, subscriptions, isLoading, token, error } = useAuth()
     const navigate = useNavigate()
 
     const [speeds, setSpeeds] = useState<number[]>(Array(10).fill(0))
@@ -84,6 +84,7 @@ export default function Statistics() {
     const usedGb = stats.traffic_used / 1024 / 1024 / 1024
     const limitGb = stats.traffic_limit / 1024 / 1024 / 1024
     const remainingGb = Math.max(0, limitGb - usedGb)
+    const activeCount = stats.active_subscriptions ?? subscriptions.filter(s => s.status === 'active').length
 
     const trafficData = {
         labels: ['Used', 'Remaining'],
@@ -140,13 +141,18 @@ export default function Statistics() {
 
             <div className="stats-grid">
                 <div className="stat-card glass-card">
-                    <span className="stat-label">Plan</span>
-                    <span className="stat-value gradient-text">{stats.plan_name}</span>
+                    <span className="stat-label">Active Subs</span>
+                    <span className="stat-value gradient-text">{activeCount}</span>
                 </div>
                 <div className="stat-card glass-card">
                     <span className="stat-label">Days Left</span>
                     <span className="stat-value">{stats.days_left}</span>
                 </div>
+            </div>
+
+            <div className="chart-card glass-card">
+                <h3>Plan Summary</h3>
+                <p className="chart-footnote">{stats.plan_name}</p>
             </div>
 
             <div className="chart-card glass-card">
