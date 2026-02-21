@@ -10,6 +10,8 @@ use caramba_db::models::store::{
 use caramba_db::repositories::node_repo::NodeRepository;
 use chrono::{Duration, Utc};
 use sqlx::PgPool;
+use std::collections::HashSet;
+use std::net::IpAddr;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -49,6 +51,44 @@ impl SubscriptionService {
             || sni == "www.google.com"
             || sni == "google.com"
             || sni == "drive.google.com"
+    }
+
+    fn parse_ip_maybe(value: &str) -> Option<IpAddr> {
+        let value = value.trim();
+        if value.is_empty() {
+            return None;
+        }
+
+        if let Ok(ip) = value.parse::<IpAddr>() {
+            return Some(ip);
+        }
+        if let Ok(sock) = value.parse::<std::net::SocketAddr>() {
+            return Some(sock.ip());
+        }
+        if let Some((host, _port)) = value.rsplit_once(':') {
+            if let Ok(ip) = host.parse::<IpAddr>() {
+                return Some(ip);
+            }
+        }
+        None
+    }
+
+    fn normalize_client_ip(value: &str) -> Option<String> {
+        let ip = Self::parse_ip_maybe(value)?;
+        if ip.is_loopback() || ip.is_unspecified() || ip.is_multicast() {
+            return None;
+        }
+        Some(ip.to_string())
+    }
+
+    async fn infrastructure_ips(&self) -> HashSet<IpAddr> {
+        let rows: Vec<String> = sqlx::query_scalar("SELECT ip FROM nodes")
+            .fetch_all(&self.pool)
+            .await
+            .unwrap_or_default();
+        rows.into_iter()
+            .filter_map(|ip| Self::parse_ip_maybe(&ip))
+            .collect()
     }
 
     pub async fn get_active_plans(&self) -> Result<Vec<Plan>> {
@@ -315,7 +355,10 @@ impl SubscriptionService {
                      AND sip.last_seen_at > CURRENT_TIMESTAMP - interval '15 minutes'
                      AND sip.client_ip <> '0.0.0.0'
                      AND NOT EXISTS (
-                        SELECT 1 FROM nodes n WHERE n.ip = sip.client_ip
+                        SELECT 1
+                        FROM nodes n
+                        WHERE n.ip = sip.client_ip
+                           OR n.ip = split_part(sip.client_ip, ':', 1)
                      )),
                     0
                 )::bigint as active_devices,
@@ -806,6 +849,47 @@ impl SubscriptionService {
         Ok(limit.unwrap_or(0))
     }
 
+    pub async fn ensure_subscription_within_quota(&self, subscription_id: i64) -> Result<bool> {
+        let usage_row: Option<(i64, i32, String)> = sqlx::query_as(
+            r#"
+            SELECT
+                COALESCE(s.used_traffic, 0)::BIGINT AS used_traffic,
+                COALESCE(p.traffic_limit_gb, 0)::INT AS traffic_limit_gb,
+                COALESCE(s.status, 'pending') AS status
+            FROM subscriptions s
+            JOIN plans p ON p.id = s.plan_id
+            WHERE s.id = $1
+            "#,
+        )
+        .bind(subscription_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to fetch subscription quota")?;
+
+        let Some((used_traffic, traffic_limit_gb, status)) = usage_row else {
+            return Ok(false);
+        };
+
+        if status != "active" {
+            return Ok(false);
+        }
+
+        if traffic_limit_gb <= 0 {
+            return Ok(true);
+        }
+
+        let limit_bytes = (traffic_limit_gb as i64) * 1024 * 1024 * 1024;
+        if used_traffic < limit_bytes {
+            return Ok(true);
+        }
+
+        let _ = sqlx::query("UPDATE subscriptions SET status = 'expired' WHERE id = $1")
+            .bind(subscription_id)
+            .execute(&self.pool)
+            .await;
+        Ok(false)
+    }
+
     pub async fn update_ips(&self, subscription_id: i64, ip_list: Vec<String>) -> Result<()> {
         let mut tx = self.pool.begin().await?;
         sqlx::query("DELETE FROM subscription_ip_tracking WHERE subscription_id = $1")
@@ -831,7 +915,12 @@ impl SubscriptionService {
              WHERE sip.subscription_id = $1
                AND sip.last_seen_at > $2
                AND sip.client_ip <> '0.0.0.0'
-               AND NOT EXISTS (SELECT 1 FROM nodes n WHERE n.ip = sip.client_ip)
+               AND NOT EXISTS (
+                   SELECT 1
+                   FROM nodes n
+                   WHERE n.ip = sip.client_ip
+                      OR n.ip = split_part(sip.client_ip, ':', 1)
+               )
              ORDER BY sip.last_seen_at DESC",
         )
         .bind(subscription_id)
@@ -949,18 +1038,14 @@ impl SubscriptionService {
         ip: &str,
         user_agent: Option<&str>,
     ) -> Result<()> {
-        let normalized_ip = ip.trim();
-        if normalized_ip.is_empty() || normalized_ip == "0.0.0.0" || normalized_ip == "::" {
+        let Some(normalized_ip) = Self::normalize_client_ip(ip) else {
             return Ok(());
-        }
+        };
 
-        let is_node_ip: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM nodes WHERE ip = $1)")
-                .bind(normalized_ip)
-                .fetch_one(&self.pool)
-                .await
-                .unwrap_or(false);
-        if is_node_ip {
+        let infra_ips = self.infrastructure_ips().await;
+        if Self::parse_ip_maybe(&normalized_ip)
+            .is_some_and(|candidate| infra_ips.contains(&candidate))
+        {
             // Ignore self/infra requests so they don't pollute device accounting.
             return Ok(());
         }
@@ -969,7 +1054,7 @@ impl SubscriptionService {
             "UPDATE subscriptions SET last_sub_access = $1, last_access_ip = $2, last_access_ua = $3 WHERE id = $4"
         )
         .bind(Utc::now())
-        .bind(normalized_ip)
+        .bind(&normalized_ip)
         .bind(user_agent)
         .bind(sub_id)
         .execute(&self.pool)
@@ -984,7 +1069,7 @@ impl SubscriptionService {
              ON CONFLICT(subscription_id, client_ip) DO UPDATE SET last_seen_at = CURRENT_TIMESTAMP, user_agent = excluded.user_agent"
         )
         .bind(sub_id)
-        .bind(normalized_ip)
+        .bind(&normalized_ip)
         .bind(device_name)
         .execute(&self.pool)
         .await?;

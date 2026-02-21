@@ -495,7 +495,12 @@ async fn get_user_subscriptions(
             WHERE sip.subscription_id = ANY($1)
               AND sip.last_seen_at > CURRENT_TIMESTAMP - interval '15 minutes'
               AND sip.client_ip <> '0.0.0.0'
-              AND NOT EXISTS (SELECT 1 FROM nodes n WHERE n.ip = sip.client_ip)
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM nodes n
+                  WHERE n.ip = sip.client_ip
+                     OR n.ip = split_part(sip.client_ip, ':', 1)
+              )
             GROUP BY sip.subscription_id
             "#,
         )

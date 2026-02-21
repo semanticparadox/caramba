@@ -14,6 +14,39 @@ pub struct SubParams {
     pub node_id: Option<i64>,
 }
 
+fn parse_ip_maybe(value: &str) -> Option<std::net::IpAddr> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    if let Ok(ip) = value.parse::<std::net::IpAddr>() {
+        return Some(ip);
+    }
+    if let Ok(sock) = value.parse::<std::net::SocketAddr>() {
+        return Some(sock.ip());
+    }
+    if let Some((host, _port)) = value.rsplit_once(':') {
+        if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+            return Some(ip);
+        }
+    }
+    None
+}
+
+fn extract_client_ip(headers: &axum::http::HeaderMap) -> String {
+    let raw = headers
+        .get("cf-connecting-ip")
+        .or_else(|| headers.get("x-forwarded-for"))
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .unwrap_or("0.0.0.0");
+
+    parse_ip_maybe(raw)
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|| "0.0.0.0".to_string())
+}
+
 pub async fn subscription_handler(
     Path(uuid): Path<String>,
     Query(params): Query<SubParams>,
@@ -48,14 +81,7 @@ pub async fn subscription_handler(
         .get(header::USER_AGENT)
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
-    let client_ip = req
-        .headers()
-        .get("cf-connecting-ip")
-        .or_else(|| req.headers().get("x-forwarded-for"))
-        .and_then(|h| h.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .unwrap_or("0.0.0.0")
-        .to_string();
+    let client_ip = extract_client_ip(req.headers());
 
     // 1. Rate Limit (30 req / min per UUID)
     let rate_key = format!("rate:sub:{}", uuid);
@@ -86,6 +112,28 @@ pub async fn subscription_handler(
     // 3. Check if active
     if sub.status != "active" {
         return (StatusCode::FORBIDDEN, "Subscription inactive or expired").into_response();
+    }
+
+    // 3.2 Check traffic quota immediately on subscription fetch to enforce limits in real-time.
+    match state
+        .subscription_service
+        .ensure_subscription_within_quota(sub.id)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
+            return (
+                StatusCode::FORBIDDEN,
+                "Traffic limit reached. Subscription is expired.",
+            )
+                .into_response();
+        }
+        Err(e) => {
+            error!(
+                "Failed to evaluate quota for subscription {}: {}",
+                sub.id, e
+            );
+        }
     }
 
     // 3.5 Enforce device limit (Phase 7)

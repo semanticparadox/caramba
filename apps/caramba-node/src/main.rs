@@ -538,10 +538,7 @@ async fn fetch_clash_connections(client: &reqwest::Client) -> Option<Vec<serde_j
     }
 
     let value = resp.json::<serde_json::Value>().await.ok()?;
-    value
-        .get("connections")
-        .and_then(|v| v.as_array())
-        .cloned()
+    value.get("connections").and_then(|v| v.as_array()).cloned()
 }
 
 async fn collect_total_traffic(client: &reqwest::Client) -> Option<(u64, u64)> {
@@ -610,7 +607,8 @@ async fn collect_user_usage_delta(
     last_totals: &mut std::collections::HashMap<String, u64>,
 ) -> Option<std::collections::HashMap<String, u64>> {
     let connections = fetch_clash_connections(client).await?;
-    let mut current_totals: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    let mut current_totals: std::collections::HashMap<String, u64> =
+        std::collections::HashMap::new();
 
     for conn in connections {
         let user = conn
@@ -938,8 +936,8 @@ async fn collect_telemetry(
 
 async fn count_active_connections(client: &reqwest::Client) -> Option<u32> {
     // Primary source of truth: sing-box clash-api active connections.
-    // Count unique logical users first, fallback to source IP when user tag is absent.
-    let local_ip = get_local_ip();
+    // Count unique authenticated identities only (user tags / UUID chains),
+    // so scanner/background sockets do not inflate user counts.
 
     if let Ok(resp) = client
         .get("http://127.0.0.1:9090/connections")
@@ -963,14 +961,16 @@ async fn count_active_connections(client: &reqwest::Client) -> Option<u32> {
                             continue;
                         }
 
-                        let source_ip = item
-                            .pointer("/metadata/sourceIP")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default()
-                            .trim();
-
-                        if !is_non_client_source(source_ip, local_ip) {
-                            unique.insert(source_ip.to_string());
+                        if let Some(chains) = item.get("chains").and_then(|v| v.as_array()) {
+                            for chain in chains {
+                                let chain = chain.as_str().unwrap_or_default().trim();
+                                if chain.is_empty() {
+                                    continue;
+                                }
+                                if chain.starts_with("user_") || is_uuid_like(chain) {
+                                    unique.insert(chain.to_string());
+                                }
+                            }
                         }
                     }
                     return Some(unique.len() as u32);
@@ -997,37 +997,8 @@ async fn count_active_connections(client: &reqwest::Client) -> Option<u32> {
     None
 }
 
-fn is_non_client_source(source_ip: &str, local_ip: Option<std::net::IpAddr>) -> bool {
-    let source_ip = source_ip.trim();
-    if source_ip.is_empty() || source_ip == "0.0.0.0" || source_ip == "::" {
-        return true;
-    }
-
-    if let Ok(source) = source_ip.parse::<std::net::IpAddr>() {
-        if source.is_loopback() || source.is_unspecified() || source.is_multicast() {
-            return true;
-        }
-
-        // Ignore node self-traffic and local/private technical traffic.
-        if local_ip.is_some_and(|local| local == source) {
-            return true;
-        }
-
-        match source {
-            std::net::IpAddr::V4(v4) => {
-                if v4.is_private() || v4.is_link_local() {
-                    return true;
-                }
-            }
-            std::net::IpAddr::V6(v6) => {
-                if v6.is_unique_local() || v6.is_unicast_link_local() {
-                    return true;
-                }
-            }
-        }
-    }
-
-    false
+fn is_uuid_like(value: &str) -> bool {
+    uuid::Uuid::parse_str(value).is_ok()
 }
 
 async fn run_speed_test(client: &reqwest::Client) -> Option<i32> {

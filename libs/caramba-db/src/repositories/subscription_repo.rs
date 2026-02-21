@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use std::collections::HashSet;
+use std::net::IpAddr;
 
 #[derive(Debug, Clone)]
 pub struct SubscriptionRepository {
@@ -314,19 +315,20 @@ impl SubscriptionRepository {
                AND (
                     client_ip = ''
                     OR client_ip = '0.0.0.0'
-                    OR EXISTS (SELECT 1 FROM nodes n WHERE n.ip = subscription_ip_tracking.client_ip)
+                    OR EXISTS (
+                        SELECT 1
+                        FROM nodes n
+                        WHERE n.ip = subscription_ip_tracking.client_ip
+                           OR n.ip = split_part(subscription_ip_tracking.client_ip, ':', 1)
+                    )
                )",
         )
-            .bind(sub_id)
-            .execute(&mut *tx)
-            .await?;
+        .bind(sub_id)
+        .execute(&mut *tx)
+        .await?;
 
         let mut dedup = HashSet::new();
-        for ip in ips
-            .into_iter()
-            .map(|ip| ip.trim().to_string())
-            .filter(|ip| !ip.is_empty() && ip != "0.0.0.0")
-        {
+        for ip in ips.into_iter().filter_map(|ip| normalize_client_ip(&ip)) {
             if !dedup.insert(ip.clone()) {
                 continue;
             }
@@ -347,4 +349,31 @@ impl SubscriptionRepository {
         tx.commit().await?;
         Ok(())
     }
+}
+
+fn normalize_client_ip(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed == "0.0.0.0" || trimmed == "::" {
+        return None;
+    }
+
+    parse_ip_maybe(trimmed).map(|ip| ip.to_string())
+}
+
+fn parse_ip_maybe(value: &str) -> Option<IpAddr> {
+    if let Ok(ip) = value.parse::<IpAddr>() {
+        return Some(ip);
+    }
+
+    if let Ok(sock) = value.parse::<std::net::SocketAddr>() {
+        return Some(sock.ip());
+    }
+
+    if let Some((host, _port)) = value.rsplit_once(':') {
+        if let Ok(ip) = host.parse::<IpAddr>() {
+            return Some(ip);
+        }
+    }
+
+    None
 }
