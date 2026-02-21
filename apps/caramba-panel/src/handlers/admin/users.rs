@@ -15,6 +15,7 @@ use tracing::{error, info};
 
 use super::auth::{get_auth_user, is_authenticated};
 use crate::AppState;
+use crate::bot_manager::{NotificationParseMode, NotificationPayload};
 use crate::services::logging_service::LoggingService;
 use caramba_db::models::store::{Plan, User};
 
@@ -99,6 +100,63 @@ pub struct ExtendForm {
 #[derive(Deserialize)]
 pub struct NotifyForm {
     pub message: String,
+    pub parse_mode: Option<String>,
+    pub image_url: Option<String>,
+    pub button_text: Option<String>,
+    pub button_url: Option<String>,
+    pub disable_link_preview: Option<String>,
+}
+
+fn normalize_optional(input: Option<String>) -> Option<String> {
+    input.and_then(|s| {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn parse_notification_mode(input: Option<&str>) -> NotificationParseMode {
+    match input
+        .unwrap_or("plain")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "html" => NotificationParseMode::Html,
+        "markdown" | "markdownv2" | "md" => NotificationParseMode::MarkdownV2,
+        _ => NotificationParseMode::Plain,
+    }
+}
+
+fn build_notification_payload(form: NotifyForm) -> Result<NotificationPayload, String> {
+    let message = form.message.trim().to_string();
+    if message.is_empty() {
+        return Err("Message cannot be empty".to_string());
+    }
+
+    let image_url = normalize_optional(form.image_url);
+    if image_url.is_some() && message.chars().count() > 1024 {
+        return Err("When image is set, message must be <= 1024 chars".to_string());
+    }
+
+    let button_text = normalize_optional(form.button_text);
+    let button_url = normalize_optional(form.button_url);
+
+    if button_text.is_some() ^ button_url.is_some() {
+        return Err("Button requires both text and URL".to_string());
+    }
+
+    Ok(NotificationPayload {
+        text: message,
+        parse_mode: parse_notification_mode(form.parse_mode.as_deref()),
+        image_url,
+        button_text,
+        button_url,
+        disable_link_preview: form.disable_link_preview.is_some(),
+    })
 }
 
 // Helper function
@@ -588,14 +646,10 @@ pub async fn notify_user(
     State(state): State<AppState>,
     Form(form): Form<NotifyForm>,
 ) -> impl IntoResponse {
-    let message = form.message.trim();
-    if message.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            "Message cannot be empty",
-        )
-            .into_response();
-    }
+    let payload = match build_notification_payload(form) {
+        Ok(payload) => payload,
+        Err(msg) => return (axum::http::StatusCode::BAD_REQUEST, msg).into_response(),
+    };
 
     let user = match state.user_service.get_by_id(id).await {
         Ok(Some(user)) => user,
@@ -612,7 +666,11 @@ pub async fn notify_user(
         }
     };
 
-    match state.bot_manager.send_notification(user.tg_id, message).await {
+    match state
+        .bot_manager
+        .send_rich_notification(user.tg_id, payload)
+        .await
+    {
         Ok(_) => (
             axum::http::StatusCode::OK,
             format!("Notification sent to user {}", id),
@@ -630,14 +688,10 @@ pub async fn notify_all_users(
     State(state): State<AppState>,
     Form(form): Form<NotifyForm>,
 ) -> impl IntoResponse {
-    let message = form.message.trim();
-    if message.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            "Message cannot be empty",
-        )
-            .into_response();
-    }
+    let payload = match build_notification_payload(form) {
+        Ok(payload) => payload,
+        Err(msg) => return (axum::http::StatusCode::BAD_REQUEST, msg).into_response(),
+    };
 
     let users = match state.user_service.get_all().await {
         Ok(users) => users,
@@ -657,7 +711,11 @@ pub async fn notify_all_users(
         if user.tg_id <= 0 {
             continue;
         }
-        match state.bot_manager.send_notification(user.tg_id, message).await {
+        match state
+            .bot_manager
+            .send_rich_notification(user.tg_id, payload.clone())
+            .await
+        {
             Ok(_) => sent += 1,
             Err(e) => {
                 failed += 1;

@@ -3,13 +3,45 @@ use std::sync::Arc;
 use teloxide::dptree;
 use teloxide::prelude::*;
 use teloxide::types::{
-    CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode, Update, WebAppInfo,
+    CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, LinkPreviewOptions,
+    ParseMode, Update, WebAppInfo,
 };
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use tokio::sync::{Mutex, RwLock};
+
+#[derive(Debug, Clone, Copy, Default)]
+pub enum NotificationParseMode {
+    #[default]
+    Plain,
+    MarkdownV2,
+    Html,
+}
+
+#[derive(Debug, Clone)]
+pub struct NotificationPayload {
+    pub text: String,
+    pub parse_mode: NotificationParseMode,
+    pub image_url: Option<String>,
+    pub button_text: Option<String>,
+    pub button_url: Option<String>,
+    pub disable_link_preview: bool,
+}
+
+impl NotificationPayload {
+    pub fn plain(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            parse_mode: NotificationParseMode::Plain,
+            image_url: None,
+            button_text: None,
+            button_url: None,
+            disable_link_preview: false,
+        }
+    }
+}
 
 pub struct BotManager {
     shutdown_sender: broadcast::Sender<()>,
@@ -139,11 +171,80 @@ impl BotManager {
         chat_id: i64,
         text: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let payload = NotificationPayload::plain(text);
+        self.send_rich_notification(chat_id, payload).await
+    }
+
+    pub async fn send_rich_notification(
+        &self,
+        chat_id: i64,
+        payload: NotificationPayload,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let bot_lock = self.current_bot.lock().await;
         if let Some(bot) = bot_lock.as_ref() {
-            bot.send_message(ChatId(chat_id), text)
-                .parse_mode(ParseMode::MarkdownV2)
-                .await?;
+            let keyboard = match (
+                payload.button_text.as_deref(),
+                payload.button_url.as_deref(),
+            ) {
+                (Some(text), Some(url)) if !text.trim().is_empty() && !url.trim().is_empty() => {
+                    let parsed = url::Url::parse(url.trim())?;
+                    Some(InlineKeyboardMarkup::new(vec![vec![
+                        InlineKeyboardButton::url(text.trim().to_string(), parsed),
+                    ]]))
+                }
+                _ => None,
+            };
+
+            if let Some(image_url) = payload.image_url.as_deref().map(str::trim) {
+                if !image_url.is_empty() {
+                    if payload.text.chars().count() > 1024 {
+                        return Err("Caption too long for photo message (max 1024 chars)"
+                            .to_string()
+                            .into());
+                    }
+
+                    let photo_url = url::Url::parse(image_url)?;
+                    let mut req = bot
+                        .send_photo(ChatId(chat_id), InputFile::url(photo_url))
+                        .caption(payload.text.clone());
+
+                    req = match payload.parse_mode {
+                        NotificationParseMode::Plain => req,
+                        NotificationParseMode::MarkdownV2 => req.parse_mode(ParseMode::MarkdownV2),
+                        NotificationParseMode::Html => req.parse_mode(ParseMode::Html),
+                    };
+
+                    if let Some(markup) = keyboard {
+                        req = req.reply_markup(markup);
+                    }
+
+                    req.await?;
+                    return Ok(());
+                }
+            }
+
+            let mut req = bot.send_message(ChatId(chat_id), payload.text.clone());
+            req = match payload.parse_mode {
+                NotificationParseMode::Plain => req,
+                NotificationParseMode::MarkdownV2 => req.parse_mode(ParseMode::MarkdownV2),
+                NotificationParseMode::Html => req.parse_mode(ParseMode::Html),
+            };
+
+            if payload.disable_link_preview {
+                req = req.link_preview_options(LinkPreviewOptions {
+                    is_disabled: true,
+                    url: None,
+                    prefer_small_media: false,
+                    prefer_large_media: false,
+                    show_above_text: false,
+                });
+            }
+
+            if let Some(markup) = keyboard {
+                req = req.reply_markup(markup);
+            }
+
+            req.await?;
             Ok(())
         } else {
             warn!("Cannot send notification: bot is not running");

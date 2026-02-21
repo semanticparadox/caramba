@@ -96,11 +96,39 @@
             <div class="h-px bg-white/5 my-5"></div>
 
             <form hx-post="{{ admin_path }}/users/{{ user.id }}/notify" hx-target="#notify-result" hx-swap="innerHTML"
-                class="space-y-2">
+                class="space-y-3">
                 <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Send Telegram Notification</label>
-                <textarea name="message" rows="3" required maxlength="800"
-                    placeholder="Type message for this user..."
+                <textarea name="message" rows="4" required maxlength="4000"
+                    placeholder="Type message for this user... Supports plain, HTML, or MarkdownV2."
                     class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700"></textarea>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <select name="parse_mode"
+                        class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all">
+                        <option value="plain" selected>Plain Text</option>
+                        <option value="html">HTML</option>
+                        <option value="markdown">MarkdownV2</option>
+                    </select>
+                    <input type="url" name="image_url" maxlength="1000"
+                        placeholder="Optional image URL (https://...)"
+                        class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input type="text" name="button_text" maxlength="64"
+                        placeholder="Optional button text"
+                        class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
+                    <input type="url" name="button_url" maxlength="1000"
+                        placeholder="Optional button URL (https://...)"
+                        class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
+                </div>
+
+                <label class="inline-flex items-center gap-2 text-xs text-slate-400">
+                    <input type="checkbox" name="disable_link_preview"
+                        class="rounded border-white/20 bg-slate-900 text-indigo-500 focus:ring-indigo-500/40">
+                    Disable link preview for text message
+                </label>
+
                 <button type="submit"
                     class="w-full py-2.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 font-medium rounded-lg border border-indigo-500/30 transition-colors">
                     Send Notification
