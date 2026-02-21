@@ -1,5 +1,6 @@
 use anyhow::Result;
 use sqlx::PgPool;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -112,25 +113,33 @@ impl TelemetryService {
         }
 
         if let Some(snis) = discovered_snis {
-            for sni in snis {
+            // Reduce repeated churn from node scans:
+            // - keep only first unique domain entries in this heartbeat
+            // - hard-cap processing to avoid DB spikes on noisy /24 blocks
+            let mut seen_domains = HashSet::new();
+            for sni in snis.into_iter().take(256) {
                 let domain = sni.domain.trim().to_lowercase();
+                if domain.is_empty() || !seen_domains.insert(domain.clone()) {
+                    continue;
+                }
 
                 if let Err(reason) = classify_discovered_domain(&domain) {
-                    if !domain.is_empty() {
-                        if let Err(e) = auto_blacklist_domain(
-                            &self.pool,
-                            &domain,
-                            &format!("Auto-filter: {}", reason),
-                        )
-                        .await
-                        {
-                            warn!("Failed to auto-blacklist discovered SNI '{}': {}", domain, e);
-                        } else {
-                            info!(
-                                "🚫 Neighbor Sniper: Auto-blacklisted noisy SNI '{}' ({})",
-                                domain, reason
-                            );
-                        }
+                    if let Err(e) = auto_blacklist_domain(
+                        &self.pool,
+                        &domain,
+                        &format!("Auto-filter: {}", reason),
+                    )
+                    .await
+                    {
+                        warn!(
+                            "Failed to auto-blacklist discovered SNI '{}': {}",
+                            domain, e
+                        );
+                    } else {
+                        info!(
+                            "🚫 Neighbor Sniper: Auto-blacklisted noisy SNI '{}' ({})",
+                            domain, reason
+                        );
                     }
                     continue;
                 }
@@ -326,7 +335,9 @@ fn classify_discovered_domain(domain: &str) -> Result<(), String> {
     }
 
     let tld = labels.last().copied().unwrap_or_default();
-    const RESERVED_TLDS: &[&str] = &["local", "internal", "lan", "invalid", "example", "test", "default"];
+    const RESERVED_TLDS: &[&str] = &[
+        "local", "internal", "lan", "invalid", "example", "test", "default",
+    ];
     if RESERVED_TLDS.contains(&tld) {
         return Err("reserved tld".to_string());
     }

@@ -355,13 +355,27 @@ async fn auth_telegram(
         role: "client".to_string(),
     };
 
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(state.session_secret.as_bytes()),
-    )
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
-    .unwrap();
+    let session_secret = state.session_secret.clone();
+    let token = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(session_secret.as_bytes()),
+        )
+    })) {
+        Ok(Ok(token)) => token,
+        Ok(Err(_)) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Token encode failed").into_response();
+        }
+        Err(_) => {
+            tracing::error!("jsonwebtoken panicked while encoding token");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Auth subsystem unavailable",
+            )
+                .into_response();
+        }
+    };
 
     Json(AuthResponse {
         token,
@@ -393,12 +407,21 @@ async fn auth_middleware(
         _ => return Err(StatusCode::UNAUTHORIZED),
     };
 
-    let token_data = decode::<Claims>(
-        token,
-        &DecodingKey::from_secret(state.session_secret.as_bytes()),
-        &Validation::new(Algorithm::HS256),
-    )
-    .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let session_secret = state.session_secret.clone();
+    let token_data = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        decode::<Claims>(
+            token,
+            &DecodingKey::from_secret(session_secret.as_bytes()),
+            &Validation::new(Algorithm::HS256),
+        )
+    })) {
+        Ok(Ok(data)) => data,
+        Ok(Err(_)) => return Err(StatusCode::UNAUTHORIZED),
+        Err(_) => {
+            tracing::error!("jsonwebtoken panicked while decoding token");
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
 
     // Add user ID to request extensions
     req.extensions_mut().insert(token_data.claims);
@@ -509,6 +532,7 @@ async fn get_user_subscriptions(
                   FROM nodes n
                   WHERE n.ip = sip.client_ip
                      OR n.ip = split_part(sip.client_ip, ':', 1)
+                     OR n.ip = regexp_replace(sip.client_ip, '^::ffff:', '')
               )
             GROUP BY sip.subscription_id
             "#,

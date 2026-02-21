@@ -556,6 +556,22 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/settings/update/check",
             axum::routing::post(handlers::admin::check_update),
         ) // NEW
+        .route(
+            "/settings/topology/apply",
+            axum::routing::post(handlers::admin::apply_deployment_topology),
+        )
+        .route(
+            "/settings/update/agent/prepare",
+            axum::routing::post(handlers::admin::prepare_agent_update),
+        )
+        .route(
+            "/settings/update/agent/rollout",
+            axum::routing::post(handlers::admin::rollout_agent_update),
+        )
+        .route(
+            "/settings/update/worker/queue",
+            axum::routing::post(handlers::admin::queue_worker_update),
+        )
         // New Bot Page
         .route("/bot", axum::routing::get(handlers::admin::bot_logs_page))
         // Tools Logic (Page removed, actions preserved)
@@ -691,6 +707,10 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             post(handlers::admin::admin_gift_subscription),
         )
         .route("/users/{id}/notify", post(handlers::admin::notify_user))
+        .route(
+            "/users/notify/preview",
+            post(handlers::admin::notify_preview),
+        )
         .route("/users/notify/all", post(handlers::admin::notify_all_users))
         .route(
             "/users/subs/{id}",
@@ -1028,6 +1048,14 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         .route(
             "/api/internal/frontend/heartbeat",
             axum::routing::post(handlers::api::internal::frontend_heartbeat),
+        )
+        .route(
+            "/api/internal/workers/{role}/updates/poll",
+            axum::routing::get(handlers::api::internal::poll_worker_update),
+        )
+        .route(
+            "/api/internal/workers/{role}/updates/report",
+            axum::routing::post(handlers::api::internal::report_worker_update),
         )
         // Frontend API Routes (Must be top level to match /api/admin/frontends)
         .route(

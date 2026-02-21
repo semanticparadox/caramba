@@ -20,6 +20,13 @@ pub struct SubscriptionService {
     pool: PgPool,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ExpiredQuotaSubscription {
+    pub subscription_id: i64,
+    pub user_id: i64,
+    pub node_id: Option<i64>,
+}
+
 impl SubscriptionService {
     const INBOUND_SELECT_SQL: &'static str = r#"
         SELECT
@@ -60,17 +67,24 @@ impl SubscriptionService {
         }
 
         if let Ok(ip) = value.parse::<IpAddr>() {
-            return Some(ip);
+            return Some(Self::canonicalize_ip(ip));
         }
         if let Ok(sock) = value.parse::<std::net::SocketAddr>() {
-            return Some(sock.ip());
+            return Some(Self::canonicalize_ip(sock.ip()));
         }
         if let Some((host, _port)) = value.rsplit_once(':') {
             if let Ok(ip) = host.parse::<IpAddr>() {
-                return Some(ip);
+                return Some(Self::canonicalize_ip(ip));
             }
         }
         None
+    }
+
+    fn canonicalize_ip(ip: IpAddr) -> IpAddr {
+        match ip {
+            IpAddr::V6(v6) => v6.to_ipv4().map(IpAddr::V4).unwrap_or(IpAddr::V6(v6)),
+            other => other,
+        }
     }
 
     fn normalize_client_ip(value: &str) -> Option<String> {
@@ -359,6 +373,7 @@ impl SubscriptionService {
                         FROM nodes n
                         WHERE n.ip = sip.client_ip
                            OR n.ip = split_part(sip.client_ip, ':', 1)
+                           OR n.ip = regexp_replace(sip.client_ip, '^::ffff:', '')
                      )),
                     0
                 )::bigint as active_devices,
@@ -890,18 +905,64 @@ impl SubscriptionService {
         Ok(false)
     }
 
-    pub async fn update_ips(&self, subscription_id: i64, ip_list: Vec<String>) -> Result<()> {
-        let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM subscription_ip_tracking WHERE subscription_id = $1")
-            .bind(subscription_id)
-            .execute(&mut *tx)
-            .await?;
-        let now = Utc::now();
-        for ip in ip_list {
-            sqlx::query("INSERT INTO subscription_ip_tracking (subscription_id, client_ip, last_seen_at) VALUES ($1, $2, $3)").bind(subscription_id).bind(ip).bind(now).execute(&mut *tx).await?;
+    pub async fn expire_over_quota_subscriptions(&self) -> Result<Vec<ExpiredQuotaSubscription>> {
+        let rows = sqlx::query_as::<_, ExpiredQuotaSubscription>(
+            r#"
+            UPDATE subscriptions s
+            SET status = 'expired'
+            FROM plans p
+            WHERE s.plan_id = p.id
+              AND s.status = 'active'
+              AND COALESCE(p.traffic_limit_gb, 0) > 0
+              AND COALESCE(s.used_traffic, 0) >= (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)
+            RETURNING s.id AS subscription_id, s.user_id, s.node_id
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to expire subscriptions over traffic quota")?;
+
+        Ok(rows)
+    }
+
+    pub async fn expire_over_quota_candidates(
+        &self,
+        subscription_ids: &[i64],
+    ) -> Result<Vec<ExpiredQuotaSubscription>> {
+        if subscription_ids.is_empty() {
+            return Ok(Vec::new());
         }
-        tx.commit().await?;
-        Ok(())
+
+        let rows = sqlx::query_as::<_, ExpiredQuotaSubscription>(
+            r#"
+            UPDATE subscriptions s
+            SET status = 'expired'
+            FROM plans p
+            WHERE s.plan_id = p.id
+              AND s.id = ANY($1)
+              AND s.status = 'active'
+              AND COALESCE(p.traffic_limit_gb, 0) > 0
+              AND COALESCE(s.used_traffic, 0) >= (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)
+            RETURNING s.id AS subscription_id, s.user_id, s.node_id
+            "#,
+        )
+        .bind(subscription_ids)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to expire candidate subscriptions over traffic quota")?;
+
+        Ok(rows)
+    }
+
+    pub async fn update_ips(&self, subscription_id: i64, ip_list: Vec<String>) -> Result<()> {
+        let normalized: Vec<String> = ip_list
+            .into_iter()
+            .filter_map(|ip| Self::normalize_client_ip(&ip))
+            .collect();
+
+        caramba_db::repositories::subscription_repo::SubscriptionRepository::new(self.pool.clone())
+            .update_ips(subscription_id, normalized)
+            .await
     }
 
     pub async fn get_active_ips(
@@ -919,7 +980,9 @@ impl SubscriptionService {
                    SELECT 1
                    FROM nodes n
                    WHERE n.ip = sip.client_ip
-                      OR n.ip = split_part(sip.client_ip, ':', 1)
+                      OR split_part(n.ip, ':', 1) = sip.client_ip
+                      OR regexp_replace(n.ip, '^::ffff:', '') = regexp_replace(sip.client_ip, '^::ffff:', '')
+                      OR regexp_replace(split_part(n.ip, ':', 1), '^::ffff:', '') = regexp_replace(sip.client_ip, '^::ffff:', '')
                )
              ORDER BY sip.last_seen_at DESC",
         )
@@ -936,6 +999,27 @@ impl SubscriptionService {
             .bind(cutoff)
             .execute(&self.pool)
             .await?;
+        Ok(result.rows_affected())
+    }
+
+    pub async fn remove_tracked_ips(
+        &self,
+        subscription_id: i64,
+        ip_list: &[String],
+    ) -> Result<u64> {
+        if ip_list.is_empty() {
+            return Ok(0);
+        }
+
+        let result = sqlx::query(
+            "DELETE FROM subscription_ip_tracking WHERE subscription_id = $1 AND client_ip = ANY($2)",
+        )
+        .bind(subscription_id)
+        .bind(ip_list)
+        .execute(&self.pool)
+        .await
+        .context("Failed to delete tracked IPs")?;
+
         Ok(result.rows_affected())
     }
 

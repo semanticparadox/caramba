@@ -5,8 +5,12 @@ use axum::{
     routing::get,
     Router,
 };
+use sha2::{Digest, Sha256};
 use std::net::SocketAddr;
+use std::os::unix::fs::PermissionsExt;
+use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -62,6 +66,7 @@ async fn main() -> anyhow::Result<()> {
     // Create shared state
     let state = AppState::new(config.clone(), geo_service);
     start_heartbeat_loop(state.clone());
+    start_worker_update_loop(state.clone());
 
     // Build router
     let app = Router::new()
@@ -142,7 +147,7 @@ async fn metrics_middleware(State(state): State<AppState>, req: Request, next: N
 
 fn start_heartbeat_loop(state: AppState) {
     tokio::spawn(async move {
-        let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
+        let mut tick = tokio::time::interval(Duration::from_secs(30));
         loop {
             tick.tick().await;
 
@@ -164,6 +169,169 @@ fn start_heartbeat_loop(state: AppState) {
                 .await
             {
                 tracing::warn!("Frontend heartbeat failed: {}", e);
+            }
+        }
+    });
+}
+
+fn local_sub_version() -> String {
+    format!("v{}", env!("CARGO_PKG_VERSION"))
+}
+
+fn local_sub_worker_id(config: &FrontendConfig) -> String {
+    if !config.domain.trim().is_empty() {
+        return format!("sub:{}", config.domain.trim());
+    }
+    let hostname = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown-host".to_string());
+    format!("sub:{}", hostname)
+}
+
+fn verify_sha256(bytes: &[u8], expected_hex: &str) -> bool {
+    let expected = expected_hex.trim().to_ascii_lowercase();
+    if expected.len() != 64 || !expected.chars().all(|c| c.is_ascii_hexdigit()) {
+        return false;
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let actual = format!("{:x}", hasher.finalize());
+    actual == expected
+}
+
+async fn apply_self_update(asset_url: &str, expected_sha256: Option<&str>) -> anyhow::Result<()> {
+    let response = reqwest::Client::new()
+        .get(asset_url)
+        .send()
+        .await?
+        .error_for_status()?;
+    let bytes = response.bytes().await?;
+
+    if let Some(hash) = expected_sha256 {
+        if !hash.trim().is_empty() && !verify_sha256(&bytes, hash) {
+            return Err(anyhow::anyhow!("SHA256 mismatch for downloaded binary"));
+        }
+    }
+
+    let exe_path = std::env::current_exe()?;
+    let exe_parent = exe_path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Failed to detect executable parent directory"))?;
+    let tmp_path = exe_parent.join(format!(
+        ".caramba-sub.update.{}.tmp",
+        uuid::Uuid::new_v4().to_string().replace('-', "")
+    ));
+
+    tokio::fs::write(&tmp_path, &bytes).await?;
+    std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755))?;
+    std::fs::rename(&tmp_path, &exe_path)?;
+    Ok(())
+}
+
+fn restart_sub_service() {
+    match Command::new("systemctl")
+        .args(["restart", "caramba-sub.service"])
+        .status()
+    {
+        Ok(status) if status.success() => {
+            tracing::info!("caramba-sub.service restart requested after self-update.");
+        }
+        Ok(status) => {
+            tracing::error!(
+                "Failed to restart caramba-sub.service (status: {}). Manual restart required.",
+                status
+            );
+        }
+        Err(e) => {
+            tracing::error!(
+                "Failed to execute systemctl restart for caramba-sub.service: {}",
+                e
+            );
+        }
+    }
+}
+
+fn start_worker_update_loop(state: AppState) {
+    tokio::spawn(async move {
+        let worker_id = local_sub_worker_id(&state.config);
+        let current_version = local_sub_version();
+        let mut tick = tokio::time::interval(Duration::from_secs(90));
+
+        loop {
+            tick.tick().await;
+
+            let poll = state
+                .panel_client
+                .poll_worker_update("sub", &worker_id, &current_version)
+                .await;
+            let payload = match poll {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::debug!("Worker update poll failed: {}", e);
+                    continue;
+                }
+            };
+
+            if !payload.update {
+                continue;
+            }
+
+            let target_version = payload.target_version.unwrap_or_default();
+            let asset_url = payload.asset_url.unwrap_or_default();
+            if target_version.trim().is_empty() || asset_url.trim().is_empty() {
+                tracing::warn!("Worker update payload is incomplete; skipping.");
+                continue;
+            }
+
+            let _ = state
+                .panel_client
+                .report_worker_update(
+                    "sub",
+                    &panel_client::WorkerUpdateReportRequest {
+                        worker_id: worker_id.clone(),
+                        current_version: current_version.clone(),
+                        target_version: target_version.clone(),
+                        status: "started".to_string(),
+                        message: Some("Downloading update asset".to_string()),
+                    },
+                )
+                .await;
+
+            match apply_self_update(&asset_url, payload.sha256.as_deref()).await {
+                Ok(_) => {
+                    let _ = state
+                        .panel_client
+                        .report_worker_update(
+                            "sub",
+                            &panel_client::WorkerUpdateReportRequest {
+                                worker_id: worker_id.clone(),
+                                current_version: current_version.clone(),
+                                target_version: target_version.clone(),
+                                status: "success".to_string(),
+                                message: Some(
+                                    "Update binary applied. Restarting service.".to_string(),
+                                ),
+                            },
+                        )
+                        .await;
+
+                    restart_sub_service();
+                    return;
+                }
+                Err(e) => {
+                    tracing::error!("Worker self-update failed: {}", e);
+                    let _ = state
+                        .panel_client
+                        .report_worker_update(
+                            "sub",
+                            &panel_client::WorkerUpdateReportRequest {
+                                worker_id: worker_id.clone(),
+                                current_version: current_version.clone(),
+                                target_version: target_version.clone(),
+                                status: "failed".to_string(),
+                                message: Some(e.to_string()),
+                            },
+                        )
+                        .await;
+                }
             }
         }
     });

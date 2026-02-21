@@ -1,7 +1,10 @@
 use clap::{Parser, Subcommand};
 use console::style;
-use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
+use dialoguer::{theme::ColorfulTheme, Confirm, Input, Select};
+use std::collections::HashSet;
+use std::path::Path;
 use std::process::exit;
+use std::process::Command;
 
 #[derive(Parser)]
 #[command(name = "caramba-installer")]
@@ -155,7 +158,11 @@ fn prompt_text(prompt: &str, default: Option<&str>) -> String {
 
 fn prompt_optional_text(prompt: &str) -> Option<String> {
     let value = prompt_text(prompt, Some(""));
-    if value.is_empty() { None } else { Some(value) }
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
 }
 
 fn prompt_bool(prompt: &str, default: bool) -> bool {
@@ -183,14 +190,376 @@ fn run_self_command(args: &[String]) {
     }
 }
 
+fn has_existing_control_plane_install(install_dir: &str) -> bool {
+    let normalized = install_dir.trim_end_matches('/');
+    let env_path = format!("{}/.env", normalized);
+    let panel_bin_path = format!("{}/caramba-panel", normalized);
+    let panel_service_path = "/etc/systemd/system/caramba-panel.service";
+    Path::new(&env_path).exists()
+        && (Path::new(&panel_bin_path).exists() || Path::new(panel_service_path).exists())
+}
+
+fn looks_like_caramba_install(install_dir: &str) -> bool {
+    let normalized = install_dir.trim().trim_end_matches('/');
+    if normalized.is_empty() {
+        return false;
+    }
+
+    let markers = [
+        ".env",
+        "sub.env",
+        "node.env",
+        "bot.env",
+        ".caramba-version",
+        "INSTALL_SUMMARY.txt",
+        "caramba-panel",
+        "caramba-sub",
+        "caramba-node",
+        "caramba-bot",
+    ];
+
+    markers
+        .iter()
+        .map(|name| format!("{}/{}", normalized, name))
+        .any(|path| Path::new(&path).exists())
+}
+
+fn service_file_candidates(service_name: &str) -> Vec<String> {
+    vec![
+        format!("/etc/systemd/system/{}", service_name),
+        format!("/usr/lib/systemd/system/{}", service_name),
+        format!("/lib/systemd/system/{}", service_name),
+    ]
+}
+
+fn parse_install_dir_from_service(service_path: &str) -> Option<String> {
+    let content = std::fs::read_to_string(service_path).ok()?;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(raw) = trimmed.strip_prefix("WorkingDirectory=") {
+            let dir = raw.trim().trim_end_matches('/').to_string();
+            if !dir.is_empty() {
+                return Some(dir);
+            }
+        }
+    }
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(raw) = trimmed.strip_prefix("ExecStart=") {
+            let exec = raw.trim();
+            if exec.is_empty() {
+                continue;
+            }
+            let first = exec.split_whitespace().next().unwrap_or_default();
+            if !first.starts_with('/') {
+                continue;
+            }
+            let parent = Path::new(first).parent()?;
+            let dir = parent.to_string_lossy().trim_end_matches('/').to_string();
+            if !dir.is_empty() {
+                return Some(dir);
+            }
+        }
+    }
+
+    None
+}
+
+fn service_exists(service_name: &str) -> bool {
+    service_file_candidates(service_name)
+        .into_iter()
+        .any(|path| Path::new(&path).exists())
+}
+
+fn service_active(service_name: &str) -> Option<bool> {
+    let status = Command::new("systemctl")
+        .args(["is-active", "--quiet", service_name])
+        .status()
+        .ok()?;
+    Some(status.success())
+}
+
+fn service_enabled(service_name: &str) -> Option<bool> {
+    let status = Command::new("systemctl")
+        .args(["is-enabled", "--quiet", service_name])
+        .status()
+        .ok()?;
+    Some(status.success())
+}
+
+fn installed_component(
+    install_dir: &str,
+    binary: &str,
+    env_file: &str,
+    service_name: &str,
+) -> bool {
+    let normalized = install_dir.trim_end_matches('/');
+    let binary_path = format!("{}/{}", normalized, binary);
+    let env_path = format!("{}/{}", normalized, env_file);
+    Path::new(&binary_path).exists()
+        || Path::new(&env_path).exists()
+        || service_exists(service_name)
+}
+
+fn read_version_marker(install_dir: &str) -> Option<String> {
+    let path = format!("{}/.caramba-version", install_dir.trim_end_matches('/'));
+    let raw = std::fs::read_to_string(path).ok()?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn format_opt_bool(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "yes",
+        Some(false) => "no",
+        None => "unknown",
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ExistingInstallState {
+    install_dir: String,
+    version: Option<String>,
+    panel_installed: bool,
+    sub_installed: bool,
+    node_installed: bool,
+    bot_installed: bool,
+}
+
+fn detect_existing_install_state(preferred: Option<&str>) -> Option<ExistingInstallState> {
+    let install_dir = detect_existing_install_dir(preferred)?;
+    Some(ExistingInstallState {
+        panel_installed: installed_component(
+            &install_dir,
+            "caramba-panel",
+            ".env",
+            "caramba-panel.service",
+        ),
+        sub_installed: installed_component(
+            &install_dir,
+            "caramba-sub",
+            "sub.env",
+            "caramba-sub.service",
+        ),
+        node_installed: installed_component(
+            &install_dir,
+            "caramba-node",
+            "node.env",
+            "caramba-node.service",
+        ),
+        bot_installed: installed_component(
+            &install_dir,
+            "caramba-bot",
+            "bot.env",
+            "caramba-bot.service",
+        ),
+        version: read_version_marker(&install_dir),
+        install_dir,
+    })
+}
+
+fn print_existing_install_overview(state: &ExistingInstallState) {
+    println!();
+    println!("{}", style("Detected Installation").bold().cyan());
+    println!("Path: {}", state.install_dir);
+    println!(
+        "Version marker: {}",
+        state.version.as_deref().unwrap_or("<unknown / not set>")
+    );
+
+    let rows = [
+        ("Panel", state.panel_installed, "caramba-panel.service"),
+        ("Sub", state.sub_installed, "caramba-sub.service"),
+        ("Node", state.node_installed, "caramba-node.service"),
+        ("Bot", state.bot_installed, "caramba-bot.service"),
+    ];
+
+    println!();
+    println!("Component Status:");
+    for (name, installed, service) in rows {
+        let active = format_opt_bool(service_active(service));
+        let enabled = format_opt_bool(service_enabled(service));
+        println!(
+            "  - {:<5} installed: {:<3} | active: {:<7} | enabled: {}",
+            name,
+            if installed { "yes" } else { "no" },
+            active,
+            enabled
+        );
+    }
+}
+
+fn restart_if_installed(installed: bool, service_name: &str) {
+    if !installed {
+        return;
+    }
+
+    let status = Command::new("systemctl")
+        .args(["restart", service_name])
+        .status();
+    match status {
+        Ok(s) if s.success() => println!("✅ Restarted {}", service_name),
+        Ok(s) => println!("❌ Failed to restart {} (status: {})", service_name, s),
+        Err(e) => println!("❌ Failed to restart {} ({})", service_name, e),
+    }
+}
+
+fn run_manage_existing_install_menu() {
+    loop {
+        let Some(state) = detect_existing_install_state(Some("/opt/caramba")) else {
+            println!(
+                "{}",
+                style("No existing Caramba installation detected.").yellow()
+            );
+            return;
+        };
+        print_existing_install_overview(&state);
+        println!();
+        let theme = ColorfulTheme::default();
+        let options = vec![
+            "Upgrade all installed components (latest stable)",
+            "Upgrade all installed components (specific version)",
+            "Restart installed services",
+            "Refresh status",
+            "Uninstall installation",
+            "Back",
+        ];
+
+        let selected = Select::with_theme(&theme)
+            .with_prompt("Manage Existing Installation")
+            .default(0)
+            .items(&options)
+            .interact()
+            .unwrap_or(options.len() - 1);
+
+        match selected {
+            0 => {
+                let args = vec![
+                    "upgrade".to_string(),
+                    "--install-dir".to_string(),
+                    state.install_dir.clone(),
+                ];
+                run_self_command(&args);
+            }
+            1 => {
+                let version = prompt_text("Target version (e.g. v0.3.28)", None);
+                if version.trim().is_empty() {
+                    println!("⚠️ Version is empty. Skipping.");
+                    continue;
+                }
+                let args = vec![
+                    "upgrade".to_string(),
+                    "--install-dir".to_string(),
+                    state.install_dir.clone(),
+                    "--version".to_string(),
+                    version,
+                ];
+                run_self_command(&args);
+            }
+            2 => {
+                restart_if_installed(state.panel_installed, "caramba-panel.service");
+                restart_if_installed(state.sub_installed, "caramba-sub.service");
+                restart_if_installed(state.node_installed, "caramba-node.service");
+                restart_if_installed(state.bot_installed, "caramba-bot.service");
+                let _ = Command::new("systemctl").args(["reload", "caddy"]).status();
+            }
+            3 => {
+                continue;
+            }
+            4 => {
+                let keep_db = prompt_bool("Keep PostgreSQL database and role?", false);
+                let mut args = vec![
+                    "uninstall".to_string(),
+                    "--install-dir".to_string(),
+                    state.install_dir.clone(),
+                ];
+                if keep_db {
+                    args.push("--keep-db".to_string());
+                }
+                run_self_command(&args);
+                return;
+            }
+            _ => return,
+        }
+    }
+}
+
+fn detect_existing_install_dir(preferred: Option<&str>) -> Option<String> {
+    let mut candidates: Vec<String> = Vec::new();
+    if let Some(p) = preferred {
+        let trimmed = p.trim();
+        if !trimmed.is_empty() {
+            candidates.push(trimmed.to_string());
+        }
+    }
+
+    if let Ok(env_dir) = std::env::var("INSTALL_DIR") {
+        let trimmed = env_dir.trim();
+        if !trimmed.is_empty() {
+            candidates.push(trimmed.to_string());
+        }
+    }
+
+    candidates.push("/opt/caramba".to_string());
+
+    for service in [
+        "caramba-panel.service",
+        "caramba-sub.service",
+        "caramba-node.service",
+        "caramba-bot.service",
+    ] {
+        for path in service_file_candidates(service) {
+            if !Path::new(&path).exists() {
+                continue;
+            }
+            if let Some(dir) = parse_install_dir_from_service(&path) {
+                candidates.push(dir);
+            }
+        }
+    }
+
+    let mut seen = HashSet::new();
+    for candidate in candidates {
+        let normalized = candidate.trim().trim_end_matches('/').to_string();
+        if normalized.is_empty() || !seen.insert(normalized.clone()) {
+            continue;
+        }
+        if looks_like_caramba_install(&normalized) {
+            return Some(normalized);
+        }
+    }
+
+    None
+}
+
+fn should_shortcut_to_upgrade(
+    install_dir: &str,
+    force: bool,
+    config_inputs: &[Option<String>],
+) -> bool {
+    if force || !has_existing_control_plane_install(install_dir) {
+        return false;
+    }
+
+    config_inputs
+        .iter()
+        .all(|v| v.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true))
+}
+
 fn run_tui_menu() {
     let theme = ColorfulTheme::default();
 
     loop {
         println!();
         let options = vec![
-            "Install Hub (Panel + Sub + optional Bot)",
-            "Upgrade existing installation",
+            "Install/Upgrade Hub (smart mode)",
+            "Manage existing installation",
             "Install Node",
             "Install Frontend/Sub service",
             "Install Bot service",
@@ -208,30 +577,49 @@ fn run_tui_menu() {
 
         match selected {
             0 => {
-                let mut args = vec!["install".to_string(), "--hub".to_string()];
+                if let Some(install_dir) = detect_existing_install_dir(Some("/opt/caramba")) {
+                    println!(
+                        "{}",
+                        style(format!(
+                            "Detected existing installation in {}. Running upgrade flow.",
+                            install_dir
+                        ))
+                        .cyan()
+                    );
+                    let version =
+                        prompt_optional_text("Target version (e.g. v0.3.24, empty = latest)");
+                    let no_restart = prompt_bool("Do not restart services after upgrade?", false);
+
+                    let mut args = vec![
+                        "upgrade".to_string(),
+                        "--install-dir".to_string(),
+                        install_dir,
+                    ];
+                    if let Some(v) = version {
+                        args.push("--version".to_string());
+                        args.push(v);
+                    }
+                    if no_restart {
+                        args.push("--no-restart".to_string());
+                    }
+                    run_self_command(&args);
+                    continue;
+                }
+
+                let install_dir = prompt_text("Install directory", Some("/opt/caramba"));
+                let mut args = vec![
+                    "install".to_string(),
+                    "--hub".to_string(),
+                    "--install-dir".to_string(),
+                    install_dir,
+                ];
                 if prompt_bool("Skip apt/system dependencies?", false) {
                     args.push("--skip-deps".to_string());
                 }
                 run_self_command(&args);
             }
             1 => {
-                let install_dir = prompt_text("Install directory", Some("/opt/caramba"));
-                let version = prompt_optional_text("Target version (e.g. v0.3.24, empty = latest)");
-                let no_restart = prompt_bool("Do not restart services after upgrade?", false);
-
-                let mut args = vec![
-                    "upgrade".to_string(),
-                    "--install-dir".to_string(),
-                    install_dir,
-                ];
-                if let Some(v) = version {
-                    args.push("--version".to_string());
-                    args.push(v);
-                }
-                if no_restart {
-                    args.push("--no-restart".to_string());
-                }
-                run_self_command(&args);
+                run_manage_existing_install_menu();
             }
             2 => {
                 let panel_url = prompt_text("Panel URL (https://panel.example.com)", None);
@@ -308,7 +696,9 @@ fn run_tui_menu() {
                 run_self_command(&["diagnose".to_string()]);
             }
             6 => {
-                let install_dir = prompt_text("Install directory", Some("/opt/caramba"));
+                let install_dir = detect_existing_install_dir(Some("/opt/caramba"))
+                    .unwrap_or_else(|| "/opt/caramba".to_string());
+                let install_dir = prompt_text("Install directory", Some(install_dir.as_str()));
                 let keep_db = prompt_bool("Keep PostgreSQL database and role?", false);
                 let mut args = vec![
                     "uninstall".to_string(),
@@ -421,7 +811,7 @@ async fn main() {
             sub,
             bot,
             hub,
-            force: _,
+            force,
             domain,
             sub_domain,
             admin_path,
@@ -437,6 +827,14 @@ async fn main() {
             panel_token,
             skip_deps,
         } => {
+            let install_dir_env_or_flag = pick_non_empty(install_dir.clone(), "INSTALL_DIR");
+            let install_dir_effective = if hub || panel {
+                install_dir_env_or_flag
+                    .or_else(|| detect_existing_install_dir(Some("/opt/caramba")))
+                    .unwrap_or_else(|| "/opt/caramba".to_string())
+            } else {
+                install_dir_env_or_flag.unwrap_or_else(|| "/opt/caramba".to_string())
+            };
             let roles_count =
                 (panel as u8) + (node as u8) + (sub as u8) + (bot as u8) + (hub as u8);
 
@@ -451,12 +849,39 @@ async fn main() {
             }
 
             if hub {
+                if should_shortcut_to_upgrade(
+                    &install_dir_effective,
+                    force,
+                    &[
+                        domain.clone(),
+                        sub_domain.clone(),
+                        admin_path.clone(),
+                        db_pass.clone(),
+                        admin_user.clone(),
+                        admin_pass.clone(),
+                    ],
+                ) {
+                    println!(
+                        "{}",
+                        style("Existing hub installation detected. Running upgrade flow (no reconfiguration prompts).")
+                            .cyan()
+                    );
+                    let version = resolve_release_version_or_exit().await;
+                    if let Err(e) =
+                        install::upgrade_caramba(&install_dir_effective, &version, true).await
+                    {
+                        eprintln!("Upgrade failed: {}", e);
+                        exit(1);
+                    }
+                    return;
+                }
+
                 let config = match setup::resolve_install_config(
                     true,
                     domain,
                     sub_domain,
                     admin_path,
-                    install_dir,
+                    Some(install_dir_effective),
                     db_pass,
                     pick_non_empty(admin_user, "ADMIN_USER"),
                     pick_non_empty(admin_pass, "ADMIN_PASS"),
@@ -535,12 +960,38 @@ async fn main() {
                 );
                 print_install_summary(&config, maybe_bot_token.as_deref());
             } else if panel {
+                if should_shortcut_to_upgrade(
+                    &install_dir_effective,
+                    force,
+                    &[
+                        domain.clone(),
+                        admin_path.clone(),
+                        db_pass.clone(),
+                        admin_user.clone(),
+                        admin_pass.clone(),
+                    ],
+                ) {
+                    println!(
+                        "{}",
+                        style("Existing panel installation detected. Running upgrade flow (no reconfiguration prompts).")
+                            .cyan()
+                    );
+                    let version = resolve_release_version_or_exit().await;
+                    if let Err(e) =
+                        install::upgrade_caramba(&install_dir_effective, &version, true).await
+                    {
+                        eprintln!("Upgrade failed: {}", e);
+                        exit(1);
+                    }
+                    return;
+                }
+
                 let config = match setup::resolve_install_config(
                     false,
                     domain,
                     None,
                     admin_path,
-                    install_dir,
+                    Some(install_dir_effective),
                     db_pass,
                     pick_non_empty(admin_user, "ADMIN_USER"),
                     pick_non_empty(admin_pass, "ADMIN_PASS"),
@@ -690,6 +1141,7 @@ async fn main() {
             no_restart,
         } => {
             let install_dir = pick_non_empty(install_dir, "INSTALL_DIR")
+                .or_else(|| detect_existing_install_dir(Some("/opt/caramba")))
                 .unwrap_or_else(|| "/opt/caramba".to_string());
             let version_hint = version
                 .or_else(|| std::env::var("CARAMBA_VERSION").ok())
@@ -727,6 +1179,7 @@ async fn main() {
             keep_db,
         } => {
             let install_dir = pick_non_empty(install_dir, "INSTALL_DIR")
+                .or_else(|| detect_existing_install_dir(Some("/opt/caramba")))
                 .unwrap_or_else(|| "/opt/caramba".to_string());
             println!("Uninstalling Caramba from {} ...", install_dir);
             if let Err(e) = install::uninstall_caramba(&install_dir, !keep_db) {

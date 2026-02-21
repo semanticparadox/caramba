@@ -8,14 +8,17 @@ use axum::{
     response::{Html, IntoResponse},
 };
 use axum_extra::extract::cookie::CookieJar;
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use std::collections::HashMap;
+use sqlx::FromRow;
+use std::collections::{HashMap, HashSet};
 use std::env;
+use std::net::IpAddr;
 use tracing::{error, info};
 
 use super::auth::{get_auth_user, is_authenticated};
 use crate::AppState;
-use crate::bot_manager::{NotificationParseMode, NotificationPayload};
+use crate::bot_manager::{NotificationMediaType, NotificationParseMode, NotificationPayload};
 use crate::services::logging_service::LoggingService;
 use caramba_db::models::store::{Plan, User};
 
@@ -28,10 +31,45 @@ use caramba_db::models::store::{Plan, User};
 pub struct UsersTemplate {
     pub users: Vec<User>,
     pub search: String,
+    pub campaigns: Vec<NotificationCampaignHistory>,
     pub is_auth: bool,
     pub username: String,
     pub admin_path: String,
     pub active_page: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct NotificationCampaignHistory {
+    pub id: i64,
+    pub created_at: String,
+    pub title: String,
+    pub created_by: String,
+    pub segment: String,
+    pub parse_mode: String,
+    pub media_type: String,
+    pub buttons_count: usize,
+    pub sent: i32,
+    pub failed: i32,
+    pub planned: i32,
+    pub status: String,
+    pub message_preview: String,
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct NotificationCampaignRow {
+    id: i64,
+    created_at: DateTime<Utc>,
+    title: Option<String>,
+    created_by_username: Option<String>,
+    target_segment: String,
+    parse_mode: String,
+    media_type: String,
+    buttons_json: Option<serde_json::Value>,
+    planned_count: i32,
+    sent_count: i32,
+    failed_count: i32,
+    status: String,
+    message_text: String,
 }
 
 #[derive(Template, WebTemplate)]
@@ -97,13 +135,21 @@ pub struct ExtendForm {
     pub days: i32,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct NotifyForm {
+    pub campaign_title: Option<String>,
     pub message: String,
+    pub segment: Option<String>,
     pub parse_mode: Option<String>,
+    pub media_type: Option<String>,
+    pub media_url: Option<String>,
     pub image_url: Option<String>,
     pub button_text: Option<String>,
     pub button_url: Option<String>,
+    pub button2_text: Option<String>,
+    pub button2_url: Option<String>,
+    pub button3_text: Option<String>,
+    pub button3_url: Option<String>,
     pub disable_link_preview: Option<String>,
 }
 
@@ -131,32 +177,510 @@ fn parse_notification_mode(input: Option<&str>) -> NotificationParseMode {
     }
 }
 
+fn parse_notification_mode_label(mode: &str) -> &'static str {
+    match mode {
+        "html" => "HTML",
+        "markdown" | "markdownv2" => "MarkdownV2",
+        _ => "Plain",
+    }
+}
+
+fn notification_parse_mode_db_value(mode: NotificationParseMode) -> &'static str {
+    match mode {
+        NotificationParseMode::Plain => "plain",
+        NotificationParseMode::MarkdownV2 => "markdown",
+        NotificationParseMode::Html => "html",
+    }
+}
+
+fn parse_notification_media_type(input: Option<&str>) -> NotificationMediaType {
+    match input.unwrap_or("none").trim().to_ascii_lowercase().as_str() {
+        "photo" | "image" => NotificationMediaType::Photo,
+        "video" => NotificationMediaType::Video,
+        "document" | "file" => NotificationMediaType::Document,
+        _ => NotificationMediaType::None,
+    }
+}
+
+fn notification_media_type_db_value(media_type: NotificationMediaType) -> &'static str {
+    match media_type {
+        NotificationMediaType::None => "none",
+        NotificationMediaType::Photo => "photo",
+        NotificationMediaType::Video => "video",
+        NotificationMediaType::Document => "document",
+    }
+}
+
+fn parse_notification_media_label(media_type: &str) -> &'static str {
+    match media_type {
+        "photo" => "Photo",
+        "video" => "Video",
+        "document" => "Document",
+        _ => "None",
+    }
+}
+
+fn notification_parse_mode_label_for_payload(mode: NotificationParseMode) -> &'static str {
+    match mode {
+        NotificationParseMode::Plain => "Plain",
+        NotificationParseMode::MarkdownV2 => "MarkdownV2",
+        NotificationParseMode::Html => "HTML",
+    }
+}
+
+fn notification_media_type_label_for_payload(media_type: NotificationMediaType) -> &'static str {
+    match media_type {
+        NotificationMediaType::None => "None",
+        NotificationMediaType::Photo => "Photo",
+        NotificationMediaType::Video => "Video",
+        NotificationMediaType::Document => "Document",
+    }
+}
+
+fn escape_html(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+fn canonicalize_ip(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => v6.to_ipv4().map(IpAddr::V4).unwrap_or(IpAddr::V6(v6)),
+        other => other,
+    }
+}
+
+fn parse_ip_maybe(raw: &str) -> Option<IpAddr> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    if let Ok(ip) = raw.parse::<IpAddr>() {
+        return Some(canonicalize_ip(ip));
+    }
+    if let Ok(sock) = raw.parse::<std::net::SocketAddr>() {
+        return Some(canonicalize_ip(sock.ip()));
+    }
+    if let Some((host, _port)) = raw.rsplit_once(':') {
+        if let Ok(ip) = host.parse::<IpAddr>() {
+            return Some(canonicalize_ip(ip));
+        }
+    }
+    None
+}
+
+fn should_hide_device_ip(raw_ip: &str, infra_ips: &HashSet<IpAddr>) -> bool {
+    let Some(ip) = parse_ip_maybe(raw_ip) else {
+        return true;
+    };
+    if ip.is_loopback() || ip.is_unspecified() || ip.is_multicast() {
+        return true;
+    }
+    infra_ips.contains(&ip)
+}
+
+#[derive(Debug, Clone, Copy)]
+enum BroadcastSegment {
+    All,
+    Active,
+    Expiring72h,
+    Trial,
+    NoActive,
+    Banned,
+}
+
+impl BroadcastSegment {
+    fn parse(input: Option<&str>) -> Self {
+        match input.unwrap_or("all").trim().to_ascii_lowercase().as_str() {
+            "active" => Self::Active,
+            "expiring_72h" => Self::Expiring72h,
+            "trial" => Self::Trial,
+            "no_active" => Self::NoActive,
+            "banned" => Self::Banned,
+            _ => Self::All,
+        }
+    }
+
+    fn as_db(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Active => "active",
+            Self::Expiring72h => "expiring_72h",
+            Self::Trial => "trial",
+            Self::NoActive => "no_active",
+            Self::Banned => "banned",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::All => "All users",
+            Self::Active => "Active subscribers",
+            Self::Expiring72h => "Expiring in 72h",
+            Self::Trial => "Trial users",
+            Self::NoActive => "Without active subscription",
+            Self::Banned => "Banned users",
+        }
+    }
+}
+
+async fn ensure_notification_tables(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS notification_campaigns (
+            id BIGSERIAL PRIMARY KEY,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            title TEXT,
+            created_by_username TEXT,
+            target_segment TEXT NOT NULL,
+            parse_mode TEXT NOT NULL DEFAULT 'plain',
+            media_type TEXT NOT NULL DEFAULT 'none',
+            media_url TEXT,
+            button_text TEXT,
+            button_url TEXT,
+            buttons_json JSONB,
+            message_text TEXT NOT NULL,
+            planned_count INTEGER NOT NULL DEFAULT 0,
+            sent_count INTEGER NOT NULL DEFAULT 0,
+            failed_count INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'created'
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("ALTER TABLE notification_campaigns ADD COLUMN IF NOT EXISTS title TEXT")
+        .execute(pool)
+        .await?;
+    sqlx::query("ALTER TABLE notification_campaigns ADD COLUMN IF NOT EXISTS buttons_json JSONB")
+        .execute(pool)
+        .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS notification_deliveries (
+            id BIGSERIAL PRIMARY KEY,
+            campaign_id BIGINT NOT NULL REFERENCES notification_campaigns(id) ON DELETE CASCADE,
+            user_id BIGINT,
+            tg_id BIGINT NOT NULL,
+            status TEXT NOT NULL,
+            error_text TEXT,
+            sent_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_notification_campaigns_created_at ON notification_campaigns(created_at DESC)",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_notification_deliveries_campaign ON notification_deliveries(campaign_id, sent_at DESC)",
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn fetch_campaign_history(
+    pool: &sqlx::PgPool,
+) -> Result<Vec<NotificationCampaignHistory>, sqlx::Error> {
+    let rows: Vec<NotificationCampaignRow> = sqlx::query_as(
+        r#"
+        SELECT
+            id,
+            created_at,
+            title,
+            created_by_username,
+            target_segment,
+            parse_mode,
+            media_type,
+            buttons_json,
+            planned_count,
+            sent_count,
+            failed_count,
+            status,
+            message_text
+        FROM notification_campaigns
+        ORDER BY id DESC
+        LIMIT 20
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let result = rows
+        .into_iter()
+        .map(|row| {
+            let mut preview = row.message_text.replace('\n', " ");
+            if preview.chars().count() > 110 {
+                preview = format!("{}...", preview.chars().take(110).collect::<String>());
+            }
+            let buttons_count = row
+                .buttons_json
+                .as_ref()
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.len())
+                .unwrap_or(0);
+            NotificationCampaignHistory {
+                id: row.id,
+                created_at: row.created_at.format("%Y-%m-%d %H:%M UTC").to_string(),
+                title: row.title.unwrap_or_else(|| "Untitled".to_string()),
+                created_by: row
+                    .created_by_username
+                    .unwrap_or_else(|| "system".to_string()),
+                segment: BroadcastSegment::parse(Some(&row.target_segment))
+                    .label()
+                    .to_string(),
+                parse_mode: parse_notification_mode_label(&row.parse_mode).to_string(),
+                media_type: parse_notification_media_label(&row.media_type).to_string(),
+                buttons_count,
+                sent: row.sent_count,
+                failed: row.failed_count,
+                planned: row.planned_count,
+                status: row.status,
+                message_preview: preview,
+            }
+        })
+        .collect();
+
+    Ok(result)
+}
+
+async fn fetch_segment_user_ids(
+    pool: &sqlx::PgPool,
+    sql: &str,
+) -> Result<HashSet<i64>, sqlx::Error> {
+    let ids: Vec<i64> = sqlx::query_scalar(sql).fetch_all(pool).await?;
+    Ok(ids.into_iter().collect())
+}
+
+async fn filter_users_by_segment(
+    pool: &sqlx::PgPool,
+    users: Vec<User>,
+    segment: BroadcastSegment,
+) -> Result<Vec<User>, sqlx::Error> {
+    let users: Vec<User> = users.into_iter().filter(|u| u.tg_id > 0).collect();
+    match segment {
+        BroadcastSegment::All => Ok(users),
+        BroadcastSegment::Banned => Ok(users.into_iter().filter(|u| u.is_banned).collect()),
+        BroadcastSegment::Active => {
+            let active = fetch_segment_user_ids(
+                pool,
+                "SELECT DISTINCT user_id FROM subscriptions WHERE status = 'active' AND expires_at > NOW()",
+            )
+            .await?;
+            Ok(users
+                .into_iter()
+                .filter(|u| active.contains(&u.id))
+                .collect())
+        }
+        BroadcastSegment::Expiring72h => {
+            let expiring = fetch_segment_user_ids(
+                pool,
+                "SELECT DISTINCT user_id FROM subscriptions WHERE status = 'active' AND expires_at > NOW() AND expires_at <= NOW() + INTERVAL '72 hours'",
+            )
+            .await?;
+            Ok(users
+                .into_iter()
+                .filter(|u| expiring.contains(&u.id))
+                .collect())
+        }
+        BroadcastSegment::Trial => {
+            let trial = fetch_segment_user_ids(
+                pool,
+                "SELECT DISTINCT user_id FROM subscriptions WHERE status = 'active' AND expires_at > NOW() AND COALESCE(is_trial, false) = TRUE",
+            )
+            .await?;
+            Ok(users
+                .into_iter()
+                .filter(|u| trial.contains(&u.id))
+                .collect())
+        }
+        BroadcastSegment::NoActive => {
+            let active = fetch_segment_user_ids(
+                pool,
+                "SELECT DISTINCT user_id FROM subscriptions WHERE status = 'active' AND expires_at > NOW()",
+            )
+            .await?;
+            Ok(users
+                .into_iter()
+                .filter(|u| !active.contains(&u.id))
+                .collect())
+        }
+    }
+}
+
+fn parse_notification_button(
+    text: Option<String>,
+    url: Option<String>,
+    index: usize,
+) -> Result<Option<(String, String)>, String> {
+    let text = normalize_optional(text);
+    let url = normalize_optional(url);
+    if text.is_some() ^ url.is_some() {
+        return Err(format!("Button #{} requires both text and URL", index + 1));
+    }
+
+    match (text, url) {
+        (Some(text), Some(url)) => {
+            url::Url::parse(url.trim()).map_err(|_| {
+                format!(
+                    "Button #{} URL must be a valid absolute URL (https://...)",
+                    index + 1
+                )
+            })?;
+            Ok(Some((text, url)))
+        }
+        _ => Ok(None),
+    }
+}
+
 fn build_notification_payload(form: NotifyForm) -> Result<NotificationPayload, String> {
+    let title = normalize_optional(form.campaign_title.clone());
     let message = form.message.trim().to_string();
     if message.is_empty() {
         return Err("Message cannot be empty".to_string());
     }
 
-    let image_url = normalize_optional(form.image_url);
-    if image_url.is_some() && message.chars().count() > 1024 {
-        return Err("When image is set, message must be <= 1024 chars".to_string());
+    let legacy_image_url = normalize_optional(form.image_url);
+    let media_url = normalize_optional(form.media_url).or(legacy_image_url.clone());
+    let mut media_type = parse_notification_media_type(form.media_type.as_deref());
+    if media_url.is_some() && matches!(media_type, NotificationMediaType::None) {
+        media_type = NotificationMediaType::Photo;
     }
 
-    let button_text = normalize_optional(form.button_text);
-    let button_url = normalize_optional(form.button_url);
-
-    if button_text.is_some() ^ button_url.is_some() {
-        return Err("Button requires both text and URL".to_string());
+    if let Some(url) = media_url.as_ref() {
+        let parsed = url::Url::parse(url.trim())
+            .map_err(|_| "Media URL must be a valid absolute URL (https://...)".to_string())?;
+        match parsed.scheme() {
+            "https" | "http" => {}
+            _ => {
+                return Err("Media URL must use http:// or https://".to_string());
+            }
+        }
     }
+
+    if media_url.is_some() && message.chars().count() > 1024 {
+        return Err("When media is set, message must be <= 1024 chars".to_string());
+    }
+
+    let mut buttons: Vec<(String, String)> = Vec::new();
+    if let Some(button) = parse_notification_button(form.button_text, form.button_url, 0)? {
+        buttons.push(button);
+    }
+    if let Some(button) = parse_notification_button(form.button2_text, form.button2_url, 1)? {
+        buttons.push(button);
+    }
+    if let Some(button) = parse_notification_button(form.button3_text, form.button3_url, 2)? {
+        buttons.push(button);
+    }
+
+    let text = match title {
+        Some(title) => format!("{}\n\n{}", title, message),
+        None => message,
+    };
 
     Ok(NotificationPayload {
-        text: message,
+        text,
         parse_mode: parse_notification_mode(form.parse_mode.as_deref()),
-        image_url,
-        button_text,
-        button_url,
+        media_type,
+        media_url,
+        buttons,
         disable_link_preview: form.disable_link_preview.is_some(),
     })
+}
+
+fn render_notification_preview_html(payload: &NotificationPayload) -> String {
+    let mode_label = notification_parse_mode_label_for_payload(payload.parse_mode);
+    let media_label = notification_media_type_label_for_payload(payload.media_type);
+    let message_body = escape_html(&payload.text).replace('\n', "<br>");
+
+    let mut media_html = String::new();
+    if let Some(media_url) = payload.media_url.as_ref() {
+        let media_url = escape_html(media_url);
+        media_html = match payload.media_type {
+            NotificationMediaType::Photo => format!(
+                r#"<div class="rounded-xl border border-white/10 bg-slate-950/40 p-2">
+                        <img src="{url}" alt="Notification media preview" class="max-h-56 w-auto rounded-lg border border-white/10">
+                    </div>"#,
+                url = media_url
+            ),
+            NotificationMediaType::Video => format!(
+                r#"<div class="rounded-xl border border-white/10 bg-slate-950/40 p-2">
+                        <video src="{url}" controls class="max-h-56 w-full rounded-lg border border-white/10"></video>
+                    </div>"#,
+                url = media_url
+            ),
+            NotificationMediaType::Document => format!(
+                r#"<a href="{url}" target="_blank" rel="noopener noreferrer"
+                        class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 text-xs hover:bg-indigo-500/20 transition-colors">
+                        Open document URL
+                    </a>"#,
+                url = media_url
+            ),
+            NotificationMediaType::None => String::new(),
+        };
+    }
+
+    let buttons_html = if payload.buttons.is_empty() {
+        "<span class=\"text-xs text-slate-500\">No action buttons</span>".to_string()
+    } else {
+        payload
+            .buttons
+            .iter()
+            .map(|(text, url)| {
+                format!(
+                    r#"<a href="{url}" target="_blank" rel="noopener noreferrer"
+                        class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs hover:bg-emerald-500/20 transition-colors">
+                        {text}
+                    </a>"#,
+                    url = escape_html(url),
+                    text = escape_html(text)
+                )
+            })
+            .collect::<Vec<String>>()
+            .join("\n")
+    };
+
+    format!(
+        r#"
+        <div class="mt-3 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4 space-y-3">
+            <div class="flex flex-wrap items-center gap-2 text-[11px]">
+                <span class="rounded-full border border-white/10 bg-slate-950/40 px-2.5 py-1 text-slate-300">Mode: <span class="text-white">{mode}</span></span>
+                <span class="rounded-full border border-white/10 bg-slate-950/40 px-2.5 py-1 text-slate-300">Media: <span class="text-white">{media}</span></span>
+                <span class="rounded-full border border-white/10 bg-slate-950/40 px-2.5 py-1 text-slate-300">Link preview: <span class="text-white">{link_preview}</span></span>
+            </div>
+
+            <div class="rounded-xl border border-white/10 bg-slate-950/50 p-4 text-sm text-slate-100 leading-relaxed">
+                {body}
+            </div>
+
+            {media_html}
+
+            <div class="flex flex-wrap gap-2">
+                {buttons_html}
+            </div>
+        </div>
+        "#,
+        mode = mode_label,
+        media = media_label,
+        link_preview = if payload.disable_link_preview {
+            "disabled"
+        } else {
+            "enabled"
+        },
+        body = message_body,
+        media_html = media_html,
+        buttons_html = buttons_html
+    )
 }
 
 // Helper function
@@ -188,9 +712,21 @@ pub async fn get_users(
         state.user_service.search(&search).await.unwrap_or_default()
     };
 
+    if let Err(e) = ensure_notification_tables(&state.pool).await {
+        error!("Failed to ensure notification tables: {}", e);
+    }
+    let campaigns = match fetch_campaign_history(&state.pool).await {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Failed to fetch notification campaign history: {}", e);
+            Vec::new()
+        }
+    };
+
     let template = UsersTemplate {
         users,
         search,
+        campaigns,
         is_auth: true,
         username: get_auth_user(&state, &jar)
             .await
@@ -684,16 +1220,46 @@ pub async fn notify_user(
     }
 }
 
+pub async fn notify_preview(Form(form): Form<NotifyForm>) -> impl IntoResponse {
+    match build_notification_payload(form) {
+        Ok(payload) => Html(render_notification_preview_html(&payload)).into_response(),
+        Err(msg) => (
+            axum::http::StatusCode::BAD_REQUEST,
+            Html(format!(
+                "<div class=\"mt-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300\">{}</div>",
+                escape_html(&msg)
+            )),
+        )
+            .into_response(),
+    }
+}
+
 pub async fn notify_all_users(
     State(state): State<AppState>,
+    jar: CookieJar,
     Form(form): Form<NotifyForm>,
 ) -> impl IntoResponse {
-    let payload = match build_notification_payload(form) {
+    let segment = BroadcastSegment::parse(form.segment.as_deref());
+    let campaign_title = normalize_optional(form.campaign_title.clone())
+        .unwrap_or_else(|| "Untitled broadcast".to_string());
+    let payload = match build_notification_payload(form.clone()) {
         Ok(payload) => payload,
         Err(msg) => return (axum::http::StatusCode::BAD_REQUEST, msg).into_response(),
     };
 
-    let users = match state.user_service.get_all().await {
+    if let Err(e) = ensure_notification_tables(&state.pool).await {
+        error!(
+            "Failed to ensure notification tables before broadcast: {}",
+            e
+        );
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to prepare notification storage",
+        )
+            .into_response();
+    }
+
+    let users_all = match state.user_service.get_all().await {
         Ok(users) => users,
         Err(e) => {
             error!("Failed to fetch users for broadcast: {}", e);
@@ -705,31 +1271,160 @@ pub async fn notify_all_users(
         }
     };
 
+    let users = match filter_users_by_segment(&state.pool, users_all, segment).await {
+        Ok(users) => users,
+        Err(e) => {
+            error!("Failed to filter users for broadcast segment: {}", e);
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to filter users by segment",
+            )
+                .into_response();
+        }
+    };
+
+    let created_by = get_auth_user(&state, &jar)
+        .await
+        .unwrap_or_else(|| "Admin".to_string());
+    let parse_mode_db = notification_parse_mode_db_value(payload.parse_mode);
+    let media_type_db = notification_media_type_db_value(payload.media_type);
+    let planned_count = users.len().min(i32::MAX as usize) as i32;
+    let primary_button_text = payload.buttons.first().map(|b| b.0.clone());
+    let primary_button_url = payload.buttons.first().map(|b| b.1.clone());
+    let buttons_json: serde_json::Value = serde_json::Value::Array(
+        payload
+            .buttons
+            .iter()
+            .map(|(text, url)| {
+                serde_json::json!({
+                    "text": text,
+                    "url": url,
+                })
+            })
+            .collect(),
+    );
+
+    let campaign_id = match sqlx::query_scalar::<_, i64>(
+        r#"
+        INSERT INTO notification_campaigns
+            (title, created_by_username, target_segment, parse_mode, media_type, media_url, button_text, button_url, buttons_json, message_text, planned_count, status)
+        VALUES
+            ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'running')
+        RETURNING id
+        "#,
+    )
+    .bind(campaign_title)
+    .bind(created_by)
+    .bind(segment.as_db())
+    .bind(parse_mode_db)
+    .bind(media_type_db)
+    .bind(payload.media_url.clone())
+    .bind(primary_button_text)
+    .bind(primary_button_url)
+    .bind(buttons_json)
+    .bind(payload.text.clone())
+    .bind(planned_count)
+    .fetch_one(&state.pool)
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            error!("Failed to create notification campaign row: {}", e);
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to create notification campaign",
+            )
+                .into_response();
+        }
+    };
+
     let mut sent = 0usize;
     let mut failed = 0usize;
     for user in users {
-        if user.tg_id <= 0 {
+        if user.tg_id <= 0 || user.is_banned {
             continue;
         }
-        match state
+        let send_result = state
             .bot_manager
             .send_rich_notification(user.tg_id, payload.clone())
-            .await
-        {
-            Ok(_) => sent += 1,
+            .await;
+
+        match send_result {
+            Ok(_) => {
+                sent += 1;
+                if let Err(e) = sqlx::query(
+                    "INSERT INTO notification_deliveries (campaign_id, user_id, tg_id, status, error_text) VALUES ($1, $2, $3, 'sent', NULL)",
+                )
+                .bind(campaign_id)
+                .bind(user.id)
+                .bind(user.tg_id)
+                .execute(&state.pool)
+                .await
+                {
+                    error!(
+                        "Failed to store notification delivery success (campaign {}, user {}): {}",
+                        campaign_id, user.id, e
+                    );
+                }
+            }
             Err(e) => {
                 failed += 1;
                 error!(
                     "Failed to send broadcast notification to tg_id {}: {}",
                     user.tg_id, e
                 );
+                let err_text = e.to_string();
+                if let Err(db_err) = sqlx::query(
+                    "INSERT INTO notification_deliveries (campaign_id, user_id, tg_id, status, error_text) VALUES ($1, $2, $3, 'failed', $4)",
+                )
+                .bind(campaign_id)
+                .bind(user.id)
+                .bind(user.tg_id)
+                .bind(err_text.clone())
+                .execute(&state.pool)
+                .await
+                {
+                    error!(
+                        "Failed to store notification delivery failure (campaign {}, user {}): {}",
+                        campaign_id, user.id, db_err
+                    );
+                }
             }
         }
     }
 
+    let status = if sent == 0 && failed > 0 {
+        "failed"
+    } else if failed > 0 {
+        "partial"
+    } else {
+        "completed"
+    };
+
+    if let Err(e) = sqlx::query(
+        "UPDATE notification_campaigns SET sent_count = $2, failed_count = $3, status = $4 WHERE id = $1",
+    )
+    .bind(campaign_id)
+    .bind(sent.min(i32::MAX as usize) as i32)
+    .bind(failed.min(i32::MAX as usize) as i32)
+    .bind(status)
+    .execute(&state.pool)
+    .await
+    {
+        error!(
+            "Failed to finalize notification campaign {} with counters: {}",
+            campaign_id, e
+        );
+    }
+
     (
         axum::http::StatusCode::OK,
-        format!("Broadcast complete: sent={}, failed={}", sent, failed),
+        format!(
+            "Broadcast complete ({}): sent={}, failed={}",
+            segment.label(),
+            sent,
+            failed
+        ),
     )
         .into_response()
 }
@@ -743,7 +1438,7 @@ pub async fn get_subscription_devices(
         return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    let ips = match state.subscription_service.get_active_ips(sub_id).await {
+    let ips_raw = match state.subscription_service.get_active_ips(sub_id).await {
         Ok(ips) => ips,
         Err(e) => {
             error!("Failed to fetch IPs for sub {}: {}", sub_id, e);
@@ -754,6 +1449,20 @@ pub async fn get_subscription_devices(
                 .into_response();
         }
     };
+
+    let infra_rows: Vec<String> = sqlx::query_scalar("SELECT ip FROM nodes")
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+    let infra_ips: HashSet<IpAddr> = infra_rows
+        .into_iter()
+        .filter_map(|ip| parse_ip_maybe(&ip))
+        .collect();
+
+    let ips: Vec<_> = ips_raw
+        .into_iter()
+        .filter(|row| !should_hide_device_ip(&row.client_ip, &infra_ips))
+        .collect();
 
     let admin_path = state.admin_path.clone();
 

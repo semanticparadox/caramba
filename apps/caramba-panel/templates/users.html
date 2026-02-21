@@ -26,28 +26,85 @@
         <h3 class="text-sm font-semibold text-slate-200 uppercase tracking-wide">Broadcast Notification</h3>
         <form hx-post="{{ admin_path }}/users/notify/all" hx-target="#broadcast-result" hx-swap="innerHTML"
             class="space-y-3">
-            <textarea name="message" rows="4" required maxlength="4000"
+            <input type="text" name="campaign_title" maxlength="120"
+                placeholder="Campaign title (for history/audit)"
+                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+
+            <div class="flex flex-wrap gap-2 text-[11px]">
+                <button type="button"
+                    class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
+                    onclick="notifyFormatWrap('broadcast-message','**','**')">Bold</button>
+                <button type="button"
+                    class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
+                    onclick="notifyFormatWrap('broadcast-message','_','_')">Italic</button>
+                <button type="button"
+                    class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
+                    onclick="notifyFormatWrap('broadcast-message','`','`')">Code</button>
+                <button type="button"
+                    class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
+                    onclick="notifyInsertLink('broadcast-message')">Link</button>
+                <span class="text-slate-500 self-center">tip: in HTML mode use tags like &lt;b&gt;...&lt;/b&gt;</span>
+            </div>
+
+            <textarea id="broadcast-message" name="message" rows="4" required maxlength="4000"
                 placeholder="Message for all users (Telegram). Supports plain, MarkdownV2, or HTML."
                 class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all"></textarea>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <select name="segment"
+                    class="bg-slate-950 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                    <option value="all" selected>All users</option>
+                    <option value="active">Active subscribers</option>
+                    <option value="expiring_72h">Expiring in 72h</option>
+                    <option value="trial">Trial users</option>
+                    <option value="no_active">No active subscription</option>
+                    <option value="banned">Banned users</option>
+                </select>
                 <select name="parse_mode"
                     class="bg-slate-950 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
                     <option value="plain" selected>Plain Text</option>
                     <option value="html">HTML</option>
                     <option value="markdown">MarkdownV2</option>
                 </select>
-                <input type="url" name="image_url" maxlength="1000"
-                    placeholder="Optional image URL (https://...)"
+                <select name="media_type"
+                    class="bg-slate-950 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                    <option value="none" selected>No media</option>
+                    <option value="photo">Photo</option>
+                    <option value="video">Video</option>
+                    <option value="document">Document</option>
+                </select>
+            </div>
+
+            <div class="grid grid-cols-1 gap-2">
+                <input type="url" name="media_url" maxlength="1000"
+                    placeholder="Optional media URL (https://...)"
                     class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <input type="text" name="button_text" maxlength="64"
-                    placeholder="Optional button text"
-                    class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                    placeholder="Primary button text"
+                class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
                 <input type="url" name="button_url" maxlength="1000"
-                    placeholder="Optional button URL (https://...)"
+                    placeholder="Primary button URL (https://...)"
+                    class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input type="text" name="button2_text" maxlength="64"
+                    placeholder="Secondary button text"
+                    class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                <input type="url" name="button2_url" maxlength="1000"
+                    placeholder="Secondary button URL (https://...)"
+                    class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input type="text" name="button3_text" maxlength="64"
+                    placeholder="Tertiary button text"
+                    class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                <input type="url" name="button3_url" maxlength="1000"
+                    placeholder="Tertiary button URL (https://...)"
                     class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
             </div>
 
@@ -57,12 +114,72 @@
                 Disable link preview for text message
             </label>
 
-            <button type="submit"
-                class="w-full sm:w-auto px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-xl transition-colors shadow-lg shadow-indigo-500/20">
-                Send to All
-            </button>
+            <div class="flex flex-wrap gap-2">
+                <button type="button"
+                    hx-post="{{ admin_path }}/users/notify/preview"
+                    hx-include="closest form"
+                    hx-target="#broadcast-preview"
+                    hx-swap="innerHTML"
+                    class="w-full sm:w-auto px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium rounded-xl transition-colors border border-white/10">
+                    Preview
+                </button>
+                <button type="submit"
+                    class="w-full sm:w-auto px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-xl transition-colors shadow-lg shadow-indigo-500/20">
+                    Send to All
+                </button>
+            </div>
+            <div id="broadcast-preview"></div>
         </form>
         <div id="broadcast-result" class="text-xs text-slate-400"></div>
+    </div>
+
+    <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden shadow-xl">
+        <div class="p-4 border-b border-white/5 flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-slate-200 uppercase tracking-wide">Notification Campaign History</h3>
+            <span class="text-xs text-slate-500">Last 20 broadcasts</span>
+        </div>
+        {% if campaigns.is_empty() %}
+        <div class="p-6 text-sm text-slate-500">No campaigns yet.</div>
+        {% else %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/40">
+                        <th class="px-4 py-3">Time</th>
+                        <th class="px-4 py-3">Title</th>
+                        <th class="px-4 py-3">Admin</th>
+                        <th class="px-4 py-3">Segment</th>
+                        <th class="px-4 py-3">Mode</th>
+                        <th class="px-4 py-3">Media</th>
+                        <th class="px-4 py-3">Buttons</th>
+                        <th class="px-4 py-3">Result</th>
+                        <th class="px-4 py-3">Status</th>
+                        <th class="px-4 py-3">Preview</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5">
+                    {% for c in campaigns %}
+                    <tr class="hover:bg-white/5 transition-colors">
+                        <td class="px-4 py-3 text-xs text-slate-400 font-mono">{{ c.created_at }}</td>
+                        <td class="px-4 py-3 text-xs text-slate-200">{{ c.title }}</td>
+                        <td class="px-4 py-3 text-sm text-white">{{ c.created_by }}</td>
+                        <td class="px-4 py-3 text-xs text-slate-300">{{ c.segment }}</td>
+                        <td class="px-4 py-3 text-xs text-slate-300">{{ c.parse_mode }}</td>
+                        <td class="px-4 py-3 text-xs text-slate-300">{{ c.media_type }}</td>
+                        <td class="px-4 py-3 text-xs text-slate-300">{{ c.buttons_count }}</td>
+                        <td class="px-4 py-3 text-xs text-slate-300">{{ c.sent }}/{{ c.planned }} <span
+                                class="text-red-400">(-{{ c.failed }})</span></td>
+                        <td class="px-4 py-3">
+                            <span
+                                class="inline-flex items-center px-2 py-1 rounded-full text-[10px] border border-white/10 bg-white/5 text-slate-300">{{ c.status }}</span>
+                        </td>
+                        <td class="px-4 py-3 text-xs text-slate-400">{{ c.message_preview }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
     </div>
 
     <!-- Users Table -->
@@ -145,4 +262,36 @@
         </div>
     </div>
 </section>
+
+<script>
+    function notifyFormatWrap(textareaId, left, right) {
+        const textarea = document.getElementById(textareaId);
+        if (!textarea) return;
+        const start = textarea.selectionStart ?? 0;
+        const end = textarea.selectionEnd ?? 0;
+        const value = textarea.value;
+        const selected = value.substring(start, end) || 'text';
+        const wrapped = `${left}${selected}${right}`;
+        textarea.value = `${value.substring(0, start)}${wrapped}${value.substring(end)}`;
+        const cursor = start + wrapped.length;
+        textarea.focus();
+        textarea.setSelectionRange(cursor, cursor);
+    }
+
+    function notifyInsertLink(textareaId) {
+        const url = prompt('Link URL (https://...)');
+        if (!url) return;
+        const textarea = document.getElementById(textareaId);
+        if (!textarea) return;
+        const start = textarea.selectionStart ?? 0;
+        const end = textarea.selectionEnd ?? 0;
+        const value = textarea.value;
+        const selected = value.substring(start, end) || 'link text';
+        const link = `[${selected}](${url})`;
+        textarea.value = `${value.substring(0, start)}${link}${value.substring(end)}`;
+        const cursor = start + link.length;
+        textarea.focus();
+        textarea.setSelectionRange(cursor, cursor);
+    }
+</script>
 {% endblock %}

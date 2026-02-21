@@ -17,3 +17,6 @@ caramba-shared = { path = "../../libs/caramba-shared" }
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
+sha2 = "0.10"
+uuid = { version = "1.11", features = ["v4"] }
+urlencoding = "2.1"

@@ -695,7 +695,14 @@ pub async fn install_hub(
     // Optional bot on hub.
     if let Some(bt) = bot_token {
         if !bt.trim().is_empty() {
-            install_bot(&config.install_dir, version, &panel_url, bt, None).await?;
+            install_bot(
+                &config.install_dir,
+                version,
+                &panel_url,
+                bt,
+                Some(internal_api_token),
+            )
+            .await?;
         } else {
             println!("⚠️ BOT_TOKEN is empty. Skipping bot service install.");
         }
@@ -739,7 +746,11 @@ fn detect_installed_component(
         || service_unit_exists(service_name)
 }
 
-pub async fn upgrade_caramba(install_dir: &str, version: &str, restart_services: bool) -> Result<()> {
+pub async fn upgrade_caramba(
+    install_dir: &str,
+    version: &str,
+    restart_services: bool,
+) -> Result<()> {
     let install_dir = install_dir.trim_end_matches('/');
     std::fs::create_dir_all(install_dir)?;
 
@@ -858,9 +869,7 @@ pub async fn upgrade_caramba(install_dir: &str, version: &str, restart_services:
         ))
         .green()
     );
-    println!(
-        "ℹ️ Existing configuration files were preserved (.env, sub.env, node.env, bot.env)."
-    );
+    println!("ℹ️ Existing configuration files were preserved (.env, sub.env, node.env, bot.env).");
 
     Ok(())
 }

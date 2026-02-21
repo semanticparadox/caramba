@@ -11,8 +11,10 @@ use axum::{
 use axum_extra::extract::cookie::CookieJar;
 use chrono::{DateTime, Duration, Utc};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::Path;
+use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{error, info};
 
@@ -28,6 +30,142 @@ fn mask_key(key: &str) -> String {
     } else {
         format!("{}...{}", &key[..2], &key[len - 2..])
     }
+}
+
+fn normalize_base_url(raw: &str) -> String {
+    let mut value = raw.trim().to_string();
+    if value.is_empty() {
+        return value;
+    }
+    if !value.starts_with("http://") && !value.starts_with("https://") {
+        value = format!("https://{}", value);
+    }
+    while value.ends_with('/') {
+        value.pop();
+    }
+    value
+}
+
+fn service_file_candidates(service_name: &str) -> [String; 3] {
+    [
+        format!("/etc/systemd/system/{}", service_name),
+        format!("/usr/lib/systemd/system/{}", service_name),
+        format!("/lib/systemd/system/{}", service_name),
+    ]
+}
+
+fn service_exists(service_name: &str) -> bool {
+    service_file_candidates(service_name)
+        .iter()
+        .any(|path| Path::new(path).exists())
+}
+
+fn is_service_active(service_name: &str) -> bool {
+    Command::new("systemctl")
+        .args(["is-active", "--quiet", service_name])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn is_service_enabled(service_name: &str) -> bool {
+    Command::new("systemctl")
+        .args(["is-enabled", "--quiet", service_name])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn normalize_worker_role(role: &str) -> Option<&'static str> {
+    match role.trim().to_ascii_lowercase().as_str() {
+        "sub" => Some("sub"),
+        "bot" => Some("bot"),
+        _ => None,
+    }
+}
+
+fn worker_asset_name(role: &str) -> &'static str {
+    match role {
+        "sub" => "caramba-sub",
+        "bot" => "caramba-bot",
+        _ => "caramba-sub",
+    }
+}
+
+async fn fetch_worker_update_reports(pool: &sqlx::PgPool) -> Vec<WorkerUpdateReportView> {
+    let rows: Vec<WorkerUpdateReportRow> = sqlx::query_as(
+        r#"
+        SELECT role, worker_id, current_version, target_version, status, message, created_at
+        FROM worker_update_reports
+        ORDER BY id DESC
+        LIMIT 20
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    rows.into_iter()
+        .map(|row| WorkerUpdateReportView {
+            role: row.role.to_ascii_uppercase(),
+            worker_id: row.worker_id,
+            current_version: row.current_version.unwrap_or_else(|| "-".to_string()),
+            target_version: row.target_version.unwrap_or_else(|| "-".to_string()),
+            status: row.status.to_ascii_uppercase(),
+            message: row.message.unwrap_or_default(),
+            created_at: row.created_at.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+        })
+        .collect()
+}
+
+fn format_relative_time(dt: DateTime<Utc>) -> String {
+    let now = Utc::now();
+    let diff = now.signed_duration_since(dt);
+    if diff < Duration::seconds(60) {
+        format!("{}s ago", diff.num_seconds().max(0))
+    } else if diff < Duration::minutes(60) {
+        format!("{}m ago", diff.num_minutes())
+    } else if diff < Duration::hours(24) {
+        format!("{}h ago", diff.num_hours())
+    } else {
+        format!("{}d ago", diff.num_days())
+    }
+}
+
+async fn fetch_worker_inventory(pool: &sqlx::PgPool) -> Vec<WorkerInventoryView> {
+    let rows: Vec<WorkerRuntimeStatusRow> = sqlx::query_as(
+        r#"
+        SELECT role, worker_id, current_version, target_version, last_state, last_message, last_seen
+        FROM worker_runtime_status
+        ORDER BY role ASC, last_seen DESC
+        LIMIT 200
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    rows.into_iter()
+        .map(|row| {
+            let is_online = Utc::now().signed_duration_since(row.last_seen) <= Duration::minutes(3);
+            WorkerInventoryView {
+                role: row.role.to_ascii_uppercase(),
+                worker_id: row.worker_id,
+                current_version: row.current_version.unwrap_or_else(|| "-".to_string()),
+                target_version: row.target_version.unwrap_or_else(|| "-".to_string()),
+                last_state: row.last_state.to_ascii_uppercase(),
+                last_message: row.last_message.unwrap_or_default(),
+                is_online,
+                online_label: if is_online {
+                    "online".to_string()
+                } else {
+                    "offline".to_string()
+                },
+                last_seen: row.last_seen.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                last_seen_ago: format_relative_time(row.last_seen),
+            }
+        })
+        .collect()
 }
 
 // ============================================================================
@@ -53,6 +191,8 @@ pub struct SettingsTemplate {
     pub payment_ipn_url: String,
     pub currency_rate: String,
     pub support_url: String,
+    pub panel_url: String,
+    pub panel_url_display: String,
     pub bot_username: String,
     pub brand_name: String,
     pub terms_of_service: String,
@@ -74,13 +214,81 @@ pub struct SettingsTemplate {
     pub frontend_mode: String,
     pub miniapp_enabled: bool,
     pub subscription_domain: String,
-    // Phase 67
-    pub auto_update_panel: bool,
+    pub deployment_mode: String,
+    pub local_panel_detected: bool,
+    pub local_sub_detected: bool,
+    pub local_bot_detected: bool,
+    pub local_node_detected: bool,
+    pub local_panel_active: bool,
+    pub local_sub_active: bool,
+    pub local_bot_active: bool,
+    pub local_node_active: bool,
+    pub local_panel_enabled: bool,
+    pub local_sub_enabled: bool,
+    pub local_bot_enabled: bool,
+    pub local_node_enabled: bool,
     pub auto_update_agents: bool,
-    pub auto_update_frontend: bool,
+    pub agent_latest_version: String,
+    pub agent_update_url: String,
+    pub agent_update_hash: String,
+    pub sub_worker_target_version: String,
+    pub sub_worker_update_url: String,
+    pub bot_worker_target_version: String,
+    pub bot_worker_update_url: String,
+    pub worker_inventory: Vec<WorkerInventoryView>,
+    pub worker_total_count: usize,
+    pub worker_online_count: usize,
+    pub worker_update_reports: Vec<WorkerUpdateReportView>,
     pub relay_auth_mode: String,
     pub relay_legacy_usage_last_seen_at: String,
     pub relay_legacy_usage_last_seen_bytes: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct WorkerUpdateReportRow {
+    role: String,
+    worker_id: String,
+    current_version: Option<String>,
+    target_version: Option<String>,
+    status: String,
+    message: Option<String>,
+    created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkerUpdateReportView {
+    pub role: String,
+    pub worker_id: String,
+    pub current_version: String,
+    pub target_version: String,
+    pub status: String,
+    pub message: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct WorkerRuntimeStatusRow {
+    role: String,
+    worker_id: String,
+    current_version: Option<String>,
+    target_version: Option<String>,
+    last_state: String,
+    last_message: Option<String>,
+    last_seen: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkerInventoryView {
+    pub role: String,
+    pub worker_id: String,
+    pub current_version: String,
+    pub target_version: String,
+    pub last_state: String,
+    pub last_message: String,
+    pub is_online: bool,
+    pub online_label: String,
+    pub last_seen: String,
+    pub last_seen_ago: String,
 }
 
 #[derive(Template, WebTemplate)]
@@ -118,6 +326,7 @@ pub struct SaveSettingsForm {
     pub payment_ipn_url: Option<String>,
     pub currency_rate: Option<String>,
     pub support_url: Option<String>,
+    pub panel_url: Option<String>,
     pub bot_username: Option<String>,
     pub brand_name: Option<String>,
     pub terms_of_service: Option<String>,
@@ -128,12 +337,13 @@ pub struct SaveSettingsForm {
     pub kill_switch_enabled: Option<String>,
     pub kill_switch_timeout: Option<String>,
     pub frontend_mode: Option<String>,
+    pub deployment_mode: Option<String>,
     pub miniapp_enabled: Option<String>,
     pub subscription_domain: Option<String>,
-    // Phase 67
-    pub auto_update_panel: Option<String>,
     pub auto_update_agents: Option<String>,
-    pub auto_update_frontend: Option<String>,
+    pub agent_latest_version: Option<String>,
+    pub agent_update_url: Option<String>,
+    pub agent_update_hash: Option<String>,
     pub relay_auth_mode: Option<String>,
 }
 
@@ -144,6 +354,12 @@ pub struct TrialConfigForm {
     pub free_trial_traffic_limit: i32,
     pub free_trial_device_limit: i32,
     pub required_channel_id: String,
+}
+
+#[derive(Deserialize)]
+pub struct QueueWorkerUpdateForm {
+    pub role: String,
+    pub version: Option<String>,
 }
 
 // ============================================================================
@@ -173,6 +389,20 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     let payment_ipn_url = state.settings.get_or_default("payment_ipn_url", "").await;
     let currency_rate = state.settings.get_or_default("currency_rate", "1.0").await;
     let support_url = state.settings.get_or_default("support_url", "").await;
+    let panel_url_setting = state.settings.get_or_default("panel_url", "").await;
+    let panel_url_env = std::env::var("PANEL_URL").unwrap_or_default();
+    let panel_url = if !panel_url_setting.trim().is_empty() {
+        normalize_base_url(&panel_url_setting)
+    } else if !panel_url_env.trim().is_empty() {
+        normalize_base_url(&panel_url_env)
+    } else {
+        "".to_string()
+    };
+    let panel_url_display = if panel_url.is_empty() {
+        "https://YOUR_PANEL_DOMAIN".to_string()
+    } else {
+        panel_url.clone()
+    };
     let bot_username = state.settings.get_or_default("bot_username", "").await;
     let brand_name = state.settings.get_or_default("brand_name", "CARAMBA").await;
     let terms_of_service = state
@@ -242,6 +472,18 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .settings
         .get_or_default("frontend_mode", "local")
         .await;
+    let deployment_mode = {
+        let raw = state
+            .settings
+            .get_or_default("deployment_mode", "hub")
+            .await
+            .to_ascii_lowercase();
+        if raw == "distributed" {
+            "distributed".to_string()
+        } else {
+            "hub".to_string()
+        }
+    };
     let miniapp_enabled = state
         .settings
         .get_or_default("miniapp_enabled", "true")
@@ -252,22 +494,40 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .get_or_default("subscription_domain", "")
         .await;
 
-    // Phase 67
-    let auto_update_panel = state
-        .settings
-        .get_or_default("auto_update_panel", "false")
-        .await
-        == "true";
     let auto_update_agents = state
         .settings
         .get_or_default("auto_update_agents", "true")
         .await
         == "true";
-    let auto_update_frontend = state
+    let agent_latest_version = state
         .settings
-        .get_or_default("auto_update_frontend", "false")
-        .await
-        == "true";
+        .get_or_default("agent_latest_version", "0.0.0")
+        .await;
+    let agent_update_url = state.settings.get_or_default("agent_update_url", "").await;
+    let agent_update_hash = state.settings.get_or_default("agent_update_hash", "").await;
+    let sub_worker_target_version = state
+        .settings
+        .get_or_default("worker_sub_target_version", "")
+        .await;
+    let sub_worker_update_url = state
+        .settings
+        .get_or_default("worker_sub_update_url", "")
+        .await;
+    let bot_worker_target_version = state
+        .settings
+        .get_or_default("worker_bot_target_version", "")
+        .await;
+    let bot_worker_update_url = state
+        .settings
+        .get_or_default("worker_bot_update_url", "")
+        .await;
+    if let Err(e) = crate::handlers::api::internal::ensure_worker_update_tables(&state.pool).await {
+        error!("Failed to ensure worker update tables: {}", e);
+    }
+    let worker_inventory = fetch_worker_inventory(&state.pool).await;
+    let worker_total_count = worker_inventory.len();
+    let worker_online_count = worker_inventory.iter().filter(|w| w.is_online).count();
+    let worker_update_reports = fetch_worker_update_reports(&state.pool).await;
     let relay_auth_mode = state
         .settings
         .get_or_default("relay_auth_mode", "dual")
@@ -285,6 +545,22 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     } else {
         relay_legacy_usage_last_seen_at_raw
     };
+    let local_panel_detected =
+        Path::new("/opt/caramba/caramba-panel").exists() || service_exists("caramba-panel.service");
+    let local_sub_detected =
+        Path::new("/opt/caramba/caramba-sub").exists() || service_exists("caramba-sub.service");
+    let local_bot_detected =
+        Path::new("/opt/caramba/caramba-bot").exists() || service_exists("caramba-bot.service");
+    let local_node_detected =
+        Path::new("/opt/caramba/caramba-node").exists() || service_exists("caramba-node.service");
+    let local_panel_active = is_service_active("caramba-panel.service");
+    let local_sub_active = is_service_active("caramba-sub.service");
+    let local_bot_active = is_service_active("caramba-bot.service");
+    let local_node_active = is_service_active("caramba-node.service");
+    let local_panel_enabled = is_service_enabled("caramba-panel.service");
+    let local_sub_enabled = is_service_enabled("caramba-sub.service");
+    let local_bot_enabled = is_service_enabled("caramba-bot.service");
+    let local_node_enabled = is_service_enabled("caramba-node.service");
 
     let masked_payment_api_key = if !payment_api_key.is_empty() {
         mask_key(&payment_api_key)
@@ -370,6 +646,8 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         payment_ipn_url,
         currency_rate,
         support_url,
+        panel_url,
+        panel_url_display,
         bot_username,
         brand_name,
         terms_of_service,
@@ -389,11 +667,33 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         admin_path,
         active_page: "settings".to_string(),
         frontend_mode,
+        deployment_mode,
+        local_panel_detected,
+        local_sub_detected,
+        local_bot_detected,
+        local_node_detected,
+        local_panel_active,
+        local_sub_active,
+        local_bot_active,
+        local_node_active,
+        local_panel_enabled,
+        local_sub_enabled,
+        local_bot_enabled,
+        local_node_enabled,
         miniapp_enabled,
         subscription_domain,
-        auto_update_panel,
         auto_update_agents,
-        auto_update_frontend,
+        agent_latest_version,
+        agent_update_url,
+        agent_update_hash,
+        sub_worker_target_version,
+        sub_worker_update_url,
+        bot_worker_target_version,
+        bot_worker_update_url,
+        worker_inventory,
+        worker_total_count,
+        worker_online_count,
+        worker_update_reports,
         relay_auth_mode,
         relay_legacy_usage_last_seen_at,
         relay_legacy_usage_last_seen_bytes,
@@ -570,6 +870,10 @@ pub async fn save_settings(
     if let Some(v) = form.support_url {
         settings.insert("support_url".to_string(), v);
     }
+    if let Some(v) = form.panel_url {
+        let normalized = normalize_base_url(&v);
+        settings.insert("panel_url".to_string(), normalized);
+    }
     if let Some(v) = form.bot_username {
         settings.insert(
             "bot_username".to_string(),
@@ -607,6 +911,18 @@ pub async fn save_settings(
     if let Some(v) = form.frontend_mode {
         settings.insert("frontend_mode".to_string(), v);
     }
+    if let Some(v) = form.deployment_mode {
+        let normalized = v.trim().to_ascii_lowercase();
+        let deployment_mode = if normalized == "distributed" {
+            "distributed"
+        } else {
+            "hub"
+        };
+        settings.insert("deployment_mode".to_string(), deployment_mode.to_string());
+        if deployment_mode == "distributed" {
+            settings.insert("frontend_mode".to_string(), "distributed".to_string());
+        }
+    }
     if let Some(v) = form.miniapp_enabled {
         settings.insert("miniapp_enabled".to_string(), v);
     }
@@ -614,15 +930,40 @@ pub async fn save_settings(
         settings.insert("subscription_domain".to_string(), v);
     }
 
-    // Phase 67
-    if let Some(v) = form.auto_update_panel {
-        settings.insert("auto_update_panel".to_string(), v);
-    }
     if let Some(v) = form.auto_update_agents {
         settings.insert("auto_update_agents".to_string(), v);
     }
-    if let Some(v) = form.auto_update_frontend {
-        settings.insert("auto_update_frontend".to_string(), v);
+    if let Some(v) = form.agent_latest_version {
+        let normalized = v.trim().to_string();
+        if !normalized.is_empty() {
+            settings.insert("agent_latest_version".to_string(), normalized);
+        }
+    }
+    if let Some(v) = form.agent_update_url {
+        let normalized = v.trim().to_string();
+        if !normalized.is_empty()
+            && !(normalized.starts_with("https://")
+                || normalized.starts_with("http://")
+                || normalized.starts_with('/'))
+        {
+            return (
+                StatusCode::BAD_REQUEST,
+                "agent_update_url must start with https://, http://, or /",
+            )
+                .into_response();
+        }
+        settings.insert("agent_update_url".to_string(), normalized);
+    }
+    if let Some(v) = form.agent_update_hash {
+        let normalized = v.trim().to_ascii_lowercase();
+        if !normalized.is_empty() && !is_valid_sha256_hex(&normalized) {
+            return (
+                StatusCode::BAD_REQUEST,
+                "agent_update_hash must be a 64-character SHA256 hex string",
+            )
+                .into_response();
+        }
+        settings.insert("agent_update_hash".to_string(), normalized);
     }
     if let Some(v) = form.relay_auth_mode {
         let normalized = v.trim().to_ascii_lowercase();
@@ -1018,23 +1359,174 @@ fn parse_semver_tuple(version: &str) -> (u32, u32, u32) {
     (major, minor, patch)
 }
 
+fn is_valid_sha256_hex(value: &str) -> bool {
+    value.len() == 64 && value.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+fn render_system_action_result(message: &str, success: bool) -> String {
+    let (bg, border, text) = if success {
+        (
+            "bg-emerald-500/10",
+            "border-emerald-500/30",
+            "text-emerald-300",
+        )
+    } else {
+        ("bg-rose-500/10", "border-rose-500/30", "text-rose-300")
+    };
+    format!(
+        r#"<div class="mt-3 rounded-xl border {border} {bg} px-4 py-2 text-sm {text}">{message}</div>"#
+    )
+}
+
+fn run_systemctl_action(args: &[&str]) -> Result<(), String> {
+    let output = Command::new("systemctl")
+        .args(args)
+        .output()
+        .map_err(|e| format!("systemctl {:?} failed to start: {}", args, e))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if stderr.is_empty() {
+        Err(format!(
+            "systemctl {:?} failed with status {}",
+            args, output.status
+        ))
+    } else {
+        Err(format!("systemctl {:?}: {}", args, stderr))
+    }
+}
+
+fn render_topology_apply_result(mode: &str, ok_lines: &[String], err_lines: &[String]) -> String {
+    let mode_label = if mode == "distributed" {
+        "Distributed"
+    } else {
+        "Hub"
+    };
+
+    let mut html = String::new();
+    html.push_str(
+        r#"<div class="mt-3 rounded-xl border border-white/10 bg-slate-950/40 px-4 py-3">"#,
+    );
+    html.push_str(&format!(
+        r#"<p class="text-sm text-white font-medium">Applied local topology mode: <span class="text-cyan-300">{}</span></p>"#,
+        mode_label
+    ));
+    if !ok_lines.is_empty() {
+        html.push_str(r#"<ul class="mt-2 space-y-1 text-xs text-emerald-300">"#);
+        for line in ok_lines {
+            html.push_str(&format!(r#"<li>• {}</li>"#, line));
+        }
+        html.push_str("</ul>");
+    }
+    if !err_lines.is_empty() {
+        html.push_str(r#"<ul class="mt-2 space-y-1 text-xs text-rose-300">"#);
+        for line in err_lines {
+            html.push_str(&format!(r#"<li>• {}</li>"#, line));
+        }
+        html.push_str("</ul>");
+    }
+    if mode == "distributed" {
+        html.push_str(
+            r#"<p class="mt-2 text-[11px] text-slate-400">Next: install/upgrade Sub and Bot on separate servers using role install commands above.</p>"#,
+        );
+    } else {
+        html.push_str(
+            r#"<p class="mt-2 text-[11px] text-slate-400">Hub mode expects Panel/Sub locally. Bot can be local or external.</p>"#,
+        );
+    }
+    html.push_str("</div>");
+    html
+}
+
+pub async fn apply_deployment_topology(State(state): State<AppState>) -> impl IntoResponse {
+    let mode = state
+        .settings
+        .get_or_default("deployment_mode", "hub")
+        .await
+        .to_ascii_lowercase();
+    let distributed = mode == "distributed";
+
+    let mut ok_lines: Vec<String> = Vec::new();
+    let mut err_lines: Vec<String> = Vec::new();
+
+    if distributed {
+        for service in ["caramba-sub.service", "caramba-bot.service"] {
+            if !service_exists(service) {
+                ok_lines.push(format!(
+                    "{} not installed locally (already external).",
+                    service
+                ));
+                continue;
+            }
+            match run_systemctl_action(&["disable", "--now", service]) {
+                Ok(_) => ok_lines.push(format!("Stopped and disabled {}.", service)),
+                Err(e) => err_lines.push(e),
+            }
+        }
+    } else {
+        for service in [
+            "caramba-panel.service",
+            "caramba-sub.service",
+            "caramba-bot.service",
+        ] {
+            if !service_exists(service) {
+                ok_lines.push(format!("{} is not installed locally.", service));
+                continue;
+            }
+            match run_systemctl_action(&["enable", "--now", service]) {
+                Ok(_) => ok_lines.push(format!("Enabled and started {}.", service)),
+                Err(e) => err_lines.push(e),
+            }
+        }
+    }
+
+    if let Err(e) = run_systemctl_action(&["reload", "caddy"]) {
+        err_lines.push(e);
+    } else {
+        ok_lines.push("Reloaded Caddy.".to_string());
+    }
+
+    (
+        StatusCode::OK,
+        Html(render_topology_apply_result(&mode, &ok_lines, &err_lines)),
+    )
+        .into_response()
+}
+
 pub async fn check_update(State(state): State<AppState>) -> impl IntoResponse {
     let current = crate::utils::current_panel_version();
     let latest = resolve_latest_release_version().await;
+    let deployment_mode = state
+        .settings
+        .get_or_default("deployment_mode", "hub")
+        .await
+        .to_ascii_lowercase();
+    let distributed_mode = deployment_mode == "distributed";
 
     let panel_url_setting = state.settings.get_or_default("panel_url", "").await;
     let panel_url_env = std::env::var("PANEL_URL").unwrap_or_default();
     let panel_url = if !panel_url_setting.trim().is_empty() {
-        panel_url_setting.trim().trim_end_matches('/').to_string()
+        normalize_base_url(&panel_url_setting)
     } else if !panel_url_env.trim().is_empty() {
-        panel_url_env.trim().trim_end_matches('/').to_string()
+        normalize_base_url(&panel_url_env)
     } else {
         "https://YOUR_PANEL_DOMAIN".to_string()
     };
-    let panel_url = if panel_url.starts_with("http://") || panel_url.starts_with("https://") {
-        panel_url
+    let update_role = if distributed_mode { "panel" } else { "hub" };
+    let sub_domain_setting = state
+        .settings
+        .get_or_default("subscription_domain", "")
+        .await;
+    let sub_domain = if sub_domain_setting.trim().is_empty() {
+        "<SUB_DOMAIN>".to_string()
     } else {
-        format!("https://{}", panel_url)
+        sub_domain_setting.trim().to_string()
+    };
+    let update_scope = if distributed_mode {
+        "Distributed mode: panel host updates control-plane only. Sub/Bot workers are upgraded on their own hosts."
+    } else {
+        "Hub mode: this host carries panel + sub (+ optional bot). Node agents are upgraded via Agent Rollout."
     };
 
     let body = match latest {
@@ -1054,18 +1546,54 @@ pub async fn check_update(State(state): State<AppState>) -> impl IntoResponse {
             };
 
             let command = format!(
-                "curl -fsSL {}/install.sh | sudo bash -s -- --role hub --version {}",
-                panel_url, latest_version
+                "curl -fsSL {}/install.sh | sudo bash -s -- --role {} --version {}",
+                panel_url, update_role, latest_version
+            );
+            let local_upgrade_command =
+                format!("sudo caramba upgrade --version {}", latest_version);
+            let node_command = format!(
+                "curl -fsSL {}/install.sh | sudo bash -s -- --role node --panel {} --token <NODE_TOKEN> --version {}",
+                panel_url, panel_url, latest_version
+            );
+            let sub_command = format!(
+                "curl -fsSL {}/install.sh | sudo bash -s -- --role sub --panel {} --domain {} --token <FRONTEND_TOKEN> --region <REGION> --version {}",
+                panel_url, panel_url, sub_domain, latest_version
+            );
+            let bot_command = format!(
+                "curl -fsSL {}/install.sh | sudo bash -s -- --role bot --panel {} --bot-token <BOT_TOKEN> --panel-token <INTERNAL_API_TOKEN> --version {}",
+                panel_url, panel_url, latest_version
             );
             format!(
                 r##"
 <div class="flex items-center justify-between" id="update-status-container">
-    <div>
+    <div class="w-full">
         <p class="text-sm text-slate-400">Current Version: <span class="text-white font-mono">{current}</span></p>
         {status_line}
-        <p class="text-xs text-slate-500 mt-1">Installer command: <span class="font-mono text-slate-300">{command}</span></p>
+        <p class="text-xs text-slate-500 mt-1">{update_scope}</p>
+        <div class="mt-3 grid grid-cols-1 gap-2 text-[11px]">
+            <div class="rounded-lg border border-white/10 bg-slate-900/40 p-2">
+                <p class="text-slate-400 mb-1">Recommended on already installed host:</p>
+                <p class="font-mono text-slate-200 break-all">{local_upgrade_command}</p>
+            </div>
+            <div class="rounded-lg border border-white/10 bg-slate-900/40 p-2">
+                <p class="text-slate-400 mb-1">{control_plane_title} one-shot install/upgrade:</p>
+                <p class="font-mono text-slate-200 break-all">{command}</p>
+            </div>
+            <div class="rounded-lg border border-white/10 bg-slate-900/40 p-2">
+                <p class="text-slate-400 mb-1">Node worker install/upgrade:</p>
+                <p class="font-mono text-slate-200 break-all">{node_command}</p>
+            </div>
+            <div class="rounded-lg border border-white/10 bg-slate-900/40 p-2">
+                <p class="text-slate-400 mb-1">Sub worker install/upgrade:</p>
+                <p class="font-mono text-slate-200 break-all">{sub_command}</p>
+            </div>
+            <div class="rounded-lg border border-white/10 bg-slate-900/40 p-2">
+                <p class="text-slate-400 mb-1">Bot worker install/upgrade:</p>
+                <p class="font-mono text-slate-200 break-all">{bot_command}</p>
+            </div>
+        </div>
     </div>
-    <button hx-post="{admin_path}/settings/update/check" hx-target="#update-status-container" hx-swap="outerHTML"
+    <button hx-post="{admin_path}/settings/update/check" hx-target="#update-status-container" hx-swap="outerHTML" style="height:fit-content"
         class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-medium py-2 px-4 rounded-lg transition-all border border-white/5">
         <i data-lucide="refresh-cw" class="w-4 h-4"></i> Check Again
     </button>
@@ -1074,6 +1602,16 @@ pub async fn check_update(State(state): State<AppState>) -> impl IntoResponse {
                 current = current,
                 status_line = status_line,
                 command = command,
+                local_upgrade_command = local_upgrade_command,
+                control_plane_title = if distributed_mode {
+                    "Control-plane"
+                } else {
+                    "Hub"
+                },
+                node_command = node_command,
+                sub_command = sub_command,
+                bot_command = bot_command,
+                update_scope = update_scope,
                 admin_path = state.admin_path.clone()
             )
         }
@@ -1084,7 +1622,8 @@ pub async fn check_update(State(state): State<AppState>) -> impl IntoResponse {
 <div class="flex items-center justify-between" id="update-status-container">
     <div>
         <p class="text-sm text-slate-400">Current Version: <span class="text-white font-mono">{current}</span></p>
-        <p class="text-sm text-amber-400">Unable to check updates right now.</p>
+        <p class="text-sm text-amber-400">Unable to check GitHub release right now.</p>
+        <p class="text-xs text-slate-500 mt-1">Fallback command on this host: <span class="font-mono text-slate-300">sudo caramba upgrade</span></p>
     </div>
     <button hx-post="{admin_path}/settings/update/check" hx-target="#update-status-container" hx-swap="outerHTML"
         class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-medium py-2 px-4 rounded-lg transition-all border border-white/5">
@@ -1102,6 +1641,328 @@ pub async fn check_update(State(state): State<AppState>) -> impl IntoResponse {
         axum::http::StatusCode::OK,
         [("HX-Trigger", "update-checked")],
         Html(body),
+    )
+        .into_response()
+}
+
+pub async fn prepare_agent_update(State(state): State<AppState>) -> impl IntoResponse {
+    let latest_version = match resolve_latest_release_version().await {
+        Ok(v) => v,
+        Err(e) => {
+            error!("Failed to resolve latest release for agent prepare: {}", e);
+            return (
+                StatusCode::BAD_GATEWAY,
+                render_system_action_result(
+                    "Failed to resolve latest release version from GitHub.",
+                    false,
+                ),
+            )
+                .into_response();
+        }
+    };
+
+    let asset_url = format!(
+        "https://github.com/semanticparadox/caramba/releases/download/{}/caramba-node",
+        latest_version
+    );
+
+    let client = reqwest::Client::new();
+    let response = match client
+        .get(&asset_url)
+        .header("User-Agent", "caramba-panel")
+        .send()
+        .await
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            error!("Failed to download agent asset '{}': {}", asset_url, e);
+            return (
+                StatusCode::BAD_GATEWAY,
+                render_system_action_result("Failed to download agent release asset.", false),
+            )
+                .into_response();
+        }
+    };
+
+    if !response.status().is_success() {
+        error!(
+            "Agent asset download failed with status {} for '{}'",
+            response.status(),
+            asset_url
+        );
+        return (
+            StatusCode::BAD_GATEWAY,
+            render_system_action_result(
+                "GitHub release asset is unavailable for this version.",
+                false,
+            ),
+        )
+            .into_response();
+    }
+
+    let bytes = match response.bytes().await {
+        Ok(data) => data,
+        Err(e) => {
+            error!("Failed to read agent bytes: {}", e);
+            return (
+                StatusCode::BAD_GATEWAY,
+                render_system_action_result("Failed to read downloaded agent binary.", false),
+            )
+                .into_response();
+        }
+    };
+
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    let hash = format!("{:x}", hasher.finalize());
+
+    let mut updates = HashMap::new();
+    updates.insert("agent_latest_version".to_string(), latest_version.clone());
+    updates.insert("agent_update_url".to_string(), asset_url.clone());
+    updates.insert("agent_update_hash".to_string(), hash.clone());
+
+    if let Err(e) = state.settings.set_multiple(updates).await {
+        error!("Failed to persist prepared agent update metadata: {}", e);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            render_system_action_result("Failed to save prepared agent metadata.", false),
+        )
+            .into_response();
+    }
+
+    let short_hash = &hash[..12];
+    (
+        StatusCode::OK,
+        [("HX-Refresh", "true")],
+        render_system_action_result(
+            &format!(
+                "Prepared agent update: version {} (sha256 {}…).",
+                latest_version, short_hash
+            ),
+            true,
+        ),
+    )
+        .into_response()
+}
+
+pub async fn rollout_agent_update(State(state): State<AppState>) -> impl IntoResponse {
+    let target_version = state
+        .settings
+        .get_or_default("agent_latest_version", "0.0.0")
+        .await;
+    let update_url = state.settings.get_or_default("agent_update_url", "").await;
+    let update_hash = state.settings.get_or_default("agent_update_hash", "").await;
+
+    if target_version.trim().is_empty() || target_version.trim() == "0.0.0" {
+        return (
+            StatusCode::BAD_REQUEST,
+            render_system_action_result(
+                "Agent latest version is not configured. Prepare or fill version first.",
+                false,
+            ),
+        )
+            .into_response();
+    }
+    if update_url.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            render_system_action_result("Agent update URL is empty.", false),
+        )
+            .into_response();
+    }
+    if update_hash.trim().is_empty() || !is_valid_sha256_hex(update_hash.trim()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            render_system_action_result(
+                "Agent update hash is missing or invalid (must be SHA256 hex).",
+                false,
+            ),
+        )
+            .into_response();
+    }
+
+    let active_nodes = match state.store_service.get_active_node_ids().await {
+        Ok(ids) => ids,
+        Err(e) => {
+            error!("Failed to fetch active nodes for rollout: {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                render_system_action_result("Failed to fetch active nodes.", false),
+            )
+                .into_response();
+        }
+    };
+
+    if active_nodes.is_empty() {
+        return (
+            StatusCode::OK,
+            render_system_action_result("No active nodes found for rollout.", true),
+        )
+            .into_response();
+    }
+
+    let mut marked = 0usize;
+    let mut signaled = 0usize;
+    for node_id in &active_nodes {
+        match sqlx::query("UPDATE nodes SET target_version = $1 WHERE id = $2")
+            .bind(target_version.trim())
+            .bind(*node_id)
+            .execute(&state.pool)
+            .await
+        {
+            Ok(_) => marked += 1,
+            Err(e) => error!(
+                "Failed to set target_version '{}' for node {}: {}",
+                target_version, node_id, e
+            ),
+        }
+
+        if state
+            .pubsub
+            .publish(&format!("node_events:{}", node_id), "update")
+            .await
+            .is_ok()
+        {
+            signaled += 1;
+        }
+    }
+
+    (
+        StatusCode::OK,
+        render_system_action_result(
+            &format!(
+                "Rollout queued for version {}: marked {} node(s), signaled {} node(s).",
+                target_version, marked, signaled
+            ),
+            true,
+        ),
+    )
+        .into_response()
+}
+
+pub async fn queue_worker_update(
+    State(state): State<AppState>,
+    Form(form): Form<QueueWorkerUpdateForm>,
+) -> impl IntoResponse {
+    let role = match normalize_worker_role(&form.role) {
+        Some(r) => r,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                render_system_action_result("Unknown worker role.", false),
+            )
+                .into_response();
+        }
+    };
+
+    let version = match form
+        .version
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        Some(v) => v.to_string(),
+        None => match resolve_latest_release_version().await {
+            Ok(v) => v,
+            Err(e) => {
+                error!("Failed to resolve latest release for worker queue: {}", e);
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    render_system_action_result(
+                        "Failed to resolve latest release version from GitHub.",
+                        false,
+                    ),
+                )
+                    .into_response();
+            }
+        },
+    };
+
+    let asset_url = format!(
+        "https://github.com/semanticparadox/caramba/releases/download/{}/{}",
+        version,
+        worker_asset_name(role)
+    );
+
+    let asset_check = reqwest::Client::new()
+        .get(&asset_url)
+        .header("User-Agent", "caramba-panel")
+        .send()
+        .await;
+
+    match asset_check {
+        Ok(resp) if resp.status().is_success() => {}
+        Ok(resp) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                render_system_action_result(
+                    &format!(
+                        "Release asset for {} not available (status {}).",
+                        role,
+                        resp.status()
+                    ),
+                    false,
+                ),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            error!("Failed to check worker asset '{}': {}", asset_url, e);
+            return (
+                StatusCode::BAD_GATEWAY,
+                render_system_action_result("Failed to check release asset URL.", false),
+            )
+                .into_response();
+        }
+    }
+
+    let target_version_key = format!("worker_{}_target_version", role);
+    let update_url_key = format!("worker_{}_update_url", role);
+    let update_hash_key = format!("worker_{}_update_hash", role);
+
+    let mut updates = HashMap::new();
+    updates.insert(target_version_key, version.clone());
+    updates.insert(update_url_key, asset_url.clone());
+    updates.insert(update_hash_key, String::new());
+    if let Err(e) = state.settings.set_multiple(updates).await {
+        error!("Failed to save worker update metadata: {}", e);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            render_system_action_result("Failed to persist worker update metadata.", false),
+        )
+            .into_response();
+    }
+
+    if let Err(e) = crate::handlers::api::internal::ensure_worker_update_tables(&state.pool).await {
+        error!("Failed to ensure worker update tables: {}", e);
+    } else if let Err(e) = sqlx::query(
+        r#"
+        INSERT INTO worker_update_reports (role, worker_id, current_version, target_version, status, message)
+        VALUES ($1, '*', NULL, $2, 'queued', $3)
+        "#,
+    )
+    .bind(role)
+    .bind(version.as_str())
+    .bind(format!(
+        "Queued from panel settings. Worker will self-update on next poll."
+    ))
+    .execute(&state.pool)
+    .await
+    {
+        error!("Failed to write worker queue report: {}", e);
+    }
+
+    (
+        StatusCode::OK,
+        [("HX-Refresh", "true")],
+        render_system_action_result(
+            &format!(
+                "Queued {} worker update to {}. Workers will apply on next poll.",
+                role.to_ascii_uppercase(),
+                version
+            ),
+            true,
+        ),
     )
         .into_response()
 }

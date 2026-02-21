@@ -93,6 +93,52 @@ impl PanelClient {
             response.status()
         ))
     }
+
+    pub async fn poll_worker_update(
+        &self,
+        role: &str,
+        worker_id: &str,
+        current_version: &str,
+    ) -> Result<WorkerUpdatePollResponse> {
+        let url = format!(
+            "{}/api/internal/workers/{}/updates/poll?worker_id={}&current_version={}",
+            self.base_url,
+            role,
+            urlencoding::encode(worker_id),
+            urlencoding::encode(current_version)
+        );
+
+        let response = self
+            .client
+            .get(&url)
+            .bearer_auth(&self.auth_token)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        Ok(response.json().await?)
+    }
+
+    pub async fn report_worker_update(
+        &self,
+        role: &str,
+        report: &WorkerUpdateReportRequest,
+    ) -> Result<()> {
+        let url = format!(
+            "{}/api/internal/workers/{}/updates/report",
+            self.base_url, role
+        );
+
+        self.client
+            .post(&url)
+            .bearer_auth(&self.auth_token)
+            .json(report)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        Ok(())
+    }
 }
 
 // Data structures (detailed for config generation)
@@ -162,4 +208,21 @@ pub struct UserKeys {
 pub struct FrontendStats {
     pub requests_count: u64,
     pub bandwidth_used: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WorkerUpdatePollResponse {
+    pub update: bool,
+    pub target_version: Option<String>,
+    pub asset_url: Option<String>,
+    pub sha256: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WorkerUpdateReportRequest {
+    pub worker_id: String,
+    pub current_version: String,
+    pub target_version: String,
+    pub status: String,
+    pub message: Option<String>,
 }

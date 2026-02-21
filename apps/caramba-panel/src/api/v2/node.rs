@@ -8,6 +8,7 @@ use caramba_shared::api::{AgentAction, HeartbeatRequest, HeartbeatResponse};
 use caramba_shared::config::ConfigResponse;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use tracing::{error, info, warn};
 
 #[derive(Deserialize)]
@@ -167,11 +168,13 @@ pub async fn heartbeat(
     }
 
     // 4. Process Per-User Traffic Usage
+    let mut touched_subscriptions: HashSet<i64> = HashSet::new();
     if let Some(usage_map) = req.user_usage {
         let mut relay_legacy_usage_bytes: u64 = 0;
         for (tag, bytes) in usage_map {
             if tag.starts_with("user_") {
                 if let Ok(sub_id) = tag[5..].parse::<i64>() {
+                    touched_subscriptions.insert(sub_id);
                     // Increment used_traffic and update timestamp
                     let _ = sqlx::query("UPDATE subscriptions SET used_traffic = used_traffic + $1, traffic_updated_at = CURRENT_TIMESTAMP WHERE id = $2")
                         .bind(bytes as i64)
@@ -199,6 +202,59 @@ pub async fn heartbeat(
                     &relay_legacy_usage_bytes.to_string(),
                 )
                 .await;
+        }
+    }
+
+    if !touched_subscriptions.is_empty() {
+        let touched_vec: Vec<i64> = touched_subscriptions.into_iter().collect();
+        match state
+            .subscription_service
+            .expire_over_quota_candidates(&touched_vec)
+            .await
+        {
+            Ok(expired_rows) if !expired_rows.is_empty() => {
+                warn!(
+                    "Heartbeat quota enforcement expired {} subscriptions on node {}",
+                    expired_rows.len(),
+                    node_id
+                );
+
+                let connection_service = state.connection_service.clone();
+                let orchestration_service = state.orchestration_service.clone();
+                tokio::spawn(async move {
+                    let mut nodes_to_notify: HashSet<i64> = HashSet::new();
+                    for row in expired_rows {
+                        if let Some(nid) = row.node_id {
+                            nodes_to_notify.insert(nid);
+                        }
+                        if let Err(e) = connection_service
+                            .kill_subscription_connections(row.subscription_id)
+                            .await
+                        {
+                            error!(
+                                "Failed to terminate sessions for quota-expired subscription {}: {}",
+                                row.subscription_id, e
+                            );
+                        }
+                    }
+
+                    for nid in nodes_to_notify {
+                        if let Err(e) = orchestration_service.notify_node_update(nid).await {
+                            error!(
+                                "Failed to notify node {} after quota expiration update: {}",
+                                nid, e
+                            );
+                        }
+                    }
+                });
+            }
+            Ok(_) => {}
+            Err(e) => {
+                error!(
+                    "Failed to enforce quota from heartbeat candidates on node {}: {}",
+                    node_id, e
+                );
+            }
         }
     }
 

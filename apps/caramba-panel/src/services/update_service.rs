@@ -16,13 +16,8 @@ impl UpdateService {
 
     /// Checks for a new agent binary in downloads/ and updates settings if found.
     pub async fn initialize_agent_updates(&self) {
-        // Initialize Default Settings
-        let _ = self.settings.get_or_set("auto_update_panel", "false").await;
+        // Initialize defaults used by node rollout.
         let _ = self.settings.get_or_set("auto_update_agents", "true").await;
-        let _ = self
-            .settings
-            .get_or_set("auto_update_frontend", "false")
-            .await;
 
         info!("🔄 Checking for local agent updates...");
 

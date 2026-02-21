@@ -87,10 +87,7 @@ impl SniMonitor {
                     );
                 }
                 DomainHealth::Blacklist(reason) => {
-                    warn!(
-                        "SNI domain {} auto-blacklisted: {}",
-                        sni.domain, reason
-                    );
+                    warn!("SNI domain {} auto-blacklisted: {}", sni.domain, reason);
                 }
             }
         }
@@ -111,17 +108,43 @@ impl SniMonitor {
 
     async fn check_domain(&self, domain: &str) -> DomainHealth {
         let url = format!("https://{}", domain);
-        match self.client.head(&url).send().await {
+        match self
+            .client
+            .get(&url)
+            .header("Range", "bytes=0-2048")
+            .send()
+            .await
+        {
             Ok(res) => {
-                let status = res.status().as_u16();
+                let status_obj = res.status();
+                let status = status_obj.as_u16();
                 if matches!(status, 401 | 403 | 451) {
                     return DomainHealth::Blacklist(format!("HTTP {}", status));
                 }
 
-                if res.status().is_success()
-                    || res.status().is_redirection()
-                    || res.status().is_client_error()
-                    || res.status().is_server_error()
+                if status_obj.is_success() {
+                    if let Ok(body) = res.text().await {
+                        let body = body.to_ascii_lowercase();
+                        const BODY_DENY_MARKERS: &[&str] = &[
+                            "access denied",
+                            "forbidden",
+                            "not authorized",
+                            "permission denied",
+                            "security check",
+                            "request blocked",
+                        ];
+                        if BODY_DENY_MARKERS.iter().any(|marker| body.contains(marker)) {
+                            return DomainHealth::Blacklist(
+                                "response body indicates access denied".to_string(),
+                            );
+                        }
+                    }
+                }
+
+                if status_obj.is_success()
+                    || status_obj.is_redirection()
+                    || status_obj.is_client_error()
+                    || status_obj.is_server_error()
                 {
                     return DomainHealth::Healthy;
                 }

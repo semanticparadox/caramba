@@ -26,7 +26,8 @@ pub use nodes::{
 pub use plans::{add_plan, delete_plan, get_plan_edit, get_plans, update_plan};
 pub use promo::{add_promo, delete_promo, get_promos};
 pub use settings::{
-    bot_logs_history, bot_logs_page, bot_logs_tail, check_update, export_database, get_settings,
+    apply_deployment_topology, bot_logs_history, bot_logs_page, bot_logs_tail, check_update,
+    export_database, get_settings, prepare_agent_update, queue_worker_update, rollout_agent_update,
     save_settings, toggle_bot, update_trial_config,
 };
 pub use store::{
@@ -36,7 +37,8 @@ pub use store::{
 pub use users::{
     admin_gift_subscription, admin_kill_subscription_sessions, delete_user_subscription,
     extend_user_subscription, get_subscription_devices, get_user_details, get_users,
-    notify_all_users, notify_user, refund_user_subscription, update_user, update_user_balance,
+    notify_all_users, notify_preview, notify_user, refund_user_subscription, update_user,
+    update_user_balance,
 };
 
 // Stubs removed

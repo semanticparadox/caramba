@@ -98,7 +98,27 @@
             <form hx-post="{{ admin_path }}/users/{{ user.id }}/notify" hx-target="#notify-result" hx-swap="innerHTML"
                 class="space-y-3">
                 <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Send Telegram Notification</label>
-                <textarea name="message" rows="4" required maxlength="4000"
+                <input type="text" name="campaign_title" maxlength="120"
+                    placeholder="Campaign title (for logs/history)"
+                    class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
+
+                <div class="flex flex-wrap gap-2 text-[11px]">
+                    <button type="button"
+                        class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
+                        onclick="notifyFormatWrap('user-notify-message','**','**')">Bold</button>
+                    <button type="button"
+                        class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
+                        onclick="notifyFormatWrap('user-notify-message','_','_')">Italic</button>
+                    <button type="button"
+                        class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
+                        onclick="notifyFormatWrap('user-notify-message','`','`')">Code</button>
+                    <button type="button"
+                        class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
+                        onclick="notifyInsertLink('user-notify-message')">Link</button>
+                    <span class="text-slate-500 self-center">tip: HTML mode supports tags like &lt;b&gt;...&lt;/b&gt;</span>
+                </div>
+
+                <textarea id="user-notify-message" name="message" rows="4" required maxlength="4000"
                     placeholder="Type message for this user... Supports plain, HTML, or MarkdownV2."
                     class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700"></textarea>
 
@@ -109,17 +129,45 @@
                         <option value="html">HTML</option>
                         <option value="markdown">MarkdownV2</option>
                     </select>
-                    <input type="url" name="image_url" maxlength="1000"
-                        placeholder="Optional image URL (https://...)"
+                    <select name="media_type"
+                        class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all">
+                        <option value="none" selected>No media</option>
+                        <option value="photo">Photo</option>
+                        <option value="video">Video</option>
+                        <option value="document">Document</option>
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-1 gap-2">
+                    <input type="url" name="media_url" maxlength="1000"
+                        placeholder="Optional media URL (https://...)"
                         class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <input type="text" name="button_text" maxlength="64"
-                        placeholder="Optional button text"
+                        placeholder="Primary button text"
                         class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
                     <input type="url" name="button_url" maxlength="1000"
-                        placeholder="Optional button URL (https://...)"
+                        placeholder="Primary button URL (https://...)"
+                        class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input type="text" name="button2_text" maxlength="64"
+                        placeholder="Secondary button text"
+                        class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
+                    <input type="url" name="button2_url" maxlength="1000"
+                        placeholder="Secondary button URL (https://...)"
+                        class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input type="text" name="button3_text" maxlength="64"
+                        placeholder="Tertiary button text"
+                        class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
+                    <input type="url" name="button3_url" maxlength="1000"
+                        placeholder="Tertiary button URL (https://...)"
                         class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
                 </div>
 
@@ -129,10 +177,21 @@
                     Disable link preview for text message
                 </label>
 
-                <button type="submit"
-                    class="w-full py-2.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 font-medium rounded-lg border border-indigo-500/30 transition-colors">
-                    Send Notification
-                </button>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button type="button"
+                        hx-post="{{ admin_path }}/users/notify/preview"
+                        hx-include="closest form"
+                        hx-target="#notify-preview"
+                        hx-swap="innerHTML"
+                        class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-lg border border-white/10 transition-colors">
+                        Preview
+                    </button>
+                    <button type="submit"
+                        class="w-full py-2.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 font-medium rounded-lg border border-indigo-500/30 transition-colors">
+                        Send Notification
+                    </button>
+                </div>
+                <div id="notify-preview"></div>
                 <div id="notify-result" class="text-xs text-slate-400"></div>
             </form>
         </article>
@@ -592,6 +651,36 @@
             .catch(() => {
                 input.select();
             });
+    }
+
+    function notifyFormatWrap(textareaId, left, right) {
+        const textarea = document.getElementById(textareaId);
+        if (!textarea) return;
+        const start = textarea.selectionStart ?? 0;
+        const end = textarea.selectionEnd ?? 0;
+        const value = textarea.value;
+        const selected = value.substring(start, end) || 'text';
+        const wrapped = `${left}${selected}${right}`;
+        textarea.value = `${value.substring(0, start)}${wrapped}${value.substring(end)}`;
+        const cursor = start + wrapped.length;
+        textarea.focus();
+        textarea.setSelectionRange(cursor, cursor);
+    }
+
+    function notifyInsertLink(textareaId) {
+        const url = prompt('Link URL (https://...)');
+        if (!url) return;
+        const textarea = document.getElementById(textareaId);
+        if (!textarea) return;
+        const start = textarea.selectionStart ?? 0;
+        const end = textarea.selectionEnd ?? 0;
+        const value = textarea.value;
+        const selected = value.substring(start, end) || 'link text';
+        const link = `[${selected}](${url})`;
+        textarea.value = `${value.substring(0, start)}${link}${value.substring(end)}`;
+        const cursor = start + link.length;
+        textarea.focus();
+        textarea.setSelectionRange(cursor, cursor);
     }
 </script>
 {% endblock %}

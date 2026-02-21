@@ -1,6 +1,7 @@
 use crate::AppState;
 use crate::services::analytics_service::AnalyticsService;
 use chrono::Utc;
+use std::collections::HashSet;
 use tokio::time::{Duration, interval};
 use tracing::{error, info};
 
@@ -111,40 +112,60 @@ impl TrafficService {
     }
 
     async fn enforce_quotas(&self) -> anyhow::Result<()> {
-        // Find subscriptions that exceeded their plan's traffic limit
-        let overloaded_subs: Vec<(i64, i64, i32)> = sqlx::query_as(
-            "SELECT s.id, s.user_id, p.traffic_limit_gb 
-             FROM subscriptions s
-             JOIN plans p ON s.plan_id = p.id
-             WHERE s.status = 'active' 
-             AND p.traffic_limit_gb > 0 
-             AND s.used_traffic >= (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)",
-        )
-        .fetch_all(&self.state.pool)
-        .await?;
+        let expired = self
+            .state
+            .subscription_service
+            .expire_over_quota_subscriptions()
+            .await?;
 
-        if overloaded_subs.is_empty() {
+        if expired.is_empty() {
             return Ok(());
         }
 
         info!(
             "Found {} subscriptions exceeding quota. Suspending...",
-            overloaded_subs.len()
+            expired.len()
         );
 
-        for (sub_id, user_id, limit) in overloaded_subs {
-            sqlx::query("UPDATE subscriptions SET status = 'expired' WHERE id = $1")
-                .bind(sub_id)
-                .execute(&self.state.pool)
-                .await?;
+        let mut nodes_to_notify = HashSet::new();
+        for row in expired {
+            if let Some(node_id) = row.node_id {
+                nodes_to_notify.insert(node_id);
+            }
 
             info!(
-                "Subscription {} for user {} suspended (Limit: {} GB reached)",
-                sub_id, user_id, limit
+                "Subscription {} for user {} suspended (traffic quota reached)",
+                row.subscription_id, row.user_id
             );
+
+            if let Err(e) = self
+                .state
+                .connection_service
+                .kill_subscription_connections(row.subscription_id)
+                .await
+            {
+                error!(
+                    "Failed to reset active sessions for expired subscription {}: {}",
+                    row.subscription_id, e
+                );
+            }
         }
 
-        // Agents pull config automatically - no sync needed
+        for node_id in nodes_to_notify {
+            if let Err(e) = self
+                .state
+                .orchestration_service
+                .notify_node_update(node_id)
+                .await
+            {
+                error!(
+                    "Failed to trigger config refresh after quota enforcement for node {}: {}",
+                    node_id, e
+                );
+            }
+        }
+
+        // Agents also pull config periodically, but explicit publish reduces stale window.
 
         Ok(())
     }

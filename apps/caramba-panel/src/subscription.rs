@@ -21,17 +21,27 @@ fn parse_ip_maybe(value: &str) -> Option<std::net::IpAddr> {
     }
 
     if let Ok(ip) = value.parse::<std::net::IpAddr>() {
-        return Some(ip);
+        return Some(canonicalize_ip(ip));
     }
     if let Ok(sock) = value.parse::<std::net::SocketAddr>() {
-        return Some(sock.ip());
+        return Some(canonicalize_ip(sock.ip()));
     }
     if let Some((host, _port)) = value.rsplit_once(':') {
         if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-            return Some(ip);
+            return Some(canonicalize_ip(ip));
         }
     }
     None
+}
+
+fn canonicalize_ip(ip: std::net::IpAddr) -> std::net::IpAddr {
+    match ip {
+        std::net::IpAddr::V6(v6) => v6
+            .to_ipv4()
+            .map(std::net::IpAddr::V4)
+            .unwrap_or(std::net::IpAddr::V6(v6)),
+        other => other,
+    }
 }
 
 fn extract_client_ip(headers: &axum::http::HeaderMap) -> String {

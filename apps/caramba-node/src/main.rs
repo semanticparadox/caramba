@@ -611,16 +611,9 @@ async fn collect_user_usage_delta(
         std::collections::HashMap::new();
 
     for conn in connections {
-        let user = conn
-            .pointer("/metadata/user")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-
-        if !user.starts_with("user_") {
+        let Some(user) = extract_subscription_identity(&conn) else {
             continue;
-        }
+        };
 
         let upload =
             extract_counter_field(&conn, &["upload", "uploadTotal", "uplink", "sent"]).unwrap_or(0);
@@ -656,6 +649,29 @@ async fn collect_user_usage_delta(
     } else {
         Some(delta_map)
     }
+}
+
+fn extract_subscription_identity(conn: &serde_json::Value) -> Option<String> {
+    let user = conn
+        .pointer("/metadata/user")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if user.starts_with("user_") {
+        return Some(user);
+    }
+
+    if let Some(chains) = conn.get("chains").and_then(|v| v.as_array()) {
+        for chain in chains {
+            let chain = chain.as_str().unwrap_or_default().trim();
+            if chain.starts_with("user_") {
+                return Some(chain.to_string());
+            }
+        }
+    }
+
+    None
 }
 
 async fn check_and_update_config(
@@ -950,27 +966,8 @@ async fn count_active_connections(client: &reqwest::Client) -> Option<u32> {
                 if let Some(items) = value.get("connections").and_then(|v| v.as_array()) {
                     let mut unique = HashSet::new();
                     for item in items {
-                        let user = item
-                            .pointer("/metadata/user")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default()
-                            .trim()
-                            .to_string();
-                        if user.starts_with("user_") {
-                            unique.insert(user);
-                            continue;
-                        }
-
-                        if let Some(chains) = item.get("chains").and_then(|v| v.as_array()) {
-                            for chain in chains {
-                                let chain = chain.as_str().unwrap_or_default().trim();
-                                if chain.is_empty() {
-                                    continue;
-                                }
-                                if chain.starts_with("user_") || is_uuid_like(chain) {
-                                    unique.insert(chain.to_string());
-                                }
-                            }
+                        if let Some(identity) = extract_subscription_identity(item) {
+                            unique.insert(identity);
                         }
                     }
                     return Some(unique.len() as u32);
@@ -979,26 +976,9 @@ async fn count_active_connections(client: &reqwest::Client) -> Option<u32> {
         }
     }
 
-    // Fallback: legacy estimate by counting established sing-box sockets.
-    if let Ok(output) = std::process::Command::new("ss")
-        .args(["-t", "-n", "-p", "state", "established"])
-        .output()
-    {
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let count = stdout
-                .lines()
-                .filter(|line| line.contains("\"sing-box\"") || line.contains("sing-box"))
-                .count();
-            return Some(count as u32);
-        }
-    }
-
+    // Do not fallback to raw socket counting by default: it includes scanner/health traffic
+    // and inflates "active users" counters in the panel.
     None
-}
-
-fn is_uuid_like(value: &str) -> bool {
-    uuid::Uuid::parse_str(value).is_ok()
 }
 
 async fn run_speed_test(client: &reqwest::Client) -> Option<i32> {

@@ -20,13 +20,22 @@ pub enum NotificationParseMode {
     Html,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub enum NotificationMediaType {
+    #[default]
+    None,
+    Photo,
+    Video,
+    Document,
+}
+
 #[derive(Debug, Clone)]
 pub struct NotificationPayload {
     pub text: String,
     pub parse_mode: NotificationParseMode,
-    pub image_url: Option<String>,
-    pub button_text: Option<String>,
-    pub button_url: Option<String>,
+    pub media_type: NotificationMediaType,
+    pub media_url: Option<String>,
+    pub buttons: Vec<(String, String)>,
     pub disable_link_preview: bool,
 }
 
@@ -35,9 +44,9 @@ impl NotificationPayload {
         Self {
             text: text.into(),
             parse_mode: NotificationParseMode::Plain,
-            image_url: None,
-            button_text: None,
-            button_url: None,
+            media_type: NotificationMediaType::None,
+            media_url: None,
+            buttons: Vec::new(),
             disable_link_preview: false,
         }
     }
@@ -46,9 +55,9 @@ impl NotificationPayload {
         Self {
             text: text.into(),
             parse_mode: NotificationParseMode::MarkdownV2,
-            image_url: None,
-            button_text: None,
-            button_url: None,
+            media_type: NotificationMediaType::None,
+            media_url: None,
+            buttons: Vec::new(),
             disable_link_preview: false,
         }
     }
@@ -193,43 +202,98 @@ impl BotManager {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let bot_lock = self.current_bot.lock().await;
         if let Some(bot) = bot_lock.as_ref() {
-            let keyboard = match (
-                payload.button_text.as_deref(),
-                payload.button_url.as_deref(),
-            ) {
-                (Some(text), Some(url)) if !text.trim().is_empty() && !url.trim().is_empty() => {
-                    let parsed = url::Url::parse(url.trim())?;
-                    Some(InlineKeyboardMarkup::new(vec![vec![
-                        InlineKeyboardButton::url(text.trim().to_string(), parsed),
-                    ]]))
+            let mut buttons: Vec<InlineKeyboardButton> = Vec::new();
+            for (text, url) in payload.buttons.iter() {
+                let text = text.trim();
+                let url = url.trim();
+                if text.is_empty() || url.is_empty() {
+                    continue;
                 }
-                _ => None,
+                let parsed = url::Url::parse(url)?;
+                buttons.push(InlineKeyboardButton::url(text.to_string(), parsed));
+            }
+
+            let keyboard = if buttons.is_empty() {
+                None
+            } else {
+                let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+                for chunk in buttons.chunks(2) {
+                    rows.push(chunk.to_vec());
+                }
+                Some(InlineKeyboardMarkup::new(rows))
             };
 
-            if let Some(image_url) = payload.image_url.as_deref().map(str::trim) {
-                if !image_url.is_empty() {
+            if let Some(media_url) = payload.media_url.as_deref().map(str::trim) {
+                if !media_url.is_empty()
+                    && !matches!(payload.media_type, NotificationMediaType::None)
+                {
                     if payload.text.chars().count() > 1024 {
-                        return Err("Caption too long for photo message (max 1024 chars)"
+                        return Err("Caption too long for media message (max 1024 chars)"
                             .to_string()
                             .into());
                     }
 
-                    let photo_url = url::Url::parse(image_url)?;
-                    let mut req = bot
-                        .send_photo(ChatId(chat_id), InputFile::url(photo_url))
-                        .caption(payload.text.clone());
+                    let media_parsed = url::Url::parse(media_url)?;
+                    match payload.media_type {
+                        NotificationMediaType::Photo => {
+                            let mut req = bot
+                                .send_photo(ChatId(chat_id), InputFile::url(media_parsed))
+                                .caption(payload.text.clone());
 
-                    req = match payload.parse_mode {
-                        NotificationParseMode::Plain => req,
-                        NotificationParseMode::MarkdownV2 => req.parse_mode(ParseMode::MarkdownV2),
-                        NotificationParseMode::Html => req.parse_mode(ParseMode::Html),
-                    };
+                            req = match payload.parse_mode {
+                                NotificationParseMode::Plain => req,
+                                NotificationParseMode::MarkdownV2 => {
+                                    req.parse_mode(ParseMode::MarkdownV2)
+                                }
+                                NotificationParseMode::Html => req.parse_mode(ParseMode::Html),
+                            };
 
-                    if let Some(markup) = keyboard {
-                        req = req.reply_markup(markup);
+                            if let Some(markup) = keyboard.clone() {
+                                req = req.reply_markup(markup);
+                            }
+
+                            req.await?;
+                        }
+                        NotificationMediaType::Video => {
+                            let mut req = bot
+                                .send_video(ChatId(chat_id), InputFile::url(media_parsed))
+                                .caption(payload.text.clone());
+
+                            req = match payload.parse_mode {
+                                NotificationParseMode::Plain => req,
+                                NotificationParseMode::MarkdownV2 => {
+                                    req.parse_mode(ParseMode::MarkdownV2)
+                                }
+                                NotificationParseMode::Html => req.parse_mode(ParseMode::Html),
+                            };
+
+                            if let Some(markup) = keyboard.clone() {
+                                req = req.reply_markup(markup);
+                            }
+
+                            req.await?;
+                        }
+                        NotificationMediaType::Document => {
+                            let mut req = bot
+                                .send_document(ChatId(chat_id), InputFile::url(media_parsed))
+                                .caption(payload.text.clone());
+
+                            req = match payload.parse_mode {
+                                NotificationParseMode::Plain => req,
+                                NotificationParseMode::MarkdownV2 => {
+                                    req.parse_mode(ParseMode::MarkdownV2)
+                                }
+                                NotificationParseMode::Html => req.parse_mode(ParseMode::Html),
+                            };
+
+                            if let Some(markup) = keyboard.clone() {
+                                req = req.reply_markup(markup);
+                            }
+
+                            req.await?;
+                        }
+                        NotificationMediaType::None => {}
                     }
-
-                    req.await?;
                     return Ok(());
                 }
             }

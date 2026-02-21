@@ -461,7 +461,150 @@
         <!-- 4. SYSTEM TAB -->
         <div id="content-system" class="tab-content hidden space-y-6 animate-fade-in">
 
-            <!-- Panel Update -->
+            <!-- Deployment Topology -->
+            <div
+                class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6 hover:border-cyan-500/20 transition-all">
+                <header class="flex items-center gap-3 mb-6">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center text-cyan-300">
+                        <i data-lucide="network" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-white">Deployment Topology</h3>
+                        <p class="text-xs text-slate-500">Choose architecture mode and service placement for first-time admins.</p>
+                    </div>
+                </header>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Topology Mode</label>
+                        <select form="main-settings-form" name="deployment_mode"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-cyan-500 outline-none transition-all text-sm">
+                            <option value="hub" {% if deployment_mode=="hub" %}selected{% endif %}>Hub (single host: panel + sub + optional bot)</option>
+                            <option value="distributed" {% if deployment_mode=="distributed" %}selected{% endif %}>Distributed (control-plane + external services)</option>
+                        </select>
+                        <p class="text-[11px] text-slate-500 mt-1">In distributed mode, frontend mode is forced to distributed.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Panel Public URL</label>
+                        <input type="text" form="main-settings-form" name="panel_url"
+                            value="{{ panel_url }}" placeholder="https://panel.example.com"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-cyan-500 outline-none transition-all font-mono text-sm">
+                        <p class="text-[11px] text-slate-500 mt-1">Used for install commands, bot links and subscription pages.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
+                    <div class="rounded-xl border border-white/10 bg-slate-950/40 p-3">
+                        <p class="text-[10px] text-slate-500 uppercase">Panel API</p>
+                        <p class="text-sm text-white mt-1">Local control-plane</p>
+                        <p class="text-[11px] mt-1 {% if local_panel_detected %}text-emerald-300{% else %}text-amber-300{% endif %}">
+                            installed: {% if local_panel_detected %}yes{% else %}no{% endif %}
+                        </p>
+                        <p class="text-[11px] mt-1 {% if local_panel_active %}text-emerald-300{% else %}text-slate-500{% endif %}">
+                            active: {% if local_panel_active %}yes{% else %}no{% endif %}
+                        </p>
+                        <p class="text-[11px] mt-1 {% if local_panel_enabled %}text-emerald-300{% else %}text-slate-500{% endif %}">
+                            enabled: {% if local_panel_enabled %}yes{% else %}no{% endif %}
+                        </p>
+                    </div>
+                    <div class="rounded-xl border border-white/10 bg-slate-950/40 p-3">
+                        <p class="text-[10px] text-slate-500 uppercase">Sub / Frontend</p>
+                        <p class="text-sm text-white mt-1">
+                            {% if deployment_mode == "distributed" %}External edge servers{% else %}Local or mixed{% endif %}
+                        </p>
+                        <p class="text-[11px] mt-1 {% if local_sub_detected %}text-emerald-300{% else %}text-slate-500{% endif %}">
+                            installed: {% if local_sub_detected %}yes{% else %}no{% endif %}
+                        </p>
+                        <p class="text-[11px] mt-1 {% if local_sub_active %}text-emerald-300{% else %}text-slate-500{% endif %}">
+                            active: {% if local_sub_active %}yes{% else %}no{% endif %}
+                        </p>
+                        <p class="text-[11px] mt-1 {% if local_sub_enabled %}text-emerald-300{% else %}text-slate-500{% endif %}">
+                            enabled: {% if local_sub_enabled %}yes{% else %}no{% endif %}
+                        </p>
+                    </div>
+                    <div class="rounded-xl border border-white/10 bg-slate-950/40 p-3">
+                        <p class="text-[10px] text-slate-500 uppercase">Telegram Bot</p>
+                        <p class="text-sm text-white mt-1">
+                            {% if deployment_mode == "distributed" %}Recommended external worker{% else %}Local or external{% endif %}
+                        </p>
+                        <p class="text-[11px] mt-1 {% if local_bot_detected %}text-emerald-300{% else %}text-slate-500{% endif %}">
+                            installed: {% if local_bot_detected %}yes{% else %}no{% endif %}
+                        </p>
+                        <p class="text-[11px] mt-1 {% if local_bot_active %}text-emerald-300{% else %}text-slate-500{% endif %}">
+                            active: {% if local_bot_active %}yes{% else %}no{% endif %}
+                        </p>
+                        <p class="text-[11px] mt-1 {% if local_bot_enabled %}text-emerald-300{% else %}text-slate-500{% endif %}">
+                            enabled: {% if local_bot_enabled %}yes{% else %}no{% endif %}
+                        </p>
+                    </div>
+                    <div class="rounded-xl border border-white/10 bg-slate-950/40 p-3">
+                        <p class="text-[10px] text-slate-500 uppercase">Node Agents</p>
+                        <p class="text-sm text-white mt-1">Always external</p>
+                        <p class="text-[11px] mt-1 {% if local_node_detected %}text-amber-300{% else %}text-slate-500{% endif %}">
+                            installed: {% if local_node_detected %}yes{% else %}no{% endif %}
+                        </p>
+                        <p class="text-[11px] mt-1 {% if local_node_active %}text-emerald-300{% else %}text-slate-500{% endif %}">
+                            active: {% if local_node_active %}yes{% else %}no{% endif %}
+                        </p>
+                        <p class="text-[11px] mt-1 {% if local_node_enabled %}text-emerald-300{% else %}text-slate-500{% endif %}">
+                            enabled: {% if local_node_enabled %}yes{% else %}no{% endif %}
+                        </p>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <button type="button"
+                        hx-post="{{ admin_path }}/settings/topology/apply"
+                        hx-target="#topology-apply-result"
+                        hx-swap="innerHTML"
+                        class="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-cyan-500/20">
+                        <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+                        Apply Topology on This Host
+                    </button>
+                    <p class="text-[11px] text-slate-500">Applies service mode locally: in distributed mode it disables local sub/bot; in hub mode it enables local panel/sub/bot if installed.</p>
+                </div>
+                <div id="topology-apply-result"></div>
+
+                <div class="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4 space-y-3">
+                    <div>
+                        <p class="text-xs text-slate-300 mb-2">Role install commands (first setup on target servers):</p>
+                        <div class="space-y-2 text-[11px]">
+                            <div class="font-mono text-slate-300 break-all">Node: curl -fsSL {{ panel_url_display }}/install.sh | sudo bash -s -- --role node --panel {{ panel_url_display }} --token &lt;NODE_TOKEN&gt;</div>
+                            <div class="font-mono text-slate-300 break-all">Sub: curl -fsSL {{ panel_url_display }}/install.sh | sudo bash -s -- --role sub --panel {{ panel_url_display }} --domain {% if subscription_domain == "" %}&lt;SUB_DOMAIN&gt;{% else %}{{ subscription_domain }}{% endif %} --token &lt;FRONTEND_TOKEN&gt; --region global</div>
+                            <div class="font-mono text-slate-300 break-all">Bot: curl -fsSL {{ panel_url_display }}/install.sh | sudo bash -s -- --role bot --panel {{ panel_url_display }} --bot-token &lt;BOT_TOKEN&gt; --panel-token &lt;INTERNAL_API_TOKEN&gt;</div>
+                        </div>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-300 mb-2">Role upgrade command (already installed host):</p>
+                        <div class="font-mono text-slate-300 break-all text-[11px]">sudo caramba upgrade</div>
+                    </div>
+                    <div class="font-mono text-slate-500 break-all text-[11px]">Disable local hub extras: sudo systemctl disable --now caramba-sub.service caramba-bot.service</div>
+                </div>
+            </div>
+
+            <!-- Update Overview -->
+            <div
+                class="bg-slate-900/40 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6">
+                <header class="flex items-center gap-3 mb-3">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-300">
+                        <i data-lucide="info" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-white">Update Center</h3>
+                        <p class="text-xs text-slate-500">One place for hub/panel and node-agent update flow.</p>
+                    </div>
+                </header>
+                <ul class="space-y-1.5 text-xs text-slate-400">
+                    <li>1. <span class="text-slate-200">{% if deployment_mode == "distributed" %}Control-plane update{% else %}Hub update{% endif %}</span>: runs installer smart-upgrade on this host (keeps current config and credentials).</li>
+                    <li>2. <span class="text-slate-200">Node agents</span>: prepare release metadata + rollout signal. Nodes self-update on heartbeat.</li>
+                    <li>3. <span class="text-slate-200">Sub/Bot workers</span>: run installer upgrade on each worker host (`sudo caramba upgrade`).</li>
+                    <li>4. <span class="text-slate-200">Frontend servers</span>: independent edge services, updated per host via installer.</li>
+                </ul>
+            </div>
+
+            <!-- Hub Update -->
             <div
                 class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6 hover:border-emerald-500/20 transition-all">
                 <header class="flex items-center gap-3 mb-6">
@@ -470,8 +613,8 @@
                         <i data-lucide="refresh-cw" class="w-5 h-5"></i>
                     </div>
                     <div>
-                        <h3 class="text-lg font-semibold text-white">Panel Update</h3>
-                        <p class="text-xs text-slate-500">Check for latest version and apply updates</p>
+                        <h3 class="text-lg font-semibold text-white">{% if deployment_mode == "distributed" %}Control-plane Update{% else %}Hub Update{% endif %}</h3>
+                        <p class="text-xs text-slate-500">Checks latest stable release and shows installer command for current topology mode. Existing installs are upgraded without prompt loops.</p>
                     </div>
                 </header>
 
@@ -485,54 +628,221 @@
                         <i data-lucide="refresh-cw" class="w-4 h-4"></i> Check for Updates
                     </button>
                 </div>
+            </div>
 
-                <!-- Granular Update Controls (Phase 67) -->
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 mt-4 border-t border-white/5">
-                    <!-- Panel Auto-Update -->
-                    <div class="flex items-center justify-between p-3 bg-slate-950/30 rounded-xl border border-white/5">
+            <!-- Agent Rollout -->
+            <div
+                class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6 hover:border-indigo-500/20 transition-all">
+                <header class="flex items-center gap-3 mb-6">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-300">
+                        <i data-lucide="cpu" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-white">Node Agent Rollout</h3>
+                        <p class="text-xs text-slate-500">Configures node-agent self-update metadata and triggers rollout signal to active nodes.</p>
+                    </div>
+                </header>
+
+                <div class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <span class="block text-xs font-bold text-white">Panel Auto-Update</span>
-                            <span class="text-[10px] text-slate-500">Update panel automatically</span>
+                            <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Agent Version</label>
+                            <input type="text" form="main-settings-form" name="agent_latest_version"
+                                value="{{ agent_latest_version }}" placeholder="v0.3.26"
+                                class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
                         </div>
-                        <label class="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" form="main-settings-form" name="auto_update_panel" value="true"
-                                class="sr-only peer" {% if auto_update_panel %}checked{% endif %}>
-                            <div
-                                class="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Auto-rollout on heartbeat</label>
+                            <div class="flex items-center justify-between p-3 bg-slate-950/30 rounded-xl border border-white/5">
+                                <div>
+                                    <span class="block text-xs font-bold text-white">Auto Update Agents</span>
+                                    <span class="text-[10px] text-slate-500">If enabled, active nodes follow latest version.</span>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="hidden" form="main-settings-form" name="auto_update_agents" value="false">
+                                    <input type="checkbox" form="main-settings-form" name="auto_update_agents" value="true"
+                                        class="sr-only peer" {% if auto_update_agents %}checked{% endif %}>
+                                    <div
+                                        class="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-500">
+                                    </div>
+                                </label>
                             </div>
-                        </label>
+                        </div>
                     </div>
 
-                    <!-- Agents Auto-Update -->
-                    <div class="flex items-center justify-between p-3 bg-slate-950/30 rounded-xl border border-white/5">
-                        <div>
-                            <span class="block text-xs font-bold text-white">Agents Auto-Update</span>
-                            <span class="text-[10px] text-slate-500">Update agents automatically</span>
-                        </div>
-                        <label class="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" form="main-settings-form" name="auto_update_agents" value="true"
-                                class="sr-only peer" {% if auto_update_agents %}checked{% endif %}>
-                            <div
-                                class="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500">
-                            </div>
-                        </label>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Agent Binary URL</label>
+                        <input type="text" form="main-settings-form" name="agent_update_url"
+                            value="{{ agent_update_url }}" placeholder="https://github.com/.../caramba-node"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Agent SHA256 Hash</label>
+                        <input type="text" form="main-settings-form" name="agent_update_hash"
+                            value="{{ agent_update_hash }}" placeholder="64-char sha256"
+                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
                     </div>
 
-                    <!-- Frontend Auto-Update -->
-                    <div class="flex items-center justify-between p-3 bg-slate-950/30 rounded-xl border border-white/5">
-                        <div>
-                            <span class="block text-xs font-bold text-white">Frontend Auto-Update</span>
-                            <span class="text-[10px] text-slate-500">Update frontends automatically</span>
-                        </div>
-                        <label class="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" form="main-settings-form" name="auto_update_frontend" value="true"
-                                class="sr-only peer" {% if auto_update_frontend %}checked{% endif %}>
-                            <div
-                                class="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500">
-                            </div>
-                        </label>
+                    <div class="flex flex-wrap gap-2 pt-2">
+                        <button type="button"
+                            hx-post="{{ admin_path }}/settings/update/agent/prepare"
+                            hx-target="#agent-rollout-result"
+                            hx-swap="innerHTML"
+                            class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-indigo-500/20">
+                            <i data-lucide="download-cloud" class="w-4 h-4"></i> Prepare from Latest Release
+                        </button>
+                        <button type="button"
+                            hx-post="{{ admin_path }}/settings/update/agent/rollout"
+                            hx-target="#agent-rollout-result"
+                            hx-swap="innerHTML"
+                            class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-emerald-500/20">
+                            <i data-lucide="send" class="w-4 h-4"></i> Rollout to Active Nodes
+                        </button>
+                    </div>
+
+                    <div id="agent-rollout-result"></div>
+                    <div class="text-[11px] text-slate-500">
+                        Tip: after changing fields manually, click global <span class="text-slate-300">Save Configuration</span>, then run rollout.
                     </div>
                 </div>
+            </div>
+
+            <!-- Worker Rollout -->
+            <div
+                class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6 hover:border-cyan-500/20 transition-all">
+                <header class="flex items-center gap-3 mb-6">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center text-cyan-300">
+                        <i data-lucide="satellite" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-white">Sub/Bot Worker Rollout</h3>
+                        <p class="text-xs text-slate-500">Publishes target version for remote workers. Worker reports are shown below.</p>
+                    </div>
+                </header>
+
+                <div class="flex flex-wrap items-center gap-2 mb-4 text-xs">
+                    <span class="rounded-full border border-white/10 bg-slate-950/40 px-3 py-1 text-slate-300">Workers detected: <span class="text-white font-semibold">{{ worker_total_count }}</span></span>
+                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-emerald-300">Online: <span class="font-semibold">{{ worker_online_count }}</span></span>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div class="rounded-xl border border-white/10 bg-slate-950/40 p-4">
+                        <p class="text-xs text-slate-400 uppercase tracking-wider">Sub Worker</p>
+                        <p class="text-sm text-white mt-1 font-mono">{% if sub_worker_target_version == "" %}not set{% else %}{{ sub_worker_target_version }}{% endif %}</p>
+                        <p class="text-[11px] text-slate-500 mt-1 break-all">{% if sub_worker_update_url == "" %}URL is not set{% else %}{{ sub_worker_update_url }}{% endif %}</p>
+                    </div>
+                    <div class="rounded-xl border border-white/10 bg-slate-950/40 p-4">
+                        <p class="text-xs text-slate-400 uppercase tracking-wider">Bot Worker</p>
+                        <p class="text-sm text-white mt-1 font-mono">{% if bot_worker_target_version == "" %}not set{% else %}{{ bot_worker_target_version }}{% endif %}</p>
+                        <p class="text-[11px] text-slate-500 mt-1 break-all">{% if bot_worker_update_url == "" %}URL is not set{% else %}{{ bot_worker_update_url }}{% endif %}</p>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                    <button type="button"
+                        hx-post="{{ admin_path }}/settings/update/worker/queue"
+                        hx-vals='{"role":"sub"}'
+                        hx-target="#worker-update-result"
+                        hx-swap="innerHTML"
+                        class="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-cyan-500/20">
+                        <i data-lucide="send" class="w-4 h-4"></i> Queue Latest Sub Update
+                    </button>
+                    <button type="button"
+                        hx-post="{{ admin_path }}/settings/update/worker/queue"
+                        hx-vals='{"role":"bot"}'
+                        hx-target="#worker-update-result"
+                        hx-swap="innerHTML"
+                        class="flex items-center gap-2 bg-cyan-700 hover:bg-cyan-600 text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-cyan-700/20">
+                        <i data-lucide="send" class="w-4 h-4"></i> Queue Latest Bot Update
+                    </button>
+                </div>
+                <div id="worker-update-result"></div>
+
+                <div class="mt-4 rounded-xl border border-white/10 bg-slate-950/30 overflow-hidden">
+                    <div class="px-4 py-2 border-b border-white/10">
+                        <p class="text-xs text-slate-300">Worker Inventory</p>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="text-slate-500 text-xs uppercase tracking-wider">
+                                <tr>
+                                    <th class="text-left px-4 py-2">Role</th>
+                                    <th class="text-left px-4 py-2">Worker</th>
+                                    <th class="text-left px-4 py-2">Reachability</th>
+                                    <th class="text-left px-4 py-2">Last State</th>
+                                    <th class="text-left px-4 py-2">Version</th>
+                                    <th class="text-left px-4 py-2">Last Seen</th>
+                                    <th class="text-left px-4 py-2">Message</th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-slate-300">
+                                {% if worker_inventory.len() == 0 %}
+                                <tr>
+                                    <td colspan="7" class="px-4 py-3 text-slate-500">No workers have polled yet.</td>
+                                </tr>
+                                {% endif %}
+                                {% for w in worker_inventory %}
+                                <tr class="border-t border-white/5">
+                                    <td class="px-4 py-2">{{ w.role }}</td>
+                                    <td class="px-4 py-2 font-mono text-xs">{{ w.worker_id }}</td>
+                                    <td class="px-4 py-2">
+                                        {% if w.is_online %}
+                                        <span class="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-emerald-300 text-xs">online</span>
+                                        {% else %}
+                                        <span class="rounded-full bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 text-rose-300 text-xs">offline</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="px-4 py-2 text-xs">{{ w.last_state }}</td>
+                                    <td class="px-4 py-2 font-mono text-xs">{{ w.current_version }} → {{ w.target_version }}</td>
+                                    <td class="px-4 py-2 text-xs text-slate-400">{{ w.last_seen_ago }}<br>{{ w.last_seen }}</td>
+                                    <td class="px-4 py-2 text-xs text-slate-400">{{ w.last_message }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="mt-4 rounded-xl border border-white/10 bg-slate-950/30 overflow-hidden">
+                    <div class="px-4 py-2 border-b border-white/10">
+                        <p class="text-xs text-slate-300">Recent Worker Update Reports</p>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="text-slate-500 text-xs uppercase tracking-wider">
+                                <tr>
+                                    <th class="text-left px-4 py-2">Time</th>
+                                    <th class="text-left px-4 py-2">Role</th>
+                                    <th class="text-left px-4 py-2">Worker</th>
+                                    <th class="text-left px-4 py-2">Status</th>
+                                    <th class="text-left px-4 py-2">Version</th>
+                                    <th class="text-left px-4 py-2">Message</th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-slate-300">
+                                {% if worker_update_reports.len() == 0 %}
+                                <tr>
+                                    <td colspan="6" class="px-4 py-3 text-slate-500">No worker reports yet.</td>
+                                </tr>
+                                {% endif %}
+                                {% for row in worker_update_reports %}
+                                <tr class="border-t border-white/5">
+                                    <td class="px-4 py-2 text-xs text-slate-400">{{ row.created_at }}</td>
+                                    <td class="px-4 py-2">{{ row.role }}</td>
+                                    <td class="px-4 py-2 font-mono text-xs">{{ row.worker_id }}</td>
+                                    <td class="px-4 py-2">{{ row.status }}</td>
+                                    <td class="px-4 py-2 font-mono text-xs">{{ row.current_version }} → {{ row.target_version }}</td>
+                                    <td class="px-4 py-2 text-xs text-slate-400">{{ row.message }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <p class="text-[11px] text-slate-500 mt-3">For Bot worker polling, install bot with <span class="font-mono">--panel-token &lt;INTERNAL_API_TOKEN&gt;</span> so it can call internal rollout API.</p>
             </div>
 
             <!-- Backup Section (Moved from Tools) -->

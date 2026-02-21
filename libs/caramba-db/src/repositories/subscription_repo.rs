@@ -228,10 +228,10 @@ impl SubscriptionRepository {
 
     pub async fn get_active_with_traffic_limit(&self) -> Result<Vec<(i64, i64, i64, i64, String)>> {
         let subs = sqlx::query_as::<_, (i64, i64, i64, i64, String)>(
-            "SELECT s.id, s.user_id, s.used_traffic, pd.traffic_gb, COALESCE(s.alerts_sent, '[]') 
+            "SELECT s.id, s.user_id, s.used_traffic, p.traffic_limit_gb, COALESCE(s.alerts_sent, '[]') 
              FROM subscriptions s
-             JOIN plan_durations pd ON s.plan_id = pd.plan_id
-             WHERE s.status = 'active' AND pd.traffic_gb > 0",
+             JOIN plans p ON s.plan_id = p.id
+             WHERE s.status = 'active' AND COALESCE(p.traffic_limit_gb, 0) > 0",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -308,8 +308,15 @@ impl SubscriptionRepository {
     pub async fn update_ips(&self, sub_id: i64, ips: Vec<String>) -> Result<()> {
         let mut tx = self.pool.begin().await?;
 
+        let node_ip_match_sql = r#"
+            n.ip = $2
+            OR split_part(n.ip, ':', 1) = $2
+            OR regexp_replace(n.ip, '^::ffff:', '') = regexp_replace($2, '^::ffff:', '')
+            OR regexp_replace(split_part(n.ip, ':', 1), '^::ffff:', '') = regexp_replace($2, '^::ffff:', '')
+        "#;
+
         // Remove invalid/self-referential rows that should never be counted as client devices.
-        sqlx::query(
+        sqlx::query(&format!(
             "DELETE FROM subscription_ip_tracking
              WHERE subscription_id = $1
                AND (
@@ -318,11 +325,11 @@ impl SubscriptionRepository {
                     OR EXISTS (
                         SELECT 1
                         FROM nodes n
-                        WHERE n.ip = subscription_ip_tracking.client_ip
-                           OR n.ip = split_part(subscription_ip_tracking.client_ip, ':', 1)
+                        WHERE {}
                     )
                )",
-        )
+            node_ip_match_sql.replace("$2", "subscription_ip_tracking.client_ip")
+        ))
         .bind(sub_id)
         .execute(&mut *tx)
         .await?;
@@ -333,13 +340,14 @@ impl SubscriptionRepository {
                 continue;
             }
 
-            sqlx::query(
+            sqlx::query(&format!(
                 "INSERT INTO subscription_ip_tracking (subscription_id, client_ip, last_seen_at)
                  SELECT $1, $2, CURRENT_TIMESTAMP
-                 WHERE NOT EXISTS (SELECT 1 FROM nodes n WHERE n.ip = $2)
+                 WHERE NOT EXISTS (SELECT 1 FROM nodes n WHERE {})
                  ON CONFLICT (subscription_id, client_ip)
                  DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at",
-            )
+                node_ip_match_sql
+            ))
             .bind(sub_id)
             .bind(ip)
             .execute(&mut *tx)
@@ -357,23 +365,34 @@ fn normalize_client_ip(raw: &str) -> Option<String> {
         return None;
     }
 
-    parse_ip_maybe(trimmed).map(|ip| ip.to_string())
+    let ip = parse_ip_maybe(trimmed)?;
+    if ip.is_loopback() || ip.is_unspecified() || ip.is_multicast() {
+        return None;
+    }
+    Some(ip.to_string())
 }
 
 fn parse_ip_maybe(value: &str) -> Option<IpAddr> {
     if let Ok(ip) = value.parse::<IpAddr>() {
-        return Some(ip);
+        return Some(canonicalize_ip(ip));
     }
 
     if let Ok(sock) = value.parse::<std::net::SocketAddr>() {
-        return Some(sock.ip());
+        return Some(canonicalize_ip(sock.ip()));
     }
 
     if let Some((host, _port)) = value.rsplit_once(':') {
         if let Ok(ip) = host.parse::<IpAddr>() {
-            return Some(ip);
+            return Some(canonicalize_ip(ip));
         }
     }
 
     None
+}
+
+fn canonicalize_ip(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => v6.to_ipv4().map(IpAddr::V4).unwrap_or(IpAddr::V6(v6)),
+        other => other,
+    }
 }

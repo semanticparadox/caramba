@@ -1,4 +1,5 @@
 use caramba_shared::DiscoveredSni;
+use std::collections::HashSet;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
@@ -66,6 +67,7 @@ impl NeighborScanner {
 
     pub async fn scan_subnet(&self) -> Vec<DiscoveredSni> {
         let mut discovered = Vec::new();
+        let mut seen_domains = HashSet::new();
         let base_ip = match self.local_ip {
             IpAddr::V4(v4) => v4.octets(),
             _ => return discovered, // IPv6 not implemented for sniper yet
@@ -89,12 +91,9 @@ impl NeighborScanner {
             // Optimization: Skip if we already found this IP recently?
             // For now, simple scan.
 
-            if let Ok(sni) = self.probe_ip(target_ip).await {
-                // Filter out obviously bad domains
-                if !sni.domain.contains("localhost")
-                    && !sni.domain.contains("invalid")
-                    && !sni.domain.contains("example")
-                {
+            if let Ok(mut sni) = self.probe_ip(target_ip).await {
+                sni.domain = sni.domain.trim().to_ascii_lowercase();
+                if seen_domains.insert(sni.domain.clone()) {
                     info!(
                         "✨ Neighbor Sniper: Discovered potential SNI: {} at {}",
                         sni.domain, sni.ip
@@ -195,24 +194,142 @@ impl NeighborScanner {
     }
 
     fn is_valid_public_domain(&self, domain: &str) -> bool {
-        if domain.len() < 4 {
+        let domain = domain.trim().to_ascii_lowercase();
+
+        if domain.len() < 4 || domain.len() > 120 {
+            return false;
+        }
+        if !domain.contains('.') {
+            return false;
+        }
+        if domain.contains(' ') || domain.contains('_') {
             return false;
         }
         if domain.contains('*') {
             return false;
         } // Wildcards are good for matching, but we want a concrete host for Reality? actually wildcards are fine for SNI usually but Reality prefers concrete. Let's skip wildcards for now to be safe.
         // Or specific logic: we want a realistic "stealable" domain.
+        if domain.starts_with('.') || domain.ends_with('.') || domain.contains("..") {
+            return false;
+        }
+
+        if !domain
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '.' || ch == '-')
+        {
+            return false;
+        }
 
         // Exclude IPs
         if domain.parse::<IpAddr>().is_ok() {
             return false;
         }
 
-        // Exclude internal/local
-        if domain.ends_with(".local") || domain.ends_with(".lan") {
+        const DENY_SUBSTRINGS: &[&str] = &[
+            "localhost",
+            "traefik",
+            "plesk",
+            "parallels",
+            "easypanel",
+            "directadmin",
+            "cpanel",
+            "access-denied",
+            "access denied",
+            "forbidden",
+            "sni-support-required",
+        ];
+        if DENY_SUBSTRINGS.iter().any(|needle| domain.contains(needle)) {
+            return false;
+        }
+
+        const DENY_SUFFIXES: &[&str] = &[
+            ".local",
+            ".localdomain",
+            ".internal",
+            ".lan",
+            ".invalid",
+            ".example",
+            ".test",
+            ".home.arpa",
+            ".traefik.default",
+            ".plesk.page",
+            ".vps.ovh.net",
+        ];
+        if DENY_SUFFIXES.iter().any(|suffix| domain.ends_with(suffix)) {
+            return false;
+        }
+
+        let labels: Vec<&str> = domain.split('.').collect();
+        if labels.len() < 2 || labels.len() > 8 {
+            return false;
+        }
+
+        for label in &labels {
+            if label.is_empty() || label.len() > 63 {
+                return false;
+            }
+            if label.starts_with('-') || label.ends_with('-') {
+                return false;
+            }
+
+            // Drop machine-generated high-entropy labels typical for infra noise.
+            if label.len() >= 24
+                && label
+                    .chars()
+                    .all(|ch| ch.is_ascii_hexdigit() || ch.is_ascii_digit())
+            {
+                return false;
+            }
+        }
+
+        let tld = labels.last().copied().unwrap_or_default();
+        const RESERVED_TLDS: &[&str] = &[
+            "local", "internal", "lan", "invalid", "example", "test", "default",
+        ];
+        if RESERVED_TLDS.contains(&tld) {
+            return false;
+        }
+        if tld.len() < 2 {
             return false;
         }
 
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NeighborScanner;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    fn scanner() -> NeighborScanner {
+        NeighborScanner::new(IpAddr::V4(Ipv4Addr::new(137, 74, 119, 200)))
+    }
+
+    #[test]
+    fn accepts_normal_public_domains() {
+        let sc = scanner();
+        assert!(sc.is_valid_public_domain("hitchhive.app"));
+        assert!(sc.is_valid_public_domain("api.kd367.fr"));
+    }
+
+    #[test]
+    fn rejects_control_plane_noise() {
+        let sc = scanner();
+        assert!(!sc.is_valid_public_domain("Plesk"));
+        assert!(!sc.is_valid_public_domain("Parallels Panel"));
+        assert!(!sc.is_valid_public_domain("traefik.default"));
+        assert!(!sc.is_valid_public_domain("vps-40d02f7d.vps.ovh.net"));
+        assert!(!sc.is_valid_public_domain("sni-support-required-for-valid-ssl"));
+    }
+
+    #[test]
+    fn rejects_malformed_or_generated_domains() {
+        let sc = scanner();
+        assert!(!sc.is_valid_public_domain("with space.example.com"));
+        assert!(!sc.is_valid_public_domain("localhost"));
+        assert!(!sc.is_valid_public_domain(
+            "9549ca1c6e517b1f5f8db4e7624e0916.f7021182bba21dbfeaa0c9111f25c92d.traefik.default"
+        ));
     }
 }
