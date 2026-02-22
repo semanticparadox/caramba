@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useAppLock } from '../context/AppLockContext'
 import './Home.css'
 
 function formatBytes(bytes: number, decimals = 2): string {
@@ -21,7 +22,8 @@ const MENU_ITEMS = [
 
 export default function Home() {
     const navigate = useNavigate()
-    const { userStats: stats, isLoading, user, subscriptions } = useAuth()
+    const { userStats: stats, isLoading, user, subscriptions, refreshData } = useAuth()
+    const { isPinEnabled, lockNow } = useAppLock()
 
     const activeSubscriptions = subscriptions.filter((s) => s.status === 'active')
     const totalUsedFromSubs = activeSubscriptions.reduce((acc, sub) => acc + (sub.used_traffic_bytes || 0), 0)
@@ -59,6 +61,19 @@ export default function Home() {
                     <h1 className="gradient-text">EXA-ROBOT</h1>
                 </div>
                 {user && <p className="user-greeting">Welcome, {user.username || 'User'}</p>}
+                <div className="home-actions-row">
+                    <button className="home-chip" onClick={() => void refreshData()}>
+                        Refresh
+                    </button>
+                    <button className="home-chip" onClick={() => navigate('/support')}>
+                        {isPinEnabled ? 'PIN: On' : 'PIN: Off'}
+                    </button>
+                    {isPinEnabled && (
+                        <button className="home-chip home-chip-warn" onClick={lockNow}>
+                            Lock Now
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Traffic Ring */}

@@ -364,6 +364,8 @@ pub fn generate_caddyfile(config: &InstallConfig) -> String {
     let mut main_path_rules = vec![
         "/api".to_string(),
         "/api/*".to_string(),
+        "/caramba-api".to_string(),
+        "/caramba-api/*".to_string(),
         "/assets/*".to_string(),
         "/downloads/*".to_string(),
         "/install.sh".to_string(),

@@ -935,13 +935,25 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/api/payments/{source}",
             axum::routing::post(handlers::admin::handle_payment),
         )
+        .route(
+            "/caramba-api/payments/{source}",
+            axum::routing::post(handlers::admin::handle_payment),
+        )
         // Family API
         .route(
             "/api/family/invite",
             axum::routing::post(handlers::api::family::generate_invite),
         )
         .route(
+            "/caramba-api/family/invite",
+            axum::routing::post(handlers::api::family::generate_invite),
+        )
+        .route(
             "/api/family/join",
+            axum::routing::post(handlers::api::family::redeem_invite),
+        )
+        .route(
+            "/caramba-api/family/join",
             axum::routing::post(handlers::api::family::redeem_invite),
         )
         // Agent V2 API
@@ -950,7 +962,15 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::post(api::v2::node::heartbeat),
         )
         .route(
+            "/caramba-api/v2/node/heartbeat",
+            axum::routing::post(api::v2::node::heartbeat),
+        )
+        .route(
             "/api/v2/node/config",
+            axum::routing::get(api::v2::node::get_config),
+        )
+        .route(
+            "/caramba-api/v2/node/config",
             axum::routing::get(api::v2::node::get_config),
         )
         .route(
@@ -958,7 +978,15 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::post(api::v2::node::rotate_sni),
         )
         .route(
+            "/caramba-api/v2/node/rotate-sni",
+            axum::routing::post(api::v2::node::rotate_sni),
+        )
+        .route(
             "/api/v2/node/update-info",
+            axum::routing::get(api::v2::node::get_update_info),
+        )
+        .route(
+            "/caramba-api/v2/node/update-info",
             axum::routing::get(api::v2::node::get_update_info),
         )
         .route(
@@ -966,19 +994,39 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::get(api::v2::node::poll_updates),
         ) // NEW
         .route(
+            "/caramba-api/v2/node/updates/poll",
+            axum::routing::get(api::v2::node::poll_updates),
+        )
+        .route(
             "/api/v2/node/logs",
             axum::routing::post(api::v2::node::report_node_logs),
         ) // NEW
+        .route(
+            "/caramba-api/v2/node/logs",
+            axum::routing::post(api::v2::node::report_node_logs),
+        )
         .route(
             "/api/v2/node/settings",
             axum::routing::get(api::v2::node::get_settings),
         ) // NEW
         .route(
+            "/caramba-api/v2/node/settings",
+            axum::routing::get(api::v2::node::get_settings),
+        )
+        .route(
             "/api/v2/node/register",
             axum::routing::post(api::v2::node::register),
         ) // NEW Enrollment
         .route(
+            "/caramba-api/v2/node/register",
+            axum::routing::post(api::v2::node::register),
+        )
+        .route(
             "/api/v2/bot/verify",
+            axum::routing::post(handlers::api::bot::verify_user),
+        )
+        .route(
+            "/caramba-api/v2/bot/verify",
             axum::routing::post(handlers::api::bot::verify_user),
         )
         .route(
@@ -986,7 +1034,15 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::post(handlers::api::bot::upsert_user),
         )
         .route(
+            "/caramba-api/v2/bot/users",
+            axum::routing::post(handlers::api::bot::upsert_user),
+        )
+        .route(
             "/api/v2/bot/users/tg/{tg_id}",
+            axum::routing::get(handlers::api::bot::get_user_by_tg),
+        )
+        .route(
+            "/caramba-api/v2/bot/users/tg/{tg_id}",
             axum::routing::get(handlers::api::bot::get_user_by_tg),
         )
         .route(
@@ -994,7 +1050,15 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::get(handlers::api::bot::get_user_subs),
         )
         .route(
+            "/caramba-api/v2/bot/users/{id}/subs",
+            axum::routing::get(handlers::api::bot::get_user_subs),
+        )
+        .route(
             "/api/v2/bot/plans",
+            axum::routing::get(handlers::api::bot::get_plans),
+        )
+        .route(
+            "/caramba-api/v2/bot/plans",
             axum::routing::get(handlers::api::bot::get_plans),
         )
         .route(
@@ -1002,7 +1066,15 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::get(handlers::api::bot::get_categories),
         )
         .route(
+            "/caramba-api/v2/bot/store/categories",
+            axum::routing::get(handlers::api::bot::get_categories),
+        )
+        .route(
             "/api/v2/bot/store/categories/{id}/products",
+            axum::routing::get(handlers::api::bot::get_products_by_category),
+        )
+        .route(
+            "/caramba-api/v2/bot/store/categories/{id}/products",
             axum::routing::get(handlers::api::bot::get_products_by_category),
         )
         .route(
@@ -1010,7 +1082,15 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::post(handlers::api::bot::purchase_plan),
         )
         .route(
+            "/caramba-api/v2/bot/users/{id}/purchase-plan",
+            axum::routing::post(handlers::api::bot::purchase_plan),
+        )
+        .route(
             "/api/v2/bot/users/{id}/purchase-product",
+            axum::routing::post(handlers::api::bot::purchase_product),
+        )
+        .route(
+            "/caramba-api/v2/bot/users/{id}/purchase-product",
             axum::routing::post(handlers::api::bot::purchase_product),
         )
         .route(
@@ -1018,7 +1098,15 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::get(handlers::api::bot::get_settings),
         )
         .route(
+            "/caramba-api/v2/bot/settings/{key}",
+            axum::routing::get(handlers::api::bot::get_settings),
+        )
+        .route(
             "/api/v2/bot/subs/{id}/links",
+            axum::routing::get(handlers::api::bot::get_sub_links),
+        )
+        .route(
+            "/caramba-api/v2/bot/subs/{id}/links",
             axum::routing::get(handlers::api::bot::get_sub_links),
         )
         .route(
@@ -1026,11 +1114,20 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::post(handlers::api::bot::activate_sub),
         )
         .route(
+            "/caramba-api/v2/bot/subs/{id}/activate",
+            axum::routing::post(handlers::api::bot::activate_sub),
+        )
+        .route(
             "/api/v2/client/recommended",
             axum::routing::get(api::v2::client::get_recommended_nodes),
         ) // AI Routing
+        .route(
+            "/caramba-api/v2/client/recommended",
+            axum::routing::get(api::v2::client::get_recommended_nodes),
+        )
         // Client API
         .nest("/api/client", api::client::routes(state.clone()))
+        .nest("/caramba-api/client", api::client::routes(state.clone()))
         // Public Subscription URL endpoint
         .route(
             "/sub/{uuid}",
@@ -1048,7 +1145,15 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::get(handlers::api::internal::get_active_nodes),
         )
         .route(
+            "/caramba-api/internal/nodes/active",
+            axum::routing::get(handlers::api::internal::get_active_nodes),
+        )
+        .route(
             "/api/internal/subscriptions/{uuid}",
+            axum::routing::get(handlers::api::internal::get_subscription),
+        )
+        .route(
+            "/caramba-api/internal/subscriptions/{uuid}",
             axum::routing::get(handlers::api::internal::get_subscription),
         )
         .route(
@@ -1056,7 +1161,15 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::get(handlers::api::internal::get_user_keys),
         )
         .route(
+            "/caramba-api/internal/users/{id}/keys",
+            axum::routing::get(handlers::api::internal::get_user_keys),
+        )
+        .route(
             "/api/internal/frontend/heartbeat",
+            axum::routing::post(handlers::api::internal::frontend_heartbeat),
+        )
+        .route(
+            "/caramba-api/internal/frontend/heartbeat",
             axum::routing::post(handlers::api::internal::frontend_heartbeat),
         )
         .route(
@@ -1064,7 +1177,15 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::get(handlers::api::internal::poll_worker_update),
         )
         .route(
+            "/caramba-api/internal/workers/{role}/updates/poll",
+            axum::routing::get(handlers::api::internal::poll_worker_update),
+        )
+        .route(
             "/api/internal/workers/{role}/updates/report",
+            axum::routing::post(handlers::api::internal::report_worker_update),
+        )
+        .route(
+            "/caramba-api/internal/workers/{role}/updates/report",
             axum::routing::post(handlers::api::internal::report_worker_update),
         )
         // Frontend API Routes (Must be top level to match /api/admin/frontends)
@@ -1074,7 +1195,16 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
                 .post(handlers::frontend::create_frontend),
         )
         .route(
+            "/caramba-api/admin/frontends",
+            axum::routing::get(handlers::frontend::list_frontends)
+                .post(handlers::frontend::create_frontend),
+        )
+        .route(
             "/api/admin/frontends/by-region/{region}",
+            axum::routing::get(handlers::frontend::get_active_frontends),
+        )
+        .route(
+            "/caramba-api/admin/frontends/by-region/{region}",
             axum::routing::get(handlers::frontend::get_active_frontends),
         )
         .route(
@@ -1082,11 +1212,23 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::delete(handlers::frontend::delete_frontend),
         )
         .route(
+            "/caramba-api/admin/frontends/{id}",
+            axum::routing::delete(handlers::frontend::delete_frontend),
+        )
+        .route(
             "/api/admin/frontends/{id}/rotate-token",
             axum::routing::post(handlers::frontend::rotate_token),
         )
         .route(
+            "/caramba-api/admin/frontends/{id}/rotate-token",
+            axum::routing::post(handlers::frontend::rotate_token),
+        )
+        .route(
             "/api/admin/frontends/{domain}/heartbeat",
+            axum::routing::post(handlers::frontend::frontend_heartbeat),
+        )
+        .route(
+            "/caramba-api/admin/frontends/{domain}/heartbeat",
             axum::routing::post(handlers::frontend::frontend_heartbeat),
         )
         .nest(&admin_path, admin_routes)

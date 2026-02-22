@@ -33,6 +33,15 @@ fn mask_key(key: &str) -> String {
     }
 }
 
+fn is_checkbox_enabled(value: Option<&str>) -> bool {
+    value
+        .map(|v| {
+            let normalized = v.trim().to_ascii_lowercase();
+            matches!(normalized.as_str(), "true" | "1" | "on" | "yes")
+        })
+        .unwrap_or(false)
+}
+
 fn normalize_base_url(raw: &str) -> String {
     let mut value = raw.trim().to_string();
     if value.is_empty() {
@@ -1002,9 +1011,14 @@ pub async fn save_settings(
         }
     }
 
-    if let Some(v) = form.telegram_stars_enabled {
-        settings.insert("telegram_stars_enabled".to_string(), v);
-    }
+    settings.insert(
+        "telegram_stars_enabled".to_string(),
+        if is_checkbox_enabled(form.telegram_stars_enabled.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
+    );
 
     let current_cryptomus_id = state
         .settings
@@ -1098,9 +1112,14 @@ pub async fn save_settings(
         settings.insert("terms_of_service".to_string(), v);
     }
 
-    if let Some(v) = form.decoy_enabled {
-        settings.insert("decoy_enabled".to_string(), v);
-    }
+    settings.insert(
+        "decoy_enabled".to_string(),
+        if is_checkbox_enabled(form.decoy_enabled.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
+    );
     if let Some(v) = form.decoy_urls {
         settings.insert("decoy_urls".to_string(), v);
     }
@@ -1111,9 +1130,14 @@ pub async fn save_settings(
         settings.insert("decoy_max_interval".to_string(), v);
     }
 
-    if let Some(v) = form.kill_switch_enabled {
-        settings.insert("kill_switch_enabled".to_string(), v);
-    }
+    settings.insert(
+        "kill_switch_enabled".to_string(),
+        if is_checkbox_enabled(form.kill_switch_enabled.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
+    );
 
     if let Some(v) = form.kill_switch_timeout {
         settings.insert("kill_switch_timeout".to_string(), v);
@@ -1134,16 +1158,26 @@ pub async fn save_settings(
             settings.insert("frontend_mode".to_string(), "distributed".to_string());
         }
     }
-    if let Some(v) = form.miniapp_enabled {
-        settings.insert("miniapp_enabled".to_string(), v);
-    }
+    settings.insert(
+        "miniapp_enabled".to_string(),
+        if is_checkbox_enabled(form.miniapp_enabled.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
+    );
     if let Some(v) = form.subscription_domain {
         settings.insert("subscription_domain".to_string(), v);
     }
 
-    if let Some(v) = form.auto_update_agents {
-        settings.insert("auto_update_agents".to_string(), v);
-    }
+    settings.insert(
+        "auto_update_agents".to_string(),
+        if is_checkbox_enabled(form.auto_update_agents.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
+    );
     if let Some(v) = form.agent_latest_version {
         let normalized = v.trim().to_string();
         if !normalized.is_empty() {

@@ -335,7 +335,10 @@ impl PayService {
             "price_currency": "usd",
             "pay_currency": "usdttrc20",
             "order_id": unique_order_id,
-            "ipn_callback_url": format!("https://{}/api/payments/nowpayments", self.api_domain),
+            "ipn_callback_url": format!(
+                "https://{}/caramba-api/payments/nowpayments",
+                self.api_domain
+            ),
             "success_url": format!("https://t.me/{}", self.get_bot_username().await),
             "cancel_url": format!("https://t.me/{}", self.get_bot_username().await)
         });
@@ -377,7 +380,10 @@ impl PayService {
             "type": "purchase",
             "description": format!("CARAMBA User {}", user_id),
             "redirect_url": format!("https://t.me/{}", self.get_bot_username().await),
-            "callback_url": format!("https://{}/api/payments/crystalpay", self.api_domain),
+            "callback_url": format!(
+                "https://{}/caramba-api/payments/crystalpay",
+                self.api_domain
+            ),
             "extra": payload
         });
 

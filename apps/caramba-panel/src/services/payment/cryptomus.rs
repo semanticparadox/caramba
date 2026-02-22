@@ -43,7 +43,7 @@ impl PaymentAdapter for CryptomusAdapter {
             "amount": amount_usd.to_string(),
             "currency": "USD",
             "order_id": order_id,
-            "url_callback": format!("https://{}/api/payments/cryptomus", api_domain),
+            "url_callback": format!("https://{}/caramba-api/payments/cryptomus", api_domain),
             "url_return": format!("https://t.me/{}", bot_username),
             "additional_data": payload_str
         });
