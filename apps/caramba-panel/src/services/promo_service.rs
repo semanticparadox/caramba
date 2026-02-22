@@ -38,7 +38,7 @@ impl PromoService {
 
         // 2. Check Promo Codes (Admin/Promoter Multi-Use)
         let promo = sqlx::query_as::<_, PromoCode>(
-            "SELECT id, code, type as promo_type, plan_id, balance_amount, duration_days, traffic_gb, max_uses, current_uses, expires_at, created_at, created_by_admin_id, promoter_user_id, is_active FROM promo_codes WHERE code = $1 AND is_active = TRUE"
+            "SELECT id, code, type, plan_id, balance_amount, duration_days, traffic_gb, max_uses, current_uses, expires_at, created_at, created_by_admin_id, promoter_user_id, is_active FROM promo_codes WHERE code = $1 AND is_active = TRUE"
         )
         .bind(&code)
         .fetch_optional(&self.pool)
@@ -169,7 +169,7 @@ impl PromoService {
 
     pub async fn list_promos(&self) -> Result<Vec<PromoCode>> {
         sqlx::query_as::<_, PromoCode>(
-            "SELECT id, code, type as promo_type, plan_id, balance_amount, duration_days, traffic_gb, max_uses, current_uses, expires_at, created_at, created_by_admin_id, promoter_user_id, is_active FROM promo_codes ORDER BY created_at DESC"
+            "SELECT id, code, type, plan_id, balance_amount, duration_days, traffic_gb, max_uses, current_uses, expires_at, created_at, created_by_admin_id, promoter_user_id, is_active FROM promo_codes ORDER BY created_at DESC"
         )
         .fetch_all(&self.pool)
         .await

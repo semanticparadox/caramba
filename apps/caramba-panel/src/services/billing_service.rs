@@ -81,7 +81,7 @@ impl BillingService {
 
     pub async fn validate_promo(&self, code: &str) -> Result<Option<PromoCode>> {
         sqlx::query_as::<_, PromoCode>(
-            "SELECT id, code, type as promo_type, plan_id, balance_amount, duration_days, traffic_gb, max_uses, current_uses, expires_at, created_at, created_by_admin_id, promoter_user_id, is_active FROM promo_codes WHERE code = $1 AND (expires_at IS NULL OR expires_at > $2) AND current_uses < max_uses AND is_active = TRUE"
+            "SELECT id, code, type, plan_id, balance_amount, duration_days, traffic_gb, max_uses, current_uses, expires_at, created_at, created_by_admin_id, promoter_user_id, is_active FROM promo_codes WHERE code = $1 AND (expires_at IS NULL OR expires_at > $2) AND current_uses < max_uses AND is_active = TRUE"
         )
         .bind(code)
         .bind(Utc::now())

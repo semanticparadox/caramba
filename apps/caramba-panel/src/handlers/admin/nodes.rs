@@ -425,7 +425,9 @@ pub async fn sync_node(Path(id): Path<i64>, State(state): State<AppState>) -> im
         }
     });
 
-    axum::http::StatusCode::ACCEPTED
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("HX-Refresh", "true".parse().unwrap());
+    (axum::http::StatusCode::ACCEPTED, headers, "").into_response()
 }
 
 pub async fn test_node_connection(
@@ -860,7 +862,6 @@ pub async fn get_node_manage(
                 EXISTS(SELECT 1 FROM node_pinned_snis p WHERE p.node_id = $1 AND p.sni_id = s.id) AS is_pinned
             FROM sni_pool s
             WHERE (s.discovered_by_node_id = $1 OR COALESCE(s.is_premium, FALSE) = TRUE)
-              AND COALESCE(s.is_active, TRUE) = TRUE
             ORDER BY is_pinned DESC, is_premium DESC, health_score DESC
             LIMIT 200
             "#,
@@ -1069,7 +1070,9 @@ pub async fn restart_node(Path(id): Path<i64>, State(state): State<AppState>) ->
         .execute(&state.pool)
         .await;
 
-    (axum::http::StatusCode::OK, "Restart Signal Sent").into_response()
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("HX-Refresh", "true".parse().unwrap());
+    (axum::http::StatusCode::OK, headers, "Restart Signal Sent").into_response()
 }
 
 pub async fn rotate_node_inbounds(
@@ -1120,8 +1123,11 @@ pub async fn rotate_node_inbounds(
             .await;
     }
 
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("HX-Refresh", "true".parse().unwrap());
     (
         axum::http::StatusCode::OK,
+        headers,
         format!("Rotated {} inbound(s), {} failed", rotated, failed),
     )
         .into_response()
