@@ -10,7 +10,7 @@
 
         <!-- Configuration Card -->
         <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-6 shadow-xl">
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-6 glass">
             <header class="flex items-center gap-3 mb-6">
                 <div class="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400">
                     <i data-lucide="settings-2" class="w-5 h-5"></i>
@@ -33,8 +33,9 @@
                 {% endif %}
                 <div class="flex justify-between items-center text-sm">
                     <span class="text-slate-600 dark:text-slate-400">Webhook Status:</span>
-                    <span class="{% if webhook_info == " Active (Polling)" %}text-emerald-400{% else %}text-amber-400{%
-                        endif %} font-medium bg-white/5 px-2 py-0.5 rounded text-xs">{{
+                    <span class="{% if webhook_info == " Active (Polling)" %}text-emerald-500 dark:text-emerald-400{%
+                        else %}text-amber-500 dark:text-amber-400{% endif %} font-medium bg-slate-200 dark:bg-white/5
+                        px-2 py-0.5 rounded text-xs">{{
                         webhook_info }}</span>
                 </div>
             </div>
@@ -47,7 +48,7 @@
                     <div class="relative">
                         <input type="text" name="bot_token" value="{{ masked_bot_token }}"
                             placeholder="123456789:ABC..."
-                            class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-mono text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            class="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-mono text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                             {% if bot_status=="running" %}disabled title="Stop the bot to update the token" {% endif %}>
 
                         {% if bot_status == "running" %}
@@ -73,7 +74,7 @@
 
         <!-- Bot Setup Guide -->
         <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-6 shadow-xl space-y-6">
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-6 space-y-6 glass">
             <header class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-400">
                     <i data-lucide="book-open" class="w-5 h-5"></i>
@@ -91,8 +92,9 @@
                     <h4 class="text-sm font-medium text-slate-900 dark:text-white mb-1">1. Get Bot Token</h4>
                     <p class="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
                         Open <a href="https://t.me/BotFather" target="_blank"
-                            class="text-indigo-400 hover:underline">@BotFather</a> and send <code
-                            class="bg-white/10 px-1 rounded">/newbot</code>. Copy the HTTP API Token and paste it in the
+                            class="text-indigo-500 dark:text-indigo-400 hover:underline">@BotFather</a> and send <code
+                            class="bg-slate-200 dark:bg-white/10 px-1 rounded">/newbot</code>. Copy the HTTP API Token
+                        and paste it in the
                         Settings above.
                     </p>
                 </div>
@@ -105,24 +107,26 @@
                         To enable the "Subscription Page" (Mini App), map the menu button to your panel's domain:
                     </p>
                     <div class="space-y-2">
-                        <div class="flex items-center gap-2 text-xs text-slate-300">
+                        <div class="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
                             <span
-                                class="w-4 h-4 flex items-center justify-center rounded-full bg-white/10 text-[10px]">A</span>
-                            <span>Send <code class="bg-white/10 px-1 rounded">/mybots</code> -> Select your bot</span>
+                                class="w-4 h-4 flex items-center justify-center rounded-full bg-slate-200 dark:bg-white/10 text-[10px] text-slate-800 dark:text-white">A</span>
+                            <span>Send <code
+                                    class="bg-slate-200 dark:bg-white/10 px-1 rounded text-slate-800 dark:text-white">/mybots</code>
+                                -> Select your bot</span>
                         </div>
-                        <div class="flex items-center gap-2 text-xs text-slate-300">
+                        <div class="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
                             <span
-                                class="w-4 h-4 flex items-center justify-center rounded-full bg-white/10 text-[10px]">B</span>
+                                class="w-4 h-4 flex items-center justify-center rounded-full bg-slate-200 dark:bg-white/10 text-[10px] text-slate-800 dark:text-white">B</span>
                             <span>Select <b>Bot Settings</b> -> <b>Menu Button</b> -> <b>Configure Menu
                                     Button</b></span>
                         </div>
-                        <div class="flex items-center gap-2 text-xs text-slate-300">
+                        <div class="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
                             <span
-                                class="w-4 h-4 flex items-center justify-center rounded-full bg-white/10 text-[10px]">C</span>
+                                class="w-4 h-4 flex items-center justify-center rounded-full bg-slate-200 dark:bg-white/10 text-[10px] text-slate-800 dark:text-white">C</span>
                             <span>Send the URL of your panel (must be HTTPS!):</span>
                         </div>
                         <code
-                            class="block w-full bg-slate-900 p-2 rounded text-xs font-mono text-emerald-400 select-all border border-slate-200 dark:border-white/5 break-all">https://<span class="server-domain-placeholder">YOUR_DOMAIN</span>/</code>
+                            class="block w-full bg-slate-100 dark:bg-slate-900 p-2 rounded text-xs font-mono text-emerald-600 dark:text-emerald-400 select-all border border-slate-200 dark:border-white/5 break-all">https://<span class="server-domain-placeholder">YOUR_DOMAIN</span>/</code>
                     </div>
                 </div>
 
@@ -152,7 +156,7 @@
     <div class="lg:col-span-2 flex flex-col h-full space-y-6">
         <!-- Control Panel & Console -->
         <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-6 shadow-xl flex-1 flex flex-col">
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-6 flex-1 flex flex-col glass">
             <header class="flex items-center justify-between mb-6">
                 <div class="flex items-center gap-3">
                     <div

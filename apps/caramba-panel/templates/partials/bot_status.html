@@ -1,36 +1,32 @@
 <div id="bot-status-container" class="flex items-center gap-4">
     <!-- Status Indicator -->
-    <span
-        class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border {% if bot_status == "running" %}bg-emerald-500/10 text-emerald-400 border-emerald-500/20{% else %}bg-red-500/10 text-red-400 border-red-500/20{% endif %}">
-        <span class="w-2 h-2 rounded-full mr-2 {% if bot_status == "running" %}bg-emerald-500{% else %}bg-red-500{% endif %} animate-pulse"></span>
+    <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border {% if bot_status == "
+        running" %}bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20{% else %}bg-red-500/10
+        text-red-600 dark:text-red-400 border-red-500/20{% endif %}">
+        <span class="w-2 h-2 rounded-full mr-2 {% if bot_status == " running" %}bg-emerald-500{% else %}bg-red-500{%
+            endif %} animate-pulse"></span>
         {{ bot_status|capitalize }}
     </span>
 
     <!-- Toggle Button -->
-    <button
-        class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed
-        {% if bot_status == "running" %}
-            bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20
-        {% else %}
-            bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20
-        {% endif %}"
-        hx-post="{{ admin_path }}/settings/bot/toggle" 
-        hx-target="#bot-status-container" 
-        hx-swap="outerHTML"
+    <button class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed
+        {% if bot_status == " running" %} bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20 border
+        border-red-500/20 {% else %} bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 {%
+        endif %}" hx-post="{{ admin_path }}/settings/bot/toggle" hx-target="#bot-status-container" hx-swap="outerHTML"
         hx-indicator="#bot-loading">
-        
+
         {% if bot_status == "running" %}
-            <i data-lucide="square" class="w-4 h-4 fill-current"></i> Stop Bot
+        <i data-lucide="square" class="w-4 h-4 fill-current"></i> Stop Bot
         {% else %}
-            <i data-lucide="play" class="w-4 h-4 fill-current"></i> Start Bot
+        <i data-lucide="play" class="w-4 h-4 fill-current"></i> Start Bot
         {% endif %}
     </button>
-    
+
     <!-- Action Loader -->
     <div id="bot-loading" class="htmx-indicator">
         <i data-lucide="loader-2" class="w-5 h-5 text-slate-400 animate-spin"></i>
     </div>
-    
+
     <script>
         // Re-init icons after HTMX swap
         if (window.lucide) lucide.createIcons();

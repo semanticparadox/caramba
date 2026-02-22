@@ -1262,14 +1262,14 @@
 
             if (t === tabId) {
                 // Active State
-                btn.classList.remove('text-slate-600 dark:text-slate-400', 'hover:text-slate-900 dark:text-white', 'hover:bg-white/5');
-                btn.classList.add('bg-indigo-500', 'text-slate-900 dark:text-white', 'shadow-lg', 'shadow-indigo-500/20');
+                btn.classList.remove('text-slate-600', 'dark:text-slate-400', 'hover:text-slate-900', 'dark:text-white', 'hover:bg-white/5');
+                btn.classList.add('bg-indigo-500', 'text-slate-900', 'dark:text-white', 'shadow-lg', 'shadow-indigo-500/20');
                 content.classList.remove('hidden');
                 content.classList.add('block');
             } else {
                 // Inactive State
-                btn.classList.add('text-slate-600 dark:text-slate-400', 'hover:text-slate-900 dark:text-white', 'hover:bg-white/5');
-                btn.classList.remove('bg-indigo-500', 'text-slate-900 dark:text-white', 'shadow-lg', 'shadow-indigo-500/20');
+                btn.classList.add('text-slate-600', 'dark:text-slate-400', 'hover:text-slate-900', 'dark:text-white', 'hover:bg-white/5');
+                btn.classList.remove('bg-indigo-500', 'text-slate-900', 'dark:text-white', 'shadow-lg', 'shadow-indigo-500/20');
                 content.classList.add('hidden');
                 content.classList.remove('block');
             }

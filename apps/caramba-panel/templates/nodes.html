@@ -13,11 +13,11 @@
         </div>
         <div class="flex items-center gap-2">
             <button onclick="document.getElementById('add-node-modal').showModal()"
-                class="bg-indigo-600 hover:bg-indigo-500 text-slate-900 dark:text-white px-4 py-2 rounded-xl font-semibold">
+                class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl font-semibold shadow-lg shadow-indigo-500/30 transition-all border border-transparent dark:border-white/10">
                 Add Node
             </button>
             <button hx-get="{{ admin_path }}/nodes" hx-target="#nodes-table-body"
-                class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl font-semibold">
+                class="bg-white hover:bg-slate-50 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 px-4 py-2 rounded-xl font-semibold shadow-sm border border-slate-200 dark:border-white/10 transition-all">
                 Refresh
             </button>
         </div>
@@ -25,27 +25,27 @@
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl p-4">
-            <p class="text-xs uppercase text-slate-500 dark:text-slate-500">Total Nodes</p>
-            <p class="text-2xl font-bold text-slate-900 dark:text-white">{{ nodes.len() }}</p>
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-4 glass hover:border-indigo-500/30 transition-all duration-300">
+            <p class="text-xs uppercase text-slate-500 dark:text-slate-500 tracking-wider">Total Nodes</p>
+            <p class="text-2xl font-bold text-slate-900 dark:text-white mt-1">{{ nodes.len() }}</p>
         </div>
         <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl p-4">
-            <p class="text-xs uppercase text-slate-500 dark:text-slate-500">Latest Agent Version</p>
-            <p class="text-2xl font-bold text-slate-900 dark:text-white">{{ agent_latest_version }}</p>
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-4 glass hover:border-emerald-500/30 transition-all duration-300">
+            <p class="text-xs uppercase text-slate-500 dark:text-slate-500 tracking-wider">Latest Agent Version</p>
+            <p class="text-2xl font-bold text-slate-900 dark:text-white mt-1">{{ agent_latest_version }}</p>
         </div>
         <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl p-4">
-            <p class="text-xs uppercase text-slate-500 dark:text-slate-500">Auto Updates</p>
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-4 glass hover:border-amber-500/30 transition-all duration-300">
+            <p class="text-xs uppercase text-slate-500 dark:text-slate-500 tracking-wider">Auto Updates</p>
             <p
-                class="text-2xl font-bold {% if auto_update_agents %}text-emerald-400{% else %}text-amber-400{% endif %}">
+                class="text-2xl font-bold mt-1 {% if auto_update_agents %}text-emerald-500 dark:text-emerald-400{% else %}text-amber-500 dark:text-amber-400{% endif %}">
                 {% if auto_update_agents %}Enabled{% else %}Manual{% endif %}
             </p>
         </div>
     </div>
 
     <div
-        class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden">
+        class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden glass">
         <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse">
                 <thead>

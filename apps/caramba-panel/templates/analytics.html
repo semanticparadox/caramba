@@ -136,14 +136,14 @@
                     <tbody class="divide-y divide-white/5 text-sm">
                         {% for order in orders %}
                         {% if loop.index0 < 10 %} <!-- Limit to 10 latest here -->
-                            <tr class="hover:bg-white/5 transition-colors group">
+                            <tr class="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors group">
                                 <td class="px-6 py-4">
                                     <span class="font-medium text-slate-900 dark:text-white block">{{ order.username
                                         }}</span>
                                     <span class="text-xs text-slate-500 dark:text-slate-500 font-mono">#{{ order.id
                                         }}</span>
                                 </td>
-                                <td class="px-6 py-4 font-mono text-slate-300">
+                                <td class="px-6 py-4 font-mono text-slate-700 dark:text-slate-300">
                                     ${{ order.total_amount }}
                                 </td>
                                 <td class="px-6 py-4">
@@ -185,7 +185,7 @@
 
         <!-- Top Users -->
         <div
-            class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden glass flex flex-col h-full">
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden glass flex flex-col h-full">
             <div class="p-6 border-b border-slate-200 dark:border-white/5">
                 <h3 class="text-lg font-bold text-slate-900 dark:text-white">Top Bandwidth Users</h3>
                 <p class="text-slate-500 dark:text-slate-500 text-sm">Users consuming the most resources</p>
@@ -200,21 +200,21 @@
                             <th class="px-6 py-4 text-right">Data Used</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-white/5 text-sm">
+                    <tbody class="divide-y divide-slate-200 dark:divide-white/5 text-sm">
                         {% for user in top_users %}
-                        <tr class="hover:bg-white/5 transition-colors">
+                        <tr class="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors">
                             <td class="px-6 py-4 font-mono text-slate-500 text-xs">0{{ loop.index }}</td>
                             <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">
                                 <div class="flex items-center gap-3">
                                     <div
-                                        class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center text-indigo-400 border border-slate-200 dark:border-white/5">
+                                        class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500/10 to-purple-500/10 dark:from-indigo-500/20 dark:to-purple-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-white/5">
                                     </div>
                                     {{ user.username }}
                                 </div>
                             </td>
                             <td class="px-6 py-4 text-right">
                                 <span
-                                    class="px-2 py-1 bg-slate-200 dark:bg-slate-800 rounded border border-slate-300 dark:border-white/10 font-mono text-xs text-indigo-300 shadow-sm">
+                                    class="px-2 py-1 bg-slate-200 dark:bg-slate-800 rounded border border-slate-300 dark:border-white/10 font-mono text-xs text-indigo-600 dark:text-indigo-300 shadow-sm">
                                     {{ user.total_traffic_fmt }}
                                 </span>
                             </td>

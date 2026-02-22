@@ -45,27 +45,27 @@
 
     <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl p-4">
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-4 glass hover:border-indigo-500/30 transition-all duration-300">
             <p class="text-xs text-slate-500 uppercase">Active Connections</p>
             <p class="text-2xl text-slate-900 dark:text-white font-bold">{{ node.active_connections.unwrap_or(0) }}</p>
         </div>
         <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl p-4">
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-4 glass hover:border-indigo-500/30 transition-all duration-300">
             <p class="text-xs text-slate-500 uppercase">Latency</p>
             <p class="text-2xl text-slate-900 dark:text-white font-bold">{{ node.latency_rounded() }} ms</p>
         </div>
         <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl p-4">
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-4 glass hover:border-indigo-500/30 transition-all duration-300">
             <p class="text-xs text-slate-500 uppercase">CPU</p>
             <p class="text-2xl text-slate-900 dark:text-white font-bold">{{ node.cpu_rounded() }}%</p>
         </div>
         <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl p-4">
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-4 glass hover:border-indigo-500/30 transition-all duration-300">
             <p class="text-xs text-slate-500 uppercase">RAM</p>
             <p class="text-2xl text-slate-900 dark:text-white font-bold">{{ node.ram_rounded() }}%</p>
         </div>
         <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl p-4">
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-4 glass hover:border-indigo-500/30 transition-all duration-300">
             <p class="text-xs text-slate-500 uppercase">Recommended Users</p>
             <p class="text-2xl text-slate-900 dark:text-white font-bold">{{ node.max_users }}</p>
         </div>
@@ -73,9 +73,9 @@
 
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div
-            class="bg-white/60 dark:bg-slate-900/40 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl p-4">
+            class="bg-white/60 dark:bg-slate-900/40 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-4 glass">
             <p class="text-xs text-slate-500 uppercase">Current SNI</p>
-            <p class="text-sm text-indigo-300 font-mono break-all">
+            <p class="text-sm text-indigo-600 dark:text-indigo-300 font-mono break-all">
                 {% if let Some(sni) = node.reality_sni.as_ref() %}
                 {{ sni }}
                 {% else %}
@@ -84,7 +84,7 @@
             </p>
         </div>
         <div
-            class="bg-white/60 dark:bg-slate-900/40 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl p-4">
+            class="bg-white/60 dark:bg-slate-900/40 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-4 glass">
             <p class="text-xs text-slate-500 uppercase">Agent Version</p>
             <p class="text-sm text-slate-900 dark:text-white font-mono">
                 {% if let Some(ver) = node.version.as_ref() %}
@@ -95,7 +95,7 @@
             </p>
         </div>
         <div
-            class="bg-white/60 dark:bg-slate-900/40 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl p-4">
+            class="bg-white/60 dark:bg-slate-900/40 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-4 glass">
             <p class="text-xs text-slate-500 uppercase">CPU</p>
             <p class="text-sm text-slate-900 dark:text-white">
                 {% if let Some(cpu_model) = node.cpu_model.as_ref() %}
@@ -106,14 +106,15 @@
             </p>
         </div>
         <div
-            class="bg-white/60 dark:bg-slate-900/40 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl p-4">
+            class="bg-white/60 dark:bg-slate-900/40 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-4 glass">
             <p class="text-xs text-slate-500 uppercase">Hardware / Speed</p>
             <p class="text-sm text-slate-900 dark:text-white">{{ node.format_max_ram() }} RAM</p>
-            <p class="text-xs text-slate-400 mt-1">{{ node.current_speed_mbps }} Mbps measured</p>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">{{ node.current_speed_mbps }} Mbps measured</p>
         </div>
     </div>
 
-    <div class="rounded-2xl border border-indigo-500/20 bg-indigo-500/5 p-3 text-xs text-indigo-200">
+    <div
+        class="rounded-2xl border border-indigo-500/20 bg-indigo-500/5 p-3 text-xs text-indigo-700 dark:text-indigo-200">
         <span class="font-semibold">How to use:</span> first run <span class="font-mono">Scan Nearby SNI</span>, then
         pin best candidates, then <span class="font-mono">Sync Config</span>.
         If inbounds are empty, open <span class="font-mono">Inbounds</span> and sync templates or add one inbound

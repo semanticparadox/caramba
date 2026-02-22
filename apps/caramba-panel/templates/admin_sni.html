@@ -8,8 +8,9 @@
     <!-- Header & Actions -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-            <h2 class="text-xl font-bold text-white tracking-tight">Global SNI Pool</h2>
-            <p class="text-slate-400 text-sm mt-1">Manage global domains used for Reality and TLS masking. Node-specific
+            <h2 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Global SNI Pool</h2>
+            <p class="text-slate-600 dark:text-slate-400 text-sm mt-1">Manage global domains used for Reality and TLS
+                masking. Node-specific
                 discovered SNIs are managed on the Node Details page.</p>
         </div>
         <div class="flex items-center gap-4 bg-slate-900/40 p-1.5 rounded-2xl border border-white/5">
@@ -26,12 +27,12 @@
         </div>
         <div class="flex items-center gap-3">
             <button onclick="document.getElementById('bulkSniModal').showModal()"
-                class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-medium py-2.5 px-5 rounded-xl transition-all border border-white/10">
+                class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white font-medium py-2.5 px-5 rounded-xl transition-all border border-slate-200 dark:border-white/10">
                 <i data-lucide="upload-cloud" class="w-5 h-5"></i>
                 <span>Bulk Import</span>
             </button>
             <button onclick="document.getElementById('addSniModal').showModal()"
-                class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 px-5 rounded-xl transition-all shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_30px_rgba(99,102,241,0.5)] border border-white/10">
+                class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 px-5 rounded-xl transition-all shadow-lg shadow-indigo-500/30 border border-transparent dark:border-white/10">
                 <i data-lucide="plus-circle" class="w-5 h-5"></i>
                 <span>Add Domain</span>
             </button>
@@ -40,27 +41,30 @@
 
     <!-- SNI Stats / Info -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-4 rounded-2xl flex items-center gap-4">
+        <div
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 p-4 rounded-2xl flex items-center gap-4 glass">
             <div class="p-3 bg-indigo-500/10 rounded-xl text-indigo-400">
                 <i data-lucide="globe" class="w-6 h-6"></i>
             </div>
             <div>
                 <p class="text-xs text-slate-500 uppercase font-bold tracking-wider">Total Domains</p>
-                <p class="text-2xl font-black text-white">{{ snis.len() }}</p>
+                <p class="text-2xl font-black text-slate-900 dark:text-white">{{ snis.len() }}</p>
             </div>
         </div>
-        <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-4 rounded-2xl flex items-center gap-4">
+        <div
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 p-4 rounded-2xl flex items-center gap-4 glass">
             <div class="p-3 bg-emerald-500/10 rounded-xl text-emerald-400">
                 <i data-lucide="shield-check" class="w-6 h-6"></i>
             </div>
             <div>
                 <p class="text-xs text-slate-500 uppercase font-bold tracking-wider">Active Pool</p>
-                <p class="text-2xl font-black text-white">
+                <p class="text-2xl font-black text-slate-900 dark:text-white">
                     {{ active_sni_count }}
                 </p>
             </div>
         </div>
-        <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-4 rounded-2xl flex items-center gap-4">
+        <div
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 p-4 rounded-2xl flex items-center gap-4 glass">
             <div class="p-3 bg-amber-500/10 rounded-xl text-amber-400">
                 <i data-lucide="help-circle" class="w-6 h-6"></i>
             </div>
@@ -73,18 +77,20 @@
     </div>
 
     <!-- SNI Table -->
-    <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden">
+    <div
+        class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden glass">
         <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse">
                 <thead>
-                    <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                    <tr
+                        class="text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-white/5 bg-slate-50/50 dark:bg-slate-900/30">
                         <th class="px-6 py-4">Domain</th>
                         <th class="px-6 py-4">Tier / Notes</th>
                         <th class="px-6 py-4">Status</th>
                         <th class="px-6 py-4 text-right">Actions</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-white/5 text-sm">
+                <tbody class="divide-y divide-slate-200 dark:divide-white/5 text-sm">
                     {% if snis.is_empty() %}
                     <tr>
                         <td colspan="4" class="px-6 py-16 text-center text-slate-500">No SNIs in pool. Add some to get
@@ -92,7 +98,8 @@
                     </tr>
                     {% else %}
                     {% for item in snis %}
-                    <tr class="hover:bg-white/5 transition-colors group" id="sni-row-{{ item.id }}">
+                    <tr class="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors group"
+                        id="sni-row-{{ item.id }}">
                         <td class="px-6 py-4 font-mono text-indigo-400">{{ item.domain }}</td>
                         <td class="px-6 py-4">
                             <div class="flex flex-col">
@@ -114,7 +121,8 @@
                                         </span>
                                     </div>
                                     {% else %}
-                                    <span class="text-white">{{ item.notes.as_deref().unwrap_or("-") }}</span>
+                                    <span class="text-slate-700 dark:text-white">{{ item.notes.as_deref().unwrap_or("-")
+                                        }}</span>
                                     {% endif %}
 
                                     <span
@@ -160,24 +168,26 @@
     <!-- Blocked Domains -->
     <div class="space-y-4 pt-6">
         <div>
-            <h3 class="text-lg font-bold text-white flex items-center gap-2">
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <i data-lucide="ban" class="w-5 h-5 text-rose-500"></i>
                 Blocked Domains (Blacklist)
             </h3>
-            <p class="text-slate-400 text-xs">Domains that are automatically blocked from rotating into nodes.</p>
+            <p class="text-slate-600 dark:text-slate-400 text-xs mt-1">Domains that are automatically blocked from
+                rotating into nodes.</p>
         </div>
-        <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden">
+        <div
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden glass">
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse">
                     <thead>
                         <tr
-                            class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                            class="text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-white/5 bg-slate-50/50 dark:bg-slate-900/30">
                             <th class="px-6 py-4">Domain</th>
                             <th class="px-6 py-4">Reason / Source</th>
                             <th class="px-6 py-4 text-right">Blocked At</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-white/5 text-sm">
+                    <tbody class="divide-y divide-slate-200 dark:divide-white/5 text-sm">
                         {% if blacklist.is_empty() %}
                         <tr>
                             <td colspan="3" class="px-6 py-8 text-center text-slate-500 italic text-xs">No domains
@@ -185,7 +195,7 @@
                         </tr>
                         {% else %}
                         {% for item in blacklist %}
-                        <tr class="hover:bg-white/5 transition-colors group">
+                        <tr class="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors group">
                             <td class="px-6 py-4 font-mono text-rose-400">{{ item.domain }}</td>
                             <td class="px-6 py-4 text-slate-400">{{ item.reason.as_deref().unwrap_or("-") }}</td>
                             <td class="px-6 py-4 text-right text-slate-500 text-xs text-mono">
@@ -203,24 +213,25 @@
     <!-- Rotation Logs -->
     <div class="space-y-4 pt-6">
         <div>
-            <h3 class="text-lg font-bold text-white flex items-center gap-2">
-                <i data-lucide="history" class="w-5 h-5 text-indigo-400"></i>
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <i data-lucide="history" class="w-5 h-5 text-indigo-500 dark:text-indigo-400"></i>
                 Recent Rotation Events
             </h3>
-            <p class="text-slate-400 text-xs">History of port and SNI changes across nodes.</p>
+            <p class="text-slate-600 dark:text-slate-400 text-xs mt-1">History of port and SNI changes across nodes.</p>
         </div>
-        <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden">
+        <div
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden glass">
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse">
                     <thead>
                         <tr
-                            class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                            class="text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-white/5 bg-slate-50/50 dark:bg-slate-900/30">
                             <th class="px-6 py-4">Node</th>
                             <th class="px-6 py-4">Transition</th>
                             <th class="px-6 py-4">Time</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-white/5 text-sm">
+                    <tbody class="divide-y divide-slate-200 dark:divide-white/5 text-sm">
                         {% if logs.is_empty() %}
                         <tr>
                             <td colspan="3" class="px-6 py-8 text-center text-slate-500 italic text-xs">No recent
@@ -228,9 +239,10 @@
                         </tr>
                         {% else %}
                         {% for log in logs %}
-                        <tr class="hover:bg-white/5 transition-colors group">
+                        <tr class="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors group">
                             <td class="px-6 py-4">
-                                <span class="text-white font-medium">{{ log.node_name.as_deref().unwrap_or("Unknown
+                                <span class="text-slate-900 dark:text-white font-medium">{{
+                                    log.node_name.as_deref().unwrap_or("Unknown
                                     Node") }}</span>
                             </td>
                             <td class="px-6 py-4">
@@ -257,11 +269,11 @@
 <dialog id="bulkSniModal"
     class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50">
     <div
-        class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4 ring-1 ring-white/10 overflow-y-auto max-h-[90vh]">
-        <header class="flex justify-between items-center mb-6 border-b border-white/5 pb-4">
-            <h3 class="text-xl font-bold text-white">Bulk Import Domains</h3>
+        class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4 ring-1 ring-slate-900/5 dark:ring-white/10 overflow-y-auto max-h-[90vh]">
+        <header class="flex justify-between items-center mb-6 border-b border-slate-200 dark:border-white/5 pb-4">
+            <h3 class="text-xl font-bold text-slate-900 dark:text-white">Bulk Import Domains</h3>
             <button onclick="document.getElementById('bulkSniModal').close()"
-                class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+                class="text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors p-2 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg">
                 <i data-lucide="x" class="w-5 h-5"></i>
             </button>
         </header>
@@ -298,11 +310,11 @@
 <dialog id="addSniModal"
     class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50">
     <div
-        class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4 ring-1 ring-white/10 overflow-y-auto max-h-[90vh]">
-        <header class="flex justify-between items-center mb-6 border-b border-white/5 pb-4">
-            <h3 class="text-xl font-bold text-white">Add SNI to Pool</h3>
+        class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4 ring-1 ring-slate-900/5 dark:ring-white/10 overflow-y-auto max-h-[90vh]">
+        <header class="flex justify-between items-center mb-6 border-b border-slate-200 dark:border-white/5 pb-4">
+            <h3 class="text-xl font-bold text-slate-900 dark:text-white">Add SNI to Pool</h3>
             <button onclick="document.getElementById('addSniModal').close()"
-                class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+                class="text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors p-2 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg">
                 <i data-lucide="x" class="w-5 h-5"></i>
             </button>
         </header>

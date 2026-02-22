@@ -8,23 +8,26 @@
     <!-- Header & Actions -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-            <h2 class="text-xl font-bold text-white tracking-tight">Inbounds</h2>
-            <p class="text-slate-400 text-sm mt-1">Define reusable inbound configurations. Sync templates to deploy
+            <h2 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Inbounds</h2>
+            <p class="text-slate-600 dark:text-slate-400 text-sm mt-1">Define reusable inbound configurations. Sync
+                templates to deploy
                 inbounds across all nodes in a group.</p>
         </div>
         <button onclick="document.getElementById('createTemplateModal').showModal()"
-            class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 px-5 rounded-xl transition-all shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_30px_rgba(99,102,241,0.5)] border border-white/10">
+            class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 px-5 rounded-xl transition-all shadow-lg shadow-indigo-500/30 border border-transparent dark:border-white/10">
             <i data-lucide="plus-circle" class="w-5 h-5"></i>
             <span>Create Template</span>
         </button>
     </div>
 
     <!-- Templates Table -->
-    <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden">
+    <div
+        class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden glass">
         <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse">
                 <thead>
-                    <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                    <tr
+                        class="text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-white/5 bg-slate-50/50 dark:bg-slate-900/30">
                         <th class="px-6 py-4">Name</th>
                         <th class="px-6 py-4">Protocol</th>
                         <th class="px-6 py-4">Target Group</th>
@@ -33,29 +36,31 @@
                         <th class="px-6 py-4 text-right">Actions</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-white/5 text-sm">
+                <tbody class="divide-y divide-slate-200 dark:divide-white/5 text-sm">
                     {% if templates.is_empty() %}
                     <tr>
                         <td colspan="6" class="px-6 py-16 text-center text-slate-500">
                             <div class="flex flex-col items-center justify-center">
                                 <div
-                                    class="w-16 h-16 bg-slate-800/50 rounded-full flex items-center justify-center mb-4">
-                                    <i data-lucide="file-json" class="w-8 h-8 text-slate-600"></i>
+                                    class="w-16 h-16 bg-slate-100 dark:bg-slate-800/50 rounded-full flex items-center justify-center mb-4">
+                                    <i data-lucide="file-json" class="w-8 h-8 text-slate-400 dark:text-slate-600"></i>
                                 </div>
-                                <p class="text-base font-medium text-white mb-1">No Templates Yet</p>
+                                <p class="text-base font-medium text-slate-900 dark:text-white mb-1">No Templates Yet
+                                </p>
                                 <p class="text-sm">Create a template to auto-generate inbounds across nodes.</p>
                             </div>
                         </td>
                     </tr>
                     {% else %}
                     {% for item in templates %}
-                    <tr class="hover:bg-white/5 transition-colors group" id="template-row-{{ item.tpl.id }}">
+                    <tr class="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors group"
+                        id="template-row-{{ item.tpl.id }}">
                         <td class="px-6 py-4">
                             <div class="flex items-center gap-3">
-                                <div class="p-2 bg-indigo-500/10 rounded-lg text-indigo-400">
+                                <div class="p-2 bg-indigo-500/10 rounded-lg text-indigo-500 dark:text-indigo-400">
                                     <i data-lucide="file-json" class="w-4 h-4"></i>
                                 </div>
-                                <span class="text-white font-medium">{{ item.tpl.name }}</span>
+                                <span class="text-slate-900 dark:text-white font-medium">{{ item.tpl.name }}</span>
                             </div>
                         </td>
                         <td class="px-6 py-4">
@@ -78,7 +83,7 @@
                         </td>
                         <td class="px-6 py-4">
                             <code
-                                class="text-xs font-mono text-slate-400 bg-white/5 px-2 py-1 rounded border border-white/5">{{ item.tpl.port_range_start }} – {{ item.tpl.port_range_end }}</code>
+                                class="text-xs font-mono text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-white/5 px-2 py-1 rounded border border-slate-200 dark:border-white/5">{{ item.tpl.port_range_start }} – {{ item.tpl.port_range_end }}</code>
                         </td>
                         <td class="px-6 py-4">
                             {% if item.tpl.is_active %}
@@ -127,12 +132,12 @@
 <dialog id="createTemplateModal">
     <div class="modal-container max-w-2xl" onclick="event.stopPropagation()">
         <header class="modal-header">
-            <h3 class="text-xl font-bold text-white flex items-center gap-3">
-                <i data-lucide="file-json" class="w-6 h-6 text-indigo-400"></i>
+            <h3 class="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <i data-lucide="file-json" class="w-6 h-6 text-indigo-500 dark:text-indigo-400"></i>
                 Create Inbound Template
             </h3>
             <button onclick="document.getElementById('createTemplateModal').close()"
-                class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+                class="text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors p-2 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg">
                 <i data-lucide="x" class="w-5 h-5"></i>
             </button>
         </header>
@@ -189,14 +194,14 @@
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Port
                             Start</label>
-                        <input type="number" name="port_range_start" id="tpl_port_start" value="10000" min="1" max="65535" required
-                            class="input-field font-mono">
+                        <input type="number" name="port_range_start" id="tpl_port_start" value="10000" min="1"
+                            max="65535" required class="input-field font-mono">
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Port
                             End</label>
-                        <input type="number" name="port_range_end" id="tpl_port_end" value="20000" min="1" max="65535" required
-                            class="input-field font-mono">
+                        <input type="number" name="port_range_end" id="tpl_port_end" value="20000" min="1" max="65535"
+                            required class="input-field font-mono">
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Rotation
@@ -206,7 +211,8 @@
                     </div>
                 </div>
                 <p class="text-[11px] text-slate-500 -mt-3">Tip: for a fixed port set the same start and end (example:
-                    <span class="font-mono">443 / 443</span>). For rotation set a valid range where start ≤ end.</p>
+                    <span class="font-mono">443 / 443</span>). For rotation set a valid range where start ≤ end.
+                </p>
 
                 <!-- Settings JSON -->
                 <div class="space-y-3">
