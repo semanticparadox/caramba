@@ -1,90 +1,54 @@
 # CARAMBA
 
-Rust workspace for censorship-resistant VPN orchestration.
+CARAMBA is an installer-first Rust platform for running censorship-resistant VPN infrastructure with a single control plane, distributed workers, and Telegram-facing client UX.
 
-Caramba manages node provisioning, Sing-box config generation, subscriptions, billing/bot workflows, and disposable frontend delivery.
+It is built for operators who need reliable node orchestration, subscription delivery, and fast rollout/upgrade workflows without manual server babysitting.
 
-## Installation Model (Installer-First)
-
-Primary installation flow is based on release binary `caramba-installer`.
-
-- `scripts/install.sh` downloads latest release asset `caramba-installer`
-- installs it as `/usr/local/bin/caramba`
-- runs `caramba install --hub` by default
-- also supports role-based installs: `panel`, `node`, `sub/frontend`, `bot`
-
-### One-liner Install
+## Install (One Command)
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh | sudo bash
 ```
 
-Manual download:
+After install, the `caramba` binary becomes your control entrypoint for install, upgrade, diagnostics, restore, and uninstall.
 
-```bash
-curl -sSLO https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh
-chmod +x install.sh
-sudo bash install.sh
+## What CARAMBA Does
+
+- Provisions and manages VPN nodes (pending -> active lifecycle).
+- Generates and syncs Sing-box configs from templates/inbounds.
+- Runs SNI discovery + pool management + pin/block workflow.
+- Tracks node telemetry (latency, load, hardware stats, speed tests).
+- Handles subscriptions, plans, promo flows, and user lifecycle.
+- Integrates Telegram bot + Mini App for client self-service.
+- Supports hub and distributed topologies with role-based installers.
+- Ships release rollouts for panel/node/sub/bot through installer flow.
+
+## Deployment Modes
+
+| Mode | Description | Typical Use |
+| --- | --- | --- |
+| `Hub` | Panel + Sub (and optional Bot) on one host | Fast launch / staging |
+| `Distributed` | Panel control-plane separated from Sub/Bot workers and external nodes | Production scale |
+
+Both modes are managed via installer roles (`hub`, `panel`, `node`, `sub`, `bot`) and can be switched as infrastructure grows.
+
+## Architecture (High Level)
+
+```mermaid
+flowchart LR
+    U[Clients / Telegram Users] --> B[Bot + Mini App]
+    B --> S[Sub/Frontend Worker]
+    U --> S
+    S --> P[Panel Control Plane]
+    N[Node Agents] --> P
+    P --> N
+    P --> DB[(PostgreSQL)]
+    P --> R[(Redis)]
 ```
 
-So `caramba-installer` is the control point for install/upgrade/diagnostics/restore/uninstall workflows, not just a one-time bootstrap helper.
+## Installer-First Workflow
 
-### Interactive Setup Inputs
-
-During `install --hub` installer asks for:
-
-- panel domain (`panel.example.com`)
-- subscription domain (`sub.example.com`, in hub mode)
-- admin path (`/admin` by default)
-- install directory (`/opt/caramba` by default)
-- PostgreSQL password for `caramba` DB user
-
-Installer then configures Caddy routes (panel -> `127.0.0.1:3000`, sub -> `127.0.0.1:8080`), writes `.env`, sets up DB, downloads release binaries, and installs systemd services.
-
-Admin login/password are finalized in panel setup flow after deployment.
-
-## Components
-
-- `apps/caramba-panel`: control plane (admin UI, APIs, orchestration, telemetry, billing, SNI pool, relay logic)
-- `apps/caramba-node`: node agent (heartbeat, config pull, update flow, telemetry, SNI neighbor scan)
-- `apps/caramba-sub`: edge frontend/proxy for `/sub`, `/app`, `/api`, with heartbeat to panel
-- `apps/caramba-bot`: Telegram bot binary
-- `apps/caramba-installer`: install/bootstrap utility
-- `apps/caramba-app`: user mini app frontend assets
-- `libs/caramba-db`: shared DB models/repositories/migrations
-- `libs/caramba-shared`: shared API/config contracts
-
-## Current Highlights
-
-- Relay mode supports auth rollout modes: `legacy`, `v1`, `dual` (default).
-- Guardrail: switch to `v1` is blocked if legacy relay traffic was observed within last 24h.
-- Adaptive node capacity (`max_users`) based on speed and host load.
-- Consolidation support: `/app` + `/sub` can live on one domain (panel or sub edge).
-
-Detailed state: `current_state_2026-02-18.md`.
-
-## Build & Test
-
-```bash
-cargo check --workspace
-cargo test --workspace
-```
-
-Run panel locally:
-
-```bash
-cargo run -p caramba-panel -- serve
-```
-
-Run node/bot/sub binaries:
-
-```bash
-cargo run -p caramba-node
-cargo run -p caramba-bot
-cargo run -p caramba-sub
-```
-
-## Installer Commands
+### Core commands
 
 ```bash
 caramba install --hub
@@ -92,45 +56,96 @@ caramba install --panel
 caramba install --node
 caramba install --sub
 caramba install --bot
+
 caramba upgrade
 caramba diagnose
 caramba restore --file /path/to/backup.tar.gz
 caramba uninstall
 ```
 
-Role script examples:
+### Role install examples
 
 ```bash
-# Node (token can be join token or enrollment key EXA-ENROLL-*)
+# Node (use enrollment/join token from panel)
 curl -fsSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh \
   | sudo bash -s -- --role node --panel "https://panel.example.com" --token "EXA-ENROLL-XXXX"
 
-# Frontend/sub edge
+# Sub/frontend worker
 curl -fsSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh \
-  | sudo bash -s -- --role frontend --panel "https://panel.example.com" --domain "sub.example.com" --token "frontend_token"
+  | sudo bash -s -- --role sub --panel "https://panel.example.com" --domain "sub.example.com" --token "<INTERNAL_API_TOKEN>"
+
+# Bot worker
+curl -fsSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh \
+  | sudo bash -s -- --role bot --panel "https://panel.example.com" --bot-token "<BOT_TOKEN>" --panel-token "<INTERNAL_API_TOKEN>"
 ```
 
-## Docs
+## Key Product Areas
+
+### Infrastructure control
+- Node onboarding with one-time install scripts.
+- Inbound template management and sync.
+- Port/SNI rotation and config regeneration.
+- Node health, status, and rollout signals.
+
+### Connectivity resilience
+- Neighbor SNI scanning and candidate curation.
+- Global SNI pool + blocklist handling.
+- TLS/reality masking pipelines for anti-blocking deployments.
+
+### Commercial and user operations
+- Plans, subscriptions, promo center, transactions.
+- Device/session tracking and admin-side controls.
+- Telegram notifications (single user + broadcast).
+- Mini App subscription flows (purchase, activate, retrieve links).
+
+### Operations and upgrades
+- Installer-managed upgrade path (no full reinstall required).
+- Role-aware rollout metadata for node/sub/bot binaries.
+- System logs, bot logs, and diagnostics endpoints.
+
+## Workspace Layout
+
+- `apps/caramba-panel` - Control plane (admin UI + API + orchestration)
+- `apps/caramba-node` - Node agent
+- `apps/caramba-sub` - Frontend/subscription edge worker
+- `apps/caramba-bot` - Telegram bot worker
+- `apps/caramba-installer` - Installer + upgrade tooling
+- `apps/caramba-app` - Mini App frontend bundle
+- `libs/caramba-db` - DB models, repos, migrations
+- `libs/caramba-shared` - Shared contracts/configs
+
+## Development
+
+```bash
+cargo check --workspace
+cargo test --workspace
+```
+
+Run specific services locally:
+
+```bash
+cargo run -p caramba-panel
+cargo run -p caramba-node
+cargo run -p caramba-sub
+cargo run -p caramba-bot
+```
+
+## Documentation
 
 - `docs/DEPLOYMENT.md`
 - `docs/CONFIGURATION.md`
-- `docs/DEVELOPMENT.md`
 - `docs/MODULES.md`
-- `docs/DATABASE.md`
 - `docs/API.md`
+- `docs/DATABASE.md`
+- `docs/DEVELOPMENT.md`
 
 ## CI/CD
 
 GitHub Actions workflow: `.github/workflows/release.yml`
 
-- Triggered on tags `v*`
-- Can be launched manually via `workflow_dispatch`
-- Performs workspace check + release build (musl target)
+- Build + release is triggered on tags matching `v*`.
+- Manual workflow dispatch is available for dry runs/build checks.
 
 ## License
 
-Source-available development repository.
-
-Important:
-- Until a formal `LICENSE` file is added, code is effectively "all rights reserved".
-- If you plan to keep repo public, define an explicit license policy (open-source or restricted source-available).
+Until a formal `LICENSE` file is added, repository contents should be treated as all-rights-reserved/source-available by default.
