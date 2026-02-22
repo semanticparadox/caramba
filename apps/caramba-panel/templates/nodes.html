@@ -7,45 +7,50 @@
 <section class="space-y-6">
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-            <h2 class="text-xl font-bold text-white">Nodes Management</h2>
-            <p class="text-sm text-slate-400 mt-1">Install and manage relay/edge nodes from one place.</p>
+            <h2 class="text-xl font-bold text-slate-900 dark:text-white">Nodes Management</h2>
+            <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">Install and manage relay/edge nodes from one
+                place.</p>
         </div>
         <div class="flex items-center gap-2">
             <button onclick="document.getElementById('add-node-modal').showModal()"
-                class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl font-semibold">
+                class="bg-indigo-600 hover:bg-indigo-500 text-slate-900 dark:text-white px-4 py-2 rounded-xl font-semibold">
                 Add Node
             </button>
-            <button
-                hx-get="{{ admin_path }}/nodes"
-                hx-target="#nodes-table-body"
-                class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl font-semibold">
+            <button hx-get="{{ admin_path }}/nodes" hx-target="#nodes-table-body"
+                class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl font-semibold">
                 Refresh
             </button>
         </div>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div class="bg-slate-900/50 border border-white/5 rounded-2xl p-4">
-            <p class="text-xs uppercase text-slate-500">Total Nodes</p>
-            <p class="text-2xl font-bold text-white">{{ nodes.len() }}</p>
+        <div
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl p-4">
+            <p class="text-xs uppercase text-slate-500 dark:text-slate-500">Total Nodes</p>
+            <p class="text-2xl font-bold text-slate-900 dark:text-white">{{ nodes.len() }}</p>
         </div>
-        <div class="bg-slate-900/50 border border-white/5 rounded-2xl p-4">
-            <p class="text-xs uppercase text-slate-500">Latest Agent Version</p>
-            <p class="text-2xl font-bold text-white">{{ agent_latest_version }}</p>
+        <div
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl p-4">
+            <p class="text-xs uppercase text-slate-500 dark:text-slate-500">Latest Agent Version</p>
+            <p class="text-2xl font-bold text-slate-900 dark:text-white">{{ agent_latest_version }}</p>
         </div>
-        <div class="bg-slate-900/50 border border-white/5 rounded-2xl p-4">
-            <p class="text-xs uppercase text-slate-500">Auto Updates</p>
-            <p class="text-2xl font-bold {% if auto_update_agents %}text-emerald-400{% else %}text-amber-400{% endif %}">
+        <div
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl p-4">
+            <p class="text-xs uppercase text-slate-500 dark:text-slate-500">Auto Updates</p>
+            <p
+                class="text-2xl font-bold {% if auto_update_agents %}text-emerald-400{% else %}text-amber-400{% endif %}">
                 {% if auto_update_agents %}Enabled{% else %}Manual{% endif %}
             </p>
         </div>
     </div>
 
-    <div class="bg-slate-900/50 border border-white/5 rounded-2xl overflow-hidden">
+    <div
+        class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden">
         <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse">
                 <thead>
-                    <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                    <tr
+                        class="text-xs font-semibold text-slate-500 dark:text-slate-500 uppercase border-b border-slate-200 dark:border-white/5 bg-slate-100/80 dark:bg-slate-900/30">
                         <th class="px-4 py-3">Node</th>
                         <th class="px-4 py-3">IP</th>
                         <th class="px-4 py-3">Status</th>
@@ -54,7 +59,8 @@
                         <th class="px-4 py-3">Actions</th>
                     </tr>
                 </thead>
-                <tbody id="nodes-table-body" class="divide-y divide-white/5 text-sm" hx-get="{{ admin_path }}/nodes" hx-trigger="load, refresh_nodes from:body, every 20s">
+                <tbody id="nodes-table-body" class="divide-y divide-white/5 text-sm" hx-get="{{ admin_path }}/nodes"
+                    hx-trigger="load, refresh_nodes from:body, every 20s">
                     {% include "partials/nodes_rows.html" %}
                 </tbody>
             </table>
@@ -62,55 +68,67 @@
     </div>
 </section>
 
-<dialog id="add-node-modal" class="backdrop:bg-slate-950/80 bg-transparent p-0">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-xl p-6 m-4">
+<dialog id="add-node-modal" class="backdrop:bg-slate-50 dark:bg-slate-950/80 bg-transparent p-0">
+    <div
+        class="bg-slate-900 border border-slate-300 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-xl p-6 m-4">
         <header class="flex justify-between items-center mb-6">
-            <h3 class="text-xl font-bold text-white">Add Node</h3>
-            <button type="button" onclick="document.getElementById('add-node-modal').close()" class="text-slate-400 hover:text-white">✕</button>
+            <h3 class="text-xl font-bold text-slate-900 dark:text-white">Add Node</h3>
+            <button type="button" onclick="document.getElementById('add-node-modal').close()"
+                class="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-white">✕</button>
         </header>
-        <form hx-post="{{ admin_path }}/nodes/install" hx-target="#manual-install-modal-content" hx-swap="innerHTML" class="space-y-4">
+        <form hx-post="{{ admin_path }}/nodes/install" hx-target="#manual-install-modal-content" hx-swap="innerHTML"
+            class="space-y-4">
             <div>
-                <label class="block text-xs text-slate-400 uppercase mb-1">Name</label>
-                <input name="name" required placeholder="DE-FRA-01" class="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-white">
+                <label class="block text-xs text-slate-600 dark:text-slate-400 uppercase mb-1">Name</label>
+                <input name="name" required placeholder="DE-FRA-01"
+                    class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-3 py-2 text-slate-900 dark:text-white">
             </div>
             <div>
-                <label class="block text-xs text-slate-400 uppercase mb-1">IP Address (optional for pending node)</label>
-                <input name="ip" placeholder="203.0.113.10" class="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-white">
+                <label class="block text-xs text-slate-600 dark:text-slate-400 uppercase mb-1">IP Address (optional for
+                    pending node)</label>
+                <input name="ip" placeholder="203.0.113.10"
+                    class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-3 py-2 text-slate-900 dark:text-white">
             </div>
             <div class="space-y-2">
-                <p class="text-xs text-slate-400">
+                <p class="text-xs text-slate-600 dark:text-slate-400">
                     VPN port is managed automatically. Default bootstrap port: <span class="text-slate-200">443</span>.
                 </p>
                 <label class="flex items-center gap-2 text-slate-300">
-                    <input type="checkbox" name="auto_configure" value="true" class="rounded border-white/20 bg-slate-900">
+                    <input type="checkbox" name="auto_configure" value="true"
+                        class="rounded border-white/20 bg-slate-900">
                     Auto configure on install
                 </label>
             </div>
             <div class="flex justify-end gap-2 pt-2">
                 <button type="button" onclick="document.getElementById('add-node-modal').close()"
-                    class="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl">Cancel</button>
+                    class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-700 text-slate-900 dark:text-white px-4 py-2 rounded-xl">Cancel</button>
                 <button type="submit"
-                    class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl font-semibold">Create Node</button>
+                    class="bg-indigo-600 hover:bg-indigo-500 text-slate-900 dark:text-white px-4 py-2 rounded-xl font-semibold">Create
+                    Node</button>
             </div>
         </form>
     </div>
 </dialog>
 
-<dialog id="manual-install-modal" class="backdrop:bg-slate-950/80 bg-transparent p-0">
+<dialog id="manual-install-modal" class="backdrop:bg-slate-50 dark:bg-slate-950/80 bg-transparent p-0">
     <div id="manual-install-modal-content"></div>
 </dialog>
 
-<dialog id="node-install-modal" class="backdrop:bg-slate-950/80 bg-transparent p-0">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-3xl p-6 m-4">
+<dialog id="node-install-modal" class="backdrop:bg-slate-50 dark:bg-slate-950/80 bg-transparent p-0">
+    <div
+        class="bg-slate-900 border border-slate-300 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-3xl p-6 m-4">
         <header class="flex justify-between items-center mb-4">
-            <h3 class="text-xl font-bold text-white">Node Install Command</h3>
-            <button type="button" onclick="document.getElementById('node-install-modal').close()" class="text-slate-400 hover:text-white">✕</button>
+            <h3 class="text-xl font-bold text-slate-900 dark:text-white">Node Install Command</h3>
+            <button type="button" onclick="document.getElementById('node-install-modal').close()"
+                class="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-white">✕</button>
         </header>
         <p id="node-install-title" class="text-slate-300 mb-3"></p>
-        <pre id="node-install-command" class="bg-slate-950 border border-white/10 rounded-xl p-4 text-xs text-emerald-300 overflow-x-auto"></pre>
+        <pre id="node-install-command"
+            class="bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl p-4 text-xs text-emerald-300 overflow-x-auto"></pre>
         <div class="mt-4 flex justify-end gap-2">
             <button type="button" onclick="copyNodeInstallCommand()"
-                class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl">Copy Command</button>
+                class="bg-indigo-600 hover:bg-indigo-500 text-slate-900 dark:text-white px-4 py-2 rounded-xl">Copy
+                Command</button>
         </div>
     </div>
 </dialog>

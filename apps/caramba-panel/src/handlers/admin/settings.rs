@@ -1278,6 +1278,8 @@ pub async fn toggle_bot(State(state): State<AppState>) -> impl IntoResponse {
     if is_running {
         info!("Stopping bot via toggle");
         state.bot_manager.stop_bot().await;
+        // Try to stop external worker if running on Linux with systemd
+        let _ = run_systemctl_action(&["stop", "caramba-bot"]);
         new_status = "stopped".to_string();
     } else {
         info!("Starting bot via toggle");
@@ -1288,10 +1290,12 @@ pub async fn toggle_bot(State(state): State<AppState>) -> impl IntoResponse {
         if !state.bot_manager.start_bot(token, state.clone()).await {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to start bot. Check token and logs.",
+                "Failed to start bot notifier. Check token and logs.",
             )
                 .into_response();
         }
+        // Try to start external worker
+        let _ = run_systemctl_action(&["start", "caramba-bot"]);
         new_status = "running".to_string();
     }
 

@@ -7,24 +7,27 @@
 <section class="space-y-6">
     <!-- Header & Search -->
     <div
-        class="flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-900/50 backdrop-blur-md border border-white/5 p-4 rounded-2xl">
-        <h2 class="text-lg font-semibold text-white px-2">All Users</h2>
+        class="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 p-4 rounded-2xl">
+        <h2 class="text-lg font-semibold text-slate-900 dark:text-white px-2">All Users</h2>
         <form hx-get="{{ admin_path }}/users" hx-target="body" hx-push-url="true" class="flex w-full sm:w-auto gap-2">
             <div class="relative flex-1 sm:w-64">
-                <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"></i>
+                <i data-lucide="search"
+                    class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 dark:text-slate-500"></i>
                 <input type="search" name="search" placeholder="Search by name, username or ID..." value="{{ search }}"
-                    class="w-full bg-slate-950 border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                    class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
             </div>
             <button type="submit"
-                class="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-xl transition-colors shadow-lg shadow-indigo-500/20">
+                class="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-slate-900 dark:text-white text-sm font-medium rounded-xl transition-colors shadow-lg shadow-indigo-500/20">
                 Search
             </button>
         </form>
     </div>
 
-    <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 p-4 rounded-2xl space-y-3">
+    <div
+        class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 p-4 rounded-2xl space-y-3">
         <h3 class="text-sm font-semibold text-slate-200 uppercase tracking-wide">Broadcast Notification</h3>
-        <p class="text-xs text-slate-500">Compose once, preview how it looks in Telegram, then send by audience segment.</p>
+        <p class="text-xs text-slate-500 dark:text-slate-500">Compose once, preview how it looks in Telegram, then send
+            by audience segment.</p>
 
         <form id="broadcast-notify-form" data-preview-url="{{ admin_path }}/users/notify/preview"
             hx-post="{{ admin_path }}/users/notify/all" hx-target="#broadcast-result" hx-swap="innerHTML"
@@ -32,10 +35,10 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-2">
                 <input type="text" name="campaign_title" maxlength="120"
                     placeholder="Campaign title (for history/audit)"
-                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                    class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
 
                 <select name="segment"
-                    class="bg-slate-950 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                    class="bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
                     <option value="all" selected>All users</option>
                     <option value="active">Active subscribers</option>
                     <option value="expiring_72h">Expiring in 72h</option>
@@ -45,7 +48,8 @@
                 </select>
             </div>
 
-            <div class="rounded-2xl border border-white/10 bg-slate-950/40 p-3 space-y-3">
+            <div
+                class="rounded-2xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-3 space-y-3">
                 <div class="flex flex-wrap items-center gap-2 text-[11px]">
                     <button type="button"
                         class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
@@ -68,19 +72,19 @@
 
                     <div class="ml-auto flex flex-wrap items-center gap-2">
                         <select id="broadcast-parse-mode" name="parse_mode"
-                            class="bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                            class="bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-900 dark:text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
                             <option value="plain" selected>Plain</option>
                             <option value="html">HTML</option>
                             <option value="markdown">MarkdownV2</option>
                         </select>
                         <select id="broadcast-media-type" name="media_type"
-                            class="bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                            class="bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-900 dark:text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
                             <option value="none" selected>No media</option>
                             <option value="photo">Photo</option>
                             <option value="video">Video</option>
                             <option value="document">Document</option>
                         </select>
-                        <label class="inline-flex items-center gap-1.5 text-slate-400">
+                        <label class="inline-flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
                             <input id="broadcast-autopreview" type="checkbox" checked
                                 class="rounded border-white/20 bg-slate-900 text-indigo-500 focus:ring-indigo-500/40">
                             Live preview
@@ -90,51 +94,48 @@
 
                 <textarea id="broadcast-message" name="message" rows="6" required maxlength="4000"
                     placeholder="Write Telegram message for selected users..."
-                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all"></textarea>
+                    class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all"></textarea>
 
                 <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <span id="broadcast-counter" class="text-slate-500">0 / 4000</span>
+                    <span id="broadcast-counter" class="text-slate-500 dark:text-slate-500">0 / 4000</span>
                     <span class="text-slate-600">When media is selected, Telegram caption limit is 1024 symbols.</span>
                 </div>
             </div>
 
-            <details class="group rounded-2xl border border-white/10 bg-slate-950/20 p-3">
+            <details
+                class="group rounded-2xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/20 p-3">
                 <summary class="cursor-pointer text-xs text-slate-300 select-none">
                     Advanced delivery options
                 </summary>
                 <div class="mt-3 space-y-2">
-                    <input type="url" name="media_url" maxlength="1000"
-                        placeholder="Optional media URL (https://...)"
-                        class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                    <input type="url" name="media_url" maxlength="1000" placeholder="Optional media URL (https://...)"
+                        class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <input type="text" name="button_text" maxlength="64"
-                            placeholder="Primary button text"
-                            class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                        <input type="text" name="button_text" maxlength="64" placeholder="Primary button text"
+                            class="bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
                         <input type="url" name="button_url" maxlength="1000"
                             placeholder="Primary button URL (https://...)"
-                            class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                            class="bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <input type="text" name="button2_text" maxlength="64"
-                            placeholder="Secondary button text"
-                            class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                        <input type="text" name="button2_text" maxlength="64" placeholder="Secondary button text"
+                            class="bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
                         <input type="url" name="button2_url" maxlength="1000"
                             placeholder="Secondary button URL (https://...)"
-                            class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                            class="bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <input type="text" name="button3_text" maxlength="64"
-                            placeholder="Tertiary button text"
-                            class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                        <input type="text" name="button3_text" maxlength="64" placeholder="Tertiary button text"
+                            class="bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
                         <input type="url" name="button3_url" maxlength="1000"
                             placeholder="Tertiary button URL (https://...)"
-                            class="bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
+                            class="bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
                     </div>
 
-                    <label class="inline-flex items-center gap-2 text-xs text-slate-400">
+                    <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
                         <input type="checkbox" name="disable_link_preview"
                             class="rounded border-white/20 bg-slate-900 text-indigo-500 focus:ring-indigo-500/40">
                         Disable link preview for text message
@@ -143,33 +144,34 @@
             </details>
 
             <div class="flex flex-wrap gap-2">
-                <button type="button"
-                    onclick="notifyRunPreview('broadcast-notify-form','broadcast-preview')"
-                    class="w-full sm:w-auto px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium rounded-xl transition-colors border border-white/10">
+                <button type="button" onclick="notifyRunPreview('broadcast-notify-form','broadcast-preview')"
+                    class="w-full sm:w-auto px-4 py-2.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-700 text-slate-900 dark:text-white text-sm font-medium rounded-xl transition-colors border border-slate-300 dark:border-white/10">
                     Preview
                 </button>
                 <button type="submit"
-                    class="w-full sm:w-auto px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-xl transition-colors shadow-lg shadow-indigo-500/20">
+                    class="w-full sm:w-auto px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-slate-900 dark:text-white text-sm font-medium rounded-xl transition-colors shadow-lg shadow-indigo-500/20">
                     Send to Segment
                 </button>
             </div>
             <div id="broadcast-preview"></div>
         </form>
-        <div id="broadcast-result" class="text-xs text-slate-400"></div>
+        <div id="broadcast-result" class="text-xs text-slate-600 dark:text-slate-400"></div>
     </div>
 
-    <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden shadow-xl">
-        <div class="p-4 border-b border-white/5 flex items-center justify-between">
+    <div
+        class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden shadow-xl">
+        <div class="p-4 border-b border-slate-200 dark:border-white/5 flex items-center justify-between">
             <h3 class="text-sm font-semibold text-slate-200 uppercase tracking-wide">Notification Campaign History</h3>
-            <span class="text-xs text-slate-500">Last 20 broadcasts</span>
+            <span class="text-xs text-slate-500 dark:text-slate-500">Last 20 broadcasts</span>
         </div>
         {% if campaigns.is_empty() %}
-        <div class="p-6 text-sm text-slate-500">No campaigns yet.</div>
+        <div class="p-6 text-sm text-slate-500 dark:text-slate-500">No campaigns yet.</div>
         {% else %}
         <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse">
                 <thead>
-                    <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/40">
+                    <tr
+                        class="text-xs font-semibold text-slate-500 dark:text-slate-500 uppercase border-b border-slate-200 dark:border-white/5 bg-slate-200 dark:bg-slate-900/40">
                         <th class="px-4 py-3">Time</th>
                         <th class="px-4 py-3">Title</th>
                         <th class="px-4 py-3">Admin</th>
@@ -185,9 +187,10 @@
                 <tbody class="divide-y divide-white/5">
                     {% for c in campaigns %}
                     <tr class="hover:bg-white/5 transition-colors">
-                        <td class="px-4 py-3 text-xs text-slate-400 font-mono">{{ c.created_at }}</td>
+                        <td class="px-4 py-3 text-xs text-slate-600 dark:text-slate-400 font-mono">{{ c.created_at }}
+                        </td>
                         <td class="px-4 py-3 text-xs text-slate-200">{{ c.title }}</td>
-                        <td class="px-4 py-3 text-sm text-white">{{ c.created_by }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-900 dark:text-white">{{ c.created_by }}</td>
                         <td class="px-4 py-3 text-xs text-slate-300">{{ c.segment }}</td>
                         <td class="px-4 py-3 text-xs text-slate-300">{{ c.parse_mode }}</td>
                         <td class="px-4 py-3 text-xs text-slate-300">{{ c.media_type }}</td>
@@ -196,9 +199,10 @@
                                 class="text-red-400">(-{{ c.failed }})</span></td>
                         <td class="px-4 py-3">
                             <span
-                                class="inline-flex items-center px-2 py-1 rounded-full text-[10px] border border-white/10 bg-white/5 text-slate-300">{{ c.status }}</span>
+                                class="inline-flex items-center px-2 py-1 rounded-full text-[10px] border border-slate-300 dark:border-white/10 bg-white/5 text-slate-300">{{
+                                c.status }}</span>
                         </td>
-                        <td class="px-4 py-3 text-xs text-slate-400">{{ c.message_preview }}</td>
+                        <td class="px-4 py-3 text-xs text-slate-600 dark:text-slate-400">{{ c.message_preview }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -208,11 +212,13 @@
     </div>
 
     <!-- Users Table -->
-    <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden shadow-xl">
+    <div
+        class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden shadow-xl">
         <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse">
                 <thead>
-                    <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/50">
+                    <tr
+                        class="text-xs font-semibold text-slate-500 dark:text-slate-500 uppercase border-b border-slate-200 dark:border-white/5 bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none">
                         <th class="px-6 py-4 w-20">ID</th>
                         <th class="px-6 py-4">User Details</th>
                         <th class="px-6 py-4">Telegram ID</th>
@@ -224,7 +230,7 @@
                 <tbody class="divide-y divide-white/5">
                     {% for user in users %}
                     <tr class="hover:bg-white/5 transition-colors group">
-                        <td class="px-6 py-4 text-slate-500 text-xs font-mono">#{{ user.id }}</td>
+                        <td class="px-6 py-4 text-slate-500 dark:text-slate-500 text-xs font-mono">#{{ user.id }}</td>
                         <td class="px-6 py-4">
                             <div class="flex items-center gap-3">
                                 <div
@@ -232,7 +238,8 @@
                                     {{ user.full_name.as_deref().unwrap_or("U").chars().next().unwrap_or('U') }}
                                 </div>
                                 <div>
-                                    <div class="font-medium text-white">{{ user.full_name.as_deref().unwrap_or("Unknown
+                                    <div class="font-medium text-slate-900 dark:text-white">{{
+                                        user.full_name.as_deref().unwrap_or("Unknown
                                         User") }}</div>
                                     {% if let Some(username) = user.username %}
                                     <div class="text-xs text-indigo-400">@{{ username }}</div>
@@ -244,7 +251,7 @@
                         </td>
                         <td class="px-6 py-4">
                             <code
-                                class="px-2 py-1 rounded bg-slate-950 border border-white/5 text-xs text-slate-400 font-mono">{{ user.tg_id }}</code>
+                                class="px-2 py-1 rounded bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-white/5 text-xs text-slate-600 dark:text-slate-400 font-mono">{{ user.tg_id }}</code>
                         </td>
                         <td class="px-6 py-4">
                             <span class="font-mono text-emerald-400 font-medium">${{ user.balance / 100 }}.{{
@@ -265,7 +272,7 @@
                         </td>
                         <td class="px-6 py-4 text-right">
                             <a href="{{ admin_path }}/users/{{ user.id }}"
-                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 text-xs font-medium text-slate-300 transition-colors">
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 hover:bg-white/5 text-xs font-medium text-slate-300 transition-colors">
                                 Edit Details <i data-lucide="chevron-right" class="w-3 h-3"></i>
                             </a>
                         </td>
@@ -274,7 +281,7 @@
 
                     {% if users.is_empty() %}
                     <tr>
-                        <td colspan="6" class="px-6 py-12 text-center text-slate-500">
+                        <td colspan="6" class="px-6 py-12 text-center text-slate-500 dark:text-slate-500">
                             <div class="flex flex-col items-center gap-2">
                                 <i data-lucide="search-x" class="w-8 h-8 opacity-50"></i>
                                 <p>No users found matching your search.</p>
@@ -353,7 +360,7 @@
         counter.textContent = `${used} / ${limit}`;
         counter.classList.toggle('text-red-400', used > limit);
         counter.classList.toggle('text-amber-300', used > Math.floor(limit * 0.85) && used <= limit);
-        counter.classList.toggle('text-slate-500', used <= Math.floor(limit * 0.85));
+        counter.classList.toggle('text-slate-500 dark:text-slate-500', used <= Math.floor(limit * 0.85));
     }
 
     async function notifyRunPreview(formId, previewId) {
@@ -369,7 +376,7 @@
         }
 
         try {
-            preview.innerHTML = '<div class="text-xs text-slate-500 px-1 py-2">Rendering preview...</div>';
+            preview.innerHTML = '<div class="text-xs text-slate-500 dark:text-slate-500 px-1 py-2">Rendering preview...</div>';
             const response = await fetch(url, {
                 method: 'POST',
                 headers: {

@@ -549,23 +549,26 @@ function copyLink(){{
             _ => "config.json",
         };
         let content_type = match client_type {
-            "clash" => "text/plain; charset=utf-8",
+            "clash" => "text/yaml; charset=utf-8",
             "v2ray" => "text/plain; charset=utf-8",
-            _ => "text/plain; charset=utf-8",
+            _ => "application/json; charset=utf-8",
         };
         return (
             StatusCode::OK,
             [
                 (header::CONTENT_TYPE, content_type),
                 (
-                    header::CONTENT_DISPOSITION,
-                    format!("inline; filename={}", filename).as_str(),
-                ),
-                (
                     header::HeaderName::from_static("subscription-userinfo"),
                     user_info_header.as_str(),
                 ),
-                (header::HeaderName::from_static("profile-title"), "CARAMBA"),
+                (
+                    header::HeaderName::from_static("profile-title"),
+                    plan_details.0.as_str(),
+                ),
+                (
+                    header::HeaderName::from_static("profile-update-interval"),
+                    "2",
+                ),
             ],
             cached_config,
         )
@@ -579,7 +582,7 @@ function copyLink(){{
                 .subscription_service
                 .generate_clash(&sub, &node_infos, &user_keys)
             {
-                Ok(c) => (c, "text/plain; charset=utf-8", "config.yaml"),
+                Ok(c) => (c, "text/yaml; charset=utf-8", "config.yaml"),
                 Err(e) => {
                     error!("Clash gen failed: {}", e);
                     return (StatusCode::INTERNAL_SERVER_ERROR, "Generation failed")
@@ -605,7 +608,7 @@ function copyLink(){{
                 .subscription_service
                 .generate_singbox(&sub, &node_infos, &user_keys)
             {
-                Ok(c) => (c, "text/plain; charset=utf-8", "config.json"),
+                Ok(c) => (c, "application/json; charset=utf-8", "config.json"),
                 Err(e) => {
                     error!("Singbox gen failed: {}", e);
                     return (StatusCode::INTERNAL_SERVER_ERROR, "Generation failed")
@@ -623,14 +626,17 @@ function copyLink(){{
         [
             (header::CONTENT_TYPE, content_type),
             (
-                header::CONTENT_DISPOSITION,
-                format!("inline; filename={}", filename).as_str(),
-            ),
-            (
                 header::HeaderName::from_static("subscription-userinfo"),
                 user_info_header.as_str(),
             ),
-            (header::HeaderName::from_static("profile-title"), "CARAMBA"),
+            (
+                header::HeaderName::from_static("profile-title"),
+                plan_details.0.as_str(),
+            ),
+            (
+                header::HeaderName::from_static("profile-update-interval"),
+                "2",
+            ),
         ],
         content,
     )

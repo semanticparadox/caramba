@@ -105,6 +105,9 @@ pub struct InternalSubscription {
     pub status: String,
     pub used_traffic: i64,
     pub subscription_uuid: String,
+    pub expire_timestamp: i64,
+    pub plan_name: String,
+    pub traffic_limit_gb: i32,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -163,7 +166,13 @@ pub async fn get_subscription(
     }
 
     let sub: Option<InternalSubscription> = sqlx::query_as(
-        "SELECT id, user_id, status, used_traffic, subscription_uuid FROM subscriptions WHERE subscription_uuid = $1",
+        r#"SELECT s.id, s.user_id, s.status, s.used_traffic, s.subscription_uuid,
+                  EXTRACT(EPOCH FROM s.expires_at)::BIGINT AS expire_timestamp,
+                  COALESCE(p.name, 'VPN Plan') AS plan_name,
+                  COALESCE(p.traffic_limit_gb, 0) AS traffic_limit_gb
+           FROM subscriptions s
+           LEFT JOIN plans p ON p.id = s.plan_id
+           WHERE s.subscription_uuid = $1"#,
     )
     .bind(uuid)
     .fetch_optional(&state.pool)

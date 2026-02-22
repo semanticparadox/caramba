@@ -9,14 +9,16 @@
 <nav class="flex items-center text-sm text-slate-500 mb-6">
     <a href="{{ admin_path }}/users" class="hover:text-indigo-400 transition-colors">Users</a>
     <i data-lucide="chevron-right" class="w-4 h-4 mx-2"></i>
-    <span class="text-slate-300 font-medium">{{ user.full_name.as_deref().unwrap_or("User Profile") }}</span>
+    <span class="text-slate-700 dark:text-slate-300 font-medium">{{ user.full_name.as_deref().unwrap_or("User Profile")
+        }}</span>
 </nav>
 
 <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
     <!-- Left Column: User Profile -->
     <div class="xl:col-span-1 space-y-6">
         <!-- User Profile Card -->
-        <article class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6">
+        <article
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6">
             <header class="flex justify-between items-start mb-6">
                 <div class="flex items-center gap-4">
                     <div
@@ -24,9 +26,10 @@
                         {{ user.full_name.as_deref().unwrap_or("U").chars().next().unwrap_or('U') }}
                     </div>
                     <div>
-                        <h3 class="text-xl font-bold text-white leading-tight mb-1">{{
+                        <h3 class="text-xl font-bold text-slate-900 dark:text-white leading-tight mb-1">{{
                             user.full_name.as_deref().unwrap_or("Unknown User") }}</h3>
-                        <div class="text-sm text-slate-400">@{{ user.username.as_deref().unwrap_or("None") }}</div>
+                        <div class="text-sm text-slate-600 dark:text-slate-400">@{{
+                            user.username.as_deref().unwrap_or("None") }}</div>
                     </div>
                 </div>
                 {% if user.is_banned %}
@@ -43,12 +46,12 @@
                     <div>
                         <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Telegram ID</label>
                         <input type="text" value="{{ user.tg_id }}" readonly disabled
-                            class="w-full bg-slate-950/50 border border-white/5 rounded-lg px-3 py-2 text-sm text-slate-400 font-mono">
+                            class="w-full bg-slate-100 dark:bg-slate-950/50 border border-slate-200 dark:border-white/5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-400 font-mono">
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Registered</label>
                         <input type="text" value="{{ user.created_at.format(" %Y-%m-%d") }}" readonly disabled
-                            class="w-full bg-slate-950/50 border border-white/5 rounded-lg px-3 py-2 text-sm text-slate-400">
+                            class="w-full bg-slate-100 dark:bg-slate-950/50 border border-slate-200 dark:border-white/5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-400">
                     </div>
                 </div>
 
@@ -57,28 +60,28 @@
                         <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Referral Code</label>
                         <input type="text" name="referral_code"
                             value="{{ user.referral_code.as_deref().unwrap_or("") }}"
-                            class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
+                            class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Parent (Family)</label>
                         <input type="number" name="parent_id"
                             value="{% if let Some(pid) = user.parent_id %}{{ pid }}{% endif %}" placeholder="User ID"
-                            class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
+                            class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
                     </div>
                 </div>
 
-                <div class="h-px bg-white/5 my-4"></div>
+                <div class="h-px bg-slate-200 dark:bg-white/5 my-4"></div>
 
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Wallet (Cents)</label>
                         <input type="number" name="balance" value="{{ user.balance }}"
-                            class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all">
+                            class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-indigo-500 outline-none transition-all">
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Status</label>
                         <select name="is_banned"
-                            class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all">
+                            class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-indigo-500 outline-none transition-all">
                             <option value="false" {% if !user.is_banned %}selected{% endif %}>Active</option>
                             <option value="true" {% if user.is_banned %}selected{% endif %}>Banned</option>
                         </select>
@@ -87,23 +90,24 @@
 
                 <div class="pt-2">
                     <button type="submit"
-                        class="w-full py-2.5 bg-white/5 hover:bg-white/10 text-white font-medium rounded-lg border border-white/10 transition-colors">
+                        class="w-full py-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-900 dark:text-white font-medium rounded-lg border border-slate-300 dark:border-white/10 transition-colors">
                         Update User
                     </button>
                 </div>
             </form>
 
-            <div class="h-px bg-white/5 my-5"></div>
+            <div class="h-px bg-slate-200 dark:bg-white/5 my-5"></div>
 
             <form id="user-notify-form" data-preview-url="{{ admin_path }}/users/notify/preview"
                 hx-post="{{ admin_path }}/users/{{ user.id }}/notify" hx-target="#notify-result" hx-swap="innerHTML"
                 class="space-y-4">
-                <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Send Telegram Notification</label>
-                <input type="text" name="campaign_title" maxlength="120"
-                    placeholder="Campaign title (for logs/history)"
-                    class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
+                <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Send Telegram
+                    Notification</label>
+                <input type="text" name="campaign_title" maxlength="120" placeholder="Campaign title (for logs/history)"
+                    class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
 
-                <div class="rounded-2xl border border-white/10 bg-slate-950/40 p-3 space-y-3">
+                <div
+                    class="rounded-2xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-3 space-y-3">
                     <div class="flex flex-wrap items-center gap-2 text-[11px]">
                         <button type="button"
                             class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
@@ -145,7 +149,7 @@
 
                     <textarea id="user-notify-message" name="message" rows="5" required maxlength="4000"
                         placeholder="Type message for this user..."
-                        class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700"></textarea>
+                        class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700"></textarea>
 
                     <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
                         <span id="user-notify-counter" class="text-slate-500">0 / 4000</span>
@@ -153,7 +157,8 @@
                     </div>
                 </div>
 
-                <details class="group rounded-2xl border border-white/10 bg-slate-950/20 p-3">
+                <details
+                    class="group rounded-2xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/20 p-3">
                     <summary class="cursor-pointer text-xs text-slate-300 select-none">
                         Advanced delivery options
                     </summary>
@@ -163,8 +168,7 @@
                             class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
 
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <input type="text" name="button_text" maxlength="64"
-                                placeholder="Primary button text"
+                            <input type="text" name="button_text" maxlength="64" placeholder="Primary button text"
                                 class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
                             <input type="url" name="button_url" maxlength="1000"
                                 placeholder="Primary button URL (https://...)"
@@ -172,8 +176,7 @@
                         </div>
 
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <input type="text" name="button2_text" maxlength="64"
-                                placeholder="Secondary button text"
+                            <input type="text" name="button2_text" maxlength="64" placeholder="Secondary button text"
                                 class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
                             <input type="url" name="button2_url" maxlength="1000"
                                 placeholder="Secondary button URL (https://...)"
@@ -181,8 +184,7 @@
                         </div>
 
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <input type="text" name="button3_text" maxlength="64"
-                                placeholder="Tertiary button text"
+                            <input type="text" name="button3_text" maxlength="64" placeholder="Tertiary button text"
                                 class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
                             <input type="url" name="button3_url" maxlength="1000"
                                 placeholder="Tertiary button URL (https://...)"
@@ -198,9 +200,8 @@
                 </details>
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <button type="button"
-                        onclick="notifyRunPreview('user-notify-form','notify-preview')"
-                        class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-lg border border-white/10 transition-colors">
+                    <button type="button" onclick="notifyRunPreview('user-notify-form','notify-preview')"
+                        class="w-full py-2.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-medium rounded-lg border border-slate-300 dark:border-white/10 transition-colors">
                         Preview
                     </button>
                     <button type="submit"
@@ -214,7 +215,8 @@
         </article>
 
         <!-- Referral Stats -->
-        <article class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden p-6">
+        <article
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6">
             <header class="flex justify-between items-center mb-4">
                 <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wide">Referral Program</h4>
                 <span
@@ -230,14 +232,15 @@
             {% else %}
             <div class="space-y-3">
                 {% for referral in referrals %}
-                <div class="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
+                <div
+                    class="flex items-center justify-between p-3 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/5">
                     <div class="flex items-center gap-3">
                         <div
                             class="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 text-xs font-bold">
                             {{ referral.full_name.as_deref().unwrap_or("U").chars().next().unwrap_or('U') }}
                         </div>
                         <div>
-                            <div class="text-sm font-medium text-white">{{
+                            <div class="text-sm font-medium text-slate-900 dark:text-white">{{
                                 referral.full_name.as_deref().unwrap_or("Unknown") }}</div>
                             <div class="text-xs text-slate-500">{{ referral.created_at.format("%Y-%m-%d").to_string() }}
                             </div>
@@ -255,9 +258,11 @@
     <!-- Right Column: Subscriptions & Orders -->
     <div class="xl:col-span-2 space-y-6">
         <!-- Active Subscriptions -->
-        <article class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden shadow-xl">
-            <header class="p-6 border-b border-white/5 flex justify-between items-center bg-slate-900/30">
-                <h3 class="text-lg font-semibold text-white">Active Subscriptions</h3>
+        <article
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden shadow-xl">
+            <header
+                class="p-6 border-b border-slate-200 dark:border-white/5 flex justify-between items-center bg-slate-100/80 dark:bg-slate-900/30">
+                <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Active Subscriptions</h3>
                 <button onclick="openGiftModal()"
                     class="flex items-center gap-2 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 px-3 py-1.5 rounded-lg border border-indigo-500/20 transition-colors text-sm font-medium">
                     <i data-lucide="gift" class="w-4 h-4"></i> Gift Subscription
@@ -269,14 +274,14 @@
                 <div class="w-16 h-16 rounded-full bg-slate-800/50 flex items-center justify-center mx-auto mb-4">
                     <i data-lucide="inbox" class="w-8 h-8 text-slate-600"></i>
                 </div>
-                <p class="text-slate-400">No active subscriptions found.</p>
+                <p class="text-slate-600 dark:text-slate-400">No active subscriptions found.</p>
             </div>
             {% else %}
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse">
                     <thead>
                         <tr
-                            class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                            class="text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-white/5 bg-slate-100/80 dark:bg-slate-900/30">
                             <th class="px-6 py-4">Plan Name</th>
                             <th class="px-6 py-4">Status</th>
                             <th class="px-6 py-4">Expires In</th>
@@ -288,7 +293,7 @@
                         {% for sub in subscriptions %}
                         <tr id="sub-row-{{ sub.id }}" class="hover:bg-white/5 transition-colors group">
                             <td class="px-6 py-4">
-                                <div class="font-medium text-white">{{ sub.plan_name }}</div>
+                                <div class="font-medium text-slate-900 dark:text-white">{{ sub.plan_name }}</div>
                                 <div class="text-xs text-slate-500 font-mono mt-0.5">ID: {{ sub.id }}</div>
                                 <div class="mt-2 space-y-1.5">
                                     <div class="flex items-center gap-1.5">
@@ -329,7 +334,8 @@
                                         <div>Last node: <span class="text-slate-300">{{ last_node }}</span></div>
                                         {% endif %}
                                         {% if let Some(last_access) = sub.last_sub_access_label %}
-                                        <div>Last config pull: <span class="text-slate-300">{{ last_access }}</span></div>
+                                        <div>Last config pull: <span class="text-slate-300">{{ last_access }}</span>
+                                        </div>
                                         {% endif %}
                                     </div>
                                 </div>
@@ -376,7 +382,8 @@
                                         Refund
                                     </button>
                                     <button hx-delete="{{ admin_path }}/users/subs/{{ sub.id }}"
-                                        hx-confirm="Are you sure you want to permanently delete this subscription for {{ user.username.as_deref().unwrap_or("this user") }}? This will revoke access immediately."
+                                        hx-confirm="Are you sure you want to permanently delete this subscription for {{ user.username.as_deref().unwrap_or("
+                                        this user") }}? This will revoke access immediately."
                                         data-confirm-title="Delete Subscription" hx-target="#sub-row-{{ sub.id }}"
                                         hx-swap="outerHTML"
                                         class="p-1.5 rounded-lg hover:bg-red-500/10 text-slate-600 hover:text-red-400 transition-colors"
@@ -394,9 +401,10 @@
         </article>
 
         <!-- Order History -->
-        <article class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl overflow-hidden shadow-xl">
-            <header class="p-6 border-b border-white/5 bg-slate-900/30">
-                <h3 class="text-lg font-semibold text-white">Order History</h3>
+        <article
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden shadow-xl">
+            <header class="p-6 border-b border-slate-200 dark:border-white/5 bg-slate-100/80 dark:bg-slate-900/30">
+                <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Order History</h3>
             </header>
 
             {% if orders.is_empty() %}
@@ -406,7 +414,7 @@
                 <table class="w-full text-left border-collapse">
                     <thead>
                         <tr
-                            class="text-xs font-semibold text-slate-500 uppercase border-b border-white/5 bg-slate-900/30">
+                            class="text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-white/5 bg-slate-100/80 dark:bg-slate-900/30">
                             <th class="px-6 py-4">Order ID</th>
                             <th class="px-6 py-4">Amount</th>
                             <th class="px-6 py-4">Status</th>
@@ -423,7 +431,8 @@
                                     class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">{{
                                     order.status }}</span>
                             </td>
-                            <td class="px-6 py-4 text-right text-sm text-slate-400">{{ order.created_at }}</td>
+                            <td class="px-6 py-4 text-right text-sm text-slate-600 dark:text-slate-400">{{
+                                order.created_at }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -437,10 +446,10 @@
 <!-- Modals -->
 <dialog id="devices_modal"
     class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4"
+    <div class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4"
         onclick="event.stopPropagation()">
         <header class="flex justify-between items-center mb-6">
-            <h3 class="text-lg font-bold text-white">Connected Devices</h3>
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white">Connected Devices</h3>
             <button onclick="closeModal('devices_modal')" class="text-slate-400 hover:text-white transition-colors"><i
                     data-lucide="x" class="w-5 h-5"></i></button>
         </header>
@@ -455,7 +464,7 @@
 <dialog id="gift_modal"
     class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
     <!-- Modal Container -->
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-md p-0 m-4 overflow-hidden relative"
+    <div class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-md p-0 m-4 overflow-hidden relative"
         onclick="event.stopPropagation()">
 
         <!-- Decorative Background Gradient -->
@@ -470,8 +479,8 @@
                     class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 mb-4 text-white transform rotate-3">
                     <i data-lucide="gift" class="w-6 h-6"></i>
                 </div>
-                <h3 class="text-xl font-bold text-white tracking-tight">Gift Subscription</h3>
-                <p class="text-sm text-slate-400 mt-1">Grant instant access to premium features.</p>
+                <h3 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Gift Subscription</h3>
+                <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">Grant instant access to premium features.</p>
             </div>
             <button onclick="closeModal('gift_modal')"
                 class="text-slate-500 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/5">
@@ -532,19 +541,20 @@
 
 <dialog id="extend_modal"
     class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-sm p-6 m-4"
+    <div class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-sm p-6 m-4"
         onclick="event.stopPropagation()">
         <header class="flex justify-between items-center mb-6">
-            <h3 class="text-lg font-bold text-white">Extend Subscription</h3>
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white">Extend Subscription</h3>
             <button onclick="closeModal('extend_modal')" class="text-slate-400 hover:text-white transition-colors"><i
                     data-lucide="x" class="w-5 h-5"></i></button>
         </header>
         <form id="extend_form" method="post" class="space-y-4">
             <div>
-                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Duration
+                <label
+                    class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Duration
                     (Days)</label>
                 <input type="number" name="days" value="30" required
-                    class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-indigo-500 outline-none">
+                    class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white focus:border-indigo-500 outline-none">
             </div>
             <div class="pt-4 flex gap-3">
                 <button type="button"
@@ -559,20 +569,23 @@
 
 <dialog id="refund_modal"
     class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
-    <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-sm p-6 m-4"
+    <div class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-sm p-6 m-4"
         onclick="event.stopPropagation()">
         <header class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-bold text-white flex items-center gap-2"><i data-lucide="undo-2"
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2"><i data-lucide="undo-2"
                     class="w-5 h-5 text-amber-500"></i> Refund</h3>
             <button onclick="closeModal('refund_modal')" class="text-slate-400 hover:text-white transition-colors"><i
                     data-lucide="x" class="w-5 h-5"></i></button>
         </header>
-        <p class="text-sm text-slate-400 mb-6">This will <strong>delete</strong> the subscription and refund the balance
+        <p class="text-sm text-slate-600 dark:text-slate-400 mb-6">This will <strong>delete</strong> the subscription
+            and refund the balance
             to the user's wallet.</p>
 
         <form id="refund_form" method="post" class="space-y-4">
             <div>
-                <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Refund Amount
+                <label
+                    class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Refund
+                    Amount
                     (Cents)</label>
                 <div class="flex gap-2">
                     <input type="number" id="refund_amount" name="amount" placeholder="0" required

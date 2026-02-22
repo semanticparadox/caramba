@@ -149,6 +149,16 @@ pub struct Subscription {
     pub status: String,
     pub used_traffic: i64,
     pub subscription_uuid: String,
+    #[serde(default)]
+    pub expire_timestamp: i64,
+    #[serde(default = "default_plan_name")]
+    pub plan_name: String,
+    #[serde(default)]
+    pub traffic_limit_gb: i32,
+}
+
+fn default_plan_name() -> String {
+    "VPN Plan".to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

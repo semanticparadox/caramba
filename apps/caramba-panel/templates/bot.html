@@ -9,27 +9,30 @@
     <div class="lg:col-span-1 space-y-6">
 
         <!-- Configuration Card -->
-        <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-6 shadow-xl">
+        <div
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-6 shadow-xl">
             <header class="flex items-center gap-3 mb-6">
                 <div class="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400">
                     <i data-lucide="settings-2" class="w-5 h-5"></i>
                 </div>
                 <div>
-                    <h3 class="text-lg font-semibold text-white">Settings</h3>
-                    <p class="text-xs text-slate-500">Bot instance configuration</p>
+                    <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Settings</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-500">Bot instance configuration</p>
                 </div>
             </header>
 
-            <div class="mb-6 p-4 bg-slate-950/50 rounded-xl border border-white/5 space-y-3">
+            <div
+                class="mb-6 p-4 bg-slate-100 dark:bg-slate-950/50 rounded-xl border border-slate-200 dark:border-white/5 space-y-3">
                 {% if bot_username != "" %}
                 <div class="flex justify-between items-center text-sm">
-                    <span class="text-slate-400">Bot Name:</span>
-                    <span class="text-white font-mono bg-white/5 px-2 py-0.5 rounded text-xs select-all">@{{
+                    <span class="text-slate-600 dark:text-slate-400">Bot Name:</span>
+                    <span
+                        class="text-slate-900 dark:text-white font-mono bg-white/5 px-2 py-0.5 rounded text-xs select-all">@{{
                         bot_username }}</span>
                 </div>
                 {% endif %}
                 <div class="flex justify-between items-center text-sm">
-                    <span class="text-slate-400">Webhook Status:</span>
+                    <span class="text-slate-600 dark:text-slate-400">Webhook Status:</span>
                     <span class="{% if webhook_info == " Active (Polling)" %}text-emerald-400{% else %}text-amber-400{%
                         endif %} font-medium bg-white/5 px-2 py-0.5 rounded text-xs">{{
                         webhook_info }}</span>
@@ -38,12 +41,13 @@
 
             <form hx-post="{{ admin_path }}/settings/save" hx-swap="none" class="space-y-4">
                 <div>
-                    <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Bot
+                    <label
+                        class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Bot
                         Token</label>
                     <div class="relative">
                         <input type="text" name="bot_token" value="{{ masked_bot_token }}"
                             placeholder="123456789:ABC..."
-                            class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-mono text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-mono text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                             {% if bot_status=="running" %}disabled title="Stop the bot to update the token" {% endif %}>
 
                         {% if bot_status == "running" %}
@@ -52,14 +56,14 @@
                         </div>
                         {% endif %}
                     </div>
-                    <p class="text-[10px] text-slate-500 mt-2">
+                    <p class="text-[10px] text-slate-500 dark:text-slate-500 mt-2">
                         Get this token from <a href="https://t.me/BotFather" target="_blank"
                             class="text-blue-400 hover:underline">@BotFather</a>.
                     </p>
                 </div>
 
                 <button type="submit"
-                    class="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-medium py-2.5 px-4 rounded-xl border border-white/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    class="w-full flex items-center justify-center gap-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-700 text-slate-900 dark:text-white font-medium py-2.5 px-4 rounded-xl border border-slate-200 dark:border-white/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     {% if bot_status=="running" %}disabled{% endif %}>
                     <i data-lucide="save" class="w-4 h-4"></i>
                     Save Token
@@ -68,22 +72,24 @@
         </div>
 
         <!-- Bot Setup Guide -->
-        <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-6 shadow-xl space-y-6">
+        <div
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-6 shadow-xl space-y-6">
             <header class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-400">
                     <i data-lucide="book-open" class="w-5 h-5"></i>
                 </div>
                 <div>
-                    <h3 class="text-lg font-semibold text-white">Setup Guide</h3>
-                    <p class="text-xs text-slate-500">Configure your bot with @BotFather</p>
+                    <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Setup Guide</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-500">Configure your bot with @BotFather</p>
                 </div>
             </header>
 
             <div class="space-y-4">
                 <!-- Step 1: Token -->
-                <div class="p-3 rounded-xl bg-slate-950/50 border border-white/5">
-                    <h4 class="text-sm font-medium text-white mb-1">1. Get Bot Token</h4>
-                    <p class="text-xs text-slate-400 leading-relaxed">
+                <div
+                    class="p-3 rounded-xl bg-slate-100 dark:bg-slate-950/50 border border-slate-200 dark:border-white/5">
+                    <h4 class="text-sm font-medium text-slate-900 dark:text-white mb-1">1. Get Bot Token</h4>
+                    <p class="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
                         Open <a href="https://t.me/BotFather" target="_blank"
                             class="text-indigo-400 hover:underline">@BotFather</a> and send <code
                             class="bg-white/10 px-1 rounded">/newbot</code>. Copy the HTTP API Token and paste it in the
@@ -92,9 +98,10 @@
                 </div>
 
                 <!-- Step 2: Mini App -->
-                <div class="p-3 rounded-xl bg-slate-950/50 border border-white/5">
-                    <h4 class="text-sm font-medium text-white mb-1">2. Configure Mini App</h4>
-                    <p class="text-xs text-slate-400 leading-relaxed mb-2">
+                <div
+                    class="p-3 rounded-xl bg-slate-100 dark:bg-slate-950/50 border border-slate-200 dark:border-white/5">
+                    <h4 class="text-sm font-medium text-slate-900 dark:text-white mb-1">2. Configure Mini App</h4>
+                    <p class="text-xs text-slate-600 dark:text-slate-400 leading-relaxed mb-2">
                         To enable the "Subscription Page" (Mini App), map the menu button to your panel's domain:
                     </p>
                     <div class="space-y-2">
@@ -115,14 +122,15 @@
                             <span>Send the URL of your panel (must be HTTPS!):</span>
                         </div>
                         <code
-                            class="block w-full bg-slate-900 p-2 rounded text-xs font-mono text-emerald-400 select-all border border-white/5 break-all">https://<span class="server-domain-placeholder">YOUR_DOMAIN</span>/</code>
+                            class="block w-full bg-slate-900 p-2 rounded text-xs font-mono text-emerald-400 select-all border border-slate-200 dark:border-white/5 break-all">https://<span class="server-domain-placeholder">YOUR_DOMAIN</span>/</code>
                     </div>
                 </div>
 
                 <!-- Step 3: Inline Mode (Optional) -->
-                <div class="p-3 rounded-xl bg-slate-950/50 border border-white/5">
-                    <h4 class="text-sm font-medium text-white mb-1">3. Enable Inline Mode</h4>
-                    <p class="text-xs text-slate-400 leading-relaxed">
+                <div
+                    class="p-3 rounded-xl bg-slate-100 dark:bg-slate-950/50 border border-slate-200 dark:border-white/5">
+                    <h4 class="text-sm font-medium text-slate-900 dark:text-white mb-1">3. Enable Inline Mode</h4>
+                    <p class="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
                         Go to <b>Bot Settings</b> -> <b>Inline Mode</b> -> <b>Turn on</b>. This allows sharing
                         subscriptions via chat.
                     </p>
@@ -144,7 +152,7 @@
     <div class="lg:col-span-2 flex flex-col h-full space-y-6">
         <!-- Control Panel & Console -->
         <div
-            class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-6 shadow-xl flex-1 flex flex-col">
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-6 shadow-xl flex-1 flex flex-col">
             <header class="flex items-center justify-between mb-6">
                 <div class="flex items-center gap-3">
                     <div
@@ -152,8 +160,8 @@
                         <i data-lucide="terminal" class="w-5 h-5"></i>
                     </div>
                     <div>
-                        <h3 class="text-lg font-semibold text-white">Bot Console</h3>
-                        <p class="text-xs text-slate-500">Live logs and control</p>
+                        <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Bot Console</h3>
+                        <p class="text-xs text-slate-500 dark:text-slate-500">Live logs and control</p>
                     </div>
                 </div>
             </header>

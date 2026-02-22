@@ -20,13 +20,13 @@
                     stroke-linecap="round" stroke-opacity="0.5" />
             </svg>
         </div>
-        <h2 class="text-3xl font-bold text-white tracking-tight">Welcome Back</h2>
-        <p class="text-slate-400 mt-2 text-sm">Sign in to manage your CARAMBA instance</p>
+        <h2 class="text-3xl font-bold text-slate-900 dark:text-white tracking-tight">Welcome Back</h2>
+        <p class="text-slate-600 dark:text-slate-400 mt-2 text-sm">Sign in to manage your CARAMBA instance</p>
     </div>
 
     <!-- Login Card -->
     <article
-        class="bg-slate-900/50 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl relative overflow-hidden group">
+        class="bg-white/80 dark:bg-slate-900/50 backdrop-blur-xl border border-slate-300 dark:border-white/10 rounded-3xl p-8 shadow-2xl relative overflow-hidden group">
         <div
             class="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none">
         </div>
@@ -35,21 +35,21 @@
             class="space-y-5 relative z-10">
             <div>
                 <label for="username"
-                    class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Username</label>
+                    class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Username</label>
                 <div class="relative group/input">
                     <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                         <i data-lucide="user"
                             class="h-5 w-5 text-slate-500 group-focus-within/input:text-indigo-400 transition-colors"></i>
                     </div>
                     <input type="text" id="username" name="username" placeholder="admin" required
-                        class="block w-full pl-11 pr-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:bg-slate-950 outline-none transition-all">
+                        class="block w-full pl-11 pr-4 py-3 bg-slate-100 dark:bg-slate-950/50 border border-slate-300 dark:border-white/10 rounded-xl text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:bg-slate-50 dark:focus:bg-slate-950 outline-none transition-all">
                 </div>
             </div>
 
             <div>
                 <div class="flex justify-between items-center mb-1.5 ml-1">
                     <label for="password"
-                        class="block text-xs font-medium text-slate-400 uppercase tracking-wider">Password</label>
+                        class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider">Password</label>
                 </div>
                 <div class="relative group/input">
                     <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -57,7 +57,7 @@
                             class="h-5 w-5 text-slate-500 group-focus-within/input:text-indigo-400 transition-colors"></i>
                     </div>
                     <input type="password" id="password" name="password" placeholder="••••••••" required
-                        class="block w-full pl-11 pr-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:bg-slate-950 outline-none transition-all">
+                        class="block w-full pl-11 pr-4 py-3 bg-slate-100 dark:bg-slate-950/50 border border-slate-300 dark:border-white/10 rounded-xl text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:bg-slate-50 dark:focus:bg-slate-950 outline-none transition-all">
                 </div>
             </div>
 
@@ -71,8 +71,8 @@
     </article>
 
     <div class="text-center mt-8">
-        <p class="text-xs text-slate-500">
-            Protected by <span class="text-slate-400 font-medium">CARAMBA Security</span>. <br>
+        <p class="text-xs text-slate-500 dark:text-slate-500">
+            Protected by <span class="text-slate-600 dark:text-slate-400 font-medium">CARAMBA Security</span>. <br>
             Authentication attempts are logged.
         </p>
     </div>

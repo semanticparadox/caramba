@@ -10,13 +10,13 @@
             class="inline-flex items-center justify-center p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 mb-6 shadow-[0_0_30px_rgba(99,102,241,0.2)]">
             <i data-lucide="rocket" class="w-10 h-10 text-indigo-500 fill-indigo-500"></i>
         </div>
-        <h1 class="text-4xl font-bold text-white tracking-tight mb-3">Initial Setup</h1>
-        <p class="text-lg text-slate-400">Configure your administrator account to get started.</p>
+        <h1 class="text-4xl font-bold text-slate-900 dark:text-white tracking-tight mb-3">Initial Setup</h1>
+        <p class="text-lg text-slate-600 dark:text-slate-400">Configure your administrator account to get started.</p>
     </div>
 
     <!-- Setup Card -->
     <article
-        class="bg-slate-900/50 backdrop-blur-xl border border-white/10 rounded-3xl p-8 md:p-10 shadow-2xl relative overflow-hidden">
+        class="bg-white/80 dark:bg-slate-900/50 backdrop-blur-xl border border-slate-300 dark:border-white/10 rounded-3xl p-8 md:p-10 shadow-2xl relative overflow-hidden">
         <div class="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none"></div>
 
         <form hx-post="{{ admin_path }}/setup" hx-target="body" hx-swap="outerHTML" class="relative z-10 space-y-8">
@@ -31,7 +31,7 @@
                                 class="h-5 w-5 text-slate-500 group-focus-within/input:text-indigo-400 transition-colors"></i>
                         </div>
                         <input type="text" id="username" name="username" placeholder="admin" required
-                            class="block w-full pl-11 pr-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:bg-slate-950 outline-none transition-all">
+                            class="block w-full pl-11 pr-4 py-3 bg-slate-100 dark:bg-slate-950/50 border border-slate-300 dark:border-white/10 rounded-xl text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:bg-slate-50 dark:focus:bg-slate-950 outline-none transition-all">
                     </div>
                 </div>
 
@@ -45,15 +45,15 @@
                         </div>
                         <input type="password" id="password" name="password" placeholder="Min. 8 characters" required
                             minlength="8"
-                            class="block w-full pl-11 pr-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:bg-slate-950 outline-none transition-all">
+                            class="block w-full pl-11 pr-4 py-3 bg-slate-100 dark:bg-slate-950/50 border border-slate-300 dark:border-white/10 rounded-xl text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:bg-slate-50 dark:focus:bg-slate-950 outline-none transition-all">
                     </div>
                 </div>
             </div>
 
-            <div class="h-px bg-white/5 w-full"></div>
+            <div class="h-px bg-slate-200 dark:bg-white/5 w-full"></div>
 
             <div class="space-y-4">
-                <h3 class="text-sm font-semibold text-white flex items-center gap-2">
+                <h3 class="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                     <i data-lucide="bot" class="w-4 h-4 text-indigo-400"></i> Telegram Bot Configuration
                 </h3>
 
@@ -68,7 +68,7 @@
                         </div>
                         <input type="text" id="bot_token" name="bot_token"
                             placeholder="123456789:ABCdefGHIjklMNOpqrs..." required
-                            class="block w-full pl-11 pr-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:bg-slate-950 outline-none transition-all font-mono text-sm">
+                            class="block w-full pl-11 pr-4 py-3 bg-slate-100 dark:bg-slate-950/50 border border-slate-300 dark:border-white/10 rounded-xl text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:bg-slate-50 dark:focus:bg-slate-950 outline-none transition-all font-mono text-sm">
                     </div>
                     <p class="text-xs text-slate-500 ml-1">Get this from <a href="https://t.me/BotFather"
                             target="_blank" class="text-indigo-400 hover:text-indigo-300 hover:underline">@BotFather</a>

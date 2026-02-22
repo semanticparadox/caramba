@@ -100,19 +100,21 @@ pub async fn subscription_handler(
         }
     };
 
+    // 5.5 Compute subscription metadata for headers
+    let total_traffic_bytes = (sub.traffic_limit_gb as i64) * 1024 * 1024 * 1024;
+
+    let user_info_header = format!(
+        "upload=0; download={}; total={}; expire={}",
+        sub.used_traffic, total_traffic_bytes, sub.expire_timestamp
+    );
+
     // 6. Return with proper headers
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
-        .header(
-            header::CONTENT_DISPOSITION,
-            format!("attachment; filename=\"{}\"", filename),
-        )
-        .header("X-Profile-Update-Interval", "24")
-        .header(
-            "Subscription-Userinfo",
-            format!("upload=0; download={}; total=0; expire=0", sub.used_traffic),
-        )
+        .header("profile-title", &sub.plan_name)
+        .header("profile-update-interval", "2")
+        .header("Subscription-Userinfo", &user_info_header)
         .body(content)
         .unwrap()
         .into_response()
