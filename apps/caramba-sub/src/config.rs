@@ -24,6 +24,10 @@ impl FrontendConfig {
             }
         }
 
+        // Try to load env files directly first
+        let _ = dotenvy::from_path("/opt/caramba/.env");
+        let _ = dotenvy::from_path("/opt/caramba/sub.env");
+
         // Fallback to environment variables
         tracing::info!("Loading config from environment");
         Ok(Self {

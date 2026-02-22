@@ -755,11 +755,11 @@ BOT_TOKEN: {bot_token}\n\
         sub = sub_domain,
         admin_path = config.admin_path,
         login_url = login_url,
-        db_pass = config.db_pass,
+        db_pass = "********",
         admin_user = config.admin_username,
-        admin_pass = config.admin_password,
+        admin_pass = "********",
         install_dir = config.install_dir,
-        bot_token = bot_token.unwrap_or("<not set>"),
+        bot_token = if bot_token.is_some() { "********" } else { "<not set>" },
     );
 
     println!("{}", style(&summary).green());

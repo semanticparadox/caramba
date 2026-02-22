@@ -1078,7 +1078,7 @@ pub async fn rotate_node_inbounds(
 ) -> impl IntoResponse {
     info!("Manual inbound rotation requested for node {}", node_id);
 
-    let inbound_ids: Vec<i64> = sqlx::query_scalar(
+    let inbound_ids: Vec<i32> = sqlx::query_scalar(
         "SELECT id FROM inbounds WHERE node_id = $1 AND tag LIKE 'tpl_%' AND enable = TRUE",
     )
     .bind(node_id)
@@ -1097,7 +1097,7 @@ pub async fn rotate_node_inbounds(
     let mut rotated = 0usize;
     let mut failed = 0usize;
     for inbound_id in inbound_ids {
-        match state.generator_service.rotate_inbound(inbound_id).await {
+        match state.generator_service.rotate_inbound(inbound_id as i64).await {
             Ok(_) => rotated += 1,
             Err(e) => {
                 failed += 1;

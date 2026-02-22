@@ -1,6 +1,6 @@
 [package]
 name = "caramba-sub"
-version = "0.3.0"
+version = "0.3.31"
 edition = "2021"
 
 [dependencies]
@@ -42,6 +42,7 @@ uuid = { version = "1.11", features = ["v4"] }
 
 # GeoIP (for Phase 4)
 maxminddb = { version = "0.24", optional = true }
+dotenvy = "0.15.7"
 
 [features]
 default = ["geoip"]

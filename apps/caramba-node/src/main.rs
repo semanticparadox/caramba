@@ -210,7 +210,7 @@ async fn main() -> anyhow::Result<()> {
                     // Simple string comparison for now, or use semver crate if added
                     // Assuming versions are "x.y.z"
                     let current_version = env!("CARGO_PKG_VERSION");
-                    if target_ver != current_version && target_ver != "0.0.0" {
+                    if target_ver.trim_start_matches('v') != current_version.trim_start_matches('v') && target_ver != "0.0.0" {
                         info!(
                             "📣 New version available: {} (Current: {})",
                             target_ver, current_version
