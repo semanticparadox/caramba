@@ -803,8 +803,11 @@ impl SubscriptionService {
                                 .as_ref()
                                 .and_then(|reality| reality.server_names.first().cloned())
                                 .filter(|s| !Self::is_placeholder_sni(s));
-                            let sni = inbound_sni
-                                .or_else(|| node_sni.clone())
+                            // For Reality links prefer node-level SNI, because it reflects
+                            // the currently applied node config after pin/rotation/sync.
+                            let sni = node_sni
+                                .clone()
+                                .or(inbound_sni)
                                 .unwrap_or_else(|| address.clone());
                             params.push(format!("sni={}", sni));
                             params.push(format!("pbk={}", reality_pub.clone().unwrap_or_default()));

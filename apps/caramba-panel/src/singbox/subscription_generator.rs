@@ -137,17 +137,27 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
         })
         .unwrap_or_else(|| "reality".to_string());
 
-    // Prefer per-inbound SNI unless it is a legacy placeholder like drive.google.com.
-    let sni = extract_sni_from_settings(&settings)
+    let inbound_sni = extract_sni_from_settings(&settings)
         .or_else(|| extract_sni_from_raw(&v))
+        .filter(|s| !is_placeholder_sni(s));
+    let node_sni = node
+        .reality_sni
+        .as_ref()
         .filter(|s| !is_placeholder_sni(s))
-        .or_else(|| {
-            node.reality_sni
-                .as_ref()
-                .filter(|s| !is_placeholder_sni(s))
-                .cloned()
-        })
-        .unwrap_or_else(|| "www.google.com".to_string());
+        .cloned();
+
+    // For Reality we must prefer node-level SNI (effective runtime value on the node),
+    // otherwise subscriptions can drift from active node config and fail handshake.
+    let sni = if security.eq_ignore_ascii_case("reality") {
+        node_sni
+            .clone()
+            .or(inbound_sni.clone())
+            .unwrap_or_else(|| "www.google.com".to_string())
+    } else {
+        inbound_sni
+            .or(node_sni)
+            .unwrap_or_else(|| "www.google.com".to_string())
+    };
 
     // Reality Keys
     let public_key = settings
