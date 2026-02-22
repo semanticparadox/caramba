@@ -36,7 +36,7 @@ Thumbs.db
 *.swo
 *~
 .fleet/
-
+.agents
 # Node.js & Frontend
 node_modules/
 npm-debug.log*
@@ -93,7 +93,7 @@ Icon
 # Docker
 *.env.docker
 docker-compose.override.yml
-
+node-logs.md
 # Backup Files  
 *.bak
 *.backup

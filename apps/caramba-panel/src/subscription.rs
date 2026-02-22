@@ -549,9 +549,9 @@ function copyLink(){{
             _ => "config.json",
         };
         let content_type = match client_type {
-            "clash" => "application/yaml",
-            "v2ray" => "text/plain",
-            _ => "application/json",
+            "clash" => "text/plain; charset=utf-8",
+            "v2ray" => "text/plain; charset=utf-8",
+            _ => "text/plain; charset=utf-8",
         };
         return (
             StatusCode::OK,
@@ -579,7 +579,7 @@ function copyLink(){{
                 .subscription_service
                 .generate_clash(&sub, &node_infos, &user_keys)
             {
-                Ok(c) => (c, "application/yaml", "config.yaml"),
+                Ok(c) => (c, "text/plain; charset=utf-8", "config.yaml"),
                 Err(e) => {
                     error!("Clash gen failed: {}", e);
                     return (StatusCode::INTERNAL_SERVER_ERROR, "Generation failed")
@@ -592,7 +592,7 @@ function copyLink(){{
                 .subscription_service
                 .generate_v2ray(&sub, &node_infos, &user_keys)
             {
-                Ok(c) => (c, "text/plain", "config.txt"),
+                Ok(c) => (c, "text/plain; charset=utf-8", "config.txt"),
                 Err(e) => {
                     error!("V2Ray gen failed: {}", e);
                     return (StatusCode::INTERNAL_SERVER_ERROR, "Generation failed")
@@ -605,7 +605,7 @@ function copyLink(){{
                 .subscription_service
                 .generate_singbox(&sub, &node_infos, &user_keys)
             {
-                Ok(c) => (c, "application/json", "config.json"),
+                Ok(c) => (c, "text/plain; charset=utf-8", "config.json"),
                 Err(e) => {
                     error!("Singbox gen failed: {}", e);
                     return (StatusCode::INTERNAL_SERVER_ERROR, "Generation failed")

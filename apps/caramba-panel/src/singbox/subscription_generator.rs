@@ -146,9 +146,14 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
         .filter(|s| !is_placeholder_sni(s))
         .cloned();
 
+    let is_reality = security.eq_ignore_ascii_case("reality")
+        || settings.reality_settings.is_some()
+        || v.get("realitySettings").is_some()
+        || v.get("reality_settings").is_some();
+
     // For Reality we must prefer node-level SNI (effective runtime value on the node),
     // otherwise subscriptions can drift from active node config and fail handshake.
-    let sni = if security.eq_ignore_ascii_case("reality") {
+    let sni = if is_reality {
         node_sni
             .clone()
             .or(inbound_sni.clone())

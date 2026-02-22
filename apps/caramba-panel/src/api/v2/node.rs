@@ -549,6 +549,13 @@ pub async fn rotate_sni(
         }
     };
 
+    let orchestration = state.orchestration_service.clone();
+    tokio::spawn(async move {
+        if let Err(e) = orchestration.notify_node_update(node_id).await {
+            error!("Failed to notify node {} after SNI rotation: {}", node_id, e);
+        }
+    });
+
     // 6. Notify Affected Users (async, non-blocking)
     if let Some(bot) = state
         .bot_manager
@@ -643,7 +650,7 @@ pub async fn poll_updates(
             } else if signal == "restart" {
                 (
                     StatusCode::OK,
-                    Json(serde_json::json!({"update": false, "message": "restart"})),
+                    Json(serde_json::json!({"update": true, "message": "restart"})),
                 )
                     .into_response()
             } else {
