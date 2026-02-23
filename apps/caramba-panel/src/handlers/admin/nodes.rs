@@ -73,6 +73,7 @@ pub struct NodeManageTemplate {
     pub is_auth: bool,
     pub inbounds: Vec<caramba_db::models::network::Inbound>,
     pub discovered_snis: Vec<NodeSniDisplay>,
+    pub nginx_proxy_config: String,
 }
 
 #[derive(sqlx::FromRow, serde::Serialize)]
@@ -931,6 +932,99 @@ pub async fn get_node_manage(
         .await
         .unwrap_or("Admin".to_string());
 
+    // Generate nginx reverse proxy config for relay nodes
+    let nginx_proxy_config = if node.is_relay {
+        let panel_url = state.settings.get_or_default("panel_url", "").await;
+        let upstream = if !panel_url.is_empty() {
+            panel_url.trim_end_matches('/').to_string()
+        } else {
+            std::env::var("PANEL_URL").unwrap_or_else(|_| "https://YOUR_HUB_IP".to_string())
+        };
+        let upstream_host = upstream
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .split('/')
+            .next()
+            .unwrap_or("YOUR_HUB_IP");
+        let relay_domain = format!("{}.example.com", node.name.to_lowercase().replace(' ', "-"));
+
+        format!(r#"# Nginx Reverse Proxy for Relay: {node_name}
+# Install: sudo apt install nginx certbot python3-certbot-nginx
+# Then: sudo certbot --nginx -d YOUR_RELAY_DOMAIN
+
+upstream caramba_hub {{
+    server {upstream_host}:443;
+}}
+
+server {{
+    listen 80;
+    server_name {relay_domain};
+    return 301 https://$host$request_uri;
+}}
+
+server {{
+    listen 443 ssl http2;
+    server_name {relay_domain};
+
+    # SSL — replace with your actual certificate paths
+    ssl_certificate     /etc/letsencrypt/live/{relay_domain}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{relay_domain}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    # Subscription endpoint
+    location /sub/ {{
+        proxy_pass https://caramba_hub;
+        proxy_ssl_server_name on;
+        proxy_ssl_name {upstream_host};
+        proxy_set_header Host {upstream_host};
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_ssl_verify off;
+    }}
+
+    # Mini-app / WebApp
+    location /app/ {{
+        proxy_pass https://caramba_hub;
+        proxy_ssl_server_name on;
+        proxy_ssl_name {upstream_host};
+        proxy_set_header Host {upstream_host};
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_ssl_verify off;
+
+        # WebSocket support
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }}
+
+    # Telegram Bot Webhook (if needed)
+    location /bot/ {{
+        proxy_pass https://caramba_hub;
+        proxy_ssl_server_name on;
+        proxy_ssl_name {upstream_host};
+        proxy_set_header Host {upstream_host};
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_ssl_verify off;
+    }}
+
+    # Block everything else
+    location / {{
+        return 444;
+    }}
+}}"#,
+            node_name = node.name,
+            upstream_host = upstream_host,
+            relay_domain = relay_domain,
+        )
+    } else {
+        String::new()
+    };
+
     let template = NodeManageTemplate {
         node,
         all_nodes,
@@ -940,6 +1034,7 @@ pub async fn get_node_manage(
         is_auth: true,
         inbounds,
         discovered_snis,
+        nginx_proxy_config,
     };
 
     Html(template.render().unwrap()).into_response()

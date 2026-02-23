@@ -157,6 +157,28 @@
         </div>
     </div>
 
+    {% if node.is_relay && !nginx_proxy_config.is_empty() %}
+    <div
+        class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none border border-amber-500/20 dark:border-amber-500/10 rounded-2xl overflow-hidden">
+        <div class="px-4 py-3 border-b border-amber-500/20 flex items-center justify-between">
+            <h3 class="font-semibold text-amber-700 dark:text-amber-300">🔗 Nginx Reverse Proxy Config</h3>
+            <button onclick="copyNginxConfig()" id="copy-nginx-btn"
+                class="bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-all">
+                📋 Copy Config
+            </button>
+        </div>
+        <div class="p-4">
+            <p class="text-xs text-slate-600 dark:text-slate-400 mb-3">
+                Install this config on the relay server to proxy subscription &amp; mini-app traffic through this node,
+                hiding your hub's real IP. Replace <code class="text-amber-300">YOUR_RELAY_DOMAIN</code> with your
+                actual domain.
+            </p>
+            <pre id="nginx-config-content"
+                class="bg-slate-950 border border-white/10 rounded-xl p-4 text-xs text-emerald-300 overflow-x-auto max-h-[400px] overflow-y-auto whitespace-pre-wrap">{{ nginx_proxy_config }}</pre>
+        </div>
+    </div>
+    {% endif %}
+
     <div
         class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden">
         <div class="px-4 py-3 border-b border-slate-200 dark:border-white/5">
@@ -239,4 +261,19 @@
         <div id="logs-modal-content" class="p-4 text-slate-300"></div>
     </div>
 </dialog>
+<script>
+    function copyNginxConfig() {
+        const pre = document.getElementById('nginx-config-content');
+        if (!pre) return;
+        navigator.clipboard.writeText(pre.textContent).then(() => {
+            const btn = document.getElementById('copy-nginx-btn');
+            btn.textContent = '✓ Copied!';
+            btn.classList.replace('bg-amber-600', 'bg-emerald-600');
+            setTimeout(() => {
+                btn.textContent = '📋 Copy Config';
+                btn.classList.replace('bg-emerald-600', 'bg-amber-600');
+            }, 2000);
+        });
+    }
+</script>
 {% endblock %}
