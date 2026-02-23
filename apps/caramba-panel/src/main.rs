@@ -765,6 +765,10 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/frontends/settings",
             axum::routing::post(handlers::admin::frontends::save_frontend_settings),
         )
+        .route(
+            "/partials/frontends_rows",
+            axum::routing::get(handlers::admin::frontends::get_frontends_rows),
+        )
         // Client API (Mini App) - served via .nest("/api/client", ...) below
         .route(
             "/transactions",

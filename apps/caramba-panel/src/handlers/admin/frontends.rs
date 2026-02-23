@@ -162,3 +162,74 @@ pub async fn save_frontend_settings(
             .into_response(),
     }
 }
+
+/// GET /admin/partials/frontends_rows - HTML partial for frontend servers table
+pub async fn get_frontends_rows(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    use sqlx::Row;
+
+    let rows = sqlx::query(
+        "SELECT id, domain, region, ip_address, is_active, last_heartbeat, traffic_monthly FROM frontend_servers ORDER BY created_at DESC"
+    )
+    .fetch_all(&state.pool)
+    .await;
+
+    match rows {
+        Ok(rows) if rows.is_empty() => Html(
+            r#"<tr><td colspan="7" class="px-6 py-12 text-center text-slate-600 dark:text-slate-400">
+                <i data-lucide="server-off" class="w-8 h-8 mx-auto mb-3 text-slate-500"></i>
+                <p>No frontend servers configured yet.</p>
+                <p class="text-xs mt-1">Click "Add Frontend" to register your first distributed node.</p>
+            </td></tr>"#.to_string()
+        ).into_response(),
+        Ok(rows) => {
+            let mut html = String::new();
+            for row in &rows {
+                let id: i64 = row.try_get("id").unwrap_or(0);
+                let domain: String = row.try_get("domain").unwrap_or_default();
+                let region: String = row.try_get("region").unwrap_or_default();
+                let ip: String = row.try_get("ip_address").unwrap_or_default();
+                let is_active: bool = row.try_get("is_active").unwrap_or(false);
+                let traffic: i64 = row.try_get("traffic_monthly").unwrap_or(0);
+                let last_hb: Option<chrono::DateTime<chrono::Utc>> = row.try_get("last_heartbeat").ok();
+
+                let status_class = if is_active { "text-emerald-400" } else { "text-red-400" };
+                let status_text = if is_active { "Active" } else { "Inactive" };
+                let traffic_mb = traffic / 1024 / 1024;
+                let last_seen = last_hb
+                    .map(|t| {
+                        let ago = chrono::Utc::now() - t;
+                        if ago.num_minutes() < 2 { "just now".to_string() }
+                        else if ago.num_hours() < 1 { format!("{}m ago", ago.num_minutes()) }
+                        else if ago.num_days() < 1 { format!("{}h ago", ago.num_hours()) }
+                        else { format!("{}d ago", ago.num_days()) }
+                    })
+                    .unwrap_or_else(|| "never".to_string());
+
+                html.push_str(&format!(
+                    r#"<tr class="hover:bg-white/5 transition-colors">
+                        <td class="px-6 py-4 font-mono text-indigo-300">{domain}</td>
+                        <td class="px-6 py-4 text-slate-300">{region}</td>
+                        <td class="px-6 py-4 font-mono text-slate-400">{ip}</td>
+                        <td class="px-6 py-4"><span class="{status_class} font-medium">{status_text}</span></td>
+                        <td class="px-6 py-4 text-slate-400">{traffic_mb} MB</td>
+                        <td class="px-6 py-4 text-slate-500">{last_seen}</td>
+                        <td class="px-6 py-4 text-right">
+                            <button hx-delete="/api/admin/frontends/{id}" hx-swap="none"
+                                class="px-2 py-1 text-xs rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20">
+                                Remove
+                            </button>
+                        </td>
+                    </tr>"#
+                ));
+            }
+            Html(html).into_response()
+        },
+        Err(_) => Html(
+            r#"<tr><td colspan="7" class="px-6 py-12 text-center text-slate-600 dark:text-slate-400">
+                <p>Frontend servers table not available yet.</p>
+            </td></tr>"#.to_string()
+        ).into_response(),
+    }
+}

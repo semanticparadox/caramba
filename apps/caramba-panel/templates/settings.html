@@ -1103,11 +1103,12 @@
 
     function switchTab(tabId) {
         // Build tab IDs
-        const tabs = ['general', 'payments', 'frontend', 'trials', 'system'];
+        const tabs = ['general', 'payments', 'trials', 'system'];
 
         tabs.forEach(t => {
             const btn = document.getElementById(`tab-${t}`);
             const content = document.getElementById(`content-${t}`);
+            if (!btn || !content) return;
 
             if (t === tabId) {
                 // Active State
