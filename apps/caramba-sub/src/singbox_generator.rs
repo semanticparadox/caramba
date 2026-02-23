@@ -67,9 +67,10 @@ impl ConfigGenerator {
                     {
                         if security == "reality" {
                             if let Some(reality) = stream_settings.get("reality_settings") {
-                                let inbound_sni = reality
-                                    .get("server_names")
+                                let server_names_array = reality.get("server_names").or_else(|| reality.get("serverNames"));
+                                let inbound_sni = server_names_array
                                     .and_then(|v| v.get(0))
+                                    .or_else(|| reality.get("serverName"))
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string())
                                     .filter(|s| !is_placeholder_sni(s));
@@ -83,9 +84,10 @@ impl ConfigGenerator {
                                 tls["utls"] = json!({ "enabled": true, "fingerprint": "chrome" });
                             }
                         } else if security == "tls" {
-                            if let Some(t) = stream_settings.get("tls_settings") {
+                            if let Some(t) = stream_settings.get("tls_settings").or_else(|| stream_settings.get("tlsSettings")) {
                                 let inbound_sni = t
                                     .get("server_name")
+                                    .or_else(|| t.get("serverName"))
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string())
                                     .filter(|s| !is_placeholder_sni(s));
