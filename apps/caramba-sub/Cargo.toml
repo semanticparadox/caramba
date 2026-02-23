@@ -1,6 +1,6 @@
 [package]
 name = "caramba-sub"
-version = "0.3.39"
+version = "0.3.45"
 edition = "2021"
 
 [dependencies]
