@@ -143,9 +143,9 @@ impl UserRepository {
             INSERT INTO users (tg_id, username, full_name, referral_code, referrer_id)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT(tg_id) DO UPDATE SET
-                username = COALESCE(excluded.username, users.username),
-                full_name = COALESCE(excluded.full_name, users.full_name),
-                referrer_id = COALESCE(users.referrer_id, excluded.referrer_id),
+                username = COALESCE(excluded.username, users.username, ''),
+                full_name = COALESCE(excluded.full_name, users.full_name, 'User'),
+                referrer_id = COALESCE(excluded.referrer_id, users.referrer_id),
                 last_seen = CURRENT_TIMESTAMP
             RETURNING id
             "#,
@@ -166,9 +166,9 @@ impl UserRepository {
                     INSERT INTO users (tg_id, username, full_name, referral_code, referrer_id)
                     VALUES ($1, $2, $3, $4, $5)
                     ON CONFLICT(tg_id) DO UPDATE SET
-                        username = COALESCE(excluded.username, users.username),
-                        full_name = COALESCE(excluded.full_name, users.full_name),
-                        referrer_id = COALESCE(users.referrer_id, excluded.referrer_id)
+                        username = COALESCE(excluded.username, users.username, ''),
+                        full_name = COALESCE(excluded.full_name, users.full_name, 'User'),
+                        referrer_id = COALESCE(excluded.referrer_id, users.referrer_id)
                     RETURNING id
                     "#,
                 )
@@ -182,14 +182,14 @@ impl UserRepository {
                 {
                     Ok(id) => id,
                     Err(second_err) => {
-                        // Very old path: no users.referrer_id.
+                        // Very old path: no users.referrer_id, or referring failed due to constraints.
                         match sqlx::query_scalar::<_, i64>(
                             r#"
                             INSERT INTO users (tg_id, username, full_name, referral_code)
                             VALUES ($1, $2, $3, $4)
                             ON CONFLICT(tg_id) DO UPDATE SET
-                                username = COALESCE(excluded.username, users.username),
-                                full_name = COALESCE(excluded.full_name, users.full_name)
+                                username = COALESCE(excluded.username, users.username, ''),
+                                full_name = COALESCE(excluded.full_name, users.full_name, 'User')
                             RETURNING id
                             "#,
                         )

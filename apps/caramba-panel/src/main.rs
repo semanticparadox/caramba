@@ -1046,6 +1046,14 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::get(handlers::api::bot::get_user_by_tg),
         )
         .route(
+            "/api/v2/bot/referrers/resolve/{code}",
+            axum::routing::get(handlers::api::bot::resolve_referrer),
+        )
+        .route(
+            "/caramba-api/v2/bot/referrers/resolve/{code}",
+            axum::routing::get(handlers::api::bot::resolve_referrer),
+        )
+        .route(
             "/api/v2/bot/users/{id}/subs",
             axum::routing::get(handlers::api::bot::get_user_subs),
         )

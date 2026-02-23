@@ -86,6 +86,16 @@ pub async fn get_user_by_tg(
     }
 }
 
+pub async fn resolve_referrer(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    match state.store_service.resolve_referrer_id(&code).await {
+        Ok(opt_id) => Json(opt_id).into_response(),
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 pub async fn get_plans(State(state): State<AppState>) -> impl IntoResponse {
     match state.catalog_service.get_active_plans().await {
         Ok(plans) => Json(plans).into_response(),
