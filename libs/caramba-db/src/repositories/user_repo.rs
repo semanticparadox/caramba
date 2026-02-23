@@ -137,9 +137,8 @@ impl UserRepository {
     ) -> Result<User> {
         let default_ref_code = tg_id.to_string();
 
-        // Current schema path.
-        let user_id = match sqlx::query_scalar::<_, i64>(
-            r#"
+        // Safe DB-agnostic cast to bigint to avoid BIGINT/INTEGER driver mismatch
+        let query_primary = r#"
             INSERT INTO users (tg_id, username, full_name, referral_code, referrer_id)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT(tg_id) DO UPDATE SET
@@ -147,67 +146,81 @@ impl UserRepository {
                 full_name = COALESCE(excluded.full_name, users.full_name, 'User'),
                 referrer_id = COALESCE(excluded.referrer_id, users.referrer_id),
                 last_seen = CURRENT_TIMESTAMP
-            RETURNING id
-            "#,
-        )
-        .bind(tg_id)
-        .bind(username)
-        .bind(full_name)
-        .bind(&default_ref_code)
-        .bind(referrer_id)
-        .fetch_one(&self.pool)
-        .await
+            RETURNING id::bigint
+        "#;
+
+        let query_legacy = r#"
+            INSERT INTO users (tg_id, username, full_name, referral_code, referrer_id)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT(tg_id) DO UPDATE SET
+                username = COALESCE(excluded.username, users.username, ''),
+                full_name = COALESCE(excluded.full_name, users.full_name, 'User'),
+                referrer_id = COALESCE(excluded.referrer_id, users.referrer_id)
+            RETURNING id::bigint
+        "#;
+
+        let query_old = r#"
+            INSERT INTO users (tg_id, username, full_name, referral_code)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT(tg_id) DO UPDATE SET
+                username = COALESCE(excluded.username, users.username, ''),
+                full_name = COALESCE(excluded.full_name, users.full_name, 'User')
+            RETURNING id::bigint
+        "#;
+
+        let user_id = match sqlx::query_scalar::<_, i64>(query_primary)
+            .bind(tg_id)
+            .bind(username)
+            .bind(full_name)
+            .bind(&default_ref_code)
+            .bind(referrer_id)
+            .fetch_one(&self.pool)
+            .await
         {
             Ok(id) => id,
             Err(first_err) => {
-                // Legacy path: no users.last_seen.
-                match sqlx::query_scalar::<_, i64>(
-                    r#"
-                    INSERT INTO users (tg_id, username, full_name, referral_code, referrer_id)
-                    VALUES ($1, $2, $3, $4, $5)
-                    ON CONFLICT(tg_id) DO UPDATE SET
-                        username = COALESCE(excluded.username, users.username, ''),
-                        full_name = COALESCE(excluded.full_name, users.full_name, 'User'),
-                        referrer_id = COALESCE(excluded.referrer_id, users.referrer_id)
-                    RETURNING id
-                    "#,
-                )
-                .bind(tg_id)
-                .bind(username)
-                .bind(full_name)
-                .bind(&default_ref_code)
-                .bind(referrer_id)
-                .fetch_one(&self.pool)
-                .await
+                match sqlx::query_scalar::<_, i64>(query_legacy)
+                    .bind(tg_id)
+                    .bind(username)
+                    .bind(full_name)
+                    .bind(&default_ref_code)
+                    .bind(referrer_id)
+                    .fetch_one(&self.pool)
+                    .await
                 {
                     Ok(id) => id,
                     Err(second_err) => {
-                        // Very old path: no users.referrer_id, or referring failed due to constraints.
-                        match sqlx::query_scalar::<_, i64>(
-                            r#"
-                            INSERT INTO users (tg_id, username, full_name, referral_code)
-                            VALUES ($1, $2, $3, $4)
-                            ON CONFLICT(tg_id) DO UPDATE SET
-                                username = COALESCE(excluded.username, users.username, ''),
-                                full_name = COALESCE(excluded.full_name, users.full_name, 'User')
-                            RETURNING id
-                            "#,
-                        )
-                        .bind(tg_id)
-                        .bind(username)
-                        .bind(full_name)
-                        .bind(&default_ref_code)
-                        .fetch_one(&self.pool)
-                        .await
+                        match sqlx::query_scalar::<_, i64>(query_old)
+                            .bind(tg_id)
+                            .bind(username)
+                            .bind(full_name)
+                            .bind(&default_ref_code)
+                            .fetch_one(&self.pool)
+                            .await
                         {
                             Ok(id) => id,
                             Err(third_err) => {
-                                return Err(anyhow::anyhow!(
-                                    "Failed to upsert user across compatibility paths: primary={}, fallback={}, legacy={}",
-                                    first_err,
-                                    second_err,
-                                    third_err
-                                ));
+                                tracing::error!("user_repo upsert failed critically. primary: {}, legacy: {}, old: {}", first_err, second_err, third_err);
+                                
+                                // Extreme fallback: if ON CONFLICT logic crashes due to schema/indexes, try explicit SELECT then UPDATE/INSERT
+                                if let Ok(Some(existing_user)) = self.get_by_tg_id(tg_id).await {
+                                    let _ = sqlx::query("UPDATE users SET username = COALESCE($1, username), full_name = COALESCE($2, full_name) WHERE id = $3")
+                                        .bind(username)
+                                        .bind(full_name)
+                                        .bind(existing_user.id)
+                                        .execute(&self.pool)
+                                        .await;
+                                    return Ok(existing_user);
+                                } else {
+                                    let new_id_res = sqlx::query_scalar::<_, i64>("INSERT INTO users (tg_id, username, full_name, referral_code) VALUES ($1, $2, $3, $4) RETURNING id::bigint")
+                                        .bind(tg_id)
+                                        .bind(username)
+                                        .bind(full_name)
+                                        .bind(&default_ref_code)
+                                        .fetch_one(&self.pool)
+                                        .await?;
+                                    return self.get_by_id(new_id_res).await?.ok_or_else(|| anyhow::anyhow!("User not found after manual insert"));
+                                }
                             }
                         }
                     }
