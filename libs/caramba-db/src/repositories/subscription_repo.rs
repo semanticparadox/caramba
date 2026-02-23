@@ -357,6 +357,19 @@ impl SubscriptionRepository {
         tx.commit().await?;
         Ok(())
     }
+
+    pub async fn get_active_ips(
+        &self,
+        sub_id: i64,
+    ) -> Result<Vec<crate::models::store::SubscriptionIpTracking>> {
+        sqlx::query_as::<_, crate::models::store::SubscriptionIpTracking>(
+            "SELECT id, subscription_id, client_ip, last_seen_at FROM subscription_ip_tracking WHERE subscription_id = $1 ORDER BY last_seen_at DESC",
+        )
+        .bind(sub_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch active IPs")
+    }
 }
 
 fn normalize_client_ip(raw: &str) -> Option<String> {

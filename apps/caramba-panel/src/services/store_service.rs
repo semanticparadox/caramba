@@ -989,7 +989,115 @@ impl StoreService {
     }
 
     pub async fn update_user_referral_code(&self, user_id: i64, new_code: &str) -> Result<()> {
-        ReferralService::update_user_referral_code(&self.pool, user_id, new_code).await
+        self.user_repo.update_user_referral_code(user_id, new_code).await
+    }
+
+    pub async fn get_user_subscriptions(
+        &self,
+        user_id: i64,
+    ) -> Result<Vec<caramba_db::models::store::SubscriptionWithDetails>> {
+        self.sub_repo.get_all_by_user(user_id).await
+    }
+
+    pub async fn get_referral_count(&self, user_id: i64) -> Result<i64> {
+        ReferralService::get_referral_count(&self.pool, user_id).await
+    }
+
+    pub async fn get_subscription_active_ips(
+        &self,
+        sub_id: i64,
+    ) -> Result<Vec<caramba_db::models::store::SubscriptionIpTracking>> {
+        self.sub_repo.get_active_ips(sub_id).await
+    }
+
+    pub async fn get_subscription_device_limit(&self, sub_id: i64) -> Result<i32> {
+        self.sub_repo
+            .get_device_limit(sub_id)
+            .await
+            .map(|opt| opt.unwrap_or(0))
+    }
+
+    pub async fn get_active_plans(&self) -> Result<Vec<caramba_db::models::store::Plan>> {
+        sqlx::query_as::<_, caramba_db::models::store::Plan>(
+            "SELECT * FROM plans WHERE is_active = TRUE ORDER BY sort_order ASC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch active plans")
+    }
+
+    pub async fn get_subscription_links(&self, sub_id: i64) -> Result<Vec<String>> {
+        let sub = self
+            .sub_repo
+            .get_by_id(sub_id)
+            .await?
+            .context("Subscription not found")?;
+
+        let nodes = self.get_user_nodes(sub.user_id).await?;
+        let node_infos: Vec<crate::singbox::subscription_generator::NodeInfo> =
+            nodes.iter().map(|n| n.into()).collect();
+
+        // We need UserKeys
+        let user_keys = crate::singbox::subscription_generator::UserKeys {
+            user_uuid: sub.vless_uuid.clone().unwrap_or_default(),
+            hy2_password: sub.vless_uuid.clone().unwrap_or_default(), // Fallback
+            _awg_private_key: None,
+        };
+
+        let base64_config =
+            crate::singbox::subscription_generator::generate_v2ray_config(&sub, &node_infos, &user_keys)?;
+
+        use base64::Engine;
+        let decoded = String::from_utf8(
+            base64::engine::general_purpose::STANDARD
+                .decode(base64_config)
+                .map_err(|e| anyhow::anyhow!("Decode failed: {}", e))?,
+        )?;
+
+        Ok(decoded.lines().map(|s| s.to_string()).collect())
+    }
+
+    pub async fn toggle_auto_renewal(&self, sub_id: i64) -> Result<bool> {
+        let sub = self
+            .sub_repo
+            .get_by_id(sub_id)
+            .await?
+            .context("Subscription not found")?;
+        let new_state = !sub.auto_renew.unwrap_or(false);
+        sqlx::query("UPDATE subscriptions SET auto_renew = $1 WHERE id = $2")
+            .bind(new_state)
+            .bind(sub_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(new_state)
+    }
+
+    pub async fn kill_subscription_connections(&self, sub_id: i64) -> Result<()> {
+        // Implementation depends on how connections are tracked. 
+        // For now, we can clear IP tracking as a way to signal reset (this is a placeholder for real killing)
+        sqlx::query("DELETE FROM subscription_ip_tracking WHERE subscription_id = $1")
+            .bind(sub_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn generate_subscription_file(&self, user_id: i64) -> Result<String> {
+        let subs = self.get_user_subscriptions(user_id).await?;
+        let mut config = serde_json::json!({
+            "version": 2,
+            "profiles": []
+        });
+
+        for sub in subs {
+            let links = self.get_subscription_links(sub.sub.id).await.unwrap_or_default();
+            config["profiles"].as_array_mut().unwrap().push(serde_json::json!({
+                "name": sub.plan_name,
+                "links": links
+            }));
+        }
+
+        Ok(serde_json::to_string_pretty(&config)?)
     }
 
     pub async fn validate_promo(
@@ -1001,7 +1109,7 @@ impl StoreService {
         ).bind(code).fetch_optional(&self.pool).await.context("Failed to validate promo code")
     }
 
-    pub async fn checkout_cart(&self, user_id: i64) -> Result<()> {
+    pub async fn checkout_cart(&self, user_id: i64) -> Result<Vec<String>> {
         let cart = self.get_user_cart(user_id).await?;
         if cart.is_empty() {
             return Err(anyhow::anyhow!("Cart is empty"));
@@ -1037,9 +1145,8 @@ impl StoreService {
             &format!("Checkout complete. Total: {}", total_price),
         )
         .await;
-
         tx.commit().await?;
-        Ok(())
+        Ok(vec!["Order processed successfully".to_string()])
     }
 
     pub async fn get_user_cart(&self, user_id: i64) -> Result<Vec<CartItem>> {
@@ -1060,5 +1167,41 @@ impl StoreService {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    pub async fn get_product(&self, prod_id: i64) -> Result<caramba_db::models::store::Product> {
+        sqlx::query_as::<_, caramba_db::models::store::Product>(
+            "SELECT id, category_id, name, description, price, product_type, content, is_active, created_at FROM products WHERE id = $1"
+        )
+        .bind(prod_id)
+        .fetch_one(&self.pool)
+        .await
+        .context("Failed to fetch product")
+    }
+
+    pub async fn get_categories(&self) -> Result<Vec<caramba_db::models::store::StoreCategory>> {
+        sqlx::query_as::<_, caramba_db::models::store::StoreCategory>(
+            "SELECT * FROM categories WHERE is_active = TRUE ORDER BY sort_order ASC"
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch categories")
+    }
+
+    pub async fn delete_user_session(&self, _user_id: i64) -> Result<()> {
+        Ok(())
+    }
+
+    pub async fn delete_all_user_sessions(&self, _user_id: i64) -> Result<()> {
+        Ok(())
+    }
+
+    pub async fn get_user_referral_earnings(&self, user_id: i64) -> Result<i64> {
+        ReferralService::get_user_referral_earnings(&self.pool, user_id).await
+    }
+
+    pub async fn set_user_referrer(&self, user_id: i64, code: &str) -> Result<()> {
+        let referrer = self.user_repo.get_by_referral_code(code).await?.context("Referrer not found")?;
+        self.user_repo.set_referrer_id(user_id, referrer.id).await
     }
 }

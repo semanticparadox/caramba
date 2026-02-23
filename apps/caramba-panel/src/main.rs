@@ -1,4 +1,5 @@
 mod api;
+mod bot;
 mod bot_manager;
 mod cli;
 pub mod handlers;

@@ -49,7 +49,6 @@ pub async fn run_bot(bot: Bot, mut shutdown_signal: tokio::sync::broadcast::Rece
         .default_handler(|upd: std::sync::Arc<Update>| async move {
             info!("Unhandled update: {:?}", upd);
         })
-        .enable_ctrlc_handler()
         .build();
 
     tokio::select! {

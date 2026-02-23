@@ -696,7 +696,7 @@ pub async fn message_handler(
                     let ref_link = format!("https://t.me/{}?start={}", bot_username, ref_code);
                     
                     let ref_count: i64 = state.store_service.get_referral_count(user.id).await.unwrap_or(0);
-                    let ref_earnings: i64 = state.store_service.get_user_referral_earnings(user.id).await.unwrap_or(0);
+                    let ref_earnings = state.store_service.get_user_referral_earnings(user.id).await.unwrap_or(0);
                     let earnings_major = ref_earnings / 100;
                     let earnings_minor = ref_earnings % 100;
                     
@@ -780,16 +780,16 @@ pub async fn message_handler(
                                // Simpler to just send message with "View Devices" button or replicate logic.
                                // Replicating logic is cleaner here to avoid hacking callback structure.
                                
-                               let ips: Vec<caramba_db::models::store::SubscriptionIpTracking> = state.store_service.get_subscription_active_ips(sub.sub.id).await.unwrap_or_default();
+                               let active_ips = state.store_service.get_subscription_active_ips(sub.sub.id).await.unwrap_or_default();
                                let limit: i64 = state.store_service.get_subscription_device_limit(sub.sub.id).await.unwrap_or(0).into();
                                
                                let mut text = format!("📱 *Active Devices for Subscription \\#{:?}*\n", sub.sub.id);
-                               text.push_str(&format!("Limit: `{}/{}` devices\n\n", ips.len(), if limit == 0 { "∞".to_string() } else { limit.to_string() }));
+                               text.push_str(&format!("Limit: `{}/{}` devices\n\n", active_ips.len(), if limit == 0 { "∞".to_string() } else { limit.to_string() }));
                                
-                               if ips.is_empty() {
+                               if active_ips.is_empty() {
                                    text.push_str("No active sessions detected in the last 15 minutes\\.");
                                } else {
-                                   for ip in &ips {
+                                   for ip in &active_ips {
                                        let time_ago = chrono::Utc::now() - ip.last_seen_at;
                                        let mins = time_ago.num_minutes();
                                        text.push_str(&format!("• `{}` \\({} mins ago\\)\n", ip.client_ip.replace(".", "\\."), mins));
@@ -797,7 +797,7 @@ pub async fn message_handler(
                                }
 
                                let mut buttons = Vec::new();
-                               if !ips.is_empty() {
+                               if !active_ips.is_empty() {
                                    buttons.push(vec![InlineKeyboardButton::callback("☠️ Reset Sessions", format!("kill_sessions_{}", sub.sub.id))]);
                                }
                                // No back button needed if command

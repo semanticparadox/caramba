@@ -290,6 +290,15 @@ impl UserRepository {
         Ok(())
     }
 
+    pub async fn update_user_referral_code(&self, user_id: i64, new_code: &str) -> Result<()> {
+        sqlx::query("UPDATE users SET referral_code = $1 WHERE id = $2")
+            .bind(new_code)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn set_referrer_id(&self, user_id: i64, referrer_id: i64) -> Result<()> {
         sqlx::query("UPDATE users SET referrer_id = $1 WHERE id = $2")
             .bind(referrer_id)

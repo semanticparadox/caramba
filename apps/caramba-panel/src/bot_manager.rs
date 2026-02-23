@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use teloxide::prelude::*;
+use teloxide::Bot;
 use teloxide::types::{
-    InlineKeyboardButton, InlineKeyboardMarkup, InputFile, LinkPreviewOptions, ParseMode,
+    ChatId, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, LinkPreviewOptions, ParseMode,
 };
 use tracing::{error, info, warn};
 
@@ -62,6 +63,7 @@ impl NotificationPayload {
 pub struct BotManager {
     current_bot: Arc<Mutex<Option<Bot>>>,
     bot_username: Arc<RwLock<Option<String>>>,
+    shutdown_tx: Arc<Mutex<Option<tokio::sync::broadcast::Sender<()>>>>,
 }
 
 impl BotManager {
@@ -69,6 +71,7 @@ impl BotManager {
         Self {
             current_bot: Arc::new(Mutex::new(None)),
             bot_username: Arc::new(RwLock::new(None)),
+            shutdown_tx: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -103,7 +106,19 @@ impl BotManager {
             }
         }
 
-        *bot_lock = Some(bot);
+        *bot_lock = Some(bot.clone());
+
+        // Spawn background dispatcher
+        let (tx, rx) = tokio::sync::broadcast::channel(1);
+        {
+            let mut shutdown_lock = self.shutdown_tx.lock().await;
+            *shutdown_lock = Some(tx);
+        }
+
+        tokio::spawn(async move {
+            crate::bot::run_bot(bot, rx, state).await;
+        });
+
         true
     }
 
@@ -111,11 +126,18 @@ impl BotManager {
         let mut bot_lock = self.current_bot.lock().await;
 
         if bot_lock.take().is_some() {
-            info!("Bot notifier stopped");
+            info!("Bot notifier stopping...");
+
+            // Send shutdown signal to dispatcher
+            let mut shutdown_lock = self.shutdown_tx.lock().await;
+            if let Some(tx) = shutdown_lock.take() {
+                let _ = tx.send(());
+            }
 
             let mut bot_username = self.bot_username.write().await;
             *bot_username = None;
 
+            info!("Bot notifier stopped");
             true
         } else {
             warn!("Bot notifier is not running");
