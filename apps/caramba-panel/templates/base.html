@@ -187,12 +187,22 @@
             <!-- Contextual Sub-Navigation -->
             <nav
                 class="sticky top-10 z-40 bg-slate-50/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-white/5 px-6 lg:px-10 py-1.5 flex gap-2 overflow-x-auto no-scrollbar shadow-sm">
-                {% if active_page == "dashboard" || active_page == "analytics" %}
+                {% if active_page == "dashboard" || active_page == "analytics" || active_page == "logs" %}
                 <a href="{{ admin_path }}/dashboard"
                     class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
                     dashboard" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{%
                     else %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif
                     %}">Dashboard</a>
+                <a href="{{ admin_path }}/analytics"
+                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
+                    analytics" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{%
+                    else %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif
+                    %}">Analytics</a>
+                <a href="{{ admin_path }}/logs"
+                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
+                    logs" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
+                    %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif %}">System
+                    Logs</a>
                 {% endif %}
 
                 {% if active_page == "nodes" || active_page == "groups" || active_page == "templates" || active_page ==
@@ -217,7 +227,7 @@
                     Pool</a>
                 {% endif %}
 
-                {% if active_page == "bot_logs" || active_page == "logs" || active_page == "frontends" %}
+                {% if active_page == "bot_logs" || active_page == "frontends" || active_page == "settings" %}
                 <a href="{{ admin_path }}/bot"
                     class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
                     bot_logs" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
@@ -228,11 +238,11 @@
                     frontends" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{%
                     else %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif
                     %}">Frontend Servers</a>
-                <a href="{{ admin_path }}/logs"
+                <a href="{{ admin_path }}/settings"
                     class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    logs" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
-                    %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif %}">System
-                    Logs</a>
+                    settings" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
+                    %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif
+                    %}">Settings</a>
                 {% endif %}
 
                 {% if active_page == "users" || active_page == "api_keys" || active_page == "promo" %}
@@ -275,13 +285,7 @@
                     %}">Transactions</a>
                 {% endif %}
 
-                {% if active_page == "settings" %}
-                <a href="{{ admin_path }}/settings"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    settings" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
-                    %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif
-                    %}">Settings</a>
-                {% endif %}
+
             </nav>
 
             <!-- Content Area -->
@@ -306,23 +310,23 @@
                     </a>
                     <a href="{{ admin_path }}/bot"
                         class="flex flex-col items-center justify-center w-[4.5rem] h-14 rounded-xl transition-all hover:bg-indigo-50 dark:hover:bg-indigo-500/10 {% if active_page == "
-                        bot_logs" || active_page=="logs" || active_page=="frontends" %}text-indigo-600
+                        bot_logs" || active_page=="settings" || active_page=="frontends" %}text-indigo-600
                         dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-500/10 ring-1 ring-indigo-500/20 shadow-sm{%
                         else %}text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200
                         hover:-translate-y-1{% endif %}" title="Services">
                         <i data-lucide="layers" class="w-5 h-5 mb-1 {% if active_page == " bot_logs" ||
-                            active_page=="logs" || active_page=="frontends" %}text-indigo-500{% endif %} hover:scale-110
-                            transition-transform"></i>
+                            active_page=="settings" || active_page=="frontends" %}text-indigo-500{% endif %}
+                            hover:scale-110 transition-transform"></i>
                         <span class="text-[9px] font-medium tracking-wide">Services</span>
                     </a>
                     <a href="{{ admin_path }}/dashboard"
                         class="flex flex-col items-center justify-center w-[4.5rem] h-14 rounded-xl transition-all hover:bg-indigo-50 dark:hover:bg-indigo-500/10 {% if active_page == "
-                        dashboard" || active_page=="analytics" %}text-indigo-600 dark:text-indigo-400 bg-indigo-50/50
-                        dark:bg-indigo-500/10 ring-1 ring-indigo-500/20 shadow-sm{% else %}text-slate-500
-                        dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:-translate-y-1{% endif
-                        %}" title="Monitoring">
+                        dashboard" || active_page=="analytics" || active_page=="logs" %}text-indigo-600
+                        dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-500/10 ring-1 ring-indigo-500/20 shadow-sm{%
+                        else %}text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200
+                        hover:-translate-y-1{% endif %}" title="Monitoring">
                         <i data-lucide="activity" class="w-5 h-5 mb-1 {% if active_page == " dashboard" ||
-                            active_page=="analytics" %}text-indigo-500{% endif %} hover:scale-110
+                            active_page=="analytics" || active_page=="logs" %}text-indigo-500{% endif %} hover:scale-110
                             transition-transform"></i>
                         <span class="text-[9px] font-medium tracking-wide">Monitor</span>
                     </a>
