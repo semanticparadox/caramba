@@ -1,5 +1,5 @@
 [workspace]
-resolversion = "0.3.49"
+resolversion = "0.3.50"
 members = ["apps/caramba-node",
     "apps/caramba-panel", "libs/caramba-db", "libs/caramba-shared",
     "apps/caramba-sub", "apps/caramba-installer", "apps/caramba-bot",
