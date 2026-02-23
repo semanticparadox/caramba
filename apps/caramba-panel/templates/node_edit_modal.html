@@ -1,16 +1,19 @@
 <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-2xl p-6 m-4">
     <header class="flex justify-between items-center mb-4">
         <h3 class="text-lg font-semibold text-white">Edit Node</h3>
-        <button type="button" onclick="document.getElementById('edit-node-modal').close()" class="text-slate-400 hover:text-white">✕</button>
+        <button type="button" onclick="document.getElementById('edit-node-modal').close()"
+            class="text-slate-400 hover:text-white">✕</button>
     </header>
     <form hx-post="{{ admin_path }}/nodes/{{ node.id }}/update" hx-swap="none" class="space-y-4">
         <div>
             <label class="block text-xs text-slate-400 uppercase mb-1">Name</label>
-            <input name="name" value="{{ node.name }}" required class="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-white">
+            <input name="name" value="{{ node.name }}" required
+                class="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-white">
         </div>
         <div>
             <label class="block text-xs text-slate-400 uppercase mb-1">IP</label>
-            <input name="ip" value="{{ node.ip }}" required class="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-white">
+            <input name="ip" value="{{ node.ip }}" required
+                class="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-white">
         </div>
         <div>
             <label class="block text-xs text-slate-400 uppercase mb-1">Relay Parent (optional)</label>
@@ -18,7 +21,8 @@
                 <option value="">None</option>
                 {% for relay in all_nodes %}
                 {% if relay.id != node.id %}
-                <option value="{{ relay.id }}" {% if node.relay_id.unwrap_or(0) == relay.id %}selected{% endif %}>{{ relay.name }}</option>
+                <option value="{{ relay.id }}" {% if node.relay_id.unwrap_or(0)==relay.id %}selected{% endif %}>{{
+                    relay.name }}</option>
                 {% endif %}
                 {% endfor %}
             </select>
@@ -27,9 +31,41 @@
             <input type="checkbox" name="is_relay" {% if node.is_relay %}checked{% endif %}>
             Is relay node
         </label>
+        <div>
+            <label class="block text-xs text-slate-400 uppercase mb-1">Country</label>
+            <select name="country" class="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-white">
+                <option value="" {% if node.country.is_none() %}selected{% endif %}>— Not set —</option>
+                <option value="Russia" {% if node.country.as_deref()==Some("Russia") %}selected{% endif %}>🇷🇺 Russia
+                </option>
+                <option value="Netherlands" {% if node.country.as_deref()==Some("Netherlands") %}selected{% endif %}>
+                    🇳🇱 Netherlands</option>
+                <option value="Germany" {% if node.country.as_deref()==Some("Germany") %}selected{% endif %}>🇩🇪
+                    Germany</option>
+                <option value="Finland" {% if node.country.as_deref()==Some("Finland") %}selected{% endif %}>🇫🇮
+                    Finland</option>
+                <option value="France" {% if node.country.as_deref()==Some("France") %}selected{% endif %}>🇫🇷 France
+                </option>
+                <option value="USA" {% if node.country.as_deref()==Some("USA") %}selected{% endif %}>🇺🇸 USA</option>
+                <option value="UK" {% if node.country.as_deref()==Some("UK") %}selected{% endif %}>🇬🇧 UK</option>
+                <option value="Turkey" {% if node.country.as_deref()==Some("Turkey") %}selected{% endif %}>🇹🇷 Turkey
+                </option>
+                <option value="Sweden" {% if node.country.as_deref()==Some("Sweden") %}selected{% endif %}>🇸🇪 Sweden
+                </option>
+                <option value="Latvia" {% if node.country.as_deref()==Some("Latvia") %}selected{% endif %}>🇱🇻 Latvia
+                </option>
+                <option value="Lithuania" {% if node.country.as_deref()==Some("Lithuania") %}selected{% endif %}>🇱🇹
+                    Lithuania</option>
+                <option value="Estonia" {% if node.country.as_deref()==Some("Estonia") %}selected{% endif %}>🇪🇪
+                    Estonia</option>
+                <option value="Kazakhstan" {% if node.country.as_deref()==Some("Kazakhstan") %}selected{% endif %}>🇰🇿
+                    Kazakhstan</option>
+            </select>
+        </div>
         <div class="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-200">
-            Relay logic: mark this node as <span class="font-semibold">relay</span> if other edge nodes should chain through it.
-            For client nodes, choose a <span class="font-semibold">Relay Parent</span>. Leave both empty for standalone edge mode.
+            Relay logic: mark this node as <span class="font-semibold">relay</span> if other edge nodes should chain
+            through it.
+            For client nodes, choose a <span class="font-semibold">Relay Parent</span>. Leave both empty for standalone
+            edge mode.
         </div>
         <div class="flex justify-end gap-2 pt-2">
             <button type="button" onclick="document.getElementById('edit-node-modal').close()"

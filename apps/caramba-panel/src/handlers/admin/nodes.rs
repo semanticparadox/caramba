@@ -99,6 +99,9 @@ pub struct InstallNodeForm {
     pub ip: Option<String>,
     pub vpn_port: Option<i32>,
     pub auto_configure: Option<bool>,
+    pub country: Option<String>,
+    pub is_relay: Option<String>,
+    pub relay_id: Option<i64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -118,6 +121,7 @@ pub struct UpdateNodeForm {
     pub config_block_ads: Option<String>,
     pub config_block_porn: Option<String>,
     pub config_qos_enabled: Option<String>,
+    pub country: Option<String>,
 }
 
 async fn ensure_node_join_token(pool: &sqlx::PgPool, node_id: i64) -> anyhow::Result<String> {
@@ -229,6 +233,21 @@ pub async fn install_node(
         .await
     {
         Ok(id) => {
+            // Set country and relay fields if provided
+            let country = form.country.as_deref().unwrap_or("").trim();
+            let is_relay = form.is_relay.is_some();
+            if !country.is_empty() || is_relay || form.relay_id.is_some() {
+                let _ = sqlx::query(
+                    "UPDATE nodes SET country = $1, is_relay = $2, relay_id = $3 WHERE id = $4"
+                )
+                .bind(if country.is_empty() { None } else { Some(country) })
+                .bind(is_relay)
+                .bind(form.relay_id)
+                .bind(id)
+                .execute(&state.pool)
+                .await;
+            }
+
             // Trigger default inbounds via orchestration
             if let Err(e) = state.orchestration_service.init_default_inbounds(id).await {
                 error!("Failed to initialize inbounds for new node {}: {}", id, e);
@@ -331,12 +350,13 @@ pub async fn update_node(
     Form(form): Form<UpdateNodeForm>,
 ) -> impl IntoResponse {
     let is_relay = form.is_relay.is_some();
-    info!("Updating node ID: {} (Relay: {})", id, is_relay);
+    let country = form.country.as_deref().unwrap_or("").trim().to_string();
+    info!("Updating node ID: {} (Relay: {}, Country: {})", id, is_relay, country);
 
     // 1. Update core fields
     if let Err(e) = state
         .infrastructure_service
-        .update_node(id, &form.name, &form.ip, form.relay_id, is_relay)
+        .update_node(id, &form.name, &form.ip, form.relay_id, is_relay, &country)
         .await
     {
         error!("Failed to update node core: {}", e);

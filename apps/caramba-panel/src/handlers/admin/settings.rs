@@ -324,9 +324,6 @@ pub struct SettingsTemplate {
     pub is_auth: bool,
     pub admin_path: String,
     pub active_page: String,
-    pub frontend_mode: String,
-    pub miniapp_enabled: bool,
-    pub subscription_domain: String,
     pub deployment_mode: String,
     pub local_panel_detected: bool,
     pub local_sub_detected: bool,
@@ -352,7 +349,6 @@ pub struct SettingsTemplate {
     pub worker_total_count: usize,
     pub worker_online_count: usize,
     pub worker_update_reports: Vec<WorkerUpdateReportView>,
-    pub relay_auth_mode: String,
     pub relay_legacy_usage_last_seen_at: String,
     pub relay_legacy_usage_last_seen_bytes: String,
     pub installer_enrollment_key: String,
@@ -455,15 +451,15 @@ pub struct SaveSettingsForm {
     pub decoy_max_interval: Option<String>,
     pub kill_switch_enabled: Option<String>,
     pub kill_switch_timeout: Option<String>,
-    pub frontend_mode: Option<String>,
     pub deployment_mode: Option<String>,
-    pub miniapp_enabled: Option<String>,
-    pub subscription_domain: Option<String>,
+    pub local_sub_enabled: Option<String>,
+    pub local_bot_enabled: Option<String>,
     pub auto_update_agents: Option<String>,
     pub agent_latest_version: Option<String>,
     pub agent_update_url: Option<String>,
     pub agent_update_hash: Option<String>,
-    pub relay_auth_mode: Option<String>,
+    pub expiry_reminders_enabled: Option<String>,
+    pub expiry_hours_threshold: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -590,27 +586,17 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
 
     let last_export = state.settings.get_or_default("last_export", "Never").await;
 
-    let frontend_mode = state
+    let deployment_mode = state
         .settings
-        .get_or_default("frontend_mode", "local")
-        .await;
-    let deployment_mode = {
-        let raw = state
-            .settings
-            .get_or_default("deployment_mode", "hub")
-            .await
-            .to_ascii_lowercase();
-        if raw == "distributed" {
-            "distributed".to_string()
-        } else {
-            "hub".to_string()
-        }
-    };
+        .get_or_default("deployment_mode", "hub")
+        .await
+        .to_ascii_lowercase();
     let miniapp_enabled = state
         .settings
-        .get_or_default("miniapp_enabled", "true")
+        .get_or_default("miniapp_enabled", "false")
         .await
         == "true";
+    let _ = miniapp_enabled; // unused now but keeping for fetch consistency
     let subscription_domain = state
         .settings
         .get_or_default("subscription_domain", "")
@@ -738,21 +724,16 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     } else {
         "<INTERNAL_API_TOKEN>".to_string()
     };
-    let installer_sub_domain = if subscription_domain.trim().is_empty() {
-        "<SUB_DOMAIN>".to_string()
-    } else {
-        subscription_domain.trim().to_string()
-    };
     let installer_node_command = format!(
         "curl -fsSL {}/install.sh | sudo bash -s -- --role node --panel {} --token {}",
         panel_url_display, panel_url_display, installer_enrollment_key
     );
     let installer_sub_command = format!(
-        "curl -fsSL {}/install.sh | sudo bash -s -- --role sub --panel {} --domain {} --token {} --region global",
-        panel_url_display, panel_url_display, installer_sub_domain, installer_sub_token
+        "curl -fsSL {}/install.sh | sudo bash -s -- --role sub --panel {} --token {} --region global",
+        panel_url_display, panel_url_display, installer_sub_token
     );
     let installer_bot_command = format!(
-        "curl -fsSL {}/install.sh | sudo bash -s -- --role bot --panel {} --bot-token <BOT_TOKEN> --panel-token {}",
+        "curl -fsSL {}/install.sh | sudo bash -s -- --role bot --panel {} --panel-token {}",
         panel_url_display, panel_url_display, installer_sub_token
     );
     let local_panel_detected =
@@ -880,7 +861,6 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         is_auth: true,
         admin_path,
         active_page: "settings".to_string(),
-        frontend_mode,
         deployment_mode,
         local_panel_detected,
         local_sub_detected,
@@ -894,8 +874,6 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         local_sub_enabled,
         local_bot_enabled,
         local_node_enabled,
-        miniapp_enabled,
-        subscription_domain,
         auto_update_agents,
         agent_latest_version,
         agent_update_url,
@@ -908,7 +886,6 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         worker_total_count,
         worker_online_count,
         worker_update_reports,
-        relay_auth_mode,
         relay_legacy_usage_last_seen_at,
         relay_legacy_usage_last_seen_bytes,
         installer_enrollment_key,
@@ -1143,9 +1120,6 @@ pub async fn save_settings(
         settings.insert("kill_switch_timeout".to_string(), v);
     }
 
-    if let Some(v) = form.frontend_mode {
-        settings.insert("frontend_mode".to_string(), v);
-    }
     if let Some(v) = form.deployment_mode {
         let normalized = v.trim().to_ascii_lowercase();
         let deployment_mode = if normalized == "distributed" {
@@ -1154,21 +1128,25 @@ pub async fn save_settings(
             "hub"
         };
         settings.insert("deployment_mode".to_string(), deployment_mode.to_string());
-        if deployment_mode == "distributed" {
-            settings.insert("frontend_mode".to_string(), "distributed".to_string());
-        }
     }
+
     settings.insert(
-        "miniapp_enabled".to_string(),
-        if is_checkbox_enabled(form.miniapp_enabled.as_deref()) {
+        "local_sub_enabled".to_string(),
+        if is_checkbox_enabled(form.local_sub_enabled.as_deref()) {
             "true".to_string()
         } else {
             "false".to_string()
         },
     );
-    if let Some(v) = form.subscription_domain {
-        settings.insert("subscription_domain".to_string(), v);
-    }
+
+    settings.insert(
+        "local_bot_enabled".to_string(),
+        if is_checkbox_enabled(form.local_bot_enabled.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
+    );
 
     settings.insert(
         "auto_update_agents".to_string(),
@@ -1178,6 +1156,19 @@ pub async fn save_settings(
             "false".to_string()
         },
     );
+
+    settings.insert(
+        "expiry_reminders_enabled".to_string(),
+        if is_checkbox_enabled(form.expiry_reminders_enabled.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
+    );
+    if let Some(v) = form.expiry_hours_threshold {
+        let val: i64 = v.trim().parse().unwrap_or(72);
+        settings.insert("expiry_hours_threshold".to_string(), val.to_string());
+    }
     if let Some(v) = form.agent_latest_version {
         let normalized = v.trim().to_string();
         if !normalized.is_empty() {
@@ -1209,40 +1200,6 @@ pub async fn save_settings(
                 .into_response();
         }
         settings.insert("agent_update_hash".to_string(), normalized);
-    }
-    if let Some(v) = form.relay_auth_mode {
-        let normalized = v.trim().to_ascii_lowercase();
-        if matches!(normalized.as_str(), "legacy" | "v1" | "dual") {
-            if normalized == "v1" {
-                let last_seen_raw = state
-                    .settings
-                    .get_or_default("relay_legacy_usage_last_seen_at", "")
-                    .await;
-                if !last_seen_raw.trim().is_empty() {
-                    if let Ok(last_seen) = DateTime::parse_from_rfc3339(&last_seen_raw) {
-                        let last_seen_utc = last_seen.with_timezone(&Utc);
-                        let age = Utc::now().signed_duration_since(last_seen_utc);
-                        let guard_window = Duration::hours(24);
-                        if age < guard_window {
-                            let last_bytes = state
-                                .settings
-                                .get_or_default("relay_legacy_usage_last_seen_bytes", "0")
-                                .await;
-                            return (
-                                StatusCode::BAD_REQUEST,
-                                format!(
-                                    "Cannot switch relay_auth_mode to v1: legacy relay traffic was observed at {} ({} bytes). Keep dual mode until no legacy traffic is seen for 24 hours.",
-                                    last_seen_utc.to_rfc3339(),
-                                    last_bytes
-                                ),
-                            )
-                                .into_response();
-                        }
-                    }
-                }
-            }
-            settings.insert("relay_auth_mode".to_string(), normalized);
-        }
     }
 
     match state.settings.set_multiple(settings).await {
@@ -1647,10 +1604,10 @@ fn run_systemctl_action(args: &[&str]) -> Result<(), String> {
 }
 
 fn render_topology_apply_result(mode: &str, ok_lines: &[String], err_lines: &[String]) -> String {
-    let mode_label = if mode == "distributed" {
-        "Distributed"
-    } else {
-        "Hub"
+    let mode_label = match mode {
+        "distributed" => "Distributed",
+        "modular" => "Modular (Service-by-Service)",
+        _ => "Hub",
     };
 
     let mut html = String::new();
@@ -1689,56 +1646,78 @@ fn render_topology_apply_result(mode: &str, ok_lines: &[String], err_lines: &[St
 }
 
 pub async fn apply_deployment_topology(State(state): State<AppState>) -> impl IntoResponse {
-    let mode = state
+    let local_sub_enabled = state
         .settings
-        .get_or_default("deployment_mode", "hub")
+        .get_or_default("local_sub_enabled", "true")
         .await
-        .to_ascii_lowercase();
-    let distributed = mode == "distributed";
+        == "true";
+    let local_bot_enabled = state
+        .settings
+        .get_or_default("local_bot_enabled", "true")
+        .await
+        == "true";
 
     let mut ok_lines: Vec<String> = Vec::new();
     let mut err_lines: Vec<String> = Vec::new();
 
-    if distributed {
-        for service in ["caramba-sub.service", "caramba-bot.service"] {
-            if !service_exists(service) {
-                ok_lines.push(format!(
-                    "{} not installed locally (already external).",
-                    service
-                ));
-                continue;
+    // 1. Panel is ALWAYS local/enabled on this host
+    if service_exists("caramba-panel.service") {
+        match run_systemctl_action(&["enable", "--now", "caramba-panel.service"]) {
+            Ok(_) => ok_lines.push("Ensured caramba-panel is enabled/active.".to_string()),
+            Err(e) => err_lines.push(e),
+        }
+    }
+
+    // 2. Sub Worker
+    let sub_service = "caramba-sub.service";
+    if local_sub_enabled {
+        if service_exists(sub_service) {
+            match run_systemctl_action(&["enable", "--now", sub_service]) {
+                Ok(_) => ok_lines.push("Enabled and started local Sub worker.".to_string()),
+                Err(e) => err_lines.push(e),
             }
-            match run_systemctl_action(&["disable", "--now", service]) {
-                Ok(_) => ok_lines.push(format!("Stopped and disabled {}.", service)),
+        } else {
+            err_lines.push("Local Sub worker service not found (use installer to add it).".to_string());
+        }
+    } else {
+        if service_exists(sub_service) {
+            match run_systemctl_action(&["disable", "--now", sub_service]) {
+                Ok(_) => ok_lines.push("Stopped and disabled local Sub worker (using external).".to_string()),
                 Err(e) => err_lines.push(e),
             }
         }
-    } else {
-        for service in [
-            "caramba-panel.service",
-            "caramba-sub.service",
-            "caramba-bot.service",
-        ] {
-            if !service_exists(service) {
-                ok_lines.push(format!("{} is not installed locally.", service));
-                continue;
+    }
+
+    // 3. Bot Worker
+    let bot_service = "caramba-bot.service";
+    if local_bot_enabled {
+        if service_exists(bot_service) {
+            match run_systemctl_action(&["enable", "--now", bot_service]) {
+                Ok(_) => ok_lines.push("Enabled and started local Bot worker.".to_string()),
+                Err(e) => err_lines.push(e),
             }
-            match run_systemctl_action(&["enable", "--now", service]) {
-                Ok(_) => ok_lines.push(format!("Enabled and started {}.", service)),
+        } else {
+            // Note: Bot might be run internally by the panel too, but we are moving towards worker model.
+            err_lines.push("Local Bot worker service not found.".to_string());
+        }
+    } else {
+        if service_exists(bot_service) {
+            match run_systemctl_action(&["disable", "--now", bot_service]) {
+                Ok(_) => ok_lines.push("Stopped and disabled local Bot worker (using external).".to_string()),
                 Err(e) => err_lines.push(e),
             }
         }
     }
 
     if let Err(e) = run_systemctl_action(&["reload", "caddy"]) {
-        err_lines.push(e);
+        err_lines.push(format!("Caddy reload: {}", e));
     } else {
-        ok_lines.push("Reloaded Caddy.".to_string());
+        ok_lines.push("Reloaded Caddy ingress.".to_string());
     }
 
     (
         StatusCode::OK,
-        Html(render_topology_apply_result(&mode, &ok_lines, &err_lines)),
+        Html(render_topology_apply_result("modular", &ok_lines, &err_lines)),
     )
         .into_response()
 }
@@ -1776,15 +1755,6 @@ pub async fn check_update(State(state): State<AppState>) -> impl IntoResponse {
         }
     };
     let update_role = if distributed_mode { "panel" } else { "hub" };
-    let sub_domain_setting = state
-        .settings
-        .get_or_default("subscription_domain", "")
-        .await;
-    let sub_domain = if sub_domain_setting.trim().is_empty() {
-        "<SUB_DOMAIN>".to_string()
-    } else {
-        sub_domain_setting.trim().to_string()
-    };
     let update_scope = if distributed_mode {
         "Distributed mode: panel host updates control-plane only. Sub/Bot workers are upgraded on their own hosts."
     } else {
@@ -1818,10 +1788,9 @@ pub async fn check_update(State(state): State<AppState>) -> impl IntoResponse {
                 panel_url, panel_url, installer_enrollment_key, latest_version
             );
             let sub_command = format!(
-                "curl -fsSL {}/install.sh | sudo bash -s -- --role sub --panel {} --domain {} --token {} --region global --version {}",
+                "curl -fsSL {}/install.sh | sudo bash -s -- --role sub --panel {} --token {} --region global --version {}",
                 panel_url,
                 panel_url,
-                sub_domain,
                 if internal_api_token_present {
                     internal_api_token.clone()
                 } else {
@@ -1830,7 +1799,7 @@ pub async fn check_update(State(state): State<AppState>) -> impl IntoResponse {
                 latest_version
             );
             let bot_command = format!(
-                "curl -fsSL {}/install.sh | sudo bash -s -- --role bot --panel {} --bot-token <BOT_TOKEN> --panel-token {} --version {}",
+                "curl -fsSL {}/install.sh | sudo bash -s -- --role bot --panel {} --panel-token {} --version {}",
                 panel_url,
                 panel_url,
                 if internal_api_token_present {

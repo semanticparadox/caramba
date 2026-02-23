@@ -5,6 +5,7 @@ pub mod auth;
 pub mod dashboard;
 pub mod frontends;
 pub mod nodes;
+pub mod notifications;
 pub mod plans;
 pub mod promo;
 pub mod settings;
@@ -34,6 +35,7 @@ pub use store::{
     create_category, create_product, delete_category, delete_product, get_store_categories_page,
     get_store_products_page,
 };
+pub use notifications::{get_notifications_page, run_expiry_reminder_loop};
 pub use users::{
     admin_gift_subscription, admin_kill_subscription_sessions, delete_user_subscription,
     extend_user_subscription, get_subscription_devices, get_user_details, get_users,

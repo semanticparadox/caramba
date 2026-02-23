@@ -31,7 +31,6 @@ use caramba_db::models::store::{Plan, User};
 pub struct UsersTemplate {
     pub users: Vec<User>,
     pub search: String,
-    pub campaigns: Vec<NotificationCampaignHistory>,
     pub is_auth: bool,
     pub username: String,
     pub admin_path: String,
@@ -327,7 +326,7 @@ impl BroadcastSegment {
     }
 }
 
-async fn ensure_notification_tables(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+pub async fn ensure_notification_tables(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS notification_campaigns (
@@ -389,7 +388,7 @@ async fn ensure_notification_tables(pool: &sqlx::PgPool) -> Result<(), sqlx::Err
     Ok(())
 }
 
-async fn fetch_campaign_history(
+pub async fn fetch_campaign_history(
     pool: &sqlx::PgPool,
 ) -> Result<Vec<NotificationCampaignHistory>, sqlx::Error> {
     let rows: Vec<NotificationCampaignRow> = sqlx::query_as(
@@ -712,21 +711,9 @@ pub async fn get_users(
         state.user_service.search(&search).await.unwrap_or_default()
     };
 
-    if let Err(e) = ensure_notification_tables(&state.pool).await {
-        error!("Failed to ensure notification tables: {}", e);
-    }
-    let campaigns = match fetch_campaign_history(&state.pool).await {
-        Ok(c) => c,
-        Err(e) => {
-            error!("Failed to fetch notification campaign history: {}", e);
-            Vec::new()
-        }
-    };
-
     let template = UsersTemplate {
         users,
         search,
-        campaigns,
         is_auth: true,
         username: get_auth_user(&state, &jar)
             .await

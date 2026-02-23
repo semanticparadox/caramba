@@ -19,10 +19,6 @@
             class="tab-btn flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-white hover:bg-white/5">
             <i data-lucide="credit-card" class="w-4 h-4"></i> Payments
         </button>
-        <button onclick="switchTab('frontend')" id="tab-frontend"
-            class="tab-btn flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-white hover:bg-white/5">
-            <i data-lucide="layout" class="w-4 h-4"></i> Frontend
-        </button>
         <button onclick="switchTab('trials')" id="tab-trials"
             class="tab-btn flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-white hover:bg-white/5">
             <i data-lucide="gift" class="w-4 h-4"></i> Trials
@@ -119,99 +115,6 @@
             </div>
         </div>
 
-        <!-- 1.5 FRONTEND TAB -->
-        <div id="content-frontend" class="tab-content hidden space-y-6 animate-fade-in">
-            <div
-                class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6">
-                <header class="flex items-center gap-3 mb-6">
-                    <div class="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400">
-                        <i data-lucide="layout" class="w-5 h-5"></i>
-                    </div>
-                    <div>
-                        <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Frontend & Subscription</h3>
-                        <p class="text-xs text-slate-500 dark:text-slate-500">Configure how users access their
-                            subscriptions</p>
-                    </div>
-                </header>
-
-                <div class="space-y-6">
-                    <!-- Frontend Mode -->
-                    <div>
-                        <label
-                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Frontend
-                            Mode</label>
-                        <select form="main-settings-form" name="frontend_mode"
-                            class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all text-sm appearance-none">
-                            <option value="local" {% if frontend_mode=="local" %}selected{% endif %}>Local (Panel
-                                Hosted)</option>
-                            <option value="distributed" {% if frontend_mode=="distributed" %}selected{% endif %}>
-                                Distributed (CDN/External)</option>
-                        </select>
-                        <p class="text-[10px] text-slate-500 dark:text-slate-500 mt-1.5">Local: Panel serves pages
-                            directly. Distributed:
-                            Uses external nodes/CDNs.</p>
-                    </div>
-
-                    <!-- Subscription Domain -->
-                    <div>
-                        <label
-                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Subscription
-                            Domain (Optional)</label>
-                        <input type="text" form="main-settings-form" name="subscription_domain"
-                            value="{{ subscription_domain }}" placeholder="sub.example.com"
-                            class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all text-sm">
-                        <p class="text-[10px] text-slate-500 dark:text-slate-500 mt-1.5">Custom domain for subscription
-                            links. Leave empty
-                            to use Panel URL.</p>
-                    </div>
-
-                    <!-- Mini App Toggle -->
-                    <div
-                        class="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-950/30 border border-slate-200 dark:border-white/5 rounded-xl">
-                        <div class="flex items-center gap-3">
-                            <div
-                                class="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400">
-                                <i data-lucide="smartphone" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h4 class="text-sm font-semibold text-slate-900 dark:text-white">Telegram Mini App</h4>
-                                <p class="text-xs text-slate-600 dark:text-slate-400">Enable the embedded Telegram Mini
-                                    App</p>
-                            </div>
-                        </div>
-                        <label class="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" form="main-settings-form" name="miniapp_enabled" value="true"
-                                class="sr-only peer" {% if miniapp_enabled %}checked{% endif %}>
-                            <div
-                                class="w-11 h-6 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600">
-                            </div>
-                        </label>
-                    </div>
-
-                    <div>
-                        <label
-                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Relay
-                            Auth Mode</label>
-                        <select form="main-settings-form" name="relay_auth_mode"
-                            class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all text-sm appearance-none">
-                            <option value="dual" {% if relay_auth_mode=="dual" %}selected{% endif %}>Dual (recommended
-                                rollout)</option>
-                            <option value="v1" {% if relay_auth_mode=="v1" %}selected{% endif %}>V1 (derived only)
-                            </option>
-                            <option value="legacy" {% if relay_auth_mode=="legacy" %}selected{% endif %}>Legacy (raw
-                                token)</option>
-                        </select>
-                        <p class="text-[10px] text-slate-500 dark:text-slate-500 mt-1.5">Controls inter-node relay
-                            credentials for Shadowsocks.</p>
-                        <p class="text-[10px] text-amber-300 mt-1">Last legacy relay traffic: {{
-                            relay_legacy_usage_last_seen_at }} ({{ relay_legacy_usage_last_seen_bytes }} bytes)</p>
-                        <p class="text-[10px] text-slate-500 dark:text-slate-500 mt-1">Switch to <span
-                                class="font-semibold">v1</span> is blocked for 24h after the last observed <span
-                                class="font-mono">relay_*_legacy</span> traffic.</p>
-                    </div>
-                </div>
-            </div>
-        </div>
 
         <!-- 2. PAYMENTS TAB -->
         <div id="content-payments" class="tab-content hidden space-y-6 animate-fade-in">
@@ -515,19 +418,37 @@
                 </header>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div>
-                        <label
-                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Topology
-                            Mode</label>
-                        <select form="main-settings-form" name="deployment_mode"
-                            class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:border-cyan-500 outline-none transition-all text-sm">
-                            <option value="hub" {% if deployment_mode=="hub" %}selected{% endif %}>Hub (single host:
-                                panel + sub + optional bot)</option>
-                            <option value="distributed" {% if deployment_mode=="distributed" %}selected{% endif %}>
-                                Distributed (control-plane + external services)</option>
-                        </select>
-                        <p class="text-[11px] text-slate-500 dark:text-slate-500 mt-1">In distributed mode, frontend
-                            mode is forced to distributed.</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div
+                            class="flex items-center justify-between p-3 rounded-xl bg-slate-950/40 border border-slate-300 dark:border-white/10">
+                            <div>
+                                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Local Sub
+                                    Worker</p>
+                                <p class="text-[10px] text-slate-500">Run subscription handler on this host</p>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" form="main-settings-form" name="local_sub_enabled" value="true"
+                                    class="sr-only peer" {% if local_sub_enabled %}checked{% endif %}>
+                                <div
+                                    class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600">
+                                </div>
+                            </label>
+                        </div>
+                        <div
+                            class="flex items-center justify-between p-3 rounded-xl bg-slate-950/40 border border-slate-300 dark:border-white/10">
+                            <div>
+                                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Local Bot
+                                    Worker</p>
+                                <p class="text-[10px] text-slate-500">Run Telegram Bot on this host</p>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" form="main-settings-form" name="local_bot_enabled" value="true"
+                                    class="sr-only peer" {% if local_bot_enabled %}checked{% endif %}>
+                                <div
+                                    class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600">
+                                </div>
+                            </label>
+                        </div>
                     </div>
                     <div>
                         <label
@@ -640,78 +561,6 @@
                 </div>
                 <div id="topology-apply-result"></div>
 
-                <div class="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4 space-y-4">
-                    <div class="flex items-center justify-between gap-3">
-                        <p class="text-xs text-slate-200">Quick install commands (ready to run)</p>
-                        <a href="{{ admin_path }}/api-keys" class="text-[11px] text-cyan-300 hover:text-cyan-200">Manage
-                            Enrollment Keys</a>
-                    </div>
-
-                    <div class="space-y-2">
-                        <div
-                            class="rounded-lg border border-slate-300 dark:border-white/10 bg-slate-100 dark:bg-slate-950/50 p-2.5">
-                            <div class="flex items-center justify-between mb-1.5">
-                                <span class="text-[11px] text-slate-300 font-semibold uppercase tracking-wide">Node
-                                    Server</span>
-                                <button type="button" onclick="copyInstallerCommand('install-cmd-node', this)"
-                                    class="text-[11px] px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors">Copy</button>
-                            </div>
-                            <div id="install-cmd-node" class="font-mono text-[11px] text-slate-300 break-all">{{
-                                installer_node_command }}</div>
-                        </div>
-
-                        <div
-                            class="rounded-lg border border-slate-300 dark:border-white/10 bg-slate-100 dark:bg-slate-950/50 p-2.5">
-                            <div class="flex items-center justify-between mb-1.5">
-                                <span class="text-[11px] text-slate-300 font-semibold uppercase tracking-wide">Sub
-                                    Worker</span>
-                                <button type="button" onclick="copyInstallerCommand('install-cmd-sub', this)"
-                                    class="text-[11px] px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors">Copy</button>
-                            </div>
-                            <div id="install-cmd-sub" class="font-mono text-[11px] text-slate-300 break-all">{{
-                                installer_sub_command }}</div>
-                        </div>
-
-                        <div
-                            class="rounded-lg border border-slate-300 dark:border-white/10 bg-slate-100 dark:bg-slate-950/50 p-2.5">
-                            <div class="flex items-center justify-between mb-1.5">
-                                <span class="text-[11px] text-slate-300 font-semibold uppercase tracking-wide">Bot
-                                    Worker</span>
-                                <button type="button" onclick="copyInstallerCommand('install-cmd-bot', this)"
-                                    class="text-[11px] px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors">Copy</button>
-                            </div>
-                            <div id="install-cmd-bot" class="font-mono text-[11px] text-slate-300 break-all">{{
-                                installer_bot_command }}</div>
-                        </div>
-                    </div>
-
-                    <div
-                        class="rounded-lg border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-3 text-[11px] text-slate-600 dark:text-slate-400 space-y-1.5">
-                        <p><span class="text-slate-200">Auto-generated enrollment key:</span> <span
-                                class="font-mono text-cyan-300 break-all">{{ installer_enrollment_key }}</span></p>
-                        <p><span class="text-slate-200">Internal API token:</span>
-                            {% if installer_sub_token_ready %}
-                            <span class="font-mono text-cyan-300 break-all">{{ installer_sub_token }}</span>
-                            {% if internal_api_token_source == "env" %}
-                            <span class="ml-1 text-emerald-300">(from environment)</span>
-                            {% else if internal_api_token_source == "generated" %}
-                            <span class="ml-1 text-emerald-300">(auto-generated and saved)</span>
-                            {% else if internal_api_token_source == "settings" %}
-                            <span class="ml-1 text-cyan-300">(loaded from panel settings)</span>
-                            {% endif %}
-                            {% else %}
-                            <span class="text-rose-300">unavailable (failed to generate)</span>
-                            {% endif %}
-                        </p>
-                        <p>Node-specific one-time token is still available from <a href="{{ admin_path }}/nodes"
-                                class="text-cyan-300 hover:text-cyan-200">Nodes → Add Node → Install</a>.</p>
-                    </div>
-
-                    <div>
-                        <p class="text-xs text-slate-300 mb-2">Role upgrade command (already installed host):</p>
-                        <div class="font-mono text-slate-300 break-all text-[11px]">sudo caramba upgrade</div>
-                    </div>
-                </div>
             </div>
 
             <!-- Update Overview -->

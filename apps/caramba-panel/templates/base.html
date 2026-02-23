@@ -245,11 +245,17 @@
                     %}">Settings</a>
                 {% endif %}
 
-                {% if active_page == "users" || active_page == "api_keys" || active_page == "promo" %}
+                {% if active_page == "users" || active_page == "api_keys" || active_page == "promo" || active_page ==
+                "notifications" %}
                 <a href="{{ admin_path }}/users"
                     class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
                     users" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
                     %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif %}">Users</a>
+                <a href="{{ admin_path }}/notifications"
+                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
+                    notifications" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{%
+                    else %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif
+                    %}">Notifications</a>
                 <a href="{{ admin_path }}/api-keys"
                     class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
                     api_keys" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
@@ -332,13 +338,13 @@
                     </a>
                     <a href="{{ admin_path }}/users"
                         class="flex flex-col items-center justify-center w-[4.5rem] h-14 rounded-xl transition-all hover:bg-indigo-50 dark:hover:bg-indigo-500/10 {% if active_page == "
-                        users" || active_page=="api_keys" || active_page=="promo" %}text-indigo-600 dark:text-indigo-400
-                        bg-indigo-50/50 dark:bg-indigo-500/10 ring-1 ring-indigo-500/20 shadow-sm{% else
-                        %}text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200
-                        hover:-translate-y-1{% endif %}" title="Users">
+                        users" || active_page=="api_keys" || active_page=="promo" || active_page=="notifications"
+                        %}text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-500/10 ring-1
+                        ring-indigo-500/20 shadow-sm{% else %}text-slate-500 dark:text-slate-400 hover:text-slate-900
+                        dark:hover:text-slate-200 hover:-translate-y-1{% endif %}" title="Users">
                         <i data-lucide="users" class="w-5 h-5 mb-1 {% if active_page == " users" ||
-                            active_page=="api_keys" || active_page=="promo" %}text-indigo-500{% endif %} hover:scale-110
-                            transition-transform"></i>
+                            active_page=="api_keys" || active_page=="promo" || active_page=="notifications"
+                            %}text-indigo-500{% endif %} hover:scale-110 transition-transform"></i>
                         <span class="text-[9px] font-medium tracking-wide">Users</span>
                     </a>
                     <a href="{{ admin_path }}/plans"

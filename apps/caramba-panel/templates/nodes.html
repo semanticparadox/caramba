@@ -16,6 +16,10 @@
                 class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl font-semibold shadow-lg shadow-indigo-500/30 transition-all border border-transparent dark:border-white/10">
                 Add Node
             </button>
+            <button onclick="openAddRelay()"
+                class="bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded-xl font-semibold shadow-lg shadow-amber-500/30 transition-all border border-transparent dark:border-white/10">
+                🔗 Add Relay Node
+            </button>
             <button hx-get="{{ admin_path }}/nodes" hx-target="#nodes-table-body"
                 class="bg-white hover:bg-slate-50 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 px-4 py-2 rounded-xl font-semibold shadow-sm border border-slate-200 dark:border-white/10 transition-all">
                 Refresh
@@ -89,6 +93,44 @@
                 <input name="ip" placeholder="203.0.113.10"
                     class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-3 py-2 text-slate-900 dark:text-white">
             </div>
+            <div>
+                <label class="block text-xs text-slate-600 dark:text-slate-400 uppercase mb-1">Country</label>
+                <select name="country"
+                    class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-3 py-2 text-slate-900 dark:text-white">
+                    <option value="">— Not set —</option>
+                    <option value="Russia">🇷🇺 Russia</option>
+                    <option value="Netherlands">🇳🇱 Netherlands</option>
+                    <option value="Germany">🇩🇪 Germany</option>
+                    <option value="Finland">🇫🇮 Finland</option>
+                    <option value="France">🇫🇷 France</option>
+                    <option value="USA">🇺🇸 USA</option>
+                    <option value="UK">🇬🇧 UK</option>
+                    <option value="Turkey">🇹🇷 Turkey</option>
+                    <option value="Sweden">🇸🇪 Sweden</option>
+                    <option value="Latvia">🇱🇻 Latvia</option>
+                    <option value="Lithuania">🇱🇹 Lithuania</option>
+                    <option value="Estonia">🇪🇪 Estonia</option>
+                    <option value="Kazakhstan">🇰🇿 Kazakhstan</option>
+                </select>
+            </div>
+            <div id="add-node-relay-section" class="space-y-2 hidden">
+                <label class="flex items-center gap-2 text-slate-300">
+                    <input type="checkbox" id="add-node-is-relay" name="is_relay" value="on"
+                        class="rounded border-white/20 bg-slate-900">
+                    Is relay node (other nodes chain through this one)
+                </label>
+                <div>
+                    <label class="block text-xs text-slate-600 dark:text-slate-400 uppercase mb-1">Relay Parent
+                        (optional — chain through another node)</label>
+                    <select name="relay_id"
+                        class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-3 py-2 text-slate-900 dark:text-white">
+                        <option value="">None (standalone)</option>
+                        {% for n in nodes %}
+                        <option value="{{ n.id }}">{{ n.name }} ({{ n.ip }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
             <div class="space-y-2">
                 <p class="text-xs text-slate-600 dark:text-slate-400">
                     VPN port is managed automatically. Default bootstrap port: <span class="text-slate-200">443</span>.
@@ -161,6 +203,14 @@
     async function copyNodeInstallCommand() {
         if (!currentNodeInstallCommand) return;
         await navigator.clipboard.writeText(currentNodeInstallCommand);
+    }
+
+    function openAddRelay() {
+        const relaySection = document.getElementById('add-node-relay-section');
+        const relayCheckbox = document.getElementById('add-node-is-relay');
+        if (relaySection) relaySection.classList.remove('hidden');
+        if (relayCheckbox) relayCheckbox.checked = true;
+        document.getElementById('add-node-modal').showModal();
     }
 </script>
 {% endblock %}

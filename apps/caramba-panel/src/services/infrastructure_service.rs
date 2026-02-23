@@ -169,14 +169,17 @@ impl InfrastructureService {
         ip: &str,
         relay_id: Option<i64>,
         is_relay: bool,
+        country: &str,
     ) -> Result<()> {
+        let country_val = if country.is_empty() { None } else { Some(country) };
         let primary = sqlx::query(
-            "UPDATE nodes SET name = $1, ip = $2, relay_id = $3, is_relay = $4 WHERE id = $5",
+            "UPDATE nodes SET name = $1, ip = $2, relay_id = $3, is_relay = $4, country = $5 WHERE id = $6",
         )
         .bind(name)
         .bind(ip)
         .bind(relay_id)
         .bind(is_relay)
+        .bind(country_val)
         .bind(id)
         .execute(&self.pool)
         .await;

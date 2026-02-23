@@ -532,6 +532,12 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         sni_monitor.start().await;
     });
 
+    // Start Expiry Reminder background task
+    let expiry_state = state.clone();
+    tokio::spawn(async move {
+        handlers::admin::run_expiry_reminder_loop(expiry_state).await;
+    });
+
     use tower_http::services::ServeDir;
 
     // Routes
@@ -713,6 +719,10 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             post(handlers::admin::notify_preview),
         )
         .route("/users/notify/all", post(handlers::admin::notify_all_users))
+        // Dedicated Notifications page
+        .route("/notifications", get(handlers::admin::get_notifications_page))
+        .route("/notifications/send", post(handlers::admin::notify_all_users))
+        .route("/notifications/preview", post(handlers::admin::notify_preview))
         .route(
             "/users/subs/{id}",
             axum::routing::delete(handlers::admin::delete_user_subscription),
@@ -749,7 +759,11 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         // Frontend Servers (Page)
         .route(
             "/frontends",
-            axum::routing::get(handlers::admin::get_frontends),
+            axum::routing::get(handlers::admin::frontends::get_frontends),
+        )
+        .route(
+            "/frontends/settings",
+            axum::routing::post(handlers::admin::frontends::save_frontend_settings),
         )
         // Client API (Mini App) - served via .nest("/api/client", ...) below
         .route(
