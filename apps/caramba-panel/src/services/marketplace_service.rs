@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use caramba_db::models::store::{PaymentSession, User, Product};
+use caramba_db::models::store::{PaymentSession, User};
 use caramba_db::repositories::payment_session_repo::PaymentSessionRepository;
 use chrono::Utc;
 use sqlx::PgPool;
@@ -14,7 +14,6 @@ use super::payment::nowpayments::NowPaymentsProvider;
 use super::payment::telegram_stars::StarsProvider;
 use super::store_service::StoreService;
 use super::subscription_service::SubscriptionService;
-use crate::services::bot_manager::BotManager;
 
 #[derive(Clone)]
 pub struct MarketplaceService {
@@ -160,7 +159,7 @@ impl MarketplaceService {
         if product.product_type == "plan" {
             // Find the active subscription or create one
             let subs = self.sub_service.get_user_subscriptions(session.user_id).await?;
-            let mut days_to_add = 30; // Default fallback
+            let days_to_add = 30; // Default or traffic-only baselineck
 
             // Attempt to derive days from the StoreService 
             // In a full implementation, `plan_duration_id` would determine this.

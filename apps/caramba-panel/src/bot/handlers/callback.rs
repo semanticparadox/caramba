@@ -714,7 +714,7 @@ pub async fn callback_handler(
                 let id_str = buy_dur.strip_prefix("buy_dur_").unwrap();
                 if let Ok(duration_id) = id_str.parse::<i64>() {
                     let user_db: Option<caramba_db::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
-                    if let Some(u) = user_db {
+                    if let Some(_u) = user_db {
                         let mut buttons: Vec<Vec<InlineKeyboardButton>> = Vec::new();
 
                         if state.settings.get_or_default("manual_enabled", "false").await == "true" {
@@ -752,7 +752,7 @@ pub async fn callback_handler(
                 let parts: Vec<&str> = pay_dur.strip_prefix("pay_dur_").unwrap_or("").split("_").collect();
                 if parts.len() == 2 {
                     let provider = parts[0];
-                    let duration_id: i64 = parts[1].parse().unwrap_or(0);
+                    let _duration_id: i64 = parts[1].parse().unwrap_or(0);
                     
                     let user_db: Option<caramba_db::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                     if let Some(u) = user_db {
@@ -773,7 +773,7 @@ pub async fn callback_handler(
                                             .parse_mode(ParseMode::MarkdownV2)
                                             .await;
                                     } else {
-                                        let mut buttons = vec![vec![InlineKeyboardButton::url("🔗 Pay Now", invoice_payload.parse().unwrap_or("https://example.com".parse().unwrap()))]];
+                                        let buttons = vec![vec![InlineKeyboardButton::url("🔗 Pay Now", invoice_payload.parse().unwrap_or("https://example.com".parse().unwrap()))]];
                                         let _ = bot.send_message(msg.chat().id, "🧾 *Invoice Generated*\n\nPlease click the button below to complete your payment.")
                                             .parse_mode(ParseMode::MarkdownV2)
                                             .reply_markup(InlineKeyboardMarkup::new(buttons))

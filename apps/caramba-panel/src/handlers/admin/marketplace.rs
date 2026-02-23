@@ -2,7 +2,7 @@ use askama::Template;
 use askama_web::WebTemplate;
 use axum::{
     extract::{Form, Path, State},
-    response::{Html, IntoResponse, Redirect},
+    response::{Html, IntoResponse},
 };
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
