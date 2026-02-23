@@ -29,7 +29,7 @@ pub async fn register_bot_message(bot: Bot, state: &AppState, user_id: i64, sent
     let msg_id = sent_msg.id.0;
     
     // Add current message
-    if let Err(e) = state.store_service.add_bot_message_to_history(user_id, chat_id, msg_id).await {
+    if let Err(e) = state.store_service.add_bot_message_to_history(user_id, chat_id, msg_id.into()).await {
         error!("Failed to track bot msg: {}", e);
         return;
     }
@@ -39,7 +39,7 @@ pub async fn register_bot_message(bot: Bot, state: &AppState, user_id: i64, sent
         Ok(items) => {
             for (cid, mid) in items {
                 // Best effort delete
-                let _ = bot.delete_message(teloxide::types::ChatId(cid), teloxide::types::MessageId(mid)).await;
+                let _ = bot.delete_message(teloxide::types::ChatId(cid), teloxide::types::MessageId(mid as i32)).await;
             }
         },
         Err(e) => error!("Failed to cleanup bot history: {}", e)

@@ -65,7 +65,7 @@ pub async fn callback_handler(
                                 let state = state.clone();
                                 let uid = u.id;
                                 tokio::spawn(async move {
-                                    let _ = state.store_service.update_last_bot_msg_id(uid, m.id.0).await;
+                                    let _ = state.store_service.update_last_bot_msg_id(uid, m.id.0.into()).await;
                                 });
                             })
                             .map_err(|e| error!("Failed to send welcome after terms: {}", e));

@@ -68,7 +68,7 @@ pub async fn subscription_handler(
     // 5. Generate Config
     let client_type = params.client.as_deref().unwrap_or("singbox");
 
-    let (content, content_type, filename) = match client_type {
+    let (content, content_type, _filename) = match client_type {
         "clash" => {
             // Legacy Clash Gen
             let simple_nodes: Vec<&crate::panel_client::Node> =

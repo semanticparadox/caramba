@@ -113,7 +113,7 @@ impl UserService {
         self.user_repo.update_language(user_id, lang).await
     }
 
-    pub async fn update_last_bot_msg_id(&self, user_id: i64, msg_id: i32) -> Result<()> {
+    pub async fn update_last_bot_msg_id(&self, user_id: i64, msg_id: i64) -> Result<()> {
         self.user_repo.update_last_bot_msg_id(user_id, msg_id).await
     }
 
@@ -121,7 +121,7 @@ impl UserService {
         &self,
         user_id: i64,
         chat_id: i64,
-        message_id: i32,
+        message_id: i64,
     ) -> Result<()> {
         sqlx::query(
             "INSERT INTO bot_chat_history (user_id, chat_id, message_id) VALUES ($1, $2, $3)",
@@ -138,8 +138,8 @@ impl UserService {
         &self,
         user_id: i64,
         keep_count: i64,
-    ) -> Result<Vec<(i64, i32)>> {
-        let ids_to_delete: Vec<(i64, i64, i32)> = sqlx::query_as(
+    ) -> Result<Vec<(i64, i64)>> {
+        let ids_to_delete: Vec<(i64, i64, i64)> = sqlx::query_as(
             "SELECT id, chat_id, message_id FROM bot_chat_history 
              WHERE user_id = $1 
              ORDER BY created_at DESC 

@@ -64,14 +64,14 @@ impl UserRepository {
                 .ok()
                 .flatten(),
             last_bot_msg_id: row
-                .try_get::<Option<i32>, _>("last_bot_msg_id")
+                .try_get::<Option<i64>, _>("last_bot_msg_id")
                 .ok()
                 .flatten()
                 .or_else(|| {
-                    row.try_get::<Option<i64>, _>("last_bot_msg_id")
+                    row.try_get::<Option<i32>, _>("last_bot_msg_id")
                         .ok()
                         .flatten()
-                        .map(|v| v as i32)
+                        .map(|v| v as i64)
                 }),
             created_at: row
                 .try_get::<DateTime<Utc>, _>("created_at")
@@ -308,7 +308,7 @@ impl UserRepository {
         Ok(())
     }
 
-    pub async fn update_last_bot_msg_id(&self, user_id: i64, msg_id: i32) -> Result<()> {
+    pub async fn update_last_bot_msg_id(&self, user_id: i64, msg_id: i64) -> Result<()> {
         sqlx::query("UPDATE users SET last_bot_msg_id = $1 WHERE id = $2")
             .bind(msg_id)
             .bind(user_id)
