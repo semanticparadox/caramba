@@ -1,9 +1,6 @@
-<div class="flex items-center gap-4 text-slate-500 text-xs">
-    <span class="font-mono text-slate-400">{{ panel_version }}</span>
-    <span class="hidden sm:inline opacity-20">|</span>
-
+<div class="flex items-center gap-3 text-xs">
     <!-- Bot Status -->
-    <span class="hidden sm:inline flex items-center gap-1.5" id="footer-bot-status" title="Bot: {{ bot_username }}">
+    <span class="hidden sm:inline-flex items-center gap-1.5" id="footer-bot-status" title="Bot: {{ bot_username }}">
         {% if bot_status == "running" %}
         <span class="relative flex h-1.5 w-1.5">
             <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -18,15 +15,31 @@
         {% endif %}
     </span>
 
-    <span class="hidden sm:inline opacity-20">|</span>
+    <!-- DB Status -->
+    <span class="hidden sm:inline-flex items-center gap-1" title="Postgres v{{ pg_version }}">
+        <i data-lucide="database" class="w-3 h-3 {% if db_status == " Online" %}text-emerald-500{% else %}text-red-500{%
+            endif %}"></i>
+        <span class="font-medium {% if db_status == " Online" %}text-emerald-400{% else %}text-red-500{% endif
+            %}">DB</span>
+    </span>
+
+    <!-- Redis Status -->
+    <span class="hidden sm:inline-flex items-center gap-1" title="Redis v{{ redis_version }}">
+        <i data-lucide="layers" class="w-3 h-3 {% if redis_status == " Online" %}text-emerald-500{% else
+            %}text-red-500{% endif %}"></i>
+        <span class="font-medium {% if redis_status == " Online" %}text-emerald-400{% else %}text-red-500{% endif
+            %}">Redis</span>
+    </span>
+
+    <span class="hidden md:inline opacity-20">|</span>
 
     <!-- System Resources -->
-    <span class="hidden md:flex items-center gap-3">
-        <div class="flex items-center gap-1.5" title="CPU Usage">
+    <span class="hidden md:inline-flex items-center gap-3">
+        <div class="flex items-center gap-1" title="CPU Usage">
             <i data-lucide="cpu" class="w-3 h-3 text-indigo-400"></i>
             <span class="font-mono text-slate-400">{{ cpu_usage }}</span>
         </div>
-        <div class="flex items-center gap-1.5" title="RAM Usage">
+        <div class="flex items-center gap-1" title="RAM Usage">
             <i data-lucide="memory-stick" class="w-3 h-3 text-indigo-400"></i>
             <span class="font-mono text-slate-400">{{ ram_usage }}</span>
         </div>
@@ -34,23 +47,25 @@
 
     <span class="hidden md:inline opacity-20">|</span>
 
-    <!-- Database Status -->
-    <span class="hidden sm:inline flex items-center gap-1.5" title="Postgres v{{ pg_version }}">
-        <i data-lucide="database" class="w-3 h-3 {% if db_status == "Online" %}text-emerald-500{% else %}text-red-500{%
-            endif %}"></i>
-        <span class="font-medium {% if db_status == "Online" %}text-emerald-400{% else %}text-red-500{% endif
-            %}">DB</span>
+    <!-- Version + Clock -->
+    <span class="hidden md:inline-flex items-center gap-2">
+        <span class="font-mono text-slate-500">{{ panel_version }}</span>
+        <span class="font-mono text-slate-500" id="topbar-clock"></span>
     </span>
 
-    <!-- Redis Status -->
-    <span class="hidden sm:inline flex items-center gap-1.5" title="Redis v{{ redis_version }}">
-        <i data-lucide="layers" class="w-3 h-3 {% if redis_status == "Online" %}text-emerald-500{% else
-            %}text-red-500{% endif %}"></i>
-        <span class="font-medium {% if redis_status == "Online" %}text-emerald-400{% else %}text-red-500{% endif
-            %}">Redis</span>
+    <!-- Active Users (last 24h) -->
+    <span class="hidden lg:inline-flex items-center gap-1" title="Active subscriptions (24h)">
+        <i data-lucide="users" class="w-3 h-3 text-amber-400"></i>
+        <span class="font-mono text-slate-400">{{ active_subs_24h }}</span>
     </span>
+</div>
 
-</div>
-<div class="flex items-center gap-4">
-    <span class="text-slate-600 text-xs">CARAMBA &copy; 2026</span>
-</div>
+<script>
+    (function updateClock() {
+        const el = document.getElementById('topbar-clock');
+        if (!el) return;
+        const now = new Date();
+        el.textContent = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+        setTimeout(updateClock, 30000);
+    })();
+</script>

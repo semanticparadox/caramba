@@ -102,7 +102,8 @@ pub struct InstallNodeForm {
     pub auto_configure: Option<bool>,
     pub country: Option<String>,
     pub is_relay: Option<String>,
-    pub relay_id: Option<i64>,
+    #[serde(default)]
+    pub relay_id: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -116,7 +117,8 @@ pub struct NodeLogsQuery {
 pub struct UpdateNodeForm {
     pub name: String,
     pub ip: String,
-    pub relay_id: Option<i64>,
+    #[serde(default)]
+    pub relay_id: Option<String>,
     pub is_relay: Option<String>, // "on" or None from checkbox
     pub config_block_torrent: Option<String>,
     pub config_block_ads: Option<String>,
@@ -237,13 +239,15 @@ pub async fn install_node(
             // Set country and relay fields if provided
             let country = form.country.as_deref().unwrap_or("").trim();
             let is_relay = form.is_relay.is_some();
-            if !country.is_empty() || is_relay || form.relay_id.is_some() {
+            let relay_id: Option<i64> = form.relay_id.as_deref()
+                .and_then(|s| s.trim().parse().ok());
+            if !country.is_empty() || is_relay || relay_id.is_some() {
                 let _ = sqlx::query(
                     "UPDATE nodes SET country = $1, is_relay = $2, relay_id = $3 WHERE id = $4"
                 )
                 .bind(if country.is_empty() { None } else { Some(country) })
                 .bind(is_relay)
-                .bind(form.relay_id)
+                .bind(relay_id)
                 .bind(id)
                 .execute(&state.pool)
                 .await;
@@ -354,10 +358,13 @@ pub async fn update_node(
     let country = form.country.as_deref().unwrap_or("").trim().to_string();
     info!("Updating node ID: {} (Relay: {}, Country: {})", id, is_relay, country);
 
+    let relay_id: Option<i64> = form.relay_id.as_deref()
+        .and_then(|s| s.trim().parse().ok());
+
     // 1. Update core fields
     if let Err(e) = state
         .infrastructure_service
-        .update_node(id, &form.name, &form.ip, form.relay_id, is_relay, &country)
+        .update_node(id, &form.name, &form.ip, relay_id, is_relay, &country)
         .await
     {
         error!("Failed to update node core: {}", e);

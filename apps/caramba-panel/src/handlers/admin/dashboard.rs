@@ -54,6 +54,7 @@ pub struct StatusbarPartial {
     pub bot_username: String,
     pub cpu_usage: String,
     pub ram_usage: String,
+    pub active_subs_24h: String,
 }
 
 pub struct RecentActivity {
@@ -217,6 +218,14 @@ pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
 
     let admin_path = state.admin_path.clone();
 
+    // Active subscriptions in last 24h
+    let active_subs_24h = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(DISTINCT id) FROM subscriptions WHERE last_accessed_at > NOW() - INTERVAL '24 hours'"
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap_or(0);
+
     let template = StatusbarPartial {
         panel_version: crate::utils::current_panel_version(),
         bot_status,
@@ -232,6 +241,7 @@ pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
         },
         cpu_usage,
         ram_usage,
+        active_subs_24h: active_subs_24h.to_string(),
     };
     Html(template.render().unwrap_or_default())
 }
