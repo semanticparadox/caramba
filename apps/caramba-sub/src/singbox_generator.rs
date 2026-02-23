@@ -74,8 +74,9 @@ impl ConfigGenerator {
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string())
                                     .filter(|s| !is_placeholder_sni(s));
+                                let node_sni = node.reality_sni.as_ref().filter(|s| !is_placeholder_sni(s)).cloned();
                                 tls["server_name"] =
-                                    json!(inbound_sni.unwrap_or(fallback_sni.clone()));
+                                    json!(node_sni.or(inbound_sni).unwrap_or(fallback_sni.clone()));
                                 tls["reality"] = json!({
                                     "enabled": true,
                                     "public_key": reality.get("public_key").cloned().unwrap_or(json!(node.reality_pub.clone().unwrap_or_default())),
@@ -91,8 +92,9 @@ impl ConfigGenerator {
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string())
                                     .filter(|s| !is_placeholder_sni(s));
+                                let node_sni = node.reality_sni.as_ref().filter(|s| !is_placeholder_sni(s)).cloned();
                                 tls["server_name"] =
-                                    json!(inbound_sni.unwrap_or(fallback_sni.clone()));
+                                    json!(node_sni.or(inbound_sni).unwrap_or(fallback_sni.clone()));
                             }
                         }
                     }
