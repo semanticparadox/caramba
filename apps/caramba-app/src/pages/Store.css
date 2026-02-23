@@ -277,3 +277,106 @@
     background: rgba(239, 68, 68, 0.1);
     color: #EF4444;
 }
+
+/* Modal Overlay (Shared logic with Plans) */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-lg);
+    z-index: 1000;
+    animation: fadeIn 0.2s ease;
+}
+
+.modal-content {
+    width: 100%;
+    max-width: 400px;
+    padding: var(--space-xl);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+    text-align: center;
+}
+
+.modal-content h3 {
+    font-size: 20px;
+    font-weight: 800;
+}
+
+.modal-content p {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.provider-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.provider-btn {
+    padding: var(--space-md);
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: left;
+}
+
+.provider-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    transform: translateX(4px);
+}
+
+.btn-cancel {
+    padding: var(--space-sm);
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+    margin-top: var(--space-sm);
+}
+
+.checkout-floating-msg {
+    position: fixed;
+    bottom: var(--space-lg);
+    left: var(--space-md);
+    right: var(--space-md);
+    padding: var(--space-md);
+    border-radius: var(--radius-md);
+    background: var(--bg-glass);
+    border: 1px solid var(--bg-glass-border);
+    backdrop-filter: blur(12px);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    z-index: 50;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    animation: slideUp 0.3s ease;
+}
+
+.checkout-floating-msg.success {
+    border-left: 4px solid var(--status-online);
+}
+
+.checkout-floating-msg.error {
+    border-left: 4px solid #EF4444;
+}
+
+.checkout-floating-msg button {
+    background: none;
+    border: none;
+    color: var(--text-tertiary);
+    font-size: 18px;
+    cursor: pointer;
+}

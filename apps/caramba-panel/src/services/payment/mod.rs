@@ -22,3 +22,11 @@ pub trait PaymentAdapter: Send + Sync {
     /// Get the adapter name
     fn name(&self) -> &str;
 }
+
+pub mod provider;
+pub mod telegram_stars;
+pub mod nowpayments;
+pub mod cryptobot;
+pub mod manual;
+
+pub use provider::{PaymentProvider, PaymentWebhookAction};

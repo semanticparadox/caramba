@@ -67,6 +67,7 @@ pub struct AppState {
     pub analytics_service: Arc<services::analytics_service::AnalyticsService>,
     pub generator_service: Arc<services::generator_service::GeneratorService>, // Phase 1.8
     pub org_service: Arc<services::org_service::OrganizationService>,          // Phase 3
+    pub marketplace_service: Arc<services::marketplace_service::MarketplaceService>,
     pub sni_repo: Arc<repositories::sni_repo::SniRepository>,
     pub telemetry_service: Arc<services::telemetry_service::TelemetryService>,
     pub infrastructure_service: Arc<services::infrastructure_service::InfrastructureService>,
@@ -346,6 +347,9 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     let bot_token = settings.get_or_default("bot_token", "").await;
     let pay_token = settings.get_or_default("payment_api_key", "").await;
     let nowpayments_key = settings.get_or_default("nowpayments_key", "").await;
+    let nowpayments_ipn_secret = settings.get_or_default("nowpayments_ipn_secret", "").await;
+    let cryptobot_token = settings.get_or_default("cryptobot_token", "").await;
+    
     let crystalpay_login = settings.get_or_default("crystalpay_login", "").await;
     let crystalpay_secret = settings.get_or_default("crystalpay_secret", "").await;
 
@@ -376,7 +380,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         bot_manager.clone(),
         bot_token,
         pay_token,
-        nowpayments_key,
+        nowpayments_key.clone(),
         crystalpay_login,
         crystalpay_secret,
         stripe_secret_key,
@@ -392,6 +396,16 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     ));
 
     let export_service = Arc::new(services::export_service::ExportService::new());
+    
+    let marketplace_service = Arc::new(services::marketplace_service::MarketplaceService::new(
+        pool.clone(),
+        nowpayments_key.clone(),
+        nowpayments_ipn_secret,
+        cryptobot_token,
+        (*store_service).clone(),
+        (*subscription_service).clone(),
+    ));
+
     let notification_service = Arc::new(services::notification_service::NotificationService::new(
         pool.clone(),
     ));
@@ -457,6 +471,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         analytics_service,
         generator_service,
         org_service,
+        marketplace_service,
         sni_repo,
         telemetry_service,
         infrastructure_service,
@@ -570,6 +585,23 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         .route(
             "/settings/update/agent/prepare",
             axum::routing::post(handlers::admin::prepare_agent_update),
+        )
+        // Marketplace
+        .route(
+            "/marketplace",
+            axum::routing::get(handlers::admin::get_marketplace_page),
+        )
+        .route(
+            "/marketplace/settings",
+            axum::routing::post(handlers::admin::save_marketplace_settings),
+        )
+        .route(
+            "/marketplace/manual/{id}/approve",
+            axum::routing::post(handlers::admin::approve_manual_payment),
+        )
+        .route(
+            "/marketplace/manual/{id}/reject",
+            axum::routing::post(handlers::admin::reject_manual_payment),
         )
         .route(
             "/settings/update/agent/rollout",
@@ -954,6 +986,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/api/payments/{source}",
             axum::routing::post(handlers::admin::handle_payment),
         )
+        .nest("/api/webhooks", api::webhooks::router())
         .route(
             "/caramba-api/payments/{source}",
             axum::routing::post(handlers::admin::handle_payment),

@@ -12,6 +12,7 @@ pub mod settings;
 pub mod store;
 pub mod updates;
 pub mod users;
+pub mod marketplace;
 
 // Re-export commonly used functions for convenience
 pub use analytics::{get_system_logs_page, get_traffic_analytics, get_transactions};
@@ -41,6 +42,10 @@ pub use users::{
     extend_user_subscription, get_subscription_devices, get_user_details, get_users,
     notify_all_users, notify_preview, notify_user, refund_user_subscription, update_user,
     update_user_balance,
+};
+
+pub use marketplace::{
+    get_marketplace_page, save_marketplace_settings, approve_manual_payment, reject_manual_payment,
 };
 
 // Stubs removed

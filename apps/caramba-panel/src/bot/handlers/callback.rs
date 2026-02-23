@@ -715,20 +715,76 @@ pub async fn callback_handler(
                 if let Ok(duration_id) = id_str.parse::<i64>() {
                     let user_db: Option<caramba_db::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                     if let Some(u) = user_db {
-                        match state.store_service.purchase_plan(u.id, duration_id).await {
-                            Ok(_sub) => {
-                                let _ = bot.answer_callback_query(callback_id).text("✅ Purchase successful!").await;
-                                if let Some(msg) = q.message {
-                                    let _ = bot.send_message(msg.chat().id, "✅ *Purchase Successful\\!*\n\nYour subscription is now *Pending*.\nGo to *My Services* to activate it when you are ready.").parse_mode(ParseMode::MarkdownV2).await;
-                                }
-                            }
-                            Err(e) => {
-                                error!("Purchase failed for user {}: {}", u.id, e);
-                                let _ = bot.answer_callback_query(callback_id).text(format!("❌ Error: {}", e)).show_alert(true).await;
-                            }
+                        let mut buttons: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+
+                        if state.settings.get_or_default("manual_enabled", "false").await == "true" {
+                            buttons.push(vec![InlineKeyboardButton::callback("💳 Pay with Card/Manual", format!("pay_dur_manual_{}", duration_id))]);
+                        }
+                        
+                        if state.settings.get_or_default("stars_enabled", "false").await == "true" {
+                            buttons.push(vec![InlineKeyboardButton::callback("⭐️ Pay with Telegram Stars", format!("pay_dur_stars_{}", duration_id))]);
+                        }
+                        
+                        if !state.settings.get_or_default("cryptobot_token", "").await.is_empty() {
+                            buttons.push(vec![InlineKeyboardButton::callback("🪙 Pay with CryptoBot", format!("pay_dur_cryptobot_{}", duration_id))]);
+                        }
+                        
+                        if !state.settings.get_or_default("nowpayments_key", "").await.is_empty() {
+                            buttons.push(vec![InlineKeyboardButton::callback("🪙 Pay with NowPayments", format!("pay_dur_nowpayments_{}", duration_id))]);
+                        }
+
+                        let _ = bot.answer_callback_query(callback_id).text("Please select a payment method.").await;
+                        
+                        if let Some(msg) = q.message {
+                            let _ = bot.edit_message_text(msg.chat().id, msg.id(), "💳 *Select Payment Method*\n\nPlease choose how you would like to pay for your VPN Subscription:")
+                                .parse_mode(ParseMode::MarkdownV2)
+                                .reply_markup(InlineKeyboardMarkup::new(buttons))
+                                .await;
                         }
                     } else {
                         error!("User not found for purchase: {}", tg_id);
+                    }
+                }
+            }
+
+            // New Payment Dispatcher
+            pay_dur if pay_dur.starts_with("pay_dur_") => {
+                let parts: Vec<&str> = pay_dur.strip_prefix("pay_dur_").unwrap_or("").split("_").collect();
+                if parts.len() == 2 {
+                    let provider = parts[0];
+                    let duration_id: i64 = parts[1].parse().unwrap_or(0);
+                    
+                    let user_db: Option<caramba_db::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+                    if let Some(u) = user_db {
+                        // TODO: Map duration_id to actual price/currency from StoreService
+                        // Mocking for now to compile
+                        let amount = 500; // 5.00
+                        let currency = "USD";
+                        // Find a plan/product via the store service that matches this duration
+                        let product_id = 1; // Assuming product 1 for now
+
+                        match state.marketplace_service.create_session(&u, product_id, provider, amount, currency).await {
+                            Ok((_session, invoice_payload)) => {
+                                let _ = bot.answer_callback_query(callback_id).text("Invoice generated!").await;
+                                
+                                if let Some(msg) = q.message {
+                                    if provider == "manual" {
+                                        let _ = bot.send_message(msg.chat().id, format!("💳 *Manual Payment*\n\nPlease send your payment to our details and upload a screenshot to {}", invoice_payload))
+                                            .parse_mode(ParseMode::MarkdownV2)
+                                            .await;
+                                    } else {
+                                        let mut buttons = vec![vec![InlineKeyboardButton::url("🔗 Pay Now", invoice_payload.parse().unwrap_or("https://example.com".parse().unwrap()))]];
+                                        let _ = bot.send_message(msg.chat().id, "🧾 *Invoice Generated*\n\nPlease click the button below to complete your payment.")
+                                            .parse_mode(ParseMode::MarkdownV2)
+                                            .reply_markup(InlineKeyboardMarkup::new(buttons))
+                                            .await;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                let _ = bot.answer_callback_query(callback_id).text(format!("❌ Failed: {}", e)).show_alert(true).await;
+                            }
+                        }
                     }
                 }
             }

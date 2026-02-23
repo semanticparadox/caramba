@@ -19,12 +19,20 @@ interface Plan {
     durations: PlanDuration[];
 }
 
+interface PaymentProvider {
+    id: string;
+    label: string;
+}
+
 export default function Plans() {
     const navigate = useNavigate();
     const { token, refreshData, user, error } = useAuth();
     const [plans, setPlans] = useState<Plan[]>([]);
+    const [providers, setProviders] = useState<PaymentProvider[]>([]);
     const [loading, setLoading] = useState(true);
     const [purchasing, setPurchasing] = useState<number | null>(null);
+    const [selectedDuration, setSelectedDuration] = useState<PlanDuration | null>(null);
+    const [showPayModal, setShowPayModal] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
     const headers = { Authorization: `Bearer ${token}` };
@@ -44,23 +52,32 @@ export default function Plans() {
 
         (async () => {
             try {
-                const res = await fetch('/api/client/plans', {
+                // Fetch plans
+                const plansRes = await fetch('/api/client/plans', {
                     headers,
                     signal: controller.signal,
                 });
-                if (!res.ok) {
-                    const errText = await res.text().catch(() => '');
-                    throw new Error(errText || `Failed to fetch plans (${res.status})`);
+                if (plansRes.ok) {
+                    const data = await plansRes.json();
+                    setPlans(Array.isArray(data) ? data : []);
                 }
-                const data = await res.json();
-                setPlans(Array.isArray(data) ? data : []);
+
+                // Fetch providers
+                const providersRes = await fetch('/api/client/payment/providers', {
+                    headers,
+                    signal: controller.signal,
+                });
+                if (providersRes.ok) {
+                    const data = await providersRes.json();
+                    setProviders(data.providers || []);
+                }
+
                 setMessage(null);
             } catch (e: any) {
                 console.error(e);
-                setPlans([]);
                 setMessage({
                     type: 'error',
-                    text: e?.name === 'AbortError' ? 'Loading plans timed out. Try again.' : (e?.message || 'Failed to load plans.'),
+                    text: e?.name === 'AbortError' ? 'Loading data timed out. Try again.' : (e?.message || 'Failed to load plans.'),
                 });
             } finally {
                 clearTimeout(timeout);
@@ -74,28 +91,49 @@ export default function Plans() {
         };
     }, [token]);
 
-    const handlePurchase = async (durationId: number) => {
-        setPurchasing(durationId);
+    const handleSelectDuration = (duration: PlanDuration) => {
+        setSelectedDuration(duration);
+        setShowPayModal(true);
+    };
+
+    const handlePurchase = async (providerId: string) => {
+        if (!selectedDuration) return;
+
+        setPurchasing(selectedDuration.id);
         setMessage(null);
+        setShowPayModal(false);
+
         try {
-            const res = await fetch('/api/client/plans/purchase', {
+            const res = await fetch('/api/client/payment/invoice', {
                 method: 'POST',
                 headers: { ...headers, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ duration_id: durationId }),
+                body: JSON.stringify({
+                    duration_id: selectedDuration.id,
+                    provider: providerId
+                }),
             });
+
             if (res.ok) {
                 const data = await res.json();
-                setMessage({ type: 'success', text: data.message || 'Purchase successful!' });
+                if (data.invoice_url) {
+                    // For manual, we might show a message. For others, redirect.
+                    if (providerId === 'manual') {
+                        setMessage({ type: 'success', text: `Please upload your receipt to: ${data.invoice_url}` });
+                    } else {
+                        // Redirect to payment provider
+                        window.location.href = data.invoice_url;
+                    }
+                }
                 await refreshData();
-                setTimeout(() => navigate('/subscription'), 2000);
             } else {
                 const err = await res.text();
-                setMessage({ type: 'error', text: err || 'Purchase failed' });
+                setMessage({ type: 'error', text: err || 'Failed to generate invoice' });
             }
         } catch (e) {
             setMessage({ type: 'error', text: 'Network error' });
         } finally {
             setPurchasing(null);
+            setSelectedDuration(null);
         }
     };
 
@@ -165,7 +203,7 @@ export default function Plans() {
                                     <button
                                         key={dur.id}
                                         className={`duration-btn ${purchasing === dur.id ? 'purchasing' : ''}`}
-                                        onClick={() => handlePurchase(dur.id)}
+                                        onClick={() => handleSelectDuration(dur)}
                                         disabled={purchasing !== null}
                                     >
                                         <span className="dur-label">
@@ -178,6 +216,28 @@ export default function Plans() {
                             </div>
                         </div>
                     ))}
+                </div>
+            )}
+
+            {/* Payment Provider Modal */}
+            {showPayModal && (
+                <div className="modal-overlay" onClick={() => setShowPayModal(false)}>
+                    <div className="modal-content glass-card" onClick={e => e.stopPropagation()}>
+                        <h3>💳 Select Payment Method</h3>
+                        <p>Choose how you want to pay for this plan:</p>
+                        <div className="provider-list">
+                            {providers.map(p => (
+                                <button
+                                    key={p.id}
+                                    className="provider-btn"
+                                    onClick={() => handlePurchase(p.id)}
+                                >
+                                    {p.label}
+                                </button>
+                            ))}
+                        </div>
+                        <button className="btn-cancel" onClick={() => setShowPayModal(false)}>Cancel</button>
+                    </div>
                 </div>
             )}
         </div>

@@ -230,6 +230,21 @@ pub fn routes(state: AppState) -> Router<AppState> {
                 auth_middleware,
             )),
         )
+        // Marketplace (Miniapp Integration)
+        .route(
+            "/payment/providers",
+            get(get_payment_providers).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/payment/invoice",
+            post(create_payment_invoice).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
 }
 
 async fn auth_telegram(
@@ -1271,6 +1286,119 @@ async fn purchase_plan(
         Err(e) => {
             tracing::error!("Purchase failed for user {}: {}", user_id, e);
             (StatusCode::BAD_REQUEST, format!("{}", e)).into_response()
+        }
+    }
+}
+
+// ============================================================
+// Marketplace Endpoints (Phase 3)
+// ============================================================
+
+#[derive(Serialize)]
+struct PaymentProviderInfo {
+    id: String,
+    label: String,
+}
+
+async fn get_payment_providers(
+    State(state): State<AppState>,
+    axum::Extension(_claims): axum::Extension<Claims>,
+) -> impl IntoResponse {
+    let mut providers = Vec::new();
+
+    if state.settings.get_or_default("manual_enabled", "false").await == "true" {
+        providers.push(PaymentProviderInfo {
+            id: "manual".to_string(),
+            label: "💳 Pay with Card/Manual".to_string(),
+        });
+    }
+
+    if state.settings.get_or_default("stars_enabled", "false").await == "true" {
+        providers.push(PaymentProviderInfo {
+            id: "stars".to_string(),
+            label: "⭐️ Pay with Telegram Stars".to_string(),
+        });
+    }
+
+    if !state.settings.get_or_default("cryptobot_token", "").await.is_empty() {
+        providers.push(PaymentProviderInfo {
+            id: "cryptobot".to_string(),
+            label: "🪙 Pay with CryptoBot".to_string(),
+        });
+    }
+
+    if !state.settings.get_or_default("nowpayments_key", "").await.is_empty() {
+        providers.push(PaymentProviderInfo {
+            id: "nowpayments".to_string(),
+            label: "🪙 Pay with NowPayments".to_string(),
+        });
+    }
+
+    Json(serde_json::json!({ "providers": providers })).into_response()
+}
+
+#[derive(Deserialize)]
+struct CreateInvoiceReq {
+    provider: String,
+    duration_id: Option<i64>,
+    order_id: Option<i64>,
+}
+
+async fn create_payment_invoice(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Json(body): Json<CreateInvoiceReq>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    
+    let user_db: Option<caramba_db::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+    let u = match user_db {
+        Some(user) => user,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    let (product_id, amount) = if let Some(duration_id) = body.duration_id {
+        // Handle Plan Duration
+        let duration_row: Option<(i64, i64)> = sqlx::query_as::<_, (i64, i64)>("SELECT plan_id, price FROM plan_durations WHERE id = $1")
+            .bind(duration_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
+
+        match duration_row {
+            Some(row) => row, // (plan_id, price)
+            None => return (StatusCode::BAD_REQUEST, "Invalid duration ID").into_response(),
+        }
+    } else if let Some(order_id) = body.order_id {
+        // Handle Store Order
+        let order_row: Option<(i64, i64)> = sqlx::query_as::<_, (i64, i64)>("SELECT id, total_amount FROM orders WHERE id = $1 AND user_id = $2")
+            .bind(order_id)
+            .bind(u.id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
+
+        match order_row {
+            Some(row) => row, // (order_id as product_id conceptually, total_amount)
+            None => return (StatusCode::BAD_REQUEST, "Invalid order ID").into_response(),
+        }
+    } else {
+        return (StatusCode::BAD_REQUEST, "Missing duration_id or order_id").into_response();
+    };
+
+    let currency = "USD";
+
+    match state.marketplace_service.create_session(&u, product_id, &body.provider, amount, currency).await {
+        Ok((_session, invoice_payload)) => {
+            Json(serde_json::json!({
+                "ok": true,
+                "invoice_url": invoice_payload,
+                "provider": body.provider,
+            })).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Invoice generation failed for user {}: {}", u.id, e);
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("{}", e)).into_response()
         }
     }
 }

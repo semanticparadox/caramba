@@ -22,6 +22,7 @@ pub mod catalog_service;
 pub mod generator_service;
 pub mod geo_service;
 pub mod org_service;
+pub mod marketplace_service;
 pub mod payment;
 pub mod promo_service;
 pub mod rotation_service;

@@ -27,15 +27,23 @@ interface CartItem {
     total: number;
 }
 
+interface PaymentProvider {
+    id: string;
+    label: string;
+}
+
 export default function Store() {
     const navigate = useNavigate();
     const { token, error } = useAuth();
     const [categories, setCategories] = useState<Category[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
     const [cart, setCart] = useState<CartItem[]>([]);
+    const [providers, setProviders] = useState<PaymentProvider[]>([]);
     const [activeCat, setActiveCat] = useState<number | null>(null);
     const [loading, setLoading] = useState(true);
     const [showCart, setShowCart] = useState(false);
+    const [showPayModal, setShowPayModal] = useState(false);
+    const [pendingOrderId, setPendingOrderId] = useState<number | null>(null);
     const [checkoutMsg, setCheckoutMsg] = useState('');
     const [addedId, setAddedId] = useState<number | null>(null);
 
@@ -46,13 +54,18 @@ export default function Store() {
             setLoading(false);
             return;
         }
-        fetch('/api/client/store/categories', { headers })
-            .then(r => r.json())
-            .then(data => {
-                setCategories(data);
-                if (data.length > 0) {
-                    setActiveCat(data[0].id);
-                    loadProducts(data[0].id);
+
+        // Fetch categories and providers in parallel
+        Promise.all([
+            fetch('/api/client/store/categories', { headers }).then(r => r.json()),
+            fetch('/api/client/payment/providers', { headers }).then(r => r.json())
+        ])
+            .then(([cats, pays]) => {
+                setCategories(cats);
+                setProviders(pays.providers || []);
+                if (cats.length > 0) {
+                    setActiveCat(cats[0].id);
+                    loadProducts(cats[0].id);
                 }
             })
             .catch(console.error)
@@ -105,14 +118,49 @@ export default function Store() {
                 headers,
             });
             if (res.ok) {
-                setCheckoutMsg('✅ Order placed successfully!');
+                const data = await res.json();
+                setPendingOrderId(data.order_id);
+                setShowCart(false);
+                setShowPayModal(true);
                 setCart([]);
-                setTimeout(() => setCheckoutMsg(''), 3000);
             } else {
                 const err = await res.text();
                 setCheckoutMsg(`❌ ${err}`);
             }
         } catch (e) { setCheckoutMsg('❌ Network error'); }
+    };
+
+    const handleProviderSelect = async (providerId: string) => {
+        if (!pendingOrderId) return;
+
+        try {
+            const res = await fetch('/api/client/payment/invoice', {
+                method: 'POST',
+                headers: { ...headers, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    order_id: pendingOrderId,
+                    provider: providerId
+                }),
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                if (data.invoice_url) {
+                    if (providerId === 'manual') {
+                        setCheckoutMsg(`✅ Order placed! Please pay at: ${data.invoice_url}`);
+                    } else {
+                        window.location.href = data.invoice_url;
+                    }
+                }
+                setShowPayModal(false);
+                setPendingOrderId(null);
+            } else {
+                const err = await res.text();
+                setCheckoutMsg(`❌ Payment failed: ${err}`);
+            }
+        } catch (e) {
+            setCheckoutMsg('❌ Network error during payment');
+        }
     };
 
     const openCart = () => {
@@ -220,7 +268,7 @@ export default function Store() {
                                     <span className="cart-total-price">${cartTotal.toFixed(2)}</span>
                                 </div>
                                 <button className="btn-primary checkout-btn" onClick={checkout}>
-                                    💳 Pay from Balance
+                                    💳 Select Payment Method
                                 </button>
                             </>
                         )}
@@ -231,6 +279,35 @@ export default function Store() {
                             </div>
                         )}
                     </div>
+                </div>
+            )}
+
+            {/* Payment Provider Modal */}
+            {showPayModal && (pendingOrderId !== null) && (
+                <div className="modal-overlay" onClick={() => setShowPayModal(false)}>
+                    <div className="modal-content glass-card" onClick={e => e.stopPropagation()}>
+                        <h3>💳 Pay for Order #{pendingOrderId}</h3>
+                        <p>Choose your payment method:</p>
+                        <div className="provider-list">
+                            {providers.map(p => (
+                                <button
+                                    key={p.id}
+                                    className="provider-btn"
+                                    onClick={() => handleProviderSelect(p.id)}
+                                >
+                                    {p.label}
+                                </button>
+                            ))}
+                        </div>
+                        <button className="btn-cancel" onClick={() => setShowPayModal(false)}>Cancel</button>
+                    </div>
+                </div>
+            )}
+
+            {checkoutMsg && !showCart && (
+                <div className={`checkout-floating-msg ${checkoutMsg.startsWith('✅') ? 'success' : 'error'}`}>
+                    {checkoutMsg}
+                    <button onClick={() => setCheckoutMsg('')}>✕</button>
                 </div>
             )}
         </div>

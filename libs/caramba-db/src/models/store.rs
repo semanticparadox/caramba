@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-
+use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct User {
     pub id: i64,
@@ -99,6 +99,21 @@ pub struct Payment {
     pub external_id: Option<String>,
     pub status: String,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct PaymentSession {
+    pub id: Uuid,
+    pub user_id: i64,
+    pub product_id: i64,
+    pub provider: String,
+    pub external_id: Option<String>,
+    pub amount: i64,
+    pub currency: String,
+    pub status: String,
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
