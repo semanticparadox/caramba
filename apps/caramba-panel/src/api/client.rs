@@ -470,6 +470,8 @@ async fn get_user_stats(
         balance: i64,
         total_download: i64,
         total_upload: i64,
+        simple_mode_enabled: bool,
+        simple_mode_plan_id: i64,
     }
 
     let balance_opt: Option<i64> = sqlx::query_scalar("SELECT balance FROM users WHERE tg_id = $1")
@@ -551,6 +553,17 @@ async fn get_user_stats(
         balance,
         total_download: usage.traffic_used,
         total_upload: 0,
+        simple_mode_enabled: state
+            .settings
+            .get_or_default("simple_mode_enabled", "false")
+            .await
+            == "true",
+        simple_mode_plan_id: state
+            .settings
+            .get_or_default("simple_mode_plan_id", "0")
+            .await
+            .parse()
+            .unwrap_or(0),
     })
     .into_response()
 }
@@ -766,6 +779,8 @@ async fn get_user_profile(
             "referral_code": referral_code,
             "active_subscriptions": active_subs,
             "pending_subscriptions": pending_subs,
+            "simple_mode_enabled": state.settings.get_or_default("simple_mode_enabled", "false").await == "true",
+            "simple_mode_plan_id": state.settings.get_or_default("simple_mode_plan_id", "0").await.parse::<i64>().unwrap_or(0),
         }))
         .into_response()
     } else {

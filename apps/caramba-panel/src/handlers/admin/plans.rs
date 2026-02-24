@@ -18,6 +18,13 @@ use caramba_db::models::store::Plan;
 
 use super::auth::get_auth_user;
 use caramba_db::models::groups::NodeGroup;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanInfo {
+    pub id: i64,
+    pub name: String,
+}
 
 // ============================================================================
 // Templates

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import WebApp from '@twa-dev/sdk';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import './Plans.css';
@@ -27,6 +28,16 @@ interface PaymentProvider {
 export default function Plans() {
     const navigate = useNavigate();
     const { token, refreshData, user, error } = useAuth();
+
+    useEffect(() => {
+        // Refresh data when user returns to the app (e.g. after payment)
+        const handleFocus = () => {
+            console.log("App focused, refreshing data...");
+            refreshData();
+        };
+        window.addEventListener('focus', handleFocus);
+        return () => window.removeEventListener('focus', handleFocus);
+    }, [refreshData]);
     const [plans, setPlans] = useState<Plan[]>([]);
     const [providers, setProviders] = useState<PaymentProvider[]>([]);
     const [loading, setLoading] = useState(true);
@@ -116,12 +127,25 @@ export default function Plans() {
             if (res.ok) {
                 const data = await res.json();
                 if (data.invoice_url) {
-                    // For manual, we might show a message. For others, redirect.
                     if (providerId === 'manual') {
                         setMessage({ type: 'success', text: `Please upload your receipt to: ${data.invoice_url}` });
+                        setPurchasing(null);
+                        setSelectedDuration(null);
+                    } else if (providerId === 'telegram_stars' || providerId === 'stars' || data.invoice_url.includes('t.me/invoice')) {
+                        // Use Telegram native invoice for Stars or direct t.me links
+                        WebApp.openInvoice(data.invoice_url, (status) => {
+                            console.log("Invoice status:", status);
+                            refreshData();
+                            setPurchasing(null);
+                            setSelectedDuration(null);
+                        });
+                        return; // Modal/purchasing state handled in callback
                     } else {
-                        // Redirect to payment provider
+                        // Redirect for external providers (CryptoBot, AAIO, etc.)
                         window.location.href = data.invoice_url;
+                        // We don't null purchasing here immediately as we want the user to see "Purchasing..." 
+                        // until they leave or we refresh. But focus listener will handle return.
+                        return;
                     }
                 }
                 await refreshData();
@@ -130,10 +154,14 @@ export default function Plans() {
                 setMessage({ type: 'error', text: err || 'Failed to generate invoice' });
             }
         } catch (e) {
+            console.error("Purchase error:", e);
             setMessage({ type: 'error', text: 'Network error' });
         } finally {
-            setPurchasing(null);
-            setSelectedDuration(null);
+            // Only cleanup if we didn't return early for async operations
+            if (providerId === 'manual' || !selectedDuration) {
+                setPurchasing(null);
+                setSelectedDuration(null);
+            }
         }
     };
 

@@ -286,6 +286,9 @@ async fn fetch_worker_inventory(pool: &sqlx::PgPool) -> Vec<WorkerInventoryView>
 pub struct SettingsTemplate {
     pub current_version: String,
     pub telegram_stars_enabled: bool,
+    pub simple_mode_enabled: bool,
+    pub simple_mode_plan_id: i64,
+    pub all_plans: Vec<super::plans::PlanInfo>,
     pub manual_enabled: bool,
     pub nowpayments_api_key: String,
     pub masked_nowpayments_api_key: String,
@@ -444,6 +447,8 @@ pub struct SaveSettingsForm {
     pub lava_secret_key: Option<String>,
     pub manual_enabled: Option<String>,
     pub telegram_stars_enabled: Option<String>,
+    pub simple_mode_enabled: Option<String>,
+    pub simple_mode_plan_id: Option<i64>,
     pub payment_ipn_url: Option<String>,
     pub currency_rate: Option<String>,
     pub support_url: Option<String>,
@@ -514,6 +519,29 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .get_or_default("manual_enabled", "false")
         .await
         == "true";
+    let simple_mode_enabled = state
+        .settings
+        .get_or_default("simple_mode_enabled", "false")
+        .await
+        == "true";
+    let simple_mode_plan_id: i64 = state
+        .settings
+        .get_or_default("simple_mode_plan_id", "0")
+        .await
+        .parse()
+        .unwrap_or(0);
+
+    let all_plans = state
+        .catalog_service
+        .get_plans_admin()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| super::plans::PlanInfo {
+            id: p.id,
+            name: p.name,
+        })
+        .collect::<Vec<_>>();
 
     let current_nowpayments_ipn = state.settings.get_or_default("nowpayments_ipn_secret", "").await;
     let masked_nowpayments_ipn = if !current_nowpayments_ipn.is_empty() {
@@ -854,6 +882,9 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
             .unwrap_or("Admin".to_string()),
         masked_bot_token,
         telegram_stars_enabled,
+        simple_mode_enabled,
+        simple_mode_plan_id,
+        all_plans,
         manual_enabled,
         nowpayments_api_key,
         masked_nowpayments_api_key,
@@ -1231,6 +1262,19 @@ pub async fn save_settings(
             "false".to_string()
         },
     );
+    settings.insert(
+        "simple_mode_enabled".to_string(),
+        if is_checkbox_enabled(form.simple_mode_enabled.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
+    );
+
+    if let Some(v) = form.simple_mode_plan_id {
+        settings.insert("simple_mode_plan_id".to_string(), v.to_string());
+    }
+
     if let Some(v) = form.expiry_hours_threshold {
         let val: i64 = v.trim().parse().unwrap_or(72);
         settings.insert("expiry_hours_threshold".to_string(), val.to_string());

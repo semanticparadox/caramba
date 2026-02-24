@@ -52,15 +52,24 @@ export default function Home() {
         .sort((a, b) => (a.days_left || 0) - (b.days_left || 0))
         .slice(0, 3)
 
+    const isSimpleMode = stats?.simple_mode_enabled === true;
+
+    // Filter menu items for Simple Mode
+    const filteredMenuItems = MENU_ITEMS.filter((item) => {
+        if (!isSimpleMode) return true;
+        // In simple mode, we hide Buy Subscription and My Services as they are replaced by direct actions
+        return item.path !== '/plans' && item.path !== '/subscription';
+    });
+
     return (
         <div className="page home-page">
             {/* Header */}
             <div className="home-header">
                 <div className="logo-section">
                     <span className="logo-icon">🚀</span>
-                    <h1 className="gradient-text">EXA-ROBOT</h1>
+                    <h1 className="gradient-text">{isSimpleMode ? (user?.username || 'EXA-ROBOT').toUpperCase() : 'EXA-ROBOT'}</h1>
                 </div>
-                {user && <p className="user-greeting">Welcome, {user.username || 'User'}</p>}
+                {user && !isSimpleMode && <p className="user-greeting">Welcome, {user.username || 'User'}</p>}
                 <div className="home-actions-row">
                     <button className="home-chip" onClick={() => void refreshData()}>
                         Refresh
@@ -111,42 +120,70 @@ export default function Home() {
                 </div>
             </div>
 
-            <div className="subs-overview glass-card">
-                <div className="subs-overview-header">
-                    <h3>My Active Subscriptions</h3>
-                    <span className="subs-counter">{activeSubscriptions.length}</span>
-                </div>
-                {subscriptionsPreview.length === 0 ? (
-                    <p className="subs-empty">
-                        No active subscriptions yet. Open Buy Subscription to get started.
-                    </p>
-                ) : (
-                    <div className="subs-list">
-                        {subscriptionsPreview.map((sub) => (
-                            <button
-                                key={sub.id}
-                                className="subs-item"
-                                onClick={() => navigate('/subscription')}
-                            >
-                                <div className="subs-item-title">{sub.plan_name}</div>
-                                <div className="subs-item-meta">
-                                    <span>{sub.used_traffic_gb} GB / {sub.traffic_limit_gb || '∞'} GB</span>
-                                    <span>{sub.days_left}d left</span>
-                                </div>
-                            </button>
-                        ))}
-                    </div>
-                )}
-                {activeSubscriptions.length > subscriptionsPreview.length && (
-                    <button className="subs-view-all" onClick={() => navigate('/subscription')}>
-                        View all subscriptions
+            {/* Simple Mode Action Buttons */}
+            {isSimpleMode && (
+                <div className="simple-mode-actions">
+                    <button
+                        className="btn-primary simple-action-btn"
+                        onClick={() => navigate(subscriptions.length > 0 ? '/subscription' : '/plans')}
+                    >
+                        {subscriptions.length > 0 ? '🚀 Connect' : '🛒 Get Started'}
                     </button>
-                )}
-            </div>
+                    <div className="simple-secondary-row">
+                        <button
+                            className="btn-secondary simple-secondary-btn"
+                            onClick={() => navigate('/plans')}
+                        >
+                            📅 Renew
+                        </button>
+                        <button
+                            className="btn-secondary simple-secondary-btn"
+                            onClick={() => navigate(subscriptions.length > 0 ? `/servers/${subscriptions[0].id}` : '/plans')}
+                        >
+                            🌍 Change Country
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {!isSimpleMode && (
+                <div className="subs-overview glass-card">
+                    <div className="subs-overview-header">
+                        <h3>My Active Subscriptions</h3>
+                        <span className="subs-counter">{activeSubscriptions.length}</span>
+                    </div>
+                    {subscriptionsPreview.length === 0 ? (
+                        <p className="subs-empty">
+                            No active subscriptions yet. Open Buy Subscription to get started.
+                        </p>
+                    ) : (
+                        <div className="subs-list">
+                            {subscriptionsPreview.map((sub) => (
+                                <button
+                                    key={sub.id}
+                                    className="subs-item"
+                                    onClick={() => navigate('/subscription')}
+                                >
+                                    <div className="subs-item-title">{sub.plan_name}</div>
+                                    <div className="subs-item-meta">
+                                        <span>{sub.used_traffic_gb} GB / {sub.traffic_limit_gb || '∞'} GB</span>
+                                        <span>{sub.days_left}d left</span>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                    {activeSubscriptions.length > subscriptionsPreview.length && (
+                        <button className="subs-view-all" onClick={() => navigate('/subscription')}>
+                            View all subscriptions
+                        </button>
+                    )}
+                </div>
+            )}
 
             {/* Quick Actions Grid */}
             <div className="quick-actions">
-                {MENU_ITEMS.map((item) => (
+                {filteredMenuItems.map((item) => (
                     <button
                         key={item.path}
                         className="action-card glass-card"

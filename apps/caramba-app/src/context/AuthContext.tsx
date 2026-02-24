@@ -11,6 +11,8 @@ export interface UserStats {
     total_download: number;
     total_upload: number;
     traffic_limit: number;
+    simple_mode_enabled?: boolean;
+    simple_mode_plan_id?: number;
 }
 
 export interface UserSubscription {

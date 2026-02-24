@@ -325,6 +325,36 @@
     color: var(--status-online);
 }
 
+/* --- Simple Mode Actions --- */
+.simple-mode-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: var(--space-sm);
+}
+
+.simple-action-btn {
+    width: 100%;
+    padding: 16px !important;
+    font-size: 17px !important;
+    font-weight: 700 !important;
+    border-radius: 16px !important;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.simple-secondary-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.simple-secondary-btn {
+    padding: 12px !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    border-radius: 12px !important;
+}
+
 /* --- Responsive --- */
 @media (max-width: 360px) {
     .quick-actions {
