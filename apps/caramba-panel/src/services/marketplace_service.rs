@@ -84,6 +84,7 @@ impl MarketplaceService {
         provider_name: &str,
         amount: i64,
         currency: &str,
+        metadata: Option<serde_json::Value>,
     ) -> Result<(PaymentSession, String)> {
         let provider = self
             .get_provider(provider_name)
@@ -98,7 +99,7 @@ impl MarketplaceService {
             amount,
             currency: currency.to_string(),
             status: "pending".to_string(),
-            metadata: None,
+            metadata,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -161,11 +162,15 @@ impl MarketplaceService {
         // 3. Mark as completed
         self.session_repo.update_status(session_id, "completed").await?;
 
-        // 4. Provision Product
-        let products = self.store_service.get_all_products().await?;
-        let product = products.into_iter().find(|p| p.id == session.product_id).context("Product not found")?;
+        // 4. Provision Product/Plan
+        let mut product_type = "product".to_string();
+        if let Some(meta) = &session.metadata {
+            if let Some(t) = meta.get("type").and_then(|v| v.as_str()) {
+                product_type = t.to_string();
+            }
+        }
 
-        if product.product_type == "plan" {
+        if product_type == "plan" {
             // Determine days to add
             let mut days_to_add = 30; // Default
             
@@ -173,7 +178,9 @@ impl MarketplaceService {
                 if let Some(days) = meta.get("duration_days").and_then(|v| v.as_i64()) {
                     days_to_add = days as i32;
                 }
-            } else {
+            }
+
+            if days_to_add == 30 {
                 // Fallback: search plan_durations for this plan_id with this price
                 let duration_row: Option<(i32,)> = sqlx::query_as("SELECT duration_days FROM plan_durations WHERE plan_id = $1 AND price = $2 LIMIT 1")
                     .bind(session.product_id)
@@ -198,6 +205,12 @@ impl MarketplaceService {
                 // Create new subscription
                 let _ = self.store_service.admin_gift_subscription(session.user_id, session.product_id, days_to_add).await?;
             }
+        } else {
+            let products = self.store_service.get_all_products().await?;
+            let product = products.into_iter().find(|p| p.id == session.product_id).context("Product not found")?;
+            
+            // ... rest of product fulfillment (if any)
+            tracing::info!("Fulfilling Product {} for user {}", product.name, session.user_id);
         }
 
         Ok(())

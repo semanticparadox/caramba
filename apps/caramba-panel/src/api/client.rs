@@ -1403,8 +1403,14 @@ async fn create_payment_invoice(
     };
 
     let currency = "USD";
+    let mut metadata = HashMap::new();
+    if body.duration_id.is_some() {
+        metadata.insert("type".to_string(), serde_json::Value::String("plan".to_string()));
+    } else if body.order_id.is_some() {
+        metadata.insert("type".to_string(), serde_json::Value::String("order".to_string()));
+    }
 
-    match state.marketplace_service.create_session(&u, product_id, &body.provider, amount, currency).await {
+    match state.marketplace_service.create_session(&u, product_id, &body.provider, amount, currency, Some(serde_json::to_value(metadata).unwrap_or_default())).await {
         Ok((session, invoice_payload)) => {
             if body.provider == "balance" {
                 // Synchronous fulfillment for balance

@@ -780,8 +780,12 @@ pub async fn callback_handler(
                         let amount = duration.price;
                         let currency = "USD";
                         let product_id = duration.plan_id;
+                        let metadata = serde_json::json!({
+                            "type": "plan",
+                            "duration_days": duration.duration_days
+                        });
 
-                        match state.marketplace_service.create_session(&u, product_id, provider, amount, currency).await {
+                        match state.marketplace_service.create_session(&u, product_id, provider, amount, currency, Some(metadata)).await {
                             Ok((session, invoice_payload)) => {
                                 if provider == "balance" {
                                     // Synchronous fulfillment for balance
