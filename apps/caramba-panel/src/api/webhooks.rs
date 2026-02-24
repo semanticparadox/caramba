@@ -11,7 +11,7 @@ use crate::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/payment/:provider", post(handle_payment_webhook))
+        .route("/payment/{provider}", post(handle_payment_webhook))
 }
 
 async fn handle_payment_webhook(
