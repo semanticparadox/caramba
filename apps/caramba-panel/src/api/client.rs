@@ -2,7 +2,7 @@ use crate::AppState;
 use axum::{
     Router,
     extract::{Path, Request, State},
-    http::{StatusCode, header},
+    http::{StatusCode, header, HeaderMap},
     middleware::{self, Next},
     response::{IntoResponse, Json},
     routing::{delete, get, post},
@@ -571,6 +571,7 @@ async fn get_user_stats(
 // Subscriptions Endpoint — returns ALL user subscriptions with full details
 async fn get_user_subscriptions(
     State(state): State<AppState>,
+    headers: HeaderMap,
     axum::Extension(claims): axum::Extension<Claims>,
 ) -> impl IntoResponse {
     let tg_id: i64 = claims.sub.parse().unwrap_or(0);
@@ -604,7 +605,7 @@ async fn get_user_subscriptions(
         }
     };
 
-    let base_url = resolve_subscription_base_url(&state).await;
+    let base_url = resolve_subscription_base_url(&state, &headers).await;
 
     let plan_ids: Vec<i64> = subs.iter().map(|s| s.sub.plan_id).collect();
     let mut device_limits_by_plan: HashMap<i64, i64> = HashMap::new();
@@ -712,11 +713,12 @@ async fn get_user_subscriptions(
     Json(result).into_response()
 }
 
-async fn resolve_subscription_base_url(state: &AppState) -> String {
+async fn resolve_subscription_base_url(state: &AppState, headers: &HeaderMap) -> String {
     let sub_domain = state
         .settings
         .get_or_default("subscription_domain", "")
         .await;
+
     let base_domain = if !sub_domain.is_empty() {
         sub_domain
     } else {
@@ -724,14 +726,25 @@ async fn resolve_subscription_base_url(state: &AppState) -> String {
         if !panel.is_empty() {
             panel
         } else {
-            env::var("PANEL_URL").unwrap_or_else(|_| "localhost".to_string())
+            // Try Host header
+            if let Some(host) = headers.get("host").and_then(|h| h.to_str().ok()) {
+                host.to_string()
+            } else {
+                env::var("PANEL_URL").unwrap_or_else(|_| "localhost".to_string())
+            }
         }
     };
 
     if base_domain.starts_with("http") {
         base_domain
     } else {
-        format!("https://{}", base_domain)
+        // Decide protocol based on domain/host
+        let proto = if base_domain.contains("localhost") || base_domain.contains("127.0.0.1") {
+            "http"
+        } else {
+            "https"
+        };
+        format!("{}://{}", proto, base_domain)
     }
 }
 
@@ -1626,6 +1639,7 @@ async fn convert_subscription_to_gift(
 
 async fn get_subscription_links_for_user(
     State(state): State<AppState>,
+    headers: HeaderMap,
     axum::Extension(claims): axum::Extension<Claims>,
     Path(sub_id): Path<i64>,
 ) -> impl IntoResponse {
@@ -1675,7 +1689,7 @@ async fn get_subscription_links_for_user(
         .filter(|link| link.starts_with("vless://"))
         .cloned()
         .collect();
-    let base_url = resolve_subscription_base_url(&state).await;
+    let base_url = resolve_subscription_base_url(&state, &headers).await;
 
     Json(serde_json::json!({
         "subscription_url": format!("{}/sub/{}", base_url, subscription_uuid),

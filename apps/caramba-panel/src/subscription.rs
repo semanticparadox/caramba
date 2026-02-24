@@ -653,7 +653,7 @@ function copyLink(){{
     let cache_key = format!("sub_config_v2:{}:{}:{}", uuid, client_type, cache_node_id);
 
     if let Ok(Some(cached_config)) = state.redis.get(&cache_key).await {
-        let filename = match client_type {
+        let _filename = match client_type {
             "clash" => "config.yaml",
             "v2ray" => "config.txt",
             _ => "config.json",
@@ -685,7 +685,7 @@ function copyLink(){{
             .into_response();
     }
 
-    let (content, content_type, filename): (String, &'static str, &'static str) = match client_type
+    let (content, content_type, _filename): (String, &'static str, &'static str) = match client_type
     {
         "clash" => {
             match state

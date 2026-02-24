@@ -57,24 +57,39 @@ impl ConfigGenerator {
                     let server = &node.ip;
                     let port = inbound.listen_port;
 
-                    let flow = "xtls-rprx-vision"; // Simplified assumption for Reality/TCP
+                    let mut tls = json!({ "enabled": false });
+                    let mut transport: Option<Value> = None;
+                    let mut flow: Option<String> = None;
 
-                    let mut tls = json!({ "enabled": true });
+                    let security = stream_settings
+                        .get("security")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("none");
+                    let network = stream_settings
+                        .get("network")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("tcp");
 
-                    // Extract Reality/TLS settings
-                    let fallback_sni = best_node_sni(node);
-                    if let Some(security) = stream_settings.get("security").and_then(|s| s.as_str())
-                    {
+                    if security == "reality" || security == "tls" {
+                        tls["enabled"] = json!(true);
+                        let fallback_sni = best_node_sni(node);
+
                         if security == "reality" {
                             if let Some(reality) = stream_settings.get("reality_settings") {
-                                let server_names_array = reality.get("server_names").or_else(|| reality.get("serverNames"));
+                                let server_names_array =
+                                    reality.get("server_names").or_else(|| reality.get("serverNames"));
                                 let inbound_sni = server_names_array
                                     .and_then(|v| v.get(0))
                                     .or_else(|| reality.get("serverName"))
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string())
                                     .filter(|s| !is_placeholder_sni(s));
-                                let node_sni = node.reality_sni.as_ref().filter(|s| !is_placeholder_sni(s)).cloned();
+                                let node_sni = node
+                                    .reality_sni
+                                    .as_ref()
+                                    .filter(|s| !is_placeholder_sni(s))
+                                    .cloned();
+
                                 tls["server_name"] =
                                     json!(node_sni.or(inbound_sni).unwrap_or(fallback_sni.clone()));
                                 tls["reality"] = json!({
@@ -83,44 +98,82 @@ impl ConfigGenerator {
                                     "short_id": reality.get("short_ids").and_then(|v| v.get(0)).cloned().unwrap_or(json!(node.short_id.clone().unwrap_or_default()))
                                 });
                                 tls["utls"] = json!({ "enabled": true, "fingerprint": "chrome" });
+
+                                if network == "tcp" {
+                                    flow = Some("xtls-rprx-vision".to_string());
+                                }
                             }
                         } else if security == "tls" {
-                            if let Some(t) = stream_settings.get("tls_settings").or_else(|| stream_settings.get("tlsSettings")) {
+                            if let Some(t) = stream_settings
+                                .get("tls_settings")
+                                .or_else(|| stream_settings.get("tlsSettings"))
+                            {
                                 let inbound_sni = t
                                     .get("server_name")
                                     .or_else(|| t.get("serverName"))
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string())
                                     .filter(|s| !is_placeholder_sni(s));
-                                let node_sni = node.reality_sni.as_ref().filter(|s| !is_placeholder_sni(s)).cloned();
+                                let node_sni = node
+                                    .reality_sni
+                                    .as_ref()
+                                    .filter(|s| !is_placeholder_sni(s))
+                                    .cloned();
                                 tls["server_name"] =
                                     json!(node_sni.or(inbound_sni).unwrap_or(fallback_sni.clone()));
                             }
                         }
                     }
 
-                    let tag = format!("{}-vless", node.name);
+                    // Transport logic
+                    if network == "ws" {
+                        if let Some(ws) = stream_settings
+                            .get("ws_settings")
+                            .or_else(|| stream_settings.get("wsSettings"))
+                        {
+                            transport = Some(json!({
+                                "type": "ws",
+                                "path": ws.get("path").cloned().unwrap_or(json!("/")),
+                                "headers": ws.get("headers").cloned().unwrap_or(json!({}))
+                            }));
+                        }
+                    } else if network == "grpc" {
+                        if let Some(grpc) = stream_settings
+                            .get("grpc_settings")
+                            .or_else(|| stream_settings.get("grpcSettings"))
+                        {
+                            transport = Some(json!({
+                                "type": "grpc",
+                                "service_name": grpc.get("service_name").or_else(|| grpc.get("serviceName")).cloned().unwrap_or(json!(""))
+                            }));
+                        }
+                    }
 
-                    // If this is a Relay Node, we mark it.
-                    // But usually Relays are Shadowsocks/Hysteria.
-                    // This block generates standard VLESS for direct connection.
-
-                    outbounds.push(json!({
+                    let mut outbound = json!({
                         "type": "vless",
-                        "tag": tag,
+                        "tag": format!("{}-vless", node.name),
                         "server": server,
                         "server_port": port,
                         "uuid": uuid,
-                        "flow": flow,
-                        "tls": tls,
                         "packet_encoding": "xudp"
-                    }));
+                    });
+
+                    if tls["enabled"].as_bool() == Some(true) {
+                        outbound["tls"] = tls;
+                    }
+                    if let Some(f) = flow {
+                        outbound["flow"] = json!(f);
+                    }
+                    if let Some(t) = transport {
+                        outbound["transport"] = t;
+                    }
+
+                    outbounds.push(outbound);
                 } else if protocol == "hysteria2" {
                     let password = format!("{}:{}", user_keys.user_uuid, user_keys.hy2_password);
                     let tag = format!("{}-hy2", node.name);
 
                     let mut tls = json!({ "enabled": true });
-                    // Hysteria2 usually uses Node's SNI matching Reality/Cert
                     tls["server_name"] = json!(best_node_sni(node));
 
                     outbounds.push(json!({
@@ -138,13 +191,9 @@ impl ConfigGenerator {
         // 4. Relay Logic (Sing-box Detour)
         // If use_relay && we have relays
         if use_relay && !relay_nodes.is_empty() {
-            // Find a suitable relay (e.g. first one)
-            // Ideally load balance, but let's pick first active relay
             if let Some(relay) = relay_nodes.first() {
                 let relay_tag = format!("{}-relay-ss", relay.node.name);
 
-                // Add Relay Outbound (Shadowsocks)
-                // We need to find the Shadowsocks inbound on the Relay Node
                 if let Some(ss_inbound) =
                     relay.inbounds.iter().find(|i| i.protocol == "shadowsocks")
                 {
@@ -158,33 +207,16 @@ impl ConfigGenerator {
                         .get("password")
                         .and_then(|s| s.as_str())
                         .unwrap_or("");
-                    // Wait, Relay authentication is usually via per-user token, OR a shared password if it's a dedicated relay.
-                    // In `caramba-panel`, we injected `relay_<id>` user.
-                    // Here we are the Client. We need to authenticate to the Relay.
-                    // The Relay verifies US.
-                    // Actually, if we use a "Relay Node" from the standard node list, it's just another node.
-                    // The "Smart Routing" usually means: Use Relay X as a DETOUR for Node Y.
 
-                    // Let's implement Chain: Client -> Relay (SS) -> Endpoint (VLESS).
-                    // We need to add `detour` to the Endpoint outbound.
-
-                    // 1. Add Relay Outbound
                     outbounds.push(json!({
                         "type": "shadowsocks",
                         "tag": relay_tag,
                         "server": relay.node.ip,
                         "server_port": ss_inbound.listen_port,
                         "method": method,
-                        "password": password // This needs to be the password for the Relay User.
-                        // In Panel generator, we injected `user: relay_X`.
-                        // But here we are the end user.
-                        // If the Relay is public/shared, we use that password.
-                        // If it's private, we need a user on the relay.
-                        // Simplified: Assume Relay has a shared password or we use the Node's join_token?
-                        // For this implementation, let's assume direct access or standard user auth.
+                        "password": password
                     }));
 
-                    // 2. Modify other outbounds to use this detour
                     for outbound in &mut outbounds {
                         if let Some(tag) = outbound.get("tag").and_then(|t| t.as_str()) {
                             if tag != relay_tag && tag != "direct" && tag != "block" {
@@ -199,17 +231,12 @@ impl ConfigGenerator {
         // Final Config
         json!({
             "log": { "level": "info", "timestamp": true },
-            "inbounds": [{
-                "type": "mixed",
-                "tag": "mixed-in",
-                "listen": "127.0.0.1",
-                "listen_port": 2080
-            }],
+            "inbounds": [],
             "outbounds": outbounds,
             "route": {
                 "auto_detect_interface": true,
                 "final": "direct",
-                // basic rules
+                "rules": []
             }
         })
     }
