@@ -3,6 +3,8 @@ use async_trait::async_trait;
 use caramba_db::models::payment::PaymentType;
 
 pub mod cryptomus;
+pub mod lava;
+pub mod aaio;
 
 #[async_trait]
 pub trait PaymentAdapter: Send + Sync {

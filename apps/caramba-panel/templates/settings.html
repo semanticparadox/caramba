@@ -196,8 +196,8 @@
                     </div>
                 </div>
 
-                <div class="space-y-6">
-                    <!-- Telegram Stars Toggle -->
+                <!-- Telegram Stars Toggle -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div
                         class="flex items-center justify-between p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
                         <div class="flex items-center gap-3">
@@ -220,19 +220,43 @@
                         </label>
                     </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <!-- CryptoBot -->
-                        <div>
-                            <label
-                                class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-2">
-                                <i data-lucide="bot" class="w-3 h-3"></i> CryptoBot API Token
-                            </label>
-                            <input type="text" form="main-settings-form" name="payment_api_key"
-                                value="{{ masked_payment_api_key }}" placeholder="1234:ABC..."
-                                class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
+                    <div
+                        class="flex items-center justify-between p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
+                        <div class="flex items-center gap-3">
+                            <div
+                                class="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400">
+                                <i data-lucide="credit-card" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-sm font-semibold text-slate-900 dark:text-white">Manual Payment</h4>
+                                <p class="text-xs text-slate-600 dark:text-slate-400">Enable manual card/crypto
+                                    transfers</p>
+                            </div>
                         </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" form="main-settings-form" name="manual_enabled" value="true"
+                                class="sr-only peer" {% if manual_enabled %}checked{% endif %}>
+                            <div
+                                class="w-11 h-6 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500">
+                            </div>
+                        </label>
+                    </div>
+                </div>
 
-                        <!-- NowPayments -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- CryptoBot -->
+                    <div>
+                        <label
+                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-2">
+                            <i data-lucide="bot" class="w-3 h-3"></i> CryptoBot API Token
+                        </label>
+                        <input type="text" form="main-settings-form" name="payment_api_key"
+                            value="{{ masked_payment_api_key }}" placeholder="1234:ABC..."
+                            class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
+                    </div>
+
+                    <!-- NowPayments -->
+                    <div class="space-y-4">
                         <div>
                             <label
                                 class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-2">
@@ -242,837 +266,840 @@
                                 value="{{ masked_nowpayments_api_key }}" placeholder="API Key"
                                 class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
                         </div>
-                    </div>
-
-                    <!-- Lava.top -->
-                    <div
-                        class="p-4 bg-slate-50 dark:bg-slate-950/30 border border-slate-200 dark:border-white/5 rounded-xl space-y-4">
-                        <h4 class="text-sm font-medium text-slate-300 flex items-center gap-2">
-                            <i data-lucide="flame" class="w-4 h-4 text-orange-500"></i> Lava.top Configuration
-                        </h4>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label
-                                    class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Project
-                                    ID</label>
-                                <input type="text" form="main-settings-form" name="lava_project_id"
-                                    value="{{ masked_lava_project_id }}" placeholder="Project ID"
-                                    class="w-full bg-slate-900 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-orange-500 outline-none">
-                            </div>
-                            <div>
-                                <label
-                                    class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Secret
-                                    Key</label>
-                                <input type="text" form="main-settings-form" name="lava_secret_key"
-                                    value="{{ masked_lava_secret_key }}" placeholder="Secret Key"
-                                    class="w-full bg-slate-900 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-orange-500 outline-none">
-                            </div>
+                        <div>
+                            <label
+                                class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-2">
+                                <i data-lucide="shield-check" class="w-3 h-3"></i> NowPayments IPN Secret
+                            </label>
+                            <input type="text" form="main-settings-form" name="nowpayments_ipn_secret"
+                                value="{{ masked_nowpayments_ipn_secret }}" placeholder="IPN Secret"
+                                class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
                         </div>
                     </div>
+                </div>
 
-                    <!-- AAIO -->
-                    <div
-                        class="p-4 bg-slate-50 dark:bg-slate-950/30 border border-slate-200 dark:border-white/5 rounded-xl space-y-4">
-                        <h4 class="text-sm font-medium text-slate-300 flex items-center gap-2">
-                            <i data-lucide="layers" class="w-4 h-4 text-pink-500"></i> Aaio Configuration
-                        </h4>
+                <!-- Lava.top -->
+                <div
+                    class="p-4 bg-slate-50 dark:bg-slate-950/30 border border-slate-200 dark:border-white/5 rounded-xl space-y-4">
+                    <h4 class="text-sm font-medium text-slate-300 flex items-center gap-2">
+                        <i data-lucide="flame" class="w-4 h-4 text-orange-500"></i> Lava.top Configuration
+                    </h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label
+                                class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Project
+                                ID</label>
+                            <input type="text" form="main-settings-form" name="lava_project_id"
+                                value="{{ masked_lava_project_id }}" placeholder="Project ID"
+                                class="w-full bg-slate-900 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-orange-500 outline-none">
+                        </div>
+                        <div>
+                            <label
+                                class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Secret
+                                Key</label>
+                            <input type="text" form="main-settings-form" name="lava_secret_key"
+                                value="{{ masked_lava_secret_key }}" placeholder="Secret Key"
+                                class="w-full bg-slate-900 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-orange-500 outline-none">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AAIO -->
+                <div
+                    class="p-4 bg-slate-50 dark:bg-slate-950/30 border border-slate-200 dark:border-white/5 rounded-xl space-y-4">
+                    <h4 class="text-sm font-medium text-slate-300 flex items-center gap-2">
+                        <i data-lucide="layers" class="w-4 h-4 text-pink-500"></i> Aaio Configuration
+                    </h4>
+                    <div>
+                        <label
+                            class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Merchant
+                            ID</label>
+                        <input type="text" form="main-settings-form" name="aaio_merchant_id"
+                            value="{{ masked_aaio_merchant_id }}" placeholder="Merchant ID"
+                            class="w-full bg-slate-900 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-pink-500 outline-none">
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label
+                                class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Secret
+                                #1</label>
+                            <input type="text" form="main-settings-form" name="aaio_secret_1"
+                                value="{{ masked_aaio_secret_1 }}" placeholder="Secret 1"
+                                class="w-full bg-slate-900 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-pink-500 outline-none">
+                        </div>
+                        <div>
+                            <label
+                                class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Secret
+                                #2</label>
+                            <input type="text" form="main-settings-form" name="aaio_secret_2"
+                                value="{{ masked_aaio_secret_2 }}" placeholder="Secret 2"
+                                class="w-full bg-slate-900 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-pink-500 outline-none">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cryptomus -->
+                <div
+                    class="p-4 bg-slate-50 dark:bg-slate-950/30 border border-slate-200 dark:border-white/5 rounded-xl space-y-4">
+                    <h4 class="text-sm font-medium text-slate-300 flex items-center gap-2">
+                        <i data-lucide="shield-check" class="w-4 h-4 text-emerald-500"></i> Cryptomus Configuration
+                    </h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label
                                 class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Merchant
                                 ID</label>
-                            <input type="text" form="main-settings-form" name="aaio_merchant_id"
-                                value="{{ masked_aaio_merchant_id }}" placeholder="Merchant ID"
-                                class="w-full bg-slate-900 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-pink-500 outline-none">
+                            <input type="text" form="main-settings-form" name="cryptomus_merchant_id"
+                                value="{{ masked_cryptomus_merchant_id }}" placeholder="Merchant ID"
+                                class="w-full bg-slate-900 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-emerald-500 outline-none">
                         </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label
-                                    class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Secret
-                                    #1</label>
-                                <input type="text" form="main-settings-form" name="aaio_secret_1"
-                                    value="{{ masked_aaio_secret_1 }}" placeholder="Secret 1"
-                                    class="w-full bg-slate-900 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-pink-500 outline-none">
-                            </div>
-                            <div>
-                                <label
-                                    class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Secret
-                                    #2</label>
-                                <input type="text" form="main-settings-form" name="aaio_secret_2"
-                                    value="{{ masked_aaio_secret_2 }}" placeholder="Secret 2"
-                                    class="w-full bg-slate-900 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-pink-500 outline-none">
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Cryptomus -->
-                    <div
-                        class="p-4 bg-slate-50 dark:bg-slate-950/30 border border-slate-200 dark:border-white/5 rounded-xl space-y-4">
-                        <h4 class="text-sm font-medium text-slate-300 flex items-center gap-2">
-                            <i data-lucide="shield-check" class="w-4 h-4 text-emerald-500"></i> Cryptomus Configuration
-                        </h4>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label
-                                    class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Merchant
-                                    ID</label>
-                                <input type="text" form="main-settings-form" name="cryptomus_merchant_id"
-                                    value="{{ masked_cryptomus_merchant_id }}" placeholder="Merchant ID"
-                                    class="w-full bg-slate-900 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-emerald-500 outline-none">
-                            </div>
-                            <div>
-                                <label
-                                    class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Payment
-                                    API Key</label>
-                                <input type="text" form="main-settings-form" name="cryptomus_payment_api_key"
-                                    value="{{ masked_cryptomus_payment_api_key }}" placeholder="API Key"
-                                    class="w-full bg-slate-900 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-emerald-500 outline-none">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div
-                        class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-200 dark:border-white/5">
                         <div>
                             <label
-                                class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">IPN
-                                Callback URL</label>
-                            <input type="url" form="main-settings-form" name="payment_ipn_url"
-                                value="{{ payment_ipn_url }}" placeholder="https://..."
-                                class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all text-sm">
-                        </div>
-
-                        <div>
-                            <label
-                                class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Exchange
-                                Rate (Internal USD)</label>
-                            <div class="relative">
-                                <span class="absolute left-4 top-3 text-slate-500 dark:text-slate-500">$</span>
-                                <input type="number" form="main-settings-form" name="currency_rate" step="0.01"
-                                    value="{{ currency_rate }}"
-                                    class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl pl-8 pr-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
-                            </div>
-                            <p class="text-[10px] text-slate-500 dark:text-slate-500 mt-1.5">Fixed conversion rate if
-                                required.</p>
+                                class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Payment
+                                API Key</label>
+                            <input type="text" form="main-settings-form" name="cryptomus_payment_api_key"
+                                value="{{ masked_cryptomus_payment_api_key }}" placeholder="API Key"
+                                class="w-full bg-slate-900 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-slate-900 dark:text-white text-sm focus:border-emerald-500 outline-none">
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
 
-        <!-- 3. TRIALS TAB (Independent Form) -->
-        <div id="content-trials" class="tab-content hidden space-y-6 animate-fade-in">
-            <div
-                class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6">
-                <header class="flex items-center gap-3 mb-6">
-                    <div class="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-400">
-                        <i data-lucide="timer" class="w-5 h-5"></i>
-                    </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-200 dark:border-white/5">
                     <div>
-                        <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Trial Configuration</h3>
-                        <p class="text-xs text-slate-500 dark:text-slate-500">Manage free trial periods for new users
-                        </p>
-                    </div>
-                </header>
-
-                <form hx-post="{{ admin_path }}/tools/trial-config" hx-swap="none" class="space-y-4">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label
-                                class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Default
-                                Trial (Days)</label>
-                            <input type="number" name="free_trial_days" value="{{ free_trial_days }}" min="1" max="365"
-                                required
-                                class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-orange-500 outline-none transition-all text-sm">
-                        </div>
-                        <div>
-                            <label
-                                class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Channel
-                                Member Trial (Days)</label>
-                            <input type="number" name="channel_trial_days" value="{{ channel_trial_days }}" min="1"
-                                max="365" required
-                                class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-orange-500 outline-none transition-all text-sm">
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label
-                                class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Traffic
-                                Limit (GB)</label>
-                            <input type="number" name="free_trial_traffic_limit" value="{{ free_trial_traffic_limit }}"
-                                min="1" required
-                                class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-orange-500 outline-none transition-all text-sm">
-                        </div>
-                        <div>
-                            <label
-                                class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Device
-                                Limit</label>
-                            <input type="number" name="free_trial_device_limit" value="{{ free_trial_device_limit }}"
-                                min="1" required
-                                class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-orange-500 outline-none transition-all text-sm">
-                        </div>
+                        <label
+                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">IPN
+                            Callback URL</label>
+                        <input type="url" form="main-settings-form" name="payment_ipn_url" value="{{ payment_ipn_url }}"
+                            placeholder="https://..."
+                            class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all text-sm">
                     </div>
 
                     <div>
                         <label
-                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Required
-                            Channel ID (Optional)</label>
-                        <input type="text" name="required_channel_id" value="{{ required_channel_id }}"
-                            placeholder="-100..."
+                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Exchange
+                            Rate (Internal USD)</label>
+                        <div class="relative">
+                            <span class="absolute left-4 top-3 text-slate-500 dark:text-slate-500">$</span>
+                            <input type="number" form="main-settings-form" name="currency_rate" step="0.01"
+                                value="{{ currency_rate }}"
+                                class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl pl-8 pr-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
+                        </div>
+                        <p class="text-[10px] text-slate-500 dark:text-slate-500 mt-1.5">Fixed conversion rate if
+                            required.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. TRIALS TAB (Independent Form) -->
+    <div id="content-trials" class="tab-content hidden space-y-6 animate-fade-in">
+        <div
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6">
+            <header class="flex items-center gap-3 mb-6">
+                <div class="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-400">
+                    <i data-lucide="timer" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Trial Configuration</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-500">Manage free trial periods for new users
+                    </p>
+                </div>
+            </header>
+
+            <form hx-post="{{ admin_path }}/tools/trial-config" hx-swap="none" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label
+                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Default
+                            Trial (Days)</label>
+                        <input type="number" name="free_trial_days" value="{{ free_trial_days }}" min="1" max="365"
+                            required
                             class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-orange-500 outline-none transition-all text-sm">
-                        <p class="text-[10px] text-slate-500 dark:text-slate-500 mt-1.5">Telegram channel ID (e.g.,
-                            -100123456) for extended
-                            trials. Leave empty to disable.</p>
-                    </div>
-
-                    <div class="pt-4">
-                        <button type="submit"
-                            class="flex items-center gap-2 bg-orange-600 hover:bg-orange-500 text-slate-900 dark:text-white font-bold py-2.5 px-6 rounded-lg shadow-lg shadow-orange-500/20 transition-all">
-                            <i data-lucide="save" class="w-4 h-4"></i>
-                            Update Trial Settings
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- 4. SYSTEM TAB -->
-        <div id="content-system" class="tab-content hidden space-y-6 animate-fade-in">
-
-            <!-- Deployment Topology -->
-            <div
-                class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6 hover:border-cyan-500/20 transition-all">
-                <header class="flex items-center gap-3 mb-6">
-                    <div class="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center text-cyan-300">
-                        <i data-lucide="network" class="w-5 h-5"></i>
-                    </div>
-                    <div>
-                        <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Deployment Topology</h3>
-                        <p class="text-xs text-slate-500 dark:text-slate-500">Choose architecture mode and service
-                            placement. Root URL is hidden; admin UI works only via configured path.</p>
-                    </div>
-                </header>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div
-                            class="flex items-center justify-between p-3 rounded-xl bg-slate-950/40 border border-slate-300 dark:border-white/10">
-                            <div>
-                                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Local Sub
-                                    Worker</p>
-                                <p class="text-[10px] text-slate-500">Run subscription handler on this host</p>
-                            </div>
-                            <label class="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" form="main-settings-form" name="local_sub_enabled" value="true"
-                                    class="sr-only peer" {% if local_sub_enabled %}checked{% endif %}>
-                                <div
-                                    class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600">
-                                </div>
-                            </label>
-                        </div>
-                        <div
-                            class="flex items-center justify-between p-3 rounded-xl bg-slate-950/40 border border-slate-300 dark:border-white/10">
-                            <div>
-                                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Local Bot
-                                    Worker</p>
-                                <p class="text-[10px] text-slate-500">Run Telegram Bot on this host</p>
-                            </div>
-                            <label class="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" form="main-settings-form" name="local_bot_enabled" value="true"
-                                    class="sr-only peer" {% if local_bot_enabled %}checked{% endif %}>
-                                <div
-                                    class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600">
-                                </div>
-                            </label>
-                        </div>
                     </div>
                     <div>
                         <label
-                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Panel
-                            API URL (base)</label>
-                        <input type="text" form="main-settings-form" name="panel_url" value="{{ panel_url }}"
-                            placeholder="https://panel.example.com"
-                            class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-cyan-500 outline-none transition-all font-mono text-sm">
-                        <p class="text-[11px] text-slate-500 dark:text-slate-500 mt-1">Base URL for API, installer and
-                            node/sub/bot agents. Do not append admin path here.</p>
+                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Channel
+                            Member Trial (Days)</label>
+                        <input type="number" name="channel_trial_days" value="{{ channel_trial_days }}" min="1"
+                            max="365" required
+                            class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-orange-500 outline-none transition-all text-sm">
                     </div>
                 </div>
-                <div class="mb-4">
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label
+                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Traffic
+                            Limit (GB)</label>
+                        <input type="number" name="free_trial_traffic_limit" value="{{ free_trial_traffic_limit }}"
+                            min="1" required
+                            class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-orange-500 outline-none transition-all text-sm">
+                    </div>
+                    <div>
+                        <label
+                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Device
+                            Limit</label>
+                        <input type="number" name="free_trial_device_limit" value="{{ free_trial_device_limit }}"
+                            min="1" required
+                            class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-orange-500 outline-none transition-all text-sm">
+                    </div>
+                </div>
+
+                <div>
                     <label
-                        class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Admin
-                        UI URL (hidden path)</label>
-                    <input type="text" value="{{ admin_ui_url_display }}" readonly
-                        class="w-full bg-slate-950/60 border border-cyan-500/30 rounded-xl px-4 py-3 text-cyan-200 font-mono text-sm">
-                    <p class="text-[11px] text-slate-500 dark:text-slate-500 mt-1">Root URL is intentionally hidden;
-                        access panel only via this path.</p>
+                        class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Required
+                        Channel ID (Optional)</label>
+                    <input type="text" name="required_channel_id" value="{{ required_channel_id }}"
+                        placeholder="-100..."
+                        class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-orange-500 outline-none transition-all text-sm">
+                    <p class="text-[10px] text-slate-500 dark:text-slate-500 mt-1.5">Telegram channel ID (e.g.,
+                        -100123456) for extended
+                        trials. Leave empty to disable.</p>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
-                    <div
-                        class="rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-3">
-                        <p class="text-[10px] text-slate-500 dark:text-slate-500 uppercase">Panel API</p>
-                        <p class="text-sm text-slate-900 dark:text-white mt-1">Local control-plane</p>
-                        <p
-                            class="text-[11px] mt-1 {% if local_panel_detected %}text-emerald-300{% else %}text-amber-300{% endif %}">
-                            installed: {% if local_panel_detected %}yes{% else %}no{% endif %}
-                        </p>
-                        <p
-                            class="text-[11px] mt-1 {% if local_panel_active %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
-                            active: {% if local_panel_active %}yes{% else %}no{% endif %}
-                        </p>
-                        <p
-                            class="text-[11px] mt-1 {% if local_panel_enabled %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
-                            enabled: {% if local_panel_enabled %}yes{% else %}no{% endif %}
-                        </p>
-                    </div>
-                    <div
-                        class="rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-3">
-                        <p class="text-[10px] text-slate-500 dark:text-slate-500 uppercase">Sub / Frontend</p>
-                        <p class="text-sm text-slate-900 dark:text-white mt-1">
-                            {% if deployment_mode == "distributed" %}External edge servers{% else %}Local or mixed{%
-                            endif %}
-                        </p>
-                        <p
-                            class="text-[11px] mt-1 {% if local_sub_detected %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
-                            installed: {% if local_sub_detected %}yes{% else %}no{% endif %}
-                        </p>
-                        <p
-                            class="text-[11px] mt-1 {% if local_sub_active %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
-                            active: {% if local_sub_active %}yes{% else %}no{% endif %}
-                        </p>
-                        <p
-                            class="text-[11px] mt-1 {% if local_sub_enabled %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
-                            enabled: {% if local_sub_enabled %}yes{% else %}no{% endif %}
-                        </p>
-                    </div>
-                    <div
-                        class="rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-3">
-                        <p class="text-[10px] text-slate-500 dark:text-slate-500 uppercase">Telegram Bot</p>
-                        <p class="text-sm text-slate-900 dark:text-white mt-1">
-                            {% if deployment_mode == "distributed" %}Recommended external worker{% else %}Local or
-                            external{% endif %}
-                        </p>
-                        <p
-                            class="text-[11px] mt-1 {% if local_bot_detected %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
-                            installed: {% if local_bot_detected %}yes{% else %}no{% endif %}
-                        </p>
-                        <p
-                            class="text-[11px] mt-1 {% if local_bot_active %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
-                            active: {% if local_bot_active %}yes{% else %}no{% endif %}
-                        </p>
-                        <p
-                            class="text-[11px] mt-1 {% if local_bot_enabled %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
-                            enabled: {% if local_bot_enabled %}yes{% else %}no{% endif %}
-                        </p>
-                    </div>
-                    <div
-                        class="rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-3">
-                        <p class="text-[10px] text-slate-500 dark:text-slate-500 uppercase">Node Agents</p>
-                        <p class="text-sm text-slate-900 dark:text-white mt-1">Always external</p>
-                        <p
-                            class="text-[11px] mt-1 {% if local_node_detected %}text-amber-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
-                            installed: {% if local_node_detected %}yes{% else %}no{% endif %}
-                        </p>
-                        <p
-                            class="text-[11px] mt-1 {% if local_node_active %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
-                            active: {% if local_node_active %}yes{% else %}no{% endif %}
-                        </p>
-                        <p
-                            class="text-[11px] mt-1 {% if local_node_enabled %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
-                            enabled: {% if local_node_enabled %}yes{% else %}no{% endif %}
-                        </p>
-                    </div>
-                </div>
-
-                <div class="flex flex-wrap items-center gap-2">
-                    <button type="button" hx-post="{{ admin_path }}/settings/topology/apply"
-                        hx-target="#topology-apply-result" hx-swap="innerHTML"
-                        class="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-slate-900 dark:text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-cyan-500/20">
-                        <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
-                        Apply Topology on This Host
+                <div class="pt-4">
+                    <button type="submit"
+                        class="flex items-center gap-2 bg-orange-600 hover:bg-orange-500 text-slate-900 dark:text-white font-bold py-2.5 px-6 rounded-lg shadow-lg shadow-orange-500/20 transition-all">
+                        <i data-lucide="save" class="w-4 h-4"></i>
+                        Update Trial Settings
                     </button>
-                    <p class="text-[11px] text-slate-500 dark:text-slate-500">Applies service mode locally: in
-                        distributed mode it disables local sub/bot; in hub mode it enables local panel/sub/bot if
-                        installed.</p>
                 </div>
-                <div id="topology-apply-result"></div>
+            </form>
+        </div>
+    </div>
 
+    <!-- 4. SYSTEM TAB -->
+    <div id="content-system" class="tab-content hidden space-y-6 animate-fade-in">
+
+        <!-- Deployment Topology -->
+        <div
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6 hover:border-cyan-500/20 transition-all">
+            <header class="flex items-center gap-3 mb-6">
+                <div class="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center text-cyan-300">
+                    <i data-lucide="network" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Deployment Topology</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-500">Choose architecture mode and service
+                        placement. Root URL is hidden; admin UI works only via configured path.</p>
+                </div>
+            </header>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div
+                        class="flex items-center justify-between p-3 rounded-xl bg-slate-950/40 border border-slate-300 dark:border-white/10">
+                        <div>
+                            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Local Sub
+                                Worker</p>
+                            <p class="text-[10px] text-slate-500">Run subscription handler on this host</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" form="main-settings-form" name="local_sub_enabled" value="true"
+                                class="sr-only peer" {% if local_sub_enabled %}checked{% endif %}>
+                            <div
+                                class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600">
+                            </div>
+                        </label>
+                    </div>
+                    <div
+                        class="flex items-center justify-between p-3 rounded-xl bg-slate-950/40 border border-slate-300 dark:border-white/10">
+                        <div>
+                            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Local Bot
+                                Worker</p>
+                            <p class="text-[10px] text-slate-500">Run Telegram Bot on this host</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" form="main-settings-form" name="local_bot_enabled" value="true"
+                                class="sr-only peer" {% if local_bot_enabled %}checked{% endif %}>
+                            <div
+                                class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600">
+                            </div>
+                        </label>
+                    </div>
+                </div>
+                <div>
+                    <label
+                        class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Panel
+                        API URL (base)</label>
+                    <input type="text" form="main-settings-form" name="panel_url" value="{{ panel_url }}"
+                        placeholder="https://panel.example.com"
+                        class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-cyan-500 outline-none transition-all font-mono text-sm">
+                    <p class="text-[11px] text-slate-500 dark:text-slate-500 mt-1">Base URL for API, installer and
+                        node/sub/bot agents. Do not append admin path here.</p>
+                </div>
+            </div>
+            <div class="mb-4">
+                <label
+                    class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Admin
+                    UI URL (hidden path)</label>
+                <input type="text" value="{{ admin_ui_url_display }}" readonly
+                    class="w-full bg-slate-950/60 border border-cyan-500/30 rounded-xl px-4 py-3 text-cyan-200 font-mono text-sm">
+                <p class="text-[11px] text-slate-500 dark:text-slate-500 mt-1">Root URL is intentionally hidden;
+                    access panel only via this path.</p>
             </div>
 
-            <!-- Update Overview -->
-            <div
-                class="bg-slate-200 dark:bg-slate-900/40 backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6">
-                <header class="flex items-center gap-3 mb-3">
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
+                <div
+                    class="rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-3">
+                    <p class="text-[10px] text-slate-500 dark:text-slate-500 uppercase">Panel API</p>
+                    <p class="text-sm text-slate-900 dark:text-white mt-1">Local control-plane</p>
+                    <p
+                        class="text-[11px] mt-1 {% if local_panel_detected %}text-emerald-300{% else %}text-amber-300{% endif %}">
+                        installed: {% if local_panel_detected %}yes{% else %}no{% endif %}
+                    </p>
+                    <p
+                        class="text-[11px] mt-1 {% if local_panel_active %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
+                        active: {% if local_panel_active %}yes{% else %}no{% endif %}
+                    </p>
+                    <p
+                        class="text-[11px] mt-1 {% if local_panel_enabled %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
+                        enabled: {% if local_panel_enabled %}yes{% else %}no{% endif %}
+                    </p>
+                </div>
+                <div
+                    class="rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-3">
+                    <p class="text-[10px] text-slate-500 dark:text-slate-500 uppercase">Sub / Frontend</p>
+                    <p class="text-sm text-slate-900 dark:text-white mt-1">
+                        {% if deployment_mode == "distributed" %}External edge servers{% else %}Local or mixed{%
+                        endif %}
+                    </p>
+                    <p
+                        class="text-[11px] mt-1 {% if local_sub_detected %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
+                        installed: {% if local_sub_detected %}yes{% else %}no{% endif %}
+                    </p>
+                    <p
+                        class="text-[11px] mt-1 {% if local_sub_active %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
+                        active: {% if local_sub_active %}yes{% else %}no{% endif %}
+                    </p>
+                    <p
+                        class="text-[11px] mt-1 {% if local_sub_enabled %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
+                        enabled: {% if local_sub_enabled %}yes{% else %}no{% endif %}
+                    </p>
+                </div>
+                <div
+                    class="rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-3">
+                    <p class="text-[10px] text-slate-500 dark:text-slate-500 uppercase">Telegram Bot</p>
+                    <p class="text-sm text-slate-900 dark:text-white mt-1">
+                        {% if deployment_mode == "distributed" %}Recommended external worker{% else %}Local or
+                        external{% endif %}
+                    </p>
+                    <p
+                        class="text-[11px] mt-1 {% if local_bot_detected %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
+                        installed: {% if local_bot_detected %}yes{% else %}no{% endif %}
+                    </p>
+                    <p
+                        class="text-[11px] mt-1 {% if local_bot_active %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
+                        active: {% if local_bot_active %}yes{% else %}no{% endif %}
+                    </p>
+                    <p
+                        class="text-[11px] mt-1 {% if local_bot_enabled %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
+                        enabled: {% if local_bot_enabled %}yes{% else %}no{% endif %}
+                    </p>
+                </div>
+                <div
+                    class="rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-3">
+                    <p class="text-[10px] text-slate-500 dark:text-slate-500 uppercase">Node Agents</p>
+                    <p class="text-sm text-slate-900 dark:text-white mt-1">Always external</p>
+                    <p
+                        class="text-[11px] mt-1 {% if local_node_detected %}text-amber-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
+                        installed: {% if local_node_detected %}yes{% else %}no{% endif %}
+                    </p>
+                    <p
+                        class="text-[11px] mt-1 {% if local_node_active %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
+                        active: {% if local_node_active %}yes{% else %}no{% endif %}
+                    </p>
+                    <p
+                        class="text-[11px] mt-1 {% if local_node_enabled %}text-emerald-300{% else %}text-slate-500 dark:text-slate-500{% endif %}">
+                        enabled: {% if local_node_enabled %}yes{% else %}no{% endif %}
+                    </p>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" hx-post="{{ admin_path }}/settings/topology/apply"
+                    hx-target="#topology-apply-result" hx-swap="innerHTML"
+                    class="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-slate-900 dark:text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-cyan-500/20">
+                    <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+                    Apply Topology on This Host
+                </button>
+                <p class="text-[11px] text-slate-500 dark:text-slate-500">Applies service mode locally: in
+                    distributed mode it disables local sub/bot; in hub mode it enables local panel/sub/bot if
+                    installed.</p>
+            </div>
+            <div id="topology-apply-result"></div>
+
+        </div>
+
+        <!-- Update Overview -->
+        <div
+            class="bg-slate-200 dark:bg-slate-900/40 backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6">
+            <header class="flex items-center gap-3 mb-3">
+                <div class="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-300">
+                    <i data-lucide="info" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Update Center</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-500">One place for hub/panel and node-agent
+                        update flow.</p>
+                </div>
+            </header>
+            <ul class="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
+                <li>1. <span class="text-slate-200">{% if deployment_mode == "distributed" %}Control-plane update{%
+                        else %}Hub update{% endif %}</span>: runs installer smart-upgrade on this host (keeps
+                    current config and credentials).</li>
+                <li>2. <span class="text-slate-200">Node agents</span>: prepare release metadata + rollout signal.
+                    Nodes self-update on heartbeat.</li>
+                <li>3. <span class="text-slate-200">Sub/Bot workers</span>: run installer upgrade on each worker
+                    host (`sudo caramba upgrade`).</li>
+                <li>4. <span class="text-slate-200">Frontend servers</span>: independent edge services, updated per
+                    host via installer.</li>
+            </ul>
+        </div>
+
+        <!-- Hub Update -->
+        <div
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6 hover:border-emerald-500/20 transition-all">
+            <header class="flex items-center gap-3 mb-6">
+                <div class="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+                    <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold text-slate-900 dark:text-white">{% if deployment_mode ==
+                        "distributed" %}Control-plane Update{% else %}Hub Update{% endif %}</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-500">Checks latest stable release and shows
+                        installer command for current topology mode. Existing installs are upgraded without prompt
+                        loops.</p>
+                </div>
+            </header>
+
+            <div class="flex items-center justify-between" id="update-status-container">
+                <div>
+                    <p class="text-sm text-slate-600 dark:text-slate-400">Current Version: <span
+                            class="text-slate-900 dark:text-white font-mono">{{ current_version }}</span></p>
+                </div>
+                <button hx-post="{{ admin_path }}/settings/update/check" hx-target="#update-status-container"
+                    hx-swap="outerHTML"
+                    class="flex items-center gap-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-700 text-slate-900 dark:text-white font-medium py-2 px-4 rounded-lg transition-all border border-slate-200 dark:border-white/5">
+                    <i data-lucide="refresh-cw" class="w-4 h-4"></i> Check for Updates
+                </button>
+            </div>
+        </div>
+
+        <!-- Advanced Controls -->
+        <details
+            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6 hover:border-indigo-500/20 transition-all">
+            <summary class="cursor-pointer flex items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
                     <div class="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-300">
-                        <i data-lucide="info" class="w-5 h-5"></i>
+                        <i data-lucide="settings-2" class="w-5 h-5"></i>
                     </div>
                     <div>
-                        <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Update Center</h3>
-                        <p class="text-xs text-slate-500 dark:text-slate-500">One place for hub/panel and node-agent
-                            update flow.</p>
+                        <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Advanced Controls</h3>
+                        <p class="text-xs text-slate-500 dark:text-slate-500">Rollout internals, worker diagnostics
+                            and safety/obfuscation toggles. Optional for normal operation.</p>
                     </div>
-                </header>
-                <ul class="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
-                    <li>1. <span class="text-slate-200">{% if deployment_mode == "distributed" %}Control-plane update{%
-                            else %}Hub update{% endif %}</span>: runs installer smart-upgrade on this host (keeps
-                        current config and credentials).</li>
-                    <li>2. <span class="text-slate-200">Node agents</span>: prepare release metadata + rollout signal.
-                        Nodes self-update on heartbeat.</li>
-                    <li>3. <span class="text-slate-200">Sub/Bot workers</span>: run installer upgrade on each worker
-                        host (`sudo caramba upgrade`).</li>
-                    <li>4. <span class="text-slate-200">Frontend servers</span>: independent edge services, updated per
-                        host via installer.</li>
-                </ul>
-            </div>
-
-            <!-- Hub Update -->
-            <div
-                class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6 hover:border-emerald-500/20 transition-all">
-                <header class="flex items-center gap-3 mb-6">
-                    <div
-                        class="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400">
-                        <i data-lucide="refresh-cw" class="w-5 h-5"></i>
-                    </div>
-                    <div>
-                        <h3 class="text-lg font-semibold text-slate-900 dark:text-white">{% if deployment_mode ==
-                            "distributed" %}Control-plane Update{% else %}Hub Update{% endif %}</h3>
-                        <p class="text-xs text-slate-500 dark:text-slate-500">Checks latest stable release and shows
-                            installer command for current topology mode. Existing installs are upgraded without prompt
-                            loops.</p>
-                    </div>
-                </header>
-
-                <div class="flex items-center justify-between" id="update-status-container">
-                    <div>
-                        <p class="text-sm text-slate-600 dark:text-slate-400">Current Version: <span
-                                class="text-slate-900 dark:text-white font-mono">{{ current_version }}</span></p>
-                    </div>
-                    <button hx-post="{{ admin_path }}/settings/update/check" hx-target="#update-status-container"
-                        hx-swap="outerHTML"
-                        class="flex items-center gap-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-700 text-slate-900 dark:text-white font-medium py-2 px-4 rounded-lg transition-all border border-slate-200 dark:border-white/5">
-                        <i data-lucide="refresh-cw" class="w-4 h-4"></i> Check for Updates
-                    </button>
                 </div>
-            </div>
+                <span class="text-xs text-slate-600 dark:text-slate-400">click to expand</span>
+            </summary>
 
-            <!-- Advanced Controls -->
-            <details
-                class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6 hover:border-indigo-500/20 transition-all">
-                <summary class="cursor-pointer flex items-center justify-between gap-3">
-                    <div class="flex items-center gap-3">
+            <div class="mt-6 space-y-6">
+
+                <!-- Agent Rollout -->
+                <div
+                    class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6 hover:border-indigo-500/20 transition-all">
+                    <header class="flex items-center gap-3 mb-6">
                         <div
                             class="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-300">
-                            <i data-lucide="settings-2" class="w-5 h-5"></i>
+                            <i data-lucide="cpu" class="w-5 h-5"></i>
                         </div>
                         <div>
-                            <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Advanced Controls</h3>
-                            <p class="text-xs text-slate-500 dark:text-slate-500">Rollout internals, worker diagnostics
-                                and safety/obfuscation toggles. Optional for normal operation.</p>
+                            <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Node Agent Rollout</h3>
+                            <p class="text-xs text-slate-500 dark:text-slate-500">Default flow: prepare latest
+                                release, then rollout to active nodes.</p>
                         </div>
-                    </div>
-                    <span class="text-xs text-slate-600 dark:text-slate-400">click to expand</span>
-                </summary>
+                    </header>
 
-                <div class="mt-6 space-y-6">
-
-                    <!-- Agent Rollout -->
-                    <div
-                        class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6 hover:border-indigo-500/20 transition-all">
-                        <header class="flex items-center gap-3 mb-6">
+                    <div class="space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div
-                                class="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-300">
-                                <i data-lucide="cpu" class="w-5 h-5"></i>
+                                class="rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-4 space-y-2">
+                                <p class="text-[11px] uppercase tracking-wider text-slate-500 dark:text-slate-500">
+                                    Current Agent Release Metadata</p>
+                                <p class="text-sm text-slate-900 dark:text-white"><span
+                                        class="text-slate-600 dark:text-slate-400">Version:</span> <span
+                                        class="font-mono">{{ agent_latest_version }}</span></p>
+                                <p class="text-sm text-slate-900 dark:text-white break-all"><span
+                                        class="text-slate-600 dark:text-slate-400">Binary URL:</span> <span
+                                        class="font-mono text-xs">{{ agent_update_url }}</span></p>
+                                <p class="text-sm text-slate-900 dark:text-white break-all"><span
+                                        class="text-slate-600 dark:text-slate-400">SHA256:</span> <span
+                                        class="font-mono text-xs">{{ agent_update_hash }}</span></p>
                             </div>
                             <div>
-                                <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Node Agent Rollout</h3>
-                                <p class="text-xs text-slate-500 dark:text-slate-500">Default flow: prepare latest
-                                    release, then rollout to active nodes.</p>
-                            </div>
-                        </header>
-
-                        <div class="space-y-4">
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <label
+                                    class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Auto-rollout
+                                    on heartbeat</label>
                                 <div
-                                    class="rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-4 space-y-2">
-                                    <p class="text-[11px] uppercase tracking-wider text-slate-500 dark:text-slate-500">
-                                        Current Agent Release Metadata</p>
-                                    <p class="text-sm text-slate-900 dark:text-white"><span
-                                            class="text-slate-600 dark:text-slate-400">Version:</span> <span
-                                            class="font-mono">{{ agent_latest_version }}</span></p>
-                                    <p class="text-sm text-slate-900 dark:text-white break-all"><span
-                                            class="text-slate-600 dark:text-slate-400">Binary URL:</span> <span
-                                            class="font-mono text-xs">{{ agent_update_url }}</span></p>
-                                    <p class="text-sm text-slate-900 dark:text-white break-all"><span
-                                            class="text-slate-600 dark:text-slate-400">SHA256:</span> <span
-                                            class="font-mono text-xs">{{ agent_update_hash }}</span></p>
+                                    class="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-950/30 rounded-xl border border-slate-200 dark:border-white/5">
+                                    <div>
+                                        <span class="block text-xs font-bold text-slate-900 dark:text-white">Auto
+                                            Update Agents</span>
+                                        <span class="text-[10px] text-slate-500 dark:text-slate-500">If enabled,
+                                            active nodes follow latest version.</span>
+                                    </div>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" form="main-settings-form" name="auto_update_agents"
+                                            value="true" class="sr-only peer" {% if auto_update_agents %}checked{% endif
+                                            %}>
+                                        <div
+                                            class="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-500">
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-wrap gap-2 pt-2">
+                            <button type="button" hx-post="{{ admin_path }}/settings/update/agent/prepare"
+                                hx-target="#agent-rollout-result" hx-swap="innerHTML"
+                                class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-slate-900 dark:text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-indigo-500/20">
+                                <i data-lucide="download-cloud" class="w-4 h-4"></i> Prepare from Latest Release
+                            </button>
+                            <button type="button" hx-post="{{ admin_path }}/settings/update/agent/rollout"
+                                hx-target="#agent-rollout-result" hx-swap="innerHTML"
+                                class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-slate-900 dark:text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-emerald-500/20">
+                                <i data-lucide="send" class="w-4 h-4"></i> Rollout to Active Nodes
+                            </button>
+                        </div>
+
+                        <div id="agent-rollout-result"></div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-500">
+                            Tip: after changing fields manually, click global <span class="text-slate-300">Save
+                                Configuration</span>, then run rollout.
+                        </div>
+
+                        <details
+                            class="rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/30 p-4">
+                            <summary class="cursor-pointer text-sm text-slate-200 font-medium">Manual Override
+                                (Advanced)</summary>
+                            <p class="text-xs text-slate-500 dark:text-slate-500 mt-2 mb-3">Only use this if you
+                                need a custom binary or pin specific version/hash.</p>
+                            <div class="space-y-3">
+                                <div>
+                                    <label
+                                        class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Agent
+                                        Version</label>
+                                    <input type="text" form="main-settings-form" name="agent_latest_version"
+                                        value="{{ agent_latest_version }}" placeholder="v0.3.26"
+                                        class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
                                 </div>
                                 <div>
                                     <label
-                                        class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Auto-rollout
-                                        on heartbeat</label>
-                                    <div
-                                        class="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-950/30 rounded-xl border border-slate-200 dark:border-white/5">
-                                        <div>
-                                            <span class="block text-xs font-bold text-slate-900 dark:text-white">Auto
-                                                Update Agents</span>
-                                            <span class="text-[10px] text-slate-500 dark:text-slate-500">If enabled,
-                                                active nodes follow latest version.</span>
-                                        </div>
-                                        <label class="relative inline-flex items-center cursor-pointer">
-                                            <input type="checkbox" form="main-settings-form" name="auto_update_agents"
-                                                value="true" class="sr-only peer" {% if auto_update_agents %}checked{%
-                                                endif %}>
-                                            <div
-                                                class="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-500">
-                                            </div>
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="flex flex-wrap gap-2 pt-2">
-                                <button type="button" hx-post="{{ admin_path }}/settings/update/agent/prepare"
-                                    hx-target="#agent-rollout-result" hx-swap="innerHTML"
-                                    class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-slate-900 dark:text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-indigo-500/20">
-                                    <i data-lucide="download-cloud" class="w-4 h-4"></i> Prepare from Latest Release
-                                </button>
-                                <button type="button" hx-post="{{ admin_path }}/settings/update/agent/rollout"
-                                    hx-target="#agent-rollout-result" hx-swap="innerHTML"
-                                    class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-slate-900 dark:text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-emerald-500/20">
-                                    <i data-lucide="send" class="w-4 h-4"></i> Rollout to Active Nodes
-                                </button>
-                            </div>
-
-                            <div id="agent-rollout-result"></div>
-                            <div class="text-[11px] text-slate-500 dark:text-slate-500">
-                                Tip: after changing fields manually, click global <span class="text-slate-300">Save
-                                    Configuration</span>, then run rollout.
-                            </div>
-
-                            <details
-                                class="rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/30 p-4">
-                                <summary class="cursor-pointer text-sm text-slate-200 font-medium">Manual Override
-                                    (Advanced)</summary>
-                                <p class="text-xs text-slate-500 dark:text-slate-500 mt-2 mb-3">Only use this if you
-                                    need a custom binary or pin specific version/hash.</p>
-                                <div class="space-y-3">
-                                    <div>
-                                        <label
-                                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Agent
-                                            Version</label>
-                                        <input type="text" form="main-settings-form" name="agent_latest_version"
-                                            value="{{ agent_latest_version }}" placeholder="v0.3.26"
-                                            class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
-                                    </div>
-                                    <div>
-                                        <label
-                                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Agent
-                                            Binary URL</label>
-                                        <input type="text" form="main-settings-form" name="agent_update_url"
-                                            value="{{ agent_update_url }}"
-                                            placeholder="https://github.com/.../caramba-node"
-                                            class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
-                                    </div>
-                                    <div>
-                                        <label
-                                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Agent
-                                            SHA256 Hash</label>
-                                        <input type="text" form="main-settings-form" name="agent_update_hash"
-                                            value="{{ agent_update_hash }}" placeholder="64-char sha256"
-                                            class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
-                                    </div>
-                                </div>
-                            </details>
-                        </div>
-                    </div>
-
-                    <!-- Worker Rollout -->
-                    <details
-                        class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6 hover:border-cyan-500/20 transition-all">
-                        <summary class="cursor-pointer flex items-center justify-between gap-3">
-                            <div class="flex items-center gap-3">
-                                <div
-                                    class="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center text-cyan-300">
-                                    <i data-lucide="satellite" class="w-5 h-5"></i>
+                                        class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Agent
+                                        Binary URL</label>
+                                    <input type="text" form="main-settings-form" name="agent_update_url"
+                                        value="{{ agent_update_url }}" placeholder="https://github.com/.../caramba-node"
+                                        class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
                                 </div>
                                 <div>
-                                    <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Advanced: Sub/Bot
-                                        Worker Rollout</h3>
-                                    <p class="text-xs text-slate-500 dark:text-slate-500">Open only if you run remote
-                                        sub/bot workers and need rollout diagnostics.</p>
+                                    <label
+                                        class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Agent
+                                        SHA256 Hash</label>
+                                    <input type="text" form="main-settings-form" name="agent_update_hash"
+                                        value="{{ agent_update_hash }}" placeholder="64-char sha256"
+                                        class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 outline-none transition-all font-mono text-sm">
                                 </div>
                             </div>
-                            <span class="text-xs text-slate-600 dark:text-slate-400">Workers: {{ worker_total_count }} /
-                                Online: {{ worker_online_count }}</span>
-                        </summary>
-
-                        <div class="mt-6">
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                <div
-                                    class="rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-4">
-                                    <p class="text-xs text-slate-600 dark:text-slate-400 uppercase tracking-wider">Sub
-                                        Worker</p>
-                                    <p class="text-sm text-slate-900 dark:text-white mt-1 font-mono">{% if
-                                        sub_worker_target_version == "" %}not set{% else %}{{ sub_worker_target_version
-                                        }}{% endif %}</p>
-                                    <p class="text-[11px] text-slate-500 dark:text-slate-500 mt-1 break-all">{% if
-                                        sub_worker_update_url == "" %}URL is not set{% else %}{{ sub_worker_update_url
-                                        }}{% endif %}</p>
-                                </div>
-                                <div
-                                    class="rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-4">
-                                    <p class="text-xs text-slate-600 dark:text-slate-400 uppercase tracking-wider">Bot
-                                        Worker</p>
-                                    <p class="text-sm text-slate-900 dark:text-white mt-1 font-mono">{% if
-                                        bot_worker_target_version == "" %}not set{% else %}{{ bot_worker_target_version
-                                        }}{% endif %}</p>
-                                    <p class="text-[11px] text-slate-500 dark:text-slate-500 mt-1 break-all">{% if
-                                        bot_worker_update_url == "" %}URL is not set{% else %}{{ bot_worker_update_url
-                                        }}{% endif %}</p>
-                                </div>
-                            </div>
-
-                            <div class="flex flex-wrap gap-2">
-                                <button type="button" hx-post="{{ admin_path }}/settings/update/worker/queue"
-                                    hx-vals='{"role":"sub"}' hx-target="#worker-update-result" hx-swap="innerHTML"
-                                    class="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-slate-900 dark:text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-cyan-500/20">
-                                    <i data-lucide="send" class="w-4 h-4"></i> Queue Latest Sub Update
-                                </button>
-                                <button type="button" hx-post="{{ admin_path }}/settings/update/worker/queue"
-                                    hx-vals='{"role":"bot"}' hx-target="#worker-update-result" hx-swap="innerHTML"
-                                    class="flex items-center gap-2 bg-cyan-700 hover:bg-cyan-600 text-slate-900 dark:text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-cyan-700/20">
-                                    <i data-lucide="send" class="w-4 h-4"></i> Queue Latest Bot Update
-                                </button>
-                            </div>
-                            <div id="worker-update-result"></div>
-
-                            <div
-                                class="mt-4 rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/30 overflow-hidden">
-                                <div class="px-4 py-2 border-b border-slate-300 dark:border-white/10">
-                                    <p class="text-xs text-slate-300">Worker Inventory</p>
-                                </div>
-                                <div class="overflow-x-auto">
-                                    <table class="w-full text-sm">
-                                        <thead
-                                            class="text-slate-500 dark:text-slate-500 text-xs uppercase tracking-wider">
-                                            <tr>
-                                                <th class="text-left px-4 py-2">Role</th>
-                                                <th class="text-left px-4 py-2">Worker</th>
-                                                <th class="text-left px-4 py-2">Reachability</th>
-                                                <th class="text-left px-4 py-2">Last State</th>
-                                                <th class="text-left px-4 py-2">Version</th>
-                                                <th class="text-left px-4 py-2">Last Seen</th>
-                                                <th class="text-left px-4 py-2">Message</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody class="text-slate-300">
-                                            {% if worker_inventory.len() == 0 %}
-                                            <tr>
-                                                <td colspan="7" class="px-4 py-3 text-slate-500 dark:text-slate-500">No
-                                                    workers have polled yet.</td>
-                                            </tr>
-                                            {% endif %}
-                                            {% for w in worker_inventory %}
-                                            <tr class="border-t border-slate-200 dark:border-white/5">
-                                                <td class="px-4 py-2">{{ w.role }}</td>
-                                                <td class="px-4 py-2 font-mono text-xs">{{ w.worker_id }}</td>
-                                                <td class="px-4 py-2">
-                                                    {% if w.is_online %}
-                                                    <span
-                                                        class="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-emerald-300 text-xs">online</span>
-                                                    {% else %}
-                                                    <span
-                                                        class="rounded-full bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 text-rose-300 text-xs">offline</span>
-                                                    {% endif %}
-                                                </td>
-                                                <td class="px-4 py-2 text-xs">{{ w.last_state }}</td>
-                                                <td class="px-4 py-2 font-mono text-xs">{{ w.current_version }} → {{
-                                                    w.target_version }}</td>
-                                                <td class="px-4 py-2 text-xs text-slate-600 dark:text-slate-400">{{
-                                                    w.last_seen_ago }}<br>{{ w.last_seen }}</td>
-                                                <td class="px-4 py-2 text-xs text-slate-600 dark:text-slate-400">{{
-                                                    w.last_message }}</td>
-                                            </tr>
-                                            {% endfor %}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-
-                            <div
-                                class="mt-4 rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/30 overflow-hidden">
-                                <div class="px-4 py-2 border-b border-slate-300 dark:border-white/10">
-                                    <p class="text-xs text-slate-300">Recent Worker Update Reports</p>
-                                </div>
-                                <div class="overflow-x-auto">
-                                    <table class="w-full text-sm">
-                                        <thead
-                                            class="text-slate-500 dark:text-slate-500 text-xs uppercase tracking-wider">
-                                            <tr>
-                                                <th class="text-left px-4 py-2">Time</th>
-                                                <th class="text-left px-4 py-2">Role</th>
-                                                <th class="text-left px-4 py-2">Worker</th>
-                                                <th class="text-left px-4 py-2">Status</th>
-                                                <th class="text-left px-4 py-2">Version</th>
-                                                <th class="text-left px-4 py-2">Message</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody class="text-slate-300">
-                                            {% if worker_update_reports.len() == 0 %}
-                                            <tr>
-                                                <td colspan="6" class="px-4 py-3 text-slate-500 dark:text-slate-500">No
-                                                    worker reports yet.</td>
-                                            </tr>
-                                            {% endif %}
-                                            {% for row in worker_update_reports %}
-                                            <tr class="border-t border-slate-200 dark:border-white/5">
-                                                <td class="px-4 py-2 text-xs text-slate-600 dark:text-slate-400">{{
-                                                    row.created_at }}</td>
-                                                <td class="px-4 py-2">{{ row.role }}</td>
-                                                <td class="px-4 py-2 font-mono text-xs">{{ row.worker_id }}</td>
-                                                <td class="px-4 py-2">{{ row.status }}</td>
-                                                <td class="px-4 py-2 font-mono text-xs">{{ row.current_version }} → {{
-                                                    row.target_version }}</td>
-                                                <td class="px-4 py-2 text-xs text-slate-600 dark:text-slate-400">{{
-                                                    row.message }}</td>
-                                            </tr>
-                                            {% endfor %}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-
-                            <p class="text-[11px] text-slate-500 dark:text-slate-500 mt-3">
-                                For Bot worker polling, install bot with
-                                <span class="font-mono">--panel-token {% if installer_sub_token_ready %}{{
-                                    installer_sub_token }}{% else %}&lt;INTERNAL_API_TOKEN&gt;{% endif %}</span>.
-                            </p>
-                        </div>
-                    </details>
-
-                    <!-- Backup Section (Moved from Tools) -->
-                    <div
-                        class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6 hover:border-blue-500/20 transition-all">
-                        <header class="flex items-center gap-3 mb-6">
-                            <div
-                                class="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400">
-                                <i data-lucide="database-backup" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Database Backup</h3>
-                                <p class="text-xs text-slate-500 dark:text-slate-500">Export system data and
-                                    configuration</p>
-                            </div>
-                        </header>
-
-                        <div class="flex items-center justify-between">
-                            <div>
-                                {% if last_export != "Never" %}
-                                <p class="text-sm text-slate-600 dark:text-slate-400">Last backup: <span
-                                        class="text-slate-900 dark:text-white font-mono">{{ last_export
-                                        }}</span></p>
-                                {% else %}
-                                <p class="text-sm text-slate-600 dark:text-slate-400">No backups created yet.</p>
-                                {% endif %}
-                            </div>
-                            <a href="{{ admin_path }}/tools/export"
-                                class="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-slate-900 dark:text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-blue-500/20">
-                                <i data-lucide="download" class="w-4 h-4"></i> Download Archive
-                            </a>
-                        </div>
+                        </details>
                     </div>
+                </div>
 
-                    <!-- Decoy Traffic -->
-                    <div
-                        class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6 hover:border-purple-500/20 transition-all">
-                        <header class="flex items-center justify-between mb-6">
-                            <div class="flex items-center gap-3">
-                                <div
-                                    class="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400">
-                                    <i data-lucide="ghost" class="w-5 h-5"></i>
-                                </div>
-                                <div>
-                                    <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Decoy Traffic
-                                        Generator</h3>
-                                    <p class="text-xs text-slate-500 dark:text-slate-500">Generate fake traffic to mask
-                                        VPN signatures</p>
-                                </div>
-                            </div>
-                            <label class="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" form="main-settings-form" name="decoy_enabled"
-                                    class="sr-only peer" {% if decoy_enabled %}checked{% endif %}>
-                                <div
-                                    class="w-11 h-6 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-purple-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600">
-                                </div>
-                            </label>
-                        </header>
-
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div class="col-span-1 md:col-span-2">
-                                <label
-                                    class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Target
-                                    URLs (JSON)</label>
-                                <input type="text" form="main-settings-form" name="decoy_urls" value="{{ decoy_urls }}"
-                                    placeholder='["https://google.com", ...]'
-                                    class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all font-mono text-sm">
+                <!-- Worker Rollout -->
+                <details
+                    class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6 hover:border-cyan-500/20 transition-all">
+                    <summary class="cursor-pointer flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-3">
+                            <div
+                                class="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center text-cyan-300">
+                                <i data-lucide="satellite" class="w-5 h-5"></i>
                             </div>
                             <div>
-                                <label
-                                    class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Min
-                                    Interval (s)</label>
-                                <input type="number" form="main-settings-form" name="decoy_min_interval"
-                                    value="{{ decoy_min_interval }}"
-                                    class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all text-sm">
-                            </div>
-                            <div>
-                                <label
-                                    class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Max
-                                    Interval (s)</label>
-                                <input type="number" form="main-settings-form" name="decoy_max_interval"
-                                    value="{{ decoy_max_interval }}"
-                                    class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all text-sm">
+                                <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Advanced: Sub/Bot
+                                    Worker Rollout</h3>
+                                <p class="text-xs text-slate-500 dark:text-slate-500">Open only if you run remote
+                                    sub/bot workers and need rollout diagnostics.</p>
                             </div>
                         </div>
-                    </div>
+                        <span class="text-xs text-slate-600 dark:text-slate-400">Workers: {{ worker_total_count }} /
+                            Online: {{ worker_online_count }}</span>
+                    </summary>
 
-                    <!-- Kill Switch -->
-                    <div
-                        class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6 hover:border-red-500/20 transition-all">
-                        <header class="flex items-center justify-between mb-6">
-                            <div class="flex items-center gap-3">
-                                <div
-                                    class="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center text-red-500">
-                                    <i data-lucide="skull" class="w-5 h-5"></i>
-                                </div>
-                                <div>
-                                    <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Emergency Kill
-                                        Switch</h3>
-                                    <p class="text-xs text-slate-500 dark:text-slate-500">Auto-terminate nodes if panel
-                                        connection is lost</p>
-                                </div>
+                    <div class="mt-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div
+                                class="rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-4">
+                                <p class="text-xs text-slate-600 dark:text-slate-400 uppercase tracking-wider">Sub
+                                    Worker</p>
+                                <p class="text-sm text-slate-900 dark:text-white mt-1 font-mono">{% if
+                                    sub_worker_target_version == "" %}not set{% else %}{{ sub_worker_target_version
+                                    }}{% endif %}</p>
+                                <p class="text-[11px] text-slate-500 dark:text-slate-500 mt-1 break-all">{% if
+                                    sub_worker_update_url == "" %}URL is not set{% else %}{{ sub_worker_update_url
+                                    }}{% endif %}</p>
                             </div>
-                            <label class="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" form="main-settings-form" name="kill_switch_enabled"
-                                    class="sr-only peer" {% if kill_switch_enabled %}checked{% endif %}>
-                                <div
-                                    class="w-11 h-6 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-red-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600">
-                                </div>
-                            </label>
-                        </header>
+                            <div
+                                class="rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-4">
+                                <p class="text-xs text-slate-600 dark:text-slate-400 uppercase tracking-wider">Bot
+                                    Worker</p>
+                                <p class="text-sm text-slate-900 dark:text-white mt-1 font-mono">{% if
+                                    bot_worker_target_version == "" %}not set{% else %}{{ bot_worker_target_version
+                                    }}{% endif %}</p>
+                                <p class="text-[11px] text-slate-500 dark:text-slate-500 mt-1 break-all">{% if
+                                    bot_worker_update_url == "" %}URL is not set{% else %}{{ bot_worker_update_url
+                                    }}{% endif %}</p>
+                            </div>
+                        </div>
 
+                        <div class="flex flex-wrap gap-2">
+                            <button type="button" hx-post="{{ admin_path }}/settings/update/worker/queue"
+                                hx-vals='{"role":"sub"}' hx-target="#worker-update-result" hx-swap="innerHTML"
+                                class="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-slate-900 dark:text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-cyan-500/20">
+                                <i data-lucide="send" class="w-4 h-4"></i> Queue Latest Sub Update
+                            </button>
+                            <button type="button" hx-post="{{ admin_path }}/settings/update/worker/queue"
+                                hx-vals='{"role":"bot"}' hx-target="#worker-update-result" hx-swap="innerHTML"
+                                class="flex items-center gap-2 bg-cyan-700 hover:bg-cyan-600 text-slate-900 dark:text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-cyan-700/20">
+                                <i data-lucide="send" class="w-4 h-4"></i> Queue Latest Bot Update
+                            </button>
+                        </div>
+                        <div id="worker-update-result"></div>
+
+                        <div
+                            class="mt-4 rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/30 overflow-hidden">
+                            <div class="px-4 py-2 border-b border-slate-300 dark:border-white/10">
+                                <p class="text-xs text-slate-300">Worker Inventory</p>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm">
+                                    <thead class="text-slate-500 dark:text-slate-500 text-xs uppercase tracking-wider">
+                                        <tr>
+                                            <th class="text-left px-4 py-2">Role</th>
+                                            <th class="text-left px-4 py-2">Worker</th>
+                                            <th class="text-left px-4 py-2">Reachability</th>
+                                            <th class="text-left px-4 py-2">Last State</th>
+                                            <th class="text-left px-4 py-2">Version</th>
+                                            <th class="text-left px-4 py-2">Last Seen</th>
+                                            <th class="text-left px-4 py-2">Message</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="text-slate-300">
+                                        {% if worker_inventory.len() == 0 %}
+                                        <tr>
+                                            <td colspan="7" class="px-4 py-3 text-slate-500 dark:text-slate-500">No
+                                                workers have polled yet.</td>
+                                        </tr>
+                                        {% endif %}
+                                        {% for w in worker_inventory %}
+                                        <tr class="border-t border-slate-200 dark:border-white/5">
+                                            <td class="px-4 py-2">{{ w.role }}</td>
+                                            <td class="px-4 py-2 font-mono text-xs">{{ w.worker_id }}</td>
+                                            <td class="px-4 py-2">
+                                                {% if w.is_online %}
+                                                <span
+                                                    class="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-emerald-300 text-xs">online</span>
+                                                {% else %}
+                                                <span
+                                                    class="rounded-full bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 text-rose-300 text-xs">offline</span>
+                                                {% endif %}
+                                            </td>
+                                            <td class="px-4 py-2 text-xs">{{ w.last_state }}</td>
+                                            <td class="px-4 py-2 font-mono text-xs">{{ w.current_version }} → {{
+                                                w.target_version }}</td>
+                                            <td class="px-4 py-2 text-xs text-slate-600 dark:text-slate-400">{{
+                                                w.last_seen_ago }}<br>{{ w.last_seen }}</td>
+                                            <td class="px-4 py-2 text-xs text-slate-600 dark:text-slate-400">{{
+                                                w.last_message }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div
+                            class="mt-4 rounded-xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/30 overflow-hidden">
+                            <div class="px-4 py-2 border-b border-slate-300 dark:border-white/10">
+                                <p class="text-xs text-slate-300">Recent Worker Update Reports</p>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm">
+                                    <thead class="text-slate-500 dark:text-slate-500 text-xs uppercase tracking-wider">
+                                        <tr>
+                                            <th class="text-left px-4 py-2">Time</th>
+                                            <th class="text-left px-4 py-2">Role</th>
+                                            <th class="text-left px-4 py-2">Worker</th>
+                                            <th class="text-left px-4 py-2">Status</th>
+                                            <th class="text-left px-4 py-2">Version</th>
+                                            <th class="text-left px-4 py-2">Message</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="text-slate-300">
+                                        {% if worker_update_reports.len() == 0 %}
+                                        <tr>
+                                            <td colspan="6" class="px-4 py-3 text-slate-500 dark:text-slate-500">No
+                                                worker reports yet.</td>
+                                        </tr>
+                                        {% endif %}
+                                        {% for row in worker_update_reports %}
+                                        <tr class="border-t border-slate-200 dark:border-white/5">
+                                            <td class="px-4 py-2 text-xs text-slate-600 dark:text-slate-400">{{
+                                                row.created_at }}</td>
+                                            <td class="px-4 py-2">{{ row.role }}</td>
+                                            <td class="px-4 py-2 font-mono text-xs">{{ row.worker_id }}</td>
+                                            <td class="px-4 py-2">{{ row.status }}</td>
+                                            <td class="px-4 py-2 font-mono text-xs">{{ row.current_version }} → {{
+                                                row.target_version }}</td>
+                                            <td class="px-4 py-2 text-xs text-slate-600 dark:text-slate-400">{{
+                                                row.message }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <p class="text-[11px] text-slate-500 dark:text-slate-500 mt-3">
+                            For Bot worker polling, install bot with
+                            <span class="font-mono">--panel-token {% if installer_sub_token_ready %}{{
+                                installer_sub_token }}{% else %}&lt;INTERNAL_API_TOKEN&gt;{% endif %}</span>.
+                        </p>
+                    </div>
+                </details>
+
+                <!-- Backup Section (Moved from Tools) -->
+                <div
+                    class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6 hover:border-blue-500/20 transition-all">
+                    <header class="flex items-center gap-3 mb-6">
+                        <div class="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400">
+                            <i data-lucide="database-backup" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Database Backup</h3>
+                            <p class="text-xs text-slate-500 dark:text-slate-500">Export system data and
+                                configuration</p>
+                        </div>
+                    </header>
+
+                    <div class="flex items-center justify-between">
+                        <div>
+                            {% if last_export != "Never" %}
+                            <p class="text-sm text-slate-600 dark:text-slate-400">Last backup: <span
+                                    class="text-slate-900 dark:text-white font-mono">{{ last_export
+                                    }}</span></p>
+                            {% else %}
+                            <p class="text-sm text-slate-600 dark:text-slate-400">No backups created yet.</p>
+                            {% endif %}
+                        </div>
+                        <a href="{{ admin_path }}/tools/export"
+                            class="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-slate-900 dark:text-white font-medium py-2 px-4 rounded-lg transition-all shadow-lg shadow-blue-500/20">
+                            <i data-lucide="download" class="w-4 h-4"></i> Download Archive
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Decoy Traffic -->
+                <div
+                    class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6 hover:border-purple-500/20 transition-all">
+                    <header class="flex items-center justify-between mb-6">
+                        <div class="flex items-center gap-3">
+                            <div
+                                class="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400">
+                                <i data-lucide="ghost" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Decoy Traffic
+                                    Generator</h3>
+                                <p class="text-xs text-slate-500 dark:text-slate-500">Generate fake traffic to mask
+                                    VPN signatures</p>
+                            </div>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" form="main-settings-form" name="decoy_enabled" class="sr-only peer"
+                                {% if decoy_enabled %}checked{% endif %}>
+                            <div
+                                class="w-11 h-6 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-purple-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600">
+                            </div>
+                        </label>
+                    </header>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="col-span-1 md:col-span-2">
+                            <label
+                                class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Target
+                                URLs (JSON)</label>
+                            <input type="text" form="main-settings-form" name="decoy_urls" value="{{ decoy_urls }}"
+                                placeholder='["https://google.com", ...]'
+                                class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all font-mono text-sm">
+                        </div>
                         <div>
                             <label
-                                class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Timeout
-                                (Seconds)</label>
-                            <input type="number" form="main-settings-form" name="kill_switch_timeout"
-                                value="{{ kill_switch_timeout }}" placeholder="300"
-                                class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-red-500 outline-none transition-all text-sm">
+                                class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Min
+                                Interval (s)</label>
+                            <input type="number" form="main-settings-form" name="decoy_min_interval"
+                                value="{{ decoy_min_interval }}"
+                                class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all text-sm">
+                        </div>
+                        <div>
+                            <label
+                                class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Max
+                                Interval (s)</label>
+                            <input type="number" form="main-settings-form" name="decoy_max_interval"
+                                value="{{ decoy_max_interval }}"
+                                class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-purple-500 outline-none transition-all text-sm">
                         </div>
                     </div>
-
                 </div>
-            </details>
-        </div>
+
+                <!-- Kill Switch -->
+                <div
+                    class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6 hover:border-red-500/20 transition-all">
+                    <header class="flex items-center justify-between mb-6">
+                        <div class="flex items-center gap-3">
+                            <div
+                                class="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center text-red-500">
+                                <i data-lucide="skull" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Emergency Kill
+                                    Switch</h3>
+                                <p class="text-xs text-slate-500 dark:text-slate-500">Auto-terminate nodes if panel
+                                    connection is lost</p>
+                            </div>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" form="main-settings-form" name="kill_switch_enabled"
+                                class="sr-only peer" {% if kill_switch_enabled %}checked{% endif %}>
+                            <div
+                                class="w-11 h-6 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-red-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600">
+                            </div>
+                        </label>
+                    </header>
+
+                    <div>
+                        <label
+                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Timeout
+                            (Seconds)</label>
+                        <input type="number" form="main-settings-form" name="kill_switch_timeout"
+                            value="{{ kill_switch_timeout }}" placeholder="300"
+                            class="w-full bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-red-500 outline-none transition-all text-sm">
+                    </div>
+                </div>
+
+            </div>
+        </details>
+    </div>
     </div>
 
     <!-- Sticky Save Button (Main Form Only) -->

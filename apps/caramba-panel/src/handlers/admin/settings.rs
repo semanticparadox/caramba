@@ -285,18 +285,21 @@ async fn fetch_worker_inventory(pool: &sqlx::PgPool) -> Vec<WorkerInventoryView>
 #[template(path = "settings.html")]
 pub struct SettingsTemplate {
     pub current_version: String,
-    pub username: String,
-    pub masked_bot_token: String,
-    pub masked_payment_api_key: String,
+    pub telegram_stars_enabled: bool,
+    pub manual_enabled: bool,
+    pub nowpayments_api_key: String,
     pub masked_nowpayments_api_key: String,
+    pub masked_nowpayments_ipn_secret: String,
+    pub masked_payment_api_key: String,
     pub masked_cryptomus_merchant_id: String,
     pub masked_cryptomus_payment_api_key: String,
     pub masked_aaio_merchant_id: String,
     pub masked_aaio_secret_1: String,
     pub masked_aaio_secret_2: String,
+    pub username: String,
+    pub masked_bot_token: String,
     pub masked_lava_project_id: String,
     pub masked_lava_secret_key: String,
-    pub telegram_stars_enabled: bool,
     pub payment_ipn_url: String,
     pub currency_rate: String,
     pub support_url: String,
@@ -439,6 +442,7 @@ pub struct SaveSettingsForm {
     pub aaio_secret_2: Option<String>,
     pub lava_project_id: Option<String>,
     pub lava_secret_key: Option<String>,
+    pub manual_enabled: Option<String>,
     pub telegram_stars_enabled: Option<String>,
     pub payment_ipn_url: Option<String>,
     pub currency_rate: Option<String>,
@@ -464,6 +468,7 @@ pub struct SaveSettingsForm {
     pub agent_update_hash: Option<String>,
     pub expiry_reminders_enabled: Option<String>,
     pub expiry_hours_threshold: Option<String>,
+    pub nowpayments_ipn_secret: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -504,6 +509,18 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .get_or_default("telegram_stars_enabled", "false")
         .await
         == "true";
+    let manual_enabled = state
+        .settings
+        .get_or_default("manual_enabled", "false")
+        .await
+        == "true";
+
+    let current_nowpayments_ipn = state.settings.get_or_default("nowpayments_ipn_secret", "").await;
+    let masked_nowpayments_ipn = if !current_nowpayments_ipn.is_empty() {
+        mask_key(&current_nowpayments_ipn)
+    } else {
+        "".to_string()
+    };
 
     let payment_ipn_url = state.settings.get_or_default("payment_ipn_url", "").await;
     let currency_rate = state.settings.get_or_default("currency_rate", "1.0").await;
@@ -836,8 +853,12 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
             .await
             .unwrap_or("Admin".to_string()),
         masked_bot_token,
-        masked_payment_api_key,
+        telegram_stars_enabled,
+        manual_enabled,
+        nowpayments_api_key,
         masked_nowpayments_api_key,
+        masked_nowpayments_ipn_secret: masked_nowpayments_ipn,
+        masked_payment_api_key,
         masked_cryptomus_merchant_id,
         masked_cryptomus_payment_api_key,
         masked_aaio_merchant_id,
@@ -845,7 +866,6 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         masked_aaio_secret_2,
         masked_lava_project_id,
         masked_lava_secret_key,
-        telegram_stars_enabled,
         payment_ipn_url,
         currency_rate,
         support_url,
@@ -978,6 +998,18 @@ pub async fn save_settings(
         }
     }
 
+    let current_nowpayments_ipn = state.settings.get_or_default("nowpayments_ipn_secret", "").await;
+    let masked_nowpayments_ipn = if !current_nowpayments_ipn.is_empty() {
+        mask_key(&current_nowpayments_ipn)
+    } else {
+        "".to_string()
+    };
+    if let Some(v) = form.nowpayments_ipn_secret {
+        if !v.is_empty() && v != masked_nowpayments_ipn {
+            settings.insert("nowpayments_ipn_secret".to_string(), v);
+        }
+    }
+
     let current_lava_project = state.settings.get_or_default("lava_project_id", "").await;
     let masked_lava_project = if !current_lava_project.is_empty() {
         mask_key(&current_lava_project)
@@ -1005,6 +1037,15 @@ pub async fn save_settings(
     settings.insert(
         "telegram_stars_enabled".to_string(),
         if is_checkbox_enabled(form.telegram_stars_enabled.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
+    );
+
+    settings.insert(
+        "manual_enabled".to_string(),
+        if is_checkbox_enabled(form.manual_enabled.as_deref()) {
             "true".to_string()
         } else {
             "false".to_string()

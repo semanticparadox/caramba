@@ -1329,24 +1329,45 @@ async fn get_payment_providers(
         });
     }
 
-    if state.settings.get_or_default("stars_enabled", "false").await == "true" {
+    if state.settings.get_or_default("telegram_stars_enabled", "false").await == "true" {
         providers.push(PaymentProviderInfo {
             id: "stars".to_string(),
             label: "⭐️ Pay with Telegram Stars".to_string(),
         });
     }
 
-    if !state.settings.get_or_default("cryptobot_token", "").await.is_empty() {
+    if !state.settings.get_or_default("payment_api_key", "").await.is_empty() {
         providers.push(PaymentProviderInfo {
             id: "cryptobot".to_string(),
             label: "🪙 Pay with CryptoBot".to_string(),
         });
     }
 
-    if !state.settings.get_or_default("nowpayments_key", "").await.is_empty() {
+    if !state.settings.get_or_default("nowpayments_api_key", "").await.is_empty() {
         providers.push(PaymentProviderInfo {
             id: "nowpayments".to_string(),
             label: "🪙 Pay with NowPayments".to_string(),
+        });
+    }
+
+    if !state.settings.get_or_default("cryptomus_payment_api_key", "").await.is_empty() {
+        providers.push(PaymentProviderInfo {
+            id: "cryptomus".to_string(),
+            label: "🪙 Pay with Cryptomus".to_string(),
+        });
+    }
+
+    if !state.settings.get_or_default("lava_secret_key", "").await.is_empty() {
+        providers.push(PaymentProviderInfo {
+            id: "lava".to_string(),
+            label: "🪙 Pay with Lava.top".to_string(),
+        });
+    }
+
+    if !state.settings.get_or_default("aaio_secret_1", "").await.is_empty() {
+        providers.push(PaymentProviderInfo {
+            id: "aaio".to_string(),
+            label: "🪙 Pay with AAIO".to_string(),
         });
     }
 

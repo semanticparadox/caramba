@@ -8,6 +8,9 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use super::payment::provider::{PaymentProvider, PaymentWebhookAction};
+use super::payment::cryptomus::CryptomusProvider;
+use super::payment::lava::LavaProvider;
+use super::payment::aaio::AaioProvider;
 use super::payment::balance::BalanceProvider;
 use super::payment::cryptobot::CryptoBotProvider;
 use super::payment::manual::ManualProvider;
@@ -32,6 +35,13 @@ impl MarketplaceService {
         nowpayments_key: String,
         nowpayments_ipn_secret: String,
         cryptobot_token: String,
+        cryptomus_merchant_id: String,
+        cryptomus_api_key: String,
+        lava_project_id: String,
+        lava_secret_key: String,
+        aaio_merchant_id: String,
+        aaio_secret_1: String,
+        aaio_secret_2: String,
         store_service: StoreService,
         sub_service: SubscriptionService,
     ) -> Self {
@@ -57,6 +67,37 @@ impl MarketplaceService {
                 "cryptobot".to_string(),
                 Box::new(CryptoBotProvider {
                     token: cryptobot_token,
+                }),
+            );
+        }
+
+        if !cryptomus_merchant_id.is_empty() && !cryptomus_api_key.is_empty() {
+            providers.insert(
+                "cryptomus".to_string(),
+                Box::new(CryptomusProvider {
+                    merchant_id: cryptomus_merchant_id,
+                    api_key: cryptomus_api_key,
+                }),
+            );
+        }
+
+        if !lava_project_id.is_empty() && !lava_secret_key.is_empty() {
+            providers.insert(
+                "lava".to_string(),
+                Box::new(LavaProvider {
+                    project_id: lava_project_id,
+                    secret_key: lava_secret_key,
+                }),
+            );
+        }
+
+        if !aaio_merchant_id.is_empty() && !aaio_secret_1.is_empty() {
+            providers.insert(
+                "aaio".to_string(),
+                Box::new(AaioProvider {
+                    merchant_id: aaio_merchant_id,
+                    secret_1: aaio_secret_1,
+                    secret_2: aaio_secret_2,
                 }),
             );
         }
