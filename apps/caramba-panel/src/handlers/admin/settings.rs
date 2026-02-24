@@ -883,7 +883,7 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
 
     let template = SettingsTemplate {
         current_version: current_version.clone(),
-        active_nodes_count: state.orchestration_service.get_all_nodes().await.unwrap_or_default().len(),
+        active_nodes_count: state.orchestration_service.node_repo.get_all_nodes().await.unwrap_or_default().len(),
         username: get_auth_user(&state, &jar)
             .await
             .unwrap_or("Admin".to_string()),
