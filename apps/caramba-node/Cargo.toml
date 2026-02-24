@@ -1,6 +1,6 @@
 [package]
 name = "caramba-node"
-version = "0.3.59"
+version = "0.3.61"
 edition = "2024"
 
 [dependencies]
