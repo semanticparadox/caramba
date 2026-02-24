@@ -197,7 +197,7 @@ pub async fn get_frontends_rows(
                 let status_class = if is_active { "badge-online" } else { "badge-offline" };
                 let status_text = if is_active { "Active" } else { "Inactive" };
                 let traffic_mb = traffic / 1024 / 1024;
-                let last_seen_text = last_hb
+                let _last_seen_text = last_hb
                     .map(|t| {
                         let ago = chrono::Utc::now() - t;
                         if ago.num_minutes() < 2 { "just now".to_string() }

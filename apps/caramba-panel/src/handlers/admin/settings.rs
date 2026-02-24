@@ -285,6 +285,7 @@ async fn fetch_worker_inventory(pool: &sqlx::PgPool) -> Vec<WorkerInventoryView>
 #[template(path = "settings.html")]
 pub struct SettingsTemplate {
     pub current_version: String,
+    pub active_nodes_count: usize,
     pub telegram_stars_enabled: bool,
     pub simple_mode_enabled: bool,
     pub simple_mode_plan_id: i64,
@@ -882,6 +883,7 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
 
     let template = SettingsTemplate {
         current_version: current_version.clone(),
+        active_nodes_count: state.orchestration_service.get_all_nodes().await.unwrap_or_default().len(),
         username: get_auth_user(&state, &jar)
             .await
             .unwrap_or("Admin".to_string()),
