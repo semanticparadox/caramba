@@ -309,6 +309,8 @@ pub struct SettingsTemplate {
     pub bot_username: String,
     pub brand_name: String,
     pub terms_of_service: String,
+    pub bot_buttons_mode: String,
+    pub bot_support_button_always_on: bool,
     pub decoy_enabled: bool,
     pub decoy_urls: String,
     pub decoy_min_interval: String,
@@ -445,6 +447,8 @@ pub struct SaveSettingsForm {
     pub bot_username: Option<String>,
     pub brand_name: Option<String>,
     pub terms_of_service: Option<String>,
+    pub bot_buttons_mode: Option<String>,
+    pub bot_support_button_always_on: Option<String>,
     pub decoy_enabled: Option<String>,
     pub decoy_urls: Option<String>,
     pub decoy_min_interval: Option<String>,
@@ -526,6 +530,14 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     let terms_of_service = state
         .settings
         .get_or_default("terms_of_service", "Welcome to CARAMBA.")
+        .await;
+    let bot_buttons_mode = state
+        .settings
+        .get_or_default("bot_buttons_mode", "full")
+        .await;
+    let bot_support_button_always_on = state
+        .settings
+        .get_bool_or_default("bot_support_button_always_on", true)
         .await;
 
     let decoy_enabled = state
@@ -846,6 +858,8 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         bot_username,
         brand_name,
         terms_of_service,
+        bot_buttons_mode,
+        bot_support_button_always_on,
         decoy_enabled,
         decoy_urls,
         decoy_min_interval,
@@ -1088,6 +1102,17 @@ pub async fn save_settings(
     if let Some(v) = form.terms_of_service {
         settings.insert("terms_of_service".to_string(), v);
     }
+    if let Some(v) = form.bot_buttons_mode {
+        settings.insert("bot_buttons_mode".to_string(), v);
+    }
+    settings.insert(
+        "bot_support_button_always_on".to_string(),
+        if is_checkbox_enabled(form.bot_support_button_always_on.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
+    );
 
     settings.insert(
         "decoy_enabled".to_string(),
