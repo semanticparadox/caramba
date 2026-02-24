@@ -6,114 +6,139 @@
 {% block content %}
 <section class="space-y-6">
     <!-- Header Action -->
-    <div class="flex justify-end">
-        <button onclick="document.getElementById('add-plan-modal').showModal()"
-            class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 px-4 rounded-lg shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02]">
+    <div class="flex flex-col md:flex-row justify-between items-center gap-6 card p-8 group">
+        <div class="flex items-center gap-4">
+            <div
+                class="w-12 h-12 rounded-2xl bg-brand/10 flex items-center justify-center text-brand border border-brand/20">
+                <i data-lucide="package" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <h2 class="text-2xl font-bold text-slate-900 dark:text-white font-premium uppercase tracking-tight">
+                    Provisioning Lab</h2>
+                <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1 leading-none">Subscription
+                    Product Fleet</p>
+            </div>
+        </div>
+        <button onclick="document.getElementById('add-plan-modal').showModal()" class="btn btn-primary px-8">
             <i data-lucide="plus" class="w-4 h-4"></i>
-            <span>Create New Plan</span>
+            ARCHITECT NEW PLAN
         </button>
     </div>
 
     <!-- Plans Grid -->
+    <!-- Plans Grid -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {% for plan in plans %}
-        <div class="group bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl flex flex-col transition-all duration-300 hover:border-indigo-500/30 hover:shadow-xl hover:shadow-indigo-500/5"
+        <article
+            class="card flex flex-col group overflow-hidden border-border-default hover:border-brand/30 transition-all duration-500"
             id="plan-{{ plan.id }}">
-            <div class="p-6 flex-1 flex flex-col">
-                <div class="flex justify-between items-start mb-4">
-                    <div>
-                        <h3
-                            class="text-xl font-bold text-slate-900 dark:text-white mb-1 group-hover:text-indigo-400 transition-colors">
-                            {{
-                            plan.name }}</h3>
-                        <p class="text-xs text-slate-500 dark:text-slate-500 font-medium uppercase tracking-wider">
-                            Flexible Plan</p>
-                    </div>
-                    <span
-                        class="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-semibold {% if plan.is_active %}bg-emerald-500/10 text-emerald-400 border border-emerald-500/20{% else %}bg-slate-200 dark:bg-slate-700/40 text-slate-600 dark:text-slate-400 border border-slate-300 dark:border-white/10{% endif %}">
-                        {% if plan.is_active %}Active{% else %}Inactive{% endif %}
-                    </span>
-                </div>
-
-                <p class="text-slate-600 dark:text-slate-400 text-sm mb-6 line-clamp-3 min-h-[3rem]">
-                    {% if let Some(desc) = plan.description %}{{ desc }}{% else %}No description provided.{% endif %}
-                </p>
-
-                <div class="space-y-3 mb-6">
-                    <div class="flex items-center gap-3 text-sm text-slate-300">
-                        <div
-                            class="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400 shrink-0">
-                            <i data-lucide="smartphone" class="w-4 h-4"></i>
-                        </div>
-                        <div>
-                            <span class="block text-xs text-slate-500">Device Limit</span>
-                            <span class="font-medium">
-                                {% if plan.device_limit == 0 %}Unlimited{% else %}{{ plan.device_limit }} Devices{%
-                                endif %}
-                            </span>
-                        </div>
-                    </div>
-
-                    <div class="flex items-center gap-3 text-sm text-slate-300">
-                        <div
-                            class="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400 shrink-0">
-                            <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
-                        </div>
-                        <div>
-                            <span class="block text-xs text-slate-500">Traffic Limit</span>
-                            <span class="font-medium">{{ plan.traffic_limit_gb }} GB</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div
-                    class="bg-slate-100 dark:bg-[#0a0a0a] rounded-xl p-3 mb-6 space-y-2 border border-slate-200 dark:border-white/5">
-                    {% for dur in plan.durations %}
-                    <div class="flex items-center justify-between text-sm">
-                        <span class="text-slate-600 dark:text-slate-400">{{ dur.duration_days }} Days</span>
-                        <span class="text-slate-900 dark:text-white font-mono font-medium">${{ dur.price / 100 }}.{{
-                            "{:02}"|format(dur.price % 100) }}</span>
-                    </div>
-                    {% endfor %}
-                    {% if plan.durations.is_empty() %}
-                    <div class="text-center text-xs text-slate-600 italic py-1">No pricing configured</div>
+            <!-- Card Header -->
+            <div class="p-8 pb-0 relative">
+                <div class="absolute top-0 right-0 p-6">
+                    {% if plan.is_active %}
+                    <span class="badge badge-online">ACTIVE</span>
+                    {% else %}
+                    <span class="badge badge-offline">INACTIVE</span>
                     {% endif %}
                 </div>
 
-                <div class="mt-auto grid grid-cols-2 gap-2">
-                    <button
-                        class="col-span-2 py-2 px-3 rounded-lg bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white text-sm font-medium transition-colors border border-slate-200 dark:border-white/5"
-                        hx-get="{{ admin_path }}/plans/{{ plan.id }}" hx-target="#edit-plan-modal-content"
-                        onclick="document.getElementById('edit-plan-modal').showModal()">
-                        Edit Details
-                    </button>
+                <h3 class="text-2xl font-bold text-white mb-2 font-premium group-hover:text-brand transition-colors">
+                    {{ plan.name }}
+                </h3>
+                <div class="flex items-center gap-2 mb-6">
+                    <span
+                        class="text-[10px] font-mono text-slate-500 bg-black/20 px-2 py-0.5 rounded border border-white/5 uppercase tracking-widest">
+                        UUID: {{ plan.id }}
+                    </span>
+                </div>
 
+                <p class="text-[11px] text-slate-400 font-medium leading-relaxed mb-8 line-clamp-3 min-h-[3.3rem]">
+                    {% if let Some(desc) = plan.description %}{{ desc }}{% else %}Standard subscription tier with
+                    unrestricted node access.{% endif %}
+                </p>
+            </div>
+
+            <!-- Card Body: Specs -->
+            <div class="px-8 space-y-5 flex-1">
+                <div
+                    class="flex items-center justify-between p-4 rounded-2xl bg-black/20 border border-white/5 group/attr hover:border-brand/10 transition-colors">
+                    <div class="flex items-center gap-3">
+                        <div
+                            class="w-8 h-8 rounded-lg bg-brand/10 flex items-center justify-center text-brand border border-brand/20">
+                            <i data-lucide="smartphone" class="w-4 h-4"></i>
+                        </div>
+                        <span class="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Device Limit</span>
+                    </div>
+                    <span class="font-bold text-white font-mono">
+                        {% if plan.device_limit == 0 %}∞{% else %}{{ plan.device_limit }}{% endif %}
+                    </span>
+                </div>
+
+                <div
+                    class="flex items-center justify-between p-4 rounded-2xl bg-black/20 border border-white/5 group/attr hover:border-brand/10 transition-colors">
+                    <div class="flex items-center gap-3">
+                        <div
+                            class="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400 border border-indigo-500/20">
+                            <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
+                        </div>
+                        <span class="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Data Ceiling</span>
+                    </div>
+                    <span class="font-bold text-white font-mono">{{ plan.traffic_limit_gb }}<span
+                            class="text-[10px] text-slate-500 ml-1">GB</span></span>
+                </div>
+
+                <!-- Pricing Stack -->
+                <div class="pt-2">
+                    <div class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-4 ml-1">Pricing
+                        Configuration</div>
+                    <div class="space-y-2">
+                        {% for dur in plan.durations %}
+                        <div
+                            class="flex items-center justify-between px-3 py-2 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 transition-colors">
+                            <span class="text-[11px] font-bold text-slate-400 uppercase tracking-tighter">{{
+                                dur.duration_days }} DAYS</span>
+                            <span class="text-brand font-mono font-bold text-lg">
+                                <span class="text-xs opacity-50 mr-0.5">$</span>{{ dur.price / 100 }}<span
+                                    class="text-xs opacity-50">.{{ "{:02}"|format(dur.price % 100) }}</span>
+                            </span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card Actions -->
+            <div class="p-8 pt-10">
+                <div class="grid grid-cols-2 gap-3">
+                    <button class="btn btn-secondary py-3 group/edit" hx-get="{{ admin_path }}/plans/{{ plan.id }}"
+                        hx-target="#edit-plan-modal-content"
+                        onclick="document.getElementById('edit-plan-modal').showModal()">
+                        <i data-lucide="edit-3" class="w-4 h-4 group-hover/edit:text-brand transition-colors"></i>
+                        CONFIGURE
+                    </button>
                     <button
-                        class="py-2 px-3 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 text-sm font-medium transition-colors border border-red-500/10"
+                        class="btn btn-secondary text-rose-500 border-rose-500/10 hover:bg-rose-500/5 py-3 group/del"
                         hx-delete="{{ admin_path }}/plans/{{ plan.id }}"
-                        hx-confirm="Are you sure you want to delete the plan '{{ plan.name }}'? This action cannot be undone."
-                        data-confirm-title="Delete Subscription Plan" hx-target="#plan-{{ plan.id }}"
+                        hx-confirm="Decommission plan '{{ plan.name }}'?" hx-target="#plan-{{ plan.id }}"
                         hx-swap="outerHTML">
-                        Delete
+                        <i data-lucide="trash-2" class="w-4 h-4 group-hover/del:text-rose-400 transition-colors"></i>
+                        SCRAP
                     </button>
                 </div>
             </div>
-        </div>
+        </article>
         {% endfor %}
 
         <!-- Empty State -->
         {% if plans.is_empty() %}
-        <div
-            class="col-span-full flex flex-col items-center justify-center p-12 text-center bg-slate-100/80 dark:bg-slate-900/30 border border-slate-200 dark:border-white/5 rounded-2xl border-dashed">
-            <div class="w-16 h-16 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center mb-4">
-                <i data-lucide="box" class="w-8 h-8 text-slate-600"></i>
+        <div class="col-span-full">
+            <div class="empty-state card">
+                <i data-lucide="box" class="empty-state-icon"></i>
+                <h3 class="empty-state-title">No Plans Created</h3>
+                <p class="empty-state-desc">Create subscription plans to start selling access to your VPN nodes.</p>
+                <button onclick="document.getElementById('add-plan-modal').showModal()"
+                    class="btn btn-primary mt-4">Create your first plan</button>
             </div>
-            <h3 class="text-lg font-medium text-slate-900 dark:text-white mb-1">No Plans Created</h3>
-            <p class="text-slate-500 dark:text-slate-500 max-w-sm mb-6">Create subscription plans to start selling
-                access to your VPN nodes.
-            </p>
-            <button onclick="document.getElementById('add-plan-modal').showModal()"
-                class="text-indigo-400 hover:text-indigo-300 font-medium">Create your first plan &rarr;</button>
         </div>
         {% endif %}
     </div>
@@ -126,16 +151,16 @@
         row.className = 'grid grid-cols-2 gap-4 animate-fade-in group relative';
         row.innerHTML = `
             <div>
-                <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Days</label>
+                <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-semibold mb-1.5 ml-1">Days</label>
                 <input type="number" name="duration_days" placeholder="30" min="1" required
-                     class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500">
+                     class="input-field">
             </div>
             <div class="relative">
-                <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Price (Cents)</label>
+                <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-semibold mb-1.5 ml-1">Price (Cents)</label>
                 <input type="number" name="price" placeholder="500" required
-                     class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500">
-                <button type="button" onclick="this.parentElement.parentElement.remove()" class="absolute -right-2 -top-2 w-6 h-6 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/30">
-                    <i data-lucide="x" class="w-3 h-3"></i>
+                     class="input-field">
+                <button type="button" onclick="this.parentElement.parentElement.remove()" class="btn-icon absolute -right-2 top-6">
+                    <i data-lucide="x" class="w-3.5 h-3.5 text-rose-500"></i>
                 </button>
             </div>
         `;
@@ -145,62 +170,67 @@
 </script>
 
 <!-- Add Plan Modal -->
-<dialog id="add-plan-modal">
-    <div class="modal-container" onclick="event.stopPropagation()">
+<dialog id="add-plan-modal" class="backdrop:bg-slate-950/80 bg-transparent p-0">
+    <div class="modal-container max-w-2xl" onclick="event.stopPropagation()">
         <header class="modal-header">
-            <h3 class="text-xl font-bold text-white flex items-center gap-3">
-                <i data-lucide="package-plus" class="w-6 h-6 text-indigo-400"></i>
+            <h3 class="modal-title flex items-center gap-3">
+                <i data-lucide="package-plus" class="w-5 h-5 text-brand"></i>
                 Create New Plan
             </h3>
-            <button onclick="document.getElementById('add-plan-modal').close()"
-                class="text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
-                <i data-lucide="x" class="w-5 h-5"></i>
+            <button onclick="document.getElementById('add-plan-modal').close()" class="btn-icon">
+                <i data-lucide="x" class="w-4 h-4"></i>
             </button>
         </header>
 
         <form hx-post="{{ admin_path }}/plans/add" hx-target="body" hx-swap="none">
-            <div class="modal-body space-y-6">
+            <div class="modal-body space-y-8">
                 <!-- Plan Basic Info -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
                     <div class="md:col-span-2">
-                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Plan
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-semibold mb-2 ml-1">Plan
                             Name</label>
-                        <input type="text" name="name" placeholder="e.g. Premium Monthly" required class="input-field">
+                        <input type="text" name="name" placeholder="e.g. Premium Monthly" required
+                            class="input-field text-base">
                     </div>
 
                     <div class="md:col-span-2">
                         <label
-                            class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Description</label>
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-semibold mb-2 ml-1">Description</label>
                         <textarea name="description" placeholder="Plan features and details..." rows="3"
-                            class="input-field resize-none"></textarea>
+                            class="input-field resize-none leading-relaxed"></textarea>
                     </div>
 
                     <div>
-                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Device
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-semibold mb-2 ml-1">Device
                             Limit</label>
                         <input type="number" name="device_limit" value="3" min="0" required class="input-field">
-                        <p class="text-[10px] text-slate-500 mt-1.5 font-medium italic">0 for unlimited devices</p>
+                        <p class="text-[10px] text-slate-500 mt-2 font-medium italic opacity-80">0 for unlimited devices
+                        </p>
                     </div>
 
                     <div>
-                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Traffic
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-semibold mb-2 ml-1">Traffic
                             Limit (GB)</label>
                         <input type="number" name="traffic_limit_gb" value="100" min="0" required class="input-field">
                     </div>
                 </div>
 
                 <!-- Node Groups -->
-                <div
-                    class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/40 border border-slate-200 dark:border-white/5 space-y-3">
-                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Available Node
-                        Groups</label>
-                    <div class="grid grid-cols-2 gap-2">
+                <div class="space-y-4">
+                    <label
+                        class="block text-[10px] text-slate-500 uppercase tracking-widest font-semibold ml-1">Available
+                        Node Groups</label>
+                    <div class="grid grid-cols-2 gap-3">
                         {% for group in groups %}
                         <label
-                            class="flex items-center p-3 rounded-xl border border-slate-200 dark:border-white/5 bg-slate-100 dark:bg-slate-900/40 hover:bg-indigo-500/5 hover:border-indigo-500/20 cursor-pointer transition-all group">
+                            class="flex items-center p-4 rounded-2xl border border-border-default bg-black/20 hover:bg-brand/5 hover:border-brand/20 cursor-pointer transition-all group/label">
                             <input type="checkbox" name="group_ids" value="{{ group.id }}" checked
-                                class="w-4 h-4 rounded border-slate-700 text-indigo-500 focus:ring-indigo-500/30 bg-slate-950">
-                            <span class="ml-3 text-sm text-slate-300 group-hover:text-white transition-colors">{{
+                                class="w-4.5 h-4.5 rounded border-border-default bg-slate-900 text-brand focus:ring-brand/20">
+                            <span
+                                class="ml-3.5 text-sm text-slate-300 font-medium group-hover/label:text-white transition-colors">{{
                                 group.name }}</span>
                         </label>
                         {% endfor %}
@@ -209,46 +239,47 @@
 
                 <!-- Pricing -->
                 <div class="space-y-4">
-                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest">Pricing
+                    <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-semibold ml-1">Pricing
                         Options</label>
                     <div id="durations-container" class="space-y-3">
                         <div class="grid grid-cols-2 gap-4">
                             <div>
-                                <label class="block text-[10px] text-slate-500 uppercase mb-1.5 font-bold">Days</label>
+                                <label
+                                    class="block text-[10px] text-slate-500 uppercase mb-2 font-semibold ml-1">Days</label>
                                 <input type="number" name="duration_days" value="30" min="1" required
                                     class="input-field">
                             </div>
                             <div>
-                                <label class="block text-[10px] text-slate-500 uppercase mb-1.5 font-bold">Price
+                                <label class="block text-[10px] text-slate-500 uppercase mb-2 font-semibold ml-1">Price
                                     (Cents)</label>
                                 <input type="number" name="price" value="500" required class="input-field">
                             </div>
                         </div>
                     </div>
-                    <button type="button" onclick="addDurationRow()"
-                        class="text-xs text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-2 transition-colors py-1">
-                        <i data-lucide="plus-circle" class="w-4 h-4"></i> Add Another Duration
+                    <button type="button" onclick="addDurationRow()" class="btn btn-secondary py-2 w-full text-xs">
+                        <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                        Add Another Pricing Tier
                     </button>
                 </div>
             </div>
 
-            <footer class="modal-footer">
-                <button type="button" class="btn-secondary"
+            <footer class="modal-footer pt-6">
+                <button type="button" class="btn btn-secondary px-8"
                     onclick="document.getElementById('add-plan-modal').close()">Cancel</button>
-                <button type="submit" class="btn-primary">Create Subscription Plan</button>
+                <button type="submit" class="btn btn-primary px-10">Create Subscription Plan</button>
             </footer>
         </form>
     </div>
 </dialog>
 
 <!-- Edit Plan Modal -->
-<dialog id="edit-plan-modal"
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
-    <div id="edit-plan-modal-content"
-        class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-2xl p-6 m-4 max-h-[90vh] overflow-y-auto"
-        onclick="event.stopPropagation()">
-        <div class="flex items-center justify-center p-12 text-slate-500">
-            <i data-lucide="loader-2" class="w-6 h-6 animate-spin mr-3"></i> Loading plan details...
+<dialog id="edit-plan-modal" class="backdrop:bg-slate-950/80 bg-transparent p-0">
+    <div id="edit-plan-modal-content" class="modal-container max-w-2xl">
+        <div class="modal-body">
+            <div class="flex flex-col items-center justify-center p-16 text-slate-500 gap-4">
+                <i data-lucide="loader-2" class="w-8 h-8 animate-spin text-brand"></i>
+                <p class="text-sm font-medium">Loading plan details...</p>
+            </div>
         </div>
     </div>
 </dialog>

@@ -1,82 +1,92 @@
 {% for node in nodes %}
-<tr id="node-row-{{ node.id }}" class="hover:bg-white/5">
-    <td class="px-4 py-3">
-        <div class="flex flex-col">
-            <span class="font-semibold text-slate-900 dark:text-white">
+<tr id="node-row-{{ node.id }}" class="hover:bg-white/5 transition-colors group">
+    <td class="px-6 py-5">
+        <div class="flex items-center gap-4">
+            <div
+                class="w-12 h-12 rounded-2xl bg-brand/10 flex items-center justify-center text-brand border border-brand/20 group-hover:scale-110 transition-transform shadow-lg shadow-brand/5">
                 {% if let Some(flag) = node.flag.as_ref() %}
-                {{ flag }}
+                <span class="text-xl leading-none">{{ flag }}</span>
+                {% else %}
+                <i data-lucide="server" class="w-5 h-5"></i>
                 {% endif %}
-                {{ node.name }}
-            </span>
-            <span class="text-xs text-slate-500">#{{ node.id }}</span>
-            {% if node.city.is_some() || node.country.is_some() %}
-            <span class="text-xs text-slate-400">
-                {% if let Some(city) = node.city.as_ref() %}
-                {{ city }}
-                {% endif %}
-                {% if node.city.is_some() && node.country.is_some() %}, {% endif %}
-                {% if let Some(country) = node.country.as_ref() %}
-                {{ country }}
-                {% endif %}
-            </span>
-            {% else %}
-            <span class="text-xs text-slate-500">Locating...</span>
-            {% endif %}
+            </div>
+            <div>
+                <div class="font-bold text-white text-lg leading-tight uppercase tracking-tight">{{ node.name }}</div>
+                <div class="text-[10px] text-slate-500 font-mono mt-0.5 uppercase tracking-widest">ID: {{ node.id }}
+                </div>
+            </div>
         </div>
     </td>
-    <td class="px-4 py-3 font-mono text-indigo-300">{{ node.ip }}</td>
-    <td class="px-4 py-3">
+    <td class="px-6 py-5">
+        <span class="font-mono text-xs text-brand bg-brand/5 px-2.5 py-1 rounded-lg border border-brand/15 select-all">
+            {{ node.ip }}
+        </span>
+    </td>
+    <td class="px-6 py-5">
         {% if node.ip.starts_with("pending-") && node.status == "new" %}
-        <span
-            class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-amber-500/10 text-amber-300 border border-amber-500/20">Pending
-            Setup</span>
+        <span class="badge badge-pending">PENDING SETUP</span>
         {% elif node.status == "active" %}
-        <span
-            class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active</span>
+        <span class="badge badge-online">ACTIVE</span>
         {% else %}
-        <span
-            class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-slate-500/10 text-slate-400 border border-slate-500/20">{{
-            node.status }}</span>
+        <span class="badge badge-offline">{{ node.status|uppercase }}</span>
         {% endif %}
     </td>
-    <td class="px-4 py-3 text-slate-400 text-xs">
-        {% if node.last_seen.is_some() %}
-        {{ node.last_seen.unwrap().format("%Y-%m-%d %H:%M:%S") }}
-        {% else %}
-        never
-        {% endif %}
+    <td class="px-6 py-5">
+        <div class="flex flex-col gap-1">
+            <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Last Pulse</div>
+            <div class="font-mono text-[10px] text-slate-400">
+                {% if let Some(last_seen) = node.last_seen %}
+                {{ last_seen.format("%H:%M:%S") }} — <span class="text-slate-600">{{ last_seen.format("%Y-%m-%d")
+                    }}</span>
+                {% else %}
+                <span class="text-rose-500/50">OFFLINE</span>
+                {% endif %}
+            </div>
+        </div>
     </td>
-    <td class="px-4 py-3 text-slate-300 text-xs">
-        <div>{{ node.active_connections.unwrap_or(0) }} users</div>
-        <div>{{ node.current_speed_mbps }} Mbps</div>
+    <td class="px-6 py-5">
+        <div class="flex flex-col gap-1.5">
+            <div class="flex items-center gap-2">
+                <i data-lucide="users" class="w-3 h-3 text-brand"></i>
+                <span class="text-xs font-bold text-white">{{ node.active_connections.unwrap_or(0) }} <span
+                        class="text-[9px] text-slate-500 uppercase font-bold tracking-tighter">PEERS</span></span>
+            </div>
+            <div class="flex items-center gap-2">
+                <i data-lucide="zap" class="w-3 h-3 text-amber-400"></i>
+                <span class="text-xs font-bold text-white">{{ node.current_speed_mbps }} <span
+                        class="text-[9px] text-slate-500 uppercase font-bold tracking-tighter">MBPS</span></span>
+            </div>
+        </div>
     </td>
-    <td class="px-4 py-3">
-        <div class="flex flex-wrap items-center gap-2">
+    <td class="px-6 py-5 text-right">
+        <div class="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
             <button type="button" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}"
                 onclick="showNodeInstallCommand(this.dataset.nodeId, this.dataset.nodeName)"
-                class="px-2 py-1 text-xs rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/20">
-                Install
+                class="btn-icon w-9 h-9 bg-brand/5 text-brand border-brand/10 hover:bg-brand/20"
+                title="Installation Matrix">
+                <i data-lucide="terminal" class="w-4 h-4"></i>
             </button>
-            <a href="{{ admin_path }}/nodes/{{ node.id }}/manage"
-                class="px-2 py-1 text-xs rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-white/10">
-                Manage
+            <a href="{{ admin_path }}/nodes/{{ node.id }}/manage" class="btn-icon w-9 h-9" title="Core Config">
+                <i data-lucide="sliders" class="w-4 h-4"></i>
             </a>
-            <a href="{{ admin_path }}/nodes/{{ node.id }}/inbounds"
-                class="px-2 py-1 text-xs rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-white/10">
-                Inbounds
+            <a href="{{ admin_path }}/nodes/{{ node.id }}/inbounds" class="btn-icon w-9 h-9" title="Traffic Inbounds">
+                <i data-lucide="box" class="w-4 h-4"></i>
             </a>
-            <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/sync" hx-swap="none"
-                class="px-2 py-1 text-xs rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-white/10">
-                Sync
+            <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/sync" hx-swap="none" class="btn-icon w-9 h-9"
+                title="Cluster Sync">
+                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
             </button>
             <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/toggle" hx-swap="none"
-                class="px-2 py-1 text-xs rounded-lg border {% if node.is_enabled %}bg-emerald-500/10 text-emerald-300 border-emerald-500/20{% else %}bg-amber-500/10 text-amber-300 border-amber-500/20{% endif %}">
-                {% if node.is_enabled %}Enabled{% else %}Disabled{% endif %}
+                class="btn-icon w-9 h-9 {% if node.is_enabled %}text-emerald-400 bg-emerald-400/5 border-emerald-400/10{% else %}text-amber-400 bg-amber-500/5 border-amber-500/10{% endif %}"
+                title="{% if node.is_enabled %}Deactivate{% else %}Activate{% endif %}">
+                <i data-lucide="{% if node.is_enabled %}power{% else %}power-off{% endif %}" class="w-4 h-4"></i>
             </button>
-            <button hx-delete="{{ admin_path }}/nodes/{{ node.id }}/delete" hx-confirm="Delete node '{{ node.name }}'?"
-                hx-target="#node-row-{{ node.id }}" hx-swap="outerHTML"
-                class="px-2 py-1 text-xs rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20">
-                Delete
+            <button hx-delete="{{ admin_path }}/nodes/{{ node.id }}/delete"
+                hx-confirm="Decommission node '{{ node.name }}'?" hx-target="#node-row-{{ node.id }}"
+                hx-swap="outerHTML"
+                class="btn-icon w-9 h-9 text-rose-500 bg-rose-500/5 border-rose-500/10 hover:bg-rose-500/20"
+                title="Scrap Node">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
             </button>
         </div>
     </td>
@@ -84,7 +94,11 @@
 {% endfor %}
 {% if nodes.is_empty() %}
 <tr>
-    <td colspan="6" class="px-4 py-10 text-center text-slate-500">No nodes yet. Create your first node to generate
-        install script.</td>
+    <td colspan="6" class="px-6 py-20 text-center">
+        <div class="flex flex-col items-center gap-4 grayscale opacity-20">
+            <i data-lucide="server" class="w-12 h-12"></i>
+            <p class="text-[10px] font-bold uppercase tracking-[0.2em]">Zero Data Points Detected</p>
+        </div>
+    </td>
 </tr>
 {% endif %}

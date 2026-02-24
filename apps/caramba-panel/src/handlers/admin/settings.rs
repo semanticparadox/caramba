@@ -365,6 +365,8 @@ pub struct SettingsTemplate {
     pub installer_sub_command: String,
     pub installer_bot_command: String,
     pub installer_sub_token_ready: bool,
+    pub subscription_domain: String,
+    pub relay_auth_mode: String,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -543,7 +545,10 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         })
         .collect::<Vec<_>>();
 
-    let current_nowpayments_ipn = state.settings.get_or_default("nowpayments_ipn_secret", "").await;
+    let current_nowpayments_ipn = state
+        .settings
+        .get_or_default("nowpayments_ipn_secret", "")
+        .await;
     let masked_nowpayments_ipn = if !current_nowpayments_ipn.is_empty() {
         mask_key(&current_nowpayments_ipn)
     } else {
@@ -959,6 +964,8 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         installer_sub_command,
         installer_bot_command,
         installer_sub_token_ready,
+        subscription_domain,
+        relay_auth_mode,
     };
 
     match template.render() {
@@ -1029,7 +1036,10 @@ pub async fn save_settings(
         }
     }
 
-    let current_nowpayments_ipn = state.settings.get_or_default("nowpayments_ipn_secret", "").await;
+    let current_nowpayments_ipn = state
+        .settings
+        .get_or_default("nowpayments_ipn_secret", "")
+        .await;
     let masked_nowpayments_ipn = if !current_nowpayments_ipn.is_empty() {
         mask_key(&current_nowpayments_ipn)
     } else {
@@ -1787,12 +1797,14 @@ pub async fn apply_deployment_topology(State(state): State<AppState>) -> impl In
                 Err(e) => err_lines.push(e),
             }
         } else {
-            err_lines.push("Local Sub worker service not found (use installer to add it).".to_string());
+            err_lines
+                .push("Local Sub worker service not found (use installer to add it).".to_string());
         }
     } else {
         if service_exists(sub_service) {
             match run_systemctl_action(&["disable", "--now", sub_service]) {
-                Ok(_) => ok_lines.push("Stopped and disabled local Sub worker (using external).".to_string()),
+                Ok(_) => ok_lines
+                    .push("Stopped and disabled local Sub worker (using external).".to_string()),
                 Err(e) => err_lines.push(e),
             }
         }
@@ -1813,7 +1825,8 @@ pub async fn apply_deployment_topology(State(state): State<AppState>) -> impl In
     } else {
         if service_exists(bot_service) {
             match run_systemctl_action(&["disable", "--now", bot_service]) {
-                Ok(_) => ok_lines.push("Stopped and disabled local Bot worker (using external).".to_string()),
+                Ok(_) => ok_lines
+                    .push("Stopped and disabled local Bot worker (using external).".to_string()),
                 Err(e) => err_lines.push(e),
             }
         }
@@ -1827,7 +1840,9 @@ pub async fn apply_deployment_topology(State(state): State<AppState>) -> impl In
 
     (
         StatusCode::OK,
-        Html(render_topology_apply_result("modular", &ok_lines, &err_lines)),
+        Html(render_topology_apply_result(
+            "modular", &ok_lines, &err_lines,
+        )),
     )
         .into_response()
 }

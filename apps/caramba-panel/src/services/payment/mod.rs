@@ -2,9 +2,9 @@ use anyhow::Result;
 use async_trait::async_trait;
 use caramba_db::models::payment::PaymentType;
 
+pub mod aaio;
 pub mod cryptomus;
 pub mod lava;
-pub mod aaio;
 
 #[async_trait]
 pub trait PaymentAdapter: Send + Sync {
@@ -25,11 +25,12 @@ pub trait PaymentAdapter: Send + Sync {
     fn name(&self) -> &str;
 }
 
-pub mod provider;
-pub mod telegram_stars;
-pub mod nowpayments;
+pub mod balance;
 pub mod cryptobot;
 pub mod manual;
-pub mod balance;
+pub mod nowpayments;
+pub mod provider;
+pub mod telegram_stars;
 
+#[allow(unused_imports)]
 pub use provider::{PaymentProvider, PaymentWebhookAction};

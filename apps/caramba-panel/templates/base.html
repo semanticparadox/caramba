@@ -25,24 +25,53 @@
                             900: '#0f172a',
                             950: '#020617',
                         },
-                        // Override Indigo to be Caramba Orange so all UI elements update automatically
+                        // ── BRAND ─────────────────────────────────────────────────
+                        // "indigo" is kept as brand orange so existing templates
+                        // (bg-indigo-600, text-indigo-400, etc.) continue to work.
+                        // Use "brand" in new code for clarity.
                         indigo: {
-                            50: '#fff7ed',
-                            100: '#ffedd5',
-                            200: '#fed7aa',
-                            300: '#fdba74',
-                            400: '#fb923c',
-                            500: '#FF6B35', // Caramba Orange Primary
-                            600: '#E63946', // Deep Orange
-                            700: '#c2410c',
-                            800: '#9a3412',
-                            900: '#7c2d12',
-                            950: '#431407',
+                            50:  '#fff4ee',
+                            100: '#ffe6d5',
+                            200: '#ffc9a8',
+                            300: '#ff9d6e',
+                            400: '#ff7a47',
+                            500: '#FF6B35', // Caramba Orange — primary
+                            600: '#E63946', // Caramba Red   — accent / gradient end
+                            700: '#c43d12',
+                            800: '#9a2f0e',
+                            900: '#7a250c',
+                            950: '#3d0f04',
                         },
-                        primary: {
+                        // Explicit alias — use "brand-*" in new code
+                        brand: {
+                            50:  '#fff4ee',
+                            100: '#ffe6d5',
+                            200: '#ffc9a8',
+                            300: '#ff9d6e',
+                            400: '#ff7a47',
                             500: '#FF6B35',
                             600: '#E63946',
-                        }
+                            700: '#c43d12',
+                            800: '#9a2f0e',
+                            900: '#7a250c',
+                            950: '#3d0f04',
+                        },
+                        // Accent crimson (gradient end, danger-adjacent)
+                        accent: {
+                            400: '#f05060',
+                            500: '#E63946',
+                            600: '#c9282e',
+                        },
+                        // ── SURFACE ───────────────────────────────────────────────
+                        // Dark layered backgrounds — use instead of raw hex strings
+                        surface: {
+                            950: '#080910', // deepest — under everything
+                            900: '#0D0E1A', // page background
+                            800: '#131425', // main panels
+                            700: '#1A1B2E', // card / elevated
+                            600: '#222440', // modal / overlay
+                            500: '#2A2D52', // border / divider (use at low opacity)
+                        },
                     },
                     fontFamily: {
                         sans: ['Inter', 'sans-serif'],
@@ -64,20 +93,43 @@
         }
 
         ::-webkit-scrollbar-thumb {
-            background: #334155;
+            background: rgba(255, 107, 53, 0.25);
             border-radius: 3px;
         }
 
         ::-webkit-scrollbar-thumb:hover {
-            background: #475569;
+            background: rgba(255, 107, 53, 0.45);
         }
 
-        /* Glass Utilities */
+        /* ── GLASS ────────────────────────────────────────────────────
+           Dark-mode: deep navy with orange border tint.
+           Light-mode: clean white glass.
+        ──────────────────────────────────────────────────────────── */
         .glass {
-            background: rgba(26, 26, 46, 0.6);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 107, 53, 0.15);
+            background: rgba(19, 20, 37, 0.75);
+            backdrop-filter: blur(14px) saturate(160%);
+            -webkit-backdrop-filter: blur(14px) saturate(160%);
+            border: 1px solid rgba(255, 107, 53, 0.12);
+        }
+
+        /* In light mode override to white glass */
+        html:not(.dark) .glass {
+            background: rgba(255, 255, 255, 0.80);
+            border-color: rgba(0, 0, 0, 0.07);
+        }
+
+        /* Top-line brand accent on section cards */
+        .glass-accent::before {
+            content: '';
+            position: absolute;
+            inset: 0 0 auto 0;
+            height: 1px;
+            background: linear-gradient(90deg,
+                transparent 0%,
+                rgba(255, 107, 53, 0.45) 50%,
+                transparent 100%);
+            border-radius: inherit;
+            pointer-events: none;
         }
     </style>
     <!-- Fonts -->
@@ -91,24 +143,10 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <style>
-        .no-scrollbar::-webkit-scrollbar {
-            display: none;
-        }
 
-        .no-scrollbar {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-        }
-
-        .dock-blur {
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-        }
-    </style>
 </head>
 
-<body x-data="{ 
+<body x-data="{
     theme: localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
     toggleTheme() {
         this.theme = this.theme === 'dark' ? 'light' : 'dark';
@@ -120,7 +158,24 @@
         }
     }
 }"
-    class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 font-sans antialiased selection:bg-indigo-500/30 transition-colors duration-300">
+    class="bg-slate-50 dark:bg-surface-900 text-slate-900 dark:text-slate-100 font-sans antialiased selection:bg-brand-500/25 transition-colors duration-300">
+
+    <!-- ── Ambient background glows (fixed, full-page, pointer-events-none) ── -->
+    <div aria-hidden="true" class="fixed inset-0 -z-10 pointer-events-none overflow-hidden">
+        <!-- Top-left orange bloom -->
+        <div class="absolute -top-[200px] -left-[200px] w-[700px] h-[700px]
+                    rounded-full opacity-[0.07] dark:opacity-[0.12]
+                    bg-brand-500 blur-[140px]"></div>
+        <!-- Bottom-right crimson bloom -->
+        <div class="absolute -bottom-[200px] -right-[200px] w-[600px] h-[600px]
+                    rounded-full opacity-[0.05] dark:opacity-[0.09]
+                    bg-accent-500 blur-[120px]"></div>
+        <!-- Centre subtle glow (depth) -->
+        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
+                    w-[400px] h-[400px] rounded-full
+                    opacity-[0.03] dark:opacity-[0.05]
+                    bg-brand-400 blur-[160px]"></div>
+    </div>
     {% if is_auth %}
 
     <!-- Category evaluations are directly performed in navigation blocks below to avoid Askama scope bugs. -->
@@ -128,14 +183,11 @@
     <div class="flex flex-col min-h-screen">
         <!-- Main Content (Full Width) -->
         <main class="flex-1 flex flex-col relative z-0 pb-32 min-h-[100dvh]">
-            <!-- Background Gradient Blob -->
-            <div
-                class="absolute top-0 left-0 w-full h-96 bg-indigo-500/10 dark:bg-indigo-500/5 blur-[100px] pointer-events-none -z-10">
-            </div>
 
             <!-- macOS Style Topbar -->
             <header
-                class="h-10 sticky top-0 z-50 bg-white/70 dark:bg-slate-950/70 backdrop-blur-xl border-b border-white/20 dark:border-white/10 flex items-center justify-between px-6 transition-colors shadow-sm text-xs w-full">
+                class="h-11 sticky top-0 z-50 bg-white/80 dark:bg-surface-900/80 backdrop-blur-xl border-b border-black/[0.06] dark:border-white/[0.07] flex items-center justify-between px-6 transition-colors text-xs w-full"
+                style="box-shadow: 0 1px 0 rgba(255,107,53,0.10);">
                 <div class="flex items-center gap-3">
                     <!-- Brand -->
                     <div class="flex items-center gap-2 opacity-90">
@@ -185,112 +237,59 @@
             </header>
 
             <!-- Contextual Sub-Navigation -->
-            <nav
-                class="sticky top-10 z-40 bg-slate-50/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-white/5 px-6 lg:px-10 py-1.5 flex gap-2 overflow-x-auto no-scrollbar shadow-sm">
+            <nav class="sticky top-11 z-40 bg-white/80 dark:bg-surface-900/85 backdrop-blur-xl border-b border-black/[0.05] dark:border-white/[0.06] px-6 lg:px-10 py-2 flex gap-1 overflow-x-auto no-scrollbar"
+                style="box-shadow: 0 1px 0 rgba(255,107,53,0.07);">
+
                 {% if active_page == "dashboard" || active_page == "analytics" || active_page == "logs" %}
                 <a href="{{ admin_path }}/dashboard"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    dashboard" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{%
-                    else %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif
-                    %}">Dashboard</a>
+                    class="nav-pill {% if active_page == "dashboard" %}active{% endif %}">Dashboard</a>
                 <a href="{{ admin_path }}/analytics"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    analytics" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{%
-                    else %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif
-                    %}">Analytics</a>
+                    class="nav-pill {% if active_page == "analytics" %}active{% endif %}">Analytics</a>
                 <a href="{{ admin_path }}/logs"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    logs" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
-                    %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif %}">System
-                    Logs</a>
+                    class="nav-pill {% if active_page == "logs" %}active{% endif %}">System Logs</a>
                 {% endif %}
 
-                {% if active_page == "nodes" || active_page == "groups" || active_page == "templates" || active_page ==
-                "sni" %}
+                {% if active_page == "nodes" || active_page == "groups" || active_page == "frontends" || active_page == "templates" || active_page == "sni" %}
                 <a href="{{ admin_path }}/nodes"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    nodes" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
-                    %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif %}">Nodes</a>
+                    class="nav-pill {% if active_page == "nodes" %}active{% endif %}">Nodes</a>
                 <a href="{{ admin_path }}/groups"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    groups" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
-                    %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif %}">Groups</a>
-                <a href="{{ admin_path }}/templates"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    templates" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{%
-                    else %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif
-                    %}">Inbound Templates</a>
-                <a href="{{ admin_path }}/sni"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    sni" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
-                    %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif %}">SNI
-                    Pool</a>
-                {% endif %}
-
-                {% if active_page == "bot_logs" || active_page == "frontends" || active_page == "settings" %}
-                <a href="{{ admin_path }}/bot"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    bot_logs" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
-                    %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif %}">Telegram
-                    Bot</a>
+                    class="nav-pill {% if active_page == "groups" %}active{% endif %}">Groups</a>
                 <a href="{{ admin_path }}/frontends"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    frontends" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{%
-                    else %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif
-                    %}">Frontend Servers</a>
-                <a href="{{ admin_path }}/settings"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    settings" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
-                    %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif
-                    %}">Settings</a>
+                    class="nav-pill {% if active_page == "frontends" %}active{% endif %}">Frontends</a>
+                <a href="{{ admin_path }}/templates"
+                    class="nav-pill {% if active_page == "templates" %}active{% endif %}">Inbound Templates</a>
+                <a href="{{ admin_path }}/sni"
+                    class="nav-pill {% if active_page == "sni" %}active{% endif %}">SNI Pool</a>
                 {% endif %}
 
-                {% if active_page == "users" || active_page == "api_keys" || active_page == "promo" || active_page ==
-                "notifications" %}
+                {% if active_page == "users" || active_page == "api_keys" || active_page == "promo" || active_page == "notifications" %}
                 <a href="{{ admin_path }}/users"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    users" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
-                    %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif %}">Users</a>
-                <a href="{{ admin_path }}/notifications"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    notifications" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{%
-                    else %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif
-                    %}">Notifications</a>
+                    class="nav-pill {% if active_page == "users" %}active{% endif %}">Users</a>
                 <a href="{{ admin_path }}/api-keys"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    api_keys" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
-                    %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif %}">Enrollment
-                    Keys</a>
+                    class="nav-pill {% if active_page == "api_keys" %}active{% endif %}">Enrollment Keys</a>
                 <a href="{{ admin_path }}/promo"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    promo" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
-                    %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif %}">Promo
-                    Center</a>
+                    class="nav-pill {% if active_page == "promo" %}active{% endif %}">Promo Center</a>
+                <a href="{{ admin_path }}/notifications"
+                    class="nav-pill {% if active_page == "notifications" %}active{% endif %}">Notifications</a>
                 {% endif %}
 
-                {% if active_page == "plans" || active_page == "products" || active_page == "categories" || active_page
-                == "transactions" %}
+                {% if active_page == "plans" || active_page == "products" || active_page == "categories" || active_page == "transactions" %}
                 <a href="{{ admin_path }}/plans"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    plans" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
-                    %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif %}">Plans</a>
+                    class="nav-pill {% if active_page == "plans" %}active{% endif %}">Plans</a>
                 <a href="{{ admin_path }}/store/products"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    products" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{% else
-                    %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif
-                    %}">Products</a>
+                    class="nav-pill {% if active_page == "products" %}active{% endif %}">Products</a>
                 <a href="{{ admin_path }}/store/categories"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    categories" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{%
-                    else %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif
-                    %}">Categories</a>
+                    class="nav-pill {% if active_page == "categories" %}active{% endif %}">Categories</a>
                 <a href="{{ admin_path }}/transactions"
-                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap {% if active_page == "
-                    transactions" %}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm{%
-                    else %}text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5{% endif
-                    %}">Transactions</a>
+                    class="nav-pill {% if active_page == "transactions" %}active{% endif %}">Transactions</a>
                 {% endif %}
 
+                {% if active_page == "settings" || active_page == "bot_logs" %}
+                <a href="{{ admin_path }}/settings"
+                    class="nav-pill {% if active_page == "settings" %}active{% endif %}">Settings</a>
+                <a href="{{ admin_path }}/bot"
+                    class="nav-pill {% if active_page == "bot_logs" %}active{% endif %}">Telegram Bot</a>
+                {% endif %}
 
             </nav>
 
@@ -300,73 +299,49 @@
             </div>
 
             <!-- OS Style Bottom Dock -->
-            <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
-                <div
-                    class="bg-white/70 dark:bg-slate-900/70 p-2 rounded-2xl flex items-center gap-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.5)] dock-blur border border-slate-200 dark:border-white/10 transition-colors">
-                    <a href="{{ admin_path }}/nodes"
-                        class="flex flex-col items-center justify-center w-[4.5rem] h-14 rounded-xl transition-all hover:bg-indigo-50 dark:hover:bg-indigo-500/10 {% if active_page == "
-                        nodes" || active_page=="groups" || active_page=="templates" || active_page=="sni"
-                        %}text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-500/10 ring-1
-                        ring-indigo-500/20 shadow-sm{% else %}text-slate-500 dark:text-slate-400 hover:text-slate-900
-                        dark:hover:text-slate-200 hover:-translate-y-1{% endif %}" title="Servers">
-                        <i data-lucide="server" class="w-5 h-5 mb-1 {% if active_page == " nodes" ||
-                            active_page=="groups" || active_page=="templates" || active_page=="sni" %}text-indigo-500{%
-                            endif %} hover:scale-110 transition-transform"></i>
-                        <span class="text-[9px] font-medium tracking-wide">Servers</span>
-                    </a>
-                    <a href="{{ admin_path }}/bot"
-                        class="flex flex-col items-center justify-center w-[4.5rem] h-14 rounded-xl transition-all hover:bg-indigo-50 dark:hover:bg-indigo-500/10 {% if active_page == "
-                        bot_logs" || active_page=="settings" || active_page=="frontends" %}text-indigo-600
-                        dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-500/10 ring-1 ring-indigo-500/20 shadow-sm{%
-                        else %}text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200
-                        hover:-translate-y-1{% endif %}" title="Services">
-                        <i data-lucide="layers" class="w-5 h-5 mb-1 {% if active_page == " bot_logs" ||
-                            active_page=="settings" || active_page=="frontends" %}text-indigo-500{% endif %}
-                            hover:scale-110 transition-transform"></i>
-                        <span class="text-[9px] font-medium tracking-wide">Services</span>
-                    </a>
+            <div class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50">
+                <div class="dock-wrap">
+
+                    <!-- Overview -->
                     <a href="{{ admin_path }}/dashboard"
-                        class="flex flex-col items-center justify-center w-[4.5rem] h-14 rounded-xl transition-all hover:bg-indigo-50 dark:hover:bg-indigo-500/10 {% if active_page == "
-                        dashboard" || active_page=="analytics" || active_page=="logs" %}text-indigo-600
-                        dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-500/10 ring-1 ring-indigo-500/20 shadow-sm{%
-                        else %}text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200
-                        hover:-translate-y-1{% endif %}" title="Monitoring">
-                        <i data-lucide="activity" class="w-5 h-5 mb-1 {% if active_page == " dashboard" ||
-                            active_page=="analytics" || active_page=="logs" %}text-indigo-500{% endif %} hover:scale-110
-                            transition-transform"></i>
-                        <span class="text-[9px] font-medium tracking-wide">Monitor</span>
+                        class="dock-item {% if active_page == "dashboard" || active_page == "analytics" || active_page == "logs" %}active{% endif %}"
+                        title="Overview">
+                        <i data-lucide="activity" class="dock-item-icon"></i>
+                        <span class="dock-item-label">Overview</span>
                     </a>
+
+                    <!-- Servers -->
+                    <a href="{{ admin_path }}/nodes"
+                        class="dock-item {% if active_page == "nodes" || active_page == "groups" || active_page == "frontends" || active_page == "templates" || active_page == "sni" %}active{% endif %}"
+                        title="Servers">
+                        <i data-lucide="server" class="dock-item-icon"></i>
+                        <span class="dock-item-label">Servers</span>
+                    </a>
+
+                    <!-- Users -->
                     <a href="{{ admin_path }}/users"
-                        class="flex flex-col items-center justify-center w-[4.5rem] h-14 rounded-xl transition-all hover:bg-indigo-50 dark:hover:bg-indigo-500/10 {% if active_page == "
-                        users" || active_page=="api_keys" || active_page=="promo" || active_page=="notifications"
-                        %}text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-500/10 ring-1
-                        ring-indigo-500/20 shadow-sm{% else %}text-slate-500 dark:text-slate-400 hover:text-slate-900
-                        dark:hover:text-slate-200 hover:-translate-y-1{% endif %}" title="Users">
-                        <i data-lucide="users" class="w-5 h-5 mb-1 {% if active_page == " users" ||
-                            active_page=="api_keys" || active_page=="promo" || active_page=="notifications"
-                            %}text-indigo-500{% endif %} hover:scale-110 transition-transform"></i>
-                        <span class="text-[9px] font-medium tracking-wide">Users</span>
+                        class="dock-item {% if active_page == "users" || active_page == "api_keys" || active_page == "promo" || active_page == "notifications" %}active{% endif %}"
+                        title="Users">
+                        <i data-lucide="users" class="dock-item-icon"></i>
+                        <span class="dock-item-label">Users</span>
                     </a>
+
+                    <!-- Commerce -->
                     <a href="{{ admin_path }}/plans"
-                        class="flex flex-col items-center justify-center w-[5rem] h-14 rounded-xl transition-all hover:bg-indigo-50 dark:hover:bg-indigo-500/10 {% if active_page == "
-                        plans" || active_page=="products" || active_page=="categories" || active_page=="transactions"
-                        %}text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-500/10 ring-1
-                        ring-indigo-500/20 shadow-sm{% else %}text-slate-500 dark:text-slate-400 hover:text-slate-900
-                        dark:hover:text-slate-200 hover:-translate-y-1{% endif %}" title="Commercial">
-                        <i data-lucide="shopping-bag" class="w-5 h-5 mb-1 {% if active_page == " plans" ||
-                            active_page=="products" || active_page=="categories" || active_page=="transactions"
-                            %}text-indigo-500{% endif %} hover:scale-110 transition-transform"></i>
-                        <span class="text-[9px] font-medium tracking-wide">Commerce</span>
+                        class="dock-item {% if active_page == "plans" || active_page == "products" || active_page == "categories" || active_page == "transactions" %}active{% endif %}"
+                        title="Commerce">
+                        <i data-lucide="shopping-bag" class="dock-item-icon"></i>
+                        <span class="dock-item-label">Commerce</span>
                     </a>
+
+                    <!-- System -->
                     <a href="{{ admin_path }}/settings"
-                        class="flex flex-col items-center justify-center w-[4.5rem] h-14 rounded-xl transition-all hover:bg-indigo-50 dark:hover:bg-indigo-500/10 {% if active_page == "
-                        settings" %}text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-500/10 ring-1
-                        ring-indigo-500/20 shadow-sm{% else %}text-slate-500 dark:text-slate-400 hover:text-slate-900
-                        dark:hover:text-slate-200 hover:-translate-y-1{% endif %}" title="System">
-                        <i data-lucide="settings" class="w-5 h-5 mb-1 {% if active_page == " settings"
-                            %}text-indigo-500{% endif %} hover:scale-110 transition-transform"></i>
-                        <span class="text-[9px] font-medium tracking-wide">System</span>
+                        class="dock-item {% if active_page == "settings" || active_page == "bot_logs" %}active{% endif %}"
+                        title="System">
+                        <i data-lucide="settings" class="dock-item-icon"></i>
+                        <span class="dock-item-label">System</span>
                     </a>
+
                 </div>
             </div>
 

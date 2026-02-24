@@ -1,7 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use caramba_db::models::store::{PaymentSession, User};
-use sqlx::PgPool;
 
 use super::provider::{PaymentProvider, PaymentWebhookAction};
 
@@ -13,9 +12,18 @@ impl PaymentProvider for BalanceProvider {
         "balance"
     }
 
-    async fn create_invoice(&self, session: &PaymentSession, user: &User, _client: &reqwest::Client) -> Result<String> {
+    async fn create_invoice(
+        &self,
+        session: &PaymentSession,
+        user: &User,
+        _client: &reqwest::Client,
+    ) -> Result<String> {
         if user.balance < session.amount {
-            return Err(anyhow::anyhow!("Insufficient balance. You need ${:.2}, but have ${:.2}", session.amount as f64 / 100.0, user.balance as f64 / 100.0));
+            return Err(anyhow::anyhow!(
+                "Insufficient balance. You need ${:.2}, but have ${:.2}",
+                session.amount as f64 / 100.0,
+                user.balance as f64 / 100.0
+            ));
         }
 
         // We don't deduct here yet, we wait for fulfillment or handle it in client.rs synchronously
@@ -31,7 +39,11 @@ impl PaymentProvider for BalanceProvider {
         Ok(PaymentWebhookAction::Ignored)
     }
 
-    async fn check_status(&self, _session: &PaymentSession, _client: &reqwest::Client) -> Result<String> {
+    async fn check_status(
+        &self,
+        _session: &PaymentSession,
+        _client: &reqwest::Client,
+    ) -> Result<String> {
         Ok("pending".to_string())
     }
 }

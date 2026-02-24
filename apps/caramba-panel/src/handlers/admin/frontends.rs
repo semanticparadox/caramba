@@ -194,10 +194,10 @@ pub async fn get_frontends_rows(
                 let traffic: i64 = row.try_get("traffic_monthly").unwrap_or(0);
                 let last_hb: Option<chrono::DateTime<chrono::Utc>> = row.try_get("last_heartbeat").ok();
 
-                let status_class = if is_active { "text-emerald-400" } else { "text-red-400" };
+                let status_class = if is_active { "badge-online" } else { "badge-offline" };
                 let status_text = if is_active { "Active" } else { "Inactive" };
                 let traffic_mb = traffic / 1024 / 1024;
-                let last_seen = last_hb
+                let last_seen_text = last_hb
                     .map(|t| {
                         let ago = chrono::Utc::now() - t;
                         if ago.num_minutes() < 2 { "just now".to_string() }
@@ -208,17 +208,21 @@ pub async fn get_frontends_rows(
                     .unwrap_or_else(|| "never".to_string());
 
                 html.push_str(&format!(
-                    r#"<tr class="hover:bg-white/5 transition-colors">
-                        <td class="px-6 py-4 font-mono text-indigo-300">{domain}</td>
-                        <td class="px-6 py-4 text-slate-300">{region}</td>
-                        <td class="px-6 py-4 font-mono text-slate-400">{ip}</td>
-                        <td class="px-6 py-4"><span class="{status_class} font-medium">{status_text}</span></td>
-                        <td class="px-6 py-4 text-slate-400">{traffic_mb} MB</td>
-                        <td class="px-6 py-4 text-slate-500">{last_seen}</td>
+                    r#"<tr class="hover:bg-white/5 transition-colors group">
+                        <td class="px-6 py-4 font-mono text-xs text-brand">{domain}</td>
+                        <td class="px-6 py-4">
+                            <span class="text-[10px] font-bold uppercase tracking-widest text-slate-500 bg-slate-800/50 px-2 py-1 rounded border border-white/5">{region}</span>
+                        </td>
+                        <td class="px-6 py-4 font-mono text-xs text-slate-400">{ip}</td>
+                        <td class="px-6 py-4"><span class="badge {status_class}">{status_text}</span></td>
+                        <td class="px-6 py-4">
+                            <span class="font-bold text-slate-300">{traffic_mb}</span>
+                            <span class="text-[10px] text-slate-500 uppercase ml-1">MB</span>
+                        </td>
                         <td class="px-6 py-4 text-right">
-                            <button hx-delete="/api/admin/frontends/{id}" hx-swap="none"
-                                class="px-2 py-1 text-xs rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20">
-                                Remove
+                            <button hx-delete="/api/admin/frontends/{id}" hx-swap="none" hx-confirm="Remove frontend '{domain}'?"
+                                class="btn-icon text-rose-500 bg-rose-500/10 border-rose-500/20 hover:bg-rose-500/20" title="Remove Frontend">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
                             </button>
                         </td>
                     </tr>"#

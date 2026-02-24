@@ -17,6 +17,7 @@ struct CryptomusInvoiceReq {
     order_id: String,
     url_callback: String,
     url_return: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
     additional_data: String,
 }
 
@@ -131,16 +132,22 @@ impl PaymentProvider for CryptomusProvider {
         "cryptomus"
     }
 
-    async fn create_invoice(&self, session: &PaymentSession, _user: &User, client: &reqwest::Client) -> Result<String> {
-        let body_json = serde_json::json!({
-            "amount": format!("{:.2}", (session.amount as f64) / 100.0),
-            "currency": "USD",
-            "order_id": session.id.to_string(),
-            "url_callback": "https://your-api-domain.com/api/webhooks/payment/cryptomus",
-            "url_return": "https://t.me/your_bot",
-        });
+    async fn create_invoice(
+        &self,
+        session: &PaymentSession,
+        _user: &User,
+        client: &reqwest::Client,
+    ) -> Result<String> {
+        let req = CryptomusInvoiceReq {
+            amount: format!("{:.2}", (session.amount as f64) / 100.0),
+            currency: "USD".to_string(),
+            order_id: session.id.to_string(),
+            url_callback: "https://your-api-domain.com/api/webhooks/payment/cryptomus".to_string(),
+            url_return: "https://t.me/your_bot".to_string(),
+            additional_data: String::new(),
+        };
 
-        let body_str = serde_json::to_string(&body_json)?;
+        let body_str = serde_json::to_string(&req)?;
         let sign = self.generate_signature(&body_str);
 
         let res = client
@@ -158,7 +165,10 @@ impl PaymentProvider for CryptomusProvider {
             anyhow::bail!("Cryptomus API Error: {}", error_text);
         }
 
-        let resp: CryptomusInvoiceRes = res.json().await.context("Failed to parse Cryptomus response")?;
+        let resp: CryptomusInvoiceRes = res
+            .json()
+            .await
+            .context("Failed to parse Cryptomus response")?;
         if let Some(detail) = resp.result {
             Ok(detail.url)
         } else {
@@ -174,7 +184,7 @@ impl PaymentProvider for CryptomusProvider {
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {
         let data: Value = serde_json::from_slice(payload).context("Invalid JSON")?;
-        
+
         let status = data.get("status").and_then(|v| v.as_str()).unwrap_or("");
         let order_id = data.get("order_id").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -183,12 +193,18 @@ impl PaymentProvider for CryptomusProvider {
         }
 
         match status {
-            "success" | "paid" => Ok(PaymentWebhookAction::Completed { external_id: order_id.to_string() }),
+            "success" | "paid" => Ok(PaymentWebhookAction::Completed {
+                external_id: order_id.to_string(),
+            }),
             _ => Ok(PaymentWebhookAction::Pending),
         }
     }
 
-    async fn check_status(&self, _session: &PaymentSession, _client: &reqwest::Client) -> Result<String> {
+    async fn check_status(
+        &self,
+        _session: &PaymentSession,
+        _client: &reqwest::Client,
+    ) -> Result<String> {
         Ok("pending".to_string())
     }
 }

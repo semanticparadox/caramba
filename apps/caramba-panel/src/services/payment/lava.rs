@@ -1,23 +1,28 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::Sha256;
 
-use caramba_db::models::store::{PaymentSession, User};
 use super::provider::{PaymentProvider, PaymentWebhookAction};
+use caramba_db::models::store::{PaymentSession, User};
 
 #[derive(Serialize)]
 struct LavaInvoiceReq {
     account: String,
     amount: f64,
-    orderId: String,
+    #[serde(rename = "orderId")]
+    order_id: String,
     comment: String,
-    hookUrl: String,
+    #[serde(rename = "hookUrl")]
+    hook_url: String,
 }
 
 #[derive(Deserialize)]
 struct LavaInvoiceRes {
-    status: bool,
+    #[serde(default)]
+    _status: Option<bool>,
     url: Option<String>,
 }
 
@@ -32,13 +37,18 @@ impl PaymentProvider for LavaProvider {
         "lava"
     }
 
-    async fn create_invoice(&self, session: &PaymentSession, _user: &User, client: &reqwest::Client) -> Result<String> {
+    async fn create_invoice(
+        &self,
+        session: &PaymentSession,
+        _user: &User,
+        client: &reqwest::Client,
+    ) -> Result<String> {
         let req_body = LavaInvoiceReq {
             account: self.project_id.clone(),
             amount: (session.amount as f64) / 100.0,
-            orderId: session.id.to_string(),
+            order_id: session.id.to_string(),
             comment: format!("VPN Subscription (Product: {})", session.product_id),
-            hookUrl: "https://your-api-domain.com/api/webhooks/payment/lava".to_string(), // TODO: Get from settings
+            hook_url: "https://your-api-domain.com/api/webhooks/payment/lava".to_string(),
         };
 
         let res = client
@@ -63,28 +73,42 @@ impl PaymentProvider for LavaProvider {
     }
 
     async fn verify_webhook(&self, payload: &[u8], signature: &str) -> Result<bool> {
-        // Lava signature verification logic
-        // TODO: Implement specific HMAC or MD5 check if needed
-        Ok(true) 
+        // Lava signs webhooks with HMAC-SHA256 using the project secret key.
+        type HmacSha256 = Hmac<Sha256>;
+        let mut mac = HmacSha256::new_from_slice(self.secret_key.as_bytes())
+            .context("Invalid HMAC key length")?;
+        mac.update(payload);
+        let expected = hex::encode(mac.finalize().into_bytes());
+        Ok(signature == expected)
     }
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {
-        let data: Value = serde_json::from_slice(payload).context("Invalid JSON")?;
-        
+        let data: Value = serde_json::from_slice(payload).context("Invalid Lava webhook JSON")?;
+
         let status = data.get("status").and_then(|v| v.as_str()).unwrap_or("");
-        let order_id = data.get("orderId").and_then(|v| v.as_str()).unwrap_or("");
+        let order_id = data
+            .get("orderId")
+            .or_else(|| data.get("order_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
 
         if order_id.is_empty() {
             return Ok(PaymentWebhookAction::Ignored);
         }
 
         match status {
-            "success" => Ok(PaymentWebhookAction::Completed { external_id: order_id.to_string() }),
+            "success" => Ok(PaymentWebhookAction::Completed {
+                external_id: order_id.to_string(),
+            }),
             _ => Ok(PaymentWebhookAction::Pending),
         }
     }
 
-    async fn check_status(&self, _session: &PaymentSession, _client: &reqwest::Client) -> Result<String> {
+    async fn check_status(
+        &self,
+        _session: &PaymentSession,
+        _client: &reqwest::Client,
+    ) -> Result<String> {
         Ok("pending".to_string())
     }
 }

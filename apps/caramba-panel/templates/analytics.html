@@ -9,212 +9,229 @@
     <!-- KPI Overview -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <!-- Total Traffic -->
-        <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 p-6 rounded-2xl relative overflow-hidden group hover:border-indigo-500/30 transition-all duration-300 glass shadow-[0_0_20px_rgba(99,102,241,0.05)]">
-            <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                <i data-lucide="activity" class="w-16 h-16 text-indigo-500"></i>
+        <article class="card p-8 group overflow-hidden relative">
+            <div
+                class="absolute -right-4 -top-4 w-32 h-32 bg-brand/5 rounded-full blur-3xl group-hover:bg-brand/10 transition-colors">
             </div>
-            <div class="flex items-center gap-3 mb-4">
-                <div class="p-2.5 bg-indigo-500/10 rounded-xl text-indigo-400">
-                    <i data-lucide="bar-chart-2" class="w-5 h-5"></i>
+            <div class="flex items-center gap-4 mb-6 relative">
+                <div
+                    class="w-12 h-12 rounded-2xl bg-brand/10 flex items-center justify-center text-brand border border-brand/20 group-hover:scale-110 transition-transform">
+                    <i data-lucide="activity" class="w-6 h-6"></i>
                 </div>
-                <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Network Load</span>
+                <div>
+                    <span class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold">Network
+                        Payload</span>
+                    <h3 class="text-2xl font-bold text-white font-mono mt-0.5">{{ total_traffic_30d }}</h3>
+                </div>
             </div>
-            <div>
-                <h3 class="text-3xl font-bold text-slate-900 dark:text-white">{{ total_traffic_30d }}</h3>
-                <p class="text-slate-600 dark:text-slate-400 text-sm mt-1">Total Traffic (30d)</p>
+            <div class="text-[10px] text-slate-500 font-bold uppercase tracking-widest flex items-center gap-2">
+                <span class="w-1.5 h-1.5 rounded-full bg-brand animate-pulse"></span>
+                LIVE 30D VOLUME
             </div>
-        </div>
+        </article>
 
         <!-- Active Nodes -->
-        <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 p-6 rounded-2xl relative overflow-hidden group hover:border-emerald-500/30 transition-all duration-300 glass shadow-[0_0_20px_rgba(16,185,129,0.05)]">
-            <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                <i data-lucide="server" class="w-16 h-16 text-emerald-500"></i>
+        <article class="card p-8 group overflow-hidden relative">
+            <div
+                class="absolute -right-4 -top-4 w-32 h-32 bg-emerald-500/5 rounded-full blur-3xl group-hover:bg-emerald-500/10 transition-colors">
             </div>
-            <div class="flex items-center gap-3 mb-4">
-                <div class="p-2.5 bg-emerald-500/10 rounded-xl text-emerald-400">
-                    <i data-lucide="cpu" class="w-5 h-5"></i>
+            <div class="flex items-center gap-4 mb-6 relative">
+                <div
+                    class="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 border border-emerald-500/20 group-hover:scale-110 transition-transform">
+                    <i data-lucide="server" class="w-6 h-6"></i>
                 </div>
-                <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Infrastructure</span>
+                <div>
+                    <span class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold">Active
+                        Cluster</span>
+                    <h3 class="text-2xl font-bold text-white font-mono mt-0.5">{{ active_nodes_count }}</h3>
+                </div>
             </div>
-            <div>
-                <h3 class="text-3xl font-bold text-slate-900 dark:text-white">{{ active_nodes_count }}</h3>
-                <p class="text-emerald-400 text-sm mt-1 font-medium">Active Nodes</p>
+            <div class="text-[10px] text-emerald-500 font-bold uppercase tracking-widest flex items-center gap-2">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                OPERATIONAL NODES
             </div>
-        </div>
+        </article>
 
-        <!-- Total Orders (implied count from list for now) -->
-        <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 p-6 rounded-2xl relative overflow-hidden group hover:border-amber-500/30 transition-all duration-300 glass shadow-[0_0_20px_rgba(245,158,11,0.05)]">
-            <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                <i data-lucide="shopping-bag" class="w-16 h-16 text-amber-500"></i>
+        <!-- Sales Velocity -->
+        <article class="card p-8 group overflow-hidden relative">
+            <div
+                class="absolute -right-4 -top-4 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl group-hover:bg-amber-500/10 transition-colors">
             </div>
-            <div class="flex items-center gap-3 mb-4">
-                <div class="p-2.5 bg-amber-500/10 rounded-xl text-amber-400">
-                    <i data-lucide="shopping-cart" class="w-5 h-5"></i>
+            <div class="flex items-center gap-4 mb-6 relative">
+                <div
+                    class="w-12 h-12 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-400 border border-amber-500/20 group-hover:scale-110 transition-transform">
+                    <i data-lucide="shopping-cart" class="w-6 h-6"></i>
                 </div>
-                <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Sales Velocity</span>
+                <div>
+                    <span class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold">Sales
+                        Velocity</span>
+                    <h3 class="text-2xl font-bold text-white font-mono mt-0.5">{{ orders.len() }}</h3>
+                </div>
             </div>
-            <div>
-                <h3 class="text-3xl font-bold text-slate-900 dark:text-white">{{ orders.len() }}</h3>
-                <p class="text-slate-600 dark:text-slate-400 text-sm mt-1">Recent Orders</p>
-            </div>
-        </div>
+            <div class="text-[10px] text-slate-500 font-bold uppercase tracking-widest">RECENT 24H ORDERS</div>
+        </article>
 
-        <!-- Revenue (Placeholder or Calculated) -->
-        <!-- We don't have total revenue passed to this template yet in get_traffic_analytics, but we can calc sum of orders displayed -->
-        <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 p-6 rounded-2xl relative overflow-hidden group hover:border-rose-500/30 transition-all duration-300 glass shadow-[0_0_20px_rgba(244,63,94,0.05)]">
-            <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                <i data-lucide="wallet" class="w-16 h-16 text-rose-500"></i>
+        <!-- Revenue -->
+        <article class="card p-8 group overflow-hidden relative">
+            <div
+                class="absolute -right-4 -top-4 w-32 h-32 bg-rose-500/5 rounded-full blur-3xl group-hover:bg-rose-500/10 transition-colors">
             </div>
-            <div class="flex items-center gap-3 mb-4">
-                <div class="p-2.5 bg-rose-500/10 rounded-xl text-rose-400">
-                    <i data-lucide="dollar-sign" class="w-5 h-5"></i>
+            <div class="flex items-center gap-4 mb-6 relative">
+                <div
+                    class="w-12 h-12 rounded-2xl bg-rose-500/10 flex items-center justify-center text-rose-400 border border-rose-500/20 group-hover:scale-110 transition-transform">
+                    <i data-lucide="dollar-sign" class="w-6 h-6"></i>
                 </div>
-                <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Revenue Stream</span>
+                <div>
+                    <span class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold">Yield
+                        Factor</span>
+                    <h3 class="text-2xl font-bold text-rose-500 font-mono mt-0.5">LTD</h3>
+                </div>
             </div>
-            <div>
-                <h3 class="text-3xl font-bold text-rose-400">LTD</h3>
-                <p class="text-slate-600 dark:text-slate-400 text-sm mt-1">Lifetime Value</p>
-            </div>
-        </div>
+            <div class="text-[10px] text-slate-500 font-bold uppercase tracking-widest">LIFETIME ASSET VALUE</div>
+        </article>
     </div>
 
     <!-- Charts Section -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <!-- Area Chart -->
-        <div
-            class="lg:col-span-2 bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 p-6 rounded-2xl glass">
-            <div class="flex items-center justify-between mb-6">
-                <div>
-                    <h3 class="text-lg font-bold text-slate-900 dark:text-white">Traffic Volume</h3>
-                    <p class="text-slate-500 dark:text-slate-500 text-sm">Data usage trends over last 30 days</p>
+        <div class="lg:col-span-2 card p-10 group">
+            <header class="flex items-center justify-between mb-8">
+                <div class="flex items-center gap-4">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center text-brand border border-brand/20">
+                        <i data-lucide="trending-up" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-white font-premium">Traffic Volumetrics</h3>
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1">Cumulative data
+                            egress (30D)</p>
+                    </div>
                 </div>
-            </div>
+            </header>
             <div id="trafficHistoryChart" class="w-full min-h-[350px]"></div>
         </div>
 
         <!-- Donut Chart -->
-        <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 p-6 rounded-2xl glass flex flex-col">
-            <div class="mb-6">
-                <h3 class="text-lg font-bold text-slate-900 dark:text-white">Node Distribution</h3>
-                <p class="text-slate-500 dark:text-slate-500 text-sm">Load balancing status</p>
-            </div>
+        <div class="card p-10 flex flex-col group">
+            <header class="mb-8">
+                <div class="flex items-center gap-4">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 border border-indigo-500/20">
+                        <i data-lucide="pie-chart" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-white font-premium">Geographic Spread</h3>
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1">Load distribution
+                            by node</p>
+                    </div>
+                </div>
+            </header>
             <div id="nodeDistributionChart" class="w-full flex-1 flex items-center justify-center min-h-[300px]"></div>
         </div>
     </div>
 
     <!-- Two-Column Data Layout -->
     <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
-
-        <!-- Recent Orders (Merged from Transactions) -->
-        <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden glass flex flex-col h-full">
-            <div class="p-6 border-b border-slate-200 dark:border-white/5 flex items-center justify-between">
-                <div>
-                    <h3 class="text-lg font-bold text-slate-900 dark:text-white">Recent Transactions</h3>
-                    <p class="text-slate-500 dark:text-slate-500 text-sm">Latest store activity</p>
+        <!-- Recent Orders -->
+        <article class="card overflow-hidden">
+            <header class="p-8 border-b border-border-default flex items-center justify-between bg-black/20">
+                <div class="flex items-center gap-4">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 border border-emerald-500/20">
+                        <i data-lucide="history" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-bold text-white">Ingress Log</h3>
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Latest store
+                            transactions</p>
+                    </div>
                 </div>
-                <a href="{{ admin_path }}/transactions"
-                    class="text-xs font-medium text-indigo-400 hover:text-white transition-colors bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-1.5 rounded-lg border border-indigo-500/20">View
-                    All</a>
-            </div>
-            <div class="overflow-x-auto flex-1">
-                <table class="w-full text-left border-collapse">
+                <a href="{{ admin_path }}/transactions" class="btn btn-secondary px-4 py-2 text-[10px]">ALL LOGS</a>
+            </header>
+            <div class="overflow-x-auto">
+                <table class="table-base">
                     <thead>
-                        <tr
-                            class="text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-white/5 bg-slate-100/80 dark:bg-slate-900/30">
-                            <th class="px-6 py-4">User</th>
-                            <th class="px-6 py-4">Amount</th>
+                        <tr>
+                            <th class="px-6 py-4">Sovereign</th>
+                            <th class="px-6 py-4">Payload</th>
                             <th class="px-6 py-4">Status</th>
-                            <th class="px-6 py-4 text-right">Date</th>
+                            <th class="px-6 py-4 text-right">Timestamp</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-white/5 text-sm">
+                    <tbody>
                         {% for order in orders %}
-                        {% if loop.index0 < 10 %} <!-- Limit to 10 latest here -->
-                            <tr class="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors group">
-                                <td class="px-6 py-4">
-                                    <span class="font-medium text-slate-900 dark:text-white block">{{ order.username
-                                        }}</span>
-                                    <span class="text-xs text-slate-500 dark:text-slate-500 font-mono">#{{ order.id
-                                        }}</span>
-                                </td>
-                                <td class="px-6 py-4 font-mono text-slate-700 dark:text-slate-300">
-                                    ${{ order.total_amount }}
-                                </td>
-                                <td class="px-6 py-4">
-                                    {% if order.status == "completed" %}
-                                    <span
-                                        class="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                                        Paid
-                                    </span>
-                                    {% else if order.status == "pending" %}
-                                    <span
-                                        class="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                                        Pending
-                                    </span>
-                                    {% else %}
-                                    <span
-                                        class="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide bg-slate-700 text-slate-400 border border-slate-600">
-                                        {{ order.status }}
-                                    </span>
-                                    {% endif %}
-                                </td>
-                                <td class="px-6 py-4 text-right text-slate-500 text-xs">
-                                    {{ order.created_at }}
-                                </td>
+                        {% if loop.index0 < 10 %} <tr class="hover:bg-white/5 transition-colors group">
+                            <td class="px-6 py-5">
+                                <div class="font-bold text-white uppercase tracking-tight">{{ order.username }}</div>
+                                <div class="text-[9px] font-mono text-slate-500 mt-1 uppercase">ORDR_{{ order.id }}
+                                </div>
+                            </td>
+                            <td class="px-6 py-5 font-mono text-emerald-400 font-bold">
+                                ${{ order.total_amount }}
+                            </td>
+                            <td class="px-6 py-5">
+                                {% if order.status == "completed" %}
+                                <span class="badge badge-online">PAID</span>
+                                {% else %}
+                                <span class="badge badge-offline">{{ order.status|uppercase }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-5 text-right font-mono text-[10px] text-slate-500">
+                                {{ order.created_at }}
+                            </td>
                             </tr>
                             {% endif %}
                             {% endfor %}
-
-                            {% if orders.is_empty() %}
-                            <tr>
-                                <td colspan="4" class="px-6 py-8 text-center text-slate-500">
-                                    No recent transactions.
-                                </td>
-                            </tr>
-                            {% endif %}
                     </tbody>
                 </table>
             </div>
-        </div>
+        </article>
 
-        <!-- Top Users -->
-        <div
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden glass flex flex-col h-full">
-            <div class="p-6 border-b border-slate-200 dark:border-white/5">
-                <h3 class="text-lg font-bold text-slate-900 dark:text-white">Top Bandwidth Users</h3>
-                <p class="text-slate-500 dark:text-slate-500 text-sm">Users consuming the most resources</p>
-            </div>
-            <div class="overflow-x-auto flex-1">
-                <table class="w-full text-left border-collapse">
+        <!-- High Consumption Users -->
+        <article class="card overflow-hidden">
+            <header class="p-8 border-b border-border-default flex items-center justify-between bg-black/20">
+                <div class="flex items-center gap-4">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center text-brand border border-brand/20">
+                        <i data-lucide="zap" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-bold text-white">Egress Elite</h3>
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Top resource consumers
+                        </p>
+                    </div>
+                </div>
+            </header>
+            <div class="overflow-x-auto">
+                <table class="table-base">
                     <thead>
-                        <tr
-                            class="text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-white/5 bg-slate-100/80 dark:bg-slate-900/30">
-                            <th class="px-6 py-4">Rank</th>
-                            <th class="px-6 py-4">Username</th>
-                            <th class="px-6 py-4 text-right">Data Used</th>
+                        <tr>
+                            <th class="px-6 py-4">Tier</th>
+                            <th class="px-6 py-4">Identify</th>
+                            <th class="px-6 py-4 text-right">Egress Volume</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-200 dark:divide-white/5 text-sm">
+                    <tbody>
                         {% for user in top_users %}
-                        <tr class="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors">
-                            <td class="px-6 py-4 font-mono text-slate-500 text-xs">0{{ loop.index }}</td>
-                            <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">
-                                <div class="flex items-center gap-3">
-                                    <div
-                                        class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500/10 to-purple-500/10 dark:from-indigo-500/20 dark:to-purple-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-white/5">
-                                    </div>
-                                    {{ user.username }}
+                        <tr class="hover:bg-white/5 transition-colors group">
+                            <td class="px-6 py-5">
+                                <div
+                                    class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center font-mono text-[10px] font-bold text-slate-500 border border-white/5">
+                                    0{{ loop.index }}
                                 </div>
                             </td>
-                            <td class="px-6 py-4 text-right">
-                                <span
-                                    class="px-2 py-1 bg-slate-200 dark:bg-slate-800 rounded border border-slate-300 dark:border-white/10 font-mono text-xs text-indigo-600 dark:text-indigo-300 shadow-sm">
+                            <td class="px-6 py-5">
+                                <div class="flex items-center gap-4">
+                                    <div
+                                        class="w-10 h-10 rounded-2xl bg-brand/5 flex items-center justify-center text-brand font-bold border border-brand/10 text-xs group-hover:scale-110 transition-transform">
+                                        {{ user.username.chars().next().unwrap_or('?')|upper }}
+                                    </div>
+                                    <div class="font-bold text-white leading-none uppercase tracking-tight">{{
+                                        user.username }}</div>
+                                </div>
+                            </td>
+                            <td class="px-6 py-5 text-right">
+                                <span class="badge badge-online px-4 py-1.5 font-mono text-xs">
                                     {{ user.total_traffic_fmt }}
                                 </span>
                             </td>
@@ -223,7 +240,7 @@
                     </tbody>
                 </table>
             </div>
-        </div>
+        </article>
     </div>
 </div>
 

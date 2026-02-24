@@ -6,248 +6,220 @@
 
 {% block content %}
 <!-- Breadcrumbs -->
-<nav class="flex items-center text-sm text-slate-500 mb-6">
-    <a href="{{ admin_path }}/users" class="hover:text-indigo-400 transition-colors">Users</a>
-    <i data-lucide="chevron-right" class="w-4 h-4 mx-2"></i>
-    <span class="text-slate-700 dark:text-slate-300 font-medium">{{ user.full_name.as_deref().unwrap_or("User Profile")
-        }}</span>
+<nav class="flex items-center text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-8">
+    <a href="{{ admin_path }}/users" class="hover:text-brand transition-colors flex items-center gap-1.5">
+        <i data-lucide="users" class="w-3 h-3"></i>
+        Users
+    </a>
+    <i data-lucide="chevron-right" class="w-3 h-3 mx-2 opacity-50"></i>
+    <span class="text-slate-300">{{ user.username.as_deref().unwrap_or("User Profile") }}</span>
 </nav>
 
 <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
     <!-- Left Column: User Profile -->
     <div class="xl:col-span-1 space-y-6">
         <!-- User Profile Card -->
-        <article
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6">
-            <header class="flex justify-between items-start mb-6">
-                <div class="flex items-center gap-4">
+        <article class="card p-8 group">
+            <header class="flex justify-between items-start mb-8">
+                <div class="flex items-center gap-5">
                     <div
-                        class="w-16 h-16 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 font-bold text-2xl border border-indigo-500/20 shadow-lg shadow-indigo-500/10">
+                        class="w-16 h-16 rounded-2xl bg-brand/10 flex items-center justify-center text-brand font-bold text-2xl border border-brand/20 shadow-lg shadow-brand/10 group-hover:scale-105 transition-transform">
                         {{ user.full_name.as_deref().unwrap_or("U").chars().next().unwrap_or('U') }}
                     </div>
                     <div>
-                        <h3 class="text-xl font-bold text-slate-900 dark:text-white leading-tight mb-1">{{
-                            user.full_name.as_deref().unwrap_or("Unknown User") }}</h3>
-                        <div class="text-sm text-slate-600 dark:text-slate-400">@{{
-                            user.username.as_deref().unwrap_or("None") }}</div>
+                        <h3 class="text-2xl font-bold text-slate-900 dark:text-white leading-tight mb-1 font-premium">
+                            {{ user.full_name.as_deref().unwrap_or("Unknown User") }}
+                        </h3>
+                        <div class="text-[12px] font-mono text-slate-500 flex items-center gap-1.5">
+                            <i data-lucide="at-sign" class="w-3 h-3"></i>
+                            {{ user.username.as_deref().unwrap_or("none") }}
+                        </div>
                     </div>
                 </div>
                 {% if user.is_banned %}
-                <span
-                    class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">BANNED</span>
+                <span class="badge badge-offline">BANNED</span>
                 {% else %}
-                <span
-                    class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active</span>
+                <span class="badge badge-online">ACTIVE</span>
                 {% endif %}
             </header>
 
-            <form hx-post="{{ admin_path }}/users/{{ user.id }}/update" hx-swap="none" class="space-y-4">
+            <form hx-post="{{ admin_path }}/users/{{ user.id }}/update" hx-swap="none" class="space-y-6">
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Telegram ID</label>
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Telegram
+                            ID</label>
                         <input type="text" value="{{ user.tg_id }}" readonly disabled
-                            class="w-full bg-slate-100 dark:bg-slate-950/50 border border-slate-200 dark:border-white/5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-400 font-mono">
+                            class="input-field bg-black/20 font-mono opacity-60">
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Registered</label>
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Membership</label>
                         <input type="text" value="{{ user.created_at.format(" %Y-%m-%d") }}" readonly disabled
-                            class="w-full bg-slate-100 dark:bg-slate-950/50 border border-slate-200 dark:border-white/5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-400">
+                            class="input-field bg-black/20 opacity-60">
                     </div>
                 </div>
 
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Referral Code</label>
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Referral
+                            Code</label>
                         <input type="text" name="referral_code"
-                            value="{{ user.referral_code.as_deref().unwrap_or("") }}"
-                            class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
+                            value="{{ user.referral_code.as_deref().unwrap_or("") }}" class="input-field font-mono">
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Parent (Family)</label>
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Parent
+                            ID</label>
                         <input type="number" name="parent_id"
-                            value="{% if let Some(pid) = user.parent_id %}{{ pid }}{% endif %}" placeholder="User ID"
-                            class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
+                            value="{% if let Some(pid) = user.parent_id %}{{ pid }}{% endif %}" placeholder="No parent"
+                            class="input-field">
                     </div>
                 </div>
 
-                <div class="h-px bg-slate-200 dark:bg-white/5 my-4"></div>
-
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Wallet (Cents)</label>
-                        <input type="number" name="balance" value="{{ user.balance }}"
-                            class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-indigo-500 outline-none transition-all">
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Wallet
+                            (Cents)</label>
+                        <div class="relative">
+                            <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">$</span>
+                            <input type="number" name="balance" value="{{ user.balance }}"
+                                class="input-field pl-8 font-bold text-emerald-400">
+                        </div>
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Status</label>
-                        <select name="is_banned"
-                            class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-indigo-500 outline-none transition-all">
-                            <option value="false" {% if !user.is_banned %}selected{% endif %}>Active</option>
-                            <option value="true" {% if user.is_banned %}selected{% endif %}>Banned</option>
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Manual
+                            Status</label>
+                        <select name="is_banned" class="input-field">
+                            <option value="false" {% if !user.is_banned %}selected{% endif %}>Active Node</option>
+                            <option value="true" {% if user.is_banned %}selected{% endif %}>Banned Node</option>
                         </select>
                     </div>
                 </div>
 
                 <div class="pt-2">
                     <button type="submit"
-                        class="w-full py-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-900 dark:text-white font-medium rounded-lg border border-slate-300 dark:border-white/10 transition-colors">
-                        Update User
+                        class="btn btn-primary w-full py-4 rounded-xl font-bold uppercase tracking-[0.2em] text-xs">
+                        Push Profile Changes
                     </button>
                 </div>
             </form>
 
             <div class="h-px bg-slate-200 dark:bg-white/5 my-5"></div>
 
+            <div class="h-px bg-border-default my-8"></div>
+
             <form id="user-notify-form" data-preview-url="{{ admin_path }}/users/notify/preview"
                 hx-post="{{ admin_path }}/users/{{ user.id }}/notify" hx-target="#notify-result" hx-swap="innerHTML"
-                class="space-y-4">
-                <label class="block text-xs font-medium text-slate-500 uppercase mb-1">Send Telegram
-                    Notification</label>
-                <input type="text" name="campaign_title" maxlength="120" placeholder="Campaign title (for logs/history)"
-                    class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
+                class="space-y-6">
+                <div>
+                    <h4
+                        class="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-bold mb-4 flex items-center gap-2">
+                        <i data-lucide="send" class="w-3 h-3 text-brand"></i>
+                        Direct Beacon
+                    </h4>
+                    <input type="text" name="campaign_title" maxlength="120" placeholder="Internal Campaign Label"
+                        class="input-field mb-4">
 
-                <div
-                    class="rounded-2xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-3 space-y-3">
-                    <div class="flex flex-wrap items-center gap-2 text-[11px]">
-                        <button type="button"
-                            class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
-                            onclick="notifyWrap('user-notify-message','**','**')">Bold</button>
-                        <button type="button"
-                            class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
-                            onclick="notifyWrap('user-notify-message','_','_')">Italic</button>
-                        <button type="button"
-                            class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
-                            onclick="notifyWrap('user-notify-message','`','`')">Code</button>
-                        <button type="button"
-                            class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
-                            onclick="notifyInsertLink('user-notify-message','user-parse-mode')">Link</button>
-                        <button type="button"
-                            class="px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors"
-                            onclick="notifyInsertText('user-notify-message','\n• ')">Bullet</button>
+                    <div class="rounded-2xl border border-border-default bg-black/20 p-4 space-y-4">
+                        <div class="flex flex-wrap items-center gap-2 text-[10px]">
+                            <button type="button" class="btn btn-secondary py-1 px-3 text-[10px]"
+                                onclick="notifyWrap('user-notify-message','**','**')">BOLD</button>
+                            <button type="button" class="btn btn-secondary py-1 px-3 text-[10px]"
+                                onclick="notifyWrap('user-notify-message','_','_')">ITALIC</button>
+                            <button type="button" class="btn btn-secondary py-1 px-3 text-[10px]"
+                                onclick="notifyWrap('user-notify-message','`','`')">CODE</button>
+                            <button type="button" class="btn btn-secondary py-1 px-3 text-[10px]"
+                                onclick="notifyInsertLink('user-notify-message','user-parse-mode')">LINK</button>
 
-                        <div class="ml-auto flex flex-wrap items-center gap-2">
-                            <select id="user-parse-mode" name="parse_mode"
-                                class="bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-white focus:border-indigo-500 outline-none transition-all">
-                                <option value="plain" selected>Plain</option>
-                                <option value="html">HTML</option>
-                                <option value="markdown">MarkdownV2</option>
-                            </select>
-                            <select id="user-media-type" name="media_type"
-                                class="bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-white focus:border-indigo-500 outline-none transition-all">
-                                <option value="none" selected>No media</option>
-                                <option value="photo">Photo</option>
-                                <option value="video">Video</option>
-                                <option value="document">Document</option>
-                            </select>
-                            <label class="inline-flex items-center gap-1.5 text-slate-400">
-                                <input id="user-notify-autopreview" type="checkbox" checked
-                                    class="rounded border-white/20 bg-slate-900 text-indigo-500 focus:ring-indigo-500/40">
-                                Live preview
-                            </label>
+                            <div class="ml-auto flex items-center gap-3">
+                                <select id="user-parse-mode" name="parse_mode"
+                                    class="bg-slate-900 border border-white/10 rounded-lg px-2 py-1 text-[10px] text-white outline-none">
+                                    <option value="plain">PLAIN</option>
+                                    <option value="html">HTML</option>
+                                    <option value="markdown">MDV2</option>
+                                </select>
+                                <select id="user-media-type" name="media_type"
+                                    class="bg-slate-900 border border-white/10 rounded-lg px-2 py-1 text-[10px] text-white outline-none">
+                                    <option value="none">TEXT ONLY</option>
+                                    <option value="photo">PHOTO</option>
+                                    <option value="video">VIDEO</option>
+                                </select>
+                            </div>
                         </div>
-                    </div>
 
-                    <textarea id="user-notify-message" name="message" rows="5" required maxlength="4000"
-                        placeholder="Type message for this user..."
-                        class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700"></textarea>
+                        <textarea id="user-notify-message" name="message" rows="5" required maxlength="4000"
+                            placeholder="Write message to {{ user.username.as_deref().unwrap_or(" this user") }}..."
+                            class="w-full bg-transparent border-none focus:ring-0 text-sm text-slate-300 placeholder-slate-600 resize-none min-h-[120px]"></textarea>
 
-                    <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
-                        <span id="user-notify-counter" class="text-slate-500">0 / 4000</span>
-                        <span class="text-slate-600">When media is selected, caption limit is 1024 symbols.</span>
+                        <div
+                            class="flex items-center justify-between text-[10px] text-slate-500 font-bold uppercase tracking-widest pt-2 border-t border-white/5">
+                            <span id="user-notify-counter">0 / 4000</span>
+                            <div class="flex items-center gap-2">
+                                <input id="user-notify-autopreview" type="checkbox" checked
+                                    class="rounded border-white/20 bg-slate-900 text-brand">
+                                <span>Live Preview</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <details
-                    class="group rounded-2xl border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/20 p-3">
-                    <summary class="cursor-pointer text-xs text-slate-300 select-none">
-                        Advanced delivery options
-                    </summary>
-                    <div class="mt-3 space-y-2">
-                        <input type="url" name="media_url" maxlength="1000"
-                            placeholder="Optional media URL (https://...)"
-                            class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
-
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <input type="text" name="button_text" maxlength="64" placeholder="Primary button text"
-                                class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
-                            <input type="url" name="button_url" maxlength="1000"
-                                placeholder="Primary button URL (https://...)"
-                                class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
-                        </div>
-
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <input type="text" name="button2_text" maxlength="64" placeholder="Secondary button text"
-                                class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
-                            <input type="url" name="button2_url" maxlength="1000"
-                                placeholder="Secondary button URL (https://...)"
-                                class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
-                        </div>
-
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <input type="text" name="button3_text" maxlength="64" placeholder="Tertiary button text"
-                                class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
-                            <input type="url" name="button3_url" maxlength="1000"
-                                placeholder="Tertiary button URL (https://...)"
-                                class="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all placeholder-slate-700">
-                        </div>
-
-                        <label class="inline-flex items-center gap-2 text-xs text-slate-400">
-                            <input type="checkbox" name="disable_link_preview"
-                                class="rounded border-white/20 bg-slate-900 text-indigo-500 focus:ring-indigo-500/40">
-                            Disable link preview for text message
-                        </label>
-                    </div>
-                </details>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div class="grid grid-cols-2 gap-3">
                     <button type="button" onclick="notifyRunPreview('user-notify-form','notify-preview')"
-                        class="w-full py-2.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-medium rounded-lg border border-slate-300 dark:border-white/10 transition-colors">
-                        Preview
+                        class="btn btn-secondary py-3">
+                        PREVIEW
                     </button>
-                    <button type="submit"
-                        class="w-full py-2.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 font-medium rounded-lg border border-indigo-500/30 transition-colors">
-                        Send Notification
+                    <button type="submit" class="btn btn-primary py-3">
+                        <i data-lucide="zap" class="w-4 h-4"></i>
+                        CHASE BEACON
                     </button>
                 </div>
                 <div id="notify-preview"></div>
-                <div id="notify-result" class="text-xs text-slate-400"></div>
+                <div id="notify-result" class="text-[10px] text-slate-500 uppercase font-bold text-center"></div>
             </form>
         </article>
 
         <!-- Referral Stats -->
-        <article
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden p-6">
-            <header class="flex justify-between items-center mb-4">
-                <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wide">Referral Program</h4>
-                <span
-                    class="text-emerald-400 text-sm font-medium bg-emerald-500/10 px-2 py-1 rounded-md border border-emerald-500/20">
+        <article class="card p-8 group">
+            <header class="flex justify-between items-center mb-8">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 border border-emerald-500/20">
+                        <i data-lucide="share-2" class="w-5 h-5"></i>
+                    </div>
+                    <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Growth Engine</h4>
+                </div>
+                <span class="badge badge-online">
                     +${{ total_referral_earnings }}
                 </span>
             </header>
 
             {% if referrals.is_empty() %}
-            <div class="text-center py-6 text-slate-500 text-sm">
-                This user hasn't invited anyone yet.
+            <div class="text-center py-10">
+                <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Zero active referrals</p>
             </div>
             {% else %}
-            <div class="space-y-3">
+            <div class="space-y-4">
                 {% for referral in referrals %}
                 <div
-                    class="flex items-center justify-between p-3 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/5">
-                    <div class="flex items-center gap-3">
+                    class="flex items-center justify-between p-4 rounded-2xl bg-black/20 border border-border-default hover:border-brand/30 transition-colors group/item">
+                    <div class="flex items-center gap-4">
                         <div
-                            class="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 text-xs font-bold">
+                            class="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center text-brand font-bold border border-brand/20 group-hover/item:scale-110 transition-transform">
                             {{ referral.full_name.as_deref().unwrap_or("U").chars().next().unwrap_or('U') }}
                         </div>
                         <div>
-                            <div class="text-sm font-medium text-slate-900 dark:text-white">{{
+                            <div class="text-sm font-bold text-slate-900 dark:text-white">{{
                                 referral.full_name.as_deref().unwrap_or("Unknown") }}</div>
-                            <div class="text-xs text-slate-500">{{ referral.created_at.format("%Y-%m-%d").to_string() }}
-                            </div>
+                            <div class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-0.5">{{
+                                referral.created_at.format("%Y-%m-%d").to_string() }}</div>
                         </div>
                     </div>
-                    <span class="text-sm font-mono text-emerald-400">+${{ format!("{:.2}", referral.total_earned as f64
-                        / 100.0) }}</span>
+                    <span class="font-mono text-emerald-400 font-bold">+${{ format!("{:.2}", referral.total_earned as
+                        f64 / 100.0) }}</span>
                 </div>
                 {% endfor %}
             </div>
@@ -258,136 +230,141 @@
     <!-- Right Column: Subscriptions & Orders -->
     <div class="xl:col-span-2 space-y-6">
         <!-- Active Subscriptions -->
-        <article
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden shadow-xl">
-            <header
-                class="p-6 border-b border-slate-200 dark:border-white/5 flex justify-between items-center bg-slate-100/80 dark:bg-slate-900/30">
-                <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Active Subscriptions</h3>
-                <button onclick="openGiftModal()"
-                    class="flex items-center gap-2 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 px-3 py-1.5 rounded-lg border border-indigo-500/20 transition-colors text-sm font-medium">
-                    <i data-lucide="gift" class="w-4 h-4"></i> Gift Subscription
+        <article class="card overflow-hidden">
+            <header class="p-8 border-b border-border-default flex justify-between items-center bg-black/20">
+                <div class="flex items-center gap-4">
+                    <div
+                        class="w-12 h-12 rounded-2xl bg-brand/10 flex items-center justify-center text-brand border border-brand/20">
+                        <i data-lucide="zap" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-slate-900 dark:text-white">Active Subscriptions</h3>
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Manage user
+                            access and device limits</p>
+                    </div>
+                </div>
+                <button onclick="openGiftModal()" class="btn btn-secondary px-6">
+                    <i data-lucide="gift" class="w-4 h-4"></i>
+                    Gift Subscription
                 </button>
             </header>
 
             {% if subscriptions.is_empty() %}
-            <div class="p-12 text-center">
-                <div class="w-16 h-16 rounded-full bg-slate-800/50 flex items-center justify-center mx-auto mb-4">
+            <div class="p-20 text-center">
+                <div class="w-16 h-16 rounded-full bg-slate-800/50 flex items-center justify-center mx-auto mb-6">
                     <i data-lucide="inbox" class="w-8 h-8 text-slate-600"></i>
                 </div>
-                <p class="text-slate-600 dark:text-slate-400">No active subscriptions found.</p>
+                <p class="text-[11px] text-slate-500 uppercase tracking-widest font-bold">No active nodes found</p>
             </div>
             {% else %}
             <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse">
+                <table class="table-base">
                     <thead>
-                        <tr
-                            class="text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-white/5 bg-slate-100/80 dark:bg-slate-900/30">
-                            <th class="px-6 py-4">Plan Name</th>
+                        <tr>
+                            <th class="px-6 py-4">Plan & Access</th>
                             <th class="px-6 py-4">Status</th>
-                            <th class="px-6 py-4">Expires In</th>
+                            <th class="px-6 py-4">Expiry</th>
                             <th class="px-6 py-4">Devices</th>
                             <th class="px-6 py-4 text-right">Actions</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-white/5">
+                    <tbody>
                         {% for sub in subscriptions %}
                         <tr id="sub-row-{{ sub.id }}" class="hover:bg-white/5 transition-colors group">
-                            <td class="px-6 py-4">
-                                <div class="font-medium text-slate-900 dark:text-white">{{ sub.plan_name }}</div>
-                                <div class="text-xs text-slate-500 font-mono mt-0.5">ID: {{ sub.id }}</div>
-                                <div class="mt-2 space-y-1.5">
-                                    <div class="flex items-center gap-1.5">
+                            <td class="px-6 py-6">
+                                <div class="font-bold text-white text-lg">{{ sub.plan_name }}</div>
+                                <div class="text-[10px] text-brand/80 font-mono mt-1 uppercase tracking-widest">SID: {{
+                                    sub.id }}</div>
+
+                                <div class="mt-4 space-y-2">
+                                    <div class="flex items-center gap-2 group/link">
                                         <span
-                                            class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">SUB</span>
-                                        <input type="text" readonly value="{{ sub.subscription_url }}"
-                                            class="flex-1 bg-slate-950/70 border border-white/10 rounded px-2 py-1 text-[10px] font-mono text-indigo-300">
-                                        <button type="button" onclick="copyFromInput(this)"
-                                            class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-                                            title="Copy subscription URL">
+                                            class="text-[9px] font-bold uppercase tracking-widest text-slate-500 w-10">URL</span>
+                                        <div
+                                            class="flex-1 bg-black/40 border border-white/5 rounded-lg px-3 py-1.5 text-[11px] font-mono text-brand/90 overflow-hidden text-ellipsis whitespace-nowrap">
+                                            {{ sub.subscription_url }}
+                                        </div>
+                                        <button onclick="copyFromInput(this)"
+                                            class="btn-icon w-8 h-8 bg-brand/10 border-brand/20 text-brand">
                                             <i data-lucide="copy" class="w-3 h-3"></i>
+                                            <input type="hidden" value="{{ sub.subscription_url }}">
                                         </button>
                                     </div>
                                     {% if let Some(vless_link) = sub.primary_vless_link %}
-                                    <div class="flex items-center gap-1.5">
+                                    <div class="flex items-center gap-2 group/link">
                                         <span
-                                            class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">VLESS</span>
-                                        <input type="text" readonly value="{{ vless_link }}"
-                                            class="flex-1 bg-slate-950/70 border border-white/10 rounded px-2 py-1 text-[10px] font-mono text-emerald-300">
-                                        <button type="button" onclick="copyFromInput(this)"
-                                            class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-                                            title="Copy VLESS direct link">
+                                            class="text-[9px] font-bold uppercase tracking-widest text-slate-500 w-10">VLSS</span>
+                                        <div
+                                            class="flex-1 bg-black/40 border border-white/5 rounded-lg px-3 py-1.5 text-[11px] font-mono text-emerald-400 overflow-hidden text-ellipsis whitespace-nowrap">
+                                            {{ vless_link }}
+                                        </div>
+                                        <button onclick="copyFromInput(this)"
+                                            class="btn-icon w-8 h-8 bg-emerald-500/10 border-emerald-500/20 text-emerald-400">
                                             <i data-lucide="copy" class="w-3 h-3"></i>
+                                            <input type="hidden" value="{{ vless_link }}">
                                         </button>
                                     </div>
-                                    {% if sub.vless_links_count > 1 %}
-                                    <div class="text-[10px] text-slate-500">
-                                        +{{ sub.vless_links_count - 1 }} additional VLESS links available.
-                                    </div>
                                     {% endif %}
-                                    {% else %}
-                                    <div class="text-[10px] text-amber-400/90">
-                                        No direct VLESS link yet. Check plan bindings and node inbounds.
-                                    </div>
-                                    {% endif %}
-                                    <div class="text-[10px] text-slate-500 space-y-0.5">
+                                    <div class="text-[10px] text-slate-500 flex items-center gap-4 mt-2">
                                         {% if let Some(last_node) = sub.last_node_label %}
-                                        <div>Last node: <span class="text-slate-300">{{ last_node }}</span></div>
+                                        <div class="flex items-center gap-1.5">
+                                            <i data-lucide="globe" class="w-3 h-3"></i>
+                                            <span>Last Node: <span
+                                                    class="text-slate-300 font-bold uppercase tracking-tighter">{{
+                                                    last_node }}</span></span>
+                                        </div>
                                         {% endif %}
                                         {% if let Some(last_access) = sub.last_sub_access_label %}
-                                        <div>Last config pull: <span class="text-slate-300">{{ last_access }}</span>
+                                        <div class="flex items-center gap-1.5">
+                                            <i data-lucide="clock" class="w-3 h-3"></i>
+                                            <span>Last Pulse: <span class="text-slate-300">{{ last_access
+                                                    }}</span></span>
                                         </div>
                                         {% endif %}
                                     </div>
                                 </div>
                             </td>
-                            <td class="px-6 py-4">
+                            <td class="px-6 py-6">
                                 {% if sub.status == "active" %}
-                                <span
-                                    class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active</span>
+                                <span class="badge badge-online">ACTIVE</span>
                                 {% else %}
-                                <span
-                                    class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-slate-500/10 text-slate-400 border border-slate-500/20">{{
-                                    sub.status|capitalize }}</span>
+                                <span class="badge badge-offline">{{ sub.status|uppercase }}</span>
                                 {% endif %}
                             </td>
-                            <td class="px-6 py-4">
-                                <div class="flex items-center gap-2">
-                                    <span class="text-sm text-slate-300">{{ sub.expires_at.format("%Y-%m-%d") }}</span>
+                            <td class="px-6 py-6 font-mono text-xs">
+                                <div class="flex flex-col gap-1">
+                                    <span class="text-slate-300 font-bold">{{ sub.expires_at.format("%Y-%m-%d")
+                                        }}</span>
                                     <button
-                                        class="w-6 h-6 flex items-center justify-center rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-                                        onclick="openExtendModal( {{ sub.id }} )" title="Extend">
-                                        <i data-lucide="plus" class="w-3 h-3"></i>
-                                    </button>
+                                        class="text-brand hover:text-brand/80 text-[10px] font-bold uppercase tracking-widest text-left"
+                                        onclick="openExtendModal( {{ sub.id }} )">+ EXTEND TIME</button>
                                 </div>
                             </td>
-                            <td class="px-6 py-4">
-                                <div class="flex items-center gap-3">
-                                    <div class="text-sm font-mono">
-                                        <span class="text-white">{{ sub.active_devices }}</span><span
-                                            class="text-slate-600">/</span><span class="text-slate-400">{% if
+                            <td class="px-6 py-6">
+                                <div class="flex items-center gap-4">
+                                    <div class="text-lg font-bold font-mono">
+                                        <span class="text-brand">{{ sub.active_devices }}</span><span
+                                            class="text-slate-700 mx-1">/</span><span class="text-slate-400">{% if
                                             sub.device_limit == 0 %}∞{% else %}{{ sub.device_limit }}{% endif %}</span>
                                     </div>
                                     <button onclick="openDevicesModal( {{ sub.id }} )"
-                                        class="p-1 hover:bg-white/10 rounded transition-colors text-slate-500 hover:text-indigo-400"
-                                        title="View Devices">
+                                        class="btn-icon w-8 h-8 text-slate-500 hover:text-brand transition-colors">
                                         <i data-lucide="monitor-smartphone" class="w-4 h-4"></i>
                                     </button>
                                 </div>
                             </td>
-                            <td class="px-6 py-4 text-right">
-                                <div class="flex items-center justify-end gap-2">
+                            <td class="px-6 py-6 text-right">
+                                <div
+                                    class="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <button
                                         onclick="openRefundModal( {{ sub.id }}, {{ sub.price }}, {{ sub.created_at.timestamp_millis() }}, {{ sub.expires_at.timestamp_millis() }} )"
-                                        class="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-amber-500/10 text-amber-500/80 hover:text-amber-400 text-xs font-medium transition-colors">
-                                        Refund
+                                        class="btn btn-secondary px-4 py-2 text-[10px] text-amber-500 border-amber-500/20 hover:bg-amber-500/10">
+                                        REFUND
                                     </button>
                                     <button hx-delete="{{ admin_path }}/users/subs/{{ sub.id }}"
-                                        hx-confirm="Are you sure you want to permanently delete this subscription for {{ user.username.as_deref().unwrap_or("
-                                        this user") }}? This will revoke access immediately."
-                                        data-confirm-title="Delete Subscription" hx-target="#sub-row-{{ sub.id }}"
+                                        hx-confirm="Delete subscription?" hx-target="#sub-row-{{ sub.id }}"
                                         hx-swap="outerHTML"
-                                        class="p-1.5 rounded-lg hover:bg-red-500/10 text-slate-600 hover:text-red-400 transition-colors"
-                                        title="Delete">
+                                        class="btn-icon w-9 h-9 text-rose-500 bg-rose-500/10 border-rose-500/20 hover:bg-rose-500/20">
                                         <i data-lucide="trash-2" class="w-4 h-4"></i>
                                     </button>
                                 </div>
@@ -401,38 +378,48 @@
         </article>
 
         <!-- Order History -->
-        <article
-            class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden shadow-xl">
-            <header class="p-6 border-b border-slate-200 dark:border-white/5 bg-slate-100/80 dark:bg-slate-900/30">
-                <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Order History</h3>
+        <article class="card overflow-hidden">
+            <header class="p-8 border-b border-border-default bg-black/20">
+                <div class="flex items-center gap-4">
+                    <div
+                        class="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 border border-emerald-500/20">
+                        <i data-lucide="shopping-cart" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-slate-900 dark:text-white">Transaction History</h3>
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Financial
+                            footprint and order logs</p>
+                    </div>
+                </div>
             </header>
 
             {% if orders.is_empty() %}
-            <div class="p-8 text-center text-slate-500 text-sm">No orders found.</div>
+            <div class="p-12 text-center text-[10px] text-slate-500 uppercase tracking-widest font-bold">No transactions
+                found</div>
             {% else %}
             <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse">
+                <table class="table-base">
                     <thead>
-                        <tr
-                            class="text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-white/5 bg-slate-100/80 dark:bg-slate-900/30">
-                            <th class="px-6 py-4">Order ID</th>
-                            <th class="px-6 py-4">Amount</th>
+                        <tr>
+                            <th class="px-6 py-4">Transaction ID</th>
+                            <th class="px-6 py-4 text-emerald-400">Amount</th>
                             <th class="px-6 py-4">Status</th>
-                            <th class="px-6 py-4 text-right">Date</th>
+                            <th class="px-6 py-4 text-right">Timestamp</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-white/5">
+                    <tbody>
                         {% for order in orders %}
                         <tr class="hover:bg-white/5 transition-colors">
-                            <td class="px-6 py-4 text-xs font-mono text-slate-500">#{{ order.id }}</td>
-                            <td class="px-6 py-4 font-mono text-emerald-400">{{ order.total_amount }} USDT</td>
+                            <td class="px-6 py-4 font-mono text-xs text-slate-500">TRX_{{ order.id }}</td>
                             <td class="px-6 py-4">
-                                <span
-                                    class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">{{
-                                    order.status }}</span>
+                                <span class="font-bold text-emerald-400">{{ order.total_amount }}</span>
+                                <span class="text-[10px] text-slate-500 uppercase ml-1">USDT</span>
                             </td>
-                            <td class="px-6 py-4 text-right text-sm text-slate-600 dark:text-slate-400">{{
-                                order.created_at }}</td>
+                            <td class="px-6 py-4">
+                                <span class="badge badge-online text-[10px]">{{ order.status|uppercase }}</span>
+                            </td>
+                            <td class="px-6 py-4 text-right text-xs text-slate-500 font-mono">{{ order.created_at }}
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -444,65 +431,55 @@
 </div>
 
 <!-- Modals -->
-<dialog id="devices_modal"
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
-    <div class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4"
-        onclick="event.stopPropagation()">
-        <header class="flex justify-between items-center mb-6">
-            <h3 class="text-lg font-bold text-slate-900 dark:text-white">Connected Devices</h3>
-            <button onclick="closeModal('devices_modal')" class="text-slate-400 hover:text-white transition-colors"><i
-                    data-lucide="x" class="w-5 h-5"></i></button>
+<dialog id="devices_modal" class="modal-container">
+    <div class="modal-content max-w-lg p-0" onclick="event.stopPropagation()">
+        <header class="p-6 border-b border-border-default flex justify-between items-center">
+            <h3 class="text-xl font-bold text-slate-900 dark:text-white">Active Sessions</h3>
+            <button onclick="closeModal('devices_modal')" class="btn-icon w-8 h-8 text-slate-500">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
         </header>
-        <div id="devices_content" class="min-h-[100px]">
-            <div class="flex items-center justify-center py-8 text-slate-500">
-                <i data-lucide="loader-2" class="w-6 h-6 animate-spin mr-3"></i> Loading devices...
+        <div id="devices_content" class="p-6 min-h-[200px]">
+            <div class="flex flex-col items-center justify-center py-12 gap-4 text-slate-500">
+                <div class="w-10 h-10 border-2 border-slate-700 border-t-brand animate-spin rounded-full"></div>
+                <p class="text-[10px] font-bold uppercase tracking-widest">Intercepting device metrics...</p>
             </div>
         </div>
     </div>
 </dialog>
 
-<dialog id="gift_modal"
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
-    <!-- Modal Container -->
-    <div class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-md p-0 m-4 overflow-hidden relative"
-        onclick="event.stopPropagation()">
-
-        <!-- Decorative Background Gradient -->
-        <div
-            class="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-indigo-500/10 to-transparent pointer-events-none">
+<dialog id="gift_modal" class="modal-container">
+    <div class="modal-content max-w-md p-0 overflow-hidden relative" onclick="event.stopPropagation()">
+        <div class="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-brand/10 to-transparent pointer-events-none">
         </div>
 
-        <!-- Header -->
-        <header class="relative flex justify-between items-start p-6 pb-2">
+        <header class="relative flex justify-between items-start p-8 pb-4">
             <div>
                 <div
-                    class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 mb-4 text-white transform rotate-3">
-                    <i data-lucide="gift" class="w-6 h-6"></i>
+                    class="w-14 h-14 rounded-2xl bg-brand/10 flex items-center justify-center border border-brand/20 mb-5 text-brand transform rotate-3 shadow-lg shadow-brand/10">
+                    <i data-lucide="gift" class="w-7 h-7"></i>
                 </div>
-                <h3 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Gift Subscription</h3>
-                <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">Grant instant access to premium features.</p>
+                <h3 class="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Access Grant</h3>
+                <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1">Manual node subscription
+                    gifting</p>
             </div>
             <button onclick="closeModal('gift_modal')"
-                class="text-slate-500 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/5">
+                class="btn-icon w-10 h-10 text-slate-500 bg-white/5 border-white/10">
                 <i data-lucide="x" class="w-5 h-5"></i>
             </button>
         </header>
 
-        <!-- Body -->
-        <div class="p-6 pt-4">
-            <form action="{{ admin_path }}/users/{{ user.id }}/gift" method="post" class="space-y-5">
-
-                <!-- Plan Selection -->
+        <div class="p-8 pt-0 relative">
+            <form action="{{ admin_path }}/users/{{ user.id }}/gift" method="post" class="space-y-6">
                 <div class="space-y-3">
-                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest">Select Plan &
-                        Duration</label>
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Plan
+                        Configuration</label>
                     <div class="relative">
-                        <select name="duration_id" required
-                            class="w-full appearance-none bg-slate-950 border border-white/10 rounded-xl px-4 py-3.5 pr-10 text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all font-medium text-sm hover:border-white/20 cursor-pointer">
+                        <select name="duration_id" required class="input-field py-4 text-lg appearance-none">
                             {% for plan in available_plans %}
-                            <optgroup label="{{ plan.name }}" class="bg-slate-900 text-slate-300 font-bold">
+                            <optgroup label="{{ plan.name }}" class="bg-slate-900 text-slate-400">
                                 {% for duration in plan.durations %}
-                                <option value="{{ duration.id }}" class="text-white py-2">
+                                <option value="{{ duration.id }}" class="text-white">
                                     {{ duration.duration_days }} Days — ${{ format!("{:.2}", duration.price as f64 /
                                     100.0) }}
                                 </option>
@@ -510,28 +487,18 @@
                             </optgroup>
                             {% endfor %}
                         </select>
-                        <!-- Custom Arrow -->
-                        <div
-                            class="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-slate-500">
-                            <i data-lucide="chevron-down" class="w-4 h-4"></i>
+                        <div class="absolute inset-y-0 right-4 flex items-center pointer-events-none text-slate-500">
+                            <i data-lucide="chevron-down" class="w-5 h-5"></i>
                         </div>
                     </div>
-                    <p class="text-xs text-slate-500 leading-relaxed">
-                        The user will receive an email notification immediately after activation.
-                    </p>
                 </div>
 
-                <!-- Footer Actions -->
-                <div class="pt-2 flex gap-3">
-                    <button type="button"
-                        class="flex-1 py-3.5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors font-medium text-sm"
-                        onclick="closeModal('gift_modal')">
-                        Cancel
-                    </button>
-                    <button type="submit"
-                        class="flex-[2] bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-400 hover:to-indigo-500 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-indigo-500/25 transition-all hover:scale-[1.02] hover:shadow-indigo-500/40 text-sm flex items-center justify-center gap-2">
-                        <i data-lucide="gift" class="w-4 h-4"></i>
-                        Gift & Notify
+                <div class="flex gap-3">
+                    <button type="button" class="btn btn-secondary flex-1 py-4"
+                        onclick="closeModal('gift_modal')">REFUSE</button>
+                    <button type="submit" class="btn btn-primary flex-[2] py-4 group">
+                        <i data-lucide="zap" class="w-4 h-4 group-hover:animate-pulse"></i>
+                        PROVISION ACCESS
                     </button>
                 </div>
             </form>
@@ -539,68 +506,60 @@
     </div>
 </dialog>
 
-<dialog id="extend_modal"
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
-    <div class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-sm p-6 m-4"
-        onclick="event.stopPropagation()">
-        <header class="flex justify-between items-center mb-6">
-            <h3 class="text-lg font-bold text-slate-900 dark:text-white">Extend Subscription</h3>
-            <button onclick="closeModal('extend_modal')" class="text-slate-400 hover:text-white transition-colors"><i
-                    data-lucide="x" class="w-5 h-5"></i></button>
+<dialog id="extend_modal" class="modal-container">
+    <div class="modal-content max-w-sm p-8" onclick="event.stopPropagation()">
+        <header class="flex justify-between items-center mb-8">
+            <h3 class="text-xl font-bold text-slate-900 dark:text-white">Temporal Extension</h3>
+            <button onclick="closeModal('extend_modal')" class="btn-icon w-8 h-8 text-slate-500">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
         </header>
-        <form id="extend_form" method="post" class="space-y-4">
+        <form id="extend_form" method="post" class="space-y-6">
             <div>
-                <label
-                    class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Duration
-                    (Days)</label>
-                <input type="number" name="days" value="30" required
-                    class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white focus:border-indigo-500 outline-none">
+                <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Additional
+                    Days</label>
+                <input type="number" name="days" value="30" required class="input-field text-xl font-bold">
             </div>
-            <div class="pt-4 flex gap-3">
-                <button type="button"
-                    class="flex-1 py-2 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors font-medium"
-                    onclick="closeModal('extend_modal')">Cancel</button>
-                <button type="submit"
-                    class="flex-[2] bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 rounded-xl shadow-lg shadow-indigo-500/20 transition-all">Confirm</button>
+            <div class="flex gap-3">
+                <button type="button" class="btn btn-secondary flex-1 py-3"
+                    onclick="closeModal('extend_modal')">ABORT</button>
+                <button type="submit" class="btn btn-primary flex-[2] py-3">EXTEND NODE</button>
             </div>
         </form>
     </div>
 </dialog>
 
-<dialog id="refund_modal"
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm">
-    <div class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-sm p-6 m-4"
-        onclick="event.stopPropagation()">
-        <header class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2"><i data-lucide="undo-2"
-                    class="w-5 h-5 text-amber-500"></i> Refund</h3>
-            <button onclick="closeModal('refund_modal')" class="text-slate-400 hover:text-white transition-colors"><i
-                    data-lucide="x" class="w-5 h-5"></i></button>
+<dialog id="refund_modal" class="modal-container">
+    <div class="modal-content max-w-sm p-8" onclick="event.stopPropagation()">
+        <header class="flex justify-between items-center mb-6">
+            <h3 class="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <i data-lucide="undo-2" class="w-6 h-6 text-amber-500"></i>
+                Liquidation
+            </h3>
+            <button onclick="closeModal('refund_modal')" class="btn-icon w-8 h-8 text-slate-500">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
         </header>
-        <p class="text-sm text-slate-600 dark:text-slate-400 mb-6">This will <strong>delete</strong> the subscription
-            and refund the balance
-            to the user's wallet.</p>
+        <p class="text-[11px] text-slate-500 uppercase tracking-widest font-bold mb-8 leading-relaxed">Sub liquidation
+            will terminate access and credit the user wallet.</p>
 
-        <form id="refund_form" method="post" class="space-y-4">
+        <form id="refund_form" method="post" class="space-y-6">
             <div>
-                <label
-                    class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Refund
-                    Amount
-                    (Cents)</label>
+                <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Refund
+                    Magnitude (Cents)</label>
                 <div class="flex gap-2">
                     <input type="number" id="refund_amount" name="amount" placeholder="0" required
-                        class="flex-1 bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-amber-500 outline-none">
+                        class="input-field flex-1 font-bold">
                     <button type="button" onclick="calculateProRated()"
-                        class="px-3 py-2 rounded-xl border border-white/10 hover:bg-white/5 text-xs text-slate-300 font-medium whitespace-nowrap">Pro-rated</button>
+                        class="btn btn-secondary px-4 text-[10px]">AUTO</button>
                 </div>
             </div>
-            <div class="pt-4 flex gap-3">
-                <button type="button"
-                    class="flex-1 py-2 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors font-medium"
-                    onclick="closeModal('refund_modal')">Cancel</button>
+            <div class="flex gap-3">
+                <button type="button" class="btn btn-secondary flex-1 py-3"
+                    onclick="closeModal('refund_modal')">ABORT</button>
                 <button type="submit"
-                    class="flex-[2] bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 rounded-xl shadow-lg shadow-amber-500/20 transition-all">Confirm
-                    Refund</button>
+                    class="btn btn-primary flex-[2] py-3 bg-amber-600 border-amber-500/20 hover:bg-amber-500/20 text-white">EXECUTE
+                    REFUND</button>
             </div>
         </form>
     </div>

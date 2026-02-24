@@ -27,7 +27,7 @@ impl ReferralService {
         // Query to count referrals per user
         let rows: Vec<LeaderboardEntry> = sqlx::query_as(
             r#"
-            SELECT 
+            SELECT
                 u.username,
                 COUNT(r.id) as referral_count
             FROM users u
@@ -71,7 +71,7 @@ impl ReferralService {
     ) -> Result<Vec<caramba_db::models::store::DetailedReferral>> {
         sqlx::query_as::<_, caramba_db::models::store::DetailedReferral>(
             r#"
-            SELECT 
+            SELECT
                 u.id,
                 u.tg_id,
                 u.username,
@@ -117,6 +117,7 @@ impl ReferralService {
         Ok(count.0)
     }
 
+    #[allow(dead_code)]
     pub async fn update_user_referral_code(
         pool: &PgPool,
         user_id: i64,

@@ -1,62 +1,58 @@
-<div class="flex items-center gap-3 text-xs">
+<div class="flex items-center gap-4 text-[10px] font-bold uppercase tracking-widest">
     <!-- Bot Status -->
-    <span class="hidden sm:inline-flex items-center gap-1.5" id="footer-bot-status" title="Bot: {{ bot_username }}">
+    <span class="hidden sm:inline-flex items-center gap-2" id="footer-bot-status" title="Bot: {{ bot_username }}">
         {% if bot_status == "running" %}
         <span class="relative flex h-1.5 w-1.5">
-            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand/50 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-brand"></span>
         </span>
-        <span class="text-emerald-400 font-medium select-none cursor-help">{{ bot_username }}</span>
+        <span class="text-brand select-none cursor-help">{{ bot_username }}</span>
         {% else %}
         <span class="relative flex h-1.5 w-1.5">
-            <span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500"></span>
+            <span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-rose-500"></span>
         </span>
-        <span class="text-red-500 font-medium">Offline</span>
+        <span class="text-rose-500">Node Hub Offline</span>
         {% endif %}
     </span>
 
     <!-- DB Status -->
-    <span class="hidden sm:inline-flex items-center gap-1" title="Postgres v{{ pg_version }}">
-        <i data-lucide="database" class='w-3 h-3 {% if db_status == "Online" %}text-emerald-500{% else %}text-red-500{%
-            endif %}'></i>
-        <span class='font-medium {% if db_status == "Online" %}text-emerald-400{% else %}text-red-500{% endif
-            %}'>DB</span>
+    <span class="hidden sm:inline-flex items-center gap-2" title="Postgres v{{ pg_version }}">
+        <i data-lucide="database" class='w-3 h-3 text-slate-500'></i>
+        <span class='{% if db_status == "Online" %}text-emerald-500{% else %}text-rose-500{% endif %}'>DB</span>
     </span>
 
     <!-- Redis Status -->
-    <span class="hidden sm:inline-flex items-center gap-1" title="Redis v{{ redis_version }}">
-        <i data-lucide="layers" class='w-3 h-3 {% if redis_status == "Online" %}text-emerald-500{% else
-            %}text-red-500{% endif %}'></i>
-        <span class='font-medium {% if redis_status == "Online" %}text-emerald-400{% else %}text-red-500{% endif
-            %}'>Redis</span>
+    <span class="hidden sm:inline-flex items-center gap-2" title="Redis v{{ redis_version }}">
+        <i data-lucide="layers" class='w-3 h-3 text-slate-500'></i>
+        <span class='{% if redis_status == "Online" %}text-emerald-500{% else %}text-rose-500{% endif %}'>LRU</span>
     </span>
 
-    <span class="hidden md:inline opacity-20">|</span>
+    <span class="hidden md:inline text-white/5 font-normal select-none">/</span>
 
     <!-- System Resources -->
-    <span class="hidden md:inline-flex items-center gap-3">
-        <div class="flex items-center gap-1" title="CPU Usage">
-            <i data-lucide="cpu" class="w-3 h-3 text-indigo-400"></i>
+    <span class="hidden md:inline-flex items-center gap-4">
+        <div class="flex items-center gap-2" title="CPU Usage">
+            <i data-lucide="cpu" class="w-3 h-3 text-slate-600"></i>
             <span class="font-mono text-slate-400">{{ cpu_usage }}</span>
         </div>
-        <div class="flex items-center gap-1" title="RAM Usage">
-            <i data-lucide="memory-stick" class="w-3 h-3 text-indigo-400"></i>
+        <div class="flex items-center gap-2" title="RAM Usage">
+            <i data-lucide="memory-stick" class="w-3 h-3 text-slate-600"></i>
             <span class="font-mono text-slate-400">{{ ram_usage }}</span>
         </div>
     </span>
 
-    <span class="hidden md:inline opacity-20">|</span>
+    <span class="hidden md:inline text-white/5 font-normal select-none">/</span>
 
-    <!-- Version + Clock -->
-    <span class="hidden md:inline-flex items-center gap-2">
-        <span class="font-mono text-slate-500">{{ panel_version }}</span>
-        <span class="font-mono text-slate-500" id="topbar-clock"></span>
+    <!-- Active Users -->
+    <span class="hidden lg:inline-flex items-center gap-2" title="Active subscriptions (24h)">
+        <i data-lucide="users" class="w-3 h-3 text-slate-600"></i>
+        <span class="font-mono text-slate-400">{{ active_subs_24h }}</span>
     </span>
 
-    <!-- Active Users (last 24h) -->
-    <span class="hidden lg:inline-flex items-center gap-1" title="Active subscriptions (24h)">
-        <i data-lucide="users" class="w-3 h-3 text-amber-400"></i>
-        <span class="font-mono text-slate-400">{{ active_subs_24h }}</span>
+    <!-- Version + Clock -->
+    <span class="hidden md:inline-flex items-center gap-3 ml-auto text-slate-500 font-mono lowercase tracking-normal">
+        <span>v{{ panel_version }}</span>
+        <span class="bg-white/5 px-2 py-0.5 rounded border border-white/5" id="topbar-clock"></span>
     </span>
 </div>
 

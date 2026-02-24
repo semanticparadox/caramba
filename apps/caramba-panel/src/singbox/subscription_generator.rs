@@ -22,9 +22,13 @@ pub struct NodeInfo {
     pub hy2_sni: Option<String>,
     pub frontend_url: Option<String>,
     pub inbounds: Vec<caramba_db::models::network::Inbound>,
-    pub relay_info: Option<Box<NodeInfo>>, // Chaining support (Phase 8)
+    pub relay_info: Option<Box<NodeInfo>>, // Chaining support
 
-    // Policies (Phase 11)
+    // Geo / display
+    pub country_code: Option<String>, // e.g. "DE", "NL", "RU"
+    pub is_relay: bool,               // true = this node is infrastructure relay
+
+    // Policies
     pub config_block_ads: bool,
     pub config_block_porn: bool,
     pub config_block_torrent: bool,
@@ -45,6 +49,8 @@ impl From<&caramba_db::models::node::Node> for NodeInfo {
             frontend_url: None,
             inbounds: vec![],
             relay_info: None,
+            country_code: node.country_code.clone(),
+            is_relay: node.is_relay,
             config_block_ads: node.config_block_ads,
             config_block_porn: node.config_block_porn,
             config_block_torrent: node.config_block_torrent,
@@ -70,6 +76,8 @@ impl NodeInfo {
             frontend_url: None,
             inbounds,
             relay_info: None,
+            country_code: node.country_code.clone(),
+            is_relay: node.is_relay,
             config_block_ads: node.config_block_ads,
             config_block_porn: node.config_block_porn,
             config_block_torrent: node.config_block_torrent,
@@ -108,6 +116,395 @@ struct StreamInfo {
 fn is_placeholder_sni(sni: &str) -> bool {
     let sni = sni.trim().to_ascii_lowercase();
     sni.is_empty() || sni == "www.google.com" || sni == "google.com" || sni == "drive.google.com"
+}
+
+// ─── Label & display helpers ──────────────────────────────────────────────────
+
+/// Make a URL-safe slug from a node name (for use in tags)
+fn slug(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .to_lowercase()
+}
+
+/// Return a flag emoji for a 2-letter ISO country code
+fn country_flag(code: Option<&str>) -> &'static str {
+    match code.map(|s| s.trim()).unwrap_or("") {
+        "RU" | "ru" => "🇷🇺",
+        "DE" | "de" => "🇩🇪",
+        "NL" | "nl" => "🇳🇱",
+        "FI" | "fi" => "🇫🇮",
+        "FR" | "fr" => "🇫🇷",
+        "US" | "us" => "🇺🇸",
+        "GB" | "gb" | "UK" | "uk" => "🇬🇧",
+        "TR" | "tr" => "🇹🇷",
+        "SE" | "se" => "🇸🇪",
+        "LV" | "lv" => "🇱🇻",
+        "LT" | "lt" => "🇱🇹",
+        "EE" | "ee" => "🇪🇪",
+        "KZ" | "kz" => "🇰🇿",
+        "UA" | "ua" => "🇺🇦",
+        "PL" | "pl" => "🇵🇱",
+        "AT" | "at" => "🇦🇹",
+        "CH" | "ch" => "🇨🇭",
+        "JP" | "jp" => "🇯🇵",
+        "SG" | "sg" => "🇸🇬",
+        "HK" | "hk" => "🇭🇰",
+        "AU" | "au" => "🇦🇺",
+        "CA" | "ca" => "🇨🇦",
+        "CZ" | "cz" => "🇨🇿",
+        "MD" | "md" => "🇲🇩",
+        _ => "🌐",
+    }
+}
+
+/// "{flag} {node_name}" — used as prefix in proxy labels
+fn format_node_label(node: &NodeInfo) -> String {
+    let flag = country_flag(node.country_code.as_deref());
+    format!("{} {}", flag, node.name)
+}
+
+/// Human-readable protocol + transport label.
+///
+/// Examples:
+///   VLESS·REALITY   VLESS·WS·TLS   VLESS·XHTTP·TLS
+///   Hysteria2       TUIC·v5         AmneziaWG
+fn format_proto_label(protocol: &str, si: &StreamInfo) -> String {
+    match protocol.to_ascii_lowercase().as_str() {
+        "vless" => {
+            let transport = match si.network.as_str() {
+                "tcp" => match si.security.as_str() {
+                    "reality" => "TCP·REALITY",
+                    "tls" => "TCP·TLS",
+                    _ => "TCP",
+                },
+                "ws" => "WS·TLS",
+                "grpc" => "gRPC·TLS",
+                // XHTTP / SplitHTTP: Xray-core proprietary — label clearly so
+                // admins know it only works in V2Ray/Xray links.
+                "xhttp" | "splithttp" => "XHTTP [Xray only]",
+                "httpupgrade" => "HTTPUpgrade·TLS",
+                other => other,
+            };
+            format!("VLESS·{}", transport)
+        }
+        "vmess" => {
+            let net = match si.network.as_str() {
+                "ws" => "WS",
+                "grpc" => "gRPC",
+                _ => "TCP",
+            };
+            format!("VMess·{}", net)
+        }
+        "trojan" => match si.security.as_str() {
+            "reality" => "Trojan·REALITY".to_string(),
+            _ => format!("Trojan·{}", si.network.to_ascii_uppercase()),
+        },
+        "hysteria2" | "hy2" => {
+            if si.hy2_obfs.is_some() {
+                "Hysteria2·OBFS".to_string()
+            } else {
+                "Hysteria2".to_string()
+            }
+        }
+        "tuic" => "TUIC·v5".to_string(),
+        "shadowsocks" | "ss" => "Shadowsocks".to_string(),
+        "amneziawg" => "AmneziaWG".to_string(),
+        "naive" => "NaïveProxy".to_string(),
+        other => other.to_ascii_uppercase(),
+    }
+}
+
+// ─── Sing-box outbound builder ────────────────────────────────────────────────
+
+/// Build a single sing-box outbound JSON object for the given inbound/protocol.
+/// `detour` – if Some, the connection goes through that relay outbound tag first.
+/// Returns None for unknown protocols.
+fn build_singbox_outbound(
+    tag: &str,
+    inbound: &caramba_db::models::network::Inbound,
+    endpoint: &str,
+    si: &StreamInfo,
+    user_keys: &UserKeys,
+    detour: Option<&str>,
+) -> Option<serde_json::Value> {
+    // XHTTP / SplitHTTP is a proprietary Xray-core transport.
+    // sing-box does NOT support it — skip unconditionally for all protocols.
+    // V2Ray base64 links (generate_v2ray_config) still emit correct XHTTP
+    // links because those are consumed by Xray-core clients.
+    if matches!(si.network.as_str(), "xhttp" | "splithttp") {
+        return None;
+    }
+
+    let mut ob = json!({ "tag": tag });
+
+    match inbound.protocol.as_str() {
+        "vless" => {
+            ob["type"] = json!("vless");
+            ob["server"] = json!(endpoint);
+            ob["server_port"] = json!(inbound.listen_port);
+            ob["uuid"] = json!(user_keys.user_uuid);
+            ob["flow"] = if !si.flow.is_empty() {
+                json!(si.flow)
+            } else {
+                json!("")
+            };
+
+            let mut tls = json!({ "enabled": false });
+            if si.security == "reality" {
+                tls = json!({
+                    "enabled": true,
+                    "server_name": si.sni,
+                    "reality": {
+                        "enabled": true,
+                        "public_key": si.public_key,
+                        "short_id": si.short_id
+                    },
+                    "utls": { "enabled": true, "fingerprint": si.fingerprint }
+                });
+                // TLS fragment helps bypass DPI on direct TCP+Reality connections.
+                // Don't apply on relay chains – the relay transport already obfuscates.
+                if si.network == "tcp" && detour.is_none() {
+                    tls["fragment"] = json!({
+                        "enabled": true,
+                        "size": "1-500",
+                        "sleep": "0-5"
+                    });
+                }
+            } else if si.security == "tls" {
+                tls = json!({
+                    "enabled": true,
+                    "server_name": si.sni,
+                    "utls": { "enabled": true, "fingerprint": si.fingerprint }
+                });
+            }
+            ob["tls"] = tls;
+
+            match si.network.as_str() {
+                "ws" => {
+                    ob["transport"] = json!({
+                        "type": "ws",
+                        "path": si.ws_path,
+                        "headers": { "Host": si.sni }
+                    });
+                }
+                "grpc" => {
+                    ob["transport"] = json!({
+                        "type": "grpc",
+                        "service_name": si.grpc_service
+                    });
+                }
+                "httpupgrade" => {
+                    // Standard HTTP Upgrade — fully supported by sing-box.
+                    ob["transport"] = json!({
+                        "type": "httpupgrade",
+                        "path": si.ws_path,
+                        "host": si.sni
+                    });
+                    ob["packet_encoding"] = json!(si.packet_encoding.as_deref().unwrap_or("xudp"));
+                    ob["multiplex"] = si.xmux.clone().unwrap_or_else(|| {
+                        json!({
+                            "enabled": true,
+                            "protocol": "smux",
+                            "max_connections": 4,
+                            "min_streams": 4,
+                            "padding": true
+                        })
+                    });
+                }
+                "xhttp" | "splithttp" => {
+                    // Unreachable: the early guard at the top of this function already
+                    // returns None for xhttp/splithttp before we get here.
+                    // Kept as an explicit no-op match arm to document the intent.
+                }
+                _ => {}
+            }
+        }
+        "vmess" => {
+            ob["type"] = json!("vmess");
+            ob["server"] = json!(endpoint);
+            ob["server_port"] = json!(inbound.listen_port);
+            ob["uuid"] = json!(user_keys.user_uuid);
+            ob["security"] = json!("auto");
+            ob["alter_id"] = json!(0);
+            if si.security == "tls" {
+                ob["tls"] = json!({
+                    "enabled": true,
+                    "server_name": si.sni,
+                    "utls": { "enabled": true, "fingerprint": si.fingerprint }
+                });
+            }
+            if si.network == "ws" {
+                ob["transport"] = json!({
+                    "type": "ws",
+                    "path": si.ws_path,
+                    "headers": { "Host": si.sni }
+                });
+            } else if si.network == "grpc" {
+                ob["transport"] = json!({ "type": "grpc", "service_name": si.grpc_service });
+            }
+        }
+        "trojan" => {
+            ob["type"] = json!("trojan");
+            ob["server"] = json!(endpoint);
+            ob["server_port"] = json!(inbound.listen_port);
+            ob["password"] = json!(user_keys.user_uuid);
+            let mut tls = json!({ "enabled": true, "server_name": si.sni });
+            if si.security == "reality" {
+                tls["reality"] = json!({
+                    "enabled": true,
+                    "public_key": si.public_key,
+                    "short_id": si.short_id
+                });
+                tls["utls"] = json!({ "enabled": true, "fingerprint": si.fingerprint });
+            } else {
+                tls["utls"] = json!({ "enabled": true, "fingerprint": si.fingerprint });
+            }
+            ob["tls"] = tls;
+            if si.network == "ws" {
+                ob["transport"] = json!({
+                    "type": "ws",
+                    "path": si.ws_path,
+                    "headers": { "Host": si.sni }
+                });
+            } else if si.network == "grpc" {
+                ob["transport"] = json!({ "type": "grpc", "service_name": si.grpc_service });
+            }
+        }
+        "hysteria2" | "hy2" => {
+            ob["type"] = json!("hysteria2");
+            ob["server"] = json!(endpoint);
+            ob["server_port"] = json!(inbound.listen_port);
+            ob["password"] = json!(user_keys.hy2_password);
+            ob["tls"] = json!({
+                "enabled": true,
+                "server_name": si.sni,
+                "insecure": true,
+                "alpn": ["h3"]
+            });
+            if let Some(obfs) = &si.hy2_obfs {
+                ob["obfs"] = json!({ "type": "salamander", "password": obfs });
+            }
+            if let Some(ports) = &si.hy2_ports {
+                ob["server_ports"] = json!(ports);
+            }
+        }
+        "tuic" => {
+            ob["type"] = json!("tuic");
+            ob["server"] = json!(endpoint);
+            ob["server_port"] = json!(inbound.listen_port);
+            ob["uuid"] = json!(user_keys.user_uuid);
+            ob["password"] = json!(user_keys.hy2_password);
+            ob["congestion_control"] =
+                json!(si.tuic_congestion_control.as_deref().unwrap_or("bbr"));
+            ob["zero_rtt_handshake"] = json!(si.tuic_zero_rtt_handshake.unwrap_or(false));
+            ob["tls"] = json!({
+                "enabled": true,
+                "server_name": si.sni,
+                "alpn": ["h3"],
+                "insecure": true
+            });
+        }
+        "shadowsocks" | "ss" => {
+            ob["type"] = json!("shadowsocks");
+            ob["server"] = json!(endpoint);
+            ob["server_port"] = json!(inbound.listen_port);
+            ob["method"] = json!(parse_ss_method(&inbound.settings));
+            ob["password"] = json!(parse_ss_password(&inbound.settings, &user_keys.user_uuid));
+        }
+        "naive" => {
+            ob["type"] = json!("naive");
+            ob["server"] = json!(endpoint);
+            ob["server_port"] = json!(inbound.listen_port);
+            ob["username"] = json!(user_keys.user_uuid);
+            ob["password"] = json!(user_keys.hy2_password);
+            ob["tls"] = json!({
+                "enabled": true,
+                "server_name": si.sni,
+                "alpn": ["h2", "http/1.1"],
+                "utls": { "enabled": true, "fingerprint": si.fingerprint }
+            });
+        }
+        "amneziawg" => {
+            let client_id = user_keys
+                .hy2_password
+                .split(':')
+                .next()
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(0);
+            let local_address = format!("10.10.0.{}/32", (client_id % 250) + 2);
+            ob["type"] = json!("wireguard");
+            ob["server"] = json!(endpoint);
+            ob["server_port"] = json!(inbound.listen_port);
+            ob["local_address"] = json!([local_address]);
+            ob["private_key"] = json!(user_keys._awg_private_key.clone().unwrap_or_default());
+            ob["peer_public_key"] = json!(si.public_key);
+            ob["mtu"] = json!(1280);
+            if let Ok(awg) = serde_json::from_str::<serde_json::Value>(&inbound.settings) {
+                if let Some(jc) = awg.get("jc") {
+                    ob["reserved"] = json!([
+                        jc.as_u64().unwrap_or(0),
+                        awg["jmin"].as_u64().unwrap_or(0),
+                        awg["jmax"].as_u64().unwrap_or(0)
+                    ]);
+                }
+            }
+        }
+        _ => return None,
+    }
+
+    if let Some(d) = detour {
+        ob["detour"] = json!(d);
+    }
+
+    Some(ob)
+}
+
+// ─── Relay outbound factory ───────────────────────────────────────────────────
+
+/// Ensure a relay outbound exists in `outbounds` for the given relay node.
+/// Uses a cache keyed by relay node address to avoid duplicate entries.
+/// Picks the best available relay inbound: prefers SS2022, then Hy2, then any.
+/// Returns the tag of the relay outbound, or None if no suitable inbound found.
+fn ensure_relay_outbound(
+    relay: &NodeInfo,
+    user_keys: &UserKeys,
+    outbounds: &mut Vec<serde_json::Value>,
+    cache: &mut std::collections::HashMap<String, String>,
+) -> Option<String> {
+    let cache_key = relay.address.clone();
+    if let Some(existing) = cache.get(&cache_key) {
+        return Some(existing.clone());
+    }
+
+    // Priority order for relay transport: ss/ss2022 > hysteria2 > vless > any
+    let priority_order = ["shadowsocks", "ss", "hysteria2", "hy2", "vless", "trojan"];
+    let pick = priority_order
+        .iter()
+        .find_map(|proto| {
+            relay
+                .inbounds
+                .iter()
+                .find(|ib| ib.enable && ib.protocol == *proto)
+        })
+        .or_else(|| relay.inbounds.iter().find(|ib| ib.enable));
+
+    let ri = pick?;
+    let r_si = parse_stream_settings(&ri.stream_settings, relay);
+    let r_tag = format!("relay·{}", slug(&relay.name));
+
+    let ob = build_singbox_outbound(&r_tag, ri, &relay.address, &r_si, user_keys, None)?;
+
+    outbounds.push(ob);
+    cache.insert(cache_key, r_tag.clone());
+    Some(r_tag)
 }
 
 fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
@@ -415,19 +812,38 @@ pub fn generate_v2ray_config(
     let mut links = Vec::new();
 
     for node in nodes {
+        // Skip pure relay infrastructure nodes.
+        if node.is_relay {
+            continue;
+        }
+
         if !node.inbounds.is_empty() {
             for inbound in &node.inbounds {
                 if !inbound.enable {
                     continue;
                 }
                 let si = parse_stream_settings(&inbound.stream_settings, node);
-                let label_raw = format!(
-                    "{} - {}",
-                    node.name,
-                    inbound.remark.as_deref().unwrap_or("Auto")
-                );
+
+                // XHTTP / SplitHTTP IS valid in V2Ray base64 links because those
+                // links are consumed by Xray-core clients (v2rayN, NekoRay w/ Xray
+                // backend, etc.) that natively support it.  We deliberately include
+                // it here and exclude it from sing-box/Clash generators.
+                // No `continue` needed — fall through to match below.
+
+                let proto_label = format_proto_label(&inbound.protocol, &si);
+                let node_label = format_node_label(node);
+                // Relay suffix so users know this path goes via a Russian relay.
+                let relay_suffix = if node.relay_info.is_some() {
+                    " ↪"
+                } else {
+                    ""
+                };
+                let label_raw = format!("{} | {}{}", node_label, proto_label, relay_suffix);
                 let label = urlencoding::encode(&label_raw);
 
+                // XHTTP / SplitHTTP links are Xray-core only — skip for sing-box
+                // but generate them here because V2Ray base64 is consumed by Xray
+                // clients (v2rayN, NekoRay/Xray backend, etc.) which support it.
                 match inbound.protocol.as_str() {
                     "vless" => {
                         let mut params = vec![
@@ -468,9 +884,23 @@ pub fn generate_v2ray_config(
                                 params.push(format!("path={}", urlencoding::encode(&si.ws_path)))
                             }
                             "grpc" => params.push(format!("serviceName={}", si.grpc_service)),
-                            "xhttp" | "httpupgrade" => {
+                            "httpupgrade" => {
                                 params.push(format!("path={}", urlencoding::encode(&si.ws_path)));
-                                params.push(format!("mode=auto"));
+                                // no mode= for httpupgrade; it is not an xhttp parameter
+                            }
+                            "xhttp" | "splithttp" => {
+                                params.push(format!("path={}", urlencoding::encode(&si.ws_path)));
+                                // mode=auto tells Xray to pick the best split strategy
+                                params.push("mode=auto".to_string());
+                                // xPaddingBytes randomises request size to defeat traffic
+                                // analysis — recommended for XHTTP.
+                                if let Some(pad) = &si.x_padding_bytes {
+                                    params.push(format!("xPaddingBytes={}", pad));
+                                } else {
+                                    use rand::Rng;
+                                    let pad = rand::rng().random_range(500u32..=1200);
+                                    params.push(format!("xPaddingBytes={}", pad));
+                                }
                             }
                             _ => {}
                         }
@@ -703,25 +1133,51 @@ pub fn generate_clash_config(
 ) -> Result<String> {
     let mut proxies = Vec::new();
 
+    let mut direct_names: Vec<String> = vec![];
+    let mut relay_names: Vec<String> = vec![];
+
     for node in nodes {
+        // Skip pure infrastructure relay nodes.
+        if node.is_relay {
+            continue;
+        }
+
         if !node.inbounds.is_empty() {
             for inbound in &node.inbounds {
                 if !inbound.enable {
                     continue;
                 }
                 let si = parse_stream_settings(&inbound.stream_settings, node);
-                let name = format!(
-                    "{} - {}",
-                    node.name,
-                    inbound.remark.as_deref().unwrap_or("Auto")
-                );
+                let proto_label = format_proto_label(&inbound.protocol, &si);
+                let node_label = format_node_label(node);
+                let is_relay_path = node.relay_info.is_some();
+                let relay_suffix = if is_relay_path { " ↪" } else { "" };
+                let name = format!("{} | {}{}", node_label, proto_label, relay_suffix);
+
+                // XHTTP / SplitHTTP is a proprietary Xray-core transport that
+                // Clash Meta does not support.  Skip it here; it still appears
+                // in the V2Ray base64 output for Xray-native clients.
+                // NOTE: xhttp/splithttp is a *transport* (si.network), not a protocol —
+                // inbound.protocol will always be "vless"/"vmess"/etc., so we must
+                // check si.network here, not inbound.protocol.
+                if matches!(si.network.as_str(), "xhttp" | "splithttp") {
+                    continue;
+                }
+
+                // Track name for group building.
+                if is_relay_path {
+                    relay_names.push(name.clone());
+                } else {
+                    direct_names.push(name.clone());
+                }
 
                 match inbound.protocol.as_str() {
                     "vless" => {
+                        let endpoint = node.frontend_url.as_deref().unwrap_or(&node.address);
                         let mut proxy = json!({
                             "name": name,
                             "type": "vless",
-                            "server": node.address,
+                            "server": endpoint,
                             "port": inbound.listen_port,
                             "uuid": user_keys.user_uuid,
                             "network": si.network,
@@ -755,10 +1211,11 @@ pub fn generate_clash_config(
                         proxies.push(proxy);
                     }
                     "vmess" => {
+                        let endpoint = node.frontend_url.as_deref().unwrap_or(&node.address);
                         let mut proxy = json!({
                             "name": name,
                             "type": "vmess",
-                            "server": node.address,
+                            "server": endpoint,
                             "port": inbound.listen_port,
                             "uuid": user_keys.user_uuid,
                             "alterId": 0,
@@ -783,10 +1240,11 @@ pub fn generate_clash_config(
                         proxies.push(proxy);
                     }
                     "trojan" => {
+                        let endpoint = node.frontend_url.as_deref().unwrap_or(&node.address);
                         let mut proxy = json!({
                             "name": name,
                             "type": "trojan",
-                            "server": node.address,
+                            "server": endpoint,
                             "port": inbound.listen_port,
                             "password": user_keys.user_uuid,
                             "sni": si.sni,
@@ -816,24 +1274,45 @@ pub fn generate_clash_config(
                     "shadowsocks" | "ss" => {
                         let method = parse_ss_method(&inbound.settings);
                         let password = parse_ss_password(&inbound.settings, &user_keys.user_uuid);
+                        let endpoint = node.frontend_url.as_deref().unwrap_or(&node.address);
                         proxies.push(json!({
                             "name": name,
                             "type": "ss",
-                            "server": node.address,
+                            "server": endpoint,
                             "port": inbound.listen_port,
                             "cipher": method,
                             "password": password,
                         }));
                     }
                     "hysteria2" | "hy2" => {
-                        proxies.push(json!({
+                        let endpoint = node.frontend_url.as_deref().unwrap_or(&node.address);
+                        let mut hy2_proxy = json!({
                             "name": name,
                             "type": "hysteria2",
-                            "server": node.address,
+                            "server": endpoint,
                             "port": inbound.listen_port,
                             "password": user_keys.hy2_password,
                             "sni": si.sni,
                             "skip-cert-verify": true,
+                        });
+                        if let Some(obfs) = &si.hy2_obfs {
+                            hy2_proxy["obfs"] = json!("salamander");
+                            hy2_proxy["obfs-password"] = json!(obfs);
+                        }
+                        proxies.push(hy2_proxy);
+                    }
+                    "tuic" => {
+                        let endpoint = node.frontend_url.as_deref().unwrap_or(&node.address);
+                        proxies.push(json!({
+                            "name": name,
+                            "type": "tuic",
+                            "server": endpoint,
+                            "port": inbound.listen_port,
+                            "uuid": user_keys.user_uuid,
+                            "password": user_keys.hy2_password,
+                            "congestion-controller": si.tuic_congestion_control.as_deref().unwrap_or("bbr"),
+                            "skip-cert-verify": true,
+                            "alpn": ["h3"]
                         }));
                     }
                     "amneziawg" => {
@@ -878,10 +1357,12 @@ pub fn generate_clash_config(
         }
         // Legacy fallback
         else if node.reality_port.is_some() {
+            let legacy_name = format!("{} | VLESS·REALITY", format_node_label(node));
+            direct_names.push(legacy_name.clone());
             proxies.push(json!({
-                "name": format!("{} VLESS", node.name),
+                "name": legacy_name,
                 "type": "vless",
-                "server": node.address,
+                "server": node.frontend_url.as_deref().unwrap_or(&node.address),
                 "port": node.reality_port.unwrap(),
                 "uuid": user_keys.user_uuid,
                 "network": "tcp",
@@ -896,11 +1377,13 @@ pub fn generate_clash_config(
         }
 
         // Legacy Hysteria2
-        if node.hy2_port.is_some() {
+        if !node.is_relay && node.hy2_port.is_some() {
+            let hy2_legacy_name = format!("{} | Hysteria2", format_node_label(node));
+            direct_names.push(hy2_legacy_name.clone());
             proxies.push(json!({
-                "name": format!("{} HY2", node.name),
+                "name": hy2_legacy_name,
                 "type": "hysteria2",
-                "server": node.address,
+                "server": node.frontend_url.as_deref().unwrap_or(&node.address),
                 "port": node.hy2_port.unwrap(),
                 "password": user_keys.hy2_password,
                 "sni": node.hy2_sni.as_ref().unwrap_or(&node.address),
@@ -909,25 +1392,73 @@ pub fn generate_clash_config(
         }
     }
 
-    let proxy_names: Vec<String> = proxies
+    let all_names: Vec<String> = proxies
         .iter()
-        .map(|p| p["name"].as_str().unwrap().to_string())
+        .filter_map(|p| p["name"].as_str().map(|s| s.to_string()))
         .collect();
 
-    let config = json!({
-        "proxies": proxies,
-        "proxy-groups": [{
+    // Build proxy groups.
+    let has_relay = !relay_names.is_empty();
+    let has_direct = !direct_names.is_empty();
+
+    let mut selector_list = vec!["Auto-All".to_string()];
+    if has_relay {
+        selector_list.push("Auto-Relay".to_string());
+    }
+    if has_direct {
+        selector_list.push("Auto-Direct".to_string());
+    }
+    selector_list.extend(all_names.clone());
+
+    let mut proxy_groups: Vec<serde_json::Value> = vec![
+        json!({
             "name": "CARAMBA",
             "type": "select",
-            "proxies": proxy_names
-        }, {
-            "name": "Auto",
+            "proxies": selector_list
+        }),
+        json!({
+            "name": "Auto-All",
             "type": "url-test",
-            "proxies": proxy_names,
-            "url": "http://www.gstatic.com/generate_204",
-            "interval": 300
-        }],
+            "proxies": all_names,
+            "url": "https://www.gstatic.com/generate_204",
+            "interval": 180,
+            "tolerance": 50
+        }),
+    ];
+
+    if has_relay {
+        proxy_groups.push(json!({
+            "name": "Auto-Relay",
+            "type": "url-test",
+            "proxies": relay_names,
+            "url": "https://www.gstatic.com/generate_204",
+            "interval": 180,
+            "tolerance": 50
+        }));
+    }
+
+    if has_direct {
+        proxy_groups.push(json!({
+            "name": "Auto-Direct",
+            "type": "url-test",
+            "proxies": direct_names,
+            "url": "https://www.gstatic.com/generate_204",
+            "interval": 180,
+            "tolerance": 50
+        }));
+    }
+
+    let config = json!({
+        "mixed-port": 7890,
+        "allow-lan": false,
+        "mode": "rule",
+        "log-level": "info",
+        "ipv6": false,
+        "proxies": proxies,
+        "proxy-groups": proxy_groups,
         "rules": [
+            "GEOIP,CN,DIRECT",
+            "GEOSITE,CN,DIRECT",
             "MATCH,CARAMBA"
         ]
     });
@@ -939,393 +1470,342 @@ pub fn generate_clash_config(
 // Sing-box JSON Config Generation
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// Generate Sing-box JSON config (multi-protocol) with smart routing
+/// Generate a full Sing-box client JSON config with:
+///
+/// - **Direct** outbounds for every enabled inbound on every node.
+/// - **Relay-chained** outbounds (same inbounds, but routed through the Russian
+///   relay node first) when `node.relay_info` is set – essential for whitelist
+///   bypass scenarios in Russia.
+/// - Smart proxy groups: `proxy` (selector) → `auto-all` / `auto-relay` /
+///   `auto-direct` (URL-test groups).  The client's auto-test picks the fastest
+///   working path, so both direct and relay live in the same subscription and
+///   the right one wins automatically.
+/// - Modern rule-set-based routing (SRS binary format, no deprecated geosite/
+///   geoip fields).
+/// - TLS fragment on direct TCP+Reality connections to help bypass DPI.
 pub fn generate_singbox_config(
     _sub: &Subscription,
     nodes: &[NodeInfo],
     user_keys: &UserKeys,
 ) -> Result<String> {
-    let mut outbounds = vec![];
-    let mut outbound_tags = vec![];
-    let mut generated_relays: std::collections::HashMap<String, String> =
+    // Tags split by whether they go through a relay or not.
+    let mut direct_tags: Vec<String> = vec![];
+    let mut relay_tags: Vec<String> = vec![];
+    // Actual outbound JSON objects (relay infrastructure + proxy outbounds).
+    let mut proxy_outbounds: Vec<Value> = vec![];
+    // Cache: relay_node_address -> relay outbound tag (avoid duplicates).
+    let mut relay_cache: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
 
-    // 1. Generate Proxy Outbounds
+    // ─── Build outbounds ──────────────────────────────────────────────────────
     for node in nodes {
-        if !node.inbounds.is_empty() {
-            for inbound in &node.inbounds {
-                if !inbound.enable {
-                    continue;
-                }
+        // Skip pure infrastructure relay nodes – users should not connect to
+        // them directly as a destination.
+        if node.is_relay {
+            continue;
+        }
 
-                let mut detour_tag: Option<String> = None;
+        let enabled: Vec<_> = node.inbounds.iter().filter(|ib| ib.enable).collect();
+        let node_label = format_node_label(node);
+        let endpoint = node.frontend_url.as_deref().unwrap_or(&node.address);
 
-                // ─── Relay Chaining Support ──────────────────────────────────
-                if let Some(relay) = &node.relay_info {
-                    let relay_key = format!("relay_{}", relay.address);
-                    if let Some(existing_tag) = generated_relays.get(&relay_key) {
-                        detour_tag = Some(existing_tag.clone());
-                    } else if let Some(ri) = relay.inbounds.iter().find(|i| i.enable) {
-                        let r_tag = format!("relay_{}", relay.name);
-                        let r_si = parse_stream_settings(&ri.stream_settings, relay);
+        for inbound in &enabled {
+            let si = parse_stream_settings(&inbound.stream_settings, node);
+            let proto_label = format_proto_label(&inbound.protocol, &si);
 
-                        let r_ob = match ri.protocol.as_str() {
-                            "shadowsocks" | "ss" => {
-                                let method = parse_ss_method(&ri.settings);
-                                let password =
-                                    parse_ss_password(&ri.settings, &user_keys.user_uuid);
-                                Some(json!({
-                                    "type": "shadowsocks",
-                                    "tag": &r_tag,
-                                    "server": relay.address,
-                                    "server_port": ri.listen_port,
-                                    "method": method,
-                                    "password": password,
-                                }))
-                            }
-                            "hysteria2" | "hy2" => Some(json!({
-                                "type": "hysteria2",
-                                "tag": &r_tag,
-                                "server": relay.address,
-                                "server_port": ri.listen_port,
-                                "password": user_keys.hy2_password,
-                                "tls": {
-                                    "enabled": true,
-                                    "server_name": r_si.sni,
-                                    "insecure": true,
-                                    "alpn": ["h3"]
-                                }
-                            })),
-                            _ => None,
-                        };
+            // ── Direct outbound ───────────────────────────────────────────────
+            let direct_tag = format!("{}·{}·d", slug(&node.name), slug(&inbound.tag));
+            if let Some(mut ob) =
+                build_singbox_outbound(&direct_tag, inbound, endpoint, &si, user_keys, None)
+            {
+                // Human-readable label stored as _remark (stripped at send time,
+                // helps debugging raw JSON configs).
+                ob["_remark"] = json!(format!("{} | {}", node_label, proto_label));
+                proxy_outbounds.push(ob);
+                direct_tags.push(direct_tag);
+            }
 
-                        if let Some(r_ob) = r_ob {
-                            outbounds.push(r_ob);
-                            generated_relays.insert(relay_key, r_tag.clone());
-                            detour_tag = Some(r_tag);
-                        }
+            // ── Relay-chained outbound ────────────────────────────────────────
+            if let Some(relay) = &node.relay_info {
+                if let Some(relay_ob_tag) =
+                    ensure_relay_outbound(relay, user_keys, &mut proxy_outbounds, &mut relay_cache)
+                {
+                    let via_tag = format!("{}·{}·r", slug(&node.name), slug(&inbound.tag));
+                    let relay_label = format_node_label(relay);
+                    if let Some(mut ob) = build_singbox_outbound(
+                        &via_tag,
+                        inbound,
+                        endpoint,
+                        &si,
+                        user_keys,
+                        Some(&relay_ob_tag),
+                    ) {
+                        ob["_remark"] = json!(format!(
+                            "{} → {} | {} ↪",
+                            relay_label, node_label, proto_label
+                        ));
+                        proxy_outbounds.push(ob);
+                        relay_tags.push(via_tag);
                     }
                 }
-                // ─────────────────────────────────────────────────────────────
+            }
+        }
 
-                let si = parse_stream_settings(&inbound.stream_settings, node);
-
-                let outbound_tag = format!("{}_{}", node.name, inbound.tag);
-                let endpoint_host = node.frontend_url.as_deref().unwrap_or(&node.address);
-
-                let mut outbound = json!({
-                    "tag": outbound_tag,
+        // ── Legacy fallback: node has no inbounds stored ──────────────────────
+        if enabled.is_empty() {
+            if let Some(port) = node.reality_port {
+                let tag = format!("{}·legacy", slug(&node.name));
+                let ob = json!({
+                    "type": "vless",
+                    "tag": &tag,
+                    "server": endpoint,
+                    "server_port": port,
+                    "uuid": user_keys.user_uuid,
+                    "flow": "xtls-rprx-vision",
+                    "tls": {
+                        "enabled": true,
+                        "server_name": node.reality_sni.as_deref().unwrap_or("www.google.com"),
+                        "reality": {
+                            "enabled": true,
+                            "public_key": node.reality_public_key.as_deref().unwrap_or(""),
+                            "short_id": node.reality_short_id.as_deref().unwrap_or("")
+                        },
+                        "utls": { "enabled": true, "fingerprint": "chrome" },
+                        "fragment": { "enabled": true, "size": "1-500", "sleep": "0-5" }
+                    },
+                    "_remark": format!("{} | VLESS·REALITY", node_label)
                 });
-
-                match inbound.protocol.as_str() {
-                    "vless" => {
-                        outbound["type"] = json!("vless");
-                        outbound["server"] = json!(endpoint_host);
-                        outbound["server_port"] = json!(inbound.listen_port);
-                        outbound["uuid"] = json!(user_keys.user_uuid);
-                        outbound["flow"] = if !si.flow.is_empty() {
-                            json!(si.flow)
-                        } else {
-                            json!("")
-                        };
-
-                        let mut tls = json!({ "enabled": false });
-                        if si.security == "reality" {
-                            tls["enabled"] = json!(true);
-                            tls["server_name"] = json!(si.sni);
-                            tls["reality"] = json!({
-                                "enabled": true,
-                                "public_key": si.public_key,
-                                "short_id": si.short_id
-                            });
-                            tls["utls"] = json!({ "enabled": true, "fingerprint": si.fingerprint });
-                        } else if si.security == "tls" {
-                            tls["enabled"] = json!(true);
-                            tls["server_name"] = json!(si.sni);
-                            tls["utls"] = json!({ "enabled": true, "fingerprint": si.fingerprint });
-                        }
-                        outbound["tls"] = tls;
-
-                        if si.network == "ws" {
-                            outbound["transport"] = json!({
-                                "type": "ws",
-                                "path": si.ws_path,
-                                "headers": { "Host": si.sni }
-                            });
-                        } else if si.network == "grpc" {
-                            outbound["transport"] = json!({
-                                "type": "grpc",
-                                "service_name": si.grpc_service
-                            });
-                        } else if matches!(
-                            si.network.as_str(),
-                            "xhttp" | "splithttp" | "httpupgrade"
-                        ) {
-                            outbound["transport"] = json!({
-                               "type": "httpupgrade",
-                               "path": si.ws_path,
-                               "host": if si.sni.is_empty() { Value::Null } else { json!([si.sni]) }
-                            });
-
-                            // Packet Encoding
-                            if let Some(pe) = &si.packet_encoding {
-                                outbound["packet_encoding"] = json!(pe);
-                            } else {
-                                outbound["packet_encoding"] = json!("xudp");
-                            }
-
-                            // Multiplexing
-                            outbound["multiplex"] = si.xmux.clone().unwrap_or_else(|| {
-                                json!({
-                                    "enabled": true,
-                                    "protocol": "smux",
-                                    "max_connections": 4,
-                                    "min_streams": 4,
-                                    "padding": true
-                                })
-                            });
-                        }
-                    }
-                    "hysteria2" | "hy2" => {
-                        outbound["type"] = json!("hysteria2");
-                        outbound["server"] = json!(endpoint_host);
-                        outbound["server_port"] = json!(inbound.listen_port);
-                        outbound["password"] = json!(user_keys.hy2_password);
-
-                        let tls = json!({
-                            "enabled": true,
-                            "server_name": si.sni,
-                            "insecure": true,
-                            "alpn": ["h3"]
-                        });
-                        outbound["tls"] = tls;
-
-                        if let Some(obfs) = &si.hy2_obfs {
-                            outbound["obfs"] = json!({
-                                "type": "salamander",
-                                "password": obfs
-                            });
-                        }
-                        if let Some(ports) = &si.hy2_ports {
-                            outbound["server_ports"] = json!(ports);
-                        }
-                    }
-                    "tuic" => {
-                        outbound["type"] = json!("tuic");
-                        outbound["server"] = json!(endpoint_host);
-                        outbound["server_port"] = json!(inbound.listen_port);
-                        outbound["uuid"] = json!(user_keys.user_uuid);
-                        outbound["password"] = json!(user_keys.hy2_password);
-                        outbound["congestion_control"] =
-                            json!(si.tuic_congestion_control.as_deref().unwrap_or("bbr"));
-                        outbound["zero_rtt_handshake"] =
-                            json!(si.tuic_zero_rtt_handshake.unwrap_or(false));
-
-                        outbound["tls"] = json!({
-                            "enabled": true,
-                            "server_name": si.sni,
-                            "alpn": ["h3"],
-                             "insecure": true
-                        });
-                    }
-                    "trojan" => {
-                        outbound["type"] = json!("trojan");
-                        outbound["server"] = json!(endpoint_host);
-                        outbound["server_port"] = json!(inbound.listen_port);
-                        outbound["password"] = json!(user_keys.user_uuid);
-
-                        let mut tls = json!({ "enabled": true, "server_name": si.sni });
-                        if si.security == "reality" {
-                            tls["reality"] = json!({
-                                "enabled": true,
-                                "public_key": si.public_key,
-                                "short_id": si.short_id
-                            });
-                            tls["utls"] = json!({ "enabled": true, "fingerprint": si.fingerprint });
-                        }
-                        outbound["tls"] = tls;
-
-                        if si.network == "ws" {
-                            outbound["transport"] = json!({
-                                "type": "ws",
-                                "path": si.ws_path,
-                                "headers": { "Host": si.sni }
-                            });
-                        }
-                    }
-                    "shadowsocks" | "ss" => {
-                        outbound["type"] = json!("shadowsocks");
-                        outbound["server"] = json!(endpoint_host);
-                        outbound["server_port"] = json!(inbound.listen_port);
-                        outbound["method"] = json!(parse_ss_method(&inbound.settings));
-                        outbound["password"] =
-                            json!(parse_ss_password(&inbound.settings, &user_keys.user_uuid));
-                    }
-                    "naive" => {
-                        outbound["type"] = json!("naive"); // Assuming naive plugin/support
-                        outbound["server"] = json!(endpoint_host);
-                        outbound["server_port"] = json!(inbound.listen_port);
-                        outbound["username"] = json!(user_keys.user_uuid);
-                        outbound["password"] = json!(user_keys.hy2_password);
-                        outbound["tls"] = json!({
-                           "enabled": true,
-                           "server_name": si.sni,
-                           "alpn": ["h2", "http/1.1"],
-                           "utls": { "enabled": true, "fingerprint": si.fingerprint }
-                        });
-                    }
-                    "amneziawg" => {
-                        let client_id = user_keys
-                            .hy2_password
-                            .split(':')
-                            .next()
-                            .and_then(|s| s.parse::<i64>().ok())
-                            .unwrap_or(0);
-                        let local_address = format!("10.10.0.{}/32", (client_id % 250) + 2);
-
-                        outbound["type"] = json!("wireguard");
-                        outbound["server"] = json!(endpoint_host);
-                        outbound["server_port"] = json!(inbound.listen_port);
-                        outbound["local_address"] = json!([local_address]);
-                        outbound["private_key"] =
-                            json!(user_keys._awg_private_key.clone().unwrap_or_default());
-                        outbound["peer_public_key"] = json!(si.public_key);
-                        outbound["mtu"] = json!(1280);
-
-                        if let Ok(awg_obj) =
-                            serde_json::from_str::<serde_json::Value>(&inbound.settings)
-                        {
-                            if let Some(jc) = awg_obj.get("jc") {
-                                outbound["reserved"] = json!([
-                                    jc.as_u64().unwrap_or(0),
-                                    awg_obj["jmin"].as_u64().unwrap_or(0),
-                                    awg_obj["jmax"].as_u64().unwrap_or(0)
-                                ]);
-                            }
-                        }
-                    }
-                    _ => continue,
-                }
-
-                if let Some(tag) = detour_tag {
-                    outbound["detour"] = json!(tag);
-                }
-
-                outbound_tags.push(outbound["tag"].as_str().unwrap_or_default().to_string());
-                outbounds.push(outbound);
+                proxy_outbounds.push(ob);
+                direct_tags.push(tag);
             }
         }
     }
 
-    if outbound_tags.is_empty() {
+    let has_relay = !relay_tags.is_empty();
+    let all_tags: Vec<String> = direct_tags
+        .iter()
+        .chain(relay_tags.iter())
+        .cloned()
+        .collect();
+
+    if all_tags.is_empty() {
         return Ok(json!({}).to_string());
     }
 
-    // 2. Wrap into Selectors/URLTest
-    let mut final_outbounds = Vec::new();
+    // ─── Proxy groups ─────────────────────────────────────────────────────────
 
-    // 2.1 Proxy Selector (Main Group)
-    let mut proxy_group_tags = vec!["auto".to_string()];
-    proxy_group_tags.extend(outbound_tags.clone()); // Add all proxies to selector
-    // proxy_group_tags.push("direct".to_string()); // Optional: allow manual direct
+    // Selector list: smart groups first, then individual proxies.
+    let mut selector_outbounds = vec!["auto-all".to_string()];
+    if has_relay {
+        selector_outbounds.push("auto-relay".to_string());
+    }
+    selector_outbounds.push("auto-direct".to_string());
+    selector_outbounds.extend(all_tags.clone());
 
-    final_outbounds.push(json!({
-        "type": "selector",
-        "tag": "proxy",
-        "outbounds": proxy_group_tags,
-        "default": "auto"
-    }));
-
-    // 2.2 Auto URLTest Group
-    final_outbounds.push(json!({
-        "type": "urltest",
-        "tag": "auto",
-        "outbounds": outbound_tags,
-        "url": "https://www.gstatic.com/generate_204",
-        "interval": "3m",
-        "tolerance": 50
-    }));
-
-    // 2.3 Add DIRECT and BLOCK
-    final_outbounds.push(json!({ "type": "direct", "tag": "direct" }));
-    final_outbounds.push(json!({ "type": "block", "tag": "block" }));
-    final_outbounds.push(json!({ "type": "dns", "tag": "dns-out" }));
-
-    // 2.4 Add Generated Proxies
-    final_outbounds.extend(outbounds);
-
-    // Aggregated Policies
-    let block_ads = nodes.iter().any(|n| n.config_block_ads);
-    let block_porn = nodes.iter().any(|n| n.config_block_porn);
-    // let block_torrent = nodes.iter().any(|n| n.config_block_torrent); // Client-side P2P blocking is harder to enforce reliably via geosite alone, but we can try.
-
-    // 3. DNS Configuration
-    let mut dns_rules = vec![
-        json!({ "outbound": ["any"], "server": "local" }), // Default local? No, usually reverse
-        json!({ "clash_mode": "direct", "server": "local" }),
-        json!({ "clash_mode": "global", "server": "google" }),
-        // Domain based rules
-        json!({ "geosite": "cn", "server": "local" }),
+    let mut final_outbounds: Vec<Value> = vec![
+        // Main selector – user can override to any specific proxy.
+        json!({
+            "type": "selector",
+            "tag": "proxy",
+            "outbounds": selector_outbounds,
+            "default": "auto-all"
+        }),
+        // Auto-all: fastest across everything (direct + relay).
+        json!({
+            "type": "urltest",
+            "tag": "auto-all",
+            "outbounds": all_tags,
+            "url": "https://www.gstatic.com/generate_204",
+            "interval": "3m",
+            "tolerance": 50
+        }),
     ];
 
+    // Auto-relay group: only relay-chained paths.
+    // Ideal when RKN whitelist is active and direct foreign routes are cut.
+    if has_relay {
+        final_outbounds.push(json!({
+            "type": "urltest",
+            "tag": "auto-relay",
+            "outbounds": relay_tags,
+            "url": "https://www.gstatic.com/generate_204",
+            "interval": "3m",
+            "tolerance": 50
+        }));
+    }
+
+    // Auto-direct group: direct connections only (lowest latency when unblocked).
+    if !direct_tags.is_empty() {
+        final_outbounds.push(json!({
+            "type": "urltest",
+            "tag": "auto-direct",
+            "outbounds": direct_tags,
+            "url": "https://www.gstatic.com/generate_204",
+            "interval": "3m",
+            "tolerance": 50
+        }));
+    }
+
+    // System outbounds.
+    final_outbounds.push(json!({ "type": "direct", "tag": "direct" }));
+    final_outbounds.push(json!({ "type": "block",  "tag": "block"  }));
+    final_outbounds.push(json!({ "type": "dns",    "tag": "dns-out" }));
+
+    // Actual proxy outbounds last.
+    final_outbounds.extend(proxy_outbounds);
+
+    // ─── Content-filtering policies ───────────────────────────────────────────
+    let block_ads = nodes.iter().any(|n| n.config_block_ads);
+    let block_porn = nodes.iter().any(|n| n.config_block_porn);
+
+    // ─── DNS ──────────────────────────────────────────────────────────────────
+    let mut dns_rules: Vec<Value> = vec![
+        // DNS-over-HTTPS queries themselves must not loop.
+        json!({ "outbound": ["any"], "server": "local-plain" }),
+        // Clash API mode overrides.
+        json!({ "clash_mode": "direct", "server": "local" }),
+        json!({ "clash_mode": "global", "server": "remote" }),
+        // Domestic Chinese domains resolve locally.
+        json!({ "rule_set": ["geosite-cn"], "server": "local" }),
+        // Russian domestic domains resolve locally (don't proxy their DNS).
+        json!({ "rule_set": ["geosite-ru"], "server": "local" }),
+    ];
     if block_ads {
-        dns_rules.push(json!({ "geosite": "category-ads-all", "server": "block" }));
+        dns_rules.push(json!({ "rule_set": ["geosite-ads"], "server": "block" }));
     }
     if block_porn {
-        dns_rules.push(json!({ "geosite": "category-porn", "server": "block" }));
+        dns_rules.push(json!({ "rule_set": ["geosite-porn"], "server": "block" }));
     }
 
     let dns_config = json!({
         "servers": [
-            { "tag": "google", "address": "8.8.8.8", "detour": "proxy" }, // Route DNS through proxy to avoid leaks/poisoning
-            { "tag": "local", "address": "local", "detour": "direct" }
+            {
+                "tag": "remote",
+                "address": "https://8.8.8.8/dns-query",
+                "address_resolver": "local-plain",
+                "detour": "proxy"
+            },
+            {
+                "tag": "local",
+                "address": "https://223.5.5.5/dns-query",
+                "address_resolver": "local-plain",
+                "detour": "direct"
+            },
+            // Plain UDP – only used to bootstrap DoH address resolution.
+            {
+                "tag": "local-plain",
+                "address": "223.5.5.5",
+                "detour": "direct"
+            },
+            { "tag": "block", "address": "rcode://success" }
         ],
         "rules": dns_rules,
-        "final": "google",
-        "strategy": "ipv4_only" // Safer for most
+        "final": "remote",
+        "strategy": "prefer_ipv4",
+        "independent_cache": true
     });
 
-    // 4. Route Rules
-    let mut route_rules = vec![json!({ "protocol": "dns", "outbound": "dns-out" })];
+    // ─── Route rules ──────────────────────────────────────────────────────────
+    let mut route_rules: Vec<Value> = vec![
+        json!({ "protocol": "dns", "outbound": "dns-out" }),
+        json!({ "ip_is_private": true, "outbound": "direct" }),
+    ];
 
     if block_ads {
-        route_rules.push(json!({ "geosite": ["category-ads-all"], "outbound": "block" }));
+        route_rules.push(json!({ "rule_set": ["geosite-ads"], "outbound": "block" }));
     }
     if block_porn {
-        route_rules.push(json!({ "geosite": ["category-porn"], "outbound": "block" }));
+        route_rules.push(json!({ "rule_set": ["geosite-porn"], "outbound": "block" }));
     }
 
-    route_rules.extend(vec![
-        json!({ "geosite": ["cn", "private"], "outbound": "direct" }),
-        json!({ "geoip": ["cn", "private"], "outbound": "direct" }),
-        // Add RU/UA specifics if needed, for now standard
-        json!({ "geosite": ["ru"], "outbound": "direct" }),
-        json!({ "geoip": ["ru"], "outbound": "direct" }),
+    // Chinese and Russian domestic traffic goes direct.
+    // Note: relay traffic to the *relay node* itself is handled transparently by
+    // sing-box's detour mechanism – it doesn't match these rules because the
+    // proxy outbound establishes the connection, not the routing layer.
+    route_rules.push(
+        json!({ "rule_set": ["geoip-private", "geosite-cn", "geoip-cn"], "outbound": "direct" }),
+    );
+    route_rules.push(json!({ "rule_set": ["geosite-ru", "geoip-ru"], "outbound": "direct" }));
+
+    // Everything else → proxy (auto-all picks the best path).
+
+    // ─── Rule sets (SRS binary format, modern sing-box ≥ 1.8) ────────────────
+    let mut rule_sets: Vec<Value> = vec![
         json!({
-            "network": "tcp",
-            "domain_suffix": ["github.com", "githubusercontent.com", "githubassets.com"],
-            "tls_fragment": true,
-            "outbound": "proxy"
+            "type": "remote", "tag": "geoip-private", "format": "binary",
+            "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-private.srs",
+            "download_detour": "direct", "update_interval": "7d"
         }),
-    ]);
+        json!({
+            "type": "remote", "tag": "geosite-cn", "format": "binary",
+            "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
+            "download_detour": "proxy", "update_interval": "3d"
+        }),
+        json!({
+            "type": "remote", "tag": "geoip-cn", "format": "binary",
+            "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
+            "download_detour": "proxy", "update_interval": "3d"
+        }),
+        json!({
+            "type": "remote", "tag": "geosite-ru", "format": "binary",
+            "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-ru.srs",
+            "download_detour": "proxy", "update_interval": "3d"
+        }),
+        json!({
+            "type": "remote", "tag": "geoip-ru", "format": "binary",
+            "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs",
+            "download_detour": "proxy", "update_interval": "3d"
+        }),
+    ];
+
+    if block_ads {
+        rule_sets.push(json!({
+            "type": "remote", "tag": "geosite-ads", "format": "binary",
+            "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
+            "download_detour": "proxy", "update_interval": "1d"
+        }));
+    }
+    if block_porn {
+        rule_sets.push(json!({
+            "type": "remote", "tag": "geosite-porn", "format": "binary",
+            "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-porn.srs",
+            "download_detour": "proxy", "update_interval": "1d"
+        }));
+    }
 
     let route_config = json!({
         "auto_detect_interface": true,
         "final": "proxy",
-        "rules": route_rules
+        "rules": route_rules,
+        "rule_set": rule_sets
     });
 
-    // 5. Inbounds (Mixed Port for Client)
-    let inbounds_config = vec![json!({
-        "type": "mixed",
-        "tag": "mixed-in",
-        "listen": "127.0.0.1",
-        "listen_port": 2080,
-        "sniff": true,
-        "sniff_override_destination": true
-    })];
+    // ─── Client inbounds (local mixed proxy port) ─────────────────────────────
+    let inbounds_config = vec![
+        json!({
+            "type": "mixed",
+            "tag": "mixed-in",
+            "listen": "127.0.0.1",
+            "listen_port": 2080,
+            "sniff": true,
+            "sniff_override_destination": true,
+            "set_system_proxy": false
+        }),
+        // TUN inbound for transparent proxy mode (optional, enabled by clients
+        // that support it such as Hiddify / sing-box desktop).
+        json!({
+            "type": "tun",
+            "tag": "tun-in",
+            "inet4_address": "172.19.0.1/30",
+            "auto_route": true,
+            "strict_route": true,
+            "sniff": true,
+            "sniff_override_destination": true,
+            "stack": "mixed"
+        }),
+    ];
 
-    // 6. Final Assembly
+    // ─── Final config assembly ────────────────────────────────────────────────
     let config = json!({
         "log": {
             "level": "info",
@@ -1338,14 +1818,16 @@ pub fn generate_singbox_config(
         "experimental": {
             "cache_file": {
                 "enabled": true,
-                "store_fakeip": true
+                "path": "cache.db",
+                "store_fakeip": false
             },
             "clash_api": {
                 "external_controller": "127.0.0.1:9090",
                 "external_ui": "ui",
                 "external_ui_download_url": "https://github.com/MetaCubeX/Yacd-meta/archive/gh-pages.zip",
                 "external_ui_download_detour": "proxy",
-                "default_mode": "rule"
+                "default_mode": "rule",
+                "secret": ""
             }
         }
     });

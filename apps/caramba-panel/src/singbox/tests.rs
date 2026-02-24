@@ -42,6 +42,8 @@ mod tests {
             hy2_sni: Some("google.com".to_string()),
             frontend_url: None,
             inbounds: vec![inbound],
+            country_code: None,
+            is_relay: false,
             config_block_ads: false,
             config_block_porn: false,
             config_block_torrent: false,
