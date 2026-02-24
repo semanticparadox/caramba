@@ -8,6 +8,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use super::payment::provider::{PaymentProvider, PaymentWebhookAction};
+use super::payment::balance::BalanceProvider;
 use super::payment::cryptobot::CryptoBotProvider;
 use super::payment::manual::ManualProvider;
 use super::payment::nowpayments::NowPaymentsProvider;
@@ -60,6 +61,8 @@ impl MarketplaceService {
             );
         }
 
+        providers.insert("balance".to_string(), Box::new(BalanceProvider));
+
         Self {
             pool,
             session_repo,
@@ -99,6 +102,12 @@ impl MarketplaceService {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
+
+        // If amount is for a specific plan duration, try to store duration_days in metadata
+        // In this architecture, product_id is plan_id.
+        // We might want to pass metadata from the caller.
+        // For now, let's keep create_session signature but add an internal enhancement 
+        // OR better: change create_session to accept metadata.
 
         self.session_repo.create(&session).await?;
 
@@ -157,20 +166,37 @@ impl MarketplaceService {
         let product = products.into_iter().find(|p| p.id == session.product_id).context("Product not found")?;
 
         if product.product_type == "plan" {
+            // Determine days to add
+            let mut days_to_add = 30; // Default
+            
+            if let Some(meta) = &session.metadata {
+                if let Some(days) = meta.get("duration_days").and_then(|v| v.as_i64()) {
+                    days_to_add = days as i32;
+                }
+            } else {
+                // Fallback: search plan_durations for this plan_id with this price
+                let duration_row: Option<(i32,)> = sqlx::query_as("SELECT duration_days FROM plan_durations WHERE plan_id = $1 AND price = $2 LIMIT 1")
+                    .bind(session.product_id)
+                    .bind(session.amount)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .unwrap_or(None);
+                
+                if let Some((d,)) = duration_row {
+                    days_to_add = d;
+                }
+            }
+
             // Find the active subscription or create one
             let subs = self.sub_service.get_user_subscriptions(session.user_id).await?;
-            let days_to_add = 30; // Default or traffic-only baselineck
 
-            // Attempt to derive days from the StoreService 
-            // In a full implementation, `plan_duration_id` would determine this.
             tracing::info!("Fulfilling VPN Plan for user {}: extending by {} days", session.user_id, days_to_add);
 
             if let Some(active_sub) = subs.first() {
                 self.sub_service.admin_extend(active_sub.sub.id, days_to_add).await?;
             } else {
-                // Need to create a new sub via `store_service` or `sub_service`
-                tracing::warn!("User has no active sub to extend, skipping for now.");
-                // User would ideally get a fresh sub here via `admin_gift_subscription` mapped to the product's underlying plan_id.
+                // Create new subscription
+                let _ = self.store_service.admin_gift_subscription(session.user_id, session.product_id, days_to_add).await?;
             }
         }
 

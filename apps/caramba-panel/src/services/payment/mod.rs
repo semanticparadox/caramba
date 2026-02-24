@@ -28,5 +28,6 @@ pub mod telegram_stars;
 pub mod nowpayments;
 pub mod cryptobot;
 pub mod manual;
+pub mod balance;
 
 pub use provider::{PaymentProvider, PaymentWebhookAction};

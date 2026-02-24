@@ -714,8 +714,13 @@ pub async fn callback_handler(
                 let id_str = buy_dur.strip_prefix("buy_dur_").unwrap();
                 if let Ok(duration_id) = id_str.parse::<i64>() {
                     let user_db: Option<caramba_db::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
-                    if let Some(_u) = user_db {
+                    if let Some(u) = user_db {
                         let mut buttons: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+
+                        // Balance Payment Option
+                        if u.balance > 0 {
+                            buttons.push(vec![InlineKeyboardButton::callback(format!("💰 Pay with Balance (${:.2})", u.balance as f64 / 100.0), format!("pay_dur_balance_{}", duration_id))]);
+                        }
 
                         if state.settings.get_or_default("manual_enabled", "false").await == "true" {
                             buttons.push(vec![InlineKeyboardButton::callback("💳 Pay with Card/Manual", format!("pay_dur_manual_{}", duration_id))]);
@@ -732,6 +737,9 @@ pub async fn callback_handler(
                         if !state.settings.get_or_default("nowpayments_key", "").await.is_empty() {
                             buttons.push(vec![InlineKeyboardButton::callback("🪙 Pay with NowPayments", format!("pay_dur_nowpayments_{}", duration_id))]);
                         }
+
+                        // Always add a Back button to prevent empty keyboards and allow navigation
+                        buttons.push(vec![InlineKeyboardButton::callback("⬅️ Back to Plans", "buy_subscription")]);
 
                         let _ = bot.answer_callback_query(callback_id).text("Please select a payment method.").await;
                         
@@ -752,19 +760,49 @@ pub async fn callback_handler(
                 let parts: Vec<&str> = pay_dur.strip_prefix("pay_dur_").unwrap_or("").split("_").collect();
                 if parts.len() == 2 {
                     let provider = parts[0];
-                    let _duration_id: i64 = parts[1].parse().unwrap_or(0);
+                    let duration_id: i64 = parts[1].parse().unwrap_or(0);
                     
                     let user_db: Option<caramba_db::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
                     if let Some(u) = user_db {
-                        // TODO: Map duration_id to actual price/currency from StoreService
-                        // Mocking for now to compile
-                        let amount = 500; // 5.00
+                        // Fetch actual price and plan info
+                        let duration_opt = state.catalog_service.get_plan_duration_by_id(duration_id).await.unwrap_or(None);
+                        let duration = match duration_opt {
+                            Some(d) => d,
+                            None => {
+                                let _ = bot.answer_callback_query(callback_id).text("❌ Invalid duration.").show_alert(true).await;
+                                return Ok(());
+                            }
+                        };
+
+                        let amount = duration.price;
                         let currency = "USD";
-                        // Find a plan/product via the store service that matches this duration
-                        let product_id = 1; // Assuming product 1 for now
+                        let product_id = duration.plan_id;
 
                         match state.marketplace_service.create_session(&u, product_id, provider, amount, currency).await {
-                            Ok((_session, invoice_payload)) => {
+                            Ok((session, invoice_payload)) => {
+                                if provider == "balance" {
+                                    // Synchronous fulfillment for balance
+                                    match state.marketplace_service.fulfill_payment(session.id).await {
+                                        Ok(_) => {
+                                            // Deduct balance
+                                            let _ = sqlx::query("UPDATE users SET balance = balance - $1 WHERE id = $2")
+                                                .bind(amount)
+                                                .bind(u.id)
+                                                .execute(&state.pool)
+                                                .await;
+
+                                            let _ = bot.answer_callback_query(callback_id).text("✅ Payment successful!").await;
+                                            if let Some(msg) = q.message {
+                                                 let _ = bot.send_message(msg.chat().id, "✅ *Subscription Activated!*\n\nYour payment via account balance was successful. Your subscription is now active.").parse_mode(ParseMode::MarkdownV2).await;
+                                            }
+                                        }
+                                        Err(e) => {
+                                             let _ = bot.answer_callback_query(callback_id).text(format!("❌ Fulfillment failed: {}", e)).show_alert(true).await;
+                                        }
+                                    }
+                                    return Ok(());
+                                }
+
                                 let _ = bot.answer_callback_query(callback_id).text("Invoice generated!").await;
                                 
                                 if let Some(msg) = q.message {

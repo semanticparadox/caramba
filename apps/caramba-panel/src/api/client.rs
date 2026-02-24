@@ -1302,9 +1302,25 @@ struct PaymentProviderInfo {
 
 async fn get_payment_providers(
     State(state): State<AppState>,
-    axum::Extension(_claims): axum::Extension<Claims>,
+    axum::Extension(claims): axum::Extension<Claims>,
 ) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
     let mut providers = Vec::new();
+
+    // Check balance
+    let balance: i64 = sqlx::query_scalar("SELECT balance FROM users WHERE tg_id = $1")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None)
+        .unwrap_or(0);
+
+    if balance > 0 {
+        providers.push(PaymentProviderInfo {
+            id: "balance".to_string(),
+            label: format!("💰 Pay with Balance (${:.2})", balance as f64 / 100.0),
+        });
+    }
 
     if state.settings.get_or_default("manual_enabled", "false").await == "true" {
         providers.push(PaymentProviderInfo {
@@ -1389,7 +1405,29 @@ async fn create_payment_invoice(
     let currency = "USD";
 
     match state.marketplace_service.create_session(&u, product_id, &body.provider, amount, currency).await {
-        Ok((_session, invoice_payload)) => {
+        Ok((session, invoice_payload)) => {
+            if body.provider == "balance" {
+                // Synchronous fulfillment for balance
+                if let Err(e) = state.marketplace_service.fulfill_payment(session.id).await {
+                     tracing::error!("Immediate balance fulfillment failed: {}", e);
+                     return (StatusCode::INTERNAL_SERVER_ERROR, format!("Fulfillment failed: {}", e)).into_response();
+                }
+
+                // Deduct balance manually if BalanceProvider didn't do it (it doesn't in our implementation to keep MarketplaceService pure)
+                let _ = sqlx::query("UPDATE users SET balance = balance - $1 WHERE id = $2")
+                    .bind(amount)
+                    .bind(u.id)
+                    .execute(&state.pool)
+                    .await;
+
+                return Json(serde_json::json!({
+                    "ok": true,
+                    "invoice_url": "SUCCESS",
+                    "provider": "balance",
+                    "fulfilled": true
+                })).into_response();
+            }
+
             Json(serde_json::json!({
                 "ok": true,
                 "invoice_url": invoice_payload,
