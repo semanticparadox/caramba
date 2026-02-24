@@ -80,7 +80,7 @@ pub async fn callback_handler(
 
             extend if extend.starts_with("extend_sub_") => {
                 // Redirect to plans menu
-                    let plans = state.store_service.get_active_plans().await.unwrap_or_default();
+                    let plans = state.catalog_service.get_active_plans().await.unwrap_or_default();
                     
                     if plans.is_empty() {
                         let _ = bot.answer_callback_query(callback_id).text("❌ No active plans available at the moment.").await;
@@ -520,7 +520,7 @@ pub async fn callback_handler(
 
             buy_plan_idx if buy_plan_idx.starts_with("buy_plan_idx_") => {
                 let index = buy_plan_idx.strip_prefix("buy_plan_idx_").unwrap_or("0").parse::<usize>().unwrap_or(0);
-                let plans = state.store_service.get_active_plans().await.unwrap_or_default();
+                let plans = state.catalog_service.get_active_plans().await.unwrap_or_default();
                 
                 if plans.is_empty() {
                     let _ = bot.answer_callback_query(callback_id).text("❌ No active plans available.").await;
