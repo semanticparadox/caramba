@@ -59,7 +59,10 @@ pub async fn callback_handler(
                         );
                         let _ = bot.send_message(msg.chat().id, welcome_text)
                             .parse_mode(ParseMode::Html)
-                            .reply_markup(main_menu())
+                            .reply_markup(main_menu(
+                                state.settings.get_or_default("bot_buttons_mode", "full").await == "app_only",
+                                state.settings.get_bool_or_default("bot_support_button_always_on", true).await
+                            ))
                             .await
                             .map(|m| {
                                 let state = state.clone();

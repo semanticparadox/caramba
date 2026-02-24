@@ -162,9 +162,13 @@ pub async fn message_handler(
                 );
                 let bot_for_task = bot.clone();
                 let state_for_task = state.clone();
+                let bot_buttons_mode = state.settings.get_or_default("bot_buttons_mode", "full").await;
+                let app_mode = bot_buttons_mode == "app_only";
+                let always_support = state.settings.get_bool_or_default("bot_support_button_always_on", true).await;
+
                 let _ = bot.send_message(msg.chat.id, welcome_text)
                     .parse_mode(ParseMode::Html)
-                    .reply_markup(main_menu())
+                    .reply_markup(main_menu(app_mode, always_support))
                     .await
                     .map(move |m| {
                         let uid = user.id;
@@ -382,7 +386,7 @@ pub async fn message_handler(
                         let categories: Vec<caramba_db::models::store::StoreCategory> = state.catalog_service.get_categories().await.unwrap_or_default();
                     if categories.is_empty() {
                         let _ = bot.send_message(msg.chat.id, "❌ The store is currently empty.")
-                            .reply_markup(main_menu())
+                            .reply_markup(main_menu(state.settings.get_or_default("bot_buttons_mode", "full").await == "app_only", state.settings.get_bool_or_default("bot_support_button_always_on", true).await))
                             .await;
                     } else {
                         let mut buttons = Vec::new();
@@ -454,7 +458,7 @@ pub async fn message_handler(
                 
                 if plans.is_empty() {
                     let _ = bot.send_message(msg.chat.id, "❌ No active plans available at the moment.")
-                        .reply_markup(main_menu())
+                        .reply_markup(main_menu(state.settings.get_or_default("bot_buttons_mode", "full").await == "app_only", state.settings.get_bool_or_default("bot_support_button_always_on", true).await))
                         .await;
                 } else {
                     let total_plans = plans.len();
@@ -744,9 +748,13 @@ pub async fn message_handler(
             "❓ Support" => {
                 let support_username = state.settings.get_or_default("support_url", "").await;
                 
+                let bot_buttons_mode = state.settings.get_or_default("bot_buttons_mode", "full").await;
+                let app_mode = bot_buttons_mode == "app_only";
+                let always_support = state.settings.get_bool_or_default("bot_support_button_always_on", true).await;
+
                 if support_username.is_empty() {
                         let _ = bot.send_message(msg.chat.id, "❌ Support contact is not configured yet.")
-                            .reply_markup(main_menu())
+                            .reply_markup(main_menu(app_mode, always_support))
                             .await;
                 } else {
                     // Sanitize username (remove @ if present)
@@ -771,7 +779,7 @@ pub async fn message_handler(
                            
                            if active_subs.is_empty() {
                                let _ = bot.send_message(msg.chat.id, "❌ You have no active subscriptions.")
-                                   .reply_markup(main_menu())
+                                   .reply_markup(main_menu(state.settings.get_or_default("bot_buttons_mode", "full").await == "app_only", state.settings.get_bool_or_default("bot_support_button_always_on", true).await))
                                    .await;
                            } else if active_subs.len() == 1 {
                                // Auto-show active devices for the only subscription

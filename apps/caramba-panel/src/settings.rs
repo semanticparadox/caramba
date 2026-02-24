@@ -48,6 +48,13 @@ impl SettingsService {
         self.get(key).await.unwrap_or_else(|| default.to_string())
     }
 
+    pub async fn get_bool_or_default(&self, key: &str, default: bool) -> bool {
+        match self.get(key).await {
+            Some(val) => val == "true",
+            None => default,
+        }
+    }
+
     pub async fn get_or_set(&self, key: &str, default: &str) -> String {
         if let Some(val) = self.get(key).await {
             return val;
