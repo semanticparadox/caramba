@@ -640,14 +640,12 @@ pub async fn poll_updates(
             // If this is a manual "Sync" action from UI, the UI sets a flag in Redis `node_sync_pending:{id}`.
             // We check that flag here.
             let pending_key = format!("node_sync_pending:{}", node_id);
-            if let Ok(exists) = state.redis.exists(&pending_key).await {
-                if exists {
-                    let _ = state.redis.del(&pending_key).await; // Consume the flag
-                    return (
-                        StatusCode::OK,
-                        Json(serde_json::json!({"update": true, "message": "pending_sync"})),
-                    ).into_response();
-                }
+            if let Ok(Some(_)) = state.redis.get(&pending_key).await {
+                let _ = state.redis.del(&pending_key).await; // Consume the flag
+                return (
+                    StatusCode::OK,
+                    Json(serde_json::json!({"update": true, "message": "pending_sync"})),
+                ).into_response();
             }
         }
     }

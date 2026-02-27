@@ -32,6 +32,7 @@ pub use settings::{
     export_database, get_settings, prepare_agent_update, queue_worker_update, rollout_agent_update,
     save_settings, toggle_bot, update_trial_config,
 };
+pub use updates::get_updates_page;
 pub use store::{
     create_category, create_product, delete_category, delete_product, get_store_categories_page,
     get_store_products_page,
