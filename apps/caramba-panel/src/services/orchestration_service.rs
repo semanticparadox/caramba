@@ -20,6 +20,8 @@ pub struct OrchestrationService {
     security_service: Arc<crate::services::security_service::SecurityService>,
     store_service: Arc<StoreService>,
     pubsub_service: Arc<PubSubService>,
+    // Added for Sync Fix
+    redis_client: Option<redis::Client>,
 }
 
 impl OrchestrationService {
@@ -28,14 +30,17 @@ impl OrchestrationService {
         store_service: Arc<StoreService>,
         security_service: Arc<crate::services::security_service::SecurityService>,
         pubsub_service: Arc<PubSubService>,
+        redis_url: Option<String>,
     ) -> Self {
         let node_repo = NodeRepository::new(pool.clone());
+        let redis_client = redis_url.and_then(|url| redis::Client::open(url).ok());
         Self {
             pool,
             node_repo,
             store_service,
             security_service,
             pubsub_service,
+            redis_client,
         }
     }
 
@@ -44,18 +49,29 @@ impl OrchestrationService {
     pub async fn notify_node_update(&self, node_id: i64) -> anyhow::Result<()> {
         info!("🔔 Node {} update notification triggered", node_id);
 
-        // Publish to Redis channel node_events:{node_id}
-        // The payload is arbitrary JSON, matching what poll_updates expects (or just a kick)
-        // poll_updates converts any message to {"update": true}
+        // Set "Pending Sync" flag in Redis (TTL 60s)
+        if let Some(client) = &self.redis_client {
+            let pending_key = format!("node_sync_pending:{}", node_id);
+            match client.get_multiplexed_async_connection().await {
+                Ok(mut conn) => {
+                    let _: redis::RedisResult<()> = redis::cmd("SETEX")
+                        .arg(&pending_key)
+                        .arg(60) // 60 seconds TTL
+                        .arg("1")
+                        .query_async(&mut conn)
+                        .await;
+                }
+                Err(e) => {
+                    error!("Failed to get redis connection for pending sync flag: {}", e);
+                }
+            }
+        }
 
         let channel = format!("node_events:{}", node_id);
         let payload = serde_json::json!({ "update": true }).to_string();
 
         if let Err(e) = self.pubsub_service.publish(&channel, &payload).await {
             error!("Failed to publish node update for {}: {}", node_id, e);
-            // Don't fail the request, just log error?
-            // Better to return error if critical, but update triggers are often best-effort.
-            // Let's return error to be safe so caller knows it failed.
             return Err(e);
         }
 

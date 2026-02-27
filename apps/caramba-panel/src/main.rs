@@ -308,6 +308,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             store_service.clone(),
             security_service.clone(),
             pubsub_service.clone(),
+        Some(redis_url.clone()),
         ));
 
     // Initialize new modular services
@@ -572,6 +573,10 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         .route(
             "/settings",
             axum::routing::get(handlers::admin::get_settings),
+        )
+        .route(
+            "/updates",
+            axum::routing::get(handlers::admin::get_updates_page),
         )
         .route(
             "/settings/save",

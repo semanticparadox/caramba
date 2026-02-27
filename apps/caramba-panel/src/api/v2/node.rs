@@ -91,46 +91,21 @@ pub async fn heartbeat(
         }
     };
 
-    // 3. Update Telemetry & Status & IP & Version
-    let update_result = if let Some(lat) = req.latency {
-        // Fix: Also update IP here, because if a node sends stats, we still want to fix its IP if it's pending.
-        sqlx::query("UPDATE nodes SET last_latency = $1, last_cpu = $2, last_ram = $3, current_speed_mbps = $4, max_ram = COALESCE($5, max_ram), cpu_cores = COALESCE($6, cpu_cores), cpu_model = COALESCE($7, cpu_model), active_connections = COALESCE($8, active_connections), last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN $9 ELSE ip END, version = $10 WHERE id = $11")
-            .bind(lat)
-            .bind(req.cpu_usage.unwrap_or(0.0))
-            .bind(req.memory_usage.unwrap_or(0.0))
-            .bind(req.speed_mbps.unwrap_or(0))
-            .bind(req.max_ram.map(|v| v as i64)) // Cast u64 to i64 (BIGINT)
-            .bind(req.cpu_cores)
-            .bind(req.cpu_model)
-            .bind(req.active_connections.map(|v| v as i32))
-            .bind(&remote_ip)
-            .bind(&req.version)
-            .bind(node_id)
-            .execute(&state.pool)
-            .await
-    } else {
-        // Just update last_seen if no telemetry (or older agent)
-        sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN $1 ELSE ip END, version = $2 WHERE id = $3")
-            .bind(&remote_ip)
-            .bind(&req.version)
-            .bind(node_id)
-            .execute(&state.pool)
-            .await
-    };
+    // 3. Update Status (Optimized: Removed Heavy Telemetry Updates)
+    // We only update critical fields (last_seen, ip, version) here to keep the API response fast.
+    // Detailed telemetry (CPU, RAM, Connections) is handled asynchronously in TelemetryService.
+    let update_result = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN $1 ELSE ip END, version = $2 WHERE id = $3")
+        .bind(&remote_ip)
+        .bind(&req.version)
+        .bind(node_id)
+        .execute(&state.pool)
+        .await;
 
     if let Err(e) = update_result {
         warn!(
             "Primary node heartbeat update failed for node {}: {}",
             node_id, e
         );
-        // Compatibility fallback for legacy schemas: update only core online fields.
-        let _ = sqlx::query(
-            "UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN $1 ELSE ip END WHERE id = $2",
-        )
-        .bind(&remote_ip)
-        .bind(node_id)
-        .execute(&state.pool)
-        .await;
     }
 
     // GeoIP Check (Async) — trigger if country_code OR country/city/flag are missing
@@ -258,26 +233,28 @@ pub async fn heartbeat(
         }
     }
 
-    // 6. Process Telemetry (Phase 3)
-    // Run in background to not block heartbeat response
+    // 6. Process Telemetry (Optimized)
+    // Run in background to not block heartbeat response.
+    // TelemetryService now handles all resource stats updates to avoid double-writes.
     let telemetry_svc = state.telemetry_service.clone();
-    let active_conns = req.active_connections;
-    let traffic_up = req.traffic_up;
-    let traffic_down = req.traffic_down;
-    let speed = req.speed_mbps;
-    let discoveries = req.discovered_snis;
-    let uptime = req.uptime;
+    let req_clone = req.clone();
 
     tokio::spawn(async move {
         if let Err(e) = telemetry_svc
             .process_heartbeat(
                 node_id,
-                active_conns,
-                traffic_up,
-                traffic_down,
-                speed,
-                discoveries,
-                uptime,
+                req_clone.active_connections,
+                req_clone.traffic_up,
+                req_clone.traffic_down,
+                req_clone.speed_mbps,
+                req_clone.discovered_snis,
+                req_clone.uptime,
+                req_clone.latency,
+                req_clone.cpu_usage,
+                req_clone.memory_usage,
+                req_clone.max_ram,
+                req_clone.cpu_cores,
+                req_clone.cpu_model,
             )
             .await
         {
@@ -633,10 +610,52 @@ pub async fn poll_updates(
         }
     };
 
-    // 3. Wait for update
+    // 3. Check State Before Waiting (Fixes Race Condition)
+    // If client's config hash is stale, update immediately without waiting for PubSub.
+    if let Some(client_hash) = headers.get("X-Config-Hash").and_then(|h| h.to_str().ok()) {
+        if !client_hash.trim().is_empty() {
+            // Need to know what the current hash *should* be.
+            // Since storing the exact current hash in DB is expensive on every generation,
+            // we rely on `last_synced_at` or `last_sync_trigger`.
+            // But a true hash check requires generating or caching the config.
+            //
+            // Optimization: If `last_sync_trigger` is recent, force update.
+            // Or better: Let's assume if the client is polling, they want to know if something CHANGED.
+            //
+            // For now, we trust the PubSub. But to fix the "missed message" race:
+            // We check if `last_synced_at` < `last_rotated_at` or similar? No.
+            //
+            // Best approach: "State Check".
+            // We don't have the current server-side hash readily available without generating it.
+            // However, we can use a "config_version" or "sequence" if we had one.
+            //
+            // Fallback: If X-Config-Hash is provided, we can check if it matches a cached value.
+            // If not cached, we wait.
+            //
+            // Actually, the issue is often that the "Update" signal was sent WHILE the agent was restarting its poll loop.
+            // We can check Redis for a "pending_update" flag for this node?
+            // Or simply rely on the fact that if a user clicks "Sync", we publish.
+            //
+            // To truly fix "Timeout" where the user waits:
+            // If this is a manual "Sync" action from UI, the UI sets a flag in Redis `node_sync_pending:{id}`.
+            // We check that flag here.
+            let pending_key = format!("node_sync_pending:{}", node_id);
+            if let Ok(exists) = state.redis.exists(&pending_key).await {
+                if exists {
+                    let _ = state.redis.del(&pending_key).await; // Consume the flag
+                    return (
+                        StatusCode::OK,
+                        Json(serde_json::json!({"update": true, "message": "pending_sync"})),
+                    ).into_response();
+                }
+            }
+        }
+    }
+
+    // 4. Wait for update
     let rx = state.pubsub.wait_for(&format!("node_events:{}", node_id));
 
-    // 4. Select with timeout (30s)
+    // 5. Select with timeout (30s)
     match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
         Ok(Ok(payload)) => {
             // Message received from pubsub.
