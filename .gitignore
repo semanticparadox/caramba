@@ -11,7 +11,6 @@ errors.md
 *.sql.backup
 *.sqlite
 *.sqlite3
-/docs
 # Environment Files
 .env
 .env.local
@@ -94,7 +93,7 @@ Icon
 *.env.docker
 docker-compose.override.yml
 node-logs.md
-# Backup Files  
+# Backup Files
 *.bak
 *.backup
 *~
