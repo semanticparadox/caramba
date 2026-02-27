@@ -1,3 +1,4 @@
+use crate::singbox::inbound_factory::InboundFactory;
 use crate::AppState;
 use crate::handlers::admin::{get_auth_user, is_authenticated};
 use askama::Template;
@@ -136,6 +137,15 @@ pub async fn create_template(
                 .into_response();
         }
     };
+
+    // Validate using InboundFactory logic
+    if let Err(e) = InboundFactory::validate_manual_json(&form.settings_template) {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid Inbound JSON: {}", e),
+        )
+            .into_response();
+    }
 
     if let Some(obj) = settings_json.as_object_mut() {
         if !obj.contains_key("protocol") {
@@ -449,6 +459,15 @@ pub async fn update_template(
                 .into_response();
         }
     };
+
+    // Validate using InboundFactory
+    if let Err(e) = InboundFactory::validate_manual_json(&form.settings_template) {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid Inbound JSON: {}", e),
+        )
+            .into_response();
+    }
 
     if let Some(obj) = settings_json.as_object_mut() {
         if !obj.contains_key("protocol") {

@@ -1,4 +1,23 @@
-<!-- Visual Editor Partial -->
+from playwright.sync_api import sync_playwright
+import os
+
+def generate_mock_html():
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Visual Editor Verification</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://unpkg.com/lucide@latest"></script>
+    </head>
+    <body class="bg-slate-900 text-white p-10">
+        <h1 class="text-2xl font-bold mb-6">Visual Editor Component Verification</h1>
+
+        <form id="tplForm">
+            <div id="editor-container" class="max-w-2xl mx-auto bg-slate-800 p-6 rounded-xl border border-slate-700">
+                <!-- Visual Editor Partial -->
 <div class="visual-editor-wrapper">
     <!-- Editor Mode Toggle -->
     <div class="flex items-center justify-end mb-4">
@@ -206,7 +225,7 @@
                 <!-- Note: using name="settings_template" which matches both Create and Edit forms -->
                 <textarea name="settings_template" rows="10" required
                     class="w-full bg-transparent p-4 text-xs text-indigo-300 font-mono focus:outline-none resize-none leading-relaxed transition-all"
-                    placeholder='{"protocol": "vless", "clients": []}'>{% if let Some(t) = template %}{{t.settings_template}}{% endif %}</textarea>
+                    placeholder='{"protocol": "vless", "clients": []}'></textarea>
             </div>
         </div>
 
@@ -216,8 +235,59 @@
                 <div class="absolute top-0 left-0 right-0 h-1 bg-purple-500/30"></div>
                 <textarea name="stream_settings_template" rows="10" required
                     class="w-full bg-transparent p-4 text-xs text-purple-300 font-mono focus:outline-none resize-none leading-relaxed transition-all"
-                    placeholder='{"network": "tcp", ...}'>{% if let Some(t) = template %}{{t.stream_settings_template}}{% endif %}</textarea>
+                    placeholder='{"network": "tcp", ...}'></textarea>
             </div>
         </div>
     </div>
 </div>
+            </div>
+        </form>
+
+        <script src="admin_templates_editor.js"></script>
+        <script>
+            // Initialize the editor
+            document.addEventListener('DOMContentLoaded', () => {
+                const form = document.getElementById('tplForm');
+                if (form) {
+                    new VisualEditor(form.querySelector('#editor-container'));
+                    lucide.createIcons();
+                }
+            });
+        </script>
+    </body>
+    </html>
+    """
+    with open("frontend_verification/verify.html", "w") as f:
+        f.write(html_content)
+
+def verify_ui():
+    generate_mock_html()
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+
+        # Load local HTML file
+        file_path = os.path.abspath("frontend_verification/verify.html")
+        page.goto(f"file://{file_path}")
+
+        # 1. Verify Advanced Options
+        page.wait_for_selector(".vis-sniff")
+        page.wait_for_selector(".vis-multiplex")
+
+        # 2. Verify Routing Mode
+        page.wait_for_selector("input[name='vis_routing']")
+
+        # Interact with Sniffing to show override
+        page.click("label:has(.vis-sniff)")
+        page.wait_for_selector(".vis-sniff-override-container:not(.hidden)", timeout=5000)
+
+        # Check that routing mode changes generate JSON (implicitly verified by functionality, here just checking presence)
+
+        # Take final screenshot
+        page.screenshot(path="frontend_verification/ui_verification_final.png", full_page=True)
+
+        browser.close()
+
+if __name__ == "__main__":
+    verify_ui()
