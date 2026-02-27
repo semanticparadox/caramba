@@ -225,19 +225,28 @@ impl TelemetryService {
                         .await
                         .unwrap_or(None);
 
-                let is_generic = node_sni
+                let node_status: Option<(Option<String>, String)> =
+                    sqlx::query_as("SELECT reality_sni, status FROM nodes WHERE id = $1")
+                        .bind(node_id)
+                        .fetch_optional(&self.pool)
+                        .await?
+                        .unwrap_or((None, "unknown".to_string()));
+
+                let (current_sni, status) = node_status;
+
+                let is_generic_or_missing = current_sni
                     .as_deref()
-                    .map(|s| s == "www.google.com" || s == "google.com" || s == "www.microsoft.com")
+                    .map(|s| s == "www.google.com" || s == "google.com" || s == "www.microsoft.com" || s == "gosuslugi.ru")
                     .unwrap_or(true);
 
-                if is_generic {
-                    let _ = sqlx::query("UPDATE nodes SET reality_sni = $1 WHERE id = $2")
+                if is_generic_or_missing || status == "provisioning" {
+                    let _ = sqlx::query("UPDATE nodes SET reality_sni = $1, status = 'active' WHERE id = $2")
                         .bind(&domain)
                         .bind(node_id)
                         .execute(&self.pool)
                         .await;
                     info!(
-                        "✨ Neighbor Sniper: Automatically assigned discovered SNI {} to Node {}",
+                        "✨ Neighbor Sniper: Automatically assigned verified SNI {} to Node {} (Provisioning Complete)",
                         domain, node_id
                     );
                 }

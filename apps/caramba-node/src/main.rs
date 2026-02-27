@@ -271,12 +271,12 @@ async fn main() -> anyhow::Result<()> {
 
             // SNI Health Check
             if let Some(current_sni) = sni_check::get_current_sni(&args.config_path).await {
-                if !sni_check::check_reachability(&current_sni).await {
+                if let Err(reason) = sni_check::check_reachability(&current_sni).await {
                     error!(
-                        "⚠️ SNI {} is unreachable! Triggering rotation...",
-                        current_sni
+                        "⚠️ SNI {} failed validation ({})! Triggering rotation...",
+                        current_sni, reason
                     );
-                    match rotate_sni(&client, &panel_url, &token, &current_sni).await {
+                    match rotate_sni(&client, &panel_url, &token, &current_sni, &reason).await {
                         Ok(new_sni) => {
                             info!("✅ SNI Rotated to {}. Updating config...", new_sni);
                             // Force immediate config update
@@ -409,6 +409,7 @@ async fn rotate_sni(
     panel_url: &str,
     token: &str,
     current_sni: &str,
+    reason: &str,
 ) -> anyhow::Result<String> {
     let url = format!("{}/api/v2/node/rotate-sni", panel_url);
 
@@ -417,7 +418,7 @@ async fn rotate_sni(
         .header("Authorization", format!("Bearer {}", token))
         .json(&serde_json::json!({
             "current_sni": current_sni,
-            "reason": "Health check failed (Agent detected unreachable)"
+            "reason": format!("Validation failed: {}", reason)
         }))
         .send()
         .await?;

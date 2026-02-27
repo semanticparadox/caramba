@@ -94,7 +94,8 @@ pub async fn heartbeat(
     // 3. Update Status (Optimized: Removed Heavy Telemetry Updates)
     // We only update critical fields (last_seen, ip, version) here to keep the API response fast.
     // Detailed telemetry (CPU, RAM, Connections) is handled asynchronously in TelemetryService.
-    let update_result = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN $1 ELSE ip END, version = $2 WHERE id = $3")
+    // Fixed logic: Preserve 'provisioning' status until SNI scanning is complete.
+    let update_result = sqlx::query("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP, status = CASE WHEN status = 'disabled' THEN 'disabled' WHEN status = 'provisioning' THEN 'provisioning' ELSE 'active' END, ip = CASE WHEN ip LIKE 'pending-%' OR ip = '0.0.0.0' THEN $1 ELSE ip END, version = $2 WHERE id = $3")
         .bind(&remote_ip)
         .bind(&req.version)
         .bind(node_id)
@@ -882,7 +883,8 @@ pub async fn register(
         .ip
         .unwrap_or_else(|| format!("pending-{}", &join_token[0..8]));
 
-    let node_id_res = sqlx::query("INSERT INTO nodes (name, ip, join_token, status, is_enabled) VALUES ($1, $2, $3, 'new', TRUE) RETURNING id")
+    // Start in provisioning state to wait for first SNI scan.
+    let node_id_res = sqlx::query("INSERT INTO nodes (name, ip, join_token, status, is_enabled) VALUES ($1, $2, $3, 'provisioning', TRUE) RETURNING id")
         .bind(&payload.hostname)
         .bind(&ip)
         .bind(&join_token)

@@ -1239,33 +1239,19 @@ pub async fn save_settings(
         settings.insert("deployment_mode".to_string(), deployment_mode.to_string());
     }
 
-    // Local Sub (Frontend) is now implicit or managed via frontends page, but we keep the key for legacy
-    // Actually, we'll accept it if present (from frontends form potentially, though that goes to frontends handler)
-    // But local_bot_enabled IS in the Bot form now.
-    if let Some(v) = form.local_bot_enabled {
-        settings.insert("local_bot_enabled".to_string(), if is_checkbox_enabled(Some(&v)) { "true".to_string() } else { "false".to_string() });
+    // local_bot_enabled is now in the bot.html form.
+    // If bot_token is present in the form, it means this form submission comes from bot.html.
+    // This allows us to safely default local_bot_enabled to false if it's missing from THAT specific form.
+    if form.bot_token.is_some() {
+        settings.insert(
+            "local_bot_enabled".to_string(),
+            if is_checkbox_enabled(form.local_bot_enabled.as_deref()) {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            },
+        );
     }
-
-    // local_sub_enabled might be removed from form submission here if not present in settings.html anymore.
-    // If we want to support it being toggled via other means or just keep existing value, we do nothing if None.
-    // But checkbox uncheck sends nothing.
-    // However, if we removed it from settings.html, we shouldn't try to read it as a "checkbox that was unchecked".
-    // We should only update it if we are sure the form *contained* it.
-    // Since we are reusing SaveSettingsForm for multiple pages (potentially), this is tricky.
-    // Ideally, we split the handlers or make form optional.
-    // For now, if we are on the Bot page, we only care about bot settings.
-    // The previous implementation assumed all checkboxes are present if unchecked (which is false, HTML forms don't send unchecked).
-    // So `is_checkbox_enabled(None)` returns false. This means removing it from UI disables it!
-    // To fix: We only update keys that are relevant to the section being saved.
-    // But `save_settings` is a monolith.
-    // Temporary fix: If we removed "Deployment Topology" from settings.html, we should STOP updating local_sub_enabled/local_bot_enabled from *that* form to avoid accidental disable.
-    // But `local_bot_enabled` IS in bot.html now.
-    // So when saving from bot.html, we want to update `local_bot_enabled`.
-    // When saving from settings.html (System tab), we removed it.
-    // So we need to be careful.
-    // If we simply remove the code that forces "false" when missing, we are safe.
-
-    // settings.insert("local_sub_enabled"...) -> REMOVED to prevent auto-disable
 
     settings.insert(
         "auto_update_agents".to_string(),
