@@ -40,9 +40,9 @@ impl SecurityService {
         Ok(sni.unwrap_or_else(|| "www.google.com".to_string()))
     }
 
-    /// Prefer pinned SNIs, then SNIs discovered by THIS node, fallback to global ones
+    /// Strict SNI Selection Hierarchy: Pinned -> High Health Verified Scans -> Relay Whitelist
     pub async fn get_best_sni_for_node(&self, node_id: i64) -> Result<String> {
-        // 1. Try Pinned SNIs
+        // 1. Absolute Priority: Pinned SNIs
         let pinned_sni: Option<String> = sqlx::query_scalar(
             r#"
             SELECT s.domain FROM sni_pool s
@@ -60,17 +60,22 @@ impl SecurityService {
             return Ok(sni);
         }
 
-        let is_relay: bool = sqlx::query_scalar("SELECT is_relay FROM nodes WHERE id = $1")
+        // 2. Internal Relay Rule: Use ONLY verified Roskomnadzor whitelist
+        // We use country_code 'RU' or is_relay flag.
+        let node_info: Option<(bool, Option<String>)> = sqlx::query_as("SELECT is_relay, country_code FROM nodes WHERE id = $1")
             .bind(node_id)
-            .fetch_one(&self.pool)
-            .await
-            .unwrap_or(false);
+            .fetch_optional(&self.pool)
+            .await?;
 
-        if is_relay {
-            return self.get_next_sni("", 1, true).await;
+        if let Some((is_relay, country_code)) = node_info {
+            let is_ru = country_code.unwrap_or_default().to_uppercase() == "RU";
+            if is_relay || is_ru {
+                // Russian internal relay logic: Pick from Premium (Whitelist)
+                return self.get_next_sni("", 1, true).await;
+            }
         }
 
-        // 2. Try node-specific discovered SNIs
+        // 3. Verified Scanner Results: Pick highest-health SNI discovered by this node
         let node_sni: Option<String> = sqlx::query_scalar(
             "SELECT domain FROM sni_pool WHERE discovered_by_node_id = $1 AND is_active = TRUE ORDER BY health_score DESC LIMIT 1"
         )
@@ -82,7 +87,7 @@ impl SecurityService {
             return Ok(sni);
         }
 
-        // 3. Fallback to global best
+        // 4. Fallback: Global Verified pool (Not hardcoded gosuslugi)
         self.get_next_sni("", 1, false).await
     }
 
@@ -156,7 +161,15 @@ impl SecurityService {
             .execute(&self.pool)
             .await?;
 
-        // 4. Log
+        // 4. Blocklist the old SNI if the rotation is due to a validation failure
+        if reason.starts_with("Validation failed:") || reason.starts_with("Auto-Heal:") {
+            let sni_repo = caramba_db::repositories::sni_repo::SniRepository::new(self.pool.clone());
+            if let Err(e) = sni_repo.add_to_blocklist(&current_sni, reason).await {
+                tracing::warn!("Failed to add SNI '{}' to blocklist: {}", current_sni, e);
+            }
+        }
+
+        // 5. Log
         let log = self
             .log_sni_rotation(node_id, &current_sni, &next_sni, reason)
             .await?;

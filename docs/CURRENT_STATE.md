@@ -1,119 +1,91 @@
 # Caramba Current State
 
-This document reflects what is implemented in code now, after refactor cleanup.
+This document reflects the current state of the codebase as of **February 2026**.
 
 ## Workspace Modules
 
 `apps/caramba-panel`
-- Main control plane.
-- Hosts admin UI (`/admin...`), public subscription endpoint (`/sub/{uuid}`), mini app (`/app...`), node/agent APIs (`/api/v2/node/...`), bot APIs, client APIs, internal APIs.
-- Owns orchestration, node lifecycle, policy management, SNI pool management, billing/store/referrals/family, background monitoring loops.
+- **Role:** Control Plane & Orchestrator.
+- **Tech:** Rust, Axum, Askama (HTMX), SQLx (PostgreSQL), Redis.
+- **Responsibilities:**
+    - Admin UI (`/admin`) for managing nodes, users, plans, and settings.
+    - Node API (`/api/v2/node`) for agent communication.
+    - Bot API (`/api/v2/bot`) for external bot worker.
+    - Internal API (`/api/internal`) for trusted workers.
+    - Config generation (Sing-box) and distribution.
+    - User/Subscription management and billing.
 
 `apps/caramba-node`
-- Node agent.
-- Pulls configs from panel, reports heartbeat/telemetry, supports long-poll update signals, self-update, kill-switch, on-demand log collection.
-- Runs speed test and neighbor SNI scan (hourly + manual trigger).
-
-`apps/caramba-sub`
-- Disposable edge frontend for `/sub`, `/app`, and `/api` proxy to panel.
-- Generates subscription payloads via panel internal APIs.
-- Now reports frontend heartbeat stats to panel (`/api/admin/frontends/{domain}/heartbeat`).
+- **Role:** Node Agent.
+- **Tech:** Rust.
+- **Responsibilities:**
+    - Runs on VPN servers alongside Sing-box.
+    - Pulls config from Panel.
+    - Reports heartbeat, traffic stats, and system metrics.
+    - Performs neighborhood SNI scanning.
+    - Handles self-updates.
+    - Implements Kill Switch and Decoy traffic logic.
 
 `apps/caramba-bot`
-- Telegram bot binary (currently with many dead-code sections, but compiles).
+- **Role:** Telegram Bot Worker.
+- **Tech:** Rust, Teloxide.
+- **Responsibilities:**
+    - Handles Telegram user interactions (start, plans, profile, support).
+    - Communicates with Panel via `/api/v2/bot`.
+    - Can run locally (embedded) or as a standalone worker.
+    - Supports self-updates.
+
+`apps/caramba-sub`
+- **Role:** Subscription/Frontend Worker.
+- **Tech:** Rust, Axum.
+- **Responsibilities:**
+    - Serves subscription links (SIP002, Clash, Sing-box).
+    - Proxies API requests if needed.
+    - Acts as an edge node for the panel.
+    - Supports self-updates.
 
 `apps/caramba-installer`
-- Installer/diagnostics/systemd setup.
+- **Role:** CLI Tool.
+- **Tech:** Rust.
+- **Responsibilities:**
+    - Installation, upgrade, backup, restore, and diagnostics.
 
 `libs/caramba-db`
-- Shared DB models/repositories and Postgres migration schema.
+- **Role:** Shared Data Layer.
+- **Tech:** SQLx.
+- **Responsibilities:**
+    - Database models and repositories.
+    - Migrations.
 
 `libs/caramba-shared`
-- Shared API/config payload contracts used by agent/panel.
+- **Role:** Shared Types.
+- **Responsibilities:**
+    - API request/response structs.
+    - Common configuration types.
 
-## Key Feature Status
+## Key Features
 
-### 1) Neighbor SNI scanner + best selection + manual selection
-Status: `Implemented (with caveats)`
-- Node scanner probes local `/24` over TLS and sends discoveries in heartbeat.
-- Panel persists discovered SNIs, can auto-assign for generic node SNI.
-- Admin can pin/unpin/block SNI and trigger manual scan.
-- Caveats:
-  - Scanner is IPv4-only.
-  - Subnet probing is sequential (can be slow on poor links).
+### Networking & Censorship Resistance
+- **Protocols:** VLESS (Reality, TCP/GRPC), Hysteria2, Trojan, TUIC, NaiveProxy, ShadowSocks, AmneziaWG.
+- **SNI Management:** Automated Reality SNI rotation, neighborhood scanning, manual pinning/blocking.
+- **Geo-Routing:** Intelligent node selection based on client location.
+- **Relay Support:** Node relaying for high-restriction environments.
 
-### 2) Detailed node monitoring
-Status: `Implemented`
-- Heartbeat stores latency/CPU/RAM/speed/connections/hardware/uptime/version.
-- Background monitor marks nodes/frontends offline by heartbeat timeout.
-- On-demand node log collection pipeline exists.
+### Operations
+- **One-Command Install:** `curl | bash` installer for all roles.
+- **Distributed Topology:** Supports separate hosts for Panel, Nodes, Bot, and Subscription workers.
+- **Self-Updating:** Agents and workers can update themselves from GitHub releases via Panel orchestration.
+- **Observability:** Real-time node status, traffic monitoring, and logs collection.
 
-### 3) Recommended users per node
-Status: `Implemented (adaptive)`
-- `max_users` now uses measured speed plus CPU/RAM load factor with smoothing.
-- High host load automatically lowers recommended capacity.
-- Still can be improved with protocol mix/QoS weighting and confidence intervals.
+### User Management & Billing
+- **Telegram Integration:** Bot-driven user flow.
+- **Plans:** Traffic-limited, time-limited, and trial plans.
+- **Payments:** Crypto (Cryptomus, NowPayments), Telegram Stars, Lava, AAIO.
+- **Referrals:** Multi-level referral system.
+- **Gift Codes:** Pre-paid subscription codes.
 
-### 4) Speed measurement
-Status: `Partially implemented`
-- Node runs a startup speed test and reports result.
-- No periodic re-test scheduler yet.
+## Known Issues (Audit Findings)
 
-### 5) Promo center
-Status: `Implemented`
-- Promo CRUD in admin panel.
-- Promo and gift redemption logic in services.
-- Promo usage tracking table is used.
-
-### 6) Inbound rotation
-Status: `Implemented`
-- Background rotation service rotates inbounds by `renew_interval_mins`.
-- Group/template flows and manual rotate controls are present.
-
-### 7) Relay node mode
-Status: `Implemented with compatibility rollout mode`
-- Relay flags/relations are in DB and models.
-- Orchestration and Sing-box generators include relay paths.
-- Relay transport now resolves target Shadowsocks inbound (port/method) when present.
-- Relay auth supports versioned modes via setting `relay_auth_mode`:
-  - `legacy`: raw `join_token`.
-  - `v1`: deterministic derived password from `join_token + target_node_id`.
-  - `dual` (default): target inbound accepts both (`relay_<id>` hashed + `relay_<id>_legacy` raw) while relay outbound uses hashed.
-- `relay_auth_mode` is configurable from admin settings UI.
-- Relay guardrail:
-  - Panel tracks last observed legacy relay traffic from node heartbeat `user_usage` (`relay_*_legacy` tags).
-  - Switching to `v1` is blocked if legacy traffic was seen within the last 24 hours.
-- Risk areas:
-  - Needs integration tests for multi-node relay chains and failure scenarios.
-
-### 8) `app + sub` on one domain
-Status: `Implemented in panel`, `supported in sub`
-- Panel already serves both `/app` and `/sub`.
-- Sub also serves both paths and can proxy APIs.
-- This allows consolidation on one domain when desired.
-
-## Regressions Found/Fixed in This Iteration
-
-- Global UI/UX styling: fixed `DOMTokenList` settings errors, introduced a macOS-style top system menubar, and unified settings and monitoring layouts.
-- Re-implemented the missing `/api/v2/bot/referrers/resolve` API route for the Telegram Bot and fortified the user DB upsert logic against `NOT NULL` DB constraint panics to fully mitigate the `Bot /start 500 error`.
-- Fixed `caramba-sub` mini app delivery: `/app` was effectively stubbed and always 404, now serves files from `apps/caramba-app/dist` with SPA fallback.
-- Added heartbeat metrics loop in `caramba-sub` and delivery to panel frontend heartbeat endpoint.
-- Removed refactor artifact comments from `caramba-panel/src/main.rs`.
-
-## High-Risk Gaps To Prioritize Next
-
-1. Relay mode hardening
-- Add integration tests for relay config generation and chain validation.
-
-2. Node capacity model
-- Extend adaptive model with protocol mix/QoS weighting and confidence intervals.
-
-3. Edge frontend observability
-- Add per-route/request metrics and panel-side dashboards/alerts for frontend fleet.
-
-4. SNI scanner quality
-- Add concurrency limits + timeout budget + dedup scoring.
-- Add IPv6 strategy if needed.
-
-5. Dead/legacy paths
-- Continue removing duplicate legacy handlers/routes and no-op compatibility surfaces after migration window closes.
+1.  **Sync Timeout:** Node synchronization can time out due to inefficient pub/sub or database locking.
+2.  **UI Redundancies:** Some settings in the admin panel are duplicated or misplaced.
+3.  **Documentation Drift:** Legacy docs referenced files or features that have changed (now corrected).

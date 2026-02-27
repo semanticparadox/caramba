@@ -63,12 +63,32 @@
                     </p>
                 </div>
 
-                <button type="submit"
-                    class="w-full flex items-center justify-center gap-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-700 text-slate-900 dark:text-white font-medium py-2.5 px-4 rounded-xl border border-slate-200 dark:border-white/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    {% if bot_status=="running" %}disabled{% endif %}>
-                    <i data-lucide="save" class="w-4 h-4"></i>
-                    Save Token
-                </button>
+                <!-- Local Bot Toggle moved from Topology -->
+                <div class="flex items-center justify-between p-3 bg-slate-100 dark:bg-slate-950/50 rounded-xl border border-slate-200 dark:border-white/5">
+                    <div>
+                        <span class="block text-xs font-medium text-slate-900 dark:text-white">Local Bot Instance</span>
+                        <span class="text-[10px] text-slate-500 dark:text-slate-500">Run bot process on this server</span>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" name="local_bot_enabled" value="true" class="sr-only peer" {% if local_bot_enabled %}checked{% endif %}>
+                        <div class="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500"></div>
+                    </label>
+                </div>
+
+                <div class="flex items-center justify-between gap-2">
+                    <button type="submit"
+                        class="flex-1 flex items-center justify-center gap-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-medium py-2.5 px-4 rounded-xl border border-slate-200 dark:border-white/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        {% if bot_status=="running" %}disabled{% endif %}>
+                        <i data-lucide="save" class="w-4 h-4"></i>
+                        Save Token
+                    </button>
+                    <!-- Remote Setup Button -->
+                    <a href="{{ admin_path }}/frontends"
+                       class="flex items-center justify-center gap-2 bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 font-medium py-2.5 px-4 rounded-xl border border-slate-200 dark:border-white/5 transition-all"
+                       title="Remote Setup">
+                        <i data-lucide="globe" class="w-4 h-4"></i>
+                    </a>
+                </div>
             </form>
         </div>
 
