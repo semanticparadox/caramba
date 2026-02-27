@@ -138,10 +138,11 @@ async fn main() -> anyhow::Result<()> {
         decoy_svc.run_loop().await;
     });
 
-    // 5.5 Start Neighbor Sniper (Phase 7)
+    // 5.5 Start Neighbor Sniper (Phase 7 & Phase 9 Automation)
     let discoveries = state.recent_discoveries.clone();
+    let initial_scan = state.current_hash.is_none(); // Trigger if fresh install
     tokio::spawn(async move {
-        start_neighbor_sniper(discoveries, scan_rx).await;
+        start_neighbor_sniper(discoveries, scan_rx, initial_scan).await;
     });
 
     // 6. Main Loop
@@ -1020,6 +1021,7 @@ async fn run_speed_test(client: &reqwest::Client) -> Option<i32> {
 async fn start_neighbor_sniper(
     discoveries: std::sync::Arc<tokio::sync::Mutex<Vec<caramba_shared::DiscoveredSni>>>,
     mut scan_rx: tokio::sync::mpsc::Receiver<()>,
+    initial_scan: bool,
 ) {
     info!("🚀 Neighbor Sniper background loop started.");
 
@@ -1033,16 +1035,21 @@ async fn start_neighbor_sniper(
 
     let scanner = scanner::NeighborScanner::new(local_ip);
 
-    loop {
-        info!("🔍 Neighbor Sniper: Starting scan cycle...");
+    // Run initial scan immediately if requested (e.g. fresh install)
+    if initial_scan {
+        info!("⚡ Initial Auto-Scan triggered.");
         let results = scanner.scan_subnet().await;
-
         if !results.is_empty() {
             let mut lock = discoveries.lock().await;
             lock.extend(results);
-            info!("✨ Neighbor Sniper: Found {} potential SNIs.", lock.len());
+            info!(
+                "✨ Neighbor Sniper (Initial): Found {} potential SNIs.",
+                lock.len()
+            );
         }
+    }
 
+    loop {
         // Wait for EITHER 1 hour OR a manual scan signal
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(3600)) => {
@@ -1051,6 +1058,15 @@ async fn start_neighbor_sniper(
             _ = scan_rx.recv() => {
                 info!("⚡ Neighbor Sniper: Manual scan signal received!");
             }
+        }
+
+        info!("🔍 Neighbor Sniper: Starting scan cycle...");
+        let results = scanner.scan_subnet().await;
+
+        if !results.is_empty() {
+            let mut lock = discoveries.lock().await;
+            lock.extend(results);
+            info!("✨ Neighbor Sniper: Found {} potential SNIs.", lock.len());
         }
     }
 }

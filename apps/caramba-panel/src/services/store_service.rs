@@ -19,6 +19,8 @@ pub struct StoreService {
     pub sub_repo: SubscriptionRepository,
     pub node_repo: NodeRepository,
     pub api_key_repo: ApiKeyRepository,
+    // Use RwLock for interior mutability to break circular dependency with OrchestrationService
+    pub orchestration_service: std::sync::Arc<std::sync::RwLock<Option<std::sync::Arc<crate::services::orchestration_service::OrchestrationService>>>>,
 }
 
 impl StoreService {
@@ -33,6 +35,13 @@ impl StoreService {
             sub_repo,
             node_repo,
             api_key_repo,
+            orchestration_service: std::sync::Arc::new(std::sync::RwLock::new(None)),
+        }
+    }
+
+    pub fn set_orchestration_service(&self, svc: std::sync::Arc<crate::services::orchestration_service::OrchestrationService>) {
+        if let Ok(mut lock) = self.orchestration_service.write() {
+            *lock = Some(svc);
         }
     }
 
@@ -456,6 +465,15 @@ impl StoreService {
             &format!("Purchased plan (Duration ID: {})", duration_id),
         )
         .await;
+
+        if let Ok(lock) = self.orchestration_service.read() {
+            if let Some(orch) = lock.as_ref() {
+                if let Some(node_id) = sub.node_id {
+                    let _ = orch.notify_node_update(node_id).await;
+                }
+            }
+        }
+
         Ok(sub)
     }
 
@@ -520,6 +538,14 @@ impl StoreService {
             &format!("User {} activated sub {}", user_id, sub_id),
         )
         .await;
+
+        if let Ok(lock) = self.orchestration_service.read() {
+            if let Some(orch) = lock.as_ref() {
+                if let Some(node_id) = updated_sub.node_id {
+                    let _ = orch.notify_node_update(node_id).await;
+                }
+            }
+        }
 
         Ok(updated_sub)
     }

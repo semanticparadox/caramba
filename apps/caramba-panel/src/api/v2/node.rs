@@ -180,6 +180,57 @@ pub async fn heartbeat(
         }
     }
 
+    // New logic: Also collect traffic for user_{tg_id} tags
+    if let Some(usage_map) = &req.user_usage {
+        for (tag, bytes) in usage_map {
+            if tag.starts_with("user_") {
+                if let Ok(tg_id) = tag[5..].parse::<i64>() {
+                    // Try to attribute this to the correct subscription for this user on this node
+                    // We look for an active subscription for this user_id (tg_id maps to user_id via users table)
+                    // Wait, tg_id IS user_id in Sing-box config? NO.
+                    // Orchestrator uses format!("user_{}", tg_id) where tg_id is the Telegram ID.
+                    // But our subscriptions table uses internal user_id.
+
+                    // 1. Resolve internal user_id from tg_id
+                    let user_id_res: Result<Option<i64>, _> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+                        .bind(tg_id)
+                        .fetch_optional(&state.pool)
+                        .await;
+
+                    if let Ok(Some(uid)) = user_id_res {
+                        // 2. Update subscription traffic
+                        // We target the *active* subscription for this user that is assigned to this node (or generally active)
+                        // Ideally we check node_id match, but if a user has multiple subs on same node, it's ambiguous.
+                        // However, standard flow is 1 active sub per user per plan.
+                        // We'll update the most relevant one.
+
+                        let updated_sub_id: Option<i64> = sqlx::query_scalar(
+                            r#"
+                            UPDATE subscriptions
+                            SET used_traffic = used_traffic + $1, traffic_updated_at = CURRENT_TIMESTAMP
+                            WHERE id = (
+                                SELECT id FROM subscriptions
+                                WHERE user_id = $2 AND status = 'active'
+                                ORDER BY expires_at DESC LIMIT 1
+                            )
+                            RETURNING id
+                            "#
+                        )
+                        .bind(*bytes as i64)
+                        .bind(uid)
+                        .fetch_optional(&state.pool)
+                        .await
+                        .unwrap_or(None);
+
+                        if let Some(sub_id) = updated_sub_id {
+                            touched_subscriptions.insert(sub_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if !touched_subscriptions.is_empty() {
         let touched_vec: Vec<i64> = touched_subscriptions.into_iter().collect();
         match state

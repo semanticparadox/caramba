@@ -819,6 +819,9 @@ impl OrchestrationService {
                 inbound.tag
             );
 
+            // Deduplication Set: One user per inbound
+            let mut visited_users = std::collections::HashSet::new();
+
             use caramba_db::models::network::{Hysteria2User, InboundType, NaiveUser, VlessClient};
 
             // Parse as Value first to handle missing 'protocol' tag in legacy/broken data
@@ -841,11 +844,15 @@ impl OrchestrationService {
                     match &mut settings {
                         InboundType::Vless(vless) => {
                             for sub in &active_subs {
-                                if let (sub_id, Some(uuid), _tg_id, _username) =
+                                if let (_sub_id, Some(uuid), tg_id, _username) =
                                     (sub.0, &sub.1, sub.2, &sub.3)
                                 {
-                                    // Use user_{sub_id} to match TrafficService expectation
-                                    let auth_name = format!("user_{}", sub_id);
+                                    if !visited_users.insert(tg_id) {
+                                        continue;
+                                    }
+
+                                    // Use user_{tg_id} for consistent identification
+                                    let auth_name = format!("user_{}", tg_id);
 
                                     info!(
                                         "🔑 Injecting VLESS user: {} (UUID: {})",
@@ -881,8 +888,11 @@ impl OrchestrationService {
                         }
                         InboundType::Hysteria2(hy2) => {
                             for sub in &active_subs {
-                                if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
-                                    let auth_name = format!("user_{}", sub_id);
+                                if let (_sub_id, Some(uuid), tg_id, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                    if !visited_users.insert(tg_id) {
+                                        continue;
+                                    }
+                                    let auth_name = format!("user_{}", tg_id);
 
                                     info!(
                                         "🔑 Injecting HYSTERIA user: {} (Pass: {})",
@@ -898,10 +908,13 @@ impl OrchestrationService {
                         InboundType::AmneziaWg(awg) => {
                             use caramba_db::models::network::AmneziaWgUser;
                             for sub in &active_subs {
-                                if let (sub_id, Some(uuid), tg_id, _) =
+                                if let (_sub_id, Some(uuid), tg_id, _) =
                                     (sub.0, &sub.1, sub.2, &sub.3)
                                 {
-                                    let auth_name = format!("user_{}", sub_id);
+                                    if !visited_users.insert(tg_id) {
+                                        continue;
+                                    }
+                                    let auth_name = format!("user_{}", tg_id);
 
                                     let client_priv = self.derive_awg_key(uuid);
                                     let client_pub = self.priv_to_pub(&client_priv);
@@ -923,8 +936,11 @@ impl OrchestrationService {
                         InboundType::Trojan(trojan) => {
                             use caramba_db::models::network::TrojanClient;
                             for sub in &active_subs {
-                                if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
-                                    let auth_name = format!("user_{}", sub_id);
+                                if let (_sub_id, Some(uuid), tg_id, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                    if !visited_users.insert(tg_id) {
+                                        continue;
+                                    }
+                                    let auth_name = format!("user_{}", tg_id);
                                     trojan.clients.push(TrojanClient {
                                         password: uuid.clone(),
                                         email: Some(auth_name),
@@ -934,8 +950,11 @@ impl OrchestrationService {
                         }
                         InboundType::Tuic(tuic) => {
                             for sub in &active_subs {
-                                if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
-                                    let auth_name = format!("user_{}", sub_id);
+                                if let (_sub_id, Some(uuid), tg_id, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                    if !visited_users.insert(tg_id) {
+                                        continue;
+                                    }
+                                    let auth_name = format!("user_{}", tg_id);
 
                                     info!("🔑 Injecting TUIC user: {} (UUID: {})", auth_name, uuid);
                                     tuic.users.push(caramba_db::models::network::TuicUser {
@@ -948,8 +967,11 @@ impl OrchestrationService {
                         }
                         InboundType::Naive(naive) => {
                             for sub in &active_subs {
-                                if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
-                                    let auth_name = format!("user_{}", sub_id);
+                                if let (_sub_id, Some(uuid), tg_id, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                    if !visited_users.insert(tg_id) {
+                                        continue;
+                                    }
+                                    let auth_name = format!("user_{}", tg_id);
 
                                     info!(
                                         "🔑 Injecting NAIVE user: {} (Pass: {})",
@@ -964,8 +986,11 @@ impl OrchestrationService {
                         }
                         InboundType::Shadowsocks(ss) => {
                             for sub in &active_subs {
-                                if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
-                                    let auth_name = format!("user_{}", sub_id);
+                                if let (_sub_id, Some(uuid), tg_id, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                    if !visited_users.insert(tg_id) {
+                                        continue;
+                                    }
+                                    let auth_name = format!("user_{}", tg_id);
 
                                     info!(
                                         "🔑 Injecting SHADOWSOCKS user: {} (Pass: {})",
