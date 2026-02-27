@@ -236,16 +236,16 @@ pub async fn message_handler(
                 // Set persistent menu button
                 let web_app_url = state.settings.get_or_default("mini_app_url", "").await;
                 if !web_app_url.is_empty() {
-                    let _ = bot
-                        .set_chat_menu_button()
-                        .chat_id(msg.chat.id)
-                        .menu_button(teloxide::types::MenuButton::WebApp {
-                            text: "🚀 Open App".to_string(),
-                            web_app: teloxide::types::WebAppInfo {
-                                url: web_app_url.parse().unwrap(),
-                            },
-                        })
-                        .await;
+                    if let Ok(url) = web_app_url.parse() {
+                        let _ = bot
+                            .set_chat_menu_button()
+                            .chat_id(msg.chat.id)
+                            .menu_button(teloxide::types::MenuButton::WebApp {
+                                text: "🚀 Open App".to_string(),
+                                web_app: teloxide::types::WebAppInfo { url },
+                            })
+                            .await;
+                    }
                 }
 
                 return Ok(());

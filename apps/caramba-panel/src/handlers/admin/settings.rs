@@ -595,7 +595,7 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .settings
         .get_or_default("decoy_enabled", "false")
         .await
-        == "true";
+        .to_ascii_lowercase() == "true";
     let decoy_urls = state.settings.get_or_default("decoy_urls", "[]").await;
     let decoy_min_interval = state
         .settings
