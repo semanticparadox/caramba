@@ -41,6 +41,13 @@ impl TelemetryService {
         speed_mbps: Option<i32>,
         discovered_snis: Option<Vec<caramba_shared::DiscoveredSni>>,
         uptime: u64,
+        // Added params
+        latency: Option<f64>,
+        cpu_usage: Option<f64>,
+        memory_usage: Option<f64>,
+        max_ram: Option<u64>,
+        cpu_cores: Option<i32>,
+        cpu_model: Option<String>,
     ) -> Result<()> {
         let node_data: Option<(i64, i64, i64, i64)> = sqlx::query_as(
             "SELECT total_ingress, total_egress, last_session_ingress, last_session_egress FROM nodes WHERE id = $1"
@@ -65,15 +72,12 @@ impl TelemetryService {
             total_in += diff_in as i64;
             total_eq += diff_eg as i64;
 
-            let node_load: Option<(Option<f64>, Option<f64>, Option<i32>)> =
-                sqlx::query_as("SELECT last_cpu, last_ram, max_users FROM nodes WHERE id = $1")
-                    .bind(node_id)
-                    .fetch_optional(&self.pool)
-                    .await?;
+            let prev_max: Option<i32> = sqlx::query_scalar("SELECT max_users FROM nodes WHERE id = $1")
+                .bind(node_id)
+                .fetch_optional(&self.pool)
+                .await?;
 
-            let calculated_max = node_load.and_then(|(cpu, ram, prev_max)| {
-                derive_recommended_max_users(speed_mbps, cpu, ram, prev_max)
-            });
+            let calculated_max = derive_recommended_max_users(speed_mbps, cpu_usage, memory_usage, prev_max);
 
             sqlx::query(
                 "UPDATE nodes SET 
@@ -84,8 +88,14 @@ impl TelemetryService {
                     last_session_egress = $5,
                     uptime = $6,
                     current_speed_mbps = COALESCE($7, current_speed_mbps),
-                    max_users = COALESCE($8, max_users)
-                 WHERE id = $9",
+                    max_users = COALESCE($8, max_users),
+                    last_latency = $9,
+                    last_cpu = $10,
+                    last_ram = $11,
+                    max_ram = COALESCE($12, max_ram),
+                    cpu_cores = COALESCE($13, cpu_cores),
+                    cpu_model = COALESCE($14, cpu_model)
+                 WHERE id = $15",
             )
             .bind(active_connections.map(|c| c as i32))
             .bind(total_in)
@@ -95,6 +105,12 @@ impl TelemetryService {
             .bind(uptime as i64)
             .bind(speed_mbps)
             .bind(calculated_max)
+            .bind(latency)
+            .bind(cpu_usage)
+            .bind(memory_usage)
+            .bind(max_ram.map(|v| v as i64))
+            .bind(cpu_cores)
+            .bind(cpu_model)
             .bind(node_id)
             .execute(&self.pool)
             .await?;

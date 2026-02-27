@@ -1091,10 +1091,12 @@ impl StoreService {
 
         for sub in subs {
             let links = self.get_subscription_links(sub.sub.id).await.unwrap_or_default();
-            config["profiles"].as_array_mut().unwrap().push(serde_json::json!({
-                "name": sub.plan_name,
-                "links": links
-            }));
+            if let Some(profiles) = config["profiles"].as_array_mut() {
+                profiles.push(serde_json::json!({
+                    "name": sub.plan_name,
+                    "links": links
+                }));
+            }
         }
 
         Ok(serde_json::to_string_pretty(&config)?)
