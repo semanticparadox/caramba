@@ -145,7 +145,7 @@ pub async fn heartbeat(
 
     // 4. Process Per-User Traffic Usage
     let mut touched_subscriptions: HashSet<i64> = HashSet::new();
-    if let Some(usage_map) = req.user_usage {
+    if let Some(ref usage_map) = req.user_usage {
         let mut relay_legacy_usage_bytes: u64 = 0;
         for (tag, bytes) in usage_map {
             if tag.starts_with("user_") {
@@ -153,7 +153,7 @@ pub async fn heartbeat(
                     touched_subscriptions.insert(sub_id);
                     // Increment used_traffic and update timestamp
                     let _ = sqlx::query("UPDATE subscriptions SET used_traffic = used_traffic + $1, traffic_updated_at = CURRENT_TIMESTAMP WHERE id = $2")
-                        .bind(bytes as i64)
+                        .bind(*bytes as i64)
                         .bind(sub_id)
                         .execute(&state.pool)
                         .await;
@@ -161,7 +161,7 @@ pub async fn heartbeat(
             }
 
             if tag.starts_with("relay_") && tag.ends_with("_legacy") {
-                relay_legacy_usage_bytes = relay_legacy_usage_bytes.saturating_add(bytes);
+                relay_legacy_usage_bytes = relay_legacy_usage_bytes.saturating_add(*bytes);
             }
         }
 

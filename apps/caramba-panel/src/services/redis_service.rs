@@ -59,6 +59,16 @@ impl RedisService {
         Ok(())
     }
 
+    pub async fn exists(&self, key: &str) -> Result<bool> {
+        let mut manager = self.manager.clone();
+        let exists: bool = redis::cmd("EXISTS")
+            .arg(key)
+            .query_async(&mut manager)
+            .await
+            .context("Redis EXISTS failed")?;
+        Ok(exists)
+    }
+
     // --- Specific Caching Methods ---
 
     pub async fn cache_subscription(&self, sub_uuid: &str, config: &str) -> Result<()> {

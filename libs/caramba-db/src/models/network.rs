@@ -46,6 +46,26 @@ pub enum InboundType {
     Tuic(TuicSettings),
     Naive(NaiveSettings),
     Shadowsocks(ShadowsocksSettings),
+    Shadowtls(ShadowtlsSettings),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShadowtlsSettings {
+    pub users: Vec<ShadowtlsUser>,
+    pub handshake: ShadowtlsHandshake,
+    #[serde(default)]
+    pub strict_mode: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShadowtlsUser {
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShadowtlsHandshake {
+    pub server: String,
+    pub server_port: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -209,6 +229,28 @@ pub struct StreamSettings {
     pub xhttp_settings: Option<XhttpSettings>,
     #[serde(alias = "packetEncoding", default)]
     pub packet_encoding: Option<String>,
+    #[serde(default)]
+    pub sniff: Option<bool>,
+    #[serde(default)]
+    pub sniff_override_destination: Option<bool>,
+    #[serde(default)]
+    pub multiplex: Option<MultiplexSettings>,
+    #[serde(default)]
+    pub routing_mode: Option<String>, // "global", "smart" (default)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiplexSettings {
+    pub enabled: bool,
+    #[serde(default = "default_mux_protocol")]
+    pub protocol: String, // "smux", "h2mux", "yamux"
+    pub max_connections: Option<i32>,
+    pub min_streams: Option<i32>,
+    pub padding: Option<bool>,
+}
+
+fn default_mux_protocol() -> String {
+    "smux".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
