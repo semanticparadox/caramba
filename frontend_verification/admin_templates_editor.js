@@ -236,8 +236,8 @@ class VisualEditor {
         } else if (security === 'reality') {
             stream.realitySettings = {
                 show: false,
-                dest: this.getVal('.vis-reality-dest', 'www.google.com:443'),
-                serverNames: this.getVal('.vis-reality-sni', 'www.google.com').split(','),
+                dest: "{{SNI}}:443",
+                serverNames: ["{{SNI}}"],
                 privateKey: "{{reality_private}}",
                 shortIds: ["", "0123456789abcdef"]
             };
@@ -308,10 +308,7 @@ class VisualEditor {
                 this.setVal('.vis-http-host', stream.httpUpgradeSettings.host);
             }
 
-            if (stream.realitySettings) {
-                this.setVal('.vis-reality-dest', stream.realitySettings.dest);
-                this.setVal('.vis-reality-sni', (stream.realitySettings.serverNames || []).join(','));
-            }
+            // Reality dest/sni are now auto-managed, so no need to populate the inputs
             if (stream.tlsSettings) {
                 this.setVal('.vis-tls-sni', stream.tlsSettings.serverName);
             }
@@ -347,10 +344,7 @@ class VisualEditor {
             }
         };
 
-        if (s === 'reality') {
-            require('.vis-reality-dest', 'Dest is required');
-            require('.vis-reality-sni', 'SNI is required');
-        }
+        // Reality dest/sni are auto-managed
 
         return valid;
     }
