@@ -21,6 +21,8 @@ pub struct FrontendsTemplate {
     pub frontend_mode: String,
     pub miniapp_enabled: bool,
     pub subscription_domain: String,
+    pub panel_url: String,
+    pub mini_app_url: String,
     pub relay_auth_mode: String,
     pub installer_node_command: String,
     pub installer_sub_command: String,
@@ -35,6 +37,8 @@ pub struct SaveFrontendSettingsForm {
     pub frontend_mode: Option<String>,
     pub miniapp_enabled: Option<String>,
     pub subscription_domain: Option<String>,
+    pub panel_url: Option<String>,
+    pub mini_app_url: Option<String>,
     pub relay_auth_mode: Option<String>,
 }
 
@@ -65,8 +69,10 @@ pub async fn get_frontends(State(state): State<AppState>, jar: CookieJar) -> imp
     let panel_url_display = if panel_url.is_empty() {
         "https://YOUR_PANEL_DOMAIN".to_string()
     } else {
-        panel_url
+        panel_url.clone()
     };
+
+    let mini_app_url = state.settings.get_or_default("mini_app_url", "").await;
 
     let installer_enrollment_key = state
         .settings
@@ -107,6 +113,8 @@ pub async fn get_frontends(State(state): State<AppState>, jar: CookieJar) -> imp
         frontend_mode,
         miniapp_enabled,
         subscription_domain,
+        panel_url,
+        mini_app_url,
         relay_auth_mode,
         installer_node_command,
         installer_sub_command,
@@ -147,6 +155,14 @@ pub async fn save_frontend_settings(
 
     if let Some(v) = form.subscription_domain {
         settings.insert("subscription_domain".to_string(), v);
+    }
+
+    if let Some(v) = form.panel_url {
+        settings.insert("panel_url".to_string(), v);
+    }
+
+    if let Some(v) = form.mini_app_url {
+        settings.insert("mini_app_url".to_string(), v);
     }
 
     if let Some(v) = form.relay_auth_mode {

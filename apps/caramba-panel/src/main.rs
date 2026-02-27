@@ -748,10 +748,11 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/nodes/{id}/update",
             axum::routing::post(handlers::admin::update_node),
         )
+        // Fix: Route was incorrect, trigger_update handler does not take ID in path
         .route(
-            "/nodes/{id}/update/trigger",
+            "/nodes/update/trigger",
             axum::routing::post(handlers::admin::updates::trigger_update),
-        ) // NEW Phase 67
+        )
         .route(
             "/nodes/{id}/activate",
             axum::routing::post(handlers::admin::activate_node),

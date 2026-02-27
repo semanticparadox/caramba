@@ -494,10 +494,14 @@ impl OrchestrationService {
             }
         }
 
+        let random_suffix = uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("0000").to_string();
+        let safe_tag_base = template.name.replace(' ', "-").replace(|c: char| !c.is_alphanumeric() && c != '-', "");
+        let smart_tag = format!("{}-{}", safe_tag_base, random_suffix);
+
         let inbound = caramba_db::models::network::Inbound {
             id: 0,
             node_id: node.id,
-            tag: format!("tpl_{}", template.name.to_lowercase().replace(' ', "_")),
+            tag: smart_tag,
             protocol: template.protocol.clone(),
             listen_port: port,
             listen_ip: "0.0.0.0".to_string(),

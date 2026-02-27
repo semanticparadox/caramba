@@ -466,11 +466,18 @@ impl StoreService {
         )
         .await;
 
-        if let Ok(lock) = self.orchestration_service.read() {
-            if let Some(orch) = lock.as_ref() {
-                if let Some(node_id) = sub.node_id {
-                    let _ = orch.notify_node_update(node_id).await;
-                }
+        // Fix: Clone Arc inside lock, then await outside to avoid holding std::sync::RwLock across await
+        let orch_opt = {
+            if let Ok(lock) = self.orchestration_service.read() {
+                lock.clone()
+            } else {
+                None
+            }
+        };
+
+        if let Some(orch) = orch_opt {
+            if let Some(node_id) = sub.node_id {
+                let _ = orch.notify_node_update(node_id).await;
             }
         }
 
@@ -539,11 +546,17 @@ impl StoreService {
         )
         .await;
 
-        if let Ok(lock) = self.orchestration_service.read() {
-            if let Some(orch) = lock.as_ref() {
-                if let Some(node_id) = updated_sub.node_id {
-                    let _ = orch.notify_node_update(node_id).await;
-                }
+        let orch_opt = {
+            if let Ok(lock) = self.orchestration_service.read() {
+                lock.clone()
+            } else {
+                None
+            }
+        };
+
+        if let Some(orch) = orch_opt {
+            if let Some(node_id) = updated_sub.node_id {
+                let _ = orch.notify_node_update(node_id).await;
             }
         }
 
@@ -801,6 +814,21 @@ impl StoreService {
 
         tx.commit().await?;
         let _ = self.sync_family_subscriptions(user_id).await;
+
+        // Trigger Sync
+        let orch_opt = {
+            if let Ok(lock) = self.orchestration_service.read() {
+                lock.clone()
+            } else {
+                None
+            }
+        };
+
+        if let Some(orch) = orch_opt {
+            if let Some(node_id) = sub.node_id {
+                let _ = orch.notify_node_update(node_id).await;
+            }
+        }
 
         Ok(sub)
     }

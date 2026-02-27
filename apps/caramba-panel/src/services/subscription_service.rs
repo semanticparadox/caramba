@@ -385,6 +385,13 @@ impl SubscriptionService {
         if let Some(orch) = &self.orchestration_service {
              if let Some(node_id) = sub.node_id {
                  let _ = orch.notify_node_update(node_id).await;
+             } else {
+                 // If no node specific, notify all active nodes just in case (e.g. distributed plan)
+                 // Or we could let the nodes pull periodically.
+                 // For immediate effect on distributed setups, we might want to notify all linked to plan.
+                 // But orchestration service handles single node.
+                 // We can get nodes for plan and notify them.
+                 // For now, let's keep it simple and notify if node_id is present.
              }
         }
 
