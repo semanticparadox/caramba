@@ -418,6 +418,12 @@ impl OrchestrationService {
             .replace("{{REALITY_PBK}}", pbk)
             .replace("{{REALITY_SID}}", sid);
 
+        // Always replace manual placeholders even if not strictly vless,
+        // in case user pasted a raw JSON using these.
+        if stream_json.contains("{{SNI}}") {
+             stream_json = stream_json.replace("{{SNI}}", sni);
+        }
+
         if template.protocol == "vless" {
             // Generate Reality Keys
             let (priv_key, pub_key, short_id) = self.generate_reality_keys()?;
@@ -992,6 +998,18 @@ impl OrchestrationService {
                                     );
                                     ss.users.push(caramba_db::models::network::ShadowsocksUser {
                                         username: auth_name,
+                                        password: uuid.replace("-", ""),
+                                    });
+                                }
+                            }
+                        }
+                        InboundType::Shadowtls(stls) => {
+                            use caramba_db::models::network::ShadowtlsUser;
+                            for sub in &active_subs {
+                                if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                    let _auth_name = format!("user_{}", sub_id);
+                                    // Assuming ShadowTLS uses password/uuid for auth
+                                    stls.users.push(ShadowtlsUser {
                                         password: uuid.replace("-", ""),
                                     });
                                 }

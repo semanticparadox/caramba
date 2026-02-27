@@ -287,7 +287,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     };
 
     // Initialize PubSub Service (Moved up for dependency injection)
-    let pubsub_service = services::pubsub_service::PubSubService::new(redis_url)
+    let pubsub_service = services::pubsub_service::PubSubService::new(redis_url.clone())
         .await
         .expect("Failed to init PubSub");
 

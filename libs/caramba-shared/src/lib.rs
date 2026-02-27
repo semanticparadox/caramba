@@ -12,7 +12,7 @@ pub struct DiscoveredSni {
 pub mod api {
     use super::*;
 
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Debug, Serialize, Deserialize, Clone)]
     pub struct HeartbeatRequest {
         pub version: String,
         pub uptime: u64,
@@ -35,7 +35,7 @@ pub mod api {
         pub discovered_snis: Option<Vec<DiscoveredSni>>,
     }
 
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Debug, Serialize, Deserialize, Clone)]
     pub struct CertificateStatus {
         pub sni: String,
         pub valid: bool,

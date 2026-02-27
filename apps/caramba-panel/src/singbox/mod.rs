@@ -1,9 +1,11 @@
 pub mod config;
 pub mod generator;
+pub mod inbound_factory;
 pub mod reality;
 pub mod subscription_generator;
 
-pub use generator::{ConfigGenerator, RelayAuthMode};
+pub use generator::ConfigGenerator;
+pub use inbound_factory::RelayAuthMode;
 
 #[cfg(test)]
 mod tests;
