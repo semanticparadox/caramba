@@ -45,47 +45,60 @@
                 </div>
             </div>
 
+            <!-- Panel & Mini App URLs (Moved from Settings) -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6 border-t border-border-default">
-                    <!-- Mini App Toggle -->
-                    <div
-                        class="flex items-center justify-between p-5 bg-black/20 border border-border-default rounded-2xl">
-                        <div class="flex items-center gap-4">
-                            <div class="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center text-brand">
-                                <i data-lucide="smartphone" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h4 class="text-sm font-bold text-slate-900 dark:text-white">Telegram Mini App</h4>
-                                <p class="text-[10px] text-slate-500 font-medium mt-0.5">Enable the embedded interface
-                                </p>
-                            </div>
-                        </div>
-                        <label class="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" name="miniapp_enabled" value="true" class="sr-only peer" {% if
-                                miniapp_enabled %}checked{% endif %}>
-                            <div
-                                class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand">
-                            </div>
-                        </label>
-                    </div>
+                <div>
+                    <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Panel API URL</label>
+                    <input type="text" name="panel_url" value="{{ panel_url }}" placeholder="https://panel.example.com" class="input-field font-mono">
+                    <p class="text-[10px] text-slate-500 mt-2 ml-1">Used by agents to reach this control plane.</p>
+                </div>
+                <div>
+                    <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Mini App URL</label>
+                    <input type="text" name="mini_app_url" value="{{ mini_app_url }}" placeholder="https://app.example.com" class="input-field font-mono">
+                    <p class="text-[10px] text-slate-500 mt-2 ml-1">Optional override for Telegram Web App.</p>
+                </div>
+            </div>
 
-                    <!-- Relay Auth Mode -->
-                    <div>
-                        <label
-                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-3 ml-1">Relay
-                            Auth Mode</label>
-                        <select name="relay_auth_mode" class="input-field">
-                            <option value="dual" {% if relay_auth_mode=="dual" %}selected{% endif %}>Dual (Recommended
-                                Rollout)</option>
-                            <option value="v1" {% if relay_auth_mode=="v1" %}selected{% endif %}>V1 (Derived Only)
-                            </option>
-                            <option value="legacy" {% if relay_auth_mode=="legacy" %}selected{% endif %}>Legacy (Raw
-                                Token)</option>
-                        </select>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6 border-t border-border-default">
+                <!-- Mini App Toggle -->
+                <div
+                    class="flex items-center justify-between p-5 bg-black/20 border border-border-default rounded-2xl">
+                    <div class="flex items-center gap-4">
+                        <div class="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center text-brand">
+                            <i data-lucide="smartphone" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <h4 class="text-sm font-bold text-slate-900 dark:text-white">Telegram Mini App</h4>
+                            <p class="text-[10px] text-slate-500 font-medium mt-0.5">Enable the embedded interface
+                            </p>
+                        </div>
                     </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" name="miniapp_enabled" value="true" class="sr-only peer" {% if
+                            miniapp_enabled %}checked{% endif %}>
+                        <div
+                            class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand">
+                        </div>
+                    </label>
                 </div>
 
-                <div class="pt-2 flex justify-end">
+                <!-- Relay Auth Mode -->
+                <div>
+                    <label
+                        class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-3 ml-1">Relay
+                        Auth Mode</label>
+                    <select name="relay_auth_mode" class="input-field">
+                        <option value="dual" {% if relay_auth_mode=="dual" %}selected{% endif %}>Dual (Recommended
+                            Rollout)</option>
+                        <option value="v1" {% if relay_auth_mode=="v1" %}selected{% endif %}>V1 (Derived Only)
+                        </option>
+                        <option value="legacy" {% if relay_auth_mode=="legacy" %}selected{% endif %}>Legacy (Raw
+                            Token)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="pt-2 flex justify-end">
                     <button type="submit" class="btn btn-primary px-10">
                         <i data-lucide="save"></i>
                         Update Configuration
