@@ -90,8 +90,23 @@
                 below.</p>
         </div>
 
-        <!-- JSON Settings -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Manual Mode Toggle -->
+        <div class="flex items-center justify-between p-4 bg-slate-900/30 border border-slate-800 rounded-xl mb-6">
+            <div class="flex items-center gap-3">
+                <i data-lucide="code" class="w-5 h-5 text-emerald-400"></i>
+                <div>
+                    <h4 class="text-sm font-bold text-slate-200">Manual JSON Mode</h4>
+                    <p class="text-[10px] text-slate-500 font-medium">Edit raw Sing-box config fragments</p>
+                </div>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="manual_mode_toggle" class="sr-only peer" onchange="toggleManualMode(this)">
+                <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+            </label>
+        </div>
+
+        <!-- JSON Settings (Hidden by default unless Manual Mode) -->
+        <div id="json_editors_container" class="grid grid-cols-1 lg:grid-cols-2 gap-6 hidden">
             <div class="space-y-3">
                 <div class="flex justify-between items-center px-1">
                     <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Protocol
@@ -101,7 +116,7 @@
                 </div>
                 <div class="relative group overflow-hidden rounded-2xl border border-white/5 bg-[#0d1117]">
                     <div class="absolute top-0 left-0 right-0 h-1 bg-indigo-500/30"></div>
-                    <textarea id="edit_settings" name="settings" rows="8"
+                    <textarea id="edit_settings" name="settings" rows="12"
                         class="w-full bg-transparent p-4 text-xs text-indigo-300 font-mono focus:outline-none resize-none leading-relaxed transition-all">{{ inbound.settings }}</textarea>
                 </div>
             </div>
@@ -115,10 +130,17 @@
                 </div>
                 <div class="relative group overflow-hidden rounded-2xl border border-white/5 bg-[#0d1117]">
                     <div class="absolute top-0 left-0 right-0 h-1 bg-purple-500/30"></div>
-                    <textarea id="edit_stream_settings" name="stream_settings" rows="8" oninput="syncEditSniInput()"
+                    <textarea id="edit_stream_settings" name="stream_settings" rows="12" oninput="syncEditSniInput()"
                         class="w-full bg-transparent p-4 text-xs text-purple-300 font-mono focus:outline-none resize-none leading-relaxed transition-all">{{ inbound.stream_settings }}</textarea>
                 </div>
             </div>
+        </div>
+
+        <!-- Simplified Settings (Visible by default) -->
+        <div id="simple_settings_container" class="space-y-4">
+            <p class="text-xs text-slate-500 italic text-center py-4">
+                Advanced settings are managed automatically. Enable <b>Manual JSON Mode</b> above to edit raw configurations.
+            </p>
         </div>
     </div>
 
@@ -133,6 +155,19 @@
 </form>
 
 <script>
+    function toggleManualMode(el) {
+        const jsonContainer = document.getElementById('json_editors_container');
+        const simpleContainer = document.getElementById('simple_settings_container');
+
+        if (el.checked) {
+            jsonContainer.classList.remove('hidden');
+            simpleContainer.classList.add('hidden');
+        } else {
+            jsonContainer.classList.add('hidden');
+            simpleContainer.classList.remove('hidden');
+        }
+    }
+
     function syncEditSniInput() {
         try {
             const json = JSON.parse(document.getElementById('edit_stream_settings').value);
