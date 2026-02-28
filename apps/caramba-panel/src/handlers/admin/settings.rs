@@ -595,7 +595,7 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .settings
         .get_or_default("decoy_enabled", "false")
         .await
-        == "true";
+        .to_ascii_lowercase() == "true";
     let decoy_urls = state.settings.get_or_default("decoy_urls", "[]").await;
     let decoy_min_interval = state
         .settings
@@ -1239,23 +1239,19 @@ pub async fn save_settings(
         settings.insert("deployment_mode".to_string(), deployment_mode.to_string());
     }
 
-    settings.insert(
-        "local_sub_enabled".to_string(),
-        if is_checkbox_enabled(form.local_sub_enabled.as_deref()) {
-            "true".to_string()
-        } else {
-            "false".to_string()
-        },
-    );
-
-    settings.insert(
-        "local_bot_enabled".to_string(),
-        if is_checkbox_enabled(form.local_bot_enabled.as_deref()) {
-            "true".to_string()
-        } else {
-            "false".to_string()
-        },
-    );
+    // local_bot_enabled is now in the bot.html form.
+    // If bot_token is present in the form, it means this form submission comes from bot.html.
+    // This allows us to safely default local_bot_enabled to false if it's missing from THAT specific form.
+    if form.bot_token.is_some() {
+        settings.insert(
+            "local_bot_enabled".to_string(),
+            if is_checkbox_enabled(form.local_bot_enabled.as_deref()) {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            },
+        );
+    }
 
     settings.insert(
         "auto_update_agents".to_string(),

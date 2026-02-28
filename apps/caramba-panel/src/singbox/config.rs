@@ -74,6 +74,7 @@ pub enum Inbound {
     Http(HttpInbound),
     Naive(NaiveInbound),
     Shadowsocks(ShadowsocksInbound),
+    Shadowtls(ShadowtlsInbound),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -119,6 +120,8 @@ pub struct VlessInbound {
     pub transport: Option<VlessTransportConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub packet_encoding: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub multiplex: Option<MultiplexConfig>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -128,12 +131,41 @@ pub struct ShadowsocksInbound {
     pub listen_port: u16,
     pub method: String,
     pub users: Vec<ShadowsocksUser>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub multiplex: Option<MultiplexConfig>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ShadowsocksUser {
     pub name: String,
     pub password: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ShadowtlsInbound {
+    pub tag: String,
+    pub listen: String,
+    pub listen_port: u16,
+    pub version: Option<i32>,
+    pub users: Vec<ShadowtlsUser>,
+    pub handshake: ShadowtlsHandshake,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strict_mode: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detour: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ShadowtlsUser {
+    pub password: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ShadowtlsHandshake {
+    pub server: String,
+    pub server_port: u16,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -313,6 +345,8 @@ pub struct TrojanInbound {
     pub listen_port: u16,
     pub users: Vec<TrojanUser>,
     pub tls: Option<VlessTlsConfig>, // Can reuse VlessTlsConfig or define TrojanTlsConfig
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub multiplex: Option<MultiplexConfig>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -424,4 +458,21 @@ pub struct DnsRule {
     pub clash_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rule_set: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MultiplexConfig {
+    pub enabled: bool,
+    #[serde(default = "default_mux_protocol_singbox")]
+    pub protocol: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_connections: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_streams: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub padding: Option<bool>,
+}
+
+fn default_mux_protocol_singbox() -> String {
+    "smux".to_string()
 }

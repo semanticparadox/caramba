@@ -287,14 +287,79 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     };
 
     // Initialize PubSub Service (Moved up for dependency injection)
-    let pubsub_service = services::pubsub_service::PubSubService::new(redis_url)
+    let pubsub_service = services::pubsub_service::PubSubService::new(redis_url.clone())
         .await
         .expect("Failed to init PubSub");
 
-    // Initialize store service
-    let store_service = Arc::new(services::store_service::StoreService::new(pool.clone()));
+    // Initialize store service (Mutable arc workaround or refcell? No, just Arc<Mutex> or init structure)
+    // Actually store service is Arc'd everywhere. We need interior mutability or just init first then set.
+    // Rust doesn't like cyclic deps.
+    // Solution: Create the struct, then Arc it later? No, `new` returns Self.
+    // Let's use `Arc::get_mut`? Only works if single owner.
+    // We will use a dedicated method `set_orchestration_service` on the raw struct before Arc-ing if possible,
+    // OR use interior mutability (Mutex/RwLock) for the orchestration_service field.
+    // BUT `store_service` is used in `orchestration_service` constructor! Circular dependency!
+    //
+    // Break cycle:
+    // 1. Create `StoreService` (without orch).
+    // 2. Create `OrchestrationService` (with store).
+    // 3. Inject `OrchestrationService` into `StoreService` via internal Mutex/Cell or just a method if we keep a handle.
+    //
+    // Current `StoreService` struct definition:
+    // pub struct StoreService { ... }
+    //
+    // We can't modify `Arc<StoreService>` contents if shared.
+    //
+    // We need to change `StoreService` to hold `RwLock<Option<Arc<OrchestrationService>>>`.
+    //
+    // However, for this specific task (Trigger-Based Sync), we can just inject it at the call site if we restructure?
+    // No, `purchase_plan` is inside `StoreService`.
+    //
+    // Let's use `Arc<RwLock<Option<Arc<OrchestrationService>>>>` inside `StoreService` or similar.
+    // But `StoreService` is already written without locks.
+    //
+    // Alternative: `ConnectionService` handles high level flows?
+    // Or just pass `OrchestrationService` to the handler and have the handler call `store.purchase` then `orch.notify`.
+    // That is cleaner but requires changing all call sites (bot, admin).
+    //
+    // Given constraints, I'll modify `main.rs` to hack the cycle using `unsafe` or `Arc::new_cyclic` equivalent?
+    //
+    // Let's look at `store_service.rs`. I added `orchestration_service: Option<Arc<...>>`.
+    // Since it's immutable `self`, I can't set it later unless it's in a Mutex/RwLock.
+    //
+    // Wait, `StoreService` methods take `&self`.
+    // I need `std::sync::RwLock` or `tokio::sync::RwLock` for interior mutability.
+    //
+    // Let's correct `StoreService` struct in previous step to use `RwLock`?
+    // Or simpler:
+    // Just modify `StoreService` to NOT hold `OrchestrationService`.
+    // Instead, create a `HighLevelOrchestrator` or similar? No time.
+    //
+    // Let's use `std::sync::OnceLock` or similar?
+    //
+    // Actually, `Arc::get_mut` works if I haven't cloned it yet.
+    //
+    // 1. Create `store_service` raw.
+    // 2. Create `orch_service` (needs `Arc<StoreService>`). This forces me to Arc `store_service`.
+    // 3. Now I have `Arc<StoreService>`. I cannot mutate it.
+    //
+    // Okay, I will modify `StoreService` to use `std::sync::RwLock<Option<Arc<OrchestrationService>>>`.
+    //
+    // Re-reading `store_service.rs`... I just added `Option<Arc<...>>`.
+    // This won't work with `set_orchestration_service` taking `&mut self` if I have an `Arc`.
+    //
+    // CORRECT FIX:
+    // Change `StoreService` field to:
+    // `pub orchestration_service: std::sync::RwLock<Option<Arc<OrchestrationService>>>`
+    // And `set_` takes `&self`.
 
-    // Initialize infrastructure & security services (Moved up for dependency injection)
+    // Let's pause and fix `store_service.rs` first.
+
+    // Initialize store service
+    let store_service_raw = services::store_service::StoreService::new(pool.clone());
+    let store_service = Arc::new(store_service_raw);
+
+    // Initialize infrastructure & security services
     let infrastructure_service =
         Arc::new(services::infrastructure_service::InfrastructureService::new(pool.clone()));
     let security_service = Arc::new(services::security_service::SecurityService::new(
@@ -311,12 +376,18 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             std::env::var("REDIS_URL").ok(),
         ));
 
+    // Break circular dependency - Inject Orchestrator back into StoreService
+    // We need interior mutability on StoreService.
+    // See modification in store_service.rs (using RwLock).
+    store_service.set_orchestration_service(orchestration_service.clone());
+
     // Initialize new modular services
     let user_service = Arc::new(services::user_service::UserService::new(pool.clone()));
     let billing_service = Arc::new(services::billing_service::BillingService::new(pool.clone()));
-    let subscription_service = Arc::new(services::subscription_service::SubscriptionService::new(
-        pool.clone(),
-    ));
+    // Subscription service also needs orchestrator for trigger-based sync!
+    let mut sub_svc_raw = services::subscription_service::SubscriptionService::new(pool.clone());
+    sub_svc_raw.set_orchestration_service(orchestration_service.clone());
+    let subscription_service = Arc::new(sub_svc_raw);
     let catalog_service = Arc::new(services::catalog_service::CatalogService::new(pool.clone()));
     let generator_service = Arc::new(services::generator_service::GeneratorService::new(
         pool.clone(),
@@ -575,6 +646,10 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::get(handlers::admin::get_settings),
         )
         .route(
+            "/updates",
+            axum::routing::get(handlers::admin::get_updates_page),
+        )
+        .route(
             "/settings/save",
             axum::routing::post(handlers::admin::save_settings),
         )
@@ -673,10 +748,11 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/nodes/{id}/update",
             axum::routing::post(handlers::admin::update_node),
         )
+        // Fix: Route was incorrect, trigger_update handler does not take ID in path
         .route(
-            "/nodes/{id}/update/trigger",
+            "/nodes/update/trigger",
             axum::routing::post(handlers::admin::updates::trigger_update),
-        ) // NEW Phase 67
+        )
         .route(
             "/nodes/{id}/activate",
             axum::routing::post(handlers::admin::activate_node),
