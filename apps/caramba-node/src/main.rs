@@ -7,7 +7,6 @@ use std::time::Duration;
 use sysinfo::System;
 use tracing::{error, info, warn};
 
-mod decoy_service;
 mod scanner;
 mod self_update;
 mod sni_check; // NEW
@@ -131,12 +130,6 @@ async fn main() -> anyhow::Result<()> {
     } else {
         warn!("⚠️ Speed test failed or timed out.");
     }
-
-    // 5. Start Decoy Service (Background)
-    let decoy_svc = decoy_service::DecoyService::new(panel_url.clone(), token.clone());
-    tokio::spawn(async move {
-        decoy_svc.run_loop().await;
-    });
 
     // 5.5 Start Neighbor Sniper (Phase 7 & Phase 9 Automation)
     let discoveries = state.recent_discoveries.clone();

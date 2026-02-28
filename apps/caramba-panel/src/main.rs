@@ -373,7 +373,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             store_service.clone(),
             security_service.clone(),
             pubsub_service.clone(),
-            Some(redis_url.clone()),
+            std::env::var("REDIS_URL").ok(),
         ));
 
     // Break circular dependency - Inject Orchestrator back into StoreService
