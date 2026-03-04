@@ -5,7 +5,6 @@ use axum::{
 };
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
-use tracing::error;
 
 use crate::AppState;
 use super::auth::{get_auth_user, is_authenticated};

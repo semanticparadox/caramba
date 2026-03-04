@@ -218,14 +218,7 @@ impl TelemetryService {
                     domain, node_id
                 );
 
-                let node_sni: Option<String> =
-                    sqlx::query_scalar("SELECT reality_sni FROM nodes WHERE id = $1")
-                        .bind(node_id)
-                        .fetch_one(&self.pool)
-                        .await
-                        .unwrap_or(None);
-
-                let node_status: Option<(Option<String>, String)> =
+                let node_status: (Option<String>, String) =
                     sqlx::query_as("SELECT reality_sni, status FROM nodes WHERE id = $1")
                         .bind(node_id)
                         .fetch_optional(&self.pool)
