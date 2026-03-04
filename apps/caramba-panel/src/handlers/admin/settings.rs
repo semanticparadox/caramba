@@ -322,6 +322,8 @@ pub struct SettingsTemplate {
     pub decoy_urls: String,
     pub decoy_min_interval: String,
     pub decoy_max_interval: String,
+    pub auto_sni_rotation_interval_hours: String,
+    pub sni_scanner_deny_patterns: String,
     pub kill_switch_enabled: bool,
     pub kill_switch_timeout: String,
     pub free_trial_days: i32,
@@ -465,6 +467,8 @@ pub struct SaveSettingsForm {
     pub decoy_urls: Option<String>,
     pub decoy_min_interval: Option<String>,
     pub decoy_max_interval: Option<String>,
+    pub auto_sni_rotation_interval_hours: Option<String>,
+    pub sni_scanner_deny_patterns: Option<String>,
     pub kill_switch_enabled: Option<String>,
     pub kill_switch_timeout: Option<String>,
     pub deployment_mode: Option<String>,
@@ -604,6 +608,16 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     let decoy_max_interval = state
         .settings
         .get_or_default("decoy_max_interval", "600")
+        .await;
+
+    let auto_sni_rotation_interval_hours = state
+        .settings
+        .get_or_default("auto_sni_rotation_interval_hours", "24")
+        .await;
+
+    let sni_scanner_deny_patterns = state
+        .settings
+        .get_or_default("sni_scanner_deny_patterns", "ovh.net,duckdns.net")
         .await;
 
     let kill_switch_enabled = state
@@ -922,6 +936,8 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         decoy_urls,
         decoy_min_interval,
         decoy_max_interval,
+        auto_sni_rotation_interval_hours,
+        sni_scanner_deny_patterns,
         kill_switch_enabled,
         kill_switch_timeout,
         free_trial_days,
@@ -1214,6 +1230,14 @@ pub async fn save_settings(
     }
     if let Some(v) = form.decoy_max_interval {
         settings.insert("decoy_max_interval".to_string(), v);
+    }
+
+    if let Some(v) = form.auto_sni_rotation_interval_hours {
+        settings.insert("auto_sni_rotation_interval_hours".to_string(), v);
+    }
+
+    if let Some(v) = form.sni_scanner_deny_patterns {
+        settings.insert("sni_scanner_deny_patterns".to_string(), v);
     }
 
     settings.insert(

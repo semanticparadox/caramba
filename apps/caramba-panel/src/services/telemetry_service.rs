@@ -152,7 +152,21 @@ impl TelemetryService {
                     continue;
                 }
 
-                if let Err(reason) = classify_discovered_domain(&domain)
+                let deny_patterns_str: String = sqlx::query_scalar(
+                "SELECT value FROM settings WHERE key = 'sni_scanner_deny_patterns'"
+                )
+                .fetch_optional(&self.pool)
+                .await
+                .unwrap_or_default()
+                .unwrap_or_else(|| "ovh.net,duckdns.net".to_string());
+
+                let deny_patterns: Vec<String> = deny_patterns_str
+                    .split(',')
+                    .map(|s| s.trim().to_lowercase())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                if let Err(reason) = classify_discovered_domain(&domain, &deny_patterns)
                     .and_then(|_| classify_reserved_domain(&domain, &reserved_control_plane_hosts))
                 {
                     if let Err(e) = auto_blacklist_domain(
@@ -292,7 +306,7 @@ impl TelemetryService {
     }
 }
 
-fn classify_discovered_domain(domain: &str) -> Result<(), String> {
+fn classify_discovered_domain(domain: &str, dynamic_deny_patterns: &[String]) -> Result<(), String> {
     let domain = domain.trim().to_lowercase();
 
     if domain.is_empty() {
@@ -346,6 +360,13 @@ fn classify_discovered_domain(domain: &str) -> Result<(), String> {
         return Err("service/control-plane noise".to_string());
     }
 
+    // Dynamic Database Configured Patterns (e.g., ovh.net, duckdns.net)
+    for pattern in dynamic_deny_patterns {
+        if domain.contains(pattern) {
+            return Err("matches custom deny pattern".to_string());
+        }
+    }
+
     if let Ok(extra) = std::env::var("SNI_SCANNER_DENY_PATTERNS") {
         for pattern in extra
             .split(',')
@@ -353,7 +374,7 @@ fn classify_discovered_domain(domain: &str) -> Result<(), String> {
             .filter(|v| !v.is_empty())
         {
             if domain.contains(&pattern) {
-                return Err("matches custom deny pattern".to_string());
+                return Err("matches env custom deny pattern".to_string());
             }
         }
     }
@@ -663,22 +684,26 @@ mod tests {
 
     #[test]
     fn discovered_domain_filter_accepts_normal_domains() {
-        assert!(classify_discovered_domain("hitchhive.app").is_ok());
-        assert!(classify_discovered_domain("api.kd367.fr").is_ok());
+        let deny = vec![];
+        assert!(classify_discovered_domain("hitchhive.app", &deny).is_ok());
+        assert!(classify_discovered_domain("api.kd367.fr", &deny).is_ok());
     }
 
     #[test]
     fn discovered_domain_filter_rejects_noise() {
-        assert!(classify_discovered_domain("Plesk").is_err());
-        assert!(classify_discovered_domain("traefik.default").is_err());
-        assert!(classify_discovered_domain("with space.example.com").is_err());
-        assert!(classify_discovered_domain("localhost").is_err());
-        assert!(classify_discovered_domain("Parallels Panel").is_err());
-        assert!(classify_discovered_domain("vps-40d02f7d.vps.ovh.net").is_err());
-        assert!(classify_discovered_domain("sni-support-required-for-valid-ssl").is_err());
+        let deny = vec!["duckdns.net".to_string(), "ovh.net".to_string()];
+        assert!(classify_discovered_domain("Plesk", &deny).is_err());
+        assert!(classify_discovered_domain("traefik.default", &deny).is_err());
+        assert!(classify_discovered_domain("with space.example.com", &deny).is_err());
+        assert!(classify_discovered_domain("localhost", &deny).is_err());
+        assert!(classify_discovered_domain("Parallels Panel", &deny).is_err());
+        assert!(classify_discovered_domain("vps-40d02f7d.vps.ovh.net", &deny).is_err());
+        assert!(classify_discovered_domain("sni-support-required-for-valid-ssl", &deny).is_err());
+        assert!(classify_discovered_domain("myhome.duckdns.net", &deny).is_err());
         assert!(
             classify_discovered_domain(
-                "9549ca1c6e517b1f5f8db4e7624e0916.f7021182bba21dbfeaa0c9111f25c92d.traefik.default"
+                "9549ca1c6e517b1f5f8db4e7624e0916.f7021182bba21dbfeaa0c9111f25c92d.traefik.default",
+                &deny
             )
             .is_err()
         );
