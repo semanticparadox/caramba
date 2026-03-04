@@ -153,7 +153,7 @@ impl TelemetryService {
                 }
 
                 let deny_patterns_str: String = sqlx::query_scalar(
-                    "SELECT value FROM panel_settings WHERE key = 'sni_scanner_deny_patterns'"
+                "SELECT value FROM settings WHERE key = 'sni_scanner_deny_patterns'"
                 )
                 .fetch_optional(&self.pool)
                 .await
