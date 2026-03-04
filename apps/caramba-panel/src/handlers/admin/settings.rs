@@ -996,7 +996,7 @@ pub async fn save_settings(
         "".to_string()
     };
 
-    if let Some(v) = form.bot_token {
+    if let Some(ref v) = form.bot_token {
         let v = v.trim().to_string();
         if !v.is_empty() && v != masked_bot_token {
             if is_running {
