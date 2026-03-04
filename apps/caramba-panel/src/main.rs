@@ -933,6 +933,14 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::post(handlers::admin_sni::toggle_sni),
         )
         .route(
+            "/sni/favorite/{id}",
+            axum::routing::post(handlers::admin_sni::toggle_favorite_sni),
+        )
+        .route(
+            "/sni/blacklist/delete/{domain}",
+            axum::routing::delete(handlers::admin_sni::unblock_sni),
+        )
+        .route(
             "/partials/statusbar",
             axum::routing::get(handlers::admin::get_statusbar),
         ) // NEW

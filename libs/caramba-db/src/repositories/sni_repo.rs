@@ -60,6 +60,27 @@ impl SniRepository {
         Ok(())
     }
 
+    pub async fn unblock_sni(&self, domain: &str) -> Result<()> {
+        sqlx::query("DELETE FROM sni_blacklist WHERE domain = $1")
+            .bind(domain)
+            .execute(&self.pool)
+            .await
+            .context("Failed to unblock SNI domain")?;
+
+        Ok(())
+    }
+
+    pub async fn toggle_sni_favorite(&self, id: i64, favorite: bool) -> Result<()> {
+        sqlx::query("UPDATE sni_pool SET is_favorite = $1 WHERE id = $2")
+            .bind(favorite)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .context("Failed to toggle SNI favorite state")?;
+
+        Ok(())
+    }
+
     pub async fn toggle_sni_active(&self, id: i64, active: bool) -> Result<()> {
         sqlx::query("UPDATE sni_pool SET is_active = $1 WHERE id = $2")
             .bind(active)

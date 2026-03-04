@@ -12,6 +12,8 @@ pub struct SniPoolItem {
     pub discovered_by_node_id: Option<i64>,
     #[sqlx(default)]
     pub is_premium: bool,
+    #[sqlx(default)]
+    pub is_favorite: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
