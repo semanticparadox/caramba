@@ -381,6 +381,29 @@
                     </div>
                 </div>
 
+            <!-- SNI Settings -->
+            <div class="mt-8">
+                <h4 class="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-4 flex items-center gap-2">
+                    <i data-lucide="shield" class="w-4 h-4 text-indigo-500"></i>
+                    SNI Configuration
+                </h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase mb-1.5">Auto Rotation Interval (Hours)</label>
+                        <input type="number" name="auto_sni_rotation_interval_hours" value="{{ auto_sni_rotation_interval_hours }}" min="1"
+                            class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all shadow-sm">
+                        <p class="text-xs text-slate-400 mt-1">Set to 0 to disable automatic routine rotation.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase mb-1.5">Scanner Deny Patterns</label>
+                        <input type="text" name="sni_scanner_deny_patterns" value="{{ sni_scanner_deny_patterns }}"
+                            placeholder="ovh.net,duckdns.net"
+                            class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all shadow-sm">
+                        <p class="text-xs text-slate-400 mt-1">Comma-separated substrings to ignore during SNI discovery.</p>
+                    </div>
+                </div>
+            </div>
+
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-200 dark:border-white/5">
                     <div>
                         <label

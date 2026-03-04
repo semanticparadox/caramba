@@ -116,6 +116,28 @@ pub async fn add_sni(
     }
 }
 
+pub async fn unblock_sni(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(domain): Path<String>,
+) -> impl IntoResponse {
+    use axum::http::StatusCode;
+    if !is_authenticated(&state, &jar).await {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    match state.sni_repo.unblock_sni(&domain).await {
+        Ok(_) => {
+            info!("Unblocked SNI domain {} from blacklist", domain);
+            StatusCode::OK.into_response()
+        }
+        Err(e) => {
+            error!("Failed to unblock SNI: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to unblock SNI").into_response()
+        }
+    }
+}
+
 pub async fn delete_sni(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -195,6 +217,31 @@ pub async fn toggle_sni(
             Err(e) => {
                 error!("Failed to toggle SNI: {}", e);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to toggle SNI").into_response()
+            }
+        }
+    } else {
+        StatusCode::NOT_FOUND.into_response()
+    }
+}
+
+pub async fn toggle_favorite_sni(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    use axum::http::StatusCode;
+    if !is_authenticated(&state, &jar).await {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    // Get current state to toggle
+    let all = state.sni_repo.get_all_snis().await.unwrap_or_default();
+    if let Some(item) = all.iter().find(|i| i.id == id) {
+        match state.sni_repo.toggle_sni_favorite(id, !item.is_favorite).await {
+            Ok(_) => StatusCode::OK.into_response(),
+            Err(e) => {
+                error!("Failed to toggle SNI favorite: {}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to toggle SNI favorite").into_response()
             }
         }
     } else {
