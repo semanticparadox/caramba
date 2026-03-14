@@ -98,3 +98,6 @@ node-logs.md
 *.backup
 *~
 check_braces.py
+
+# Dolt database files (added by bd init)
+.dolt/
