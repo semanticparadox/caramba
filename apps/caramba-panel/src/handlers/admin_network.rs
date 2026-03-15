@@ -1,5 +1,6 @@
 use crate::AppState;
 use crate::handlers::admin::{get_auth_user, is_authenticated};
+use crate::services::config_validation_service::ConfigValidationService;
 use crate::singbox::RelayAuthMode;
 use askama::Template;
 use askama_web::WebTemplate;
@@ -96,6 +97,14 @@ pub async fn add_inbound(
         "Adding inbound {} ({}) to node {}",
         form.tag, form.protocol, node_id
     );
+
+    if let Err(msg) = ConfigValidationService::validate_inbound_json(
+        &form.protocol,
+        &form.settings,
+        &form.stream_settings,
+    ) {
+        return (axum::http::StatusCode::BAD_REQUEST, msg).into_response();
+    }
 
     // Validate JSON against Models
     // 1. Stream Settings
@@ -641,6 +650,14 @@ pub async fn update_inbound(
     Form(form): Form<AddInboundForm>,
 ) -> impl IntoResponse {
     info!("Updating inbound {} on node {}", inbound_id, node_id);
+
+    if let Err(msg) = ConfigValidationService::validate_inbound_json(
+        &form.protocol,
+        &form.settings,
+        &form.stream_settings,
+    ) {
+        return (axum::http::StatusCode::BAD_REQUEST, msg).into_response();
+    }
 
     // Validate JSON against Models
     // 1. Stream Settings

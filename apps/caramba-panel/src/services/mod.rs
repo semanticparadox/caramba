@@ -15,10 +15,12 @@ pub mod security_service;
 pub mod store_service;
 pub mod telemetry_service;
 pub mod traffic_service; // Added Phase 3
+pub mod unified_log_service;
 
 // Enterprise Modular Services
 pub mod billing_service;
 pub mod catalog_service;
+pub mod config_validation_service;
 pub mod generator_service;
 pub mod geo_service;
 pub mod org_service;

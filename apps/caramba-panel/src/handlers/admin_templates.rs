@@ -1,6 +1,7 @@
 use crate::singbox::inbound_factory::InboundFactory;
 use crate::AppState;
 use crate::handlers::admin::{get_auth_user, is_authenticated};
+use crate::services::config_validation_service::ConfigValidationService;
 use askama::Template;
 use askama_web::WebTemplate;
 use axum::{
@@ -123,6 +124,14 @@ pub async fn create_template(
     }
 
     if let Err(msg) = validate_template_bounds(&form) {
+        return (StatusCode::BAD_REQUEST, msg).into_response();
+    }
+
+    if let Err(msg) = ConfigValidationService::validate_inbound_json(
+        &form.protocol,
+        &form.settings_template,
+        &form.stream_settings_template,
+    ) {
         return (StatusCode::BAD_REQUEST, msg).into_response();
     }
 
@@ -445,6 +454,14 @@ pub async fn update_template(
     }
 
     if let Err(msg) = validate_template_bounds(&form) {
+        return (StatusCode::BAD_REQUEST, msg).into_response();
+    }
+
+    if let Err(msg) = ConfigValidationService::validate_inbound_json(
+        &form.protocol,
+        &form.settings_template,
+        &form.stream_settings_template,
+    ) {
         return (StatusCode::BAD_REQUEST, msg).into_response();
     }
 

@@ -167,6 +167,12 @@ pub struct BulkSniForm {
     pub notes: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct BulkSniActionForm {
+    pub action: String,
+    pub node_id: Option<i64>,
+}
+
 pub async fn bulk_add_sni(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -197,6 +203,91 @@ pub async fn bulk_add_sni(
 
     info!("Bulk added {} SNIs to pool", count);
     axum::response::Redirect::to(&format!("{}/sni", state.admin_path)).into_response()
+}
+
+pub async fn bulk_action_sni(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Form(form): Form<BulkSniActionForm>,
+) -> impl IntoResponse {
+    use axum::http::StatusCode;
+    if !is_authenticated(&state, &jar).await {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    match form.action.as_str() {
+        "block_unhealthy" => {
+            let domains: Vec<String> = sqlx::query_scalar(
+                "SELECT domain FROM sni_pool WHERE COALESCE(health_score, 100) < 50",
+            )
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default();
+
+            for domain in &domains {
+                let _ = sqlx::query(
+                    "INSERT INTO sni_blacklist (domain, reason) VALUES ($1, $2) ON CONFLICT (domain) DO NOTHING",
+                )
+                .bind(domain)
+                .bind("Bulk blocked: health score below 50")
+                .execute(&state.pool)
+                .await;
+            }
+
+            let _ = sqlx::query("DELETE FROM sni_pool WHERE COALESCE(health_score, 100) < 50")
+                .execute(&state.pool)
+                .await;
+
+            axum::response::Redirect::to(&format!("{}/sni", state.admin_path)).into_response()
+        }
+        "pin_top_latency" => {
+            let Some(node_id) = form.node_id else {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "Select a node before pinning latency-ranked SNIs",
+                )
+                    .into_response();
+            };
+
+            let sni_ids: Vec<i64> = sqlx::query_scalar(
+                r#"
+                SELECT s.id
+                FROM sni_pool s
+                WHERE (s.discovered_by_node_id = $1 OR COALESCE(s.is_premium, FALSE) = TRUE)
+                  AND COALESCE(s.health_score, 100) >= 50
+                  AND s.latency_ms IS NOT NULL
+                  AND s.last_check IS NOT NULL
+                  AND s.last_check >= NOW() - INTERVAL '24 hours'
+                ORDER BY s.latency_ms ASC, s.health_score DESC
+                LIMIT 10
+                "#,
+            )
+            .bind(node_id)
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default();
+
+            for sni_id in sni_ids {
+                let _ = sqlx::query(
+                    "INSERT INTO node_pinned_snis (node_id, sni_id) VALUES ($1, $2) ON CONFLICT (node_id, sni_id) DO NOTHING",
+                )
+                .bind(node_id)
+                .bind(sni_id)
+                .execute(&state.pool)
+                .await;
+            }
+
+            let _ = state.orchestration_service.reset_inbounds(node_id).await;
+            let _ = state
+                .pubsub
+                .publish(&format!("node_events:{}", node_id), "update")
+                .await;
+
+            axum::response::Redirect::to(&format!("{}/sni?node_id={}", state.admin_path, node_id))
+                .into_response()
+        }
+        _ => (StatusCode::BAD_REQUEST, "Unknown bulk action").into_response(),
+    }
 }
 
 pub async fn toggle_sni(

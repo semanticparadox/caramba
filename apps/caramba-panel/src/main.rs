@@ -438,10 +438,15 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     let lava_secret_key = settings.get_or_default("lava_secret_key", "").await;
 
     let is_testnet: String = settings.get_or_default("payment_testnet", "true").await;
+    let panel_url = settings.get_or_default("panel_url", "").await;
     let api_domain = settings
         .get_or_default(
             "api_domain",
-            &std::env::var("API_DOMAIN").unwrap_or_else(|_| "your-api-domain.com".to_string()),
+            if panel_url.is_empty() {
+                "your-panel-domain.com"
+            } else {
+                panel_url.as_str()
+            },
         )
         .await;
 
@@ -923,6 +928,10 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         .route(
             "/sni/bulk",
             axum::routing::post(handlers::admin_sni::bulk_add_sni),
+        )
+        .route(
+            "/sni/bulk-action",
+            axum::routing::post(handlers::admin_sni::bulk_action_sni),
         )
         .route(
             "/sni/delete/{id}",

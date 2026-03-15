@@ -6,6 +6,8 @@ pub struct SniPoolItem {
     pub domain: String,
     pub tier: i32,
     pub health_score: i32,
+    #[sqlx(default)]
+    pub latency_ms: Option<i32>,
     pub last_check: Option<chrono::NaiveDateTime>,
     pub is_active: bool,
     pub notes: Option<String>,

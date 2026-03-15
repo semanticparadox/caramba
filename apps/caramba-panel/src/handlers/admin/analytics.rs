@@ -13,7 +13,7 @@ use serde::Deserialize;
 use super::auth::{get_auth_user, is_authenticated};
 use super::dashboard::OrderWithUser;
 use crate::AppState;
-use crate::services::logging_service::LoggingService;
+use crate::services::unified_log_service::{UnifiedLogEntry, UnifiedLogService};
 
 fn format_bytes_str(bytes: u64) -> String {
     const KB: u64 = 1024;
@@ -75,11 +75,13 @@ pub struct TransactionsTemplate {
 #[derive(Template, WebTemplate)]
 #[template(path = "logs.html")]
 pub struct SystemLogsTemplate {
-    pub logs: Vec<crate::services::logging_service::LogEntry>,
+    pub logs: Vec<UnifiedLogEntry>,
     pub categories: Vec<String>,
+    pub sources: Vec<String>,
     pub current_category: String,
-    pub current_page: i64,
-    pub has_next: bool,
+    pub current_source: String,
+    pub current_node_id: i64,
+    pub nodes: Vec<caramba_db::models::node::Node>,
     pub is_auth: bool,
     pub username: String,
     pub admin_path: String,
@@ -89,7 +91,8 @@ pub struct SystemLogsTemplate {
 #[derive(Deserialize)]
 pub struct LogsFilter {
     pub category: Option<String>,
-    pub page: Option<i64>,
+    pub source: Option<String>,
+    pub node_id: Option<i64>,
 }
 
 // ============================================================================
@@ -199,35 +202,47 @@ pub async fn get_system_logs_page(
             .into_response();
     }
 
-    let page = filter.page.unwrap_or(1).max(1);
-    let limit = 50;
-    let offset = (page - 1) * limit;
-
     let category = filter.category.unwrap_or_default().trim().to_string();
-
-    let logs = LoggingService::get_logs(&state.pool, limit + 1, offset, Some(category.clone()))
+    let source = filter.source.unwrap_or_else(|| "all".to_string());
+    let nodes = state
+        .infrastructure_service
+        .get_all_nodes()
         .await
         .unwrap_or_default();
+    let selected_node = filter.node_id.and_then(|node_id| {
+        nodes.iter()
+            .find(|node| node.id == node_id)
+            .map(|node| (node.id, node.name.clone()))
+    });
 
-    let has_next = logs.len() > limit as usize;
-    let logs = if has_next {
-        logs.into_iter().take(limit as usize).collect()
-    } else {
-        logs
-    };
-
-    let categories = LoggingService::get_categories(&state.pool)
-        .await
-        .unwrap_or_default();
+    let payload = UnifiedLogService::get_logs(
+        &state.pool,
+        &state.redis,
+        &source,
+        if category.is_empty() { None } else { Some(category.as_str()) },
+        selected_node,
+        80,
+        0,
+    )
+    .await
+    .unwrap_or_else(|_| crate::services::unified_log_service::UnifiedLogPayload {
+        logs: Vec::new(),
+        categories: Vec::new(),
+    });
 
     let admin_path = state.admin_path.clone();
 
     let template = SystemLogsTemplate {
-        logs,
-        categories,
+        logs: payload.logs,
+        categories: payload.categories,
+        sources: vec!["all", "system", "bot", "node"]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
         current_category: category,
-        current_page: page,
-        has_next,
+        current_source: source,
+        current_node_id: filter.node_id.unwrap_or(0),
+        nodes,
         is_auth: true,
         username: get_auth_user(&state, &jar)
             .await

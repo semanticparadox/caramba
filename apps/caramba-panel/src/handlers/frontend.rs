@@ -332,8 +332,7 @@ fn generate_install_command(
     _miniapp_domain: Option<&str>,
     _sub_path: &str,
 ) -> String {
-    // Get panel URL from environment (SERVER_DOMAIN) or use fallback
-    let panel_url = std::env::var("SERVER_DOMAIN")
+    let panel_url = std::env::var("PANEL_URL")
         .map(|d| {
             if d.starts_with("http://") || d.starts_with("https://") {
                 d

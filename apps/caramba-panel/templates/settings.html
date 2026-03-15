@@ -12,15 +12,19 @@
     <div
         class="flex items-center gap-1.5 p-1.5 bg-black/20 backdrop-blur-md border border-border-default rounded-2xl mb-10 overflow-x-auto custom-scrollbar">
         <button onclick="switchTab('general')" id="tab-general"
-            class="nav-pill active flex items-center justify-center flex-1 py-3 text-xs font-bold uppercase tracking-widest">
+            class="nav-pill active flex-1 py-3 text-xs font-bold uppercase tracking-widest">
             <i data-lucide="settings-2" class="w-4 h-4 mr-2"></i> General
         </button>
         <button onclick="switchTab('payments')" id="tab-payments"
-            class="nav-pill flex items-center justify-center flex-1 py-3 text-xs font-bold uppercase tracking-widest">
+            class="nav-pill flex-1 py-3 text-xs font-bold uppercase tracking-widest">
             <i data-lucide="credit-card" class="w-4 h-4 mr-2"></i> Payments
         </button>
+        <button onclick="switchTab('trials')" id="tab-trials"
+            class="nav-pill flex-1 py-3 text-xs font-bold uppercase tracking-widest">
+            <i data-lucide="gift" class="w-4 h-4 mr-2"></i> Trials
+        </button>
         <button onclick="switchTab('system')" id="tab-system"
-            class="nav-pill flex items-center justify-center flex-1 py-3 text-xs font-bold uppercase tracking-widest">
+            class="nav-pill flex-1 py-3 text-xs font-bold uppercase tracking-widest">
             <i data-lucide="server-cog" class="w-4 h-4 mr-2"></i> System
         </button>
     </div>
@@ -274,9 +278,15 @@
                             class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-2">
                             <i data-lucide="bot" class="w-3 h-3"></i> CryptoBot API Token
                         </label>
-                        <input type="text" form="main-settings-form" name="payment_api_key"
-                            value="{{ masked_payment_api_key }}" placeholder="1234:ABC..."
-                            class="input-field font-mono">
+                        <div class="relative">
+                            <input id="payment_api_key" type="password" form="main-settings-form" name="payment_api_key"
+                                value="{{ masked_payment_api_key }}" placeholder="1234:ABC..."
+                                class="input-field input-secret font-mono">
+                            <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                onclick="toggleSecretVisibility(this, 'payment_api_key')" aria-label="Show secret">
+                                <i data-lucide="eye" class="w-4 h-4"></i>
+                            </button>
+                        </div>
                     </div>
 
                     <!-- NowPayments -->
@@ -286,18 +296,32 @@
                                 class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-2">
                                 <i data-lucide="credit-card" class="w-3 h-3"></i> NowPayments API Key
                             </label>
-                            <input type="text" form="main-settings-form" name="nowpayments_api_key"
-                                value="{{ masked_nowpayments_api_key }}" placeholder="API Key"
-                                class="input-field font-mono">
+                            <div class="relative">
+                                <input id="nowpayments_api_key" type="password" form="main-settings-form"
+                                    name="nowpayments_api_key" value="{{ masked_nowpayments_api_key }}"
+                                    placeholder="API Key" class="input-field input-secret font-mono">
+                                <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                    onclick="toggleSecretVisibility(this, 'nowpayments_api_key')"
+                                    aria-label="Show secret">
+                                    <i data-lucide="eye" class="w-4 h-4"></i>
+                                </button>
+                            </div>
                         </div>
                         <div>
                             <label
                                 class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-2">
                                 <i data-lucide="shield-check" class="w-3 h-3"></i> NowPayments IPN Secret
                             </label>
-                            <input type="text" form="main-settings-form" name="nowpayments_ipn_secret"
-                                value="{{ masked_nowpayments_ipn_secret }}" placeholder="IPN Secret"
-                                class="input-field font-mono">
+                            <div class="relative">
+                                <input id="nowpayments_ipn_secret" type="password" form="main-settings-form"
+                                    name="nowpayments_ipn_secret" value="{{ masked_nowpayments_ipn_secret }}"
+                                    placeholder="IPN Secret" class="input-field input-secret font-mono">
+                                <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                    onclick="toggleSecretVisibility(this, 'nowpayments_ipn_secret')"
+                                    aria-label="Show secret">
+                                    <i data-lucide="eye" class="w-4 h-4"></i>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -320,8 +344,15 @@
                             <label
                                 class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Secret
                                 Key</label>
-                            <input type="text" form="main-settings-form" name="lava_secret_key"
-                                value="{{ masked_lava_secret_key }}" placeholder="Secret Key" class="input-field">
+                            <div class="relative">
+                                <input id="lava_secret_key" type="password" form="main-settings-form"
+                                    name="lava_secret_key" value="{{ masked_lava_secret_key }}"
+                                    placeholder="Secret Key" class="input-field input-secret">
+                                <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                    onclick="toggleSecretVisibility(this, 'lava_secret_key')" aria-label="Show secret">
+                                    <i data-lucide="eye" class="w-4 h-4"></i>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -343,15 +374,29 @@
                             <label
                                 class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Secret
                                 #1</label>
-                            <input type="text" form="main-settings-form" name="aaio_secret_1"
-                                value="{{ masked_aaio_secret_1 }}" placeholder="Secret 1" class="input-field">
+                            <div class="relative">
+                                <input id="aaio_secret_1" type="password" form="main-settings-form"
+                                    name="aaio_secret_1" value="{{ masked_aaio_secret_1 }}" placeholder="Secret 1"
+                                    class="input-field input-secret">
+                                <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                    onclick="toggleSecretVisibility(this, 'aaio_secret_1')" aria-label="Show secret">
+                                    <i data-lucide="eye" class="w-4 h-4"></i>
+                                </button>
+                            </div>
                         </div>
                         <div>
                             <label
                                 class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Secret
                                 #2</label>
-                            <input type="text" form="main-settings-form" name="aaio_secret_2"
-                                value="{{ masked_aaio_secret_2 }}" placeholder="Secret 2" class="input-field">
+                            <div class="relative">
+                                <input id="aaio_secret_2" type="password" form="main-settings-form"
+                                    name="aaio_secret_2" value="{{ masked_aaio_secret_2 }}" placeholder="Secret 2"
+                                    class="input-field input-secret">
+                                <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                    onclick="toggleSecretVisibility(this, 'aaio_secret_2')" aria-label="Show secret">
+                                    <i data-lucide="eye" class="w-4 h-4"></i>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -374,35 +419,19 @@
                             <label
                                 class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Payment
                                 API Key</label>
-                            <input type="text" form="main-settings-form" name="cryptomus_payment_api_key"
-                                value="{{ masked_cryptomus_payment_api_key }}" placeholder="API Key"
-                                class="input-field">
+                            <div class="relative">
+                                <input id="cryptomus_payment_api_key" type="password" form="main-settings-form"
+                                    name="cryptomus_payment_api_key" value="{{ masked_cryptomus_payment_api_key }}"
+                                    placeholder="API Key" class="input-field input-secret">
+                                <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                    onclick="toggleSecretVisibility(this, 'cryptomus_payment_api_key')"
+                                    aria-label="Show secret">
+                                    <i data-lucide="eye" class="w-4 h-4"></i>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
-
-            <!-- SNI Settings -->
-            <div class="mt-8">
-                <h4 class="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-4 flex items-center gap-2">
-                    <i data-lucide="shield" class="w-4 h-4 text-indigo-500"></i>
-                    SNI Configuration
-                </h4>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase mb-1.5">Auto Rotation Interval (Hours)</label>
-                        <input type="number" name="auto_sni_rotation_interval_hours" value="{{ auto_sni_rotation_interval_hours }}" min="1"
-                            class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all shadow-sm">
-                        <p class="text-xs text-slate-400 mt-1">Set to 0 to disable automatic routine rotation.</p>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase mb-1.5">Scanner Deny Patterns</label>
-                        <input type="text" name="sni_scanner_deny_patterns" value="{{ sni_scanner_deny_patterns }}"
-                            placeholder="ovh.net,duckdns.net"
-                            class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all shadow-sm">
-                        <p class="text-xs text-slate-400 mt-1">Comma-separated substrings to ignore during SNI discovery.</p>
-                    </div>
-                </div>
-            </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-200 dark:border-white/5">
                     <div>
@@ -430,9 +459,139 @@
         </div>
     </div>
 
+    <!-- 3. TRIALS TAB -->
+    <div id="content-trials" class="tab-content hidden space-y-6 animate-fade-in">
+        <div class="card p-8">
+            <header class="flex items-center gap-4 mb-10">
+                <div
+                    class="w-12 h-12 rounded-2xl bg-brand/10 flex items-center justify-center text-brand border border-brand/20">
+                    <i data-lucide="timer" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h3 class="text-xl font-bold text-slate-900 dark:text-white">Trial Configuration</h3>
+                    <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Manage free
+                        trial periods for new users</p>
+                </div>
+            </header>
+
+            <form hx-post="{{ admin_path }}/tools/trial-config" hx-swap="none" class="space-y-8">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div>
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Default
+                            Trial (Days)</label>
+                        <input type="number" name="free_trial_days" value="{{ free_trial_days }}" min="1" max="365"
+                            required class="input-field">
+                    </div>
+                    <div>
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Channel
+                            Member Trial (Days)</label>
+                        <input type="number" name="channel_trial_days" value="{{ channel_trial_days }}" min="1"
+                            max="365" required class="input-field">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div>
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Traffic
+                            Limit (GB)</label>
+                        <input type="number" name="free_trial_traffic_limit" value="{{ free_trial_traffic_limit }}"
+                            min="1" required class="input-field">
+                    </div>
+                    <div>
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Device
+                            Limit</label>
+                        <input type="number" name="free_trial_device_limit" value="{{ free_trial_device_limit }}"
+                            min="1" required class="input-field">
+                    </div>
+                </div>
+
+                <div>
+                    <label
+                        class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Required
+                        Channel ID (Optional)</label>
+                    <input type="text" name="required_channel_id" value="{{ required_channel_id }}"
+                        placeholder="-100..." class="input-field">
+                    <p class="text-[10px] text-slate-500 mt-2 ml-1 italic opacity-75">Telegram channel ID for extended
+                        trials. Leave empty to disable.</p>
+                </div>
+
+                <div class="pt-6 border-t border-border-default">
+                    <button type="submit" class="btn btn-primary px-8">
+                        <i data-lucide="save"></i>
+                        Update Trial Settings
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- 4. SYSTEM TAB -->
     <div id="content-system" class="tab-content hidden space-y-6 animate-fade-in">
+
+        <div class="card p-8">
+            <header class="flex items-center gap-4 mb-8">
+                <div class="w-12 h-12 rounded-2xl bg-cyan-500/10 flex items-center justify-center text-cyan-400 border border-cyan-500/20">
+                    <i data-lucide="network" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h3 class="text-xl font-bold text-slate-900 dark:text-white">Control Plane URL</h3>
+                    <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Single-host proxy-centric runtime</p>
+                </div>
+            </header>
+
+            <div class="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5 mb-6 text-sm text-amber-100">
+                <p class="font-semibold text-amber-300">Distributed orchestration controls are deprecated.</p>
+                <p class="mt-1 text-amber-100/80">Panel, Bot, and Telegram Mini App are expected to sit behind one reverse proxy. Relay entrypoint selection now lives in <span class="font-semibold">Reverse Proxy & Relay</span>.</p>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                <div>
+                    <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Panel URL (Base)</label>
+                    <input type="text" form="main-settings-form" name="panel_url" value="{{ panel_url }}"
+                        placeholder="https://panel.example.com" class="input-field font-mono text-sm">
+                    <p class="text-[10px] text-slate-500 mt-2 ml-1 italic opacity-75">Canonical origin for installers, webhook paths, and relay proxy snippets.</p>
+                </div>
+                <div>
+                    <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Admin UI URL (Hidden Path)</label>
+                    <input type="text" value="{{ admin_ui_url_display }}" readonly
+                        class="input-field bg-brand/5 border-brand/20 text-brand font-mono font-bold text-sm">
+                    <p class="text-[10px] text-slate-500 mt-2 ml-1 italic opacity-75">All legacy multi-host topology toggles have been removed from this tab.</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div class="rounded-2xl border border-border-default bg-black/20 p-5 space-y-3">
+                    <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Panel</p>
+                    <p class="text-xs text-white font-bold">Local control-plane</p>
+                    <div class="space-y-1.5 pt-2 text-[10px] font-bold">
+                        <div class="flex items-center justify-between"><span class="text-slate-500 uppercase">Installed</span><span class="{% if local_panel_detected %}text-emerald-500{% else %}text-amber-500{% endif %}">{% if local_panel_detected %}YES{% else %}NO{% endif %}</span></div>
+                        <div class="flex items-center justify-between"><span class="text-slate-500 uppercase">Active</span><span class="{% if local_panel_active %}text-emerald-500{% else %}text-slate-600{% endif %}">{% if local_panel_active %}YES{% else %}NO{% endif %}</span></div>
+                    </div>
+                </div>
+                <div class="rounded-2xl border border-border-default bg-black/20 p-5 space-y-3">
+                    <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Bot</p>
+                    <p class="text-xs text-white font-bold">Local or proxied worker</p>
+                    <div class="space-y-1.5 pt-2 text-[10px] font-bold">
+                        <div class="flex items-center justify-between"><span class="text-slate-500 uppercase">Installed</span><span class="{% if local_bot_detected %}text-emerald-500{% else %}text-slate-600{% endif %}">{% if local_bot_detected %}YES{% else %}NO{% endif %}</span></div>
+                        <div class="flex items-center justify-between"><span class="text-slate-500 uppercase">Active</span><span class="{% if local_bot_active %}text-emerald-500{% else %}text-slate-600{% endif %}">{% if local_bot_active %}YES{% else %}NO{% endif %}</span></div>
+                    </div>
+                </div>
+                <div class="rounded-2xl border border-border-default bg-black/20 p-5 space-y-3">
+                    <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Node Agents</p>
+                    <p class="text-xs text-white font-bold">External heartbeat clients</p>
+                    <div class="space-y-1.5 pt-2 text-[10px] font-bold">
+                        <div class="flex items-center justify-between"><span class="text-slate-500 uppercase">Heartbeat</span><span class="text-brand">REALTIME</span></div>
+                        <div class="flex items-center justify-between"><span class="text-slate-500 uppercase">Nodes</span><span class="text-white">{{ active_nodes_count }}</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
 
     <!-- Update Overview -->
     <div class="card p-8">
@@ -471,8 +630,7 @@
                 <i data-lucide="refresh-cw" class="w-6 h-6"></i>
             </div>
             <div>
-                <h3 class="text-xl font-bold text-slate-900 dark:text-white">{% if deployment_mode == "distributed"
-                    %}Control-plane{% else %}Hub{% endif %} Release</h3>
+                <h3 class="text-xl font-bold text-slate-900 dark:text-white">Control-plane Release</h3>
                 <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Automated release
                     check and installer path</p>
             </div>
@@ -797,6 +955,55 @@
                 </div>
             </div>
 
+            <!-- Decoy Traffic -->
+            <div class="card p-6">
+                <header class="flex items-center justify-between mb-6">
+                    <div class="flex items-center gap-3">
+                        <div
+                            class="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400">
+                            <i data-lucide="ghost" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Decoy Traffic
+                                Generator</h3>
+                            <p class="text-xs text-slate-500 dark:text-slate-500">Generate fake traffic to mask
+                                VPN signatures</p>
+                        </div>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" form="main-settings-form" name="decoy_enabled" class="sr-only peer" {% if
+                            decoy_enabled %}checked{% endif %}>
+                        <div
+                            class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600">
+                        </div>
+                    </label>
+                </header>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="col-span-1 md:col-span-2">
+                        <label
+                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Target
+                            URLs (JSON)</label>
+                        <input type="text" form="main-settings-form" name="decoy_urls" value="{{ decoy_urls }}"
+                            placeholder='["https://google.com", ...]' class="input-field font-mono">
+                    </div>
+                    <div>
+                        <label
+                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Min
+                            Interval (s)</label>
+                        <input type="number" form="main-settings-form" name="decoy_min_interval"
+                            value="{{ decoy_min_interval }}" class="input-field">
+                    </div>
+                    <div>
+                        <label
+                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Max
+                            Interval (s)</label>
+                        <input type="number" form="main-settings-form" name="decoy_max_interval"
+                            value="{{ decoy_max_interval }}" class="input-field">
+                    </div>
+                </div>
+            </div>
+
             <!-- Kill Switch -->
             <div class="card p-6">
                 <header class="flex items-center justify-between mb-6">
@@ -847,6 +1054,10 @@
 </section>
 
 <style>
+    .input-secret {
+        padding-right: 2.75rem !important;
+    }
+
     /* Redundant styles removed */
 
     .animate-fade-in {
@@ -867,6 +1078,22 @@
 </style>
 
 <script>
+    function toggleSecretVisibility(button, fieldId) {
+        const field = document.getElementById(fieldId);
+        if (!field) return;
+
+        const reveal = field.type === 'password';
+        field.type = reveal ? 'text' : 'password';
+
+        const icon = button.querySelector('i');
+        if (icon) {
+            icon.setAttribute('data-lucide', reveal ? 'eye-off' : 'eye');
+        }
+
+        button.setAttribute('aria-label', reveal ? 'Hide secret' : 'Show secret');
+        if (window.lucide) lucide.createIcons({ root: button });
+    }
+
     function copyInstallerCommand(elementId, button) {
         const el = document.getElementById(elementId);
         if (!el) return;
@@ -894,7 +1121,7 @@
 
     function switchTab(tabId) {
         // Build tab IDs
-        const tabs = ['general', 'payments', 'system'];
+        const tabs = ['general', 'payments', 'trials', 'system'];
 
         tabs.forEach(t => {
             const btn = document.getElementById(`tab-${t}`);
@@ -913,6 +1140,14 @@
                 content.classList.remove('block');
             }
         });
+
+        // Hide main save button on Trials tab (it has own button)
+        const saveBtn = document.getElementById('sticky-save-btn');
+        if (tabId === 'trials') {
+            saveBtn.classList.add('opacity-0', 'pointer-events-none');
+        } else {
+            saveBtn.classList.remove('opacity-0', 'pointer-events-none');
+        }
 
         // Re-init icons just in case icons inside hidden tabs need it (sometimes SVGs behave weirdly)
         if (window.lucide) lucide.createIcons();

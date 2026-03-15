@@ -202,11 +202,12 @@ impl TelemetryService {
                 }
 
                 let insert_primary = sqlx::query(
-                    "INSERT INTO sni_pool (domain, tier, notes, is_active, discovered_by_node_id, health_score) VALUES ($1, 1, $2, TRUE, $3, 100) ON CONFLICT(domain) DO UPDATE SET notes = EXCLUDED.notes, discovered_by_node_id = COALESCE(sni_pool.discovered_by_node_id, EXCLUDED.discovered_by_node_id)"
+                    "INSERT INTO sni_pool (domain, tier, notes, is_active, discovered_by_node_id, health_score, latency_ms) VALUES ($1, 1, $2, TRUE, $3, 100, $4) ON CONFLICT(domain) DO UPDATE SET notes = EXCLUDED.notes, discovered_by_node_id = COALESCE(sni_pool.discovered_by_node_id, EXCLUDED.discovered_by_node_id), latency_ms = CASE WHEN sni_pool.latency_ms IS NULL THEN EXCLUDED.latency_ms WHEN EXCLUDED.latency_ms IS NULL THEN sni_pool.latency_ms ELSE LEAST(sni_pool.latency_ms, EXCLUDED.latency_ms) END"
                 )
                     .bind(&domain)
                     .bind(format!("Discovered by Node {} (Sniper)", node_id))
                     .bind(node_id)
+                    .bind(sni.latency_ms as i32)
                     .execute(&self.pool)
                     .await;
 
@@ -485,12 +486,7 @@ async fn load_reserved_control_plane_hosts(pool: &PgPool) -> Result<HashSet<Stri
         collect_host_candidates(&mut hosts, &value);
     }
 
-    for key in [
-        "PANEL_URL",
-        "SERVER_DOMAIN",
-        "API_DOMAIN",
-        "SUBSCRIPTION_DOMAIN",
-    ] {
+    for key in ["PANEL_URL"] {
         if let Ok(value) = std::env::var(key) {
             collect_host_candidates(&mut hosts, &value);
         }

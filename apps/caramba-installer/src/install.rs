@@ -908,16 +908,12 @@ pub fn create_env_file(
     let mut env_content = format!(
         r#"DATABASE_URL=postgres://caramba:{}@localhost/caramba
 REDIS_URL=redis://127.0.0.1:6379
-SERVER_DOMAIN={}
-API_DOMAIN={}
 PANEL_URL={}
 ADMIN_PATH={}
 PANEL_PORT=3000
 SESSION_SECRET={}
 "#,
         encoded_db_pass,
-        config.domain,
-        config.domain, // API same as domain for now
         panel_url,
         config.admin_path,
         uuid::Uuid::new_v4().to_string()

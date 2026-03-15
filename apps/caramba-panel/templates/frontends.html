@@ -1,425 +1,192 @@
 {% extends "base.html" %}
 
-{% block title %}Distributed Nodes - CARAMBA{% endblock %}
-{% block header_title %}Distributed Nodes{% endblock %}
+{% block title %}Reverse Proxy & Relay - CARAMBA{% endblock %}
+{% block header_title %}Reverse Proxy & Relay{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
-    <!-- Frontend & Subscription Settings -->
-    <!-- Frontend & Subscription Settings -->
+    <div class="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5 text-sm text-amber-100">
+        <div class="flex items-start gap-3">
+            <i data-lucide="triangle-alert" class="w-5 h-5 text-amber-300 mt-0.5"></i>
+            <div>
+                <p class="font-semibold text-amber-300">Legacy distributed orchestration is deprecated.</p>
+                <p class="mt-1 text-amber-100/80">CARAMBA now treats the panel as the single control-plane origin behind one reverse proxy. Relay nodes can still act as public entry points for subscription and Telegram Mini App traffic.</p>
+            </div>
+        </div>
+    </div>
+
     <div class="card p-8 group">
-        <header class="flex items-center gap-4 mb-10">
-            <div
-                class="w-12 h-12 rounded-2xl bg-brand/10 flex items-center justify-center text-brand border border-brand/20">
-                <i data-lucide="layout" class="w-6 h-6"></i>
+        <header class="flex items-center gap-4 mb-8">
+            <div class="w-12 h-12 rounded-2xl bg-brand/10 flex items-center justify-center text-brand border border-brand/20">
+                <i data-lucide="workflow" class="w-6 h-6"></i>
             </div>
             <div>
-                <h3 class="text-xl font-bold text-slate-900 dark:text-white">Frontend Configuration</h3>
-                <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Manage access nodes
-                    and subscription distribution</p>
+                <h3 class="text-xl font-bold text-slate-900 dark:text-white">Single-Host Routing</h3>
+                <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Panel, Bot, and TMA behind one reverse proxy</p>
             </div>
         </header>
 
         <form hx-post="{{ admin_path }}/frontends/settings" hx-swap="none" class="space-y-6">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Frontend Mode -->
                 <div>
-                    <label
-                        class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Frontend
-                        Mode</label>
-                    <select name="frontend_mode" class="input-field text-lg">
-                        <option value="local" {% if frontend_mode=="local" %}selected{% endif %}>Local (Panel Hosted)
-                        </option>
-                        <option value="distributed" {% if frontend_mode=="distributed" %}selected{% endif %}>Distributed
-                            (CDN/External)</option>
-                    </select>
+                    <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Subscription Domain</label>
+                    <input type="text" name="subscription_domain" value="{{ subscription_domain }}" placeholder="sub.example.com" class="input-field text-lg font-mono">
+                    <p class="text-[10px] text-slate-500 mt-2 ml-1">Canonical host for `/sub/*` traffic.</p>
                 </div>
-
-                <!-- Subscription Domain -->
                 <div>
-                    <label
-                        class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Subscription
-                        Domain</label>
-                    <input type="text" name="subscription_domain" value="{{ subscription_domain }}"
-                        placeholder="sub.example.com" class="input-field text-lg font-mono">
+                    <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">TMA Domain</label>
+                    <input type="text" name="tma_domain" value="{{ tma_domain }}" placeholder="app.example.com" class="input-field text-lg font-mono">
+                    <p class="text-[10px] text-slate-500 mt-2 ml-1">Optional dedicated host for `/app/*`. Leave empty to reuse the subscription host.</p>
                 </div>
             </div>
 
-            <!-- Panel & Mini App URLs (Moved from Settings) -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                    <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Panel API URL</label>
-                    <input type="text" name="panel_url" value="{{ panel_url }}" placeholder="https://panel.example.com" class="input-field font-mono">
-                    <p class="text-[10px] text-slate-500 mt-2 ml-1">Used by agents to reach this control plane.</p>
+                    <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Subscription Entry Relay</label>
+                    <select name="subscription_entry_relay_id" class="input-field text-sm">
+                        <option value="0" {% if subscription_entry_relay_id == 0 %}selected{% endif %}>Panel host reverse proxy</option>
+                        {% for relay in relay_nodes %}
+                        <option value="{{ relay.id }}" {% if subscription_entry_relay_id == relay.id %}selected{% endif %}>{{ relay.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <p class="text-[10px] text-slate-500 mt-2 ml-1">Current target: <span class="text-cyan-300">{{ subscription_entry_label }}</span></p>
                 </div>
                 <div>
-                    <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Mini App URL</label>
-                    <input type="text" name="mini_app_url" value="{{ mini_app_url }}" placeholder="https://app.example.com" class="input-field font-mono">
-                    <p class="text-[10px] text-slate-500 mt-2 ml-1">Optional override for Telegram Web App.</p>
+                    <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">TMA Entry Relay</label>
+                    <select name="tma_entry_relay_id" class="input-field text-sm">
+                        <option value="0" {% if tma_entry_relay_id == 0 %}selected{% endif %}>Panel host reverse proxy</option>
+                        {% for relay in relay_nodes %}
+                        <option value="{{ relay.id }}" {% if tma_entry_relay_id == relay.id %}selected{% endif %}>{{ relay.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <p class="text-[10px] text-slate-500 mt-2 ml-1">Current target: <span class="text-cyan-300">{{ tma_entry_label }}</span></p>
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6 border-t border-border-default">
-                <!-- Mini App Toggle -->
-                <div
-                    class="flex items-center justify-between p-5 bg-black/20 border border-border-default rounded-2xl">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 border-t border-border-default">
+                <div class="flex items-center justify-between p-5 bg-black/20 border border-border-default rounded-2xl">
                     <div class="flex items-center gap-4">
                         <div class="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center text-brand">
                             <i data-lucide="smartphone" class="w-5 h-5"></i>
                         </div>
                         <div>
                             <h4 class="text-sm font-bold text-slate-900 dark:text-white">Telegram Mini App</h4>
-                            <p class="text-[10px] text-slate-500 font-medium mt-0.5">Enable the embedded interface
-                            </p>
+                            <p class="text-[10px] text-slate-500 font-medium mt-0.5">Local assets, proxied through the selected entrypoint</p>
                         </div>
                     </div>
                     <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" name="miniapp_enabled" value="true" class="sr-only peer" {% if
-                            miniapp_enabled %}checked{% endif %}>
-                        <div
-                            class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand">
-                        </div>
+                        <input type="checkbox" name="miniapp_enabled" value="true" class="sr-only peer" {% if miniapp_enabled %}checked{% endif %}>
+                        <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand"></div>
                     </label>
                 </div>
-
-                <!-- Relay Auth Mode -->
                 <div>
-                    <label
-                        class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-3 ml-1">Relay
-                        Auth Mode</label>
+                    <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Relay Auth Mode</label>
                     <select name="relay_auth_mode" class="input-field">
-                        <option value="dual" {% if relay_auth_mode=="dual" %}selected{% endif %}>Dual (Recommended
-                            Rollout)</option>
-                        <option value="v1" {% if relay_auth_mode=="v1" %}selected{% endif %}>V1 (Derived Only)
-                        </option>
-                        <option value="legacy" {% if relay_auth_mode=="legacy" %}selected{% endif %}>Legacy (Raw
-                            Token)</option>
+                        <option value="dual" {% if relay_auth_mode=="dual" %}selected{% endif %}>Dual</option>
+                        <option value="v1" {% if relay_auth_mode=="v1" %}selected{% endif %}>V1</option>
                     </select>
+                    <p class="text-[10px] text-slate-500 mt-2 ml-1">Legacy raw-token relay auth is removed from the simplified model.</p>
                 </div>
             </div>
 
             <div class="pt-2 flex justify-end">
-                    <button type="submit" class="btn btn-primary px-10">
-                        <i data-lucide="save"></i>
-                        Update Configuration
-                    </button>
-                </div>
+                <button type="submit" class="btn btn-primary px-10">
+                    <i data-lucide="save"></i>
+                    Save Reverse Proxy Configuration
+                </button>
+            </div>
         </form>
     </div>
 
-    <!-- Installation & Instructions -->
-    <details class="card p-8 group overflow-visible">
-        <summary class="cursor-pointer flex items-center justify-between gap-4 list-none">
-            <div class="flex items-center gap-4">
-                <div
-                    class="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 border border-emerald-500/20 transition-transform group-open:scale-110">
-                    <i data-lucide="terminal" class="w-6 h-6"></i>
-                </div>
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div class="card p-8">
+            <header class="flex items-center justify-between gap-4 mb-6">
                 <div>
-                    <h3 class="text-xl font-bold text-slate-900 dark:text-white">Deployment Commands</h3>
-                    <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Quick-install
-                        scripts for nodes and workers</p>
+                    <h3 class="text-xl font-bold text-slate-900 dark:text-white">Single-Host Nginx</h3>
+                    <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Proxy panel, webhooks, subscriptions, and TMA</p>
                 </div>
-            </div>
-            <div
-                class="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 group-open:rotate-180 transition-transform">
-                <i data-lucide="chevron-down" class="w-4 h-4"></i>
-            </div>
-        </summary>
-
-        <div class="mt-6 space-y-6 animate-fade-in">
-            <div class="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4 space-y-4">
-                <div class="flex items-center justify-between gap-3">
-                    <p class="text-xs text-slate-200">Quick install commands (ready to run)</p>
-                    <a href="{{ admin_path }}/api-keys" class="text-[11px] text-cyan-300 hover:text-cyan-200">Manage
-                        Enrollment Keys</a>
-                </div>
-
-                <div class="space-y-2">
-                    <!-- Node Server -->
-                    <div
-                        class="rounded-lg border border-slate-300 dark:border-white/10 bg-slate-100 dark:bg-slate-950/50 p-2.5">
-                        <div class="flex items-center justify-between mb-1.5">
-                            <span class="text-[11px] text-slate-300 font-semibold uppercase tracking-wide">Node
-                                Server</span>
-                            <button type="button" onclick="copyInstallerCommand('install-cmd-node', this)"
-                                class="text-[11px] px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors">Copy</button>
-                        </div>
-                        <div id="install-cmd-node" class="font-mono text-[11px] text-slate-300 break-all">{{
-                            installer_node_command }}</div>
-                    </div>
-
-                    <!-- Sub Worker -->
-                    <div
-                        class="rounded-lg border border-slate-300 dark:border-white/10 bg-slate-100 dark:bg-slate-950/50 p-2.5">
-                        <div class="flex items-center justify-between mb-1.5">
-                            <span class="text-[11px] text-slate-300 font-semibold uppercase tracking-wide">Sub
-                                Worker</span>
-                            <button type="button" onclick="copyInstallerCommand('install-cmd-sub', this)"
-                                class="text-[11px] px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors">Copy</button>
-                        </div>
-                        <div id="install-cmd-sub" class="font-mono text-[11px] text-slate-300 break-all">{{
-                            installer_sub_command }}</div>
-                    </div>
-
-                </div>
-
-                <!-- Hub Nginx Configuration -->
-                <div
-                    class="rounded-lg border border-slate-300 dark:border-white/10 bg-slate-100 dark:bg-slate-950/50 p-2.5 mt-4">
-                    <div class="flex items-center justify-between mb-1.5">
-                        <span class="text-[11px] text-slate-300 font-semibold uppercase tracking-wide">Hub Nginx Reverse
-                            Proxy Config</span>
-                        <button type="button" onclick="copyInstallerCommand('install-cmd-nginx', this)"
-                            class="text-[11px] px-2 py-1 rounded border border-white/15 text-slate-300 hover:bg-white/5 transition-colors">Copy</button>
-                    </div>
-                    <p class="text-[11px] text-slate-400 mb-2">If you are hosting the Panel and Sub Worker on the same
-                        server, use this Nginx configuration to route traffic correctly:</p>
-                    <div id="install-cmd-nginx"
-                        class="font-mono text-[10px] text-slate-300 whitespace-pre overflow-x-auto bg-slate-900 p-2 rounded border border-white/5">
-                        server {
-                        listen 80;
-                        listen 443 ssl http2;
-                        server_name YOUR_DOMAIN;
-
-                        # SSL Certificates (Managed by Certbot)
-                        # ssl_certificate /etc/letsencrypt/live/YOUR_DOMAIN/fullchain.pem;
-                        # ssl_certificate_key /etc/letsencrypt/live/YOUR_DOMAIN/privkey.pem;
-
-                        # Route Subscriptions and MiniApp to Sub Worker
-                        location ~ ^/(sub|app) {
-                        proxy_pass http://127.0.0.1:8080;
-                        proxy_set_header Host $host;
-                        proxy_set_header X-Real-IP $remote_addr;
-                        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                        proxy_set_header X-Forwarded-Proto $scheme;
-                        }
-
-                        # Route everything else to Panel
-                        location / {
-                        proxy_pass http://127.0.0.1:3000;
-                        proxy_set_header Host $host;
-                        proxy_set_header X-Real-IP $remote_addr;
-                        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                        proxy_set_header X-Forwarded-Proto $scheme;
-                        }
-                        }</div>
-                </div>
-            </div>
-
-            <div
-                class="rounded-lg border border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40 p-3 text-[11px] text-slate-600 dark:text-slate-400 space-y-1.5">
-                <p><span class="text-slate-200">Auto-generated enrollment key:</span> <span
-                        class="font-mono text-cyan-300 break-all">{{ installer_enrollment_key }}</span></p>
-                <p><span class="text-slate-200">Internal API token:</span>
-                    {% if installer_sub_token_ready %}
-                    <span class="font-mono text-cyan-300 break-all">{{ installer_sub_token }}</span>
-                    {% else %}
-                    <span class="text-rose-300">unavailable (failed to generate)</span>
-                    {% endif %}
-                </p>
-            </div>
+                <button type="button" onclick="copyInstallerCommand('single-host-nginx', this)" class="btn btn-secondary px-4">Copy</button>
+            </header>
+            <pre id="single-host-nginx" class="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-white/5 rounded-xl p-5 text-emerald-400 font-mono text-xs overflow-x-auto whitespace-pre-wrap break-all leading-relaxed shadow-inner">{{ single_host_nginx_config }}</pre>
         </div>
-</div>
-</details>
 
-<!-- Frontend Servers List -->
-<div class="space-y-6">
-    <div class="flex items-center justify-between gap-6">
-        <div>
-            <h2 class="text-2xl font-bold text-slate-900 dark:text-white">Distributed Frontend Nodes</h2>
-            <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-1">Active edge servers and
-                health status</p>
+        <div class="card p-8">
+            <header class="flex items-center justify-between gap-4 mb-6">
+                <div>
+                    <h3 class="text-xl font-bold text-slate-900 dark:text-white">Single-Host Caddy</h3>
+                    <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Same topology with fewer moving parts</p>
+                </div>
+                <button type="button" onclick="copyInstallerCommand('single-host-caddy', this)" class="btn btn-secondary px-4">Copy</button>
+            </header>
+            <pre id="single-host-caddy" class="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-white/5 rounded-xl p-5 text-cyan-300 font-mono text-xs overflow-x-auto whitespace-pre-wrap break-all leading-relaxed shadow-inner">{{ single_host_caddy_config }}</pre>
         </div>
-        <button onclick="document.getElementById('addFrontendModal').showModal()" class="btn btn-primary px-8">
-            <i data-lucide="plus-circle"></i>
-            Add Frontend
-        </button>
     </div>
 
     <div class="card overflow-hidden">
+        <div class="px-6 py-5 border-b border-border-default flex items-center justify-between gap-4">
+            <div>
+                <h3 class="text-xl font-bold text-slate-900 dark:text-white">Relay Entry Points</h3>
+                <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Only relay nodes are eligible for public subscription/TMA entry</p>
+            </div>
+            <span class="badge badge-proto">proxy-centric</span>
+        </div>
         <div class="overflow-x-auto">
             <table class="table-base">
                 <thead>
                     <tr>
-                        <th class="px-6 py-4">Domain</th>
-                        <th class="px-6 py-4">Region</th>
-                        <th class="px-6 py-4">IP Address</th>
-                        <th class="px-6 py-4">Status</th>
-                        <th class="px-6 py-4">Monthly Traffic</th>
-                        <th class="px-6 py-4 text-right">Actions</th>
+                        <th class="px-6 py-4">Relay</th>
+                        <th class="px-6 py-4">IP</th>
+                        <th class="px-6 py-4">Role</th>
+                        <th class="px-6 py-4 text-right">Mode</th>
                     </tr>
                 </thead>
-                <tbody id="frontendsTableBody" hx-get="{{ admin_path }}/partials/frontends_rows"
-                    hx-trigger="load, every 30s" hx-swap="innerHTML">
+                <tbody id="frontendsTableBody" hx-get="{{ admin_path }}/partials/frontends_rows" hx-trigger="load, every 30s" hx-swap="innerHTML">
                     <tr>
-                        <td colspan="6" class="px-6 py-20 text-center">
-                            <div class="flex flex-col items-center gap-4 text-slate-500">
-                                <div
-                                    class="w-12 h-12 rounded-full border-2 border-slate-700 border-t-brand animate-spin">
-                                </div>
-                                <p class="text-xs font-bold uppercase tracking-widest">Polling edge nodes...</p>
-                            </div>
-                        </td>
+                        <td colspan="4" class="px-6 py-16 text-center text-slate-500">Loading relay entrypoints…</td>
                     </tr>
                 </tbody>
             </table>
         </div>
     </div>
-</div>
-</div>
 
-<!-- Add Frontend Modal -->
-<dialog id="addFrontendModal"
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50">
-    <div class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4 ring-1 ring-white/10 overflow-y-auto max-h-[90vh]"
-        onclick="event.stopPropagation()">
-        <header class="flex justify-between items-center mb-6 border-b border-slate-200 dark:border-white/5 pb-4">
-            <div class="flex items-center gap-3">
-                <div class="p-2 bg-indigo-500/10 rounded-lg text-indigo-400">
-                    <i data-lucide="globe" class="w-6 h-6"></i>
-                </div>
-                <h3 class="text-xl font-bold text-slate-900 dark:text-white">Add Frontend</h3>
+    <div class="card p-8">
+        <header class="flex items-center gap-4 mb-6">
+            <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 border border-emerald-500/20">
+                <i data-lucide="terminal" class="w-6 h-6"></i>
             </div>
-            <button onclick="document.getElementById('addFrontendModal').close()"
-                class="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
-                <i data-lucide="x" class="w-5 h-5"></i>
-            </button>
-        </header>
-
-        <form id="addFrontendForm" class="space-y-5">
             <div>
-                <label
-                    class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Domain</label>
-                <div class="relative">
-                    <i data-lucide="link" class="absolute left-4 top-3.5 w-4 h-4 text-slate-500"></i>
-                    <input type="text" name="domain" placeholder="frontend-eu.example.com" required
-                        class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                </div>
-                <p class="text-[10px] text-slate-500 mt-1.5 ml-1">Must be a valid FQDN pointing to the server IP.</p>
+                <h3 class="text-xl font-bold text-slate-900 dark:text-white">Bot Worker Command</h3>
+                <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Still available if you run the bot outside the panel host</p>
             </div>
-
-            <div class="grid grid-cols-2 gap-4">
-                <div>
-                    <label
-                        class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Miniapp
-                        Domain (Optional)</label>
-                    <div class="relative">
-                        <i data-lucide="smartphone" class="absolute left-4 top-3.5 w-4 h-4 text-slate-500"></i>
-                        <input type="text" name="miniapp_domain" placeholder="app.example.com"
-                            class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                    </div>
-                </div>
-                <div>
-                    <label
-                        class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Sub
-                        Path</label>
-                    <div class="relative">
-                        <i data-lucide="folder" class="absolute left-4 top-3.5 w-4 h-4 text-slate-500"></i>
-                        <input type="text" name="sub_path" placeholder="/sub/" value="/sub/"
-                            class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all">
-                    </div>
-                </div>
-            </div>
-
-            <!-- Advanced / Hidden fields for IP/Region (Optional) -->
-            <details class="group">
-                <summary
-                    class="flex items-center gap-2 text-xs font-medium text-slate-500 uppercase tracking-wider cursor-pointer hover:text-indigo-400 transition-colors">
-                    <i data-lucide="chevron-right" class="w-4 h-4 group-open:rotate-90 transition-transform"></i>
-                    <span>Advanced Options (IP / Region)</span>
-                </summary>
-                <div
-                    class="grid grid-cols-2 gap-4 mt-3 pl-2 border-l border-slate-200 dark:border-white/5 bg-white/5 p-3 rounded-r-xl">
-                    <div>
-                        <label
-                            class="block text-[10px] font-medium text-slate-600 dark:text-slate-400 uppercase mb-1">IP
-                            Address</label>
-                        <input type="text" name="ip_address" placeholder="Auto-detected"
-                            class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 outline-none">
-                    </div>
-                    <div>
-                        <label
-                            class="block text-[10px] font-medium text-slate-600 dark:text-slate-400 uppercase mb-1">Region</label>
-                        <input type="text" name="region" placeholder="global"
-                            class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-600 focus:border-indigo-500 outline-none">
-                    </div>
-                </div>
-            </details>
-
-            <div class="pt-4">
-                <button type="submit" id="createFrontendBtn"
-                    class="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02]">
-                    <span>Deploy & Generate Command</span>
-                    <i data-lucide="arrow-right" class="w-5 h-5"></i>
-                </button>
-            </div>
-        </form>
-    </div>
-</dialog>
-
-<!-- Install Command Modal -->
-<dialog id="installCommandModal"
-    class="backdrop:bg-slate-950/80 bg-transparent p-0 open:animate-fade-in backdrop:backdrop-blur-sm z-50">
-    <div class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-2xl p-6 m-4 ring-1 ring-emerald-500/30 overflow-y-auto max-h-[90vh]"
-        onclick="event.stopPropagation()">
-        <header class="flex justify-between items-center mb-6">
-            <div class="flex items-center gap-3">
-                <div class="p-2 bg-emerald-500/10 rounded-lg text-emerald-400">
-                    <i data-lucide="check-circle-2" class="w-6 h-6"></i>
-                </div>
-                <h3 class="text-xl font-bold text-slate-900 dark:text-white">Frontend Created!</h3>
-            </div>
-            <button onclick="document.getElementById('installCommandModal').close()"
-                class="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
-                <i data-lucide="x" class="w-5 h-5"></i>
-            </button>
         </header>
-
-        <div class="space-y-6">
-            <div class="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4 flex gap-3">
-                <i data-lucide="info" class="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5"></i>
-                <div class="text-sm text-emerald-100/80">
-                    <p class="font-medium text-emerald-400 mb-1">Installation Required</p>
-                    Run the command below on your server to install the frontend service. This token is shown only once.
-                </div>
+        <div class="rounded-lg border border-slate-300 dark:border-white/10 bg-slate-100 dark:bg-slate-950/50 p-3 space-y-3">
+            <p class="text-[11px] text-slate-500">Enrollment key: <span class="font-mono text-cyan-300">{{ installer_enrollment_key }}</span></p>
+            <p class="text-[11px] text-slate-500">Internal token:
+                {% if installer_sub_token_ready %}
+                <span class="font-mono text-cyan-300 break-all">{{ installer_sub_token }}</span>
+                {% else %}
+                <span class="text-rose-300">missing</span>
+                {% endif %}
+            </p>
+            <div class="flex items-center justify-between gap-3">
+                <span class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Bot Worker</span>
+                <button type="button" onclick="copyInstallerCommand('install-cmd-bot', this)" class="btn btn-secondary px-4">Copy</button>
             </div>
-
-            <div class="relative group">
-                <pre id="installCommand"
-                    class="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-white/5 rounded-xl p-5 text-emerald-400 font-mono text-xs overflow-x-auto whitespace-pre-wrap break-all leading-relaxed shadow-inner"></pre>
-                <button id="copyInstallCmd"
-                    class="absolute top-3 right-3 p-2 bg-white/5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100">
-                    <i data-lucide="copy" class="w-4 h-4"></i>
-                </button>
-            </div>
-
-            <div class="space-y-3">
-                <h4 class="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wider">Instructions
-                </h4>
-                <ol class="space-y-3 text-sm text-slate-600 dark:text-slate-400 list-decimal list-outside ml-4">
-                    <li>SSH into your server: <code
-                            class="text-indigo-400 font-mono bg-white/5 px-1.5 py-0.5 rounded">ssh root@<span id="serverIP"></span></code>
-                    </li>
-                    <li>Paste and run the installation command above</li>
-                    <li>Wait ~2 minutes for the setup to complete</li>
-                    <li>Verify by visiting: <a href="#" id="verifyLink" target="_blank"
-                            class="text-indigo-400 hover:text-indigo-300 underline underline-offset-4 decoration-indigo-500/30">https://<span
-                                id="serverDomain"></span>/health</a></li>
-                </ol>
-            </div>
-        </div>
-
-        <div class="mt-8 pt-6 border-t border-slate-200 dark:border-white/5 flex justify-end">
-            <button onclick="document.getElementById('installCommandModal').close()"
-                class="px-6 py-2.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-medium rounded-xl transition-colors">
-                Done
-            </button>
+            <pre id="install-cmd-bot" class="font-mono text-[11px] text-slate-300 break-all whitespace-pre-wrap">{{ installer_bot_command }}</pre>
         </div>
     </div>
-</dialog>
+</div>
 
 <script>
-    // Initial load handled by HTMX trigger="load"
+function copyInstallerCommand(elementId, button) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    navigator.clipboard.writeText(el.textContent || '');
+    if (button) {
+        const old = button.textContent;
+        button.textContent = 'Copied';
+        setTimeout(() => { button.textContent = old; }, 1200);
+    }
+}
 </script>
 {% endblock %}

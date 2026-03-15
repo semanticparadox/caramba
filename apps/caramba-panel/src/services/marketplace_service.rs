@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use caramba_db::models::store::{PaymentSession, User};
 use caramba_db::repositories::payment_session_repo::PaymentSessionRepository;
 use chrono::Utc;
+use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -131,6 +132,9 @@ impl MarketplaceService {
             .get_provider(provider_name)
             .context("Payment provider not found or disabled")?;
 
+        let metadata = normalize_payment_metadata(metadata)?;
+        self.validate_session_resource(product_id, metadata.as_ref()).await?;
+
         let session = PaymentSession {
             id: Uuid::new_v4(),
             user_id: user.id,
@@ -200,60 +204,170 @@ impl MarketplaceService {
             return Ok(());
         }
 
-        // 3. Mark as completed
-        self.session_repo.update_status(session_id, "completed").await?;
+        self.validate_session_resource(session.product_id, session.metadata.as_ref())
+            .await?;
 
-        // 4. Provision Product/Plan
-        let mut product_type = "product".to_string();
-        if let Some(meta) = &session.metadata {
-            if let Some(t) = meta.get("type").and_then(|v| v.as_str()) {
-                product_type = t.to_string();
+        let fulfillment_result = self.fulfill_session_resource(&session).await;
+        match fulfillment_result {
+            Ok(()) => {
+                self.session_repo.update_status(session_id, "completed").await?;
+                Ok(())
+            }
+            Err(error) => {
+                let _ = self.session_repo.update_status(session_id, "failed").await;
+                Err(error)
             }
         }
+    }
 
-        if product_type == "plan" {
-            // Determine days to add
-            let mut days_to_add = 30; // Default
-            
-            if let Some(meta) = &session.metadata {
-                if let Some(days) = meta.get("duration_days").and_then(|v| v.as_i64()) {
-                    days_to_add = days as i32;
-                }
-            }
+    async fn fulfill_session_resource(&self, session: &PaymentSession) -> Result<()> {
+        let resource_type = payment_resource_type(session.metadata.as_ref());
 
-            if days_to_add == 30 {
-                // Fallback: search plan_durations for this plan_id with this price
-                let duration_row: Option<(i32,)> = sqlx::query_as("SELECT duration_days FROM plan_durations WHERE plan_id = $1 AND price = $2 LIMIT 1")
-                    .bind(session.product_id)
-                    .bind(session.amount)
-                    .fetch_optional(&self.pool)
-                    .await
-                    .unwrap_or(None);
-                
-                if let Some((d,)) = duration_row {
-                    days_to_add = d;
-                }
-            }
-
-            // Find the active subscription or create one
+        if resource_type == "plan" {
+            let days_to_add = self.resolve_plan_duration_days(session).await?;
             let subs = self.sub_service.get_user_subscriptions(session.user_id).await?;
 
-            tracing::info!("Fulfilling VPN Plan for user {}: extending by {} days", session.user_id, days_to_add);
+            tracing::info!(
+                "Fulfilling VPN Plan for user {}: extending by {} days",
+                session.user_id,
+                days_to_add
+            );
 
             if let Some(active_sub) = subs.first() {
                 self.sub_service.admin_extend(active_sub.sub.id, days_to_add).await?;
             } else {
-                // Create new subscription
-                let _ = self.store_service.admin_gift_subscription(session.user_id, session.product_id, days_to_add).await?;
+                let _ = self
+                    .store_service
+                    .admin_gift_subscription(session.user_id, session.product_id, days_to_add)
+                    .await?;
             }
-        } else {
-            let products = self.store_service.get_all_products().await?;
-            let product = products.into_iter().find(|p| p.id == session.product_id).context("Product not found")?;
-            
-            // ... rest of product fulfillment (if any)
-            tracing::info!("Fulfilling Product {} for user {}", product.name, session.user_id);
+
+            return Ok(());
+        }
+
+        let products = self.store_service.get_all_products().await?;
+        let product = products
+            .into_iter()
+            .find(|p| p.id == session.product_id)
+            .context("Product not found")?;
+
+        tracing::info!(
+            "Fulfilling Product {} for user {}",
+            product.name,
+            session.user_id
+        );
+        Ok(())
+    }
+
+    async fn resolve_plan_duration_days(&self, session: &PaymentSession) -> Result<i32> {
+        if let Some(days) = session
+            .metadata
+            .as_ref()
+            .and_then(|meta| meta.get("duration_days"))
+            .and_then(|value| value.as_i64())
+        {
+            return Ok(days as i32);
+        }
+
+        let duration_row: Option<(i32,)> = sqlx::query_as(
+            "SELECT duration_days FROM plan_durations WHERE plan_id = $1 AND price = $2 LIMIT 1",
+        )
+        .bind(session.product_id)
+        .bind(session.amount)
+        .fetch_optional(&self.pool)
+        .await
+        .unwrap_or(None);
+
+        Ok(duration_row.map(|(days,)| days).unwrap_or(30))
+    }
+
+    async fn validate_session_resource(
+        &self,
+        product_id: i64,
+        metadata: Option<&Value>,
+    ) -> Result<()> {
+        match payment_resource_type(metadata) {
+            "plan" => {
+                let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM plans WHERE id = $1)")
+                    .bind(product_id)
+                    .fetch_one(&self.pool)
+                    .await?;
+                if !exists {
+                    anyhow::bail!("Plan {} does not exist", product_id);
+                }
+            }
+            _ => {
+                let exists: bool =
+                    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE id = $1)")
+                        .bind(product_id)
+                        .fetch_one(&self.pool)
+                        .await?;
+                if !exists {
+                    anyhow::bail!("Product {} does not exist", product_id);
+                }
+            }
         }
 
         Ok(())
+    }
+}
+
+fn normalize_payment_metadata(metadata: Option<Value>) -> Result<Option<Value>> {
+    let Some(metadata) = metadata else {
+        return Ok(None);
+    };
+
+    if !metadata.is_object() {
+        anyhow::bail!("Payment metadata must be a JSON object");
+    }
+
+    let resource_type = payment_resource_type(Some(&metadata));
+    if resource_type != "plan" && resource_type != "product" {
+        anyhow::bail!("Unsupported payment resource type: {}", resource_type);
+    }
+
+    if resource_type == "plan"
+        && metadata
+            .get("duration_days")
+            .and_then(|value| value.as_i64())
+            .is_some_and(|days| days <= 0)
+    {
+        anyhow::bail!("duration_days must be a positive integer");
+    }
+
+    Ok(Some(metadata))
+}
+
+fn payment_resource_type(metadata: Option<&Value>) -> &str {
+    metadata
+        .and_then(|value| value.get("type"))
+        .and_then(Value::as_str)
+        .unwrap_or("product")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_payment_metadata, payment_resource_type};
+    use serde_json::json;
+
+    #[test]
+    fn defaults_missing_payment_type_to_product() {
+        assert_eq!(payment_resource_type(None), "product");
+        assert_eq!(payment_resource_type(Some(&json!({}))), "product");
+    }
+
+    #[test]
+    fn rejects_non_object_metadata() {
+        let result = normalize_payment_metadata(Some(json!(["plan"])));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_plan_duration() {
+        let result = normalize_payment_metadata(Some(json!({
+            "type": "plan",
+            "duration_days": 0
+        })));
+        assert!(result.is_err());
     }
 }
