@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "caramba",
+  "project_id": "e6971ec1-3e90-4f14-8fa9-37e03ae8b2cd"
+}
