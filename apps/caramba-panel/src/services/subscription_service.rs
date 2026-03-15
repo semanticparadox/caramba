@@ -1,4 +1,7 @@
 use crate::services::activity_service::ActivityService;
+use crate::singbox::connection_variants::{
+    SingboxConnectionVariant, apply_connection_variant, fixed_connection_variants,
+};
 use crate::singbox::subscription_generator::{NodeInfo, UserKeys};
 use anyhow::{Context, Result};
 use caramba_db::models::network::InboundType;
@@ -1632,8 +1635,18 @@ impl SubscriptionService {
         sub: &Subscription,
         nodes: &[NodeInfo],
         keys: &UserKeys,
+        variant: Option<&str>,
     ) -> Result<String> {
-        crate::singbox::subscription_generator::generate_singbox_config(sub, nodes, keys)
+        let config = crate::singbox::subscription_generator::generate_singbox_config(sub, nodes, keys)?;
+
+        match variant {
+            Some(variant_id) => apply_connection_variant(&config, variant_id),
+            None => Ok(config),
+        }
+    }
+
+    pub fn get_singbox_connection_variants(&self) -> Vec<SingboxConnectionVariant> {
+        fixed_connection_variants()
     }
 
     pub async fn update_subscription_node(&self, sub_id: i64, node_id: Option<i64>) -> Result<()> {

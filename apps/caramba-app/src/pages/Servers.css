@@ -133,6 +133,117 @@
     padding: 12px 16px;
 }
 
+.variant-feedback-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+}
+
+.variant-feedback {
+    width: 100%;
+}
+
+.variant-feedback.success {
+    border-color: rgba(16, 185, 129, 0.35);
+    color: #86efac;
+}
+
+.variant-feedback.danger {
+    border-color: rgba(248, 113, 113, 0.35);
+    color: #fca5a5;
+}
+
+.variant-list {
+    display: grid;
+    gap: var(--space-xs);
+    margin-bottom: var(--space-md);
+    text-align: left;
+}
+
+.variant-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    border-radius: var(--radius-lg);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-primary);
+}
+
+.variant-card.active {
+    border-color: rgba(56, 189, 248, 0.5);
+    box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.2);
+    background: rgba(56, 189, 248, 0.08);
+}
+
+.variant-title-row,
+.variant-meta-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+
+.variant-title {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.variant-badges {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.variant-meta-row {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+}
+
+.variant-summary {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.variant-empty-state {
+    padding: 12px;
+    margin-bottom: var(--space-md);
+    border-radius: var(--radius-lg);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.variant-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.variant-chip.vless {
+    background: rgba(59, 130, 246, 0.16);
+    color: #93c5fd;
+}
+
+.variant-chip.recommended {
+    background: rgba(245, 158, 11, 0.18);
+    color: #fcd34d;
+}
+
+.variant-chip.grpc {
+    background: rgba(16, 185, 129, 0.16);
+    color: #86efac;
+}
+
 .close-btn {
     margin-top: var(--space-xs);
     color: var(--text-tertiary) !important;

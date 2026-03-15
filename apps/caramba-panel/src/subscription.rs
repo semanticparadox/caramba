@@ -12,6 +12,7 @@ use crate::AppState;
 pub struct SubParams {
     pub client: Option<String>, // "clash" | "v2ray" | "singbox"
     pub node_id: Option<i64>,
+    pub variant: Option<String>,
 }
 
 fn parse_ip_maybe(value: &str) -> Option<std::net::IpAddr> {
@@ -863,7 +864,11 @@ function copyLink(){{
     // Check Redis Cache & Generate
     let client_type = selected_client.as_deref().unwrap_or("singbox");
     let cache_node_id = params.node_id.unwrap_or(0);
-    let cache_key = format!("sub_config_v2:{}:{}:{}", uuid, client_type, cache_node_id);
+    let cache_variant = params.variant.as_deref().unwrap_or("default");
+    let cache_key = format!(
+        "sub_config_v2:{}:{}:{}:{}",
+        uuid, client_type, cache_node_id, cache_variant
+    );
 
     if let Ok(Some(cached_config)) = state.redis.get(&cache_key).await {
         let _filename = match client_type {
@@ -929,7 +934,7 @@ function copyLink(){{
         _ => {
             match state
                 .subscription_service
-                .generate_singbox(&sub, &node_infos, &user_keys)
+                .generate_singbox(&sub, &node_infos, &user_keys, params.variant.as_deref())
             {
                 Ok(c) => (c, "application/json; charset=utf-8", "config.json"),
                 Err(e) => {

@@ -40,6 +40,16 @@ export interface UserSubscription {
     subscription_url: string;
     primary_vless_link?: string | null;
     vless_links?: string[];
+    singbox_variants?: SingboxConnectionVariant[];
+}
+
+export interface SingboxConnectionVariant {
+    id: string;
+    label: string;
+    summary: string;
+    family: string;
+    transport: string;
+    relay: boolean;
 }
 
 interface User {
