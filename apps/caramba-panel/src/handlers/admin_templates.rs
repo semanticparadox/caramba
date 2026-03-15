@@ -1,4 +1,4 @@
-use crate::singbox::inbound_factory::InboundFactory;
+use crate::singbox::inbound_factory::validate_manual_json;
 use crate::AppState;
 use crate::handlers::admin::{get_auth_user, is_authenticated};
 use crate::services::config_validation_service::ConfigValidationService;
@@ -148,7 +148,7 @@ pub async fn create_template(
     };
 
     // Validate using InboundFactory logic
-    if let Err(e) = InboundFactory::validate_manual_json(&form.settings_template) {
+    if let Err(e) = validate_manual_json(&form.settings_template) {
         return (
             StatusCode::BAD_REQUEST,
             format!("Invalid Inbound JSON: {}", e),
@@ -478,7 +478,7 @@ pub async fn update_template(
     };
 
     // Validate using InboundFactory
-    if let Err(e) = InboundFactory::validate_manual_json(&form.settings_template) {
+    if let Err(e) = validate_manual_json(&form.settings_template) {
         return (
             StatusCode::BAD_REQUEST,
             format!("Invalid Inbound JSON: {}", e),
