@@ -1,3 +1,77 @@
-.app-container {
+.app-shell {
+    position: relative;
     min-height: 100vh;
+    isolation: isolate;
+}
+
+.app-mesh {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: -2;
+    background-image:
+        radial-gradient(circle at 14% 22%, rgba(var(--accent-rgb), 0.12) 0 24%, transparent 56%),
+        radial-gradient(circle at 84% 10%, rgba(110, 182, 255, 0.15) 0 20%, transparent 52%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+    background-size: auto, auto, 28px 28px, 28px 28px;
+}
+
+.app-noise {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: -1;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.06) 0.5px, transparent 0.5px);
+    background-size: 2px 2px;
+    opacity: 0.12;
+}
+
+.top-command-rail {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    display: flex;
+    justify-content: center;
+    padding: calc(env(safe-area-inset-top, 0px) + 10px) var(--space-4) var(--space-3);
+    background: linear-gradient(180deg, rgba(8, 12, 20, 0.92) 0%, rgba(8, 12, 20, 0.65) 70%, transparent 100%);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.top-command-track {
+    width: min(100%, 560px);
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-2);
+    padding: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-round);
+    background: rgba(11, 17, 28, 0.66);
+}
+
+.rail-link {
+    border-radius: var(--radius-round);
+    border: 1px solid transparent;
+    padding: 8px 10px;
+    text-align: center;
+    font-size: 0.7rem;
+    text-decoration: none;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    transition: color var(--ease-default), border-color var(--ease-default), background var(--ease-default);
+}
+
+.rail-link:hover,
+.rail-link:focus-visible {
+    color: var(--text-primary);
+    border-color: rgba(var(--accent-rgb), 0.28);
+}
+
+.rail-link.active {
+    color: #051217;
+    border-color: rgba(var(--accent-rgb), 0.36);
+    background: var(--accent-gradient);
 }

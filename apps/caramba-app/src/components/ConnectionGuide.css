@@ -1,0 +1,84 @@
+.platform-selector {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+  -webkit-overflow-scrolling: touch;
+}
+
+.platform-chip {
+  flex: 0 0 auto;
+  min-width: 88px;
+  padding: 10px 14px;
+  border-radius: var(--radius-round);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-glass);
+  color: var(--text-secondary);
+  font-size: 0.83rem;
+  font-weight: 700;
+}
+
+.platform-chip.active {
+  background: var(--accent-gradient);
+  color: #041217;
+  border-color: transparent;
+  box-shadow: var(--shadow-glow);
+}
+
+.guide-app-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.guide-app-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.guide-app-head h4 {
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.guide-app-head p {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.guide-app-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.guide-confidence {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.guide-confidence.high,
+.guide-confidence.medium-high {
+  color: var(--status-online);
+}
+
+.guide-app-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.guide-action {
+  width: 100%;
+}
+
+.copy-subscription-btn {
+  width: 100%;
+}

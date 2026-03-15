@@ -42,7 +42,7 @@ export default function AppLockGate() {
     return (
         <div className="applock-overlay" role="dialog" aria-modal="true" aria-label="Mini App lock">
             <div className="applock-brand">
-                <span className="applock-logo">🔒</span>
+                <span className="applock-logo">PIN</span>
                 <h1>Mini App Locked</h1>
                 <p>Enter your 4-digit PIN to continue.</p>
             </div>

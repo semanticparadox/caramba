@@ -1,201 +1,199 @@
-import { useState, useEffect } from 'react';
-import WebApp from '@twa-dev/sdk';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import './Plans.css';
+import { useState, useEffect } from 'react'
+import WebApp from '@twa-dev/sdk'
+import { useNavigate } from 'react-router-dom'
+import { apiUrl } from '../config'
+import { useAuth } from '../context/AuthContext'
+import DrawerModal from '../components/DrawerModal'
+import { mapProviderCards } from '../lib/paymentProviders'
+import './Plans.css'
 
 interface PlanDuration {
-    id: number;
-    duration_days: number;
-    price: number;
-    price_cents: number;
+    id: number
+    duration_days: number
+    price: number
+    price_cents: number
 }
 
 interface Plan {
-    id: number;
-    name: string;
-    description: string | null;
-    traffic_limit_gb: number;
-    device_limit: number;
-    durations: PlanDuration[];
+    id: number
+    name: string
+    description: string | null
+    traffic_limit_gb: number
+    device_limit: number
+    durations: PlanDuration[]
 }
 
 interface PaymentProvider {
-    id: string;
-    label: string;
+    id: string
+    label: string
 }
 
 export default function Plans() {
-    const navigate = useNavigate();
-    const { token, refreshData, user, error } = useAuth();
+    const navigate = useNavigate()
+    const { token, refreshData, user, error } = useAuth()
 
     useEffect(() => {
-        // Refresh data when user returns to the app (e.g. after payment)
         const handleFocus = () => {
-            console.log("App focused, refreshing data...");
-            refreshData();
-        };
-        window.addEventListener('focus', handleFocus);
-        return () => window.removeEventListener('focus', handleFocus);
-    }, [refreshData]);
-    const [plans, setPlans] = useState<Plan[]>([]);
-    const [providers, setProviders] = useState<PaymentProvider[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [purchasing, setPurchasing] = useState<number | null>(null);
-    const [selectedDuration, setSelectedDuration] = useState<PlanDuration | null>(null);
-    const [showPayModal, setShowPayModal] = useState(false);
-    const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+            refreshData()
+        }
+        window.addEventListener('focus', handleFocus)
+        return () => window.removeEventListener('focus', handleFocus)
+    }, [refreshData])
 
-    const headers = { Authorization: `Bearer ${token}` };
+    const [plans, setPlans] = useState<Plan[]>([])
+    const [providers, setProviders] = useState<PaymentProvider[]>([])
+    const [loading, setLoading] = useState(true)
+    const [purchasing, setPurchasing] = useState<number | null>(null)
+    const [selectedDuration, setSelectedDuration] = useState<PlanDuration | null>(null)
+    const [showPayModal, setShowPayModal] = useState(false)
+    const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+    const providerCards = mapProviderCards(providers)
+
+    const headers = { Authorization: `Bearer ${token}` }
 
     useEffect(() => {
         if (!token) {
-            setLoading(false);
+            setLoading(false)
             setMessage({
                 type: 'error',
-                text: error || 'Authorization required. Reopen Mini App from bot.',
-            });
-            return;
+                text: error || 'Требуется авторизация. Откройте Mini App повторно из бота.',
+            })
+            return
         }
 
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 12000);
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 12000)
 
-        (async () => {
+        void (async () => {
             try {
-                // Fetch plans
-                const plansRes = await fetch('/api/client/plans', {
+                const plansRes = await fetch(apiUrl('/api/client/plans'), {
                     headers,
                     signal: controller.signal,
-                });
+                })
                 if (plansRes.ok) {
-                    const data = await plansRes.json();
-                    setPlans(Array.isArray(data) ? data : []);
+                    const data = await plansRes.json()
+                    setPlans(Array.isArray(data) ? data : [])
                 }
 
-                // Fetch providers
-                const providersRes = await fetch('/api/client/payment/providers', {
+                const providersRes = await fetch(apiUrl('/api/client/payment/providers'), {
                     headers,
                     signal: controller.signal,
-                });
+                })
                 if (providersRes.ok) {
-                    const data = await providersRes.json();
-                    setProviders(data.providers || []);
+                    const data = await providersRes.json()
+                    setProviders(data.providers || [])
                 }
 
-                setMessage(null);
+                setMessage(null)
             } catch (e: any) {
-                console.error(e);
+                console.error(e)
                 setMessage({
                     type: 'error',
-                    text: e?.name === 'AbortError' ? 'Loading data timed out. Try again.' : (e?.message || 'Failed to load plans.'),
-                });
+                    text: e?.name === 'AbortError' ? 'Время загрузки истекло. Попробуйте снова.' : (e?.message || 'Не удалось загрузить тарифы.'),
+                })
             } finally {
-                clearTimeout(timeout);
-                setLoading(false);
+                clearTimeout(timeout)
+                setLoading(false)
             }
-        })();
+        })()
 
         return () => {
-            clearTimeout(timeout);
-            controller.abort();
-        };
-    }, [token]);
+            clearTimeout(timeout)
+            controller.abort()
+        }
+    }, [token, error])
 
     const handleSelectDuration = (duration: PlanDuration) => {
-        setSelectedDuration(duration);
-        setShowPayModal(true);
-    };
+        setSelectedDuration(duration)
+        setShowPayModal(true)
+    }
 
     const handlePurchase = async (providerId: string) => {
-        if (!selectedDuration) return;
+        if (!selectedDuration) return
 
-        setPurchasing(selectedDuration.id);
-        setMessage(null);
-        setShowPayModal(false);
+        setPurchasing(selectedDuration.id)
+        setMessage(null)
+        setShowPayModal(false)
 
         try {
-            const res = await fetch('/api/client/payment/invoice', {
+            const res = await fetch(apiUrl('/api/client/payment/invoice'), {
                 method: 'POST',
                 headers: { ...headers, 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     duration_id: selectedDuration.id,
-                    provider: providerId
+                    provider: providerId,
                 }),
-            });
+            })
 
             if (res.ok) {
-                const data = await res.json();
+                const data = await res.json()
                 if (data.invoice_url) {
                     if (providerId === 'manual') {
-                        setMessage({ type: 'success', text: `Please upload your receipt to: ${data.invoice_url}` });
-                        setPurchasing(null);
-                        setSelectedDuration(null);
+                        setMessage({ type: 'success', text: `Платеж создан. Загрузите чек сюда: ${data.invoice_url}` })
+                        setPurchasing(null)
+                        setSelectedDuration(null)
                     } else if (providerId === 'telegram_stars' || providerId === 'stars' || data.invoice_url.includes('t.me/invoice')) {
-                        // Use Telegram native invoice for Stars or direct t.me links
                         WebApp.openInvoice(data.invoice_url, (status) => {
-                            console.log("Invoice status:", status);
-                            refreshData();
-                            setPurchasing(null);
-                            setSelectedDuration(null);
-                        });
-                        return; // Modal/purchasing state handled in callback
+                            if (status) {
+                                void refreshData()
+                            }
+                            setPurchasing(null)
+                            setSelectedDuration(null)
+                        })
+                        return
                     } else {
-                        // Redirect for external providers (CryptoBot, AAIO, etc.)
-                        window.location.href = data.invoice_url;
-                        // We don't null purchasing here immediately as we want the user to see "Purchasing..." 
-                        // until they leave or we refresh. But focus listener will handle return.
-                        return;
+                        window.location.href = data.invoice_url
+                        return
                     }
                 }
-                await refreshData();
+                await refreshData()
             } else {
-                const err = await res.text();
-                setMessage({ type: 'error', text: err || 'Failed to generate invoice' });
+                const err = await res.text()
+                setMessage({ type: 'error', text: err || 'Не удалось создать счет' })
             }
         } catch (e) {
-            console.error("Purchase error:", e);
-            setMessage({ type: 'error', text: 'Network error' });
+            console.error('Purchase error:', e)
+            setMessage({ type: 'error', text: 'Сетевая ошибка при создании счета.' })
         } finally {
-            // Only cleanup if we didn't return early for async operations
             if (providerId === 'manual' || !selectedDuration) {
-                setPurchasing(null);
-                setSelectedDuration(null);
+                setPurchasing(null)
+                setSelectedDuration(null)
             }
         }
-    };
+    }
 
     const formatPrice = (priceCents: number) => {
-        const major = Math.floor(priceCents / 100);
-        const minor = priceCents % 100;
-        return `$${major}.${minor.toString().padStart(2, '0')}`;
-    };
+        const major = Math.floor(priceCents / 100)
+        const minor = priceCents % 100
+        return `$${major}.${minor.toString().padStart(2, '0')}`
+    }
 
     const formatDuration = (days: number) => {
-        if (days === 0) return 'Traffic Only';
-        if (days === 30) return '1 Month';
-        if (days === 60) return '2 Months';
-        if (days === 90) return '3 Months';
-        if (days === 180) return '6 Months';
-        if (days === 365) return '1 Year';
-        return `${days} days`;
-    };
+        if (days === 0) return 'Только трафик'
+        if (days === 30) return '1 месяц'
+        if (days === 60) return '2 месяца'
+        if (days === 90) return '3 месяца'
+        if (days === 180) return '6 месяцев'
+        if (days === 365) return '1 год'
+        return `${days} дней`
+    }
 
-    if (loading) return <div className="page"><div className="loading">Loading plans...</div></div>;
+    if (loading) return <div className="page"><div className="loading">Загрузка тарифов...</div></div>
 
     return (
         <div className="page plans-page">
             <header className="page-header">
-                <button className="back-button" onClick={() => navigate('/')}>←</button>
-                <h2>🛍 Buy Subscription</h2>
+                <button className="back-button" onClick={() => navigate('/')}>{'<'}</button>
+                <h2>Тарифы подписки</h2>
             </header>
 
-            {/* Balance indicator */}
             <div className="balance-strip glass-card">
-                <span>💰 Your Balance</span>
-                <span className="balance-val">
-                    ${((user?.balance || 0)).toFixed(2)}
-                </span>
+                <div>
+                    <p className="strip-label">Баланс кошелька</p>
+                    <p className="strip-note">Доступен для продлений и апгрейдов</p>
+                </div>
+                <span className="balance-val">${((user?.balance || 0)).toFixed(2)}</span>
             </div>
 
             {message && (
@@ -206,28 +204,27 @@ export default function Plans() {
 
             {plans.length === 0 ? (
                 <div className="empty-state">
-                    <div className="empty-icon">📋</div>
-                    <h3>No Plans Available</h3>
-                    <p>Check back later for available subscription plans.</p>
+                    <div className="empty-icon">PL</div>
+                    <h3>Тарифы пока недоступны</h3>
+                    <p>Проверьте позже или обратитесь в поддержку.</p>
                 </div>
             ) : (
                 <div className="plans-list">
-                    {plans.map(plan => (
+                    {plans.map((plan) => (
                         <div key={plan.id} className="plan-card glass-card">
                             <div className="plan-header">
-                                <h3 className="plan-name">{plan.name}</h3>
+                                <div>
+                                    <h3 className="plan-name">{plan.name}</h3>
+                                    {plan.description && <p className="plan-desc">{plan.description}</p>}
+                                </div>
                                 <div className="plan-badges">
-                                    <span className="plan-badge">📊 {plan.traffic_limit_gb > 0 ? `${plan.traffic_limit_gb} GB` : '∞'}</span>
-                                    <span className="plan-badge">📱 {plan.device_limit > 0 ? `${plan.device_limit} devices` : '∞'}</span>
+                                    <span className="plan-badge">{plan.traffic_limit_gb > 0 ? `${plan.traffic_limit_gb} GB` : 'Безлимит'}</span>
+                                    <span className="plan-badge">{plan.device_limit > 0 ? `${plan.device_limit} устройств` : 'Без лимита'}</span>
                                 </div>
                             </div>
 
-                            {plan.description && (
-                                <p className="plan-desc">{plan.description}</p>
-                            )}
-
                             <div className="duration-grid">
-                                {plan.durations.map(dur => (
+                                {plan.durations.map((dur) => (
                                     <button
                                         key={dur.id}
                                         className={`duration-btn ${purchasing === dur.id ? 'purchasing' : ''}`}
@@ -235,10 +232,10 @@ export default function Plans() {
                                         disabled={purchasing !== null}
                                     >
                                         <span className="dur-label">
-                                            {dur.duration_days === 0 ? '🚀 Traffic' : formatDuration(dur.duration_days)}
+                                            {formatDuration(dur.duration_days)}
                                         </span>
                                         <span className="dur-price">{formatPrice(dur.price_cents)}</span>
-                                        {purchasing === dur.id && <span className="dur-spinner">⏳</span>}
+                                        {purchasing === dur.id && <span className="dur-spinner">...</span>}
                                     </button>
                                 ))}
                             </div>
@@ -247,27 +244,40 @@ export default function Plans() {
                 </div>
             )}
 
-            {/* Payment Provider Modal */}
-            {showPayModal && (
-                <div className="modal-overlay" onClick={() => setShowPayModal(false)}>
-                    <div className="modal-content glass-card" onClick={e => e.stopPropagation()}>
-                        <h3>💳 Select Payment Method</h3>
-                        <p>Choose how you want to pay for this plan:</p>
-                        <div className="provider-list">
-                            {providers.map(p => (
-                                <button
-                                    key={p.id}
-                                    className="provider-btn"
-                                    onClick={() => handlePurchase(p.id)}
-                                >
-                                    {p.label}
-                                </button>
-                            ))}
-                        </div>
-                        <button className="btn-cancel" onClick={() => setShowPayModal(false)}>Cancel</button>
+            <DrawerModal
+                open={showPayModal}
+                onClose={() => setShowPayModal(false)}
+                title="Способ оплаты"
+                subtitle={selectedDuration ? `${formatDuration(selectedDuration.duration_days)} - ${formatPrice(selectedDuration.price_cents)}` : undefined}
+                footer={<button className="btn-ghost" onClick={() => setShowPayModal(false)}>Отмена</button>}
+            >
+                {providers.length === 0 ? (
+                    <div className="empty-state drawer-empty">
+                        <div className="empty-icon">PM</div>
+                        <h3>Провайдеры оплаты недоступны</h3>
+                        <p>Попробуйте позже или обратитесь в поддержку.</p>
                     </div>
-                </div>
-            )}
+                ) : (
+                    <div className="provider-list provider-card-list">
+                        {providerCards.map((p) => (
+                            <button
+                                key={p.id}
+                                className={`provider-btn provider-card ${p.accent}`}
+                                onClick={() => handlePurchase(p.id)}
+                            >
+                                <span className="provider-card-copy">
+                                    <strong>{p.title}</strong>
+                                    <small>{p.description}</small>
+                                </span>
+                                <span className="provider-card-meta">
+                                    {p.badge && <span className="provider-pill">{p.badge}</span>}
+                                    <span className="provider-arrow">{'>'}</span>
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </DrawerModal>
         </div>
-    );
+    )
 }

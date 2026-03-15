@@ -4,20 +4,21 @@ import { useAppLock } from '../context/AppLockContext'
 import './Home.css'
 
 function formatBytes(bytes: number, decimals = 2): string {
-    if (!bytes || bytes === 0) return '0 B';
-    const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    if (!bytes || bytes === 0) return '0 B'
+    const k = 1024
+    const dm = decimals < 0 ? 0 : decimals
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i]
 }
 
-const MENU_ITEMS = [
-    { path: '/plans', icon: '🛍', title: 'Buy Subscription', subtitle: 'Browse plans & purchase', gradient: 'linear-gradient(135deg, #F59E0B 0%, #EF4444 100%)' },
-    { path: '/subscription', icon: '🔐', title: 'My Services', subtitle: 'Subscriptions & config', gradient: 'var(--accent-gradient)' },
-    { path: '/promo', icon: '🎫', title: 'Promo Center', subtitle: 'Redeem promo & gift codes', gradient: 'linear-gradient(135deg, #8B5CF6 0%, #D946EF 100%)' },
-    { path: '/referral', icon: '🎁', title: 'Referral', subtitle: 'Invite & Earn', gradient: 'linear-gradient(135deg, #F59E0B 0%, #10B981 100%)' },
-    { path: '/support', icon: '💬', title: 'Support', subtitle: 'Help & FAQ', gradient: 'linear-gradient(135deg, #6366F1 0%, #EC4899 100%)' },
+const CONTROL_ITEMS = [
+    { path: '/subscription', title: 'Мои сервисы', subtitle: 'Конфиги, ссылки и состояние активации', tag: 'СЕРВИС' },
+    { path: '/plans', title: 'Тарифы', subtitle: 'Покупка, продление и баланс', tag: 'ОПЛАТА' },
+    { path: '/store', title: 'Магазин', subtitle: 'Дополнения и разовые покупки', tag: 'ШОП' },
+    { path: '/promo', title: 'Промо', subtitle: 'Активация и управление кодами', tag: 'ПРОМО' },
+    { path: '/referral', title: 'Рефералы', subtitle: 'Приглашения и трекинг наград', tag: 'РОСТ' },
+    { path: '/support', title: 'Поддержка', subtitle: 'Диагностика и справочный центр', tag: 'ПОМОЩЬ' },
 ]
 
 export default function Home() {
@@ -42,167 +43,204 @@ export default function Home() {
         ? Math.min(100, Math.round((effectiveUsed / effectiveLimit) * 100))
         : 0
 
-    // SVG circular progress
-    const radius = 54;
-    const circumference = 2 * Math.PI * radius;
-    const strokeOffset = circumference - (percentage / 100) * circumference;
+    const primarySubscription = activeSubscriptions[0]
+    const connectTarget = primarySubscription ? `/servers/${primarySubscription.id}` : '/plans'
+    const connectLabel = primarySubscription ? 'Быстрое подключение' : 'Открыть доступ'
+    const hasAccess = activeSubscriptions.length > 0
+
+    const radius = 44
+    const circumference = 2 * Math.PI * radius
+    const strokeOffset = circumference - (percentage / 100) * circumference
 
     const subscriptionsPreview = activeSubscriptions
         .slice()
         .sort((a, b) => (a.days_left || 0) - (b.days_left || 0))
         .slice(0, 3)
 
-    const isSimpleMode = stats?.simple_mode_enabled === true;
+    const isSimpleMode = stats?.simple_mode_enabled === true
 
-    // Filter menu items for Simple Mode
-    const filteredMenuItems = MENU_ITEMS.filter((item) => {
-        if (!isSimpleMode) return true;
-        // In simple mode, we hide Buy Subscription and My Services as they are replaced by direct actions
-        return item.path !== '/plans' && item.path !== '/subscription';
-    });
+    const filteredControlItems = CONTROL_ITEMS.filter((item) => {
+        if (!isSimpleMode) return true
+        return item.path !== '/plans' && item.path !== '/subscription' && item.path !== '/store'
+    })
+
+    const totalDownload = stats?.total_download || 0
+    const totalUpload = stats?.total_upload || 0
 
     return (
         <div className="page home-page">
-            {/* Header */}
-            <div className="home-header">
-                <div className="logo-section">
-                    <span className="logo-icon">🚀</span>
-                    <h1 className="gradient-text">{isSimpleMode ? (user?.username || 'EXA-ROBOT').toUpperCase() : 'EXA-ROBOT'}</h1>
+            <section className="quick-connect-hero glass-card">
+                <div className="hero-top-row">
+                    <span className="hero-state">
+                        <span className={`state-dot ${hasAccess ? 'is-online' : 'is-idle'}`} />
+                        {hasAccess ? 'Готово к подключению' : 'Нет активного доступа'}
+                    </span>
+                    {isSimpleMode && <span className="hero-mode">Упрощенный режим</span>}
                 </div>
-                {user && !isSimpleMode && <p className="user-greeting">Welcome, {user.username || 'User'}</p>}
-                <div className="home-actions-row">
-                    <button className="home-chip" onClick={() => void refreshData()}>
-                        Refresh
+
+                <div className="hero-copy">
+                    <p className="hero-kicker">Центр быстрого подключения</p>
+                    <h1>{(user?.username || 'Оператор').toUpperCase()}</h1>
+                    <p>
+                        Сначала подключение, затем диагностика и коммерческие действия в едином центре управления.
+                    </p>
+                </div>
+
+                <div className="hero-actions">
+                    <button className="btn-primary hero-connect" onClick={() => navigate(connectTarget)}>
+                        {connectLabel}
                     </button>
-                    <button className="home-chip" onClick={() => navigate('/support')}>
-                        {isPinEnabled ? 'PIN: On' : 'PIN: Off'}
+                    <div className="hero-secondary-row">
+                        <button className="btn-secondary" onClick={() => navigate('/subscription')}>
+                            Сервисы
+                        </button>
+                        <button className="btn-secondary" onClick={() => void refreshData()}>
+                            Обновить
+                        </button>
+                        <button className="btn-secondary" onClick={() => navigate('/plans')}>
+                            Продлить
+                        </button>
+                    </div>
+                </div>
+
+                <div className="hero-meta-row">
+                    <button className="hero-chip" onClick={() => navigate('/support')}>
+                        {isPinEnabled ? 'PIN включен' : 'PIN выключен'}
                     </button>
                     {isPinEnabled && (
-                        <button className="home-chip home-chip-warn" onClick={lockNow}>
-                            Lock Now
+                        <button className="hero-chip hero-chip-warn" onClick={lockNow}>
+                            Заблокировать
                         </button>
                     )}
-                </div>
-            </div>
-
-            {/* Traffic Ring */}
-            <div className="traffic-card glass-card">
-                <div className="traffic-ring-container">
-                    <svg className="traffic-ring" viewBox="0 0 120 120">
-                        <circle className="ring-bg" cx="60" cy="60" r={radius} />
-                        <circle
-                            className="ring-progress"
-                            cx="60" cy="60" r={radius}
-                            strokeDasharray={circumference}
-                            strokeDashoffset={strokeOffset}
-                        />
-                    </svg>
-                    <div className="ring-label">
-                        <span className="ring-percent">{isLoading ? '...' : `${percentage}%`}</span>
-                        <span className="ring-text">Data Usage</span>
-                    </div>
-                </div>
-                <div className="traffic-meta">
-                    <div className="traffic-stat">
-                        <span className="stat-label">Used</span>
-                        <span className="stat-value">{isLoading ? '...' : formatBytes(effectiveUsed)}</span>
-                    </div>
-                    <div className="traffic-divider" />
-                    <div className="traffic-stat">
-                        <span className="stat-label">Limit</span>
-                        <span className="stat-value">{isLoading ? '...' : formatBytes(effectiveLimit)}</span>
-                    </div>
-                    <div className="traffic-divider" />
-                    <div className="traffic-stat">
-                        <span className="stat-label">Days left</span>
-                        <span className="stat-value">{isLoading ? '...' : (effectiveDaysLeft ?? '—')}</span>
-                    </div>
-                </div>
-            </div>
-
-            {/* Simple Mode Action Buttons */}
-            {isSimpleMode && (
-                <div className="simple-mode-actions">
-                    <button
-                        className="btn-primary simple-action-btn"
-                        onClick={() => navigate(subscriptions.length > 0 ? '/subscription' : '/plans')}
-                    >
-                        {subscriptions.length > 0 ? '🚀 Connect' : '🛒 Get Started'}
+                    <button className="hero-chip" onClick={() => navigate('/store')}>
+                        Открыть магазин
                     </button>
-                    <div className="simple-secondary-row">
-                        <button
-                            className="btn-secondary simple-secondary-btn"
-                            onClick={() => navigate('/plans')}
-                        >
-                            📅 Renew
-                        </button>
-                        <button
-                            className="btn-secondary simple-secondary-btn"
-                            onClick={() => navigate(subscriptions.length > 0 ? `/servers/${subscriptions[0].id}` : '/plans')}
-                        >
-                            🌍 Change Country
-                        </button>
-                    </div>
                 </div>
-            )}
 
-            {!isSimpleMode && (
-                <div className="subs-overview glass-card">
-                    <div className="subs-overview-header">
-                        <h3>My Active Subscriptions</h3>
-                        <span className="subs-counter">{activeSubscriptions.length}</span>
+                <div className="hero-haptic-mark" aria-hidden="true">
+                    haptic-ready
+                </div>
+            </section>
+
+            <section className="home-bento-grid">
+                <article className="bento-card bento-traffic glass-card">
+                    <div className="bento-head">
+                        <h3>Трафик</h3>
+                        <span>{percentage}%</span>
                     </div>
+                    <div className="traffic-ring-wrap">
+                        <svg className="traffic-ring" viewBox="0 0 100 100">
+                            <circle className="ring-bg" cx="50" cy="50" r={radius} />
+                            <circle
+                                className="ring-progress"
+                                cx="50"
+                                cy="50"
+                                r={radius}
+                                strokeDasharray={circumference}
+                                strokeDashoffset={strokeOffset}
+                            />
+                        </svg>
+                        <div className="ring-text-wrap">
+                            <span className="ring-percent">{isLoading ? '...' : `${percentage}%`}</span>
+                            <span className="ring-text">использовано</span>
+                        </div>
+                    </div>
+                    <div className="traffic-values">
+                        <span>{isLoading ? '...' : formatBytes(effectiveUsed)}</span>
+                        <span>{isLoading ? '...' : formatBytes(effectiveLimit)}</span>
+                    </div>
+                </article>
+
+                <article className="bento-card glass-card">
+                    <div className="bento-head">
+                        <h3>Срок действия</h3>
+                        <span>{activeSubscriptions.length} активных</span>
+                    </div>
+                    <div className="metric-grid">
+                        <div>
+                            <p>Дней осталось</p>
+                            <strong>{isLoading ? '...' : (effectiveDaysLeft ?? 'Н/Д')}</strong>
+                        </div>
+                        <div>
+                            <p>Тарифов</p>
+                            <strong>{subscriptions.length}</strong>
+                        </div>
+                    </div>
+                </article>
+
+                <article className="bento-card glass-card">
+                    <div className="bento-head">
+                        <h3>Передача</h3>
+                        <span>За все время</span>
+                    </div>
+                    <div className="metric-grid">
+                        <div>
+                            <p>Входящий</p>
+                            <strong>{formatBytes(totalDownload)}</strong>
+                        </div>
+                        <div>
+                            <p>Исходящий</p>
+                            <strong>{formatBytes(totalUpload)}</strong>
+                        </div>
+                    </div>
+                </article>
+
+                <article className="bento-card glass-card">
+                    <div className="bento-head">
+                        <h3>Баланс</h3>
+                        <span>Доступно</span>
+                    </div>
+                    <div className="balance-value">${(user?.balance || stats?.balance || 0).toFixed(2)}</div>
+                    <button className="btn-ghost" onClick={() => navigate('/plans')}>
+                        Перейти к оплате
+                    </button>
+                </article>
+            </section>
+
+            <section className="control-panel glass-card">
+                <div className="panel-header">
+                    <h3>Панель действий</h3>
+                    <span>Операционные и коммерческие быстрые сценарии</span>
+                </div>
+
+                <div className="control-grid">
+                    {filteredControlItems.map((item) => (
+                        <button
+                            key={item.path}
+                            className="control-card"
+                            onClick={() => navigate(item.path)}
+                        >
+                            <span className="control-tag">{item.tag}</span>
+                            <span className="control-title">{item.title}</span>
+                            <span className="control-subtitle">{item.subtitle}</span>
+                        </button>
+                    ))}
+                </div>
+
+                <div className="subs-preview-grid">
                     {subscriptionsPreview.length === 0 ? (
-                        <p className="subs-empty">
-                            No active subscriptions yet. Open Buy Subscription to get started.
-                        </p>
-                    ) : (
-                        <div className="subs-list">
-                            {subscriptionsPreview.map((sub) => (
-                                <button
-                                    key={sub.id}
-                                    className="subs-item"
-                                    onClick={() => navigate('/subscription')}
-                                >
-                                    <div className="subs-item-title">{sub.plan_name}</div>
-                                    <div className="subs-item-meta">
-                                        <span>{sub.used_traffic_gb} GB / {sub.traffic_limit_gb || '∞'} GB</span>
-                                        <span>{sub.days_left}d left</span>
-                                    </div>
-                                </button>
-                            ))}
+                        <div className="empty-state control-empty">
+                            <div className="empty-icon">CC</div>
+                            <h3>Нет активных подписок</h3>
+                            <p>Откройте тарифы, чтобы создать первый маршрут подключения.</p>
                         </div>
-                    )}
-                    {activeSubscriptions.length > subscriptionsPreview.length && (
-                        <button className="subs-view-all" onClick={() => navigate('/subscription')}>
-                            View all subscriptions
-                        </button>
+                    ) : (
+                        subscriptionsPreview.map((sub) => (
+                            <button
+                                key={sub.id}
+                                className="sub-preview-row"
+                                onClick={() => navigate('/subscription')}
+                            >
+                                <span className="sub-preview-name">{sub.plan_name}</span>
+                                <span className="sub-preview-meta">
+                                    {sub.used_traffic_gb} GB / {sub.traffic_limit_gb || '∞'} GB
+                                </span>
+                                <span className="sub-preview-meta">{sub.days_left} дн. осталось</span>
+                            </button>
+                        ))
                     )}
                 </div>
-            )}
-
-            {/* Quick Actions Grid */}
-            <div className="quick-actions">
-                {filteredMenuItems.map((item) => (
-                    <button
-                        key={item.path}
-                        className="action-card glass-card"
-                        onClick={() => navigate(item.path)}
-                    >
-                        <div className="action-icon-wrap" style={{ background: item.gradient }}>
-                            <span className="action-icon">{item.icon}</span>
-                        </div>
-                        <span className="action-title">{item.title}</span>
-                        <span className="action-subtitle">{item.subtitle}</span>
-                    </button>
-                ))}
-            </div>
-
-            {/* Status */}
-            <div className="status-bar">
-                <div className="status-dot" />
-                <span>Connected</span>
-            </div>
+            </section>
         </div>
     )
 }

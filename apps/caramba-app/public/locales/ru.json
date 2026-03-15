@@ -1,0 +1,33 @@
+{
+  "common": {
+    "appName": "CARAMBA",
+    "quickConnect": "Быстрое подключение",
+    "magicOptimize": "Магическая оптимизация",
+    "howToConnect": "Как подключиться",
+    "copySubscriptionLink": "Скопировать ссылку подписки",
+    "openGuide": "Открыть гид",
+    "download": "Скачать",
+    "guide": "Гид",
+    "recommended": "Рекомендуем",
+    "platforms": {
+      "ios": "iOS",
+      "android": "Android",
+      "windows": "Windows",
+      "macos": "macOS",
+      "linux": "Linux",
+      "tv": "TV"
+    },
+    "setupSnippet": "Скопируйте ссылку -> откройте приложение -> Import from Clipboard/URL -> Connect",
+    "payments": {
+      "title": "Оплата",
+      "selectProvider": "Выберите способ оплаты",
+      "balance": "Баланс",
+      "buySubscription": "Купить подписку"
+    },
+    "status": {
+      "connected": "Подключено",
+      "optimizing": "Оптимизируем маршрут",
+      "loading": "Загрузка..."
+    }
+  }
+}
