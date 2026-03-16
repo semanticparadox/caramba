@@ -1,45 +1,258 @@
+import { useEffect, useMemo, useState } from 'react'
+import WebApp from '@twa-dev/sdk'
 import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
+import DrawerModal from '../components/DrawerModal'
+import { apiUrl } from '../config'
+import { useAuth, UserSubscription } from '../context/AuthContext'
 import { useAppLock } from '../context/AppLockContext'
-import { formatBytes, getUsageSnapshot } from '../lib/subscriptionMetrics'
+import { copyText } from '../lib/copyActions'
+import { mapProviderCards } from '../lib/paymentProviders'
+import { formatBytes, getUsageSnapshot, usageProgress } from '../lib/subscriptionMetrics'
 import './Home.css'
 
-const CONTROL_ITEMS = [
-    { path: '/support/connect', title: 'Каталог приложений', subtitle: 'Подберите клиент и импортируйте ссылку' },
-    { path: '/promo', title: 'Промокоды', subtitle: 'Активируйте код и проверьте доступ' },
-    { path: '/referral', title: 'Приглашения', subtitle: 'Поделитесь доступом с друзьями' },
-    { path: '/support', title: 'Поддержка', subtitle: 'Ответы, диагностика и связь с командой' },
-]
+interface PlanDuration {
+    id: number
+    duration_days: number
+    price: number
+    price_cents: number
+}
+
+interface Plan {
+    id: number
+    name: string
+    description: string | null
+    traffic_limit_gb: number
+    device_limit: number
+    durations: PlanDuration[]
+}
+
+interface PaymentProvider {
+    id: string
+    label: string
+}
+
+type CenterBanner = { type: 'success' | 'error'; text: string } | null
+
+function withClient(url: string, client: string): string {
+    const separator = url.includes('?') ? '&' : '?'
+    return `${url}${separator}client=${encodeURIComponent(client)}`
+}
+
+function formatPrice(priceCents: number): string {
+    const major = Math.floor(priceCents / 100)
+    const minor = priceCents % 100
+    return `$${major}.${minor.toString().padStart(2, '0')}`
+}
+
+function formatDuration(days: number): string {
+    if (days === 0) return 'Только трафик'
+    if (days === 30) return '1 месяц'
+    if (days === 60) return '2 месяца'
+    if (days === 90) return '3 месяца'
+    if (days === 180) return '6 месяцев'
+    if (days === 365) return '1 год'
+    return `${days} дней`
+}
+
+function formatExpiryLabel(sub: UserSubscription): string {
+    if (sub.duration_days === 0) return 'Трафик-план'
+    if (!sub.expires_at) return 'Без даты'
+    const dt = new Date(sub.expires_at)
+    if (Number.isNaN(dt.getTime())) return sub.expires_at
+    return dt.toLocaleDateString()
+}
 
 export default function Home() {
     const navigate = useNavigate()
-    const { userStats: stats, isLoading, user, subscriptions, refreshData } = useAuth()
+    const { userStats: stats, isLoading, user, subscriptions, refreshData, token, error } = useAuth()
     const { isPinEnabled, lockNow } = useAppLock()
 
     const usage = getUsageSnapshot(stats, subscriptions)
-    const activeSubscriptions = usage.activeSubscriptions
 
-    const primarySubscription = activeSubscriptions[0]
-    const connectTarget = primarySubscription ? `/subscription?sub=${primarySubscription.id}&connect=1` : '/plans'
-    const connectLabel = primarySubscription ? 'Импортировать и подключиться' : 'Выбрать тариф и подключиться'
-    const hasAccess = activeSubscriptions.length > 0
+    const activeSubscriptions = useMemo(
+        () => subscriptions.filter((sub) => sub.status === 'active'),
+        [subscriptions],
+    )
+    const pendingSubscriptions = useMemo(
+        () => subscriptions.filter((sub) => sub.status === 'pending'),
+        [subscriptions],
+    )
+
+    const hasActiveAccess = activeSubscriptions.length > 0
+    const hasPending = pendingSubscriptions.length > 0
+    const shouldShowPurchase = !hasActiveAccess && !hasPending
+    const primarySubscription = activeSubscriptions[0] || null
+
+    const [copiedSubId, setCopiedSubId] = useState<number | null>(null)
+    const [activatingSubId, setActivatingSubId] = useState<number | null>(null)
+    const [plans, setPlans] = useState<Plan[]>([])
+    const [providers, setProviders] = useState<PaymentProvider[]>([])
+    const [catalogLoading, setCatalogLoading] = useState(false)
+    const [catalogLoaded, setCatalogLoaded] = useState(false)
+    const [showPayModal, setShowPayModal] = useState(false)
+    const [selectedDuration, setSelectedDuration] = useState<PlanDuration | null>(null)
+    const [purchasingDurationId, setPurchasingDurationId] = useState<number | null>(null)
+    const [banner, setBanner] = useState<CenterBanner>(null)
+
+    const providerCards = mapProviderCards(providers)
 
     const radius = 44
     const circumference = 2 * Math.PI * radius
     const strokeOffset = circumference - (usage.percent / 100) * circumference
 
-    const subscriptionsPreview = activeSubscriptions
-        .slice()
-        .sort((a, b) => (a.days_left || 0) - (b.days_left || 0))
-        .slice(0, 3)
+    const focusPurchase = () => {
+        const block = document.getElementById('center-purchase')
+        if (!block) return
+        block.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+
+    const openHiddify = (sub: UserSubscription) => {
+        if (!sub.subscription_url) return
+        window.location.href = withClient(sub.subscription_url, 'hiddify')
+    }
+
+    const copyImportLink = async (sub: UserSubscription) => {
+        if (!sub.subscription_url) return
+        await copyText(withClient(sub.subscription_url, 'hiddify'))
+        setCopiedSubId(sub.id)
+        setTimeout(() => setCopiedSubId(null), 1600)
+    }
+
+    const handleActivate = async (subId: number) => {
+        if (!token) return
+        setActivatingSubId(subId)
+        setBanner(null)
+
+        try {
+            const res = await fetch(`/api/client/subscription/${subId}/activate`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+            })
+
+            if (res.ok) {
+                const data = await res.json()
+                setBanner({
+                    type: 'success',
+                    text: data?.message || 'Подписка активирована. Можно подключаться в Hiddify.',
+                })
+                await refreshData()
+            } else {
+                const errText = await res.text()
+                setBanner({ type: 'error', text: errText || 'Не удалось активировать подписку.' })
+            }
+        } catch {
+            setBanner({ type: 'error', text: 'Сетевая ошибка при активации подписки.' })
+        } finally {
+            setActivatingSubId(null)
+        }
+    }
+
+    useEffect(() => {
+        if (!token || !shouldShowPurchase || catalogLoaded || catalogLoading) return
+
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 12000)
+
+        const loadCatalog = async () => {
+            setCatalogLoading(true)
+            try {
+                const headers = { Authorization: `Bearer ${token}` }
+                const [plansRes, providersRes] = await Promise.all([
+                    fetch(apiUrl('/api/client/plans'), { headers, signal: controller.signal }),
+                    fetch(apiUrl('/api/client/payment/providers'), { headers, signal: controller.signal }),
+                ])
+
+                if (plansRes.ok) {
+                    const plansData = await plansRes.json()
+                    setPlans(Array.isArray(plansData) ? plansData : [])
+                } else {
+                    setPlans([])
+                }
+
+                if (providersRes.ok) {
+                    const providersData = await providersRes.json()
+                    setProviders(Array.isArray(providersData?.providers) ? providersData.providers : [])
+                } else {
+                    setProviders([])
+                }
+
+                setCatalogLoaded(true)
+            } catch (e: any) {
+                if (e?.name !== 'AbortError') {
+                    setBanner({ type: 'error', text: e?.message || 'Не удалось загрузить тарифы.' })
+                }
+            } finally {
+                clearTimeout(timeout)
+                setCatalogLoading(false)
+            }
+        }
+
+        void loadCatalog()
+
+        return () => {
+            clearTimeout(timeout)
+            controller.abort()
+        }
+    }, [token, shouldShowPurchase, catalogLoaded, catalogLoading])
+
+    const handleSelectDuration = (duration: PlanDuration) => {
+        setSelectedDuration(duration)
+        setShowPayModal(true)
+    }
+
+    const handlePurchase = async (providerId: string) => {
+        if (!selectedDuration || !token) return
+
+        const pickedDuration = selectedDuration
+        setPurchasingDurationId(pickedDuration.id)
+        setBanner(null)
+        setShowPayModal(false)
+
+        try {
+            const res = await fetch(apiUrl('/api/client/payment/invoice'), {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    duration_id: pickedDuration.id,
+                    provider: providerId,
+                }),
+            })
+
+            if (res.ok) {
+                const data = await res.json()
+                if (data.invoice_url) {
+                    if (providerId === 'manual') {
+                        setBanner({
+                            type: 'success',
+                            text: `Платеж создан. Загрузите чек: ${data.invoice_url}`,
+                        })
+                    } else if (providerId === 'telegram_stars' || providerId === 'stars' || data.invoice_url.includes('t.me/invoice')) {
+                        WebApp.openInvoice(data.invoice_url, () => {
+                            void refreshData()
+                        })
+                        return
+                    } else {
+                        window.location.href = data.invoice_url
+                        return
+                    }
+                }
+                await refreshData()
+            } else {
+                const errText = await res.text()
+                setBanner({ type: 'error', text: errText || 'Не удалось создать счет.' })
+            }
+        } catch {
+            setBanner({ type: 'error', text: 'Сетевая ошибка при создании счета.' })
+        } finally {
+            setPurchasingDurationId(null)
+            setSelectedDuration(null)
+        }
+    }
 
     const isSimpleMode = stats?.simple_mode_enabled === true
-
-    const filteredControlItems = CONTROL_ITEMS.filter((item) => {
-        if (!isSimpleMode) return true
-        return item.path !== '/plans' && item.path !== '/subscription' && item.path !== '/store'
-    })
-
     const totalDownload = stats?.total_download || 0
     const totalUpload = stats?.total_upload || 0
 
@@ -48,105 +261,200 @@ export default function Home() {
             <section className="quick-connect-hero glass-card">
                 <div className="hero-top-row">
                     <span className="hero-state">
-                        <span className={`state-dot ${hasAccess ? 'is-online' : 'is-idle'}`} />
-                        {hasAccess ? 'Готово к подключению' : 'Нет активного доступа'}
+                        <span className={`state-dot ${hasActiveAccess ? 'is-online' : hasPending ? 'is-waiting' : 'is-idle'}`} />
+                        {hasActiveAccess ? 'Готово к подключению' : hasPending ? 'Покупка ожидает активации' : 'Доступ не активирован'}
                     </span>
                     {isSimpleMode && <span className="hero-mode">Упрощенный режим</span>}
                 </div>
 
                 <div className="hero-copy">
-                    <p className="hero-kicker">Быстрый старт</p>
-                    <h1>{user?.username || 'Оператор'}</h1>
+                    <p className="hero-kicker">Центр управления</p>
+                    <h1>{user?.username || 'Пользователь'}</h1>
                     <p>
-                        Импортируйте подписку одним действием. Маршруты загрузятся автоматически, а тонкая настройка останется доступной позже.
+                        Здесь собраны все ключевые действия: подключение через Hiddify, активация покупки и выбор нового тарифа.
                     </p>
                 </div>
 
                 <div className="hero-actions">
-                    <button className="btn-primary hero-connect" onClick={() => navigate(connectTarget)}>
-                        {connectLabel}
-                    </button>
-                    <p className="hero-connect-note">Основной путь: открыть подписку, импортировать ссылку и сразу проверить соединение.</p>
-                    <div className="hero-secondary-row">
-                        <button className="btn-ghost" onClick={() => navigate('/support/connect')}>
-                            Гид по приложениям
-                        </button>
-                        <button className="btn-ghost" onClick={() => void refreshData()}>
-                            Обновить
-                        </button>
-                        <button className="btn-ghost" onClick={() => navigate('/subscription')}>
-                            Мои сервисы
-                        </button>
-                    </div>
-                </div>
-
-                <div className="hero-links-row">
-                    <button className="hero-link" onClick={() => navigate('/support')}>
-                        Нужна помощь
-                    </button>
-                    <button className="hero-link" onClick={() => navigate('/store')}>
-                        Магазин
-                    </button>
-                    {isPinEnabled ? (
-                        <button className="hero-link" onClick={lockNow}>
-                            Заблокировать Mini App
-                        </button>
+                    {hasActiveAccess && primarySubscription ? (
+                        <>
+                            <button className="btn-primary hero-connect" onClick={() => openHiddify(primarySubscription)}>
+                                Открыть Hiddify
+                            </button>
+                            <div className="hero-secondary-row">
+                                <button className="btn-ghost" onClick={() => void copyImportLink(primarySubscription)}>
+                                    {copiedSubId === primarySubscription.id ? 'Скопировано' : 'Скопировать ссылку'}
+                                </button>
+                                <button className="btn-ghost" onClick={() => navigate('/support/connect')}>
+                                    Инструкция Hiddify
+                                </button>
+                                <button className="btn-ghost" onClick={() => void refreshData()}>
+                                    Обновить
+                                </button>
+                            </div>
+                        </>
+                    ) : hasPending ? (
+                        <>
+                            <button className="btn-primary hero-connect" onClick={() => handleActivate(pendingSubscriptions[0].id)} disabled={activatingSubId !== null}>
+                                {activatingSubId === pendingSubscriptions[0].id ? 'Активация...' : 'Активировать покупку'}
+                            </button>
+                            <div className="hero-secondary-row hero-secondary-row--two">
+                                <button className="btn-ghost" onClick={focusPurchase}>
+                                    Купить еще
+                                </button>
+                                <button className="btn-ghost" onClick={() => void refreshData()}>
+                                    Обновить
+                                </button>
+                            </div>
+                        </>
                     ) : (
-                        <button className="hero-link" onClick={() => navigate('/support')}>
-                            Включить PIN
-                        </button>
+                        <>
+                            <button className="btn-primary hero-connect" onClick={focusPurchase}>
+                                Выбрать и купить тариф
+                            </button>
+                            <div className="hero-secondary-row hero-secondary-row--two">
+                                <button className="btn-ghost" onClick={() => navigate('/promo')}>
+                                    Промокод / реферал
+                                </button>
+                                <button className="btn-ghost" onClick={() => void refreshData()}>
+                                    Обновить
+                                </button>
+                            </div>
+                        </>
                     )}
                 </div>
             </section>
 
-            <section className="control-panel glass-card">
-                <div className="panel-header">
-                    <h3>Ваши маршруты</h3>
-                    <span>Откройте подписку и начните импорт с нужного тарифа</span>
+            {banner && (
+                <div className={`home-banner ${banner.type}`}>
+                    {banner.text}
                 </div>
+            )}
 
-                <div className="subs-preview-grid">
-                    {subscriptionsPreview.length === 0 ? (
+            {!token && (
+                <div className="home-banner error">
+                    {error || 'Требуется авторизация. Откройте Mini App из бота заново.'}
+                </div>
+            )}
+
+            {hasActiveAccess && (
+                <section className="center-module glass-card">
+                    <div className="panel-header">
+                        <h3>Активные подключения</h3>
+                        <span>Подключайте любую подписку в Hiddify одним касанием</span>
+                    </div>
+
+                    <div className="subs-preview-grid">
+                        {activeSubscriptions.map((sub) => (
+                            <article key={sub.id} className="sub-preview-row">
+                                <div className="sub-preview-head">
+                                    <span className="sub-preview-name">{sub.plan_name}</span>
+                                    <span className="sub-preview-date">{sub.days_left > 0 ? `${sub.days_left} дн.` : 'Скоро истечет'}</span>
+                                </div>
+                                <span className="sub-preview-meta">
+                                    {sub.used_traffic_gb} GB / {sub.traffic_limit_gb > 0 ? `${sub.traffic_limit_gb} GB` : '∞'}
+                                </span>
+                                {sub.traffic_limit_gb > 0 && (
+                                    <div className="progress-bar-mini">
+                                        <div className="progress-fill-mini" style={{ width: `${usageProgress(sub)}%` }} />
+                                    </div>
+                                )}
+                                <span className="sub-preview-meta">До: {formatExpiryLabel(sub)}</span>
+                                <div className="sub-preview-actions">
+                                    <button className="btn-primary" onClick={() => openHiddify(sub)}>Подключить</button>
+                                    <button className="btn-ghost" onClick={() => void copyImportLink(sub)}>
+                                        {copiedSubId === sub.id ? 'Скопировано' : 'Копировать'}
+                                    </button>
+                                </div>
+                            </article>
+                        ))}
+                    </div>
+                </section>
+            )}
+
+            {hasPending && (
+                <section className="center-module glass-card">
+                    <div className="panel-header">
+                        <h3>Ожидают активации</h3>
+                        <span>Запустите купленные подписки перед подключением</span>
+                    </div>
+
+                    <div className="pending-grid">
+                        {pendingSubscriptions.map((sub) => (
+                            <article key={sub.id} className="pending-row">
+                                <div>
+                                    <h4>{sub.plan_name}</h4>
+                                    <p>{sub.duration_days > 0 ? `${sub.duration_days} дней` : 'Трафик-план без срока'}</p>
+                                </div>
+                                <button
+                                    className="btn-primary"
+                                    onClick={() => handleActivate(sub.id)}
+                                    disabled={activatingSubId !== null}
+                                >
+                                    {activatingSubId === sub.id ? 'Активация...' : 'Активировать'}
+                                </button>
+                            </article>
+                        ))}
+                    </div>
+                </section>
+            )}
+
+            {shouldShowPurchase && (
+                <section id="center-purchase" className="center-module glass-card">
+                    <div className="panel-header">
+                        <h3>Покупка доступа</h3>
+                        <span>Сначала купите подписку, затем подключитесь через Hiddify</span>
+                    </div>
+
+                    <div className="balance-inline">
+                        <span>Баланс</span>
+                        <strong>${((user?.balance || stats?.balance || 0)).toFixed(2)}</strong>
+                    </div>
+
+                    {catalogLoading ? (
                         <div className="empty-state control-empty">
-                            <div className="empty-icon">CC</div>
-                            <h3>Пока нет активных подписок</h3>
-                            <p>Откройте тарифы, чтобы получить ссылку для импорта и подключиться в пару касаний.</p>
+                            <div className="empty-icon">PL</div>
+                            <h3>Загружаем тарифы</h3>
+                            <p>Подождите, собираем доступные варианты оплаты.</p>
+                        </div>
+                    ) : plans.length === 0 ? (
+                        <div className="empty-state control-empty">
+                            <div className="empty-icon">PL</div>
+                            <h3>Тарифы недоступны</h3>
+                            <p>Попробуйте обновить данные или обратитесь в поддержку.</p>
                         </div>
                     ) : (
-                        subscriptionsPreview.map((sub) => (
-                            <button
-                                key={sub.id}
-                                className="sub-preview-row"
-                                onClick={() => navigate(`/subscription?sub=${sub.id}&connect=1`)}
-                            >
-                                <span className="sub-preview-name">{sub.plan_name}</span>
-                                <span className="sub-preview-meta">
-                                    {sub.used_traffic_gb} GB / {sub.traffic_limit_gb || '∞'} GB
-                                </span>
-                                <span className="sub-preview-meta">{sub.days_left} дн. осталось</span>
-                            </button>
-                        ))
+                        <div className="plans-grid">
+                            {plans.map((plan) => (
+                                <article key={plan.id} className="plan-card-home">
+                                    <div className="plan-card-head">
+                                        <h4>{plan.name}</h4>
+                                        <p>{plan.description || 'Подписка для защищенного подключения.'}</p>
+                                    </div>
+                                    <div className="plan-card-meta">
+                                        <span>{plan.traffic_limit_gb > 0 ? `${plan.traffic_limit_gb} GB` : 'Безлимит'}</span>
+                                        <span>{plan.device_limit > 0 ? `${plan.device_limit} устройств` : 'Без лимита'}</span>
+                                    </div>
+                                    <div className="duration-grid">
+                                        {plan.durations.map((dur) => (
+                                            <button
+                                                key={dur.id}
+                                                className="duration-btn"
+                                                onClick={() => handleSelectDuration(dur)}
+                                                disabled={purchasingDurationId !== null}
+                                            >
+                                                <span className="dur-label">{formatDuration(dur.duration_days)}</span>
+                                                <span className="dur-price">{formatPrice(dur.price_cents)}</span>
+                                                {purchasingDurationId === dur.id && <span className="dur-spinner">...</span>}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </article>
+                            ))}
+                        </div>
                     )}
-                </div>
-
-                <div className="panel-header panel-header-secondary">
-                    <h3>Дополнительно</h3>
-                    <span>Промо, приглашения и справка</span>
-                </div>
-
-                <div className="control-grid">
-                    {filteredControlItems.map((item) => (
-                        <button
-                            key={item.path}
-                            className="control-card"
-                            onClick={() => navigate(item.path)}
-                        >
-                            <span className="control-title">{item.title}</span>
-                            <span className="control-subtitle">{item.subtitle}</span>
-                        </button>
-                    ))}
-                </div>
-            </section>
+                </section>
+            )}
 
             <section className="home-bento-grid">
                 <article className="bento-card bento-traffic glass-card">
@@ -175,19 +483,11 @@ export default function Home() {
                         <span>{isLoading ? '...' : `${usage.usedGbText} GB`}</span>
                         <span>{isLoading ? '...' : usage.limitLabel}</span>
                     </div>
-                    {!hasAccess ? (
-                        <div className="traffic-empty-note">
-                            <p>После активации подписки здесь появится расход по трафику.</p>
-                            <button className="btn-ghost" onClick={() => navigate('/plans')}>Открыть тарифы</button>
-                        </div>
-                    ) : usage.percent === 0 ? (
-                        <p className="traffic-empty-hint">Первое подключение создаст статистику автоматически.</p>
-                    ) : null}
                 </article>
 
                 <article className="bento-card glass-card">
                     <div className="bento-head">
-                        <h3>Срок действия</h3>
+                        <h3>Срок доступа</h3>
                         <span>{activeSubscriptions.length} активных</span>
                     </div>
                     <div className="metric-grid">
@@ -196,7 +496,7 @@ export default function Home() {
                             <strong>{isLoading ? '...' : (usage.daysLeft ?? 'Н/Д')}</strong>
                         </div>
                         <div>
-                            <p>Тарифов</p>
+                            <p>Подписок</p>
                             <strong>{subscriptions.length}</strong>
                         </div>
                     </div>
@@ -221,15 +521,60 @@ export default function Home() {
 
                 <article className="bento-card glass-card">
                     <div className="bento-head">
-                        <h3>Баланс</h3>
-                        <span>Доступно</span>
+                        <h3>Быстрые действия</h3>
+                        <span>Навигация</span>
                     </div>
-                    <div className="balance-value">${(user?.balance || stats?.balance || 0).toFixed(2)}</div>
-                    <button className="btn-ghost" onClick={() => navigate('/plans')}>
-                        Перейти к оплате
-                    </button>
+                    <div className="control-grid control-grid-single">
+                        <button className="control-card" onClick={() => navigate('/promo')}>
+                            <span className="control-title">Промо и рефералы</span>
+                            <span className="control-subtitle">Активируйте код и поделитесь ссылкой</span>
+                        </button>
+                        <button className="control-card" onClick={() => navigate('/support/connect')}>
+                            <span className="control-title">Инструкция Hiddify</span>
+                            <span className="control-subtitle">Пошаговый импорт для вашего устройства</span>
+                        </button>
+                        <button className="control-card" onClick={isPinEnabled ? lockNow : () => navigate('/support')}>
+                            <span className="control-title">{isPinEnabled ? 'Заблокировать Mini App' : 'Настроить PIN'}</span>
+                            <span className="control-subtitle">{isPinEnabled ? 'Мгновенная блокировка экрана' : 'Защитите доступ к приложению'}</span>
+                        </button>
+                    </div>
                 </article>
             </section>
+
+            <DrawerModal
+                open={showPayModal}
+                onClose={() => setShowPayModal(false)}
+                title="Выберите способ оплаты"
+                subtitle={selectedDuration ? `${formatDuration(selectedDuration.duration_days)} • ${formatPrice(selectedDuration.price_cents)}` : undefined}
+                footer={<button className="btn-ghost" onClick={() => setShowPayModal(false)}>Отмена</button>}
+            >
+                {providers.length === 0 ? (
+                    <div className="empty-state drawer-empty">
+                        <div className="empty-icon">PM</div>
+                        <h3>Способы оплаты недоступны</h3>
+                        <p>Попробуйте позже или обратитесь в поддержку.</p>
+                    </div>
+                ) : (
+                    <div className="provider-list provider-card-list">
+                        {providerCards.map((provider) => (
+                            <button
+                                key={provider.id}
+                                className={`provider-btn provider-card ${provider.accent}`}
+                                onClick={() => handlePurchase(provider.id)}
+                            >
+                                <span className="provider-card-copy">
+                                    <strong>{provider.title}</strong>
+                                    <small>{provider.description}</small>
+                                </span>
+                                <span className="provider-card-meta">
+                                    {provider.badge && <span className="provider-pill">{provider.badge}</span>}
+                                    <span className="provider-arrow">{'>'}</span>
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </DrawerModal>
         </div>
     )
 }

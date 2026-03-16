@@ -8,19 +8,19 @@ import './Support.css'
 const FAQS = [
     {
         q: 'Как подключиться?',
-        a: 'Откройте раздел "Мои сервисы", импортируйте ссылку в VPN-клиент и подключайтесь. Маршруты подгружаются автоматически.',
+        a: 'Откройте вкладку "Центр", скопируйте ссылку и импортируйте ее в Hiddify. После импорта маршруты подгружаются автоматически.',
     },
     {
         q: 'Какой сервер самый быстрый?',
-        a: 'В разделе подписки откройте оптимизацию узлов. Если не хотите выбирать вручную, используйте магическую оптимизацию.',
+        a: 'Для текущего этапа используйте базовый импорт в Hiddify: приложение само подгрузит рабочие маршруты для подписки.',
     },
     {
         q: 'Как продлить подписку?',
-        a: 'Пополните баланс в разделе тарифов. Когда средств достаточно, продление происходит автоматически.',
+        a: 'Покупка и продление находятся во вкладке "Центр". Если доступа еще нет, выберите тариф и оплатите его там же.',
     },
     {
         q: 'Какие приложения поддерживаются?',
-        a: 'Мы рекомендуем Hiddify и Sing-box. Полный каталог с проверенными ссылками есть в разделе "Как подключиться".',
+        a: 'Сейчас в Mini App поддерживается только Hiddify. Актуальные ссылки и шаги импорта есть в инструкции Hiddify.',
     },
 ]
 
@@ -107,14 +107,6 @@ export default function Support() {
     const { isPinEnabled, lockNow, enablePin, changePin, disablePin, pinUpdatedAt } = useAppLock()
     const [flow, dispatch] = useReducer(flowReducer, flowInitialState)
     const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-
-    const goBack = () => {
-        if (window.history.length > 1) {
-            navigate(-1)
-        } else {
-            navigate('/')
-        }
-    }
 
     const closeModal = () => dispatch({ type: 'CLOSE' });
 
@@ -223,7 +215,6 @@ export default function Support() {
     return (
         <div className="page support-page">
             <header className="page-header">
-                <button className="back-button" onClick={goBack}>{'<'}</button>
                 <h2>Поддержка</h2>
             </header>
 
@@ -245,14 +236,14 @@ export default function Support() {
             <section className="support-connect-card glass-card">
                 <div>
                     <h3>Проблема с подключением?</h3>
-                    <p>Начните с импорта подписки: это самый надежный и быстрый сценарий.</p>
+                    <p>Для стабильного старта используйте инструкцию Hiddify и подключение из вкладки «Центр».</p>
                 </div>
                 <div className="support-connect-actions">
-                    <button className="btn-primary" onClick={() => navigate('/subscription')}>
-                        Открыть мои сервисы
+                    <button className="btn-primary" onClick={() => navigate('/')}>
+                        Открыть центр
                     </button>
                     <button className="btn-secondary" onClick={() => navigate('/support/connect')}>
-                        Каталог приложений
+                        Инструкция Hiddify
                     </button>
                 </div>
             </section>

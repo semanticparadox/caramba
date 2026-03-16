@@ -1,13 +1,27 @@
 .promo-page {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--space-3);
+}
+
+.promo-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.promo-refresh {
+    width: auto;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-size: 0.72rem;
 }
 
 .promo-banner {
-    border-radius: 14px;
-    padding: 12px 14px;
-    font-size: 14px;
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    font-size: 0.82rem;
     font-weight: 600;
 }
 
@@ -24,121 +38,138 @@
 }
 
 .promo-card {
-    padding: 18px;
-    border-radius: 18px;
+    padding: var(--space-4);
+    border-radius: var(--radius-xl);
+    display: grid;
+    gap: var(--space-2);
 }
 
 .promo-card h3 {
-    margin: 0 0 6px 0;
-    font-size: 18px;
+    margin: 0;
+    font-size: 1rem;
+    font-family: var(--font-display);
 }
 
 .promo-card p {
-    margin: 0 0 14px 0;
-    color: rgba(255, 255, 255, 0.68);
-    font-size: 14px;
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    line-height: 1.45;
 }
 
 .promo-empty {
-    color: rgba(255, 255, 255, 0.58);
-    font-size: 13px;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
     background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
     padding: 12px 14px;
 }
 
 .promo-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--space-2);
 }
 
 .promo-list-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
+    gap: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
     background: rgba(255, 255, 255, 0.03);
     padding: 10px 12px;
 }
 
 .promo-list-title {
-    font-size: 14px;
+    font-size: 0.84rem;
     font-weight: 700;
 }
 
 .promo-list-meta {
     margin-top: 4px;
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.65);
-}
-
-.promo-code-item {
-    align-items: flex-start;
-}
-
-.code-text {
-    font-family: 'SF Mono', 'Menlo', monospace;
-}
-
-.promo-actions {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-}
-
-.btn-danger {
-    border-color: rgba(248, 113, 113, 0.45);
-    color: #fca5a5;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
 }
 
 .promo-input-row {
     display: flex;
-    gap: 10px;
+    gap: var(--space-2);
 }
 
 .promo-input-row input {
     flex: 1;
     min-width: 0;
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
     background: rgba(10, 10, 22, 0.7);
     color: #fff;
     padding: 11px 12px;
     outline: none;
+    font-size: 0.84rem;
 }
 
 .promo-input-row input:focus {
-    border-color: rgba(99, 102, 241, 0.7);
+    border-color: rgba(var(--accent-rgb), 0.7);
 }
 
 .promo-input-row button {
-    min-width: 110px;
+    min-width: 120px;
+}
+
+.referral-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+}
+
+.ref-stat-box {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.03);
+    padding: 10px 12px;
+    display: grid;
+    gap: 4px;
+}
+
+.ref-stat-box span {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-muted);
+    font-weight: 700;
+}
+
+.ref-stat-box strong {
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+}
+
+.promo-field-block {
+    display: grid;
+    gap: 6px;
+}
+
+.promo-field-block label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    font-weight: 700;
 }
 
 @media (max-width: 560px) {
-    .promo-input-row {
-        flex-direction: column;
-    }
-
-    .promo-input-row button {
-        width: 100%;
-    }
-
+    .promo-input-row,
+    .referral-stats-grid,
     .promo-list-item {
+        grid-template-columns: 1fr;
         flex-direction: column;
         align-items: stretch;
     }
 
-    .promo-actions {
-        justify-content: stretch;
-    }
-
-    .promo-actions button {
-        flex: 1;
+    .promo-input-row button {
+        width: 100%;
     }
 }

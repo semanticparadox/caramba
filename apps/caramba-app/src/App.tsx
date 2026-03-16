@@ -1,15 +1,7 @@
-import { BrowserRouter as Router, Routes, Route, NavLink, useLocation } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { AppLockProvider } from './context/AppLockContext'
 import Home from './pages/Home'
-import Subscription from './pages/Subscription'
-import Servers from './pages/Servers'
-import Store from './pages/Store'
-import Plans from './pages/Plans'
-import ServerSelector from './pages/ServerSelector'
-import Statistics from './pages/Statistics'
-import Billing from './pages/Billing'
-import Referral from './pages/Referral'
 import Promo from './pages/Promo'
 import Support from './pages/Support'
 import ConnectGuide from './pages/ConnectGuide'
@@ -18,14 +10,20 @@ import './App.css'
 
 function BottomCommandNav() {
     const location = useLocation()
-    const isServices = location.pathname.startsWith('/subscription') || location.pathname.startsWith('/servers')
+    const isCenter = location.pathname === '/'
+        || location.pathname.startsWith('/subscription')
+        || location.pathname.startsWith('/servers')
+        || location.pathname.startsWith('/plans')
+        || location.pathname.startsWith('/store')
+        || location.pathname.startsWith('/billing')
+        || location.pathname.startsWith('/statistics')
+    const isPromo = location.pathname.startsWith('/promo')
     const isSupport = location.pathname.startsWith('/support')
 
     return (
         <nav className="bottom-command-nav" aria-label="Основная навигация">
-            <NavLink to="/" className={({ isActive }) => `rail-link${isActive ? ' active' : ''}`}>Центр</NavLink>
-            <NavLink to="/subscription" className={`rail-link${isServices ? ' active' : ''}`}>Подключение</NavLink>
-            <NavLink to="/plans" className={({ isActive }) => `rail-link${isActive ? ' active' : ''}`}>Тарифы</NavLink>
+            <NavLink to="/" className={`rail-link${isCenter ? ' active' : ''}`}>Центр</NavLink>
+            <NavLink to="/promo" className={`rail-link${isPromo ? ' active' : ''}`}>Промо</NavLink>
             <NavLink to="/support" className={`rail-link${isSupport ? ' active' : ''}`}>Помощь</NavLink>
         </nav>
     )
@@ -42,14 +40,14 @@ function App() {
                         <BottomCommandNav />
                         <Routes>
                             <Route path="/" element={<Home />} />
-                            <Route path="/subscription" element={<Subscription />} />
-                            <Route path="/servers" element={<Servers />} />
-                            <Route path="/store" element={<Store />} />
-                            <Route path="/plans" element={<Plans />} />
-                            <Route path="/servers/:subId" element={<ServerSelector />} />
-                            <Route path="/statistics" element={<Statistics />} />
-                            <Route path="/billing" element={<Billing />} />
-                            <Route path="/referral" element={<Referral />} />
+                            <Route path="/subscription" element={<Navigate to="/" replace />} />
+                            <Route path="/servers" element={<Navigate to="/" replace />} />
+                            <Route path="/store" element={<Navigate to="/" replace />} />
+                            <Route path="/plans" element={<Navigate to="/" replace />} />
+                            <Route path="/servers/:subId" element={<Navigate to="/" replace />} />
+                            <Route path="/statistics" element={<Navigate to="/" replace />} />
+                            <Route path="/billing" element={<Navigate to="/" replace />} />
+                            <Route path="/referral" element={<Navigate to="/promo" replace />} />
                             <Route path="/promo" element={<Promo />} />
                             <Route path="/support" element={<Support />} />
                             <Route path="/support/connect" element={<ConnectGuide />} />

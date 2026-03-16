@@ -44,14 +44,14 @@ export default function ConnectGuide() {
         <div className="page connect-guide-page">
             <header className="page-header">
                 <button className="back-button" onClick={() => navigate('/support')}>{'<'}</button>
-                <h2>Как подключиться</h2>
+                <h2>Hiddify</h2>
             </header>
 
             <section className="connect-hero glass-card">
                 <div className="connect-hero-copy">
-                    <h3>Импортируйте подписку и подключайтесь</h3>
+                    <h3>Подключение только через Hiddify</h3>
                     <p>
-                        Скопируйте ссылку подписки, вставьте ее в клиент и подключайтесь. После импорта рабочие маршруты подгрузятся автоматически.
+                        Скопируйте ссылку подписки из центра, откройте Hiddify и выполните импорт. После импорта рабочие маршруты подтянутся автоматически.
                     </p>
                 </div>
 
@@ -63,8 +63,8 @@ export default function ConnectGuide() {
                     >
                         {copiedLink ? 'Ссылка скопирована' : 'Скопировать ссылку для импорта'}
                     </button>
-                    <button className="btn-secondary" onClick={() => navigate('/subscription')}>
-                        Открыть мои сервисы
+                    <button className="btn-secondary" onClick={() => navigate('/')}>
+                        Открыть центр
                     </button>
                 </div>
 
@@ -84,7 +84,7 @@ export default function ConnectGuide() {
             <section className="platform-select glass-card">
                 <div className="platform-select-head">
                     <h3>Выберите устройство</h3>
-                    <span>Проверенные приложения</span>
+                    <span>Только Hiddify</span>
                 </div>
 
                 <div className="platform-chip-grid">
@@ -130,14 +130,14 @@ export default function ConnectGuide() {
 
                         <div className="app-card-actions">
                             <button className="btn-secondary" onClick={() => window.open(entry.officialUrl, '_blank', 'noopener,noreferrer')}>
-                                Скачать
+                                Скачать Hiddify
                             </button>
                             {entry.fallbackUrl && (
                                 <button
                                     className="btn-ghost"
                                     onClick={() => window.open(entry.fallbackUrl, '_blank', 'noopener,noreferrer')}
                                 >
-                                    Гид
+                                    Релизы
                                 </button>
                             )}
                         </div>
