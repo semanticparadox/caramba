@@ -613,9 +613,20 @@ pub fn install_singbox() -> Result<()> {
     run_command("sh", &["-c", &tee_cmd], "Adding sing-box repository")?;
 
     run_command("apt-get", &["update"], "Updating package lists")?;
+    run_command_optional(
+        "sh",
+        &[
+            "-c",
+            "DEBIAN_FRONTEND=noninteractive dpkg --configure -a --force-confdef --force-confold",
+        ],
+        "Completing pending package configuration",
+    )?;
     run_command(
-        "apt-get",
-        &["install", "-y", "sing-box"],
+        "sh",
+        &[
+            "-c",
+            "DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold install -y sing-box",
+        ],
         "Installing sing-box",
     )?;
 
