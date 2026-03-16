@@ -64,8 +64,8 @@ export default function ServerSelector() {
                 setMsg({
                     type: 'success',
                     text: source === 'magic'
-                        ? 'Магическая оптимизация завершена. Маршрут обновляется...'
-                        : 'Узел закреплен. Конфигурация обновляется...',
+                        ? 'Автоподбор завершен. Маршрут обновляется, это дополнительная настройка.'
+                        : 'Сервер сохранен. Подключение обновляется...',
                 })
                 setTimeout(() => {
                     navigate(`/subscription?sub=${subId}&connect=1${source === 'magic' ? '&optimized=1' : ''}`)
@@ -117,59 +117,89 @@ export default function ServerSelector() {
         void runMagicOptimize()
     }, [searchParams, loading])
 
+    const sortedNodes = [...nodes].sort((a, b) => {
+        const aOnline = a.status === 'online'
+        const bOnline = b.status === 'online'
+        if (aOnline !== bOnline) return Number(bOnline) - Number(aOnline)
+
+        const aDistance = a.distance_km ?? Number.MAX_SAFE_INTEGER
+        const bDistance = b.distance_km ?? Number.MAX_SAFE_INTEGER
+        if (aDistance !== bDistance) return aDistance - bDistance
+
+        return a.name.localeCompare(b.name)
+    })
+
+    const recommendedNodeId = sortedNodes.find((node) => node.status === 'online')?.id ?? sortedNodes[0]?.id ?? null
+
     if (loading) return <div className="page"><div className="loading">Проверка сети...</div></div>
 
     return (
         <div className="page server-page">
             <header className="page-header">
                 <button className="back-button" onClick={() => navigate('/subscription')}>{'<'}</button>
-                <h2>Оптимизация соединения</h2>
-                <span className="subtitle">Выберите узел вручную или запустите автооптимизацию</span>
+                <h2>Выбор сервера</h2>
+                <span className="subtitle">Обычное подключение уже работает. Этот экран нужен только для дополнительной настройки.</span>
             </header>
 
             <section className="magic-optimize-card glass-card">
-                <div>
-                    <h3>Магическая оптимизация</h3>
-                    <p>Система выберет лучший узел по расстоянию, задержке и текущей нагрузке.</p>
+                <div className="magic-optimize-head">
+                    <div>
+                        <h3>Автоподбор маршрута</h3>
+                        <p>Если хотите, система подберет сервер автоматически по задержке и доступности.</p>
+                    </div>
+                    <span className="optimize-optional-pill">Опционально</span>
                 </div>
-                <button className="btn-primary" disabled={optimizing || pinning !== null} onClick={() => void runMagicOptimize()}>
-                    {optimizing ? 'Оптимизируем...' : 'Запустить магическую оптимизацию'}
+                <button className="btn-secondary magic-optimize-cta" disabled={optimizing || pinning !== null} onClick={() => void runMagicOptimize()}>
+                    {optimizing ? 'Подбираем...' : 'Подобрать автоматически'}
                 </button>
             </section>
 
             {msg && <div className={`msg-banner ${msg.type}`}>{msg.text}</div>}
 
+            <section className="manual-select-head glass-card">
+                <h3>Ручной выбор</h3>
+                <p>Нажмите сервер, если хотите закрепить конкретную точку подключения.</p>
+            </section>
+
             <div className="server-list">
-                {nodes.map((node) => (
-                    <div key={node.id} className="server-card glass-card" onClick={() => void handlePin(node.id)}>
+                {sortedNodes.map((node) => {
+                    const isRecommended = node.id === recommendedNodeId
+                    return (
+                    <div key={node.id} className={`server-card glass-card ${isRecommended ? 'recommended' : ''}`} onClick={() => void handlePin(node.id)}>
                         <div className="server-info">
                             <span className="server-flag">{node.flag}</span>
                             <div className="server-details">
-                                <span className="server-name">{node.name}</span>
+                                <span className="server-name-row">
+                                    <span className="server-name">{node.name}</span>
+                                    {isRecommended && <span className="server-recommendation">Рекомендуем</span>}
+                                </span>
                                 {node.country_code && <span className="server-country">{node.country_code}</span>}
                             </div>
                         </div>
 
                         <div className="server-meta">
+                            <span className={`server-status ${node.status === 'online' ? 'online' : 'offline'}`}>
+                                {node.status === 'online' ? 'Онлайн' : 'Проверка'}
+                            </span>
                             {node.distance_km !== null && (
                                 <span className={`server-dist ${node.distance_km < 1000 ? 'good' : 'ok'}`}>
                                     {node.distance_km} km
                                 </span>
                             )}
                             <button className="btn-select" disabled={pinning !== null || optimizing}>
-                                {pinning === node.id ? 'Сохраняем...' : 'Выбрать'}
+                                {pinning === node.id ? 'Сохраняем...' : 'Использовать'}
                             </button>
                         </div>
                     </div>
-                ))}
+                )})}
 
-                {nodes.length === 0 && (
-                    <div className="empty-state">Доступные узлы не найдены</div>
+                {sortedNodes.length === 0 && (
+                    <div className="empty-state">Доступные серверы пока не найдены</div>
                 )}
             </div>
 
             <div className="info-box">
-                <p>После выбора узла подписка закрепляется за ним, а ваши ссылки автоматически обновляются.</p>
+                <p>Если ничего не менять, подключение остается в стандартном режиме. Ручной выбор и автоподбор нужны только для точечной настройки.</p>
             </div>
         </div>
     )

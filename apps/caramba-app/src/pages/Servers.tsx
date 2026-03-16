@@ -33,6 +33,14 @@ export default function Servers() {
     const availableVariants = selectedServer
         ? singboxVariants.filter(variant => selectedServer.available_variant_ids?.includes(variant.id))
         : singboxVariants
+    const prioritizedVariants = [...availableVariants].sort((a, b) => {
+        const recommendedId = selectedServer?.recommended_variant_id
+        const aRecommended = a.id === recommendedId
+        const bRecommended = b.id === recommendedId
+        if (aRecommended !== bRecommended) return Number(bRecommended) - Number(aRecommended)
+        if (a.relay !== b.relay) return Number(a.relay) - Number(b.relay)
+        return a.label.localeCompare(b.label)
+    })
 
     const trackVariantEvent = async (serverId: number, variantId: string, event: string, client = 'singbox') => {
         if (!token || !activeSub || !variantId) return
@@ -102,7 +110,7 @@ export default function Servers() {
         setClientType(type);
         const hasCurrentVariant = availableVariants.some(variant => variant.id === selectedVariant)
         const nextVariant = type === 'singbox'
-            ? ((hasCurrentVariant ? selectedVariant : '') || availableVariants[0]?.id || '')
+            ? ((hasCurrentVariant ? selectedVariant : '') || prioritizedVariants[0]?.id || '')
             : '';
         setSelectedVariant(nextVariant);
         if (selectedServer) updateConfigUrl(selectedServer.id, type, nextVariant);
@@ -131,15 +139,19 @@ export default function Servers() {
         }
     }
 
-    if (loading) return <div className="page"><div className="loading">Loading servers...</div></div>;
+    if (loading) return <div className="page"><div className="loading">Загружаем серверы...</div></div>
 
     return (
         <div className="page servers-page">
             <header className="page-header">
                 <button className="back-button" onClick={() => navigate(-1)}>←</button>
-                <h2>Servers</h2>
-                <span className="badge badge-success">{servers.filter(s => s.status === 'online').length} online</span>
+                <h2>Настройка маршрута</h2>
+                <span className="badge badge-success">{servers.filter(s => s.status === 'online').length} онлайн</span>
             </header>
+
+            <p className="servers-context-note">
+                Обычный импорт остается основным путем. Этот экран нужен только для дополнительной настройки, если хотите улучшить совместимость или проверить другой маршрут.
+            </p>
 
             <div className="servers-list">
                 {servers.map((server, i) => (
@@ -158,13 +170,13 @@ export default function Servers() {
                                     {server.status === 'online' ? '●' : '○'}
                                 </span>
                                 {!!server.available_variant_ids?.length && (
-                                    <span className="badge badge-success">{server.available_variant_ids.length} paths</span>
+                                    <span className="badge badge-success">{server.available_variant_ids.length} вариантов</span>
                                 )}
-                                {i === 0 && <span className="badge badge-warning">⭐ Best</span>}
+                                {i === 0 && <span className="badge badge-warning">⭐ Лучший</span>}
                             </div>
                         </div>
                         <button className="btn-secondary" onClick={() => handleGetConfig(server)}>
-                            🔗 Get Config
+                            Открыть настройку
                         </button>
                     </div>
                 ))}
@@ -174,6 +186,9 @@ export default function Servers() {
                 <div className="modal-overlay" onClick={() => setSelectedServer(null)}>
                     <div className="modal-content" onClick={e => e.stopPropagation()}>
                         <h3>{selectedServer.flag} {selectedServer.name}</h3>
+                        <p className="connection-modal-note">
+                            По умолчанию достаточно импорта с рекомендованными настройками. Блок ниже нужен только для ручной подстройки.
+                        </p>
                         <div className="client-tabs">
                             {['singbox', 'v2ray', 'clash'].map(type => (
                                 <button
@@ -185,9 +200,14 @@ export default function Servers() {
                                 </button>
                             ))}
                         </div>
-                        {clientType === 'singbox' && availableVariants.length > 0 && (
-                            <div className="variant-list">
-                                {availableVariants.map(variant => (
+                        {clientType === 'singbox' && prioritizedVariants.length > 0 && (
+                            <>
+                                <div className="variant-section-intro">
+                                    <strong>Дополнительная настройка маршрута</strong>
+                                    <span>Выбирайте другой вариант только если хотите повысить совместимость или скорость на конкретной сети.</span>
+                                </div>
+                                <div className="variant-list">
+                                {prioritizedVariants.map(variant => (
                                     <button
                                         key={variant.id}
                                         className={`variant-card ${selectedVariant === variant.id ? 'active' : ''}`}
@@ -197,7 +217,7 @@ export default function Servers() {
                                             <span className="variant-title">{variant.label}</span>
                                             <span className="variant-badges">
                                                 {variant.id === selectedServer.recommended_variant_id && (
-                                                    <span className="variant-chip recommended">Best</span>
+                                                    <span className="variant-chip recommended">Рекомендуем</span>
                                                 )}
                                                 <span className={`variant-chip ${variant.family}`}>
                                                     {variant.family === 'grpc' ? 'gRPC' : 'VLESS'}
@@ -205,26 +225,31 @@ export default function Servers() {
                                             </span>
                                         </span>
                                         <span className="variant-meta-row">
-                                            <span>{variant.transport}</span>
-                                            <span>{variant.relay ? 'relay' : 'direct'}</span>
+                                            <span>{variant.transport || 'стандартный транспорт'}</span>
+                                            <span>{variant.relay ? 'через relay' : 'прямой маршрут'}</span>
                                         </span>
                                         <span className="variant-summary">{variant.summary}</span>
+                                        {variant.id === selectedServer.recommended_variant_id && (
+                                            <span className="variant-recommendation-note">Лучший стартовый вариант для большинства пользователей на этом сервере.</span>
+                                        )}
                                     </button>
                                 ))}
-                            </div>
+                                </div>
+                            </>
                         )}
-                        {clientType === 'singbox' && availableVariants.length === 0 && (
+                        {clientType === 'singbox' && prioritizedVariants.length === 0 && (
                             <div className="variant-empty-state">
-                                No sing-box variants available for this server yet.
+                                Для этого сервера сейчас нет дополнительных вариантов настройки.
                             </div>
                         )}
                         <div className="qr-wrapper">
                             <QRCodeSVG value={configUrl} size={160} bgColor="#fff" fgColor="#0D0D1A" />
                         </div>
+                        <div className="config-url-label">Ссылка для импорта</div>
                         <div className="config-url-row">
                             <input type="text" readOnly value={configUrl} onClick={e => e.currentTarget.select()} />
                             <button className="btn-secondary" onClick={handleCopy}>
-                                {copied ? '✓' : '📋'}
+                                {copied ? 'Скопировано' : 'Скопировать'}
                             </button>
                         </div>
                         {clientType === 'singbox' && selectedVariant && (
@@ -233,18 +258,18 @@ export default function Servers() {
                                     className="btn-secondary variant-feedback success"
                                     onClick={() => handleConnectionFeedback('connection_succeeded')}
                                 >
-                                    Works
+                                    Работает хорошо
                                 </button>
                                 <button
                                     className="btn-secondary variant-feedback danger"
                                     onClick={() => handleConnectionFeedback('connection_failed')}
                                 >
-                                    Didn't work
+                                    Попробовать другой
                                 </button>
                             </div>
                         )}
                         <button className="btn-secondary close-btn" onClick={() => setSelectedServer(null)}>
-                            Close
+                            Закрыть
                         </button>
                     </div>
                 </div>

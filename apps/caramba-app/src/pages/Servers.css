@@ -14,6 +14,18 @@
     gap: var(--space-sm);
 }
 
+.servers-context-note {
+    margin-top: calc(var(--space-sm) * -1);
+    margin-bottom: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
 .server-item {
     padding: var(--space-md);
     display: flex;
@@ -79,6 +91,17 @@
     font-size: 18px;
 }
 
+.connection-modal-note {
+    margin: calc(var(--space-sm) * -1) 0 var(--space-md);
+    padding: var(--space-sm);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
 .client-tabs {
     display: flex;
     gap: var(--space-xs);
@@ -122,6 +145,16 @@
     margin-bottom: var(--space-md);
 }
 
+.config-url-label {
+    margin-bottom: var(--space-xs);
+    font-size: 11px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    text-align: left;
+}
+
 .config-url-row input {
     flex: 1;
     font-size: 11px;
@@ -130,7 +163,9 @@
 
 .config-url-row .btn-secondary {
     width: auto;
-    padding: 12px 16px;
+    min-width: 98px;
+    padding: 12px 14px;
+    font-size: 12px;
 }
 
 .variant-feedback-row {
@@ -159,6 +194,24 @@
     gap: var(--space-xs);
     margin-bottom: var(--space-md);
     text-align: left;
+}
+
+.variant-section-intro {
+    margin-bottom: var(--space-sm);
+    display: grid;
+    gap: 2px;
+    text-align: left;
+}
+
+.variant-section-intro strong {
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+.variant-section-intro span {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.4;
 }
 
 .variant-card {
@@ -209,6 +262,12 @@
     line-height: 1.4;
 }
 
+.variant-recommendation-note {
+    font-size: 11px;
+    color: var(--status-online);
+    font-weight: 600;
+}
+
 .variant-empty-state {
     padding: 12px;
     margin-bottom: var(--space-md);
@@ -247,4 +306,20 @@
 .close-btn {
     margin-top: var(--space-xs);
     color: var(--text-tertiary) !important;
+}
+
+@media (max-width: 420px) {
+    .servers-context-note,
+    .connection-modal-note {
+        font-size: 11px;
+    }
+
+    .config-url-row {
+        flex-direction: column;
+    }
+
+    .config-url-row .btn-secondary {
+        width: 100%;
+        min-width: 0;
+    }
 }
