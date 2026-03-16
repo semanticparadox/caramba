@@ -1,7 +1,9 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import { useAuth, UserSubscription } from '../context/AuthContext'
+import { copyText } from '../lib/copyActions'
+import { usageProgress } from '../lib/subscriptionMetrics'
 import './Subscription.css'
 
 function formatTraffic(gb: number): string {
@@ -21,27 +23,44 @@ function withClient(url: string, client: string): string {
     return `${url}${separator}client=${encodeURIComponent(client)}`
 }
 
+function withVariant(url: string, client: string, variant?: string) {
+    const base = withClient(url, client)
+    if (!variant) return base
+    return `${base}&variant=${encodeURIComponent(variant)}`
+}
+
 export default function Subscription() {
     const { subscriptions, isLoading, refreshData, token, error } = useAuth()
     const navigate = useNavigate()
+    const [searchParams, setSearchParams] = useSearchParams()
     const [expandedId, setExpandedId] = useState<number | null>(null)
     const [copied, setCopied] = useState<number | null>(null)
     const [copiedVless, setCopiedVless] = useState<number | null>(null)
+    const [copiedVariant, setCopiedVariant] = useState<string | null>(null)
     const [activatingId, setActivatingId] = useState<number | null>(null)
     const [giftingId, setGiftingId] = useState<number | null>(null)
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+    const [selectedVariants, setSelectedVariants] = useState<Record<number, string>>({})
 
     const handleCopy = (sub: UserSubscription) => {
-        navigator.clipboard.writeText(sub.subscription_url)
+        void copyText(sub.subscription_url)
         setCopied(sub.id)
         setTimeout(() => setCopied(null), 2000)
     }
 
     const handleCopyVless = (sub: UserSubscription) => {
         if (!sub.primary_vless_link) return
-        navigator.clipboard.writeText(sub.primary_vless_link)
+        void copyText(sub.primary_vless_link)
         setCopiedVless(sub.id)
         setTimeout(() => setCopiedVless(null), 2000)
+    }
+
+    const handleCopyVariant = (sub: UserSubscription) => {
+        const variantId = selectedVariants[sub.id]
+        if (!variantId) return
+        void copyText(withVariant(sub.subscription_url, 'singbox', variantId))
+        setCopiedVariant(`${sub.id}:${variantId}`)
+        setTimeout(() => setCopiedVariant(null), 2000)
     }
 
     const openExternal = (url: string) => {
@@ -119,6 +138,25 @@ export default function Subscription() {
         setExpandedId(expandedId === id ? null : id)
     }
 
+    useEffect(() => {
+        const subIdParam = Number(searchParams.get('sub'))
+        const shouldOpenConnect = searchParams.get('connect') === '1'
+        if (!shouldOpenConnect || !subIdParam) return
+        setExpandedId(subIdParam)
+        if (searchParams.get('optimized') === '1') {
+            setMessage({
+                type: 'success',
+                text: 'Маршрут оптимизирован. Проверьте подключение и выберите вариант, если нужно.',
+            })
+        }
+        setSearchParams((current) => {
+            const next = new URLSearchParams(current)
+            next.delete('connect')
+            next.delete('optimized')
+            return next
+        }, { replace: true })
+    }, [searchParams, setSearchParams])
+
     if (isLoading) return <div className="page"><div className="loading">Загрузка подписок...</div></div>
 
     if (!token) {
@@ -143,6 +181,21 @@ export default function Subscription() {
         if (diff !== 0) return diff
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     })
+
+    const activeById = useMemo(
+        () => Object.fromEntries(sorted.map((sub) => [sub.id, sub.singbox_variants?.[0]?.id || ''])),
+        [sorted],
+    )
+
+    useEffect(() => {
+        setSelectedVariants((current) => {
+            const next = { ...current }
+            for (const [subId, variantId] of Object.entries(activeById)) {
+                if (!next[Number(subId)] && variantId) next[Number(subId)] = variantId
+            }
+            return next
+        })
+    }, [activeById])
 
     return (
         <div className="page sub-page">
@@ -199,7 +252,7 @@ export default function Subscription() {
                                     <div className="progress-bar-mini">
                                         <div
                                             className="progress-fill-mini"
-                                            style={{ width: `${Math.min(100, (parseFloat(sub.used_traffic_gb) / sub.traffic_limit_gb) * 100)}%` }}
+                                            style={{ width: `${usageProgress(sub)}%` }}
                                         />
                                     </div>
                                 )}
@@ -316,10 +369,34 @@ export default function Subscription() {
                                         </div>
                                     )}
 
+                                    {!!sub.singbox_variants?.length && (
+                                        <div className="variant-picker-block">
+                                            <div className="variant-picker-head">
+                                                <h4>Варианты Sing-box</h4>
+                                                <span>Выберите профиль и скопируйте ссылку</span>
+                                            </div>
+                                            <div className="variant-picker-list">
+                                                {sub.singbox_variants.map((variant) => (
+                                                    <button
+                                                        key={variant.id}
+                                                        className={`variant-inline-card ${selectedVariants[sub.id] === variant.id ? 'active' : ''}`}
+                                                        onClick={() => setSelectedVariants((current) => ({ ...current, [sub.id]: variant.id }))}
+                                                    >
+                                                        <span className="variant-inline-title">{variant.label}</span>
+                                                        <span className="variant-inline-meta">{variant.transport} · {variant.relay ? 'relay' : 'direct'}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <button className="btn-secondary variant-copy-btn" onClick={() => handleCopyVariant(sub)}>
+                                                {copiedVariant === `${sub.id}:${selectedVariants[sub.id]}` ? 'Вариант скопирован' : 'Скопировать выбранный вариант'}
+                                            </button>
+                                        </div>
+                                    )}
+
                                     <div className="app-links-grid">
                                         <button
                                             className="btn-text btn-app"
-                                            onClick={() => openExternal(withClient(sub.subscription_url, 'singbox'))}
+                                            onClick={() => openExternal(withVariant(sub.subscription_url, 'singbox', selectedVariants[sub.id]))}
                                         >
                                             Sing-box
                                         </button>
@@ -335,14 +412,12 @@ export default function Subscription() {
                                         >
                                             Happ
                                         </button>
-                                        {sub.primary_vless_link && (
-                                            <button
-                                                className="btn-text btn-app"
-                                                onClick={() => openExternal(sub.primary_vless_link!)}
-                                            >
-                                                Открыть VLESS
-                                            </button>
-                                        )}
+                                        <button
+                                            className="btn-text btn-app"
+                                            onClick={() => navigate(`/servers/${sub.id}`)}
+                                        >
+                                            Все варианты
+                                        </button>
                                     </div>
 
                                     {sub.is_trial && (

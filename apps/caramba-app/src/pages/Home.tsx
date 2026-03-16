@@ -1,21 +1,11 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useAppLock } from '../context/AppLockContext'
+import { formatBytes, getUsageSnapshot } from '../lib/subscriptionMetrics'
 import './Home.css'
 
-function formatBytes(bytes: number, decimals = 2): string {
-    if (!bytes || bytes === 0) return '0 B'
-    const k = 1024
-    const dm = decimals < 0 ? 0 : decimals
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i]
-}
-
 const CONTROL_ITEMS = [
-    { path: '/subscription', title: 'Мои сервисы', subtitle: 'Конфиги, ссылки и состояние активации', tag: 'СЕРВИС' },
-    { path: '/plans', title: 'Тарифы', subtitle: 'Покупка, продление и баланс', tag: 'ОПЛАТА' },
-    { path: '/store', title: 'Магазин', subtitle: 'Дополнения и разовые покупки', tag: 'ШОП' },
+    { path: '/support/connect', title: 'Как подключиться', subtitle: 'Каталог клиентов и быстрый импорт', tag: 'GUIDE' },
     { path: '/promo', title: 'Промо', subtitle: 'Активация и управление кодами', tag: 'ПРОМО' },
     { path: '/referral', title: 'Рефералы', subtitle: 'Приглашения и трекинг наград', tag: 'РОСТ' },
     { path: '/support', title: 'Поддержка', subtitle: 'Диагностика и справочный центр', tag: 'ПОМОЩЬ' },
@@ -26,31 +16,17 @@ export default function Home() {
     const { userStats: stats, isLoading, user, subscriptions, refreshData } = useAuth()
     const { isPinEnabled, lockNow } = useAppLock()
 
-    const activeSubscriptions = subscriptions.filter((s) => s.status === 'active')
-    const totalUsedFromSubs = activeSubscriptions.reduce((acc, sub) => acc + (sub.used_traffic_bytes || 0), 0)
-    const totalLimitFromSubs = activeSubscriptions.reduce((acc, sub) => {
-        const limitBytes = Math.max(0, sub.traffic_limit_gb || 0) * 1024 * 1024 * 1024
-        return acc + limitBytes
-    }, 0)
-
-    const effectiveUsed = totalLimitFromSubs > 0 ? totalUsedFromSubs : (stats?.traffic_used || 0)
-    const effectiveLimit = totalLimitFromSubs > 0 ? totalLimitFromSubs : (stats?.traffic_limit || 0)
-    const effectiveDaysLeft = activeSubscriptions.length > 0
-        ? Math.min(...activeSubscriptions.map((s) => Math.max(0, s.days_left || 0)))
-        : (stats?.days_left ?? null)
-
-    const percentage = effectiveLimit > 0
-        ? Math.min(100, Math.round((effectiveUsed / effectiveLimit) * 100))
-        : 0
+    const usage = getUsageSnapshot(stats, subscriptions)
+    const activeSubscriptions = usage.activeSubscriptions
 
     const primarySubscription = activeSubscriptions[0]
-    const connectTarget = primarySubscription ? `/servers/${primarySubscription.id}` : '/plans'
+    const connectTarget = primarySubscription ? `/subscription?sub=${primarySubscription.id}&connect=1` : '/plans'
     const connectLabel = primarySubscription ? 'Быстрое подключение' : 'Открыть доступ'
     const hasAccess = activeSubscriptions.length > 0
 
     const radius = 44
     const circumference = 2 * Math.PI * radius
-    const strokeOffset = circumference - (percentage / 100) * circumference
+    const strokeOffset = circumference - (usage.percent / 100) * circumference
 
     const subscriptionsPreview = activeSubscriptions
         .slice()
@@ -92,13 +68,13 @@ export default function Home() {
                     </button>
                     <div className="hero-secondary-row">
                         <button className="btn-secondary" onClick={() => navigate('/subscription')}>
-                            Сервисы
+                            Подключить
                         </button>
                         <button className="btn-secondary" onClick={() => void refreshData()}>
                             Обновить
                         </button>
-                        <button className="btn-secondary" onClick={() => navigate('/plans')}>
-                            Продлить
+                        <button className="btn-secondary" onClick={() => navigate('/support/connect')}>
+                            Гид
                         </button>
                     </div>
                 </div>
@@ -126,7 +102,7 @@ export default function Home() {
                 <article className="bento-card bento-traffic glass-card">
                     <div className="bento-head">
                         <h3>Трафик</h3>
-                        <span>{percentage}%</span>
+                        <span>{usage.percent}%</span>
                     </div>
                     <div className="traffic-ring-wrap">
                         <svg className="traffic-ring" viewBox="0 0 100 100">
@@ -141,13 +117,13 @@ export default function Home() {
                             />
                         </svg>
                         <div className="ring-text-wrap">
-                            <span className="ring-percent">{isLoading ? '...' : `${percentage}%`}</span>
+                            <span className="ring-percent">{isLoading ? '...' : `${usage.percent}%`}</span>
                             <span className="ring-text">использовано</span>
                         </div>
                     </div>
                     <div className="traffic-values">
-                        <span>{isLoading ? '...' : formatBytes(effectiveUsed)}</span>
-                        <span>{isLoading ? '...' : formatBytes(effectiveLimit)}</span>
+                            <span>{isLoading ? '...' : `${usage.usedGbText} GB`}</span>
+                            <span>{isLoading ? '...' : usage.limitLabel}</span>
                     </div>
                 </article>
 
@@ -159,7 +135,7 @@ export default function Home() {
                     <div className="metric-grid">
                         <div>
                             <p>Дней осталось</p>
-                            <strong>{isLoading ? '...' : (effectiveDaysLeft ?? 'Н/Д')}</strong>
+                            <strong>{isLoading ? '...' : (usage.daysLeft ?? 'Н/Д')}</strong>
                         </div>
                         <div>
                             <p>Тарифов</p>
@@ -200,7 +176,7 @@ export default function Home() {
             <section className="control-panel glass-card">
                 <div className="panel-header">
                     <h3>Панель действий</h3>
-                    <span>Операционные и коммерческие быстрые сценарии</span>
+                    <span>Вторичные сценарии и справочные переходы</span>
                 </div>
 
                 <div className="control-grid">

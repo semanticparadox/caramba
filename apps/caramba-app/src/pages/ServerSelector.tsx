@@ -68,7 +68,7 @@ export default function ServerSelector() {
                         : 'Узел закреплен. Конфигурация обновляется...',
                 })
                 setTimeout(() => {
-                    navigate('/subscription')
+                    navigate(`/subscription?sub=${subId}&connect=1${source === 'magic' ? '&optimized=1' : ''}`)
                 }, 1400)
             } else {
                 setMsg({ type: 'error', text: 'Не удалось закрепить сервер' })

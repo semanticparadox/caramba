@@ -16,19 +16,18 @@ import ConnectGuide from './pages/ConnectGuide'
 import AppLockGate from './components/AppLockGate'
 import './App.css'
 
-function CommandRail() {
+function BottomCommandNav() {
     const location = useLocation()
     const isServices = location.pathname.startsWith('/subscription') || location.pathname.startsWith('/servers')
+    const isSupport = location.pathname.startsWith('/support')
 
     return (
-        <header className="top-command-rail">
-            <nav className="top-command-track" aria-label="Быстрые маршруты">
-                <NavLink to="/" className={({ isActive }) => `rail-link${isActive ? ' active' : ''}`}>Центр</NavLink>
-                <NavLink to="/subscription" className={`rail-link${isServices ? ' active' : ''}`}>Сервисы</NavLink>
-                <NavLink to="/plans" className={({ isActive }) => `rail-link${isActive ? ' active' : ''}`}>Тарифы</NavLink>
-                <NavLink to="/store" className={({ isActive }) => `rail-link${isActive ? ' active' : ''}`}>Магазин</NavLink>
-            </nav>
-        </header>
+        <nav className="bottom-command-nav" aria-label="Основная навигация">
+            <NavLink to="/" className={({ isActive }) => `rail-link${isActive ? ' active' : ''}`}>Центр</NavLink>
+            <NavLink to="/subscription" className={`rail-link${isServices ? ' active' : ''}`}>Подключение</NavLink>
+            <NavLink to="/plans" className={({ isActive }) => `rail-link${isActive ? ' active' : ''}`}>Тарифы</NavLink>
+            <NavLink to="/support" className={`rail-link${isSupport ? ' active' : ''}`}>Помощь</NavLink>
+        </nav>
     )
 }
 
@@ -40,7 +39,7 @@ function App() {
                     <div className="app-container app-shell">
                         <div className="app-mesh" />
                         <div className="app-noise" />
-                        <CommandRail />
+                        <BottomCommandNav />
                         <Routes>
                             <Route path="/" element={<Home />} />
                             <Route path="/subscription" element={<Subscription />} />

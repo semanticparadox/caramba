@@ -6,6 +6,7 @@ import {
 import { Doughnut, Bar, Line } from 'react-chartjs-2'
 import { useAuth } from '../context/AuthContext'
 import { useState, useEffect } from 'react'
+import { getUsageSnapshot } from '../lib/subscriptionMetrics'
 import './Statistics.css'
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title, PointElement, LineElement)
@@ -81,8 +82,9 @@ export default function Statistics() {
         )
     }
 
-    const usedGb = stats.traffic_used / 1024 / 1024 / 1024
-    const limitGb = stats.traffic_limit / 1024 / 1024 / 1024
+    const usage = getUsageSnapshot(stats, subscriptions)
+    const usedGb = usage.usedBytes / 1024 / 1024 / 1024
+    const limitGb = usage.limitBytes / 1024 / 1024 / 1024
     const remainingGb = Math.max(0, limitGb - usedGb)
     const activeCount = stats.active_subscriptions ?? subscriptions.filter(s => s.status === 'active').length
 
@@ -146,7 +148,7 @@ export default function Statistics() {
                 </div>
                 <div className="stat-card glass-card">
                     <span className="stat-label">Days Left</span>
-                    <span className="stat-value">{stats.days_left}</span>
+                    <span className="stat-value">{usage.daysLeft ?? '--'}</span>
                 </div>
             </div>
 
