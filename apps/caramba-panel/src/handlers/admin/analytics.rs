@@ -210,7 +210,8 @@ pub async fn get_system_logs_page(
         .await
         .unwrap_or_default();
     let selected_node = filter.node_id.and_then(|node_id| {
-        nodes.iter()
+        nodes
+            .iter()
             .find(|node| node.id == node_id)
             .map(|node| (node.id, node.name.clone()))
     });
@@ -219,16 +220,22 @@ pub async fn get_system_logs_page(
         &state.pool,
         &state.redis,
         &source,
-        if category.is_empty() { None } else { Some(category.as_str()) },
+        if category.is_empty() {
+            None
+        } else {
+            Some(category.as_str())
+        },
         selected_node,
         80,
         0,
     )
     .await
-    .unwrap_or_else(|_| crate::services::unified_log_service::UnifiedLogPayload {
-        logs: Vec::new(),
-        categories: Vec::new(),
-    });
+    .unwrap_or_else(
+        |_| crate::services::unified_log_service::UnifiedLogPayload {
+            logs: Vec::new(),
+            categories: Vec::new(),
+        },
+    );
 
     let admin_path = state.admin_path.clone();
 

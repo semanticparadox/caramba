@@ -65,6 +65,9 @@ enum Commands {
         /// - sub: internal/frontend auth token
         #[arg(long)]
         token: Option<String>,
+        /// Node type for node role (exit or relay)
+        #[arg(long)]
+        node_type: Option<String>,
         /// Sub/frontend region label
         #[arg(long)]
         region: Option<String>,
@@ -624,6 +627,7 @@ fn run_tui_menu() {
             2 => {
                 let panel_url = prompt_text("Panel URL (https://panel.example.com)", None);
                 let token = prompt_text("Node token (join/enrollment token)", None);
+                let node_type = prompt_text("Node type (exit|relay)", Some("exit"));
                 let install_dir = prompt_text("Install directory", Some("/opt/caramba"));
                 let mut args = vec![
                     "install".to_string(),
@@ -632,6 +636,8 @@ fn run_tui_menu() {
                     panel_url,
                     "--token".to_string(),
                     token,
+                    "--node-type".to_string(),
+                    node_type,
                     "--install-dir".to_string(),
                     install_dir,
                 ];
@@ -759,7 +765,11 @@ BOT_TOKEN: {bot_token}\n\
         admin_user = config.admin_username,
         admin_pass = "********",
         install_dir = config.install_dir,
-        bot_token = if bot_token.is_some() { "********" } else { "<not set>" },
+        bot_token = if bot_token.is_some() {
+            "********"
+        } else {
+            "<not set>"
+        },
     );
 
     println!("{}", style(&summary).green());
@@ -821,6 +831,7 @@ async fn main() {
             admin_pass,
             panel_url,
             token,
+            node_type,
             region,
             listen_port,
             bot_token,
@@ -1061,10 +1072,13 @@ async fn main() {
                 );
                 let install_dir = pick_non_empty(install_dir, "INSTALL_DIR")
                     .unwrap_or_else(|| "/opt/caramba".to_string());
+                let node_type =
+                    pick_non_empty(node_type, "NODE_TYPE").unwrap_or_else(|| "exit".to_string());
                 let version = resolve_release_version_or_exit().await;
 
                 if let Err(e) =
-                    install::install_node(&install_dir, &version, &panel_url, &token).await
+                    install::install_node(&install_dir, &version, &panel_url, &token, &node_type)
+                        .await
                 {
                     eprintln!("Failed to install node: {}", e);
                     exit(1);

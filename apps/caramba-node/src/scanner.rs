@@ -70,9 +70,17 @@ impl NeighborScanner {
         // Hardcoded minimal RKN-compliant list for critical infra (Russian Relays)
         // These are domains often allowed or stable in RU networks.
         const WHITELIST: &[&str] = &[
-            "yandex.ru", "vk.com", "mail.ru", "gosuslugi.ru",
-            "sberbank.ru", "tinkoff.ru", "ozon.ru", "wildberries.ru",
-            "mos.ru", "rbc.ru", "lenta.ru"
+            "yandex.ru",
+            "vk.com",
+            "mail.ru",
+            "gosuslugi.ru",
+            "sberbank.ru",
+            "tinkoff.ru",
+            "ozon.ru",
+            "wildberries.ru",
+            "mos.ru",
+            "rbc.ru",
+            "lenta.ru",
         ];
         WHITELIST.iter().any(|w| domain.contains(w))
     }

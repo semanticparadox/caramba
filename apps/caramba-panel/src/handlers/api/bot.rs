@@ -69,7 +69,11 @@ pub async fn upsert_user(
     {
         Ok(user) => (StatusCode::OK, Json(Some(user))).into_response(),
         Err(e) => {
-            tracing::error!("bot upsert_user failed for tg_id {}: {:?}", payload.tg_id, e);
+            tracing::error!(
+                "bot upsert_user failed for tg_id {}: {:?}",
+                payload.tg_id,
+                e
+            );
             tracing::error!("bot upsert_user inner error: {:?}", e.source());
             (StatusCode::INTERNAL_SERVER_ERROR).into_response()
         }

@@ -253,7 +253,13 @@ impl MonitoringService {
     }
 
     async fn check_and_rotate_snis(&self) -> anyhow::Result<()> {
-        let interval_hours = self.state.settings.get_or_default("auto_sni_rotation_interval_hours", "24").await.parse::<i64>().unwrap_or(24);
+        let interval_hours = self
+            .state
+            .settings
+            .get_or_default("auto_sni_rotation_interval_hours", "24")
+            .await
+            .parse::<i64>()
+            .unwrap_or(24);
 
         if interval_hours <= 0 {
             return Ok(());
@@ -269,15 +275,35 @@ impl MonitoringService {
         .await?;
 
         if !nodes_to_rotate.is_empty() {
-            info!("Found {} nodes due for routine SNI rotation (interval: {}h)", nodes_to_rotate.len(), interval_hours);
+            info!(
+                "Found {} nodes due for routine SNI rotation (interval: {}h)",
+                nodes_to_rotate.len(),
+                interval_hours
+            );
 
             for node_id in nodes_to_rotate {
-                match self.state.security_service.rotate_node_sni(node_id, "Routine Global Rotation").await {
+                match self
+                    .state
+                    .security_service
+                    .rotate_node_sni(node_id, "Routine Global Rotation")
+                    .await
+                {
                     Ok((old_sni, new_sni, _log_id)) => {
-                        info!("🔄 Routine Rotation: Node {} switched from {} to {}", node_id, old_sni, new_sni);
+                        info!(
+                            "🔄 Routine Rotation: Node {} switched from {} to {}",
+                            node_id, old_sni, new_sni
+                        );
 
-                        if let Err(e) = self.state.pubsub.publish(&format!("node_events:{}", node_id), "sni_update").await {
-                            error!("Failed to signal node {} for routine SNI rotation: {}", node_id, e);
+                        if let Err(e) = self
+                            .state
+                            .pubsub
+                            .publish(&format!("node_events:{}", node_id), "sni_update")
+                            .await
+                        {
+                            error!(
+                                "Failed to signal node {} for routine SNI rotation: {}",
+                                node_id, e
+                            );
                         } else {
                             info!("⚡ Signaled node {} to apply routine SNI rotation", node_id);
                         }

@@ -784,7 +784,7 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         "<INTERNAL_API_TOKEN>".to_string()
     };
     let installer_node_command = format!(
-        "curl -fsSL {}/install.sh | sudo bash -s -- --role node --panel {} --token {}",
+        "curl -fsSL {}/install.sh | sudo bash -s -- --role node --panel {} --token {} --node-type exit",
         panel_url_display, panel_url_display, installer_enrollment_key
     );
     let installer_sub_command = format!(
@@ -879,7 +879,13 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
 
     let template = SettingsTemplate {
         current_version: current_version.clone(),
-        active_nodes_count: state.orchestration_service.node_repo.get_all_nodes().await.unwrap_or_default().len(),
+        active_nodes_count: state
+            .orchestration_service
+            .node_repo
+            .get_all_nodes()
+            .await
+            .unwrap_or_default()
+            .len(),
         username: get_auth_user(&state, &jar)
             .await
             .unwrap_or("Admin".to_string()),
@@ -1812,7 +1818,7 @@ pub async fn check_update(State(state): State<AppState>) -> impl IntoResponse {
             let local_upgrade_command =
                 format!("sudo caramba upgrade --version {}", latest_version);
             let node_command = format!(
-                "curl -fsSL {}/install.sh | sudo bash -s -- --role node --panel {} --token {} --version {}",
+                "curl -fsSL {}/install.sh | sudo bash -s -- --role node --panel {} --token {} --node-type exit --version {}",
                 panel_url, panel_url, installer_enrollment_key, latest_version
             );
             let sub_command = format!(

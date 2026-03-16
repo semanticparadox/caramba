@@ -328,11 +328,19 @@ pub async fn toggle_favorite_sni(
     // Get current state to toggle
     let all = state.sni_repo.get_all_snis().await.unwrap_or_default();
     if let Some(item) = all.iter().find(|i| i.id == id) {
-        match state.sni_repo.toggle_sni_favorite(id, !item.is_favorite).await {
+        match state
+            .sni_repo
+            .toggle_sni_favorite(id, !item.is_favorite)
+            .await
+        {
             Ok(_) => StatusCode::OK.into_response(),
             Err(e) => {
                 error!("Failed to toggle SNI favorite: {}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to toggle SNI favorite").into_response()
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to toggle SNI favorite",
+                )
+                    .into_response()
             }
         }
     } else {

@@ -62,7 +62,10 @@ impl OrchestrationService {
                         .await;
                 }
                 Err(e) => {
-                    error!("Failed to get redis connection for pending sync flag: {}", e);
+                    error!(
+                        "Failed to get redis connection for pending sync flag: {}",
+                        e
+                    );
                 }
             }
         }
@@ -421,7 +424,7 @@ impl OrchestrationService {
         // Always replace manual placeholders even if not strictly vless,
         // in case user pasted a raw JSON using these.
         if stream_json.contains("{{SNI}}") {
-             stream_json = stream_json.replace("{{SNI}}", sni);
+            stream_json = stream_json.replace("{{SNI}}", sni);
         }
 
         if template.protocol == "vless" {
@@ -494,8 +497,16 @@ impl OrchestrationService {
             }
         }
 
-        let random_suffix = uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("0000").to_string();
-        let safe_tag_base = template.name.replace(' ', "-").replace(|c: char| !c.is_alphanumeric() && c != '-', "");
+        let random_suffix = uuid::Uuid::new_v4()
+            .to_string()
+            .split('-')
+            .next()
+            .unwrap_or("0000")
+            .to_string();
+        let safe_tag_base = template
+            .name
+            .replace(' ', "-")
+            .replace(|c: char| !c.is_alphanumeric() && c != '-', "");
         let smart_tag = format!("{}-{}", safe_tag_base, random_suffix);
 
         let inbound = caramba_db::models::network::Inbound {
@@ -892,7 +903,9 @@ impl OrchestrationService {
                         }
                         InboundType::Hysteria2(hy2) => {
                             for sub in &active_subs {
-                                if let (_sub_id, Some(uuid), tg_id, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                if let (_sub_id, Some(uuid), tg_id, _) =
+                                    (sub.0, &sub.1, sub.2, &sub.3)
+                                {
                                     if !visited_users.insert(tg_id) {
                                         continue;
                                     }
@@ -940,7 +953,9 @@ impl OrchestrationService {
                         InboundType::Trojan(trojan) => {
                             use caramba_db::models::network::TrojanClient;
                             for sub in &active_subs {
-                                if let (_sub_id, Some(uuid), tg_id, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                if let (_sub_id, Some(uuid), tg_id, _) =
+                                    (sub.0, &sub.1, sub.2, &sub.3)
+                                {
                                     if !visited_users.insert(tg_id) {
                                         continue;
                                     }
@@ -954,7 +969,9 @@ impl OrchestrationService {
                         }
                         InboundType::Tuic(tuic) => {
                             for sub in &active_subs {
-                                if let (_sub_id, Some(uuid), tg_id, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                if let (_sub_id, Some(uuid), tg_id, _) =
+                                    (sub.0, &sub.1, sub.2, &sub.3)
+                                {
                                     if !visited_users.insert(tg_id) {
                                         continue;
                                     }
@@ -971,7 +988,9 @@ impl OrchestrationService {
                         }
                         InboundType::Naive(naive) => {
                             for sub in &active_subs {
-                                if let (_sub_id, Some(uuid), tg_id, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                if let (_sub_id, Some(uuid), tg_id, _) =
+                                    (sub.0, &sub.1, sub.2, &sub.3)
+                                {
                                     if !visited_users.insert(tg_id) {
                                         continue;
                                     }
@@ -990,7 +1009,9 @@ impl OrchestrationService {
                         }
                         InboundType::Shadowsocks(ss) => {
                             for sub in &active_subs {
-                                if let (_sub_id, Some(uuid), tg_id, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                if let (_sub_id, Some(uuid), tg_id, _) =
+                                    (sub.0, &sub.1, sub.2, &sub.3)
+                                {
                                     if !visited_users.insert(tg_id) {
                                         continue;
                                     }

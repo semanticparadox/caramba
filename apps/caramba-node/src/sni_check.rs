@@ -23,10 +23,10 @@ pub async fn get_current_sni(config_path: &str) -> Option<String> {
     None
 }
 
+use std::sync::Arc;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::pki_types::ServerName;
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
-use std::sync::Arc;
 
 pub async fn check_reachability(sni: &str) -> Result<(), String> {
     let target = format!("{}:443", sni);
@@ -65,8 +65,10 @@ pub async fn check_reachability(sni: &str) -> Result<(), String> {
     // Verify TLS Handshake with actual validation
     match tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        connector.connect(server_name, stream)
-    ).await {
+        connector.connect(server_name, stream),
+    )
+    .await
+    {
         Ok(Ok(_)) => Ok(()),
         Ok(Err(e)) => {
             error!("❌ SNI {} failed TLS handshake validation: {}", sni, e);

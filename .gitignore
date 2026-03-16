@@ -101,3 +101,12 @@ check_braces.py
 
 # Dolt database files (added by bd init)
 .dolt/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+AGENTS.md
+GEMINI.md

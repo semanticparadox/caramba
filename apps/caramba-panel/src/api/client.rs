@@ -1,8 +1,9 @@
 use crate::AppState;
+use crate::singbox::connection_variants::available_connection_variants_for_node;
 use axum::{
     Router,
     extract::{Path, Query, Request, State},
-    http::{StatusCode, header, HeaderMap},
+    http::{HeaderMap, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Json},
     routing::{delete, get, post},
@@ -16,7 +17,6 @@ use sqlx::Row;
 use std::collections::HashMap;
 use std::env;
 use tracing::warn;
-use crate::singbox::connection_variants::available_connection_variants_for_node;
 
 #[inline]
 fn ensure_jwt_crypto_provider() {
@@ -946,13 +946,9 @@ async fn get_active_servers(
             (node.address, variants)
         })
         .collect();
-    let recommended_by_node = build_recommended_variants_by_node(
-        &state.pool,
-        user_id,
-        params.sub_id,
-        &variants_by_node,
-    )
-    .await;
+    let recommended_by_node =
+        build_recommended_variants_by_node(&state.pool, user_id, params.sub_id, &variants_by_node)
+            .await;
 
     // 1. Get Client IP/Location
     let client_ip = headers
@@ -1397,14 +1393,24 @@ async fn get_payment_providers(
         });
     }
 
-    if state.settings.get_or_default("manual_enabled", "false").await == "true" {
+    if state
+        .settings
+        .get_or_default("manual_enabled", "false")
+        .await
+        == "true"
+    {
         providers.push(PaymentProviderInfo {
             id: "manual".to_string(),
             label: "💳 Pay with Card/Manual".to_string(),
         });
     }
 
-    if state.settings.get_or_default("telegram_stars_enabled", "false").await == "true" {
+    if state
+        .settings
+        .get_or_default("telegram_stars_enabled", "false")
+        .await
+        == "true"
+    {
         providers.push(PaymentProviderInfo {
             id: "stars".to_string(),
             label: "⭐️ Pay with Telegram Stars".to_string(),
@@ -1418,9 +1424,17 @@ async fn get_payment_providers(
         });
     }
 
-    if has_value(&state.settings.get_or_default("nowpayments_api_key", "").await)
-        && has_value(&state.settings.get_or_default("nowpayments_ipn_secret", "").await)
-    {
+    if has_value(
+        &state
+            .settings
+            .get_or_default("nowpayments_api_key", "")
+            .await,
+    ) && has_value(
+        &state
+            .settings
+            .get_or_default("nowpayments_ipn_secret", "")
+            .await,
+    ) {
         providers.push(PaymentProviderInfo {
             id: "nowpayments".to_string(),
             label: "🪙 Pay with NowPayments".to_string(),
@@ -1478,8 +1492,13 @@ async fn create_payment_invoice(
     Json(body): Json<CreateInvoiceReq>,
 ) -> impl IntoResponse {
     let tg_id: i64 = claims.sub.parse().unwrap_or(0);
-    
-    let user_db: Option<caramba_db::models::store::User> = state.store_service.get_user_by_tg_id(tg_id).await.ok().flatten();
+
+    let user_db: Option<caramba_db::models::store::User> = state
+        .store_service
+        .get_user_by_tg_id(tg_id)
+        .await
+        .ok()
+        .flatten();
     let u = match user_db {
         Some(user) => user,
         None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
@@ -1487,11 +1506,13 @@ async fn create_payment_invoice(
 
     let (product_id, amount) = if let Some(duration_id) = body.duration_id {
         // Handle Plan Duration
-        let duration_row: Option<(i64, i64)> = sqlx::query_as::<_, (i64, i64)>("SELECT plan_id, price FROM plan_durations WHERE id = $1")
-            .bind(duration_id)
-            .fetch_optional(&state.pool)
-            .await
-            .unwrap_or(None);
+        let duration_row: Option<(i64, i64)> = sqlx::query_as::<_, (i64, i64)>(
+            "SELECT plan_id, price FROM plan_durations WHERE id = $1",
+        )
+        .bind(duration_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
 
         match duration_row {
             Some(row) => row, // (plan_id, price)
@@ -1499,12 +1520,14 @@ async fn create_payment_invoice(
         }
     } else if let Some(order_id) = body.order_id {
         // Handle Store Order
-        let order_row: Option<(i64, i64)> = sqlx::query_as::<_, (i64, i64)>("SELECT id, total_amount FROM orders WHERE id = $1 AND user_id = $2")
-            .bind(order_id)
-            .bind(u.id)
-            .fetch_optional(&state.pool)
-            .await
-            .unwrap_or(None);
+        let order_row: Option<(i64, i64)> = sqlx::query_as::<_, (i64, i64)>(
+            "SELECT id, total_amount FROM orders WHERE id = $1 AND user_id = $2",
+        )
+        .bind(order_id)
+        .bind(u.id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
 
         match order_row {
             Some(row) => row, // (order_id as product_id conceptually, total_amount)
@@ -1517,18 +1540,39 @@ async fn create_payment_invoice(
     let currency = "USD";
     let mut metadata = HashMap::new();
     if body.duration_id.is_some() {
-        metadata.insert("type".to_string(), serde_json::Value::String("plan".to_string()));
+        metadata.insert(
+            "type".to_string(),
+            serde_json::Value::String("plan".to_string()),
+        );
     } else if body.order_id.is_some() {
-        metadata.insert("type".to_string(), serde_json::Value::String("order".to_string()));
+        metadata.insert(
+            "type".to_string(),
+            serde_json::Value::String("order".to_string()),
+        );
     }
 
-    match state.marketplace_service.create_session(&u, product_id, &body.provider, amount, currency, Some(serde_json::to_value(metadata).unwrap_or_default())).await {
+    match state
+        .marketplace_service
+        .create_session(
+            &u,
+            product_id,
+            &body.provider,
+            amount,
+            currency,
+            Some(serde_json::to_value(metadata).unwrap_or_default()),
+        )
+        .await
+    {
         Ok((session, invoice_payload)) => {
             if body.provider == "balance" {
                 // Synchronous fulfillment for balance
                 if let Err(e) = state.marketplace_service.fulfill_payment(session.id).await {
-                     tracing::error!("Immediate balance fulfillment failed: {}", e);
-                     return (StatusCode::INTERNAL_SERVER_ERROR, format!("Fulfillment failed: {}", e)).into_response();
+                    tracing::error!("Immediate balance fulfillment failed: {}", e);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Fulfillment failed: {}", e),
+                    )
+                        .into_response();
                 }
 
                 // Deduct balance manually if BalanceProvider didn't do it (it doesn't in our implementation to keep MarketplaceService pure)
@@ -1543,14 +1587,16 @@ async fn create_payment_invoice(
                     "invoice_url": "SUCCESS",
                     "provider": "balance",
                     "fulfilled": true
-                })).into_response();
+                }))
+                .into_response();
             }
 
             Json(serde_json::json!({
                 "ok": true,
                 "invoice_url": invoice_payload,
                 "provider": body.provider,
-            })).into_response()
+            }))
+            .into_response()
         }
         Err(e) => {
             tracing::error!("Invoice generation failed for user {}: {}", u.id, e);
@@ -1620,21 +1666,15 @@ async fn build_recommended_variants_by_node(
         return HashMap::new();
     };
 
-    let node_rows = match sqlx::query_as::<_, (i64, String)>(
-        "SELECT id, ip FROM nodes WHERE ip = ANY($1)",
-    )
-    .bind(
-        &variants_by_node_ip
-            .keys()
-            .cloned()
-            .collect::<Vec<String>>(),
-    )
-    .fetch_all(pool)
-    .await
-    {
-        Ok(rows) => rows,
-        Err(_) => return HashMap::new(),
-    };
+    let node_rows =
+        match sqlx::query_as::<_, (i64, String)>("SELECT id, ip FROM nodes WHERE ip = ANY($1)")
+            .bind(&variants_by_node_ip.keys().cloned().collect::<Vec<String>>())
+            .fetch_all(pool)
+            .await
+        {
+            Ok(rows) => rows,
+            Err(_) => return HashMap::new(),
+        };
 
     let node_ids: Vec<i64> = node_rows.iter().map(|(node_id, _)| *node_id).collect();
     if node_ids.is_empty() {
@@ -1693,7 +1733,10 @@ async fn build_recommended_variants_by_node(
             let recommended = scores_by_node
                 .get(&node_id)
                 .and_then(|scores| choose_recommended_variant(scores, &available_variant_ids));
-            (node_id, recommended.or_else(|| available_variant_ids.first().cloned()))
+            (
+                node_id,
+                recommended.or_else(|| available_variant_ids.first().cloned()),
+            )
         })
         .collect()
 }
@@ -1748,7 +1791,10 @@ mod client_variant_event_tests {
     #[test]
     fn falls_back_to_first_available_variant_when_no_score_exists() {
         let scores = HashMap::new();
-        let available = vec!["vless-reality-direct".to_string(), "grpc-direct".to_string()];
+        let available = vec![
+            "vless-reality-direct".to_string(),
+            "grpc-direct".to_string(),
+        ];
 
         assert_eq!(
             choose_recommended_variant(&scores, &available).as_deref(),
@@ -2022,7 +2068,11 @@ async fn track_subscription_variant_event(
     .bind(user_id)
     .bind("subscription_variant_event")
     .bind(details)
-    .bind(if client_ip.is_empty() { None } else { Some(client_ip) })
+    .bind(if client_ip.is_empty() {
+        None
+    } else {
+        Some(client_ip)
+    })
     .execute(&state.pool)
     .await
     {

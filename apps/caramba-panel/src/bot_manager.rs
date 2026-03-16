@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use teloxide::prelude::*;
 use teloxide::Bot;
+use teloxide::prelude::*;
 use teloxide::types::{
     ChatId, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, LinkPreviewOptions, ParseMode,
 };

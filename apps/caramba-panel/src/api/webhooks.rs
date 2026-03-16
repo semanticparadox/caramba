@@ -1,17 +1,16 @@
+use axum::body::Bytes;
 use axum::{
+    Router,
     extract::{Path, State},
     http::HeaderMap,
     response::IntoResponse,
     routing::post,
-    Router,
 };
-use axum::body::Bytes;
 
 use crate::AppState;
 
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/payment/{provider}", post(handle_payment_webhook))
+    Router::new().route("/payment/{provider}", post(handle_payment_webhook))
 }
 
 async fn handle_payment_webhook(

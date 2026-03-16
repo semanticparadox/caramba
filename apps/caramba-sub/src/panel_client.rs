@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
@@ -49,29 +49,73 @@ impl PanelClient {
     pub async fn get_active_exit_nodes(&self) -> Result<Vec<InternalNode>> {
         let url = format!("{}/api/internal/nodes/active/exit", self.base_url);
 
-        let response = self
-            .client
-            .get(&url)
-            .bearer_auth(&self.auth_token)
-            .send()
-            .await?
-            .error_for_status()?;
+        let primary = async {
+            let response = self
+                .client
+                .get(&url)
+                .bearer_auth(&self.auth_token)
+                .send()
+                .await?
+                .error_for_status()?;
+            Ok::<Vec<InternalNode>, anyhow::Error>(response.json().await?)
+        }
+        .await;
 
-        Ok(response.json().await?)
+        match primary {
+            Ok(nodes) => Ok(nodes),
+            Err(primary_err) => self
+                .get_active_nodes()
+                .await
+                .map(|nodes| {
+                    nodes
+                        .into_iter()
+                        .filter(|node| node.node.is_exit_node())
+                        .collect()
+                })
+                .map_err(|fallback_err| {
+                    anyhow!(
+                        "failed to fetch active exit nodes (primary: {}; fallback: {})",
+                        primary_err,
+                        fallback_err
+                    )
+                }),
+        }
     }
 
     pub async fn get_active_relay_nodes(&self) -> Result<Vec<InternalNode>> {
         let url = format!("{}/api/internal/nodes/active/relay", self.base_url);
 
-        let response = self
-            .client
-            .get(&url)
-            .bearer_auth(&self.auth_token)
-            .send()
-            .await?
-            .error_for_status()?;
+        let primary = async {
+            let response = self
+                .client
+                .get(&url)
+                .bearer_auth(&self.auth_token)
+                .send()
+                .await?
+                .error_for_status()?;
+            Ok::<Vec<InternalNode>, anyhow::Error>(response.json().await?)
+        }
+        .await;
 
-        Ok(response.json().await?)
+        match primary {
+            Ok(nodes) => Ok(nodes),
+            Err(primary_err) => self
+                .get_active_nodes()
+                .await
+                .map(|nodes| {
+                    nodes
+                        .into_iter()
+                        .filter(|node| node.node.is_relay_node())
+                        .collect()
+                })
+                .map_err(|fallback_err| {
+                    anyhow!(
+                        "failed to fetch active relay nodes (primary: {}; fallback: {})",
+                        primary_err,
+                        fallback_err
+                    )
+                }),
+        }
     }
 
     pub async fn get_user_keys(&self, user_id: i64) -> Result<UserKeys> {
@@ -234,6 +278,10 @@ impl Node {
 
     pub fn is_relay_node(&self) -> bool {
         self.normalized_node_type() == "relay"
+    }
+
+    pub fn is_exit_node(&self) -> bool {
+        !self.is_relay_node()
     }
 }
 

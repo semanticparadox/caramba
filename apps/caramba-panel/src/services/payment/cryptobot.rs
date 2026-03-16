@@ -1,13 +1,13 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use hmac::{Hmac, Mac};
-use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
+use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use caramba_db::models::store::{PaymentSession, User};
 use super::provider::{PaymentProvider, PaymentWebhookAction};
+use caramba_db::models::store::{PaymentSession, User};
 
 #[derive(Serialize)]
 struct CryptoBotInvoiceReq {
@@ -41,7 +41,12 @@ impl PaymentProvider for CryptoBotProvider {
         "cryptobot"
     }
 
-    async fn create_invoice(&self, session: &PaymentSession, _user: &User, client: &reqwest::Client) -> Result<String> {
+    async fn create_invoice(
+        &self,
+        session: &PaymentSession,
+        _user: &User,
+        client: &reqwest::Client,
+    ) -> Result<String> {
         // Amount must be formatted as a string for CryptoBot
         let amount_str = format!("{:.2}", (session.amount as f64) / 100.0);
 
@@ -72,8 +77,11 @@ impl PaymentProvider for CryptoBotProvider {
             anyhow::bail!("CryptoBot API Error: {}", error_text);
         }
 
-        let invoice: CryptoBotInvoiceRes = res.json().await.context("Failed to parse CryptoBot response")?;
-        
+        let invoice: CryptoBotInvoiceRes = res
+            .json()
+            .await
+            .context("Failed to parse CryptoBot response")?;
+
         if !invoice.ok {
             anyhow::bail!("CryptoBot API returned not ok");
         }
@@ -93,9 +101,8 @@ impl PaymentProvider for CryptoBotProvider {
         let secret_hash = hasher.finalize();
 
         type HmacSha256 = Hmac<Sha256>;
-        let mut mac = HmacSha256::new_from_slice(&secret_hash)
-            .context("Invalid HMAC key")?;
-        
+        let mut mac = HmacSha256::new_from_slice(&secret_hash).context("Invalid HMAC key")?;
+
         mac.update(payload);
         let result = mac.finalize().into_bytes();
         let computed_sig = hex::encode(result);
@@ -105,14 +112,18 @@ impl PaymentProvider for CryptoBotProvider {
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {
         let data: Value = serde_json::from_slice(payload).context("Invalid JSON")?;
-        
-        let update_type = data.get("update_type").and_then(|v| v.as_str()).unwrap_or("");
-        
+
+        let update_type = data
+            .get("update_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
         if update_type != "invoice_paid" {
             return Ok(PaymentWebhookAction::Ignored);
         }
 
-        let payload_id = data.get("payload")
+        let payload_id = data
+            .get("payload")
             .and_then(|v| v.get("payload"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
@@ -121,10 +132,16 @@ impl PaymentProvider for CryptoBotProvider {
             return Ok(PaymentWebhookAction::Ignored);
         }
 
-        Ok(PaymentWebhookAction::Completed { external_id: payload_id.to_string() })
+        Ok(PaymentWebhookAction::Completed {
+            external_id: payload_id.to_string(),
+        })
     }
 
-    async fn check_status(&self, _session: &PaymentSession, _client: &reqwest::Client) -> Result<String> {
+    async fn check_status(
+        &self,
+        _session: &PaymentSession,
+        _client: &reqwest::Client,
+    ) -> Result<String> {
         Ok("pending".to_string())
     }
 }

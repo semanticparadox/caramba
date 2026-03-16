@@ -17,7 +17,7 @@ pub struct MarketplaceTemplate {
     pub username: String,
     pub admin_path: String,
     pub active_page: String,
-    
+
     // Setting fields
     pub nowpayments_key: String,
     pub cryptobot_token: String,
@@ -42,8 +42,16 @@ pub async fn get_marketplace_page(
 ) -> impl IntoResponse {
     let nowpayments_key = state.settings.get_or_default("nowpayments_key", "").await;
     let cryptobot_token = state.settings.get_or_default("cryptobot_token", "").await;
-    let stars_enabled = state.settings.get_or_default("stars_enabled", "false").await == "true";
-    let manual_enabled = state.settings.get_or_default("manual_enabled", "false").await == "true";
+    let stars_enabled = state
+        .settings
+        .get_or_default("stars_enabled", "false")
+        .await
+        == "true";
+    let manual_enabled = state
+        .settings
+        .get_or_default("manual_enabled", "false")
+        .await
+        == "true";
 
     // Fetch pending manual sessions
     let pending_manual = state
@@ -83,13 +91,27 @@ pub async fn save_marketplace_settings(
 ) -> impl IntoResponse {
     let admin_path = state.admin_path.clone();
 
-    let _ = state.settings.set("nowpayments_key", &form.nowpayments_key.unwrap_or_default()).await;
-    let _ = state.settings.set("cryptobot_token", &form.cryptobot_token.unwrap_or_default()).await;
-    
-    let stars_val = if form.stars_enabled.is_some() { "true" } else { "false" };
+    let _ = state
+        .settings
+        .set("nowpayments_key", &form.nowpayments_key.unwrap_or_default())
+        .await;
+    let _ = state
+        .settings
+        .set("cryptobot_token", &form.cryptobot_token.unwrap_or_default())
+        .await;
+
+    let stars_val = if form.stars_enabled.is_some() {
+        "true"
+    } else {
+        "false"
+    };
     let _ = state.settings.set("stars_enabled", stars_val).await;
 
-    let manual_val = if form.manual_enabled.is_some() { "true" } else { "false" };
+    let manual_val = if form.manual_enabled.is_some() {
+        "true"
+    } else {
+        "false"
+    };
     let _ = state.settings.set("manual_enabled", manual_val).await;
 
     // We use HX-Redirect for HTMX
@@ -110,9 +132,10 @@ pub async fn approve_manual_payment(
         return (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to approve and fulfill: {}", e),
-        ).into_response();
+        )
+            .into_response();
     }
-    
+
     (axum::http::StatusCode::OK, "Approved").into_response()
 }
 
@@ -120,12 +143,18 @@ pub async fn reject_manual_payment(
     Path(id): Path<uuid::Uuid>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    if let Err(e) = state.marketplace_service.session_repo.update_status(id, "failed").await {
+    if let Err(e) = state
+        .marketplace_service
+        .session_repo
+        .update_status(id, "failed")
+        .await
+    {
         return (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to reject: {}", e),
-        ).into_response();
+        )
+            .into_response();
     }
-    
+
     (axum::http::StatusCode::OK, "Rejected").into_response()
 }

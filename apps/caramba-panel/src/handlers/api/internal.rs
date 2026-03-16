@@ -108,6 +108,7 @@ pub struct InternalSubscription {
     pub expire_timestamp: i64,
     pub plan_name: String,
     pub traffic_limit_gb: i32,
+    pub node_id: Option<i64>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -122,14 +123,7 @@ pub struct LegacyFrontendHeartbeat {
     pub bandwidth_used: u64,
 }
 
-pub async fn get_active_nodes(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
-    if let Err(status) = authorize_internal_request(&state, &headers).await {
-        return status.into_response();
-    }
-
+async fn load_active_nodes(state: &AppState, filter: Option<&'static str>) -> Vec<InternalNode> {
     let node_repo = NodeRepository::new(state.pool.clone());
     let nodes: Vec<Node> = node_repo
         .get_all_nodes()
@@ -137,6 +131,11 @@ pub async fn get_active_nodes(
         .unwrap_or_default()
         .into_iter()
         .filter(|n| n.is_enabled && n.status == "active")
+        .filter(|n| match filter {
+            Some("relay") => n.is_relay_node(),
+            Some("exit") => n.is_exit_node(),
+            _ => true,
+        })
         .collect();
 
     let mut internal_nodes = Vec::new();
@@ -153,7 +152,40 @@ pub async fn get_active_nodes(
         internal_nodes.push(InternalNode { node, inbounds });
     }
 
-    Json(internal_nodes).into_response()
+    internal_nodes
+}
+
+pub async fn get_active_nodes(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(status) = authorize_internal_request(&state, &headers).await {
+        return status.into_response();
+    }
+
+    Json(load_active_nodes(&state, None).await).into_response()
+}
+
+pub async fn get_active_exit_nodes(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(status) = authorize_internal_request(&state, &headers).await {
+        return status.into_response();
+    }
+
+    Json(load_active_nodes(&state, Some("exit")).await).into_response()
+}
+
+pub async fn get_active_relay_nodes(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(status) = authorize_internal_request(&state, &headers).await {
+        return status.into_response();
+    }
+
+    Json(load_active_nodes(&state, Some("relay")).await).into_response()
 }
 
 pub async fn get_subscription(
@@ -166,7 +198,7 @@ pub async fn get_subscription(
     }
 
     let sub: Option<InternalSubscription> = sqlx::query_as(
-        r#"SELECT s.id, s.user_id, s.status, s.used_traffic, s.subscription_uuid,
+        r#"SELECT s.id, s.user_id, s.status, s.used_traffic, s.subscription_uuid, s.node_id,
                   EXTRACT(EPOCH FROM s.expires_at)::BIGINT AS expire_timestamp,
                   COALESCE(p.name, 'VPN Plan') AS plan_name,
                   COALESCE(p.traffic_limit_gb, 0) AS traffic_limit_gb

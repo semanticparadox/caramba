@@ -6,7 +6,7 @@ use askama_web::WebTemplate;
 use axum::{
     extract::{Form, Path, Query, State},
     http::HeaderMap,
-    response::{Html, IntoResponse},
+    response::{Html, IntoResponse, Redirect, Response},
 };
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
@@ -23,13 +23,16 @@ use uuid::Uuid;
 // ============================================================================
 
 #[derive(Template)]
-#[template(path = "nodes.html")]
+#[template(path = "nodes_scope.html")]
 pub struct NodesTemplate {
-    pub all_nodes: Vec<Node>,
-    pub exit_nodes: Vec<Node>,
+    pub nodes: Vec<Node>,
     pub relay_nodes: Vec<Node>,
-    pub exit_rows_html: String,
-    pub relay_rows_html: String,
+    pub rows_html: String,
+    pub scope: String,
+    pub scope_title: String,
+    pub total_nodes_count: usize,
+    pub exit_nodes_count: usize,
+    pub relay_nodes_count: usize,
     pub is_auth: bool,
     pub username: String,
     pub admin_path: String,
@@ -68,6 +71,53 @@ fn render_nodes_rows_html(
             e
         )
     })
+}
+
+#[derive(Clone, Copy)]
+enum NodesScope {
+    Exit,
+    Relay,
+}
+
+impl NodesScope {
+    fn as_str(self) -> &'static str {
+        match self {
+            NodesScope::Exit => "exit",
+            NodesScope::Relay => "relay",
+        }
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            NodesScope::Exit => "Exit Nodes",
+            NodesScope::Relay => "Relay Nodes",
+        }
+    }
+
+    fn active_page(self) -> &'static str {
+        match self {
+            NodesScope::Exit => "nodes_exit",
+            NodesScope::Relay => "nodes_relay",
+        }
+    }
+
+    fn matches_node(self, node: &Node) -> bool {
+        match self {
+            NodesScope::Exit => node.is_exit_node(),
+            NodesScope::Relay => node.is_relay_node(),
+        }
+    }
+}
+
+fn normalized_admin_path(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        "/admin".to_string()
+    } else if trimmed.starts_with('/') {
+        trimmed.to_string()
+    } else {
+        format!("/{}", trimmed)
+    }
 }
 
 #[derive(Template, WebTemplate)]
@@ -210,9 +260,19 @@ async fn ensure_node_join_token(pool: &sqlx::PgPool, node_id: i64) -> anyhow::Re
 
 pub async fn get_nodes(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    _headers: HeaderMap,
+    _jar: CookieJar,
 ) -> impl IntoResponse {
+    let admin_path = normalized_admin_path(&state.admin_path);
+    Redirect::to(&format!("{}/nodes/exit", admin_path.trim_end_matches('/')))
+}
+
+async fn render_nodes_scope_page(
+    state: &AppState,
+    headers: &HeaderMap,
+    jar: &CookieJar,
+    scope: NodesScope,
+) -> Response {
     let all_nodes = match state.infrastructure_service.get_all_nodes().await {
         Ok(nodes) => nodes,
         Err(e) => {
@@ -230,8 +290,13 @@ pub async fn get_nodes(
         .filter(|node| node.is_exit_node())
         .cloned()
         .collect::<Vec<_>>();
+    let nodes = all_nodes
+        .iter()
+        .filter(|node| scope.matches_node(node))
+        .cloned()
+        .collect::<Vec<_>>();
 
-    let admin_path = state.admin_path.clone();
+    let admin_path = normalized_admin_path(&state.admin_path);
 
     // Fetch Update Settings (Phase 67)
     let agent_latest_version = state
@@ -245,45 +310,61 @@ pub async fn get_nodes(
         .parse()
         .unwrap_or(true);
 
-    let exit_rows_html = render_nodes_rows_html(
-        exit_nodes.clone(),
+    let rows_html = render_nodes_rows_html(
+        nodes.clone(),
         &admin_path,
         &agent_latest_version,
         auto_update_agents,
     );
-    let relay_rows_html = render_nodes_rows_html(
-        relay_nodes.clone(),
-        &admin_path,
-        &agent_latest_version,
-        auto_update_agents,
-    );
+    let relay_nodes_count = relay_nodes.len();
+    let exit_nodes_count = exit_nodes.len();
+    let total_nodes_count = all_nodes.len();
 
-    if headers.contains_key("hx-request") {
+    if headers.contains_key("HX-Request") || headers.contains_key("hx-request") {
         let template = NodesRowsPartial {
-            nodes: all_nodes.clone(),
-            admin_path,
-            agent_latest_version,
+            nodes,
+            admin_path: admin_path.clone(),
+            agent_latest_version: agent_latest_version.clone(),
             auto_update_agents,
         };
         return Html(template.render().unwrap()).into_response();
     }
 
     let template = NodesTemplate {
-        all_nodes,
-        exit_nodes,
+        nodes,
         relay_nodes,
-        exit_rows_html,
-        relay_rows_html,
+        rows_html,
+        scope: scope.as_str().to_string(),
+        scope_title: scope.title().to_string(),
+        total_nodes_count,
+        exit_nodes_count,
+        relay_nodes_count,
         is_auth: true,
-        username: get_auth_user(&state, &jar)
+        username: get_auth_user(state, jar)
             .await
             .unwrap_or("Admin".to_string()),
         admin_path,
-        active_page: "nodes".to_string(),
+        active_page: scope.active_page().to_string(),
         agent_latest_version,
         auto_update_agents,
     };
     Html(template.render().unwrap()).into_response()
+}
+
+pub async fn get_exit_nodes_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    jar: CookieJar,
+) -> impl IntoResponse {
+    render_nodes_scope_page(&state, &headers, &jar, NodesScope::Exit).await
+}
+
+pub async fn get_relay_nodes_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    jar: CookieJar,
+) -> impl IntoResponse {
+    render_nodes_scope_page(&state, &headers, &jar, NodesScope::Relay).await
 }
 
 pub async fn get_exit_nodes_rows(State(state): State<AppState>) -> impl IntoResponse {
@@ -1303,12 +1384,18 @@ server {{
         String::new()
     };
 
+    let active_page = if node.is_relay_node() {
+        "nodes_relay".to_string()
+    } else {
+        "nodes_exit".to_string()
+    };
+
     let template = NodeManageTemplate {
         node,
         all_nodes,
         admin_path,
         username,
-        active_page: "nodes".to_string(),
+        active_page,
         is_auth: true,
         inbounds,
         discovered_snis,

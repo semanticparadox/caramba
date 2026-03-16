@@ -249,9 +249,11 @@
                     class="nav-pill {% if active_page == "logs" %}active{% endif %}">System Logs</a>
                 {% endif %}
 
-                {% if active_page == "nodes" || active_page == "groups" || active_page == "frontends" || active_page == "templates" || active_page == "sni" %}
-                <a href="{{ admin_path }}/nodes"
-                    class="nav-pill {% if active_page == "nodes" %}active{% endif %}">Nodes</a>
+                {% if active_page == "nodes" || active_page == "nodes_exit" || active_page == "nodes_relay" || active_page == "groups" || active_page == "frontends" || active_page == "templates" || active_page == "sni" %}
+                <a href="{{ admin_path }}/nodes/exit"
+                    class="nav-pill {% if active_page == "nodes_exit" || active_page == "nodes" %}active{% endif %}">Exit Nodes</a>
+                <a href="{{ admin_path }}/nodes/relay"
+                    class="nav-pill {% if active_page == "nodes_relay" %}active{% endif %}">Relay Nodes</a>
                 <a href="{{ admin_path }}/groups"
                     class="nav-pill {% if active_page == "groups" %}active{% endif %}">Groups</a>
                 <a href="{{ admin_path }}/frontends"
@@ -311,8 +313,8 @@
                     </a>
 
                     <!-- Servers -->
-                    <a href="{{ admin_path }}/nodes"
-                        class="dock-item {% if active_page == "nodes" || active_page == "groups" || active_page == "frontends" || active_page == "templates" || active_page == "sni" %}active{% endif %}"
+                    <a href="{{ admin_path }}/nodes/exit"
+                        class="dock-item {% if active_page == "nodes" || active_page == "nodes_exit" || active_page == "nodes_relay" || active_page == "groups" || active_page == "frontends" || active_page == "templates" || active_page == "sni" %}active{% endif %}"
                         title="Servers">
                         <i data-lucide="server" class="dock-item-icon"></i>
                         <span class="dock-item-label">Servers</span>

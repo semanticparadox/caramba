@@ -193,10 +193,11 @@ pub async fn heartbeat(
                     // But our subscriptions table uses internal user_id.
 
                     // 1. Resolve internal user_id from tg_id
-                    let user_id_res: Result<Option<i64>, _> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
-                        .bind(tg_id)
-                        .fetch_optional(&state.pool)
-                        .await;
+                    let user_id_res: Result<Option<i64>, _> =
+                        sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+                            .bind(tg_id)
+                            .fetch_optional(&state.pool)
+                            .await;
 
                     if let Ok(Some(uid)) = user_id_res {
                         // 2. Update subscription traffic
@@ -581,7 +582,10 @@ pub async fn rotate_sni(
     let orchestration = state.orchestration_service.clone();
     tokio::spawn(async move {
         if let Err(e) = orchestration.notify_node_update(node_id).await {
-            error!("Failed to notify node {} after SNI rotation: {}", node_id, e);
+            error!(
+                "Failed to notify node {} after SNI rotation: {}",
+                node_id, e
+            );
         }
     });
 
@@ -698,7 +702,8 @@ pub async fn poll_updates(
                     return (
                         StatusCode::OK,
                         Json(serde_json::json!({"update": true, "message": "pending_sync"})),
-                    ).into_response();
+                    )
+                        .into_response();
                 }
             }
         }
@@ -829,6 +834,7 @@ pub struct RegisterNodeRequest {
     pub enrollment_key: String,
     pub hostname: String,
     pub ip: Option<String>,
+    pub node_type: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -882,12 +888,24 @@ pub async fn register(
     let ip = payload
         .ip
         .unwrap_or_else(|| format!("pending-{}", &join_token[0..8]));
+    let node_type = match payload
+        .node_type
+        .as_deref()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("relay") => "relay",
+        _ => "exit",
+    };
+    let is_relay = node_type == "relay";
 
     // Start in provisioning state to wait for first SNI scan.
-    let node_id_res = sqlx::query("INSERT INTO nodes (name, ip, join_token, status, is_enabled) VALUES ($1, $2, $3, 'provisioning', TRUE) RETURNING id")
+    let node_id_res = sqlx::query("INSERT INTO nodes (name, ip, join_token, status, is_enabled, node_type, is_relay) VALUES ($1, $2, $3, 'provisioning', TRUE, $4, $5) RETURNING id")
         .bind(&payload.hostname)
         .bind(&ip)
         .bind(&join_token)
+        .bind(node_type)
+        .bind(is_relay)
         .fetch_one(&state.pool)
         .await;
 
@@ -910,8 +928,45 @@ pub async fn register(
                 .into_response()
         }
         Err(e) => {
-            error!("Failed to create node: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create node").into_response()
+            let msg = e.to_string();
+            if msg.contains("node_type") && msg.contains("does not exist") {
+                let fallback = sqlx::query(
+                    "INSERT INTO nodes (name, ip, join_token, status, is_enabled, is_relay) VALUES ($1, $2, $3, 'provisioning', TRUE, $4) RETURNING id",
+                )
+                .bind(&payload.hostname)
+                .bind(&ip)
+                .bind(&join_token)
+                .bind(is_relay)
+                .fetch_one(&state.pool)
+                .await;
+
+                match fallback {
+                    Ok(row) => {
+                        use sqlx::Row;
+                        let node_id: i64 = row.get("id");
+                        info!(
+                            "✅ Node registered via API Key {}: {} (ID: {})",
+                            api_key.name, payload.hostname, node_id
+                        );
+
+                        (
+                            StatusCode::OK,
+                            Json(RegisterNodeResponse {
+                                node_id,
+                                join_token,
+                            }),
+                        )
+                            .into_response()
+                    }
+                    Err(inner) => {
+                        error!("Failed to create node (fallback): {}", inner);
+                        (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create node").into_response()
+                    }
+                }
+            } else {
+                error!("Failed to create node: {}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create node").into_response()
+            }
         }
     }
 }

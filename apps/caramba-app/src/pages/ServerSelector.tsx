@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { apiUrl } from '../config'
 import { useAuth } from '../context/AuthContext'
@@ -14,7 +14,30 @@ interface Node {
 }
 
 interface RecommendedResponse {
+    strategy?: string
+    country_filter?: string | null
     nodes?: Array<{ id: number; name: string }>
+}
+
+type RoutingStrategy = 'balanced' | 'fastest' | 'stable'
+
+const STRATEGY_OPTIONS: Array<{ value: RoutingStrategy; label: string }> = [
+    { value: 'balanced', label: 'Баланс' },
+    { value: 'fastest', label: 'Скорость' },
+    { value: 'stable', label: 'Стабильность' },
+]
+
+function normalizeCountryParam(raw: string | null): string {
+    const normalized = (raw ?? '').trim().toUpperCase()
+    if (!normalized || normalized === 'ANY' || normalized === 'AUTO') return 'ANY'
+    return /^[A-Z]{2}$/.test(normalized) ? normalized : 'ANY'
+}
+
+function normalizeStrategyParam(raw: string | null): RoutingStrategy {
+    const normalized = (raw ?? '').trim().toLowerCase()
+    if (normalized === 'fastest' || normalized === 'latency') return 'fastest'
+    if (normalized === 'stable' || normalized === 'lowload' || normalized === 'load') return 'stable'
+    return 'balanced'
 }
 
 export default function ServerSelector() {
@@ -26,6 +49,9 @@ export default function ServerSelector() {
     const [loading, setLoading] = useState(true)
     const [pinning, setPinning] = useState<number | null>(null)
     const [optimizing, setOptimizing] = useState(false)
+    const [selectedCountry, setSelectedCountry] = useState<string>(() => normalizeCountryParam(searchParams.get('country')))
+    const [selectedStrategy, setSelectedStrategy] = useState<RoutingStrategy>(() => normalizeStrategyParam(searchParams.get('strategy')))
+    const [recommendedNodeId, setRecommendedNodeId] = useState<number | null>(null)
     const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
     const hasAutoRunMagic = useRef(false)
 
@@ -44,6 +70,25 @@ export default function ServerSelector() {
                 setLoading(false)
             })
     }, [token])
+
+    const countryOptions = useMemo(() => {
+        const options = new Set<string>()
+        nodes.forEach((node) => {
+            if (!node.country_code) return
+            const normalized = node.country_code.trim().toUpperCase()
+            if (/^[A-Z]{2}$/.test(normalized)) {
+                options.add(normalized)
+            }
+        })
+        return ['ANY', ...Array.from(options).sort()]
+    }, [nodes])
+
+    useEffect(() => {
+        if (selectedCountry === 'ANY') return
+        if (!countryOptions.includes(selectedCountry)) {
+            setSelectedCountry('ANY')
+        }
+    }, [selectedCountry, countryOptions])
 
     const handlePin = async (nodeId: number, source: 'manual' | 'magic' = 'manual') => {
         if (!subId) return
@@ -84,9 +129,17 @@ export default function ServerSelector() {
         if (!token || !subId || optimizing) return
         setOptimizing(true)
         setMsg(null)
+        setRecommendedNodeId(null)
 
         try {
-            const res = await fetch(apiUrl('/api/v2/client/recommended'), {
+            const params = new URLSearchParams()
+            params.set('strategy', selectedStrategy)
+            if (selectedCountry !== 'ANY') {
+                params.set('country', selectedCountry)
+            }
+
+            const query = params.toString()
+            const res = await fetch(apiUrl(`/api/v2/client/recommended${query ? `?${query}` : ''}`), {
                 headers: { Authorization: `Bearer ${token}` },
             })
             if (!res.ok) {
@@ -96,8 +149,14 @@ export default function ServerSelector() {
 
             const data = await res.json() as RecommendedResponse
             const topNodeId = data.nodes?.[0]?.id
+            setRecommendedNodeId(topNodeId ?? null)
             if (!topNodeId) {
-                setMsg({ type: 'error', text: 'Рекомендации недоступны для текущей локации' })
+                setMsg({
+                    type: 'error',
+                    text: selectedCountry === 'ANY'
+                        ? 'Рекомендации недоступны для текущей локации'
+                        : `Нет доступных exit-узлов для ${selectedCountry}`,
+                })
                 return
             }
 
@@ -129,7 +188,8 @@ export default function ServerSelector() {
         return a.name.localeCompare(b.name)
     })
 
-    const recommendedNodeId = sortedNodes.find((node) => node.status === 'online')?.id ?? sortedNodes[0]?.id ?? null
+    const fallbackRecommendedNodeId = sortedNodes.find((node) => node.status === 'online')?.id ?? sortedNodes[0]?.id ?? null
+    const activeRecommendedNodeId = recommendedNodeId ?? fallbackRecommendedNodeId
 
     if (loading) return <div className="page"><div className="loading">Проверка сети...</div></div>
 
@@ -149,6 +209,42 @@ export default function ServerSelector() {
                     </div>
                     <span className="optimize-optional-pill">Опционально</span>
                 </div>
+                <div className="optimize-controls">
+                    <label className="optimize-control">
+                        <span>Страна выхода</span>
+                        <select
+                            value={selectedCountry}
+                            onChange={(event) => {
+                                setSelectedCountry(event.target.value)
+                                setRecommendedNodeId(null)
+                            }}
+                            disabled={optimizing || pinning !== null}
+                        >
+                            {countryOptions.map((country) => (
+                                <option key={country} value={country}>
+                                    {country === 'ANY' ? 'Авто (любая)' : country}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <label className="optimize-control">
+                        <span>Стратегия</span>
+                        <select
+                            value={selectedStrategy}
+                            onChange={(event) => {
+                                setSelectedStrategy(normalizeStrategyParam(event.target.value))
+                                setRecommendedNodeId(null)
+                            }}
+                            disabled={optimizing || pinning !== null}
+                        >
+                            {STRATEGY_OPTIONS.map((strategy) => (
+                                <option key={strategy.value} value={strategy.value}>
+                                    {strategy.label}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                </div>
                 <button className="btn-secondary magic-optimize-cta" disabled={optimizing || pinning !== null} onClick={() => void runMagicOptimize()}>
                     {optimizing ? 'Подбираем...' : 'Подобрать автоматически'}
                 </button>
@@ -163,7 +259,7 @@ export default function ServerSelector() {
 
             <div className="server-list">
                 {sortedNodes.map((node) => {
-                    const isRecommended = node.id === recommendedNodeId
+                    const isRecommended = node.id === activeRecommendedNodeId
                     return (
                     <div key={node.id} className={`server-card glass-card ${isRecommended ? 'recommended' : ''}`} onClick={() => void handlePin(node.id)}>
                         <div className="server-info">

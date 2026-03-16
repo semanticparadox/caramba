@@ -2,8 +2,8 @@ use caramba_db::models::network::{
     AmneziaWgSettings, Hysteria2Settings, NaiveSettings, ShadowsocksSettings, StreamSettings,
     TrojanSettings, TuicSettings, VlessSettings,
 };
-use jsonschema::{draft7, Validator};
-use serde_json::{json, Value};
+use jsonschema::{Validator, draft7};
+use serde_json::{Value, json};
 use std::sync::LazyLock;
 
 static STREAM_SETTINGS_VALIDATOR: LazyLock<Validator> = LazyLock::new(|| {
@@ -290,9 +290,11 @@ mod tests {
         );
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("stream settings must be a JSON object"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("stream settings must be a JSON object")
+        );
     }
 
     #[test]

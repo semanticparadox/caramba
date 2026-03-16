@@ -1,12 +1,12 @@
-use crate::singbox_generator::ConfigGenerator;
 use crate::AppState;
+use crate::singbox_generator::ConfigGenerator;
 use axum::{
     extract::{Path, Query, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[derive(Deserialize)]
 pub struct SubParams {
@@ -69,11 +69,18 @@ pub async fn subscription_handler(
         }
     }
 
+    if exit_nodes.is_empty() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "No exit nodes available").into_response();
+    }
+
     let relay_nodes = match state.panel_client.get_active_relay_nodes().await {
         Ok(nodes) => nodes,
         Err(e) => {
-            error!("Failed to fetch active relay nodes: {}", e);
-            return (StatusCode::SERVICE_UNAVAILABLE, "No relay nodes available").into_response();
+            warn!(
+                "Failed to fetch active relay nodes: {}. Falling back to direct-only variants.",
+                e
+            );
+            Vec::new()
         }
     };
 

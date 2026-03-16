@@ -11,7 +11,9 @@ use axum_extra::extract::cookie::CookieJar;
 use tracing::error;
 
 use super::auth::get_auth_user;
-use super::users::{ensure_notification_tables, fetch_campaign_history, NotificationCampaignHistory};
+use super::users::{
+    NotificationCampaignHistory, ensure_notification_tables, fetch_campaign_history,
+};
 use crate::AppState;
 
 // ============================================================================
@@ -86,7 +88,7 @@ pub async fn get_notifications_page(
 /// Background task: check for expiring subscriptions and send Telegram reminders.
 /// Called from a spawned tokio task on startup.
 pub async fn run_expiry_reminder_loop(state: AppState) {
-    use tokio::time::{sleep, Duration};
+    use tokio::time::{Duration, sleep};
     loop {
         // Wait 6 hours between checks
         sleep(Duration::from_secs(6 * 60 * 60)).await;

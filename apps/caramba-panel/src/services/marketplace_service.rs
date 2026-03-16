@@ -8,14 +8,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use super::payment::provider::{PaymentProvider, PaymentWebhookAction};
-use super::payment::cryptomus::CryptomusProvider;
-use super::payment::lava::LavaProvider;
 use super::payment::aaio::AaioProvider;
 use super::payment::balance::BalanceProvider;
 use super::payment::cryptobot::CryptoBotProvider;
+use super::payment::cryptomus::CryptomusProvider;
+use super::payment::lava::LavaProvider;
 use super::payment::manual::ManualProvider;
 use super::payment::nowpayments::NowPaymentsProvider;
+use super::payment::provider::{PaymentProvider, PaymentWebhookAction};
 use super::payment::telegram_stars::StarsProvider;
 use super::store_service::StoreService;
 use super::subscription_service::SubscriptionService;
@@ -133,7 +133,8 @@ impl MarketplaceService {
             .context("Payment provider not found or disabled")?;
 
         let metadata = normalize_payment_metadata(metadata)?;
-        self.validate_session_resource(product_id, metadata.as_ref()).await?;
+        self.validate_session_resource(product_id, metadata.as_ref())
+            .await?;
 
         let session = PaymentSession {
             id: Uuid::new_v4(),
@@ -152,13 +153,15 @@ impl MarketplaceService {
         // If amount is for a specific plan duration, try to store duration_days in metadata
         // In this architecture, product_id is plan_id.
         // We might want to pass metadata from the caller.
-        // For now, let's keep create_session signature but add an internal enhancement 
+        // For now, let's keep create_session signature but add an internal enhancement
         // OR better: change create_session to accept metadata.
 
         self.session_repo.create(&session).await?;
 
         // Generate the invoice URL/Payload from the provider
-        let invoice_payload = provider.create_invoice(&session, user, &self.http_client).await?;
+        let invoice_payload = provider
+            .create_invoice(&session, user, &self.http_client)
+            .await?;
 
         Ok((session, invoice_payload))
     }
@@ -182,7 +185,8 @@ impl MarketplaceService {
         match action {
             PaymentWebhookAction::Completed { external_id } => {
                 // Find session by external_id and complete
-                if let Ok(Some(session)) = self.session_repo.get_by_external_id(&external_id).await {
+                if let Ok(Some(session)) = self.session_repo.get_by_external_id(&external_id).await
+                {
                     self.fulfill_payment(session.id).await?;
                 }
             }
@@ -196,7 +200,11 @@ impl MarketplaceService {
 
     pub async fn fulfill_payment(&self, session_id: Uuid) -> Result<()> {
         // 1. Fetch session
-        let session = self.session_repo.get_by_id(session_id).await?.context("Session not found")?;
+        let session = self
+            .session_repo
+            .get_by_id(session_id)
+            .await?
+            .context("Session not found")?;
 
         // 2. Prevent double fulfillment
         if session.status == "completed" {
@@ -210,7 +218,9 @@ impl MarketplaceService {
         let fulfillment_result = self.fulfill_session_resource(&session).await;
         match fulfillment_result {
             Ok(()) => {
-                self.session_repo.update_status(session_id, "completed").await?;
+                self.session_repo
+                    .update_status(session_id, "completed")
+                    .await?;
                 Ok(())
             }
             Err(error) => {
@@ -225,7 +235,10 @@ impl MarketplaceService {
 
         if resource_type == "plan" {
             let days_to_add = self.resolve_plan_duration_days(session).await?;
-            let subs = self.sub_service.get_user_subscriptions(session.user_id).await?;
+            let subs = self
+                .sub_service
+                .get_user_subscriptions(session.user_id)
+                .await?;
 
             tracing::info!(
                 "Fulfilling VPN Plan for user {}: extending by {} days",
@@ -234,7 +247,9 @@ impl MarketplaceService {
             );
 
             if let Some(active_sub) = subs.first() {
-                self.sub_service.admin_extend(active_sub.sub.id, days_to_add).await?;
+                self.sub_service
+                    .admin_extend(active_sub.sub.id, days_to_add)
+                    .await?;
             } else {
                 let _ = self
                     .store_service
@@ -288,10 +303,11 @@ impl MarketplaceService {
     ) -> Result<()> {
         match payment_resource_type(metadata) {
             "plan" => {
-                let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM plans WHERE id = $1)")
-                    .bind(product_id)
-                    .fetch_one(&self.pool)
-                    .await?;
+                let exists: bool =
+                    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM plans WHERE id = $1)")
+                        .bind(product_id)
+                        .fetch_one(&self.pool)
+                        .await?;
                 if !exists {
                     anyhow::bail!("Plan {} does not exist", product_id);
                 }

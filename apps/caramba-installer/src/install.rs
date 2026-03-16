@@ -522,6 +522,7 @@ struct RegisterNodeRequest {
     enrollment_key: String,
     hostname: String,
     ip: Option<String>,
+    node_type: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -543,7 +544,15 @@ fn detect_hostname() -> String {
     "caramba-node".to_string()
 }
 
-async fn resolve_node_token(panel_url: &str, token: &str) -> Result<String> {
+fn normalize_node_type(node_type: &str) -> &'static str {
+    if node_type.trim().eq_ignore_ascii_case("relay") {
+        "relay"
+    } else {
+        "exit"
+    }
+}
+
+async fn resolve_node_token(panel_url: &str, token: &str, node_type: &str) -> Result<String> {
     let trimmed = token.trim();
     if trimmed.is_empty() {
         return Err(anyhow!("Node token must not be empty"));
@@ -558,6 +567,7 @@ async fn resolve_node_token(panel_url: &str, token: &str) -> Result<String> {
         enrollment_key: trimmed.to_string(),
         hostname: detect_hostname(),
         ip: None,
+        node_type: Some(normalize_node_type(node_type).to_string()),
     };
 
     let url = format!("{}/api/v2/node/register", panel_url);
@@ -577,15 +587,53 @@ async fn resolve_node_token(panel_url: &str, token: &str) -> Result<String> {
     Ok(data.join_token)
 }
 
+pub fn install_singbox() -> Result<()> {
+    println!("\n{}", style("Installing sing-box...").bold());
+
+    run_command(
+        "mkdir",
+        &["-p", "/etc/apt/keyrings"],
+        "Creating apt keyrings directory",
+    )?;
+
+    let gpg_cmd = "curl -fsSL https://sing-box.app/gpg.key -o /etc/apt/keyrings/sagernet.asc";
+    run_command("sh", &["-c", gpg_cmd], "Downloading sing-box GPG key")?;
+
+    run_command(
+        "chmod",
+        &["a+r", "/etc/apt/keyrings/sagernet.asc"],
+        "Setting permissions for GPG key",
+    )?;
+
+    let sources_list = "Types: deb\nURIs: https://deb.sagernet.org/\nSuites: *\nComponents: *\nEnabled: yes\nSigned-By: /etc/apt/keyrings/sagernet.asc\n";
+    let tee_cmd = format!(
+        "echo '{}' | tee /etc/apt/sources.list.d/sagernet.sources",
+        sources_list
+    );
+    run_command("sh", &["-c", &tee_cmd], "Adding sing-box repository")?;
+
+    run_command("apt-get", &["update"], "Updating package lists")?;
+    run_command(
+        "apt-get",
+        &["install", "-y", "sing-box"],
+        "Installing sing-box",
+    )?;
+
+    Ok(())
+}
+
 pub async fn install_node(
     install_dir: &str,
     version: &str,
     panel_url: &str,
     token: &str,
+    node_type: &str,
 ) -> Result<()> {
     std::fs::create_dir_all(install_dir)?;
+    install_singbox()?;
     let panel_url = normalize_panel_url(panel_url);
-    let join_token = resolve_node_token(&panel_url, token).await?;
+    let node_type = normalize_node_type(node_type).to_string();
+    let join_token = resolve_node_token(&panel_url, token, &node_type).await?;
 
     let binary_path = format!("{}/caramba-node", install_dir.trim_end_matches('/'));
     download_file(&release_asset_url(version, "caramba-node"), &binary_path).await?;
@@ -595,6 +643,7 @@ pub async fn install_node(
         vec![
             ("PANEL_URL".to_string(), panel_url),
             ("NODE_TOKEN".to_string(), join_token),
+            ("NODE_TYPE".to_string(), node_type),
         ],
     )?;
     let _ = write_version_marker(install_dir, version);
@@ -713,7 +762,7 @@ pub async fn install_hub(
     // Optional node on hub.
     if let Some(nt) = node_token {
         if !nt.trim().is_empty() {
-            install_node(&config.install_dir, version, &panel_url, nt).await?;
+            install_node(&config.install_dir, version, &panel_url, nt, "exit").await?;
         } else {
             println!("⚠️ Node token is empty. Skipping node service install.");
         }

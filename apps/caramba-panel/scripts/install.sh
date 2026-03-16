@@ -13,6 +13,7 @@ ADMIN_PATH=""
 DB_PASS=""
 PANEL_URL=""
 TOKEN=""
+NODE_TYPE="exit"
 REGION="global"
 LISTEN_PORT="8080"
 BOT_TOKEN=""
@@ -46,6 +47,7 @@ Hub/panel options:
 Node options:
   --panel <url>             Panel URL
   --token <token>           Join token OR enrollment key
+  --node-type <exit|relay>  Default: exit
 
 Sub/frontend options:
   --panel <url>             Panel URL
@@ -95,6 +97,10 @@ while [[ $# -gt 0 ]]; do
       TOKEN="${2:-}"
       shift 2
       ;;
+    --node-type)
+      NODE_TYPE="${2:-}"
+      shift 2
+      ;;
     --region)
       REGION="${2:-}"
       shift 2
@@ -128,6 +134,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 ROLE=$(echo "$ROLE" | tr '[:upper:]' '[:lower:]')
+NODE_TYPE=$(echo "$NODE_TYPE" | tr '[:upper:]' '[:lower:]')
+if [[ "$NODE_TYPE" != "relay" ]]; then
+  NODE_TYPE="exit"
+fi
 case "$ROLE" in
   agent) ROLE="node" ;;
   frontend) ROLE="sub" ;;
@@ -202,7 +212,7 @@ case "$ROLE" in
       echo "❌ --token is required for role node"
       exit 1
     fi
-    INSTALL_ARGS+=(--node --install-dir "$INSTALL_DIR" --panel-url "$PANEL_URL" --token "$TOKEN")
+    INSTALL_ARGS+=(--node --install-dir "$INSTALL_DIR" --panel-url "$PANEL_URL" --token "$TOKEN" --node-type "$NODE_TYPE")
     ;;
   sub)
     if [[ -z "$PANEL_URL" ]]; then

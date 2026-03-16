@@ -248,7 +248,7 @@ pub async fn get_frontends(State(state): State<AppState>, jar: CookieJar) -> imp
         .await
         .unwrap_or_default()
         .into_iter()
-        .filter(|node| node.is_relay)
+        .filter(|node| node.is_relay_node())
         .collect::<Vec<_>>();
 
     let template = FrontendsTemplate {
@@ -320,7 +320,10 @@ pub async fn save_frontend_settings(
         let normalized = normalize_domain_like(&v);
         settings.insert("tma_domain".to_string(), normalized.clone());
         if !normalized.is_empty() {
-            settings.insert("mini_app_url".to_string(), format!("https://{}/app", normalized));
+            settings.insert(
+                "mini_app_url".to_string(),
+                format!("https://{}/app", normalized),
+            );
         }
     }
 
@@ -344,7 +347,10 @@ pub async fn save_frontend_settings(
             .map(normalize_domain_like)
             .unwrap_or_default();
         if !fallback_tma.is_empty() {
-            settings.insert("mini_app_url".to_string(), format!("https://{}/app", fallback_tma));
+            settings.insert(
+                "mini_app_url".to_string(),
+                format!("https://{}/app", fallback_tma),
+            );
         }
     }
 
@@ -378,7 +384,7 @@ pub async fn get_frontends_rows(State(state): State<AppState>) -> impl IntoRespo
         .await
         .unwrap_or_default()
         .into_iter()
-        .filter(|node| node.is_relay)
+        .filter(|node| node.is_relay_node())
         .collect::<Vec<_>>();
 
     if relay_nodes.is_empty() {
@@ -386,7 +392,7 @@ pub async fn get_frontends_rows(State(state): State<AppState>) -> impl IntoRespo
             r#"<tr><td colspan="4" class="px-6 py-12 text-center text-slate-600 dark:text-slate-400">
                 <i data-lucide="radio-tower" class="w-8 h-8 mx-auto mb-3 text-slate-500"></i>
                 <p>No relay nodes detected yet.</p>
-                <p class="text-xs mt-1">Mark a node as relay to expose it as a subscription or TMA entry point.</p>
+                <p class="text-xs mt-1">Set node type to relay to expose it as a subscription or TMA entry point.</p>
             </td></tr>"#
                 .to_string(),
         )
@@ -398,7 +404,7 @@ pub async fn get_frontends_rows(State(state): State<AppState>) -> impl IntoRespo
         let subscription_badge = if relay.id == subscription_entry_relay_id {
             "<span class=\"badge badge-warning\">Subscription</span>"
         } else {
-            "" 
+            ""
         };
         let tma_badge = if relay.id == tma_entry_relay_id {
             "<span class=\"badge badge-proto\">TMA</span>"

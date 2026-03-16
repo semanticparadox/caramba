@@ -1,6 +1,6 @@
 use crate::panel_client::{Inbound, InternalNode, Node, UserKeys};
-use anyhow::{anyhow, Result};
-use serde_json::{json, Value};
+use anyhow::{Result, anyhow};
+use serde_json::{Value, json};
 use std::collections::HashSet;
 
 pub struct ConfigGenerator;
@@ -830,6 +830,18 @@ mod tests {
                 *expected
             );
         }
+        for outbound in outbounds.iter().take(6) {
+            assert_eq!(
+                outbound.get("server").and_then(Value::as_str),
+                Some("10.0.0.1")
+            );
+        }
+        for outbound in outbounds.iter().skip(6) {
+            assert_eq!(
+                outbound.get("server").and_then(Value::as_str),
+                Some("10.0.0.2")
+            );
+        }
         for outbound in outbounds.iter().skip(6) {
             assert!(outbound.get("detour").is_none());
         }
@@ -855,9 +867,11 @@ mod tests {
             .map(|o| o["tag"].as_str().unwrap_or_default())
             .collect::<Vec<_>>();
         assert_eq!(tags, EXPECTED_TAGS_DIRECT);
-        assert!(outbounds
-            .iter()
-            .all(|outbound| outbound.get("detour").is_none()));
+        assert!(
+            outbounds
+                .iter()
+                .all(|outbound| outbound.get("detour").is_none())
+        );
         assert_eq!(
             cfg["route"]["final"].as_str(),
             Some(EXPECTED_TAGS_DIRECT[0])

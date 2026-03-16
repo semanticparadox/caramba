@@ -4,6 +4,7 @@ pub mod api_keys;
 pub mod auth;
 pub mod dashboard;
 pub mod frontends;
+pub mod marketplace;
 pub mod nodes;
 pub mod notifications;
 pub mod plans;
@@ -12,7 +13,6 @@ pub mod settings;
 pub mod store;
 pub mod updates;
 pub mod users;
-pub mod marketplace;
 
 pub use updates::get_updates_page;
 
@@ -27,6 +27,7 @@ pub use nodes::{
     get_node_logs, get_node_manage, get_node_raw_install_script, get_node_rescue, get_nodes,
     install_node, pin_sni, sync_node, toggle_node_enable, trigger_scan, unpin_sni, update_node,
 };
+pub use notifications::{get_notifications_page, run_expiry_reminder_loop};
 pub use plans::{add_plan, delete_plan, get_plan_edit, get_plans, update_plan};
 pub use promo::{add_promo, delete_promo, get_promos};
 pub use settings::{
@@ -38,7 +39,6 @@ pub use store::{
     create_category, create_product, delete_category, delete_product, get_store_categories_page,
     get_store_products_page,
 };
-pub use notifications::{get_notifications_page, run_expiry_reminder_loop};
 pub use users::{
     admin_gift_subscription, admin_kill_subscription_sessions, delete_user_subscription,
     extend_user_subscription, get_subscription_devices, get_user_details, get_users,
@@ -47,7 +47,7 @@ pub use users::{
 };
 
 pub use marketplace::{
-    get_marketplace_page, save_marketplace_settings, approve_manual_payment, reject_manual_payment,
+    approve_manual_payment, get_marketplace_page, reject_manual_payment, save_marketplace_settings,
 };
 
 // Stubs removed

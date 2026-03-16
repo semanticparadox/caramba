@@ -15,11 +15,27 @@ export type RecommendedNodesResponse = {
     lat: number
     lon: number
   }
+  strategy: 'balanced' | 'fastest' | 'stable'
+  country_filter: string | null
   nodes: RecommendedNode[]
 }
 
-export const fetchRecommendedNodes = async (token: string) => {
-  const response = await fetch(apiUrl('/api/v2/client/recommended'), {
+export type RecommendationOptions = {
+  strategy?: 'balanced' | 'fastest' | 'stable'
+  country?: string
+}
+
+export const fetchRecommendedNodes = async (token: string, options?: RecommendationOptions) => {
+  const params = new URLSearchParams()
+  if (options?.strategy) {
+    params.set('strategy', options.strategy)
+  }
+  if (options?.country) {
+    params.set('country', options.country)
+  }
+
+  const query = params.toString()
+  const response = await fetch(apiUrl(`/api/v2/client/recommended${query ? `?${query}` : ''}`), {
     headers: {
       Authorization: `Bearer ${token}`,
     },

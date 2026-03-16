@@ -421,7 +421,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     let nowpayments_key = settings.get_or_default("nowpayments_key", "").await;
     let nowpayments_ipn_secret = settings.get_or_default("nowpayments_ipn_secret", "").await;
     let cryptobot_token = settings.get_or_default("cryptobot_token", "").await;
-    
+
     let crystalpay_login = settings.get_or_default("crystalpay_login", "").await;
     let crystalpay_secret = settings.get_or_default("crystalpay_secret", "").await;
 
@@ -473,7 +473,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     ));
 
     let export_service = Arc::new(services::export_service::ExportService::new());
-    
+
     let marketplace_service = Arc::new(services::marketplace_service::MarketplaceService::new(
         pool.clone(),
         nowpayments_key.clone(),
@@ -718,6 +718,22 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         ) // NEW
         .route("/nodes", axum::routing::get(handlers::admin::get_nodes))
         .route(
+            "/nodes/exit",
+            axum::routing::get(handlers::admin::nodes::get_exit_nodes_page),
+        )
+        .route(
+            "/nodes/relay",
+            axum::routing::get(handlers::admin::nodes::get_relay_nodes_page),
+        )
+        .route(
+            "/nodes/rows/exit",
+            axum::routing::get(handlers::admin::nodes::get_exit_nodes_rows),
+        )
+        .route(
+            "/nodes/rows/relay",
+            axum::routing::get(handlers::admin::nodes::get_relay_nodes_rows),
+        )
+        .route(
             "/nodes/{id}/manage",
             axum::routing::get(handlers::admin::get_node_manage),
         ) // NEW Unified UI
@@ -841,9 +857,18 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         )
         .route("/users/notify/all", post(handlers::admin::notify_all_users))
         // Dedicated Notifications page
-        .route("/notifications", get(handlers::admin::get_notifications_page))
-        .route("/notifications/send", post(handlers::admin::notify_all_users))
-        .route("/notifications/preview", post(handlers::admin::notify_preview))
+        .route(
+            "/notifications",
+            get(handlers::admin::get_notifications_page),
+        )
+        .route(
+            "/notifications/send",
+            post(handlers::admin::notify_all_users),
+        )
+        .route(
+            "/notifications/preview",
+            post(handlers::admin::notify_preview),
+        )
         .route(
             "/users/subs/{id}",
             axum::routing::delete(handlers::admin::delete_user_subscription),
@@ -1306,8 +1331,24 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::get(handlers::api::internal::get_active_nodes),
         )
         .route(
+            "/api/internal/nodes/active/exit",
+            axum::routing::get(handlers::api::internal::get_active_exit_nodes),
+        )
+        .route(
+            "/api/internal/nodes/active/relay",
+            axum::routing::get(handlers::api::internal::get_active_relay_nodes),
+        )
+        .route(
             "/caramba-api/internal/nodes/active",
             axum::routing::get(handlers::api::internal::get_active_nodes),
+        )
+        .route(
+            "/caramba-api/internal/nodes/active/exit",
+            axum::routing::get(handlers::api::internal::get_active_exit_nodes),
+        )
+        .route(
+            "/caramba-api/internal/nodes/active/relay",
+            axum::routing::get(handlers::api::internal::get_active_relay_nodes),
         )
         .route(
             "/api/internal/subscriptions/{uuid}",
