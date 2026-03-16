@@ -1,6 +1,6 @@
 [package]
 name = "caramba-panel"
-version = "4.5.0"
+version = "0.8.0"
 edition = "2024"
 
 [dependencies]
