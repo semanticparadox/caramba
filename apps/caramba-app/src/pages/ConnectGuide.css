@@ -47,6 +47,16 @@
     line-height: 1.5;
 }
 
+.connect-auto-note {
+    border: 1px solid rgba(var(--accent-rgb), 0.28);
+    background: rgba(var(--accent-rgb), 0.08);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    line-height: 1.5;
+}
+
 .platform-select {
     display: grid;
     gap: var(--space-3);

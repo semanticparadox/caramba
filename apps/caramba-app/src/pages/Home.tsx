@@ -5,10 +5,10 @@ import { formatBytes, getUsageSnapshot } from '../lib/subscriptionMetrics'
 import './Home.css'
 
 const CONTROL_ITEMS = [
-    { path: '/support/connect', title: 'Как подключиться', subtitle: 'Каталог клиентов и быстрый импорт', tag: 'GUIDE' },
-    { path: '/promo', title: 'Промо', subtitle: 'Активация и управление кодами', tag: 'ПРОМО' },
-    { path: '/referral', title: 'Рефералы', subtitle: 'Приглашения и трекинг наград', tag: 'РОСТ' },
-    { path: '/support', title: 'Поддержка', subtitle: 'Диагностика и справочный центр', tag: 'ПОМОЩЬ' },
+    { path: '/support/connect', title: 'Каталог приложений', subtitle: 'Подберите клиент и импортируйте ссылку' },
+    { path: '/promo', title: 'Промокоды', subtitle: 'Активируйте код и проверьте доступ' },
+    { path: '/referral', title: 'Приглашения', subtitle: 'Поделитесь доступом с друзьями' },
+    { path: '/support', title: 'Поддержка', subtitle: 'Ответы, диагностика и связь с командой' },
 ]
 
 export default function Home() {
@@ -21,7 +21,7 @@ export default function Home() {
 
     const primarySubscription = activeSubscriptions[0]
     const connectTarget = primarySubscription ? `/subscription?sub=${primarySubscription.id}&connect=1` : '/plans'
-    const connectLabel = primarySubscription ? 'Быстрое подключение' : 'Открыть доступ'
+    const connectLabel = primarySubscription ? 'Импортировать и подключиться' : 'Выбрать тариф и подключиться'
     const hasAccess = activeSubscriptions.length > 0
 
     const radius = 44
@@ -55,10 +55,10 @@ export default function Home() {
                 </div>
 
                 <div className="hero-copy">
-                    <p className="hero-kicker">Центр быстрого подключения</p>
-                    <h1>{(user?.username || 'Оператор').toUpperCase()}</h1>
+                    <p className="hero-kicker">Быстрый старт</p>
+                    <h1>{user?.username || 'Оператор'}</h1>
                     <p>
-                        Сначала подключение, затем диагностика и коммерческие действия в едином центре управления.
+                        Импортируйте подписку одним действием. Маршруты загрузятся автоматически, а тонкая настройка останется доступной позже.
                     </p>
                 </div>
 
@@ -66,35 +66,85 @@ export default function Home() {
                     <button className="btn-primary hero-connect" onClick={() => navigate(connectTarget)}>
                         {connectLabel}
                     </button>
+                    <p className="hero-connect-note">Основной путь: открыть подписку, импортировать ссылку и сразу проверить соединение.</p>
                     <div className="hero-secondary-row">
-                        <button className="btn-secondary" onClick={() => navigate('/subscription')}>
-                            Подключить
+                        <button className="btn-ghost" onClick={() => navigate('/support/connect')}>
+                            Гид по приложениям
                         </button>
-                        <button className="btn-secondary" onClick={() => void refreshData()}>
+                        <button className="btn-ghost" onClick={() => void refreshData()}>
                             Обновить
                         </button>
-                        <button className="btn-secondary" onClick={() => navigate('/support/connect')}>
-                            Гид
+                        <button className="btn-ghost" onClick={() => navigate('/subscription')}>
+                            Мои сервисы
                         </button>
                     </div>
                 </div>
 
-                <div className="hero-meta-row">
-                    <button className="hero-chip" onClick={() => navigate('/support')}>
-                        {isPinEnabled ? 'PIN включен' : 'PIN выключен'}
+                <div className="hero-links-row">
+                    <button className="hero-link" onClick={() => navigate('/support')}>
+                        Нужна помощь
                     </button>
-                    {isPinEnabled && (
-                        <button className="hero-chip hero-chip-warn" onClick={lockNow}>
-                            Заблокировать
+                    <button className="hero-link" onClick={() => navigate('/store')}>
+                        Магазин
+                    </button>
+                    {isPinEnabled ? (
+                        <button className="hero-link" onClick={lockNow}>
+                            Заблокировать Mini App
+                        </button>
+                    ) : (
+                        <button className="hero-link" onClick={() => navigate('/support')}>
+                            Включить PIN
                         </button>
                     )}
-                    <button className="hero-chip" onClick={() => navigate('/store')}>
-                        Открыть магазин
-                    </button>
+                </div>
+            </section>
+
+            <section className="control-panel glass-card">
+                <div className="panel-header">
+                    <h3>Ваши маршруты</h3>
+                    <span>Откройте подписку и начните импорт с нужного тарифа</span>
                 </div>
 
-                <div className="hero-haptic-mark" aria-hidden="true">
-                    haptic-ready
+                <div className="subs-preview-grid">
+                    {subscriptionsPreview.length === 0 ? (
+                        <div className="empty-state control-empty">
+                            <div className="empty-icon">CC</div>
+                            <h3>Пока нет активных подписок</h3>
+                            <p>Откройте тарифы, чтобы получить ссылку для импорта и подключиться в пару касаний.</p>
+                        </div>
+                    ) : (
+                        subscriptionsPreview.map((sub) => (
+                            <button
+                                key={sub.id}
+                                className="sub-preview-row"
+                                onClick={() => navigate(`/subscription?sub=${sub.id}&connect=1`)}
+                            >
+                                <span className="sub-preview-name">{sub.plan_name}</span>
+                                <span className="sub-preview-meta">
+                                    {sub.used_traffic_gb} GB / {sub.traffic_limit_gb || '∞'} GB
+                                </span>
+                                <span className="sub-preview-meta">{sub.days_left} дн. осталось</span>
+                            </button>
+                        ))
+                    )}
+                </div>
+
+                <div className="panel-header panel-header-secondary">
+                    <h3>Дополнительно</h3>
+                    <span>Промо, приглашения и справка</span>
+                </div>
+
+                <div className="control-grid">
+                    {filteredControlItems.map((item) => (
+                        <button
+                            key={item.path}
+                            className="control-card"
+                            onClick={() => navigate(item.path)}
+                        >
+                            <span className="control-title">{item.title}</span>
+                            <span className="control-subtitle">{item.subtitle}</span>
+                        </button>
+                    ))}
                 </div>
             </section>
 
@@ -122,9 +172,17 @@ export default function Home() {
                         </div>
                     </div>
                     <div className="traffic-values">
-                            <span>{isLoading ? '...' : `${usage.usedGbText} GB`}</span>
-                            <span>{isLoading ? '...' : usage.limitLabel}</span>
+                        <span>{isLoading ? '...' : `${usage.usedGbText} GB`}</span>
+                        <span>{isLoading ? '...' : usage.limitLabel}</span>
                     </div>
+                    {!hasAccess ? (
+                        <div className="traffic-empty-note">
+                            <p>После активации подписки здесь появится расход по трафику.</p>
+                            <button className="btn-ghost" onClick={() => navigate('/plans')}>Открыть тарифы</button>
+                        </div>
+                    ) : usage.percent === 0 ? (
+                        <p className="traffic-empty-hint">Первое подключение создаст статистику автоматически.</p>
+                    ) : null}
                 </article>
 
                 <article className="bento-card glass-card">
@@ -171,51 +229,6 @@ export default function Home() {
                         Перейти к оплате
                     </button>
                 </article>
-            </section>
-
-            <section className="control-panel glass-card">
-                <div className="panel-header">
-                    <h3>Панель действий</h3>
-                    <span>Вторичные сценарии и справочные переходы</span>
-                </div>
-
-                <div className="control-grid">
-                    {filteredControlItems.map((item) => (
-                        <button
-                            key={item.path}
-                            className="control-card"
-                            onClick={() => navigate(item.path)}
-                        >
-                            <span className="control-tag">{item.tag}</span>
-                            <span className="control-title">{item.title}</span>
-                            <span className="control-subtitle">{item.subtitle}</span>
-                        </button>
-                    ))}
-                </div>
-
-                <div className="subs-preview-grid">
-                    {subscriptionsPreview.length === 0 ? (
-                        <div className="empty-state control-empty">
-                            <div className="empty-icon">CC</div>
-                            <h3>Нет активных подписок</h3>
-                            <p>Откройте тарифы, чтобы создать первый маршрут подключения.</p>
-                        </div>
-                    ) : (
-                        subscriptionsPreview.map((sub) => (
-                            <button
-                                key={sub.id}
-                                className="sub-preview-row"
-                                onClick={() => navigate('/subscription')}
-                            >
-                                <span className="sub-preview-name">{sub.plan_name}</span>
-                                <span className="sub-preview-meta">
-                                    {sub.used_traffic_gb} GB / {sub.traffic_limit_gb || '∞'} GB
-                                </span>
-                                <span className="sub-preview-meta">{sub.days_left} дн. осталось</span>
-                            </button>
-                        ))
-                    )}
-                </div>
             </section>
         </div>
     )

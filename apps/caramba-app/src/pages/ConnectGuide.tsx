@@ -49,9 +49,9 @@ export default function ConnectGuide() {
 
             <section className="connect-hero glass-card">
                 <div className="connect-hero-copy">
-                    <h3>Пошаговый вход в VPN-клиент</h3>
+                    <h3>Импортируйте подписку и подключайтесь</h3>
                     <p>
-                        Выберите платформу, установите рекомендуемое приложение и импортируйте ссылку подписки одним действием.
+                        Скопируйте ссылку подписки, вставьте ее в клиент и подключайтесь. После импорта рабочие маршруты подгрузятся автоматически.
                     </p>
                 </div>
 
@@ -61,24 +61,30 @@ export default function ConnectGuide() {
                         onClick={() => void copySubscriptionLink()}
                         disabled={!activeSubscription?.subscription_url}
                     >
-                        {copiedLink ? 'Ссылка скопирована' : 'Скопировать ссылку подписки'}
+                        {copiedLink ? 'Ссылка скопирована' : 'Скопировать ссылку для импорта'}
                     </button>
                     <button className="btn-secondary" onClick={() => navigate('/subscription')}>
                         Открыть мои сервисы
                     </button>
                 </div>
 
+                {activeSubscription?.subscription_url && (
+                    <p className="connect-auto-note">
+                        Если у вас уже есть активная подписка, достаточно одного импорта - ручной выбор маршрутов обычно не нужен.
+                    </p>
+                )}
+
                 {!activeSubscription?.subscription_url && (
                     <p className="connect-warning">
-                        Активная подписка не найдена. Откройте раздел тарифов и активируйте доступ.
+                        Пока нет активной подписки. Откройте тарифы, активируйте доступ и вернитесь сюда для быстрого импорта.
                     </p>
                 )}
             </section>
 
             <section className="platform-select glass-card">
                 <div className="platform-select-head">
-                    <h3>Платформа</h3>
-                    <span>Проверенный каталог приложений 2026</span>
+                    <h3>Выберите устройство</h3>
+                    <span>Проверенные приложения</span>
                 </div>
 
                 <div className="platform-chip-grid">
@@ -103,7 +109,7 @@ export default function ConnectGuide() {
                 <div className="setup-strip">
                     <p>{directory.quickSetup}</p>
                     <button className="btn-ghost" onClick={() => void copySetupSnippet()}>
-                        {copiedSetup ? 'Скопировано' : 'Скопировать шаги'}
+                        {copiedSetup ? 'Скопировано' : 'Скопировать памятку'}
                     </button>
                 </div>
             </section>

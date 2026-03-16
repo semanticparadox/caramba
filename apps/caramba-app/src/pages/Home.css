@@ -1,7 +1,7 @@
 .home-page {
     display: flex;
     flex-direction: column;
-    gap: var(--space-4);
+    gap: var(--space-3);
 }
 
 .quick-connect-hero {
@@ -9,7 +9,7 @@
     overflow: hidden;
     padding: var(--space-6);
     display: grid;
-    gap: var(--space-4);
+    gap: var(--space-3);
     background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.05) 100%),
         radial-gradient(95% 115% at 88% 0%, rgba(var(--accent-rgb), 0.2) 0%, rgba(var(--accent-rgb), 0) 62%);
@@ -23,8 +23,7 @@
 }
 
 .hero-state,
-.hero-mode,
-.hero-chip {
+.hero-mode {
     border-radius: var(--radius-round);
     border: 1px solid var(--border-subtle);
     background: rgba(5, 9, 18, 0.38);
@@ -79,6 +78,7 @@
     font-size: clamp(1.28rem, 4.2vw, 1.8rem);
     line-height: 1.1;
     letter-spacing: -0.02em;
+    text-transform: none;
 }
 
 .hero-copy p {
@@ -90,12 +90,18 @@
 
 .hero-actions {
     display: grid;
-    gap: var(--space-3);
+    gap: var(--space-2);
 }
 
 .hero-connect {
     min-height: 52px;
     font-size: 0.95rem;
+}
+
+.hero-connect-note {
+    color: var(--text-secondary);
+    font-size: 0.76rem;
+    line-height: 1.45;
 }
 
 .hero-secondary-row {
@@ -104,36 +110,37 @@
     gap: var(--space-2);
 }
 
-.hero-secondary-row .btn-secondary {
+.hero-secondary-row .btn-ghost {
     min-height: 42px;
     font-size: 0.76rem;
     padding: 10px;
-}
-
-.hero-meta-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-}
-
-.hero-chip {
-    min-height: 32px;
+    border-color: var(--border-subtle);
     color: var(--text-secondary);
 }
 
-.hero-chip-warn {
-    border-color: rgba(246, 194, 106, 0.38);
-    color: var(--status-warning);
+.hero-links-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
 }
 
-.hero-haptic-mark {
-    position: absolute;
-    right: var(--space-5);
-    bottom: var(--space-4);
-    font-size: 0.62rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: rgba(var(--accent-rgb), 0.62);
+.hero-link {
+    width: auto;
+    min-height: 30px;
+    padding: 0 var(--space-3);
+    border-radius: var(--radius-round);
+    border: 1px solid transparent;
+    background: transparent;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    color: var(--text-secondary);
+}
+
+.hero-link:hover,
+.hero-link:focus-visible {
+    border-color: var(--border-subtle);
+    color: var(--text-primary);
 }
 
 .home-bento-grid {
@@ -229,6 +236,34 @@
     font-size: 0.78rem;
 }
 
+.traffic-empty-note {
+    margin-top: var(--space-2);
+    border: 1px dashed var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    display: grid;
+    gap: var(--space-2);
+}
+
+.traffic-empty-note p,
+.traffic-empty-hint {
+    color: var(--text-secondary);
+    font-size: 0.76rem;
+    line-height: 1.45;
+}
+
+.traffic-empty-note .btn-ghost {
+    width: auto;
+    justify-self: start;
+    min-height: 34px;
+    padding: 8px 12px;
+    border-color: var(--border-subtle);
+}
+
+.traffic-empty-hint {
+    margin-top: var(--space-1);
+}
+
 .metric-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -256,9 +291,9 @@
 }
 
 .control-panel {
-    padding: var(--space-5);
+    padding: var(--space-4);
     display: grid;
-    gap: var(--space-4);
+    gap: var(--space-3);
 }
 
 .panel-header {
@@ -276,6 +311,20 @@
     font-size: 0.82rem;
 }
 
+.panel-header-secondary {
+    margin-top: var(--space-1);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-subtle);
+}
+
+.panel-header-secondary h3 {
+    font-size: 0.92rem;
+}
+
+.panel-header-secondary span {
+    font-size: 0.76rem;
+}
+
 .control-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -289,21 +338,13 @@
     background: rgba(255, 255, 255, 0.02);
     padding: var(--space-3);
     display: grid;
-    gap: 7px;
+    gap: var(--space-1);
 }
 
 .control-card:hover,
 .control-card:focus-visible {
     border-color: rgba(var(--accent-rgb), 0.33);
     background: rgba(255, 255, 255, 0.05);
-}
-
-.control-tag {
-    color: rgba(var(--accent-rgb), 0.9);
-    font-size: 0.62rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    font-weight: 700;
 }
 
 .control-title {
@@ -349,7 +390,7 @@
 }
 
 .control-empty {
-    padding: var(--space-5) var(--space-3);
+    padding: var(--space-4) var(--space-3);
 }
 
 @media (max-width: 520px) {

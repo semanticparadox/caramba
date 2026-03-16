@@ -5,7 +5,7 @@
 .support-page {
     display: flex;
     flex-direction: column;
-    gap: var(--space-lg);
+    gap: var(--space-4);
 }
 
 .support-notice {
@@ -78,11 +78,45 @@
     color: var(--text-tertiary);
 }
 
+.support-connect-card {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border-color: rgba(var(--accent-rgb), 0.28);
+    background:
+        linear-gradient(180deg, rgba(var(--accent-rgb), 0.14) 0%, rgba(var(--accent-rgb), 0.04) 100%),
+        rgba(255, 255, 255, 0.03);
+}
+
+.support-connect-card h3 {
+    font-family: var(--font-display);
+    font-size: 1rem;
+}
+
+.support-connect-card p {
+    margin-top: 4px;
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+
+.support-connect-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2);
+}
+
 /* Security card */
 .security-card {
     display: flex;
     flex-direction: column;
     gap: 14px;
+    padding: var(--space-4);
+}
+
+.security-card-muted {
+    border-style: dashed;
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .security-card-head {
@@ -94,7 +128,7 @@
 
 .security-card-head h3 {
     margin: 0;
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 700;
 }
 
@@ -205,5 +239,11 @@
 @media (min-width: 480px) {
     .support-page .modal-overlay {
         align-items: center;
+    }
+}
+
+@media (max-width: 520px) {
+    .support-connect-actions {
+        grid-template-columns: 1fr;
     }
 }

@@ -8,19 +8,19 @@ import './Support.css'
 const FAQS = [
     {
         q: 'Как подключиться?',
-        a: 'Откройте раздел "Мои сервисы", скопируйте ссылку и импортируйте ее в VPN-клиент (Hiddify, Sing-box, V2Ray и т.д.).',
+        a: 'Откройте раздел "Мои сервисы", импортируйте ссылку в VPN-клиент и подключайтесь. Маршруты подгружаются автоматически.',
     },
     {
         q: 'Какой сервер самый быстрый?',
-        a: 'Используйте экран оптимизации соединения или запустите магическую оптимизацию для автоматического выбора узла.',
+        a: 'В разделе подписки откройте оптимизацию узлов. Если не хотите выбирать вручную, используйте магическую оптимизацию.',
     },
     {
         q: 'Как продлить подписку?',
-        a: 'Подписка продлевается при наличии средств на балансе. Пополните счет в разделе тарифов/оплаты.',
+        a: 'Пополните баланс в разделе тарифов. Когда средств достаточно, продление происходит автоматически.',
     },
     {
         q: 'Какие приложения поддерживаются?',
-        a: 'Поддерживаются Sing-box, V2Ray/Xray, Clash и Hiddify. Проверенный каталог доступен в разделе "Как подключиться".',
+        a: 'Мы рекомендуем Hiddify и Sing-box. Полный каталог с проверенными ссылками есть в разделе "Как подключиться".',
     },
 ]
 
@@ -242,16 +242,39 @@ export default function Support() {
                 <span className="contact-arrow">{'>'}</span>
             </button>
 
-            <button className="btn-secondary" onClick={() => navigate('/support/connect')}>
-                Как подключиться: гид и каталог приложений
-            </button>
+            <section className="support-connect-card glass-card">
+                <div>
+                    <h3>Проблема с подключением?</h3>
+                    <p>Начните с импорта подписки: это самый надежный и быстрый сценарий.</p>
+                </div>
+                <div className="support-connect-actions">
+                    <button className="btn-primary" onClick={() => navigate('/subscription')}>
+                        Открыть мои сервисы
+                    </button>
+                    <button className="btn-secondary" onClick={() => navigate('/support/connect')}>
+                        Каталог приложений
+                    </button>
+                </div>
+            </section>
 
-            <div className="security-card glass-card">
+            <div className="faq-section">
+                <h3>FAQ</h3>
+                <div className="faq-list">
+                    {FAQS.map((faq, i) => (
+                        <details key={i} className="faq-item glass-card">
+                            <summary>{faq.q}</summary>
+                            <p>{faq.a}</p>
+                        </details>
+                    ))}
+                </div>
+            </div>
+
+            <div className="security-card security-card-muted glass-card">
                 <div className="security-card-head">
                     <div>
-                        <h3>Блокировка Mini App</h3>
+                        <h3>PIN-защита Mini App</h3>
                         <p>
-                            Защитите Mini App с помощью 4-значного PIN.
+                            Дополнительный уровень безопасности, если устройством пользуются несколько человек.
                         </p>
                     </div>
                     <span className={`security-badge ${isPinEnabled ? 'enabled' : 'disabled'}`}>
@@ -268,7 +291,7 @@ export default function Support() {
                 <div className="security-actions">
                     {!isPinEnabled && (
                         <button
-                            className="btn-primary"
+                            className="btn-secondary"
                             onClick={() => dispatch({ type: 'OPEN', step: 'setup_new' })}
                         >
                             Включить PIN (4 цифры)
@@ -296,18 +319,6 @@ export default function Support() {
                             </button>
                         </>
                     )}
-                </div>
-            </div>
-
-            <div className="faq-section">
-                <h3>FAQ</h3>
-                <div className="faq-list">
-                    {FAQS.map((faq, i) => (
-                        <details key={i} className="faq-item glass-card">
-                            <summary>{faq.q}</summary>
-                            <p>{faq.a}</p>
-                        </details>
-                    ))}
                 </div>
             </div>
 
