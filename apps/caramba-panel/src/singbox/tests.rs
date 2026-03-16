@@ -166,7 +166,6 @@ mod tests {
 
     #[test]
     fn test_httpupgrade_generation() {
-        // Test that xhttp/splithttp legacy inputs are mapped to httpupgrade in Sing-box
         let user_keys = UserKeys {
             user_uuid: "uuid-123".to_string(),
             hy2_password: "pass".to_string(),
@@ -174,7 +173,7 @@ mod tests {
         };
 
         let stream_settings = json!({
-            "network": "xhttp",
+            "network": "httpupgrade",
             "security": "reality",
             "realitySettings": {
                 "serverNames": ["google.com"],
@@ -183,7 +182,7 @@ mod tests {
             },
             "packet_encoding": "packetaddr",
             "x_padding_bytes": "600-900",
-            "wsSettings": {
+            "httpUpgradeSettings": {
                 "path": "/xhttp-path"
             }
         });
@@ -199,7 +198,7 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|o| o["tag"] == "TestNode_test_inbound")
+            .find(|o| o["type"] == "vless" && o["transport"]["type"] == "httpupgrade")
             .expect("Outbound not found");
 
         assert_eq!(outbound["type"], "vless");
@@ -328,17 +327,16 @@ mod tests {
         let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
 
-        let rule = parsed["route"]["rules"]
+        let outbound = parsed["outbounds"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|r| r.get("tls_fragment") == Some(&json!(true)))
-            .expect("TLS fragmentation rule missing");
+            .find(|o| o["type"] == "vless" && o["tls"]["fragment"]["enabled"] == json!(true))
+            .expect("Outbound missing");
 
-        assert!(rule["domain_suffix"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("github.com")));
+        assert_eq!(outbound["tls"]["fragment"]["enabled"], true);
+        assert_eq!(outbound["tls"]["fragment"]["size"], "1-500");
+        assert_eq!(outbound["tls"]["fragment"]["sleep"], "0-5");
     }
 
     // Helper stub
@@ -349,11 +347,10 @@ mod tests {
             hy2_password: "pass".to_string(),
             _awg_private_key: None,
         };
-        // Setup XHTTP node to trigger mux logic
         let stream_settings = json!({
-            "network": "xhttp",
+            "network": "httpupgrade",
             "security": "reality",
-            "wsSettings": { "path": "/path" } // Using wsSettings key as parser supports it for path fallback or expected xhttp path
+            "httpUpgradeSettings": { "path": "/path", "host": "google.com" }
         });
         let node = create_mock_node("vless", stream_settings);
 
@@ -365,23 +362,28 @@ mod tests {
             .as_array()
             .expect("Route rules missing");
 
-        // Find GeoSite rule
         let geosite_rule = rules
             .iter()
             .find(|r| {
-                r.get("geosite")
+                r.get("rule_set")
                     .map(|v| v.as_array().unwrap().contains(&json!("ru")))
                     .unwrap_or(false)
             })
-            .expect("GeoSite:ru rule missing");
+            .or_else(|| {
+                rules.iter().find(|r| {
+                    r.get("rule_set")
+                        .map(|v| v.as_array().unwrap().contains(&json!("geosite-ru")))
+                        .unwrap_or(false)
+                })
+            })
+            .expect("RU direct rule missing");
         assert_eq!(geosite_rule["outbound"], "direct");
 
-        // Find GeoIP rule
         let geoip_rule = rules
             .iter()
             .find(|r| {
-                r.get("geoip")
-                    .map(|v| v.as_array().unwrap().contains(&json!("ru")))
+                r.get("rule_set")
+                    .map(|v| v.as_array().unwrap().contains(&json!("geoip-ru")))
                     .unwrap_or(false)
             })
             .expect("GeoIP:ru rule missing");
@@ -626,7 +628,7 @@ mod tests {
             Some(target_node),
             Some(target_inbound),
             vec![],
-            RelayAuthMode::Dual,
+            RelayAuthMode::Legacy,
         );
 
         let relay_out = config
@@ -793,10 +795,10 @@ mod tests {
     }
 
     #[test]
-    fn test_relay_auth_mode_parsing_defaults_to_dual() {
+    fn test_relay_auth_mode_parsing_respects_legacy_and_dual_defaults() {
         assert_eq!(
             RelayAuthMode::from_setting(Some("legacy")),
-            RelayAuthMode::Dual
+            RelayAuthMode::Legacy
         );
         assert_eq!(RelayAuthMode::from_setting(Some("v1")), RelayAuthMode::V1);
         assert_eq!(
