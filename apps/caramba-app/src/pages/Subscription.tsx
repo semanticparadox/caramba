@@ -42,6 +42,20 @@ export default function Subscription() {
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
     const [selectedVariants, setSelectedVariants] = useState<Record<number, string>>({})
 
+    const sorted = [...subscriptions].sort((a, b) => {
+        const order: Record<string, number> = { active: 0, pending: 1, expired: 2 }
+        const diff = (order[a.status] ?? 3) - (order[b.status] ?? 3)
+        if (diff !== 0) return diff
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    })
+
+    const primaryImportSub = sorted.find((sub) => sub.status === 'active')
+
+    const activeById = useMemo(
+        () => Object.fromEntries(sorted.map((sub) => [sub.id, sub.singbox_variants?.[0]?.id || ''])),
+        [sorted],
+    )
+
     const handleCopy = (sub: UserSubscription) => {
         void copyText(sub.subscription_url)
         setCopied(sub.id)
@@ -146,7 +160,7 @@ export default function Subscription() {
         if (searchParams.get('optimized') === '1') {
             setMessage({
                 type: 'success',
-                text: 'Маршрут оптимизирован. Проверьте подключение и выберите вариант, если нужно.',
+                text: 'Маршрут обновлен. Базовый импорт уже готов, а тонкую настройку можно открыть отдельно при необходимости.',
             })
         }
         setSearchParams((current) => {
@@ -175,18 +189,6 @@ export default function Subscription() {
         )
     }
 
-    const sorted = [...subscriptions].sort((a, b) => {
-        const order: Record<string, number> = { active: 0, pending: 1, expired: 2 }
-        const diff = (order[a.status] ?? 3) - (order[b.status] ?? 3)
-        if (diff !== 0) return diff
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    })
-
-    const activeById = useMemo(
-        () => Object.fromEntries(sorted.map((sub) => [sub.id, sub.singbox_variants?.[0]?.id || ''])),
-        [sorted],
-    )
-
     useEffect(() => {
         setSelectedVariants((current) => {
             const next = { ...current }
@@ -207,7 +209,7 @@ export default function Subscription() {
                 )}
             </header>
 
-            <button className="btn-secondary" onClick={() => navigate('/support/connect')}>
+            <button className="btn-ghost sub-guide-link" onClick={() => navigate('/support/connect')}>
                 Как подключиться: каталог приложений
             </button>
 
@@ -215,6 +217,22 @@ export default function Subscription() {
                 <div className={`purchase-msg ${message.type}`}>
                     {message.text}
                 </div>
+            )}
+
+            {sorted.length > 0 && (
+                <section className="sub-connect-focus glass-card">
+                    <p className="sub-connect-kicker">Основной путь подключения</p>
+                    <h3>Импортируйте ссылку подписки в VPN-клиент</h3>
+                    <p>
+                        Это самый быстрый путь: после импорта клиент сам подгрузит рабочие маршруты. Варианты и ручные настройки оставлены ниже как дополнительная опция.
+                    </p>
+                    <button
+                        className="btn-primary"
+                        onClick={() => setExpandedId((primaryImportSub ?? sorted[0]).id)}
+                    >
+                        {expandedId === (primaryImportSub ?? sorted[0]).id ? 'Импорт уже открыт ниже' : 'Открыть импорт подписки'}
+                    </button>
+                </section>
             )}
 
             {sorted.length === 0 ? (
@@ -289,7 +307,7 @@ export default function Subscription() {
                                 )}
                             </div>
                             <div className="sub-extra-row">
-                                <span>Последний pull конфига: {formatDateTime(sub.last_sub_access)}</span>
+                                <span>Последнее обновление конфига: {formatDateTime(sub.last_sub_access)}</span>
                             </div>
 
                             {sub.status === 'active' && (
@@ -345,7 +363,7 @@ export default function Subscription() {
                                             includeMargin
                                         />
                                     </div>
-                                    <p className="qr-hint">Сканируйте в приложении VPN</p>
+                                    <p className="qr-hint">Сканируйте QR или используйте кнопку импорта ниже.</p>
 
                                     <div className="link-row">
                                         <input type="text" readOnly value={sub.subscription_url} onClick={(e) => e.currentTarget.select()} />
@@ -364,48 +382,33 @@ export default function Subscription() {
                                                 className={`btn-secondary copy-btn ${copiedVless === sub.id ? 'copied' : ''}`}
                                                 onClick={() => handleCopyVless(sub)}
                                             >
-                                                {copiedVless === sub.id ? 'Готово' : 'VLESS'}
+                                            {copiedVless === sub.id ? 'Готово' : 'VLESS'}
                                             </button>
                                         </div>
                                     )}
 
-                                    {!!sub.singbox_variants?.length && (
-                                        <div className="variant-picker-block">
-                                            <div className="variant-picker-head">
-                                                <h4>Варианты Sing-box</h4>
-                                                <span>Выберите профиль и скопируйте ссылку</span>
-                                            </div>
-                                            <div className="variant-picker-list">
-                                                {sub.singbox_variants.map((variant) => (
-                                                    <button
-                                                        key={variant.id}
-                                                        className={`variant-inline-card ${selectedVariants[sub.id] === variant.id ? 'active' : ''}`}
-                                                        onClick={() => setSelectedVariants((current) => ({ ...current, [sub.id]: variant.id }))}
-                                                    >
-                                                        <span className="variant-inline-title">{variant.label}</span>
-                                                        <span className="variant-inline-meta">{variant.transport} · {variant.relay ? 'relay' : 'direct'}</span>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                            <button className="btn-secondary variant-copy-btn" onClick={() => handleCopyVariant(sub)}>
-                                                {copiedVariant === `${sub.id}:${selectedVariants[sub.id]}` ? 'Вариант скопирован' : 'Скопировать выбранный вариант'}
+                                    <div className="import-path-block">
+                                        <div className="import-path-head">
+                                            <h4>Импорт в приложение</h4>
+                                            <span>После импорта маршруты подгружаются автоматически</span>
+                                        </div>
+                                        <div className="app-links-grid app-links-primary-grid">
+                                            <button
+                                                className="btn-primary btn-app"
+                                                onClick={() => openExternal(`hiddify://import/${encodeURIComponent(withClient(sub.subscription_url, 'hiddify'))}`)}
+                                            >
+                                                Открыть в Hiddify
+                                            </button>
+                                            <button
+                                                className="btn-secondary btn-app"
+                                                onClick={() => openExternal(withVariant(sub.subscription_url, 'singbox', selectedVariants[sub.id]))}
+                                            >
+                                                Открыть в Sing-box
                                             </button>
                                         </div>
-                                    )}
+                                    </div>
 
                                     <div className="app-links-grid">
-                                        <button
-                                            className="btn-text btn-app"
-                                            onClick={() => openExternal(withVariant(sub.subscription_url, 'singbox', selectedVariants[sub.id]))}
-                                        >
-                                            Sing-box
-                                        </button>
-                                        <button
-                                            className="btn-text btn-app"
-                                            onClick={() => openExternal(`hiddify://import/${encodeURIComponent(withClient(sub.subscription_url, 'hiddify'))}`)}
-                                        >
-                                            Hiddify
-                                        </button>
                                         <button
                                             className="btn-text btn-app"
                                             onClick={() => openExternal(`happ://add?url=${encodeURIComponent(withClient(sub.subscription_url, 'happ'))}`)}
@@ -419,6 +422,33 @@ export default function Subscription() {
                                             Все варианты
                                         </button>
                                     </div>
+
+                                    {!!sub.singbox_variants?.length && (
+                                        <details className="advanced-variants">
+                                            <summary>Продвинутые варианты Sing-box</summary>
+                                            <div className="variant-picker-block">
+                                                <div className="variant-picker-head">
+                                                    <h4>Ручной выбор профиля</h4>
+                                                    <span>Нужно только если хотите выбрать конкретный транспорт или маршрут через relay</span>
+                                                </div>
+                                                <div className="variant-picker-list">
+                                                    {sub.singbox_variants.map((variant) => (
+                                                        <button
+                                                            key={variant.id}
+                                                            className={`variant-inline-card ${selectedVariants[sub.id] === variant.id ? 'active' : ''}`}
+                                                            onClick={() => setSelectedVariants((current) => ({ ...current, [sub.id]: variant.id }))}
+                                                        >
+                                                            <span className="variant-inline-title">{variant.label}</span>
+                                                            <span className="variant-inline-meta">{variant.transport} · {variant.relay ? 'через relay' : 'прямой маршрут'}</span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                <button className="btn-secondary variant-copy-btn" onClick={() => handleCopyVariant(sub)}>
+                                                    {copiedVariant === `${sub.id}:${selectedVariants[sub.id]}` ? 'Вариант скопирован' : 'Скопировать выбранный вариант'}
+                                                </button>
+                                            </div>
+                                        </details>
+                                    )}
 
                                     {sub.is_trial && (
                                         <div className="badge badge-warning trial-badge">Пробный период</div>

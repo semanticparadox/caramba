@@ -8,6 +8,42 @@
     gap: var(--space-3);
 }
 
+.sub-guide-link {
+    justify-content: flex-start;
+    border-color: var(--border-subtle);
+    color: var(--text-secondary);
+}
+
+.sub-connect-focus {
+    padding: var(--space-4);
+    display: grid;
+    gap: var(--space-2);
+    border-color: rgba(var(--accent-rgb), 0.32);
+    background:
+        linear-gradient(180deg, rgba(var(--accent-rgb), 0.14) 0%, rgba(var(--accent-rgb), 0.04) 100%),
+        rgba(255, 255, 255, 0.03);
+}
+
+.sub-connect-kicker {
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(var(--accent-rgb), 0.95);
+    font-weight: 700;
+}
+
+.sub-connect-focus h3 {
+    font-family: var(--font-display);
+    font-size: 1rem;
+    line-height: 1.3;
+}
+
+.sub-connect-focus p {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+
 .sub-page .page-header {
     margin-bottom: var(--space-sm);
 }
@@ -242,9 +278,77 @@
     gap: 8px;
 }
 
+.app-links-primary-grid {
+    gap: var(--space-2);
+}
+
 .btn-app {
     text-align: center;
     justify-content: center;
+}
+
+.import-path-block {
+    width: 100%;
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+    background: rgba(var(--accent-rgb), 0.08);
+}
+
+.import-path-head {
+    display: grid;
+    gap: 4px;
+}
+
+.import-path-head h4 {
+    font-size: 0.86rem;
+    font-weight: 700;
+}
+
+.import-path-head span {
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    line-height: 1.45;
+}
+
+.advanced-variants {
+    width: 100%;
+}
+
+.advanced-variants summary {
+    list-style: none;
+    cursor: pointer;
+    border: 1px dashed var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    font-size: 0.74rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+}
+
+.advanced-variants summary::after {
+    content: '+';
+    float: right;
+    color: var(--text-muted);
+}
+
+.advanced-variants[open] summary {
+    border-style: solid;
+    border-color: rgba(var(--accent-rgb), 0.32);
+    color: var(--text-primary);
+}
+
+.advanced-variants[open] summary::after {
+    content: '-';
+    color: rgba(var(--accent-rgb), 0.9);
+}
+
+.advanced-variants .variant-picker-block {
+    margin-top: var(--space-2);
 }
 
 .variant-picker-block {
