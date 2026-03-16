@@ -58,6 +58,52 @@ fn extract_client_ip(headers: &axum::http::HeaderMap) -> String {
         .unwrap_or_else(|| "0.0.0.0".to_string())
 }
 
+fn filter_nodes_for_subscription<T, F>(
+    nodes: Vec<T>,
+    requested_node_id: Option<i64>,
+    node_id_of: F,
+) -> Vec<T>
+where
+    T: Clone,
+    F: Fn(&T) -> i64,
+{
+    match requested_node_id {
+        Some(nid) => nodes
+            .into_iter()
+            .filter(|node| node_id_of(node) == nid)
+            .collect(),
+        None => nodes,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::filter_nodes_for_subscription;
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct TestNode {
+        id: i64,
+    }
+
+    #[test]
+    fn keeps_full_node_set_when_subscription_has_last_selected_node() {
+        let nodes = vec![TestNode { id: 1 }, TestNode { id: 2 }, TestNode { id: 3 }];
+
+        let filtered = filter_nodes_for_subscription(nodes.clone(), None, |node| node.id);
+
+        assert_eq!(filtered, nodes);
+    }
+
+    #[test]
+    fn scopes_nodes_only_when_request_explicitly_targets_node() {
+        let nodes = vec![TestNode { id: 1 }, TestNode { id: 2 }, TestNode { id: 3 }];
+
+        let filtered = filter_nodes_for_subscription(nodes, Some(2), |node| node.id);
+
+        assert_eq!(filtered, vec![TestNode { id: 2 }]);
+    }
+}
+
 /// Check if an IP belongs to major Russian ASN allocations.
 /// Covers primary Russian CIDR blocks (Rostelecom, MTS, Beeline, MegaFon, Yandex).
 fn is_russian_ip(ip_str: &str) -> bool {
@@ -765,23 +811,8 @@ function copyLink(){{
         return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response();
     }
 
-    let mut filtered_nodes = if let Some(nid) = params.node_id {
-        nodes_raw
-            .iter()
-            .filter(|n| n.id == nid)
-            .cloned()
-            .collect::<Vec<_>>()
-    } else if let Some(pinned_id) = sub.node_id {
-        nodes_raw
-            .iter()
-            .filter(|n| n.id == pinned_id)
-            .cloned()
-            .collect::<Vec<_>>()
-    } else {
-        nodes_raw.clone()
-    };
+    let mut filtered_nodes = filter_nodes_for_subscription(nodes_raw.clone(), params.node_id, |n| n.id);
 
-    // If subscription has stale pinned node (deleted/disabled), fall back to full set.
     if filtered_nodes.is_empty() && params.node_id.is_none() {
         filtered_nodes = std::mem::take(&mut nodes_raw);
     }
@@ -792,8 +823,7 @@ function copyLink(){{
     // Clash auto-select picks a working relay path when RKN whitelists are
     // active, while still including direct paths as an auto-fallback (if direct
     // works it will be faster and auto-test will prefer it).
-    // Only apply when the user has not explicitly pinned a node.
-    if params.node_id.is_none() && sub.node_id.is_none() {
+    if params.node_id.is_none() {
         // Always remove pure relay infrastructure nodes – they are not
         // user-facing destinations, only inter-node transport hops.
         filtered_nodes.retain(|n| !n.is_relay);
@@ -866,7 +896,7 @@ function copyLink(){{
     let cache_node_id = params.node_id.unwrap_or(0);
     let cache_variant = params.variant.as_deref().unwrap_or("default");
     let cache_key = format!(
-        "sub_config_v2:{}:{}:{}:{}",
+        "sub_config_v3:{}:{}:{}:{}",
         uuid, client_type, cache_node_id, cache_variant
     );
 
