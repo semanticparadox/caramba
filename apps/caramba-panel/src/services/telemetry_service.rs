@@ -72,12 +72,14 @@ impl TelemetryService {
             total_in += diff_in as i64;
             total_eq += diff_eg as i64;
 
-            let prev_max: Option<i32> = sqlx::query_scalar("SELECT max_users FROM nodes WHERE id = $1")
-                .bind(node_id)
-                .fetch_optional(&self.pool)
-                .await?;
+            let prev_max: Option<i32> =
+                sqlx::query_scalar("SELECT max_users FROM nodes WHERE id = $1")
+                    .bind(node_id)
+                    .fetch_optional(&self.pool)
+                    .await?;
 
-            let calculated_max = derive_recommended_max_users(speed_mbps, cpu_usage, memory_usage, prev_max);
+            let calculated_max =
+                derive_recommended_max_users(speed_mbps, cpu_usage, memory_usage, prev_max);
 
             sqlx::query(
                 "UPDATE nodes SET 
@@ -153,7 +155,7 @@ impl TelemetryService {
                 }
 
                 let deny_patterns_str: String = sqlx::query_scalar(
-                "SELECT value FROM settings WHERE key = 'sni_scanner_deny_patterns'"
+                    "SELECT value FROM settings WHERE key = 'sni_scanner_deny_patterns'",
                 )
                 .fetch_optional(&self.pool)
                 .await
@@ -244,15 +246,22 @@ impl TelemetryService {
 
                 let is_generic_or_missing = current_sni
                     .as_deref()
-                    .map(|s| s == "www.google.com" || s == "google.com" || s == "www.microsoft.com" || s == "gosuslugi.ru")
+                    .map(|s| {
+                        s == "www.google.com"
+                            || s == "google.com"
+                            || s == "www.microsoft.com"
+                            || s == "gosuslugi.ru"
+                    })
                     .unwrap_or(true);
 
                 if is_generic_or_missing || status == "provisioning" {
-                    let _ = sqlx::query("UPDATE nodes SET reality_sni = $1, status = 'active' WHERE id = $2")
-                        .bind(&domain)
-                        .bind(node_id)
-                        .execute(&self.pool)
-                        .await;
+                    let _ = sqlx::query(
+                        "UPDATE nodes SET reality_sni = $1, status = 'active' WHERE id = $2",
+                    )
+                    .bind(&domain)
+                    .bind(node_id)
+                    .execute(&self.pool)
+                    .await;
                     info!(
                         "✨ Neighbor Sniper: Automatically assigned verified SNI {} to Node {} (Provisioning Complete)",
                         domain, node_id
@@ -307,7 +316,10 @@ impl TelemetryService {
     }
 }
 
-fn classify_discovered_domain(domain: &str, dynamic_deny_patterns: &[String]) -> Result<(), String> {
+fn classify_discovered_domain(
+    domain: &str,
+    dynamic_deny_patterns: &[String],
+) -> Result<(), String> {
     let domain = domain.trim().to_lowercase();
 
     if domain.is_empty() {

@@ -23,7 +23,8 @@ use uuid::Uuid;
 pub struct SubscriptionService {
     pool: PgPool,
     // Add orchestration service for trigger-based sync
-    pub orchestration_service: Option<std::sync::Arc<crate::services::orchestration_service::OrchestrationService>>,
+    pub orchestration_service:
+        Option<std::sync::Arc<crate::services::orchestration_service::OrchestrationService>>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -55,11 +56,17 @@ impl SubscriptionService {
     "#;
 
     pub fn new(pool: PgPool) -> Self {
-        Self { pool, orchestration_service: None }
+        Self {
+            pool,
+            orchestration_service: None,
+        }
     }
 
     // Allow injecting orchestration service after circular dep resolution
-    pub fn set_orchestration_service(&mut self, svc: std::sync::Arc<crate::services::orchestration_service::OrchestrationService>) {
+    pub fn set_orchestration_service(
+        &mut self,
+        svc: std::sync::Arc<crate::services::orchestration_service::OrchestrationService>,
+    ) {
         self.orchestration_service = Some(svc);
     }
 
@@ -386,16 +393,16 @@ impl SubscriptionService {
 
         // Trigger Sync
         if let Some(orch) = &self.orchestration_service {
-             if let Some(node_id) = sub.node_id {
-                 let _ = orch.notify_node_update(node_id).await;
-             } else {
-                 // If no node specific, notify all active nodes just in case (e.g. distributed plan)
-                 // Or we could let the nodes pull periodically.
-                 // For immediate effect on distributed setups, we might want to notify all linked to plan.
-                 // But orchestration service handles single node.
-                 // We can get nodes for plan and notify them.
-                 // For now, let's keep it simple and notify if node_id is present.
-             }
+            if let Some(node_id) = sub.node_id {
+                let _ = orch.notify_node_update(node_id).await;
+            } else {
+                // If no node specific, notify all active nodes just in case (e.g. distributed plan)
+                // Or we could let the nodes pull periodically.
+                // For immediate effect on distributed setups, we might want to notify all linked to plan.
+                // But orchestration service handles single node.
+                // We can get nodes for plan and notify them.
+                // For now, let's keep it simple and notify if node_id is present.
+            }
         }
 
         Ok(sub)
@@ -502,7 +509,7 @@ impl SubscriptionService {
 
         // Trigger Sync
         if let Some(orch) = &self.orchestration_service {
-             let _ = orch.notify_node_update(node_id).await;
+            let _ = orch.notify_node_update(node_id).await;
         }
 
         Ok(sub)
@@ -1637,7 +1644,8 @@ impl SubscriptionService {
         keys: &UserKeys,
         variant: Option<&str>,
     ) -> Result<String> {
-        let config = crate::singbox::subscription_generator::generate_singbox_config(sub, nodes, keys)?;
+        let config =
+            crate::singbox::subscription_generator::generate_singbox_config(sub, nodes, keys)?;
 
         match variant {
             Some(variant_id) => apply_connection_variant(&config, variant_id),

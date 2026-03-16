@@ -6,7 +6,7 @@ mod tests {
     // use caramba_db::models::store::Subscription; // Unused
     use crate::singbox::config::Outbound;
     use crate::singbox::subscription_generator::{
-        generate_singbox_config, generate_v2ray_config, NodeInfo, UserKeys,
+        NodeInfo, UserKeys, generate_singbox_config, generate_v2ray_config,
     };
     use crate::singbox::{ConfigGenerator, RelayAuthMode};
     use serde_json::json;
@@ -103,6 +103,7 @@ mod tests {
             target_version: None,
             last_synced_at: None,
             last_sync_trigger: None,
+            node_type: "exit".to_string(),
             is_relay: false,
             pending_log_collection: false,
         }
@@ -499,9 +500,11 @@ mod tests {
         );
 
         let route_rules = &config.route.as_ref().expect("route missing").rules;
-        assert!(route_rules
-            .iter()
-            .any(|r| r.outbound.as_deref() == Some("relay-out")));
+        assert!(
+            route_rules
+                .iter()
+                .any(|r| r.outbound.as_deref() == Some("relay-out"))
+        );
     }
 
     #[test]
@@ -521,14 +524,18 @@ mod tests {
             RelayAuthMode::V1,
         );
 
-        assert!(!config
-            .outbounds
-            .iter()
-            .any(|o| matches!(o, Outbound::Shadowsocks(_))));
+        assert!(
+            !config
+                .outbounds
+                .iter()
+                .any(|o| matches!(o, Outbound::Shadowsocks(_)))
+        );
         let route_rules = &config.route.as_ref().expect("route missing").rules;
-        assert!(!route_rules
-            .iter()
-            .any(|r| r.outbound.as_deref() == Some("relay-out")));
+        assert!(
+            !route_rules
+                .iter()
+                .any(|r| r.outbound.as_deref() == Some("relay-out"))
+        );
     }
 
     #[test]
@@ -549,14 +556,18 @@ mod tests {
             RelayAuthMode::V1,
         );
 
-        assert!(!config
-            .outbounds
-            .iter()
-            .any(|o| matches!(o, Outbound::Shadowsocks(_))));
+        assert!(
+            !config
+                .outbounds
+                .iter()
+                .any(|o| matches!(o, Outbound::Shadowsocks(_)))
+        );
         let route_rules = &config.route.as_ref().expect("route missing").rules;
-        assert!(!route_rules
-            .iter()
-            .any(|r| r.outbound.as_deref() == Some("relay-out")));
+        assert!(
+            !route_rules
+                .iter()
+                .any(|r| r.outbound.as_deref() == Some("relay-out"))
+        );
     }
 
     #[test]
@@ -870,6 +881,7 @@ mod tests {
             target_version: None,
             last_synced_at: None,
             last_sync_trigger: None,
+            node_type: "exit".to_string(),
             is_relay: false,
             pending_log_collection: false,
         };
@@ -926,18 +938,24 @@ mod tests {
         let rules = &config.route.as_ref().unwrap().rules;
 
         // Should have DNS, Torrent, Ads, Porn rules
-        assert!(rules
-            .iter()
-            .any(|r| r.protocol == Some(vec!["bittorrent".to_string()])
-                && r.action == Some("reject".to_string())));
-        assert!(rules
-            .iter()
-            .any(|r| r.rule_set == Some(vec!["geosite-ads".to_string()])
-                && r.action == Some("reject".to_string())));
-        assert!(rules
-            .iter()
-            .any(|r| r.rule_set == Some(vec!["geosite-porn".to_string()])
-                && r.action == Some("reject".to_string())));
+        assert!(
+            rules
+                .iter()
+                .any(|r| r.protocol == Some(vec!["bittorrent".to_string()])
+                    && r.action == Some("reject".to_string()))
+        );
+        assert!(
+            rules
+                .iter()
+                .any(|r| r.rule_set == Some(vec!["geosite-ads".to_string()])
+                    && r.action == Some("reject".to_string()))
+        );
+        assert!(
+            rules
+                .iter()
+                .any(|r| r.rule_set == Some(vec!["geosite-porn".to_string()])
+                    && r.action == Some("reject".to_string()))
+        );
 
         // Check DNS Sinkhole
         let dns = config.dns.as_ref().unwrap();
@@ -950,10 +968,11 @@ mod tests {
         }));
 
         // Should have DNS blocking rules
-        assert!(dns
-            .rules
-            .iter()
-            .any(|r| r.rule_set == Some(vec!["geosite-ads".to_string()])
-                && r.server == Some("block".to_string())));
+        assert!(
+            dns.rules
+                .iter()
+                .any(|r| r.rule_set == Some(vec!["geosite-ads".to_string()])
+                    && r.server == Some("block".to_string()))
+        );
     }
 }

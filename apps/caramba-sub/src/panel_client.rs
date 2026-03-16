@@ -46,6 +46,34 @@ impl PanelClient {
         Ok(response.json().await?)
     }
 
+    pub async fn get_active_exit_nodes(&self) -> Result<Vec<InternalNode>> {
+        let url = format!("{}/api/internal/nodes/active/exit", self.base_url);
+
+        let response = self
+            .client
+            .get(&url)
+            .bearer_auth(&self.auth_token)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        Ok(response.json().await?)
+    }
+
+    pub async fn get_active_relay_nodes(&self) -> Result<Vec<InternalNode>> {
+        let url = format!("{}/api/internal/nodes/active/relay", self.base_url);
+
+        let response = self
+            .client
+            .get(&url)
+            .bearer_auth(&self.auth_token)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        Ok(response.json().await?)
+    }
+
     pub async fn get_user_keys(&self, user_id: i64) -> Result<UserKeys> {
         let url = format!("{}/api/internal/users/{}/keys", self.base_url, user_id);
 
@@ -142,7 +170,7 @@ impl PanelClient {
 }
 
 // Data structures (detailed for config generation)
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Subscription {
     pub id: i64,
     pub user_id: i64,
@@ -155,10 +183,15 @@ pub struct Subscription {
     pub plan_name: String,
     #[serde(default)]
     pub traffic_limit_gb: i32,
+    pub node_id: Option<i64>,
 }
 
 fn default_plan_name() -> String {
     "VPN Plan".to_string()
+}
+
+fn default_node_type() -> String {
+    "exit".to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -172,6 +205,8 @@ pub struct Node {
     pub short_id: Option<String>,
     pub domain: Option<String>,
     pub country_code: Option<String>,
+    #[serde(default = "default_node_type")]
+    pub node_type: String,
     pub is_relay: bool,             // Added
     pub relay_id: Option<i64>,      // Added
     pub join_token: Option<String>, // Added
@@ -186,6 +221,20 @@ pub struct Node {
 
     #[serde(default)]
     pub reality_sni: Option<String>,
+}
+
+impl Node {
+    pub fn normalized_node_type(&self) -> &str {
+        if self.node_type.eq_ignore_ascii_case("relay") || self.is_relay {
+            "relay"
+        } else {
+            "exit"
+        }
+    }
+
+    pub fn is_relay_node(&self) -> bool {
+        self.normalized_node_type() == "relay"
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

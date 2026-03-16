@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     target_version TEXT,
     last_synced_at TIMESTAMPTZ,
     is_relay BOOLEAN NOT NULL DEFAULT FALSE,
+    node_type TEXT NOT NULL DEFAULT 'exit',
     relay_id BIGINT REFERENCES nodes(id) ON DELETE SET NULL,
     last_sync_trigger TEXT,
     pending_log_collection BOOLEAN NOT NULL DEFAULT FALSE,
@@ -92,6 +93,7 @@ CREATE TABLE IF NOT EXISTS nodes (
 
 CREATE INDEX IF NOT EXISTS idx_nodes_ip ON nodes (ip);
 CREATE INDEX IF NOT EXISTS idx_nodes_status ON nodes (status);
+CREATE INDEX IF NOT EXISTS idx_nodes_node_type ON nodes (node_type);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_nodes_join_token ON nodes (join_token);
 CREATE INDEX IF NOT EXISTS idx_nodes_relay_id ON nodes (relay_id);
 

@@ -25,6 +25,21 @@ impl NodeRepository {
     }
 
     fn row_to_node(row: &PgRow) -> Node {
+        let legacy_is_relay = row.try_get::<bool, _>("is_relay").unwrap_or(false);
+        let node_type = row
+            .try_get::<Option<String>, _>("node_type")
+            .ok()
+            .flatten()
+            .map(|value| value.trim().to_ascii_lowercase())
+            .filter(|value| matches!(value.as_str(), "exit" | "relay"))
+            .unwrap_or_else(|| {
+                if legacy_is_relay {
+                    "relay".to_string()
+                } else {
+                    "exit".to_string()
+                }
+            });
+
         Node {
             id: row.try_get::<i64, _>("id").unwrap_or_default(),
             name: row
@@ -164,7 +179,8 @@ impl NodeRepository {
                 .try_get::<Option<String>, _>("last_sync_trigger")
                 .ok()
                 .flatten(),
-            is_relay: row.try_get::<bool, _>("is_relay").unwrap_or(false),
+            node_type: node_type.clone(),
+            is_relay: node_type == "relay" || legacy_is_relay,
             pending_log_collection: row
                 .try_get::<bool, _>("pending_log_collection")
                 .unwrap_or(false),
@@ -389,9 +405,9 @@ impl NodeRepository {
                 status, load_stats, check_stats_json, sort_order,
                 join_token, vpn_port, auto_configure, is_enabled,
                 reality_pub, reality_priv, short_id, reality_sni,
-                relay_id, doomsday_password
+                relay_id, node_type, is_relay, doomsday_password
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
             RETURNING id
             "#
         )
@@ -414,6 +430,8 @@ impl NodeRepository {
         .bind(&node.short_id)
         .bind(&node.reality_sni)
         .bind(node.relay_id)
+        .bind(node.normalized_node_type())
+        .bind(node.is_relay_node())
         .bind(&node.doomsday_password)
         .fetch_one(&self.pool)
         .await;
@@ -431,9 +449,9 @@ impl NodeRepository {
                             status, load_stats, check_stats_json, sort_order,
                             join_token, vpn_port, auto_configure, is_enabled,
                             reality_pub, reality_priv, short_id, reality_sni,
-                            doomsday_password
+                            node_type, is_relay, doomsday_password
                         )
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
                         RETURNING id
                         "#
                     )
@@ -455,6 +473,8 @@ impl NodeRepository {
                     .bind(&node.reality_priv)
                     .bind(&node.short_id)
                     .bind(&node.reality_sni)
+                    .bind(node.normalized_node_type())
+                    .bind(node.is_relay_node())
                     .bind(&node.doomsday_password)
                     .fetch_one(&self.pool)
                     .await;
@@ -492,14 +512,14 @@ impl NodeRepository {
     }
 
     pub async fn update_node(&self, node: &Node) -> Result<()> {
-        sqlx::query(
+        let primary = sqlx::query(
             r#"
             UPDATE nodes 
             SET name=$1, ip=$2, domain=$3, country=$4, city=$5, flag=$6, status=$7, load_stats=$8, check_stats_json=$9, sort_order=$10,
                 join_token=$11, vpn_port=$12, auto_configure=$13, is_enabled=$14, 
                 reality_pub=$15, reality_priv=$16, short_id=$17, reality_sni=$18, 
-                relay_id=$19, doomsday_password=$20
-            WHERE id=$21
+                relay_id=$19, node_type=$20, is_relay=$21, doomsday_password=$22
+            WHERE id=$23
             "#
         )
         .bind(&node.name)
@@ -521,12 +541,57 @@ impl NodeRepository {
         .bind(&node.short_id)
         .bind(&node.reality_sni)
         .bind(node.relay_id)
+        .bind(node.normalized_node_type())
+        .bind(node.is_relay_node())
         .bind(&node.doomsday_password)
         .bind(node.id)
         .execute(&self.pool)
-        .await?;
+        .await;
 
-        Ok(())
+        match primary {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("node_type") && msg.contains("does not exist") {
+                    sqlx::query(
+                        r#"
+                        UPDATE nodes 
+                        SET name=$1, ip=$2, domain=$3, country=$4, city=$5, flag=$6, status=$7, load_stats=$8, check_stats_json=$9, sort_order=$10,
+                            join_token=$11, vpn_port=$12, auto_configure=$13, is_enabled=$14, 
+                            reality_pub=$15, reality_priv=$16, short_id=$17, reality_sni=$18, 
+                            relay_id=$19, doomsday_password=$20
+                        WHERE id=$21
+                        "#
+                    )
+                    .bind(&node.name)
+                    .bind(&node.ip)
+                    .bind(&node.domain)
+                    .bind(&node.country)
+                    .bind(&node.city)
+                    .bind(&node.flag)
+                    .bind(&node.status)
+                    .bind(&node.load_stats)
+                    .bind(&node.check_stats_json)
+                    .bind(node.sort_order)
+                    .bind(&node.join_token)
+                    .bind(node.vpn_port)
+                    .bind(node.auto_configure)
+                    .bind(node.is_enabled)
+                    .bind(&node.reality_pub)
+                    .bind(&node.reality_priv)
+                    .bind(&node.short_id)
+                    .bind(&node.reality_sni)
+                    .bind(node.relay_id)
+                    .bind(&node.doomsday_password)
+                    .bind(node.id)
+                    .execute(&self.pool)
+                    .await?;
+                    Ok(())
+                } else {
+                    Err(e.into())
+                }
+            }
+        }
     }
 
     // ==================== INBOUNDS ====================

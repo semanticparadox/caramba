@@ -10,7 +10,7 @@ use tracing::{error, info};
 
 #[derive(Deserialize)]
 pub struct SubParams {
-    pub client: Option<String>, // "clash" | "v2ray" | "singbox"
+    pub client: Option<String>, // only "singbox" is supported
 }
 
 pub async fn subscription_handler(
@@ -19,22 +19,25 @@ pub async fn subscription_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Response {
-    // 0. Extract Client IP
-    let client_ip = get_client_ip(&headers).unwrap_or("0.0.0.0".to_string());
+    let client_type = params
+        .client
+        .as_deref()
+        .unwrap_or("singbox")
+        .to_ascii_lowercase();
+    if client_type != "singbox" {
+        return (
+            StatusCode::BAD_REQUEST,
+            "Only sing-box subscriptions are supported",
+        )
+            .into_response();
+    }
 
-    // 1. GeoIP Lookup
-    let geo_data = state.geo_service.get_location(&client_ip).await;
-    let country_code = geo_data
-        .as_ref()
-        .map(|d| d.country_code.as_str())
-        .unwrap_or("XX");
-
+    let client_ip = get_client_ip(&headers).unwrap_or_else(|| "0.0.0.0".to_string());
     info!(
-        "Subscription request: UUID={}, client={:?}, IP={}, Country={}",
-        uuid, params.client, client_ip, country_code
+        "Subscription request: UUID={}, client_ip={}",
+        uuid, client_ip
     );
 
-    // 2. Get Subscription
     let sub = match state.panel_client.get_subscription(&uuid).await {
         Ok(s) => s,
         Err(e) => {
@@ -47,16 +50,41 @@ pub async fn subscription_handler(
         return (StatusCode::FORBIDDEN, "Subscription inactive").into_response();
     }
 
-    // 3. Get Nodes (InternalNode structure)
-    let nodes = match state.panel_client.get_active_nodes().await {
-        Ok(n) => n,
+    let mut exit_nodes = match state.panel_client.get_active_exit_nodes().await {
+        Ok(nodes) => nodes,
         Err(e) => {
-            error!("Failed to fetch nodes: {}", e);
-            return (StatusCode::SERVICE_UNAVAILABLE, "No nodes available").into_response();
+            error!("Failed to fetch active exit nodes: {}", e);
+            return (StatusCode::SERVICE_UNAVAILABLE, "No exit nodes available").into_response();
         }
     };
 
-    // 4. Get User Keys
+    if let Some(exit_id) = sub.node_id {
+        exit_nodes.retain(|n| n.node.id == exit_id);
+        if exit_nodes.is_empty() {
+            return (
+                StatusCode::NOT_FOUND,
+                "Requested exit node is unavailable for this subscription",
+            )
+                .into_response();
+        }
+    }
+
+    let relay_nodes = match state.panel_client.get_active_relay_nodes().await {
+        Ok(nodes) => nodes,
+        Err(e) => {
+            error!("Failed to fetch active relay nodes: {}", e);
+            return (StatusCode::SERVICE_UNAVAILABLE, "No relay nodes available").into_response();
+        }
+    };
+
+    let mut nodes = Vec::with_capacity(exit_nodes.len() + relay_nodes.len());
+    nodes.extend(exit_nodes);
+    nodes.extend(relay_nodes);
+
+    if nodes.is_empty() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "No nodes available").into_response();
+    }
+
     let user_keys = match state.panel_client.get_user_keys(sub.user_id).await {
         Ok(k) => k,
         Err(e) => {
@@ -65,53 +93,29 @@ pub async fn subscription_handler(
         }
     };
 
-    // 5. Generate Config
-    let client_type = params.client.as_deref().unwrap_or("singbox");
-
-    let (content, content_type, _filename) = match client_type {
-        "clash" => {
-            // Legacy Clash Gen
-            let simple_nodes: Vec<&crate::panel_client::Node> =
-                nodes.iter().map(|n| &n.node).collect();
-            match generate_clash_config(&simple_nodes, &user_keys) {
-                Ok(c) => (c, "application/yaml", "config.yaml"),
-                Err(e) => {
-                    return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-                }
+    let config_json =
+        match ConfigGenerator::generate(nodes, &sub.subscription_uuid, &user_keys, sub.node_id) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                error!("Failed to generate strict sing-box profile: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to build sing-box profile",
+                )
+                    .into_response();
             }
-        }
-        "v2ray" => {
-            // Legacy V2Ray Gen
-            let simple_nodes: Vec<&crate::panel_client::Node> =
-                nodes.iter().map(|n| &n.node).collect();
-            match generate_v2ray_config(&simple_nodes, &user_keys) {
-                Ok(c) => (c, "text/plain", "config.txt"),
-                Err(e) => {
-                    return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-                }
-            }
-        }
-        _ => {
-            // Smart Sing-box Gen
-            // Pass the FULL nodes (with inbounds) and the detected region
-            let config_json = ConfigGenerator::generate(nodes, &user_keys, country_code);
-            let json_str = serde_json::to_string_pretty(&config_json).unwrap_or_default();
-            (json_str, "application/json", "config.json")
-        }
-    };
+        };
 
-    // 5.5 Compute subscription metadata for headers
+    let content = serde_json::to_string_pretty(&config_json).unwrap_or_default();
     let total_traffic_bytes = (sub.traffic_limit_gb as i64) * 1024 * 1024 * 1024;
-
     let user_info_header = format!(
         "upload=0; download={}; total={}; expire={}",
         sub.used_traffic, total_traffic_bytes, sub.expire_timestamp
     );
 
-    // 6. Return with proper headers
     Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CONTENT_TYPE, "application/json")
         .header("profile-title", &sub.plan_name)
         .header("profile-update-interval", "2")
         .header("Subscription-Userinfo", &user_info_header)
@@ -132,89 +136,4 @@ fn get_client_ip(headers: &HeaderMap) -> Option<String> {
             .map(|s| s.trim().to_string());
     }
     None
-}
-
-fn is_placeholder_sni(sni: &str) -> bool {
-    let sni = sni.trim().to_ascii_lowercase();
-    sni.is_empty() || sni == "www.google.com" || sni == "google.com" || sni == "drive.google.com"
-}
-
-fn resolve_node_sni(node: &crate::panel_client::Node) -> String {
-    node.reality_sni
-        .as_ref()
-        .or(node.domain.as_ref())
-        .filter(|s| !is_placeholder_sni(s))
-        .cloned()
-        .unwrap_or_else(|| node.ip.clone())
-}
-
-// Config generators (simplified versions from main panel)
-fn generate_clash_config(
-    nodes: &[&crate::panel_client::Node],
-    keys: &crate::panel_client::UserKeys,
-) -> anyhow::Result<String> {
-    use serde_json::json;
-
-    let mut proxies = Vec::new();
-
-    for node in nodes {
-        let node_sni = resolve_node_sni(node);
-        proxies.push(json!({
-            "name": format!("{} VLESS", node.name),
-            "type": "vless",
-            "server": node.ip,
-            "port": node.vpn_port,
-            "uuid": keys.user_uuid,
-            "network": "tcp",
-            "tls": true,
-            "servername": node_sni,
-            "reality-opts": {
-                "public-key": node.reality_pub.as_ref().unwrap_or(&"".to_string()),
-                "short-id": node.short_id.as_ref().unwrap_or(&"".to_string())
-            },
-            "client-fingerprint": "chrome"
-        }));
-    }
-
-    let proxy_names: Vec<String> = proxies
-        .iter()
-        .map(|p| p["name"].as_str().unwrap().to_string())
-        .collect();
-
-    let config = json!({
-        "proxies": proxies,
-        "proxy-groups": [{
-            "name": "CARAMBA",
-            "type": "select",
-            "proxies": proxy_names
-        }],
-        "rules": ["MATCH,CARAMBA"]
-    });
-
-    Ok(serde_yaml::to_string(&config)?)
-}
-
-fn generate_v2ray_config(
-    nodes: &[&crate::panel_client::Node],
-    keys: &crate::panel_client::UserKeys,
-) -> anyhow::Result<String> {
-    let mut links = Vec::new();
-
-    for node in nodes {
-        let node_sni = resolve_node_sni(node);
-        let vless_link = format!(
-            "vless://{}@{}:{}?encryption=none&flow=xtls-rprx-vision&security=reality&sni={}&fp=chrome&pbk={}&sid={}&type=tcp#{}",
-            keys.user_uuid,
-            node.ip,
-            node.vpn_port,
-            node_sni,
-            node.reality_pub.as_ref().unwrap_or(&"".to_string()),
-            node.short_id.as_ref().unwrap_or(&"".to_string()),
-            urlencoding::encode(&format!("{} VLESS", node.name))
-        );
-        links.push(vless_link);
-    }
-
-    use base64::Engine;
-    Ok(base64::engine::general_purpose::STANDARD.encode(links.join("\n")))
 }

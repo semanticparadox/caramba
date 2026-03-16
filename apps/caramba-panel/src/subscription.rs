@@ -811,7 +811,8 @@ function copyLink(){{
         return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response();
     }
 
-    let mut filtered_nodes = filter_nodes_for_subscription(nodes_raw.clone(), params.node_id, |n| n.id);
+    let mut filtered_nodes =
+        filter_nodes_for_subscription(nodes_raw.clone(), params.node_id, |n| n.id);
 
     if filtered_nodes.is_empty() && params.node_id.is_none() {
         filtered_nodes = std::mem::take(&mut nodes_raw);
@@ -962,10 +963,12 @@ function copyLink(){{
             }
         }
         _ => {
-            match state
-                .subscription_service
-                .generate_singbox(&sub, &node_infos, &user_keys, params.variant.as_deref())
-            {
+            match state.subscription_service.generate_singbox(
+                &sub,
+                &node_infos,
+                &user_keys,
+                params.variant.as_deref(),
+            ) {
                 Ok(c) => (c, "application/json; charset=utf-8", "config.json"),
                 Err(e) => {
                     error!("Singbox gen failed: {}", e);

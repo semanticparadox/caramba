@@ -16,7 +16,12 @@ pub trait PaymentProvider: Send + Sync {
 
     /// Create an invoice or initialization payload using the provider's API.
     /// Returns a URL, a payload string, or another identifier to surface to the user.
-    async fn create_invoice(&self, session: &PaymentSession, user: &User, client: &reqwest::Client) -> Result<String>;
+    async fn create_invoice(
+        &self,
+        session: &PaymentSession,
+        user: &User,
+        client: &reqwest::Client,
+    ) -> Result<String>;
 
     /// Verify a webhook signature using the raw payload and headers.
     async fn verify_webhook(&self, payload: &[u8], signature: &str) -> Result<bool>;
@@ -25,5 +30,9 @@ pub trait PaymentProvider: Send + Sync {
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction>;
 
     /// Actively check the status of a specific session (polling fallback).
-    async fn check_status(&self, session: &PaymentSession, client: &reqwest::Client) -> Result<String>;
+    async fn check_status(
+        &self,
+        session: &PaymentSession,
+        client: &reqwest::Client,
+    ) -> Result<String>;
 }

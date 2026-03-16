@@ -16,21 +16,22 @@
                 class="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-white">
         </div>
         <div>
+            <label class="block text-xs text-slate-400 uppercase mb-1">Node Type</label>
+            <select id="edit-node-type" name="node_type" class="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-white">
+                <option value="exit" {% if node.node_type == "exit" %}selected{% endif %}>Exit</option>
+                <option value="relay" {% if node.node_type == "relay" %}selected{% endif %}>Relay</option>
+            </select>
+        </div>
+        <div id="edit-node-relay-parent-block">
             <label class="block text-xs text-slate-400 uppercase mb-1">Relay Parent (optional)</label>
             <select name="relay_id" class="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-white">
                 <option value="">None</option>
-                {% for relay in all_nodes %}
-                {% if relay.id != node.id %}
+                {% for relay in relay_nodes %}
                 <option value="{{ relay.id }}" {% if node.relay_id.unwrap_or(0)==relay.id %}selected{% endif %}>{{
                     relay.name }}</option>
-                {% endif %}
                 {% endfor %}
             </select>
         </div>
-        <label class="flex items-center gap-2 text-slate-300">
-            <input type="checkbox" name="is_relay" {% if node.is_relay %}checked{% endif %}>
-            Is relay node
-        </label>
         <div>
             <label class="block text-xs text-slate-400 uppercase mb-1">Country</label>
             <select name="country" class="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-white">
@@ -76,10 +77,10 @@
         </div>
 
         <div class="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-200">
-            Relay logic: mark this node as <span class="font-semibold">relay</span> if other edge nodes should chain
+            Relay logic: set <span class="font-semibold">Node Type = Relay</span> if other edge nodes should chain
             through it.
-            For client nodes, choose a <span class="font-semibold">Relay Parent</span>. Leave both empty for standalone
-            edge mode.
+            For exit nodes, choose a <span class="font-semibold">Relay Parent</span>. Leave it empty for standalone
+            mode.
         </div>
         <div class="flex justify-end gap-2 pt-2">
             <button type="button" onclick="document.getElementById('edit-node-modal').close()"
@@ -89,3 +90,15 @@
         </div>
     </form>
 </div>
+<script>
+(() => {
+    const nodeType = document.getElementById('edit-node-type');
+    const relayParentBlock = document.getElementById('edit-node-relay-parent-block');
+    if (!nodeType || !relayParentBlock) return;
+    const sync = () => {
+        relayParentBlock.classList.toggle('hidden', nodeType.value === 'relay');
+    };
+    nodeType.addEventListener('change', sync);
+    sync();
+})();
+</script>

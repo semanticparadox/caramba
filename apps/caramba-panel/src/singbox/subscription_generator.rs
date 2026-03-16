@@ -1,6 +1,6 @@
 use anyhow::Result;
 use caramba_db::models::store::Subscription;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// User keys for generating client configs
 pub struct UserKeys {

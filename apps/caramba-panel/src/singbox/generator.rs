@@ -58,18 +58,19 @@ impl ConfigGenerator {
                 }
             }
 
-            let protocol_settings: InboundType =
-                match serde_json::from_value(settings_value.clone()) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        let proto = inbound.protocol.clone().to_lowercase();
-                        error!(
+            let protocol_settings: InboundType = match serde_json::from_value(
+                settings_value.clone(),
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    let proto = inbound.protocol.clone().to_lowercase();
+                    error!(
                         "❌ Failed to parse settings for inbound {}: {} (json: {}). Protocol: {}",
                         inbound.tag, e, inbound.settings, proto
                     );
-                        continue;
-                    }
-                };
+                    continue;
+                }
+            };
 
             // Parse Stream Settings
             let stream_settings: DbStreamSettings =

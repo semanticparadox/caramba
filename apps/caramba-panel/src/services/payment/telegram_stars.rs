@@ -12,7 +12,12 @@ impl PaymentProvider for StarsProvider {
         "stars"
     }
 
-    async fn create_invoice(&self, _session: &PaymentSession, _user: &User, _client: &reqwest::Client) -> Result<String> {
+    async fn create_invoice(
+        &self,
+        _session: &PaymentSession,
+        _user: &User,
+        _client: &reqwest::Client,
+    ) -> Result<String> {
         // TODO: Generate standard Telegram Stars payload
         Ok("Stars Payload Stub".to_string())
     }
@@ -26,7 +31,11 @@ impl PaymentProvider for StarsProvider {
         Ok(PaymentWebhookAction::Ignored)
     }
 
-    async fn check_status(&self, _session: &PaymentSession, _client: &reqwest::Client) -> Result<String> {
+    async fn check_status(
+        &self,
+        _session: &PaymentSession,
+        _client: &reqwest::Client,
+    ) -> Result<String> {
         Ok("pending".to_string())
     }
 }

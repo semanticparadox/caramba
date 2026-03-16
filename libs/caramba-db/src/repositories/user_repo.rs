@@ -200,8 +200,13 @@ impl UserRepository {
                         {
                             Ok(id) => id,
                             Err(third_err) => {
-                                tracing::error!("user_repo upsert failed critically. primary: {}, legacy: {}, old: {}", first_err, second_err, third_err);
-                                
+                                tracing::error!(
+                                    "user_repo upsert failed critically. primary: {}, legacy: {}, old: {}",
+                                    first_err,
+                                    second_err,
+                                    third_err
+                                );
+
                                 // Extreme fallback: if ON CONFLICT logic crashes due to schema/indexes, try explicit SELECT then UPDATE/INSERT
                                 if let Ok(Some(existing_user)) = self.get_by_tg_id(tg_id).await {
                                     let _ = sqlx::query("UPDATE users SET username = COALESCE($1, username), full_name = COALESCE($2, full_name) WHERE id = $3")
@@ -219,7 +224,9 @@ impl UserRepository {
                                         .bind(&default_ref_code)
                                         .fetch_one(&self.pool)
                                         .await?;
-                                    return self.get_by_id(new_id_res).await?.ok_or_else(|| anyhow::anyhow!("User not found after manual insert"));
+                                    return self.get_by_id(new_id_res).await?.ok_or_else(|| {
+                                        anyhow::anyhow!("User not found after manual insert")
+                                    });
                                 }
                             }
                         }

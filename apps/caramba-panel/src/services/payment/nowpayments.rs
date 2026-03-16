@@ -1,13 +1,13 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use hmac::{Hmac, Mac};
-use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
+use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::Sha512;
 
-use caramba_db::models::store::{PaymentSession, User};
 use super::provider::{PaymentProvider, PaymentWebhookAction};
+use caramba_db::models::store::{PaymentSession, User};
 
 #[derive(Serialize)]
 struct NowPaymentsInvoiceReq {
@@ -37,14 +37,20 @@ impl PaymentProvider for NowPaymentsProvider {
         "nowpayments"
     }
 
-    async fn create_invoice(&self, session: &PaymentSession, _user: &User, client: &reqwest::Client) -> Result<String> {
+    async fn create_invoice(
+        &self,
+        session: &PaymentSession,
+        _user: &User,
+        client: &reqwest::Client,
+    ) -> Result<String> {
         let req_body = NowPaymentsInvoiceReq {
             price_amount: (session.amount as f64) / 100.0, // Amount is in cents
             price_currency: session.currency.to_uppercase(),
             pay_currency: "USDTTRC20".to_string(), // Or could be empty for full selection
             order_id: session.id.to_string(),
             order_description: format!("VPN Subscription (Product: {})", session.product_id),
-            ipn_callback_url: "https://your-api-domain.com/api/webhooks/payment/nowpayments".to_string(), // Need env config ideally
+            ipn_callback_url: "https://your-api-domain.com/api/webhooks/payment/nowpayments"
+                .to_string(), // Need env config ideally
             success_url: "https://t.me/your_bot".to_string(),
             cancel_url: "https://t.me/your_bot".to_string(),
         };
@@ -66,21 +72,24 @@ impl PaymentProvider for NowPaymentsProvider {
             anyhow::bail!("NowPayments API Error: {}", error_text);
         }
 
-        let invoice: NowPaymentsInvoiceRes = res.json().await.context("Failed to parse NowPayments response")?;
+        let invoice: NowPaymentsInvoiceRes = res
+            .json()
+            .await
+            .context("Failed to parse NowPayments response")?;
         Ok(invoice.invoice_url)
     }
 
     async fn verify_webhook(&self, payload: &[u8], signature: &str) -> Result<bool> {
         type HmacSha512 = Hmac<Sha512>;
-        let mut mac = HmacSha512::new_from_slice(self.ipn_secret.as_bytes())
-            .context("Invalid HMAC key")?;
-        
+        let mut mac =
+            HmacSha512::new_from_slice(self.ipn_secret.as_bytes()).context("Invalid HMAC key")?;
+
         let payload_str = std::str::from_utf8(payload).unwrap_or("");
-        
+
         // NowPayments requires the payload dictionary to be sorted by keys. For robust parsing, we re-serialize it.
         // Or simply verify the raw payload bytes if the web framework preserves exact order.
         mac.update(payload_str.as_bytes());
-        
+
         let result = mac.finalize().into_bytes();
         let computed_sig = hex::encode(result);
 
@@ -89,8 +98,11 @@ impl PaymentProvider for NowPaymentsProvider {
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {
         let data: Value = serde_json::from_slice(payload).context("Invalid JSON")?;
-        
-        let status = data.get("payment_status").and_then(|v| v.as_str()).unwrap_or("");
+
+        let status = data
+            .get("payment_status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let order_id = data.get("order_id").and_then(|v| v.as_str()).unwrap_or("");
 
         if order_id.is_empty() {
@@ -98,13 +110,21 @@ impl PaymentProvider for NowPaymentsProvider {
         }
 
         match status {
-            "finished" | "completed" => Ok(PaymentWebhookAction::Completed { external_id: order_id.to_string() }),
-            "failed" | "expired" | "refunded" => Ok(PaymentWebhookAction::Failed { reason: status.to_string() }),
+            "finished" | "completed" => Ok(PaymentWebhookAction::Completed {
+                external_id: order_id.to_string(),
+            }),
+            "failed" | "expired" | "refunded" => Ok(PaymentWebhookAction::Failed {
+                reason: status.to_string(),
+            }),
             _ => Ok(PaymentWebhookAction::Pending),
         }
     }
 
-    async fn check_status(&self, _session: &PaymentSession, _client: &reqwest::Client) -> Result<String> {
+    async fn check_status(
+        &self,
+        _session: &PaymentSession,
+        _client: &reqwest::Client,
+    ) -> Result<String> {
         Ok("pending".to_string())
     }
 }

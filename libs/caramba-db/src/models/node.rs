@@ -88,12 +88,30 @@ pub struct Node {
     #[sqlx(default)]
     pub last_sync_trigger: Option<String>,
     #[sqlx(default)]
+    pub node_type: String,
+    #[sqlx(default)]
     pub is_relay: bool,
     #[sqlx(default)]
     pub pending_log_collection: bool,
 }
 
 impl Node {
+    pub fn normalized_node_type(&self) -> &str {
+        if self.node_type.eq_ignore_ascii_case("relay") || self.is_relay {
+            "relay"
+        } else {
+            "exit"
+        }
+    }
+
+    pub fn is_relay_node(&self) -> bool {
+        self.normalized_node_type() == "relay"
+    }
+
+    pub fn is_exit_node(&self) -> bool {
+        !self.is_relay_node()
+    }
+
     pub fn cpu_rounded(&self) -> String {
         format!("{:.0}", self.last_cpu.unwrap_or(0.0))
     }

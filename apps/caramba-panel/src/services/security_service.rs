@@ -19,7 +19,7 @@ impl SecurityService {
         premium_only: bool,
     ) -> Result<String> {
         let has_favorites: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM sni_pool WHERE is_favorite = TRUE AND is_active = TRUE)"
+            "SELECT EXISTS(SELECT 1 FROM sni_pool WHERE is_favorite = TRUE AND is_active = TRUE)",
         )
         .fetch_one(&self.pool)
         .await
@@ -85,10 +85,11 @@ impl SecurityService {
 
         // 3. Internal Relay Rule: Use ONLY verified Roskomnadzor whitelist
         // We use country_code 'RU' or is_relay flag.
-        let node_info: Option<(bool, Option<String>)> = sqlx::query_as("SELECT is_relay, country_code FROM nodes WHERE id = $1")
-            .bind(node_id)
-            .fetch_optional(&self.pool)
-            .await?;
+        let node_info: Option<(bool, Option<String>)> =
+            sqlx::query_as("SELECT is_relay, country_code FROM nodes WHERE id = $1")
+                .bind(node_id)
+                .fetch_optional(&self.pool)
+                .await?;
 
         if let Some((is_relay, country_code)) = node_info {
             let is_ru = country_code.unwrap_or_default().to_uppercase() == "RU";
@@ -186,7 +187,8 @@ impl SecurityService {
 
         // 4. Blocklist the old SNI if the rotation is due to a validation failure
         if reason.starts_with("Validation failed:") || reason.starts_with("Auto-Heal:") {
-            let sni_repo = caramba_db::repositories::sni_repo::SniRepository::new(self.pool.clone());
+            let sni_repo =
+                caramba_db::repositories::sni_repo::SniRepository::new(self.pool.clone());
             if let Err(e) = sni_repo.add_to_blocklist(&current_sni, reason).await {
                 tracing::warn!("Failed to add SNI '{}' to blocklist: {}", current_sni, e);
             }

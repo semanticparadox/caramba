@@ -125,7 +125,7 @@ impl SniRepository {
                 domain TEXT PRIMARY KEY,
                 reason TEXT,
                 blocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )"
+            )",
         )
         .execute(&self.pool)
         .await

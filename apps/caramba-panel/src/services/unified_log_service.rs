@@ -54,7 +54,10 @@ impl UnifiedLogService {
         let mut logs = Vec::new();
         let normalized_source = source.trim().to_ascii_lowercase();
 
-        if normalized_source.is_empty() || normalized_source == "all" || normalized_source == "system" {
+        if normalized_source.is_empty()
+            || normalized_source == "all"
+            || normalized_source == "system"
+        {
             let system_logs = LoggingService::get_logs(
                 pool,
                 limit as i64,
@@ -73,16 +76,20 @@ impl UnifiedLogService {
             }));
         }
 
-        if normalized_source.is_empty() || normalized_source == "all" || normalized_source == "bot" {
+        if normalized_source.is_empty() || normalized_source == "all" || normalized_source == "bot"
+        {
             logs.extend(read_flat_log_file("bot", "bot.log", limit));
         }
 
-        if (normalized_source.is_empty() || normalized_source == "all" || normalized_source == "node")
+        if (normalized_source.is_empty()
+            || normalized_source == "all"
+            || normalized_source == "node")
             && node_filter.is_some()
         {
             let (node_id, node_name) = node_filter.unwrap();
             if let Some(serialized) = redis.get(&format!("node_logs:{}", node_id)).await? {
-                let parsed: HashMap<String, String> = serde_json::from_str(&serialized).unwrap_or_default();
+                let parsed: HashMap<String, String> =
+                    serde_json::from_str(&serialized).unwrap_or_default();
                 for (service_name, content) in parsed {
                     for line in content.lines().rev().take(limit) {
                         if line.trim().is_empty() {
@@ -103,7 +110,9 @@ impl UnifiedLogService {
             logs.truncate(limit);
         }
 
-        let categories = LoggingService::get_categories(pool).await.unwrap_or_default();
+        let categories = LoggingService::get_categories(pool)
+            .await
+            .unwrap_or_default();
         let payload = UnifiedLogPayload { logs, categories };
         let serialized = serde_json::to_string(&payload)?;
         let _ = redis.set(&cache_key, &serialized, 45).await;
@@ -129,7 +138,11 @@ fn read_flat_log_file(source: &str, path: &str, limit: usize) -> Vec<UnifiedLogE
         .collect()
 }
 
-fn parse_external_log_line(source: &str, line: &str, node_label: Option<String>) -> UnifiedLogEntry {
+fn parse_external_log_line(
+    source: &str,
+    line: &str,
+    node_label: Option<String>,
+) -> UnifiedLogEntry {
     let timestamp = parse_line_timestamp(line).unwrap_or_else(Utc::now);
     let level = if line.contains("ERROR") || line.contains("Error") {
         "Error"

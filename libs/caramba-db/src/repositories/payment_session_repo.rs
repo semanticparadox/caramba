@@ -39,12 +39,11 @@ impl PaymentSessionRepository {
     }
 
     pub async fn get_by_id(&self, id: Uuid) -> Result<Option<PaymentSession>> {
-        let session = sqlx::query_as::<_, PaymentSession>(
-            "SELECT * FROM payment_sessions WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let session =
+            sqlx::query_as::<_, PaymentSession>("SELECT * FROM payment_sessions WHERE id = $1")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?;
         Ok(session)
     }
 
@@ -59,11 +58,13 @@ impl PaymentSessionRepository {
     }
 
     pub async fn update_status(&self, id: Uuid, status: &str) -> Result<()> {
-        sqlx::query("UPDATE payment_sessions SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2")
-            .bind(status)
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "UPDATE payment_sessions SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+        )
+        .bind(status)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 

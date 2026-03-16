@@ -20,7 +20,11 @@ pub struct StoreService {
     pub node_repo: NodeRepository,
     pub api_key_repo: ApiKeyRepository,
     // Use RwLock for interior mutability to break circular dependency with OrchestrationService
-    pub orchestration_service: std::sync::Arc<std::sync::RwLock<Option<std::sync::Arc<crate::services::orchestration_service::OrchestrationService>>>>,
+    pub orchestration_service: std::sync::Arc<
+        std::sync::RwLock<
+            Option<std::sync::Arc<crate::services::orchestration_service::OrchestrationService>>,
+        >,
+    >,
 }
 
 impl StoreService {
@@ -39,7 +43,10 @@ impl StoreService {
         }
     }
 
-    pub fn set_orchestration_service(&self, svc: std::sync::Arc<crate::services::orchestration_service::OrchestrationService>) {
+    pub fn set_orchestration_service(
+        &self,
+        svc: std::sync::Arc<crate::services::orchestration_service::OrchestrationService>,
+    ) {
         if let Ok(mut lock) = self.orchestration_service.write() {
             *lock = Some(svc);
         }
@@ -1043,7 +1050,9 @@ impl StoreService {
     }
 
     pub async fn update_user_referral_code(&self, user_id: i64, new_code: &str) -> Result<()> {
-        self.user_repo.update_user_referral_code(user_id, new_code).await
+        self.user_repo
+            .update_user_referral_code(user_id, new_code)
+            .await
     }
 
     pub async fn get_user_subscriptions(
@@ -1098,8 +1107,11 @@ impl StoreService {
             _awg_private_key: None,
         };
 
-        let base64_config =
-            crate::singbox::subscription_generator::generate_v2ray_config(&sub, &node_infos, &user_keys)?;
+        let base64_config = crate::singbox::subscription_generator::generate_v2ray_config(
+            &sub,
+            &node_infos,
+            &user_keys,
+        )?;
 
         use base64::Engine;
         let decoded = String::from_utf8(
@@ -1127,7 +1139,7 @@ impl StoreService {
     }
 
     pub async fn kill_subscription_connections(&self, sub_id: i64) -> Result<()> {
-        // Implementation depends on how connections are tracked. 
+        // Implementation depends on how connections are tracked.
         // For now, we can clear IP tracking as a way to signal reset (this is a placeholder for real killing)
         sqlx::query("DELETE FROM subscription_ip_tracking WHERE subscription_id = $1")
             .bind(sub_id)
@@ -1144,7 +1156,10 @@ impl StoreService {
         });
 
         for sub in subs {
-            let links = self.get_subscription_links(sub.sub.id).await.unwrap_or_default();
+            let links = self
+                .get_subscription_links(sub.sub.id)
+                .await
+                .unwrap_or_default();
             if let Some(profiles) = config["profiles"].as_array_mut() {
                 profiles.push(serde_json::json!({
                     "name": sub.plan_name,
@@ -1237,7 +1252,7 @@ impl StoreService {
 
     pub async fn get_categories(&self) -> Result<Vec<caramba_db::models::store::StoreCategory>> {
         sqlx::query_as::<_, caramba_db::models::store::StoreCategory>(
-            "SELECT * FROM categories WHERE is_active = TRUE ORDER BY sort_order ASC"
+            "SELECT * FROM categories WHERE is_active = TRUE ORDER BY sort_order ASC",
         )
         .fetch_all(&self.pool)
         .await
@@ -1257,7 +1272,11 @@ impl StoreService {
     }
 
     pub async fn set_user_referrer(&self, user_id: i64, code: &str) -> Result<()> {
-        let referrer = self.user_repo.get_by_referral_code(code).await?.context("Referrer not found")?;
+        let referrer = self
+            .user_repo
+            .get_by_referral_code(code)
+            .await?
+            .context("Referrer not found")?;
         self.user_repo.set_referrer_id(user_id, referrer.id).await
     }
 }

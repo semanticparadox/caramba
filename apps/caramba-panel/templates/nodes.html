@@ -8,19 +8,35 @@
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
             <h2 class="text-2xl font-bold text-slate-900 dark:text-white">Nodes Management</h2>
-            <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-1">Infrastructure lifecycle
-                and edge routing</p>
+            <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-1">
+                Relay and exit infrastructure isolation
+            </p>
         </div>
         <div class="flex items-center gap-3">
-            <button onclick="document.getElementById('add-node-modal').showModal()" class="btn btn-primary px-6">
+            <button onclick="openAddNode('exit')" class="btn btn-primary px-6">
                 <i data-lucide="plus" class="w-4 h-4"></i>
-                Add Node
+                Add Exit
             </button>
-            <button onclick="openAddRelay()" class="btn btn-warning px-6">
+            <button onclick="openAddNode('relay')" class="btn btn-warning px-6">
                 <i data-lucide="link" class="w-4 h-4"></i>
                 Add Relay
             </button>
-            <button hx-get="{{ admin_path }}/nodes" hx-target="#nodes-table-body" class="btn btn-secondary px-4">
+            <button
+                hx-get="{{ admin_path }}/nodes/rows/exit"
+                hx-target="#exit-nodes-table-body"
+                hx-swap="innerHTML"
+                class="btn btn-secondary px-4"
+                title="Refresh Exit Nodes"
+            >
+                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+            </button>
+            <button
+                hx-get="{{ admin_path }}/nodes/rows/relay"
+                hx-target="#relay-nodes-table-body"
+                hx-swap="innerHTML"
+                class="btn btn-secondary px-4"
+                title="Refresh Relay Nodes"
+            >
                 <i data-lucide="refresh-cw" class="w-4 h-4"></i>
             </button>
         </div>
@@ -32,27 +48,26 @@
                 <i data-lucide="server" class="w-16 h-16"></i>
             </div>
             <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Total Nodes</p>
-            <p class="text-3xl font-bold text-slate-900 dark:text-white mt-2">{{ nodes.len() }}</p>
+            <p class="text-3xl font-bold text-slate-900 dark:text-white mt-2">{{ all_nodes.len() }}</p>
         </div>
         <div class="card-stat relative overflow-hidden group">
             <div class="absolute -top-2 -right-2 p-2 opacity-5 group-hover:opacity-10 transition-opacity">
-                <i data-lucide="zap" class="w-16 h-16"></i>
+                <i data-lucide="send" class="w-16 h-16"></i>
             </div>
-            <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Latest Agent</p>
-            <p class="text-3xl font-bold text-slate-900 dark:text-white mt-2">{{ agent_latest_version }}</p>
+            <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Exit Nodes</p>
+            <p class="text-3xl font-bold text-slate-900 dark:text-white mt-2">{{ exit_nodes.len() }}</p>
         </div>
         <div class="card-stat relative overflow-hidden group">
             <div class="absolute -top-2 -right-2 p-2 opacity-5 group-hover:opacity-10 transition-opacity">
-                <i data-lucide="refresh-cw" class="w-16 h-16"></i>
+                <i data-lucide="network" class="w-16 h-16"></i>
             </div>
-            <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Updates</p>
-            <p class="text-3xl font-bold mt-2 {% if auto_update_agents %}text-brand{% else %}text-amber-500{% endif %}">
-                {% if auto_update_agents %}Auto{% else %}Manual{% endif %}
-            </p>
+            <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Relay Nodes</p>
+            <p class="text-3xl font-bold text-slate-900 dark:text-white mt-2">{{ relay_nodes.len() }}</p>
         </div>
     </div>
 
-    <div class="card-section">
+    <div class="card-section space-y-3">
+        <h3 class="text-sm font-semibold uppercase tracking-widest text-slate-500">Exit Nodes</h3>
         <div class="overflow-x-auto">
             <table class="table-base">
                 <thead>
@@ -65,9 +80,45 @@
                         <th class="px-4 py-3">Actions</th>
                     </tr>
                 </thead>
-                <tbody id="nodes-table-body" hx-get="{{ admin_path }}/nodes"
-                    hx-trigger="load, refresh_nodes from:body, every 20s">
-                    {% include "partials/nodes_rows.html" %}
+                <tbody
+                    id="exit-nodes-table-body"
+                    hx-get="{{ admin_path }}/nodes/rows/exit"
+                    hx-trigger="load, refresh_nodes from:body, every 20s"
+                >
+                    <tr>
+                        <td colspan="6" class="px-6 py-8 text-center text-slate-500 text-xs uppercase tracking-widest">
+                            Loading exit nodes...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card-section space-y-3">
+        <h3 class="text-sm font-semibold uppercase tracking-widest text-slate-500">Relay Nodes</h3>
+        <div class="overflow-x-auto">
+            <table class="table-base">
+                <thead>
+                    <tr>
+                        <th class="px-4 py-3">Node</th>
+                        <th class="px-4 py-3">IP</th>
+                        <th class="px-4 py-3">Status</th>
+                        <th class="px-4 py-3">Last Seen</th>
+                        <th class="px-4 py-3">Load</th>
+                        <th class="px-4 py-3">Actions</th>
+                    </tr>
+                </thead>
+                <tbody
+                    id="relay-nodes-table-body"
+                    hx-get="{{ admin_path }}/nodes/rows/relay"
+                    hx-trigger="load, refresh_nodes from:body, every 20s"
+                >
+                    <tr>
+                        <td colspan="6" class="px-6 py-8 text-center text-slate-500 text-xs uppercase tracking-widest">
+                            Loading relay nodes...
+                        </td>
+                    </tr>
                 </tbody>
             </table>
         </div>
@@ -88,6 +139,7 @@
 
         <form hx-post="{{ admin_path }}/nodes/install" hx-target="#manual-install-modal-content" hx-swap="innerHTML"
             class="modal-body space-y-5">
+            <input type="hidden" id="add-node-type" name="node_type" value="exit">
             <div>
                 <label
                     class="block text-[10px] text-slate-500 uppercase tracking-widest font-semibold mb-1.5 ml-1">Name</label>
@@ -119,19 +171,13 @@
                 </select>
             </div>
             <div id="add-node-relay-section" class="space-y-4 hidden pt-2">
-                <label class="flex items-center gap-2.5 text-sm text-slate-300 cursor-pointer group">
-                    <input type="checkbox" id="add-node-is-relay" name="is_relay" value="on"
-                        class="w-4 h-4 rounded border-border-default bg-slate-900 text-brand focus:ring-brand/20">
-                    <span class="group-hover:text-white transition-colors">Is relay node (other nodes chain through this
-                        one)</span>
-                </label>
                 <div>
                     <label
                         class="block text-[10px] text-slate-500 uppercase tracking-widest font-semibold mb-1.5 ml-1">Relay
                         Parent (optional — chain through another node)</label>
                     <select name="relay_id" class="input-field">
                         <option value="">None (standalone)</option>
-                        {% for n in nodes %}
+                        {% for n in relay_nodes %}
                         <option value="{{ n.id }}">{{ n.name }} ({{ n.ip }})</option>
                         {% endfor %}
                     </select>
@@ -219,11 +265,13 @@
         await navigator.clipboard.writeText(currentNodeInstallCommand);
     }
 
-    function openAddRelay() {
+    function openAddNode(nodeType) {
+        const nodeTypeInput = document.getElementById('add-node-type');
         const relaySection = document.getElementById('add-node-relay-section');
-        const relayCheckbox = document.getElementById('add-node-is-relay');
-        if (relaySection) relaySection.classList.remove('hidden');
-        if (relayCheckbox) relayCheckbox.checked = true;
+        const relayParent = document.querySelector('#add-node-relay-section select[name="relay_id"]');
+        if (nodeTypeInput) nodeTypeInput.value = nodeType;
+        if (relaySection) relaySection.classList.toggle('hidden', nodeType === 'relay');
+        if (relayParent && nodeType === 'relay') relayParent.value = "";
         document.getElementById('add-node-modal').showModal();
     }
 </script>

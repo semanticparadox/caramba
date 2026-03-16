@@ -2,7 +2,7 @@ use crate::singbox::subscription_generator::NodeInfo;
 use anyhow::Result;
 use caramba_db::models::network::Inbound;
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 pub struct SingboxConnectionVariant {
@@ -262,7 +262,7 @@ mod tests {
     use super::{
         apply_connection_variant, available_connection_variants_for_node, fixed_connection_variants,
     };
-    use crate::singbox::subscription_generator::{generate_singbox_config, NodeInfo, UserKeys};
+    use crate::singbox::subscription_generator::{NodeInfo, UserKeys, generate_singbox_config};
     use caramba_db::models::network::Inbound;
     use serde_json::json;
 
@@ -325,9 +325,11 @@ mod tests {
             .unwrap();
 
         let picked_tags = variant_group["outbounds"].as_array().unwrap();
-        assert!(picked_tags
-            .iter()
-            .all(|tag| tag.as_str().unwrap().ends_with("·r")));
+        assert!(
+            picked_tags
+                .iter()
+                .all(|tag| tag.as_str().unwrap().ends_with("·r"))
+        );
     }
 
     #[test]
@@ -345,9 +347,11 @@ mod tests {
 
         let picked_tags = variant_group["outbounds"].as_array().unwrap();
         assert!(!picked_tags.is_empty());
-        assert!(picked_tags
-            .iter()
-            .all(|tag| tag.as_str().unwrap().contains("grpc")));
+        assert!(
+            picked_tags
+                .iter()
+                .all(|tag| tag.as_str().unwrap().contains("grpc"))
+        );
     }
 
     fn build_config_fixture() -> String {
