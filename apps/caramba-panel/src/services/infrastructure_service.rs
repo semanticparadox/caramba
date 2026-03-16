@@ -32,6 +32,26 @@ impl InfrastructureService {
         self.node_repo.get_active_nodes().await
     }
 
+    pub async fn get_active_relay_nodes(&self) -> Result<Vec<Node>> {
+        Ok(self
+            .node_repo
+            .get_active_nodes()
+            .await?
+            .into_iter()
+            .filter(|node| node.is_relay_node())
+            .collect())
+    }
+
+    pub async fn get_active_exit_nodes(&self) -> Result<Vec<Node>> {
+        Ok(self
+            .node_repo
+            .get_active_nodes()
+            .await?
+            .into_iter()
+            .filter(|node| node.is_exit_node())
+            .collect())
+    }
+
     pub async fn get_node_groups(
         &self,
         node_id: i64,
@@ -119,6 +139,7 @@ impl InfrastructureService {
             doomsday_password: Some(doomsday_password),
             last_synced_at: None,
             last_sync_trigger: None,
+            node_type: "exit".to_string(),
             is_relay: false,
             pending_log_collection: false,
         };
@@ -168,16 +189,28 @@ impl InfrastructureService {
         name: &str,
         ip: &str,
         relay_id: Option<i64>,
-        is_relay: bool,
+        node_type: &str,
         country: &str,
     ) -> Result<()> {
-        let country_val = if country.is_empty() { None } else { Some(country) };
+        let normalized_type = if node_type.eq_ignore_ascii_case("relay") {
+            "relay"
+        } else {
+            "exit"
+        };
+        let is_relay = normalized_type == "relay";
+        let relay_parent = if is_relay { None } else { relay_id };
+        let country_val = if country.is_empty() {
+            None
+        } else {
+            Some(country)
+        };
         let primary = sqlx::query(
-            "UPDATE nodes SET name = $1, ip = $2, relay_id = $3, is_relay = $4, country = $5 WHERE id = $6",
+            "UPDATE nodes SET name = $1, ip = $2, relay_id = $3, node_type = $4, is_relay = $5, country = $6 WHERE id = $7",
         )
         .bind(name)
         .bind(ip)
-        .bind(relay_id)
+        .bind(relay_parent)
+        .bind(normalized_type)
         .bind(is_relay)
         .bind(country_val)
         .bind(id)
@@ -190,10 +223,44 @@ impl InfrastructureService {
                 // Backward-compat for installations where nodes.relay_id is not migrated yet.
                 let msg = e.to_string();
                 if msg.contains("relay_id") && msg.contains("does not exist") {
-                    sqlx::query("UPDATE nodes SET name = $1, ip = $2, is_relay = $3 WHERE id = $4")
+                    let secondary = sqlx::query(
+                        "UPDATE nodes SET name = $1, ip = $2, node_type = $3, is_relay = $4 WHERE id = $5",
+                    )
+                    .bind(name)
+                    .bind(ip)
+                    .bind(normalized_type)
+                    .bind(is_relay)
+                    .bind(id)
+                    .execute(&self.pool)
+                    .await;
+
+                    if let Err(sec_err) = secondary {
+                        let sec_msg = sec_err.to_string();
+                        if sec_msg.contains("node_type") && sec_msg.contains("does not exist") {
+                            sqlx::query(
+                                "UPDATE nodes SET name = $1, ip = $2, is_relay = $3 WHERE id = $4",
+                            )
+                            .bind(name)
+                            .bind(ip)
+                            .bind(is_relay)
+                            .bind(id)
+                            .execute(&self.pool)
+                            .await?;
+                        } else {
+                            return Err(sec_err.into());
+                        }
+                    }
+
+                    Ok(())
+                } else if msg.contains("node_type") && msg.contains("does not exist") {
+                    sqlx::query(
+                        "UPDATE nodes SET name = $1, ip = $2, relay_id = $3, is_relay = $4, country = $5 WHERE id = $6",
+                    )
                         .bind(name)
                         .bind(ip)
+                        .bind(relay_parent)
                         .bind(is_relay)
+                        .bind(country_val)
                         .bind(id)
                         .execute(&self.pool)
                         .await?;

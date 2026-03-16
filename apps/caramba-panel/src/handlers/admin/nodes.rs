@@ -25,7 +25,9 @@ use uuid::Uuid;
 #[derive(Template)]
 #[template(path = "nodes.html")]
 pub struct NodesTemplate {
-    pub nodes: Vec<Node>,
+    pub all_nodes: Vec<Node>,
+    pub exit_nodes: Vec<Node>,
+    pub relay_nodes: Vec<Node>,
     pub is_auth: bool,
     pub username: String,
     pub admin_path: String,
@@ -49,7 +51,7 @@ pub struct NodesRowsPartial {
 #[template(path = "node_edit_modal.html")]
 pub struct NodeEditModalTemplate {
     pub node: Node,
-    pub all_nodes: Vec<Node>, // Added for relay selection
+    pub relay_nodes: Vec<Node>, // Relay-only selection for exit nodes
     pub admin_path: String,
 }
 
@@ -103,6 +105,9 @@ pub struct InstallNodeForm {
     pub vpn_port: Option<i32>,
     pub auto_configure: Option<bool>,
     pub country: Option<String>,
+    #[serde(default)]
+    pub node_type: Option<String>,
+    #[serde(default)]
     pub is_relay: Option<String>,
     #[serde(default)]
     pub relay_id: Option<String>,
@@ -121,12 +126,28 @@ pub struct UpdateNodeForm {
     pub ip: String,
     #[serde(default)]
     pub relay_id: Option<String>,
+    #[serde(default)]
+    pub node_type: Option<String>,
     pub is_relay: Option<String>, // "on" or None from checkbox
     pub config_block_torrent: Option<String>,
     pub config_block_ads: Option<String>,
     pub config_block_porn: Option<String>,
     pub config_qos_enabled: Option<String>,
     pub country: Option<String>,
+}
+
+fn normalize_node_type(node_type: Option<&str>, legacy_is_relay: bool) -> &'static str {
+    if legacy_is_relay {
+        return "relay";
+    }
+
+    match node_type
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("relay") => "relay",
+        _ => "exit",
+    }
 }
 
 async fn ensure_node_join_token(pool: &sqlx::PgPool, node_id: i64) -> anyhow::Result<String> {
@@ -169,13 +190,23 @@ pub async fn get_nodes(
     headers: HeaderMap,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let nodes = match state.infrastructure_service.get_all_nodes().await {
+    let all_nodes = match state.infrastructure_service.get_all_nodes().await {
         Ok(nodes) => nodes,
         Err(e) => {
             error!("Failed to load nodes list: {}", e);
             Vec::new()
         }
     };
+    let relay_nodes = all_nodes
+        .iter()
+        .filter(|node| node.is_relay_node())
+        .cloned()
+        .collect::<Vec<_>>();
+    let exit_nodes = all_nodes
+        .iter()
+        .filter(|node| node.is_exit_node())
+        .cloned()
+        .collect::<Vec<_>>();
 
     let admin_path = state.admin_path.clone();
 
@@ -193,7 +224,7 @@ pub async fn get_nodes(
 
     if headers.contains_key("hx-request") {
         let template = NodesRowsPartial {
-            nodes,
+            nodes: all_nodes.clone(),
             admin_path,
             agent_latest_version,
             auto_update_agents,
@@ -202,7 +233,9 @@ pub async fn get_nodes(
     }
 
     let template = NodesTemplate {
-        nodes,
+        all_nodes,
+        exit_nodes,
+        relay_nodes,
         is_auth: true,
         username: get_auth_user(&state, &jar)
             .await
@@ -212,6 +245,70 @@ pub async fn get_nodes(
         agent_latest_version,
         auto_update_agents,
     };
+    Html(template.render().unwrap()).into_response()
+}
+
+pub async fn get_exit_nodes_rows(State(state): State<AppState>) -> impl IntoResponse {
+    let admin_path = state.admin_path.clone();
+    let agent_latest_version = state
+        .settings
+        .get_or_default("agent_latest_version", "0.0.0")
+        .await;
+    let auto_update_agents: bool = state
+        .settings
+        .get_or_default("auto_update_agents", "true")
+        .await
+        .parse()
+        .unwrap_or(true);
+
+    let nodes = state
+        .infrastructure_service
+        .get_all_nodes()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|node| node.is_exit_node())
+        .collect::<Vec<_>>();
+
+    let template = NodesRowsPartial {
+        nodes,
+        admin_path,
+        agent_latest_version,
+        auto_update_agents,
+    };
+
+    Html(template.render().unwrap()).into_response()
+}
+
+pub async fn get_relay_nodes_rows(State(state): State<AppState>) -> impl IntoResponse {
+    let admin_path = state.admin_path.clone();
+    let agent_latest_version = state
+        .settings
+        .get_or_default("agent_latest_version", "0.0.0")
+        .await;
+    let auto_update_agents: bool = state
+        .settings
+        .get_or_default("auto_update_agents", "true")
+        .await
+        .parse()
+        .unwrap_or(true);
+
+    let nodes = state
+        .infrastructure_service
+        .get_all_nodes()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|node| node.is_relay_node())
+        .collect::<Vec<_>>();
+
+    let template = NodesRowsPartial {
+        nodes,
+        admin_path,
+        agent_latest_version,
+        auto_update_agents,
+    };
+
     Html(template.render().unwrap()).into_response()
 }
 
@@ -240,19 +337,46 @@ pub async fn install_node(
         Ok(id) => {
             // Set country and relay fields if provided
             let country = form.country.as_deref().unwrap_or("").trim();
-            let is_relay = form.is_relay.is_some();
-            let relay_id: Option<i64> = form.relay_id.as_deref()
-                .and_then(|s| s.trim().parse().ok());
-            if !country.is_empty() || is_relay || relay_id.is_some() {
-                let _ = sqlx::query(
-                    "UPDATE nodes SET country = $1, is_relay = $2, relay_id = $3 WHERE id = $4"
+            let node_type = normalize_node_type(form.node_type.as_deref(), form.is_relay.is_some());
+            let is_relay = node_type == "relay";
+            let relay_id: Option<i64> = if is_relay {
+                None
+            } else {
+                form.relay_id.as_deref().and_then(|s| s.trim().parse().ok())
+            };
+            if !country.is_empty() || is_relay || relay_id.is_some() || form.node_type.is_some() {
+                let country_opt = if country.is_empty() {
+                    None
+                } else {
+                    Some(country)
+                };
+                let primary = sqlx::query(
+                    "UPDATE nodes SET country = $1, node_type = $2, is_relay = $3, relay_id = $4 WHERE id = $5",
                 )
-                .bind(if country.is_empty() { None } else { Some(country) })
+                .bind(country_opt)
+                .bind(node_type)
                 .bind(is_relay)
                 .bind(relay_id)
                 .bind(id)
                 .execute(&state.pool)
                 .await;
+
+                if let Err(e) = primary {
+                    let msg = e.to_string();
+                    if msg.contains("node_type") && msg.contains("does not exist") {
+                        let _ = sqlx::query(
+                            "UPDATE nodes SET country = $1, is_relay = $2, relay_id = $3 WHERE id = $4",
+                        )
+                        .bind(country_opt)
+                        .bind(is_relay)
+                        .bind(relay_id)
+                        .bind(id)
+                        .execute(&state.pool)
+                        .await;
+                    } else {
+                        error!("Failed to persist node role data for node {}: {}", id, e);
+                    }
+                }
             }
 
             // Trigger default inbounds via orchestration
@@ -332,13 +456,16 @@ pub async fn get_node_edit(
 
     let all_nodes = state
         .infrastructure_service
-        .get_active_nodes()
+        .get_active_relay_nodes()
         .await
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|relay| relay.id != node.id)
+        .collect();
 
     let template = NodeEditModalTemplate {
         node,
-        all_nodes,
+        relay_nodes: all_nodes,
         admin_path,
     };
     match template.render() {
@@ -356,17 +483,24 @@ pub async fn update_node(
     State(state): State<AppState>,
     Form(form): Form<UpdateNodeForm>,
 ) -> impl IntoResponse {
-    let is_relay = form.is_relay.is_some();
+    let node_type = normalize_node_type(form.node_type.as_deref(), form.is_relay.is_some());
+    let is_relay = node_type == "relay";
     let country = form.country.as_deref().unwrap_or("").trim().to_string();
-    info!("Updating node ID: {} (Relay: {}, Country: {})", id, is_relay, country);
+    info!(
+        "Updating node ID: {} (Type: {}, Country: {})",
+        id, node_type, country
+    );
 
-    let relay_id: Option<i64> = form.relay_id.as_deref()
-        .and_then(|s| s.trim().parse().ok());
+    let relay_id: Option<i64> = if is_relay {
+        None
+    } else {
+        form.relay_id.as_deref().and_then(|s| s.trim().parse().ok())
+    };
 
     // 1. Update core fields
     if let Err(e) = state
         .infrastructure_service
-        .update_node(id, &form.name, &form.ip, relay_id, is_relay, &country)
+        .update_node(id, &form.name, &form.ip, relay_id, node_type, &country)
         .await
     {
         error!("Failed to update node core: {}", e);
@@ -577,6 +711,13 @@ pub async fn get_node_install_script(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
+    let node_type = state
+        .infrastructure_service
+        .get_node_by_id(id)
+        .await
+        .map(|node| node.normalized_node_type().to_string())
+        .unwrap_or_else(|_| "exit".to_string());
+
     let join_token = match ensure_node_join_token(&state.pool, id).await {
         Ok(token) => token,
         Err(e) => {
@@ -629,10 +770,11 @@ pub async fn get_node_install_script(
     let script = format!(
         r#"#!/usr/bin/env bash
 set -euo pipefail
-curl -fsSL '{panel_url}/install.sh' | sudo bash -s -- --role node --panel '{panel_url}' --token '{token}'
+curl -fsSL '{panel_url}/install.sh' | sudo bash -s -- --role node --panel '{panel_url}' --token '{token}' --node-type '{node_type}'
 "#,
         panel_url = panel_url,
         token = join_token,
+        node_type = node_type,
     );
 
     (
@@ -662,6 +804,13 @@ pub async fn get_node_raw_install_script(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
+    let node_type = state
+        .infrastructure_service
+        .get_node_by_id(id)
+        .await
+        .map(|node| node.normalized_node_type().to_string())
+        .unwrap_or_else(|_| "exit".to_string());
+
     let join_token = match ensure_node_join_token(&state.pool, id).await {
         Ok(token) => token,
         Err(e) => {
@@ -712,9 +861,10 @@ pub async fn get_node_raw_install_script(
     .unwrap_or_else(|| "https://YOUR_PANEL_DOMAIN".to_string());
 
     let command = format!(
-        "curl -fsSL '{panel_url}/install.sh' | sudo bash -s -- --role node --panel '{panel_url}' --token '{token}'",
+        "curl -fsSL '{panel_url}/install.sh' | sudo bash -s -- --role node --panel '{panel_url}' --token '{token}' --node-type '{node_type}'",
         panel_url = panel_url,
         token = join_token,
+        node_type = node_type,
     );
 
     (
@@ -870,7 +1020,7 @@ pub async fn get_node_manage(
 
     let all_nodes = state
         .infrastructure_service
-        .get_active_nodes()
+        .get_active_relay_nodes()
         .await
         .unwrap_or_default();
     let inbounds = state
@@ -907,12 +1057,12 @@ pub async fn get_node_manage(
                 .into_iter()
                 .map(|row| NodeSniDisplay {
                     id: row.try_get::<i64, _>("id").unwrap_or_default(),
-                        domain: row.try_get::<String, _>("domain").unwrap_or_default(),
-                        is_pinned: row.try_get::<bool, _>("is_pinned").unwrap_or(false),
-                        health_score: row.try_get::<i32, _>("health_score").unwrap_or(100),
-                        latency_ms: row.try_get::<Option<i32>, _>("latency_ms").unwrap_or(None),
-                        is_premium: row.try_get::<bool, _>("is_premium").unwrap_or(false),
-                    })
+                    domain: row.try_get::<String, _>("domain").unwrap_or_default(),
+                    is_pinned: row.try_get::<bool, _>("is_pinned").unwrap_or(false),
+                    health_score: row.try_get::<i32, _>("health_score").unwrap_or(100),
+                    latency_ms: row.try_get::<Option<i32>, _>("latency_ms").unwrap_or(None),
+                    is_premium: row.try_get::<bool, _>("is_premium").unwrap_or(false),
+                })
                 .collect::<Vec<_>>(),
             Err(e) => {
                 error!(
@@ -946,7 +1096,7 @@ pub async fn get_node_manage(
         .unwrap_or("Admin".to_string());
 
     // Generate nginx reverse proxy config for relay nodes
-    let nginx_proxy_config = if node.is_relay {
+    let nginx_proxy_config = if node.is_relay_node() {
         let panel_url = state.settings.get_or_default("panel_url", "").await;
         let subscription_domain = state
             .settings
@@ -977,18 +1127,20 @@ pub async fn get_node_manage(
             .next()
             .unwrap_or("YOUR_HUB_IP");
         let relay_domain = format!("{}.example.com", node.name.to_lowercase().replace(' ', "-"));
-        let subscription_host = if subscription_entry_relay_id == node.id && !subscription_domain.trim().is_empty() {
-            subscription_domain.trim().to_string()
-        } else {
-            relay_domain.clone()
-        };
+        let subscription_host =
+            if subscription_entry_relay_id == node.id && !subscription_domain.trim().is_empty() {
+                subscription_domain.trim().to_string()
+            } else {
+                relay_domain.clone()
+            };
         let tma_host = if tma_entry_relay_id == node.id && !tma_domain.trim().is_empty() {
             tma_domain.trim().to_string()
         } else {
             subscription_host.clone()
         };
 
-        format!(r#"# Nginx Reverse Proxy for Relay: {node_name}
+        format!(
+            r#"# Nginx Reverse Proxy for Relay: {node_name}
 # Install: sudo apt install nginx certbot python3-certbot-nginx
 # Then: sudo certbot --nginx -d YOUR_RELAY_DOMAIN
 
@@ -1066,7 +1218,7 @@ server {{
         String::new()
     };
 
-    let caddy_proxy_config = if node.is_relay && !nginx_proxy_config.is_empty() {
+    let caddy_proxy_config = if node.is_relay_node() && !nginx_proxy_config.is_empty() {
         let subscription_domain = state
             .settings
             .get_or_default("subscription_domain", "")
@@ -1084,11 +1236,12 @@ server {{
             .await
             .parse::<i64>()
             .unwrap_or(0);
-        let subscription_host = if subscription_entry_relay_id == node.id && !subscription_domain.trim().is_empty() {
-            subscription_domain.trim().to_string()
-        } else {
-            format!("{}.example.com", node.name.to_lowercase().replace(' ', "-"))
-        };
+        let subscription_host =
+            if subscription_entry_relay_id == node.id && !subscription_domain.trim().is_empty() {
+                subscription_domain.trim().to_string()
+            } else {
+                format!("{}.example.com", node.name.to_lowercase().replace(' ', "-"))
+            };
         let tma_host = if tma_entry_relay_id == node.id && !tma_domain.trim().is_empty() {
             tma_domain.trim().to_string()
         } else {
@@ -1104,7 +1257,9 @@ server {{
             "{subscription_host}, {tma_host} {{\n    encode zstd gzip\n\n    handle /sub/* {{\n        reverse_proxy {upstream}\n    }}\n\n    handle /app/* {{\n        reverse_proxy {upstream}\n    }}\n\n    handle /bot/* {{\n        reverse_proxy {upstream}\n    }}\n\n    handle {{\n        respond \"relay-only host\" 403\n    }}\n}}",
             subscription_host = subscription_host,
             tma_host = tma_host,
-            upstream = upstream.trim_start_matches("https://").trim_start_matches("http://"),
+            upstream = upstream
+                .trim_start_matches("https://")
+                .trim_start_matches("http://"),
         )
     } else {
         String::new()
@@ -1301,7 +1456,11 @@ pub async fn rotate_node_inbounds(
     let mut rotated = 0usize;
     let mut failed = 0usize;
     for inbound_id in inbound_ids {
-        match state.generator_service.rotate_inbound(inbound_id as i64).await {
+        match state
+            .generator_service
+            .rotate_inbound(inbound_id as i64)
+            .await
+        {
             Ok(_) => rotated += 1,
             Err(e) => {
                 failed += 1;
