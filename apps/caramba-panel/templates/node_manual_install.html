@@ -1,16 +1,34 @@
-<div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-3xl p-6 m-4">
-    <header class="flex justify-between items-center mb-4">
-        <h3 class="text-xl font-bold text-white">Manual Node Install</h3>
-        <button type="button" onclick="document.getElementById('manual-install-modal').close()" class="text-slate-400 hover:text-white">✕</button>
+<div class="modal-container max-w-3xl">
+    <header class="modal-header">
+        <h3 class="modal-title flex items-center gap-2">
+            <i data-lucide="terminal" class="w-4 h-4 text-brand"></i>
+            Manual Node Install
+        </h3>
+        <button type="button" onclick="document.getElementById('manual-install-modal').close()" class="btn-icon">
+            <i data-lucide="x"></i>
+        </button>
     </header>
-    <p class="text-slate-300 mb-3">Node <span class="font-semibold text-white">{{ node_name }}</span> is created in pending mode. Run command on target server:</p>
-    <pre id="manual-install-command" class="bg-slate-950 border border-white/10 rounded-xl p-4 text-xs text-emerald-300 overflow-x-auto"></pre>
-    <div class="flex justify-end mt-4">
+
+    <div class="modal-body space-y-5">
+        <div class="rounded-xl border border-brand/20 bg-brand/5 px-4 py-3">
+            <p class="text-[11px] uppercase tracking-widest text-slate-400">Node</p>
+            <p class="text-sm font-semibold text-white mt-1">{{ node_name }} <span class="text-slate-500 font-mono">#{{ node_id }}</span></p>
+        </div>
+        <p class="text-sm text-slate-300">
+            Node is created in pending mode. Run the command on the target server, then return to the list and refresh status.
+        </p>
+        <pre id="manual-install-command"
+            class="bg-black/40 border border-white/10 rounded-xl p-5 text-xs text-emerald-300 overflow-x-auto font-mono leading-relaxed"></pre>
+    </div>
+
+    <footer class="modal-footer">
+        <button type="button" onclick="document.getElementById('manual-install-modal').close()" class="btn btn-secondary">Close</button>
         <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('manual-install-command').textContent)"
-            class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl">
+            class="btn btn-primary">
+            <i data-lucide="copy"></i>
             Copy Command
         </button>
-    </div>
+    </footer>
 </div>
 <script>
     (function () {

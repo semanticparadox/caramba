@@ -28,6 +28,8 @@ pub struct NodesTemplate {
     pub all_nodes: Vec<Node>,
     pub exit_nodes: Vec<Node>,
     pub relay_nodes: Vec<Node>,
+    pub exit_rows_html: String,
+    pub relay_rows_html: String,
     pub is_auth: bool,
     pub username: String,
     pub admin_path: String,
@@ -45,6 +47,27 @@ pub struct NodesRowsPartial {
     // Phase 67
     pub agent_latest_version: String,
     pub auto_update_agents: bool,
+}
+
+fn render_nodes_rows_html(
+    nodes: Vec<Node>,
+    admin_path: &str,
+    agent_latest_version: &str,
+    auto_update_agents: bool,
+) -> String {
+    let partial = NodesRowsPartial {
+        nodes,
+        admin_path: admin_path.to_string(),
+        agent_latest_version: agent_latest_version.to_string(),
+        auto_update_agents,
+    };
+
+    partial.render().unwrap_or_else(|e| {
+        format!(
+            r#"<tr><td colspan="6" class="px-6 py-8 text-center text-rose-400 text-xs uppercase tracking-widest">Failed to render rows: {}</td></tr>"#,
+            e
+        )
+    })
 }
 
 #[derive(Template, WebTemplate)]
@@ -222,6 +245,19 @@ pub async fn get_nodes(
         .parse()
         .unwrap_or(true);
 
+    let exit_rows_html = render_nodes_rows_html(
+        exit_nodes.clone(),
+        &admin_path,
+        &agent_latest_version,
+        auto_update_agents,
+    );
+    let relay_rows_html = render_nodes_rows_html(
+        relay_nodes.clone(),
+        &admin_path,
+        &agent_latest_version,
+        auto_update_agents,
+    );
+
     if headers.contains_key("hx-request") {
         let template = NodesRowsPartial {
             nodes: all_nodes.clone(),
@@ -236,6 +272,8 @@ pub async fn get_nodes(
         all_nodes,
         exit_nodes,
         relay_nodes,
+        exit_rows_html,
+        relay_rows_html,
         is_auth: true,
         username: get_auth_user(&state, &jar)
             .await

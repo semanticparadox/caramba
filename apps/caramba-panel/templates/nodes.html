@@ -25,6 +25,7 @@
                 hx-get="{{ admin_path }}/nodes/rows/exit"
                 hx-target="#exit-nodes-table-body"
                 hx-swap="innerHTML"
+                onclick="refreshNodeRows('exit')"
                 class="btn btn-secondary px-4"
                 title="Refresh Exit Nodes"
             >
@@ -34,6 +35,7 @@
                 hx-get="{{ admin_path }}/nodes/rows/relay"
                 hx-target="#relay-nodes-table-body"
                 hx-swap="innerHTML"
+                onclick="refreshNodeRows('relay')"
                 class="btn btn-secondary px-4"
                 title="Refresh Relay Nodes"
             >
@@ -67,7 +69,13 @@
     </div>
 
     <div class="card-section space-y-3">
-        <h3 class="text-sm font-semibold uppercase tracking-widest text-slate-500">Exit Nodes</h3>
+        <div class="flex items-center justify-between gap-3">
+            <h3 class="text-sm font-semibold uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                <i data-lucide="send" class="w-4 h-4 text-brand"></i>
+                Exit Nodes
+            </h3>
+            <span class="badge badge-online">{{ exit_nodes.len() }} online set</span>
+        </div>
         <div class="overflow-x-auto">
             <table class="table-base">
                 <thead>
@@ -85,18 +93,20 @@
                     hx-get="{{ admin_path }}/nodes/rows/exit"
                     hx-trigger="load, refresh_nodes from:body, every 20s"
                 >
-                    <tr>
-                        <td colspan="6" class="px-6 py-8 text-center text-slate-500 text-xs uppercase tracking-widest">
-                            Loading exit nodes...
-                        </td>
-                    </tr>
+                    {{ exit_rows_html|safe }}
                 </tbody>
             </table>
         </div>
     </div>
 
     <div class="card-section space-y-3">
-        <h3 class="text-sm font-semibold uppercase tracking-widest text-slate-500">Relay Nodes</h3>
+        <div class="flex items-center justify-between gap-3">
+            <h3 class="text-sm font-semibold uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                <i data-lucide="network" class="w-4 h-4 text-amber-400"></i>
+                Relay Nodes
+            </h3>
+            <span class="badge badge-pending">{{ relay_nodes.len() }} relay set</span>
+        </div>
         <div class="overflow-x-auto">
             <table class="table-base">
                 <thead>
@@ -114,11 +124,7 @@
                     hx-get="{{ admin_path }}/nodes/rows/relay"
                     hx-trigger="load, refresh_nodes from:body, every 20s"
                 >
-                    <tr>
-                        <td colspan="6" class="px-6 py-8 text-center text-slate-500 text-xs uppercase tracking-widest">
-                            Loading relay nodes...
-                        </td>
-                    </tr>
+                    {{ relay_rows_html|safe }}
                 </tbody>
             </table>
         </div>
@@ -237,11 +243,38 @@
 
 <script>
     let currentNodeInstallCommand = "";
+    const ADMIN_PATH = "{{ admin_path }}";
+
+    async function loadNodeRows(kind) {
+        const targetId = kind === 'relay' ? 'relay-nodes-table-body' : 'exit-nodes-table-body';
+        const target = document.getElementById(targetId);
+        if (!target) return;
+        try {
+            const response = await fetch(`${ADMIN_PATH}/nodes/rows/${kind}`, {
+                credentials: 'same-origin',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            target.innerHTML = await response.text();
+            if (window.lucide?.createIcons) {
+                window.lucide.createIcons();
+            }
+        } catch (error) {
+            console.error(`Failed to load ${kind} rows`, error);
+        }
+    }
+
+    function refreshNodeRows(kind) {
+        if (window.htmx) return;
+        void loadNodeRows(kind);
+    }
 
     async function showNodeInstallCommand(nodeId, nodeName) {
         currentNodeInstallCommand = "";
         try {
-            const res = await fetch(`/nodes/${nodeId}/raw-install`, { credentials: "same-origin" });
+            const res = await fetch(`${ADMIN_PATH}/nodes/${nodeId}/raw-install`, { credentials: "same-origin" });
             if (res.ok) {
                 const raw = (await res.text()).trim();
                 if (raw.length > 0) {
@@ -274,5 +307,15 @@
         if (relayParent && nodeType === 'relay') relayParent.value = "";
         document.getElementById('add-node-modal').showModal();
     }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        if (window.htmx) return;
+        void loadNodeRows('exit');
+        void loadNodeRows('relay');
+        window.setInterval(() => {
+            void loadNodeRows('exit');
+            void loadNodeRows('relay');
+        }, 20000);
+    });
 </script>
 {% endblock %}
