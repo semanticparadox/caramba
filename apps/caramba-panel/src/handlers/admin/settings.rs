@@ -426,7 +426,7 @@ pub struct BotLogsTemplate {
     pub active_page: String,
     pub bot_status: String,
     pub bot_username: String,
-    pub subscription_domain: String,
+    pub miniapp_domain: String,
 }
 
 #[derive(Template)]
@@ -649,11 +649,7 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
 
     let last_export = state.settings.get_or_default("last_export", "Never").await;
 
-    let deployment_mode = state
-        .settings
-        .get_or_default("deployment_mode", "hub")
-        .await
-        .to_ascii_lowercase();
+    let deployment_mode = "single-host".to_string();
     let miniapp_enabled = state
         .settings
         .get_or_default("miniapp_enabled", "false")
@@ -1229,33 +1225,7 @@ pub async fn save_settings(
         settings.insert("kill_switch_timeout".to_string(), v);
     }
 
-    if let Some(v) = form.deployment_mode {
-        let normalized = v.trim().to_ascii_lowercase();
-        let deployment_mode = if normalized == "distributed" {
-            "distributed"
-        } else {
-            "hub"
-        };
-        settings.insert("deployment_mode".to_string(), deployment_mode.to_string());
-    }
-
-    settings.insert(
-        "local_sub_enabled".to_string(),
-        if is_checkbox_enabled(form.local_sub_enabled.as_deref()) {
-            "true".to_string()
-        } else {
-            "false".to_string()
-        },
-    );
-
-    settings.insert(
-        "local_bot_enabled".to_string(),
-        if is_checkbox_enabled(form.local_bot_enabled.as_deref()) {
-            "true".to_string()
-        } else {
-            "false".to_string()
-        },
-    );
+    settings.insert("deployment_mode".to_string(), "single-host".to_string());
 
     settings.insert(
         "auto_update_agents".to_string(),
@@ -1414,6 +1384,12 @@ pub async fn bot_logs_page(State(state): State<AppState>, jar: CookieJar) -> imp
         .settings
         .get_or_default("subscription_domain", "")
         .await;
+    let tma_domain = state.settings.get_or_default("tma_domain", "").await;
+    let miniapp_domain = if tma_domain.trim().is_empty() {
+        subscription_domain.clone()
+    } else {
+        tma_domain
+    };
 
     let admin_path = state.admin_path.clone();
 
@@ -1427,7 +1403,7 @@ pub async fn bot_logs_page(State(state): State<AppState>, jar: CookieJar) -> imp
             active_page: "bot_logs".to_string(),
             bot_status,
             bot_username,
-            subscription_domain,
+            miniapp_domain,
         }
         .render()
         .unwrap(),
@@ -1767,83 +1743,13 @@ fn render_topology_apply_result(mode: &str, ok_lines: &[String], err_lines: &[St
     html
 }
 
-pub async fn apply_deployment_topology(State(state): State<AppState>) -> impl IntoResponse {
-    let local_sub_enabled = state
-        .settings
-        .get_or_default("local_sub_enabled", "true")
-        .await
-        == "true";
-    let local_bot_enabled = state
-        .settings
-        .get_or_default("local_bot_enabled", "true")
-        .await
-        == "true";
-
-    let mut ok_lines: Vec<String> = Vec::new();
-    let mut err_lines: Vec<String> = Vec::new();
-
-    // 1. Panel is ALWAYS local/enabled on this host
-    if service_exists("caramba-panel.service") {
-        match run_systemctl_action(&["enable", "--now", "caramba-panel.service"]) {
-            Ok(_) => ok_lines.push("Ensured caramba-panel is enabled/active.".to_string()),
-            Err(e) => err_lines.push(e),
-        }
-    }
-
-    // 2. Sub Worker
-    let sub_service = "caramba-sub.service";
-    if local_sub_enabled {
-        if service_exists(sub_service) {
-            match run_systemctl_action(&["enable", "--now", sub_service]) {
-                Ok(_) => ok_lines.push("Enabled and started local Sub worker.".to_string()),
-                Err(e) => err_lines.push(e),
-            }
-        } else {
-            err_lines
-                .push("Local Sub worker service not found (use installer to add it).".to_string());
-        }
-    } else {
-        if service_exists(sub_service) {
-            match run_systemctl_action(&["disable", "--now", sub_service]) {
-                Ok(_) => ok_lines
-                    .push("Stopped and disabled local Sub worker (using external).".to_string()),
-                Err(e) => err_lines.push(e),
-            }
-        }
-    }
-
-    // 3. Bot Worker
-    let bot_service = "caramba-bot.service";
-    if local_bot_enabled {
-        if service_exists(bot_service) {
-            match run_systemctl_action(&["enable", "--now", bot_service]) {
-                Ok(_) => ok_lines.push("Enabled and started local Bot worker.".to_string()),
-                Err(e) => err_lines.push(e),
-            }
-        } else {
-            // Note: Bot might be run internally by the panel too, but we are moving towards worker model.
-            err_lines.push("Local Bot worker service not found.".to_string());
-        }
-    } else {
-        if service_exists(bot_service) {
-            match run_systemctl_action(&["disable", "--now", bot_service]) {
-                Ok(_) => ok_lines
-                    .push("Stopped and disabled local Bot worker (using external).".to_string()),
-                Err(e) => err_lines.push(e),
-            }
-        }
-    }
-
-    if let Err(e) = run_systemctl_action(&["reload", "caddy"]) {
-        err_lines.push(format!("Caddy reload: {}", e));
-    } else {
-        ok_lines.push("Reloaded Caddy ingress.".to_string());
-    }
-
+pub async fn apply_deployment_topology(State(_state): State<AppState>) -> impl IntoResponse {
     (
         StatusCode::OK,
         Html(render_topology_apply_result(
-            "modular", &ok_lines, &err_lines,
+            "deprecated",
+            &["Legacy topology toggles are disabled. Use Reverse Proxy & Relay for single-host routing and relay entrypoint selection.".to_string()],
+            &[],
         )),
     )
         .into_response()
@@ -1852,12 +1758,7 @@ pub async fn apply_deployment_topology(State(state): State<AppState>) -> impl In
 pub async fn check_update(State(state): State<AppState>) -> impl IntoResponse {
     let current = crate::utils::current_panel_version();
     let latest = resolve_latest_release_version().await;
-    let deployment_mode = state
-        .settings
-        .get_or_default("deployment_mode", "hub")
-        .await
-        .to_ascii_lowercase();
-    let distributed_mode = deployment_mode == "distributed";
+    let distributed_mode = false;
 
     let panel_url_setting = state.settings.get_or_default("panel_url", "").await;
     let panel_url_env = std::env::var("PANEL_URL").unwrap_or_default();

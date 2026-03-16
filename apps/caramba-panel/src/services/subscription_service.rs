@@ -1,4 +1,7 @@
 use crate::services::activity_service::ActivityService;
+use crate::singbox::connection_variants::{
+    SingboxConnectionVariant, apply_connection_variant, fixed_connection_variants,
+};
 use crate::singbox::subscription_generator::{NodeInfo, UserKeys};
 use anyhow::{Context, Result};
 use caramba_db::models::network::InboundType;
@@ -19,6 +22,8 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct SubscriptionService {
     pool: PgPool,
+    // Add orchestration service for trigger-based sync
+    pub orchestration_service: Option<std::sync::Arc<crate::services::orchestration_service::OrchestrationService>>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -50,7 +55,12 @@ impl SubscriptionService {
     "#;
 
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self { pool, orchestration_service: None }
+    }
+
+    // Allow injecting orchestration service after circular dep resolution
+    pub fn set_orchestration_service(&mut self, svc: std::sync::Arc<crate::services::orchestration_service::OrchestrationService>) {
+        self.orchestration_service = Some(svc);
     }
 
     fn is_placeholder_sni(sni: &str) -> bool {
@@ -373,6 +383,21 @@ impl SubscriptionService {
             .await?;
 
         tx.commit().await?;
+
+        // Trigger Sync
+        if let Some(orch) = &self.orchestration_service {
+             if let Some(node_id) = sub.node_id {
+                 let _ = orch.notify_node_update(node_id).await;
+             } else {
+                 // If no node specific, notify all active nodes just in case (e.g. distributed plan)
+                 // Or we could let the nodes pull periodically.
+                 // For immediate effect on distributed setups, we might want to notify all linked to plan.
+                 // But orchestration service handles single node.
+                 // We can get nodes for plan and notify them.
+                 // For now, let's keep it simple and notify if node_id is present.
+             }
+        }
+
         Ok(sub)
     }
 
@@ -474,6 +499,12 @@ impl SubscriptionService {
         .await;
 
         tx.commit().await?;
+
+        // Trigger Sync
+        if let Some(orch) = &self.orchestration_service {
+             let _ = orch.notify_node_update(node_id).await;
+        }
+
         Ok(sub)
     }
 
@@ -1604,8 +1635,18 @@ impl SubscriptionService {
         sub: &Subscription,
         nodes: &[NodeInfo],
         keys: &UserKeys,
+        variant: Option<&str>,
     ) -> Result<String> {
-        crate::singbox::subscription_generator::generate_singbox_config(sub, nodes, keys)
+        let config = crate::singbox::subscription_generator::generate_singbox_config(sub, nodes, keys)?;
+
+        match variant {
+            Some(variant_id) => apply_connection_variant(&config, variant_id),
+            None => Ok(config),
+        }
+    }
+
+    pub fn get_singbox_connection_variants(&self) -> Vec<SingboxConnectionVariant> {
+        fixed_connection_variants()
     }
 
     pub async fn update_subscription_node(&self, sub_id: i64, node_id: Option<i64>) -> Result<()> {

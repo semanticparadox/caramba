@@ -86,7 +86,47 @@
         </div>
     </div>
 
-    <!-- Charts Section -->
+    {% if is_zero_network_load %}
+    <article class="card p-8 lg:p-10 relative overflow-hidden">
+        <div class="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand/50 to-transparent"></div>
+        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6 mb-8">
+            <div>
+                <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-brand/10 border border-brand/20 mb-4">
+                    <i data-lucide="radar" class="w-3.5 h-3.5 text-brand"></i>
+                    <span class="text-[10px] font-bold uppercase tracking-widest text-brand">Network Load is Zero</span>
+                </div>
+                <h3 class="text-2xl font-bold text-slate-900 dark:text-white">Kickstart the First Signal</h3>
+                <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-2">Charts activate after
+                    your first node serves traffic.</p>
+            </div>
+            <a href="{{ admin_path }}/nodes" class="btn btn-primary px-6 py-3">
+                <i data-lucide="rocket" class="w-4 h-4"></i>
+                Add First Node
+            </a>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="rounded-2xl border border-border-default bg-black/20 p-5">
+                <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2">Step 01</p>
+                <h4 class="text-sm font-bold text-slate-900 dark:text-white mb-2">Provision Infrastructure</h4>
+                <p class="text-xs text-slate-500 mb-4">Create a node and finish installer handshake.</p>
+                <a href="{{ admin_path }}/nodes" class="btn btn-secondary px-4 py-2 text-[10px]">Open Nodes</a>
+            </div>
+            <div class="rounded-2xl border border-border-default bg-black/20 p-5">
+                <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2">Step 02</p>
+                <h4 class="text-sm font-bold text-slate-900 dark:text-white mb-2">Publish Access Template</h4>
+                <p class="text-xs text-slate-500 mb-4">Set inbound template and sync node config.</p>
+                <a href="{{ admin_path }}/templates" class="btn btn-secondary px-4 py-2 text-[10px]">Open Templates</a>
+            </div>
+            <div class="rounded-2xl border border-border-default bg-black/20 p-5">
+                <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2">Step 03</p>
+                <h4 class="text-sm font-bold text-slate-900 dark:text-white mb-2">Trigger First Subscription</h4>
+                <p class="text-xs text-slate-500 mb-4">Create a plan and provision the first user access.</p>
+                <a href="{{ admin_path }}/plans" class="btn btn-secondary px-4 py-2 text-[10px]">Open Plans</a>
+            </div>
+        </div>
+    </article>
+    {% else %}
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <!-- Area Chart -->
         <div class="lg:col-span-2 card p-8">
@@ -116,6 +156,7 @@
             <div id="nodeDistributionChart" class="w-full flex-1 flex items-center justify-center min-h-[300px]"></div>
         </div>
     </div>
+    {% endif %}
 
     <!-- Two-Column Data Layout -->
     <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
@@ -276,6 +317,7 @@
 </div>
 
 <script>
+    {% if !is_zero_network_load %}
     // --- Traffic History Chart (Area) ---
     var historyOptions = {
         series: [{
@@ -390,5 +432,6 @@
     };
     var nodeChart = new ApexCharts(document.querySelector("#nodeDistributionChart"), nodeOptions);
     nodeChart.render();
+    {% endif %}
 </script>
 {% endblock %}

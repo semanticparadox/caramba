@@ -1,27 +1,10 @@
 use crate::singbox::config::*;
+use crate::singbox::inbound_factory::RelayAuthMode;
 use caramba_db::models::network::{Certificate, InboundType, StreamSettings as DbStreamSettings}; // Added Certificate
 use sha2::{Digest, Sha256};
 use tracing::{error, warn};
 
 pub struct ConfigGenerator;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RelayAuthMode {
-    Legacy,
-    V1,
-    Dual,
-}
-
-impl RelayAuthMode {
-    pub fn from_setting(raw: Option<&str>) -> Self {
-        match raw.unwrap_or("dual").trim().to_ascii_lowercase().as_str() {
-            "legacy" => Self::Legacy,
-            "v1" | "hashed" | "derived" => Self::V1,
-            "dual" => Self::Dual,
-            _ => Self::Dual,
-        }
-    }
-}
 
 fn parse_shadowsocks_method(settings_raw: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(settings_raw).ok()?;
@@ -75,19 +58,18 @@ impl ConfigGenerator {
                 }
             }
 
-            let protocol_settings: InboundType = match serde_json::from_value(
-                settings_value.clone(),
-            ) {
-                Ok(s) => s,
-                Err(e) => {
-                    let proto = inbound.protocol.clone().to_lowercase();
-                    error!(
+            let protocol_settings: InboundType =
+                match serde_json::from_value(settings_value.clone()) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        let proto = inbound.protocol.clone().to_lowercase();
+                        error!(
                         "❌ Failed to parse settings for inbound {}: {} (json: {}). Protocol: {}",
                         inbound.tag, e, inbound.settings, proto
                     );
-                    continue;
-                }
-            };
+                        continue;
+                    }
+                };
 
             // Parse Stream Settings
             let stream_settings: DbStreamSettings =
@@ -309,6 +291,7 @@ impl ConfigGenerator {
                         tls: tls_config,
                         transport: transport_config,
                         packet_encoding: stream_settings.packet_encoding.clone(),
+                        multiplex: None,
                     }));
                 }
                 InboundType::Hysteria2(hy2) => {
@@ -586,6 +569,7 @@ impl ConfigGenerator {
                         listen_port: inbound.listen_port as u16,
                         users,
                         tls: tls_config,
+                        multiplex: None,
                     }));
                 }
                 InboundType::Naive(naive) => {
@@ -772,6 +756,39 @@ impl ConfigGenerator {
                         listen_port: inbound.listen_port as u16,
                         method: ss.method,
                         users,
+                        multiplex: None,
+                    }));
+                }
+                InboundType::Shadowtls(stls) => {
+                    let users: Vec<ShadowtlsUser> = stls
+                        .users
+                        .iter()
+                        .map(|u| ShadowtlsUser {
+                            password: u.password.clone(),
+                            name: None,
+                        })
+                        .collect();
+
+                    if users.is_empty() {
+                        warn!(
+                            "⚠️ ShadowTLS inbound '{}' has no users, skipping to avoid sing-box FATAL",
+                            inbound.tag
+                        );
+                        continue;
+                    }
+
+                    generated_inbounds.push(Inbound::Shadowtls(ShadowtlsInbound {
+                        tag: inbound.tag,
+                        listen: inbound.listen_ip,
+                        listen_port: inbound.listen_port as u16,
+                        version: Some(3),
+                        users,
+                        handshake: ShadowtlsHandshake {
+                            server: stls.handshake.server,
+                            server_port: stls.handshake.server_port,
+                        },
+                        strict_mode: Some(stls.strict_mode),
+                        detour: None,
                     }));
                 }
             }

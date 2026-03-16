@@ -1,5 +1,7 @@
+use crate::singbox::inbound_factory::validate_manual_json;
 use crate::AppState;
 use crate::handlers::admin::{get_auth_user, is_authenticated};
+use crate::services::config_validation_service::ConfigValidationService;
 use askama::Template;
 use askama_web::WebTemplate;
 use axum::{
@@ -125,6 +127,14 @@ pub async fn create_template(
         return (StatusCode::BAD_REQUEST, msg).into_response();
     }
 
+    if let Err(msg) = ConfigValidationService::validate_inbound_json(
+        &form.protocol,
+        &form.settings_template,
+        &form.stream_settings_template,
+    ) {
+        return (StatusCode::BAD_REQUEST, msg).into_response();
+    }
+
     // Basic validation of JSON & Inject Protocol if missing
     let mut settings_json: serde_json::Value = match serde_json::from_str(&form.settings_template) {
         Ok(v) => v,
@@ -136,6 +146,15 @@ pub async fn create_template(
                 .into_response();
         }
     };
+
+    // Validate using InboundFactory logic
+    if let Err(e) = validate_manual_json(&form.settings_template) {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid Inbound JSON: {}", e),
+        )
+            .into_response();
+    }
 
     if let Some(obj) = settings_json.as_object_mut() {
         if !obj.contains_key("protocol") {
@@ -438,6 +457,14 @@ pub async fn update_template(
         return (StatusCode::BAD_REQUEST, msg).into_response();
     }
 
+    if let Err(msg) = ConfigValidationService::validate_inbound_json(
+        &form.protocol,
+        &form.settings_template,
+        &form.stream_settings_template,
+    ) {
+        return (StatusCode::BAD_REQUEST, msg).into_response();
+    }
+
     // Basic validation of JSON & Inject Protocol if missing
     let mut settings_json: serde_json::Value = match serde_json::from_str(&form.settings_template) {
         Ok(v) => v,
@@ -449,6 +476,15 @@ pub async fn update_template(
                 .into_response();
         }
     };
+
+    // Validate using InboundFactory
+    if let Err(e) = validate_manual_json(&form.settings_template) {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid Inbound JSON: {}", e),
+        )
+            .into_response();
+    }
 
     if let Some(obj) = settings_json.as_object_mut() {
         if !obj.contains_key("protocol") {

@@ -38,6 +38,48 @@
             </div>
         </div>
 
+        <!-- Advanced Network Options -->
+        <div class="bg-slate-800/30 p-4 rounded-lg border border-slate-700/50">
+            <h4 class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">Advanced Network Options</h4>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <!-- Sniffing Toggle -->
+                <label class="flex items-center space-x-3 cursor-pointer group">
+                    <input type="checkbox" class="vis-sniff sr-only peer">
+                    <div class="w-9 h-5 bg-slate-700 peer-focus:ring-2 peer-focus:ring-emerald-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600 relative"></div>
+                    <span class="text-sm text-slate-400 group-hover:text-slate-200 transition-colors">Sniffing</span>
+                </label>
+
+                <!-- Sniff Override Dest -->
+                <label class="vis-sniff-override-container hidden flex items-center space-x-3 cursor-pointer group">
+                    <input type="checkbox" class="vis-sniff-override sr-only peer">
+                    <div class="w-9 h-5 bg-slate-700 peer-focus:ring-2 peer-focus:ring-emerald-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600 relative"></div>
+                    <span class="text-sm text-slate-400 group-hover:text-slate-200 transition-colors">Override Dest</span>
+                </label>
+
+                <!-- Multiplex Toggle -->
+                <label class="flex items-center space-x-3 cursor-pointer group">
+                    <input type="checkbox" class="vis-multiplex sr-only peer">
+                    <div class="w-9 h-5 bg-slate-700 peer-focus:ring-2 peer-focus:ring-emerald-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600 relative"></div>
+                    <span class="text-sm text-slate-400 group-hover:text-slate-200 transition-colors">Multiplex</span>
+                </label>
+            </div>
+
+            <!-- Routing Mode -->
+            <div class="mt-4 pt-4 border-t border-slate-700/50">
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Routing Mode</label>
+                <div class="flex gap-4">
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="radio" name="vis_routing" value="smart" checked class="text-emerald-600 focus:ring-emerald-600 bg-slate-700 border-slate-600">
+                        <span class="text-sm text-slate-300">Smart (Split-Tunneling)</span>
+                    </label>
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="radio" name="vis_routing" value="global" class="text-emerald-600 focus:ring-emerald-600 bg-slate-700 border-slate-600">
+                        <span class="text-sm text-slate-300">Global (All Traffic)</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
         <!-- Dynamic Sections -->
 
         <!-- Clients Section -->
@@ -71,8 +113,9 @@
                 </div>
                 <div>
                     <label class="block text-xs text-slate-500 mb-1">Host Header</label>
-                    <input type="text" placeholder="{{sni}}"
-                        class="vis-ws-host w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 text-sm">
+                    <input type="text" value="{{sni}}" disabled
+                        class="vis-ws-host w-full bg-slate-900/50 border border-slate-700 rounded px-3 py-1.5 text-slate-400 text-sm font-mono cursor-not-allowed">
+                        <p class="text-[10px] text-slate-500 mt-1">Managed automatically by SNI scanner.</p>
                 </div>
             </div>
         </div>
@@ -97,8 +140,9 @@
                 </div>
                 <div>
                     <label class="block text-xs text-slate-500 mb-1">Host</label>
-                    <input type="text" placeholder="{{sni}}"
-                        class="vis-http-host w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 text-sm">
+                    <input type="text" value="{{sni}}" disabled
+                        class="vis-http-host w-full bg-slate-900/50 border border-slate-700 rounded px-3 py-1.5 text-slate-400 text-sm font-mono cursor-not-allowed">
+                        <p class="text-[10px] text-slate-500 mt-1">Managed automatically by SNI scanner.</p>
                 </div>
             </div>
         </div>
@@ -107,18 +151,14 @@
         <div class="reality-settings hidden bg-slate-800/50 p-4 rounded-lg border border-slate-700">
             <h4 class="text-sm font-semibold text-purple-400 mb-3">Reality Settings</h4>
             <div class="space-y-4">
-                <div class="grid grid-cols-2 gap-4">
+                <div class="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg flex items-center gap-3">
+                    <i data-lucide="shield-check" class="w-5 h-5 text-purple-400"></i>
                     <div>
-                        <label class="block text-xs text-slate-500 mb-1">Dest (Target)</label>
-                        <input type="text" placeholder="www.google.com:443"
-                            class="vis-reality-dest w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 text-sm">
-                    </div>
-                    <div>
-                        <label class="block text-xs text-slate-500 mb-1">Server Names (SNI)</label>
-                        <input type="text" placeholder="www.google.com,gateway.icloud.com"
-                            class="vis-reality-sni w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 text-sm">
+                        <p class="text-xs font-medium text-purple-300">Automatic SNI Selection</p>
+                        <p class="text-[10px] text-slate-400">Target (dest) and Server Names are automatically picked from the node's local scanner results for maximum stealth.</p>
                     </div>
                 </div>
+
                 <div>
                     <label class="block text-xs text-slate-500 mb-1">Private Key</label>
                     <div class="flex gap-2">
@@ -142,8 +182,9 @@
             <h4 class="text-sm font-semibold text-purple-400 mb-3">TLS Settings</h4>
             <div>
                 <label class="block text-xs text-slate-500 mb-1">Server Name (SNI)</label>
-                <input type="text" placeholder="{{sni}}"
-                    class="vis-tls-sni w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 text-sm">
+                <input type="text" value="{{sni}}" disabled
+                    class="vis-tls-sni w-full bg-slate-900/50 border border-slate-700 rounded px-3 py-1.5 text-slate-400 text-sm font-mono cursor-not-allowed">
+                <p class="text-[10px] text-slate-500 mt-1">Managed automatically by SNI scanner.</p>
             </div>
         </div>
     </div>

@@ -128,10 +128,7 @@ fn load_existing_install_defaults(install_dir_hint: Option<&str>) -> ExistingIns
     }
 
     let env = parse_key_value_file(&env_path);
-    let domain = env
-        .get("SERVER_DOMAIN")
-        .and_then(|v| normalize_domain_like(v))
-        .or_else(|| env.get("PANEL_URL").and_then(|v| normalize_domain_like(v)));
+    let domain = env.get("PANEL_URL").and_then(|v| normalize_domain_like(v));
     let admin_path = env.get("ADMIN_PATH").cloned().filter(|v| !v.is_empty());
     let db_pass = env
         .get("DATABASE_URL")

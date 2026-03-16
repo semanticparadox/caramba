@@ -46,7 +46,17 @@
 }
 
 .contact-icon {
-    font-size: 28px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid rgba(var(--accent-rgb), 0.34);
+    background: rgba(var(--accent-rgb), 0.16);
+    color: rgba(var(--accent-rgb), 0.95);
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
 }
 
 .contact-title {
@@ -173,7 +183,7 @@
 }
 
 .faq-item[open] summary::after {
-    content: '−';
+    content: '-';
     color: var(--accent-primary);
 }
 

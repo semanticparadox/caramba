@@ -66,6 +66,17 @@ impl NeighborScanner {
         Self { local_ip }
     }
 
+    fn is_whitelisted(&self, domain: &str) -> bool {
+        // Hardcoded minimal RKN-compliant list for critical infra (Russian Relays)
+        // These are domains often allowed or stable in RU networks.
+        const WHITELIST: &[&str] = &[
+            "yandex.ru", "vk.com", "mail.ru", "gosuslugi.ru",
+            "sberbank.ru", "tinkoff.ru", "ozon.ru", "wildberries.ru",
+            "mos.ru", "rbc.ru", "lenta.ru"
+        ];
+        WHITELIST.iter().any(|w| domain.contains(w))
+    }
+
     pub async fn scan_subnet(&self) -> Vec<DiscoveredSni> {
         let mut discovered = Vec::new();
         let mut seen_domains = HashSet::new();
@@ -89,11 +100,15 @@ impl NeighborScanner {
                 base_ip[0], base_ip[1], base_ip[2], i,
             ));
 
-            // Optimization: Skip if we already found this IP recently?
-            // For now, simple scan.
-
             if let Ok(mut sni) = self.probe_ip(target_ip).await {
                 sni.domain = sni.domain.trim().to_ascii_lowercase();
+
+                // Russian Relay Logic: Enforce whitelist filtering if enabled via ENV or implicit location
+                // (Simplified: we assume if this env var is set, we are in strict mode)
+                if std::env::var("STRICT_SNI_FILTER").is_ok() && !self.is_whitelisted(&sni.domain) {
+                    continue;
+                }
+
                 if seen_domains.insert(sni.domain.clone()) {
                     info!(
                         "✨ Neighbor Sniper: Discovered potential SNI: {} at {}",

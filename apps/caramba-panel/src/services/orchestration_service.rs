@@ -20,6 +20,8 @@ pub struct OrchestrationService {
     security_service: Arc<crate::services::security_service::SecurityService>,
     store_service: Arc<StoreService>,
     pubsub_service: Arc<PubSubService>,
+    // Added for Sync Fix
+    redis_client: Option<redis::Client>,
 }
 
 impl OrchestrationService {
@@ -28,14 +30,17 @@ impl OrchestrationService {
         store_service: Arc<StoreService>,
         security_service: Arc<crate::services::security_service::SecurityService>,
         pubsub_service: Arc<PubSubService>,
+        redis_url: Option<String>,
     ) -> Self {
         let node_repo = NodeRepository::new(pool.clone());
+        let redis_client = redis_url.and_then(|url| redis::Client::open(url).ok());
         Self {
             pool,
             node_repo,
             store_service,
             security_service,
             pubsub_service,
+            redis_client,
         }
     }
 
@@ -44,18 +49,29 @@ impl OrchestrationService {
     pub async fn notify_node_update(&self, node_id: i64) -> anyhow::Result<()> {
         info!("🔔 Node {} update notification triggered", node_id);
 
-        // Publish to Redis channel node_events:{node_id}
-        // The payload is arbitrary JSON, matching what poll_updates expects (or just a kick)
-        // poll_updates converts any message to {"update": true}
+        // Set "Pending Sync" flag in Redis (TTL 60s)
+        if let Some(client) = &self.redis_client {
+            let pending_key = format!("node_sync_pending:{}", node_id);
+            match client.get_multiplexed_async_connection().await {
+                Ok(mut conn) => {
+                    let _: redis::RedisResult<()> = redis::cmd("SETEX")
+                        .arg(&pending_key)
+                        .arg(60) // 60 seconds TTL
+                        .arg("1")
+                        .query_async(&mut conn)
+                        .await;
+                }
+                Err(e) => {
+                    error!("Failed to get redis connection for pending sync flag: {}", e);
+                }
+            }
+        }
 
         let channel = format!("node_events:{}", node_id);
         let payload = serde_json::json!({ "update": true }).to_string();
 
         if let Err(e) = self.pubsub_service.publish(&channel, &payload).await {
             error!("Failed to publish node update for {}: {}", node_id, e);
-            // Don't fail the request, just log error?
-            // Better to return error if critical, but update triggers are often best-effort.
-            // Let's return error to be safe so caller knows it failed.
             return Err(e);
         }
 
@@ -402,6 +418,12 @@ impl OrchestrationService {
             .replace("{{REALITY_PBK}}", pbk)
             .replace("{{REALITY_SID}}", sid);
 
+        // Always replace manual placeholders even if not strictly vless,
+        // in case user pasted a raw JSON using these.
+        if stream_json.contains("{{SNI}}") {
+             stream_json = stream_json.replace("{{SNI}}", sni);
+        }
+
         if template.protocol == "vless" {
             // Generate Reality Keys
             let (priv_key, pub_key, short_id) = self.generate_reality_keys()?;
@@ -472,10 +494,14 @@ impl OrchestrationService {
             }
         }
 
+        let random_suffix = uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("0000").to_string();
+        let safe_tag_base = template.name.replace(' ', "-").replace(|c: char| !c.is_alphanumeric() && c != '-', "");
+        let smart_tag = format!("{}-{}", safe_tag_base, random_suffix);
+
         let inbound = caramba_db::models::network::Inbound {
             id: 0,
             node_id: node.id,
-            tag: format!("tpl_{}", template.name.to_lowercase().replace(' ', "_")),
+            tag: smart_tag,
             protocol: template.protocol.clone(),
             listen_port: port,
             listen_ip: "0.0.0.0".to_string(),
@@ -797,6 +823,9 @@ impl OrchestrationService {
                 inbound.tag
             );
 
+            // Deduplication Set: One user per inbound
+            let mut visited_users = std::collections::HashSet::new();
+
             use caramba_db::models::network::{Hysteria2User, InboundType, NaiveUser, VlessClient};
 
             // Parse as Value first to handle missing 'protocol' tag in legacy/broken data
@@ -819,11 +848,15 @@ impl OrchestrationService {
                     match &mut settings {
                         InboundType::Vless(vless) => {
                             for sub in &active_subs {
-                                if let (sub_id, Some(uuid), _tg_id, _username) =
+                                if let (_sub_id, Some(uuid), tg_id, _username) =
                                     (sub.0, &sub.1, sub.2, &sub.3)
                                 {
-                                    // Use user_{sub_id} to match TrafficService expectation
-                                    let auth_name = format!("user_{}", sub_id);
+                                    if !visited_users.insert(tg_id) {
+                                        continue;
+                                    }
+
+                                    // Use user_{tg_id} for consistent identification
+                                    let auth_name = format!("user_{}", tg_id);
 
                                     info!(
                                         "🔑 Injecting VLESS user: {} (UUID: {})",
@@ -859,8 +892,11 @@ impl OrchestrationService {
                         }
                         InboundType::Hysteria2(hy2) => {
                             for sub in &active_subs {
-                                if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
-                                    let auth_name = format!("user_{}", sub_id);
+                                if let (_sub_id, Some(uuid), tg_id, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                    if !visited_users.insert(tg_id) {
+                                        continue;
+                                    }
+                                    let auth_name = format!("user_{}", tg_id);
 
                                     info!(
                                         "🔑 Injecting HYSTERIA user: {} (Pass: {})",
@@ -876,10 +912,13 @@ impl OrchestrationService {
                         InboundType::AmneziaWg(awg) => {
                             use caramba_db::models::network::AmneziaWgUser;
                             for sub in &active_subs {
-                                if let (sub_id, Some(uuid), tg_id, _) =
+                                if let (_sub_id, Some(uuid), tg_id, _) =
                                     (sub.0, &sub.1, sub.2, &sub.3)
                                 {
-                                    let auth_name = format!("user_{}", sub_id);
+                                    if !visited_users.insert(tg_id) {
+                                        continue;
+                                    }
+                                    let auth_name = format!("user_{}", tg_id);
 
                                     let client_priv = self.derive_awg_key(uuid);
                                     let client_pub = self.priv_to_pub(&client_priv);
@@ -901,8 +940,11 @@ impl OrchestrationService {
                         InboundType::Trojan(trojan) => {
                             use caramba_db::models::network::TrojanClient;
                             for sub in &active_subs {
-                                if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
-                                    let auth_name = format!("user_{}", sub_id);
+                                if let (_sub_id, Some(uuid), tg_id, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                    if !visited_users.insert(tg_id) {
+                                        continue;
+                                    }
+                                    let auth_name = format!("user_{}", tg_id);
                                     trojan.clients.push(TrojanClient {
                                         password: uuid.clone(),
                                         email: Some(auth_name),
@@ -912,8 +954,11 @@ impl OrchestrationService {
                         }
                         InboundType::Tuic(tuic) => {
                             for sub in &active_subs {
-                                if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
-                                    let auth_name = format!("user_{}", sub_id);
+                                if let (_sub_id, Some(uuid), tg_id, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                    if !visited_users.insert(tg_id) {
+                                        continue;
+                                    }
+                                    let auth_name = format!("user_{}", tg_id);
 
                                     info!("🔑 Injecting TUIC user: {} (UUID: {})", auth_name, uuid);
                                     tuic.users.push(caramba_db::models::network::TuicUser {
@@ -926,8 +971,11 @@ impl OrchestrationService {
                         }
                         InboundType::Naive(naive) => {
                             for sub in &active_subs {
-                                if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
-                                    let auth_name = format!("user_{}", sub_id);
+                                if let (_sub_id, Some(uuid), tg_id, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                    if !visited_users.insert(tg_id) {
+                                        continue;
+                                    }
+                                    let auth_name = format!("user_{}", tg_id);
 
                                     info!(
                                         "🔑 Injecting NAIVE user: {} (Pass: {})",
@@ -942,8 +990,11 @@ impl OrchestrationService {
                         }
                         InboundType::Shadowsocks(ss) => {
                             for sub in &active_subs {
-                                if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
-                                    let auth_name = format!("user_{}", sub_id);
+                                if let (_sub_id, Some(uuid), tg_id, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                    if !visited_users.insert(tg_id) {
+                                        continue;
+                                    }
+                                    let auth_name = format!("user_{}", tg_id);
 
                                     info!(
                                         "🔑 Injecting SHADOWSOCKS user: {} (Pass: {})",
@@ -951,6 +1002,18 @@ impl OrchestrationService {
                                     );
                                     ss.users.push(caramba_db::models::network::ShadowsocksUser {
                                         username: auth_name,
+                                        password: uuid.replace("-", ""),
+                                    });
+                                }
+                            }
+                        }
+                        InboundType::Shadowtls(stls) => {
+                            use caramba_db::models::network::ShadowtlsUser;
+                            for sub in &active_subs {
+                                if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                    let _auth_name = format!("user_{}", sub_id);
+                                    // Assuming ShadowTLS uses password/uuid for auth
+                                    stls.users.push(ShadowtlsUser {
                                         password: uuid.replace("-", ""),
                                     });
                                 }

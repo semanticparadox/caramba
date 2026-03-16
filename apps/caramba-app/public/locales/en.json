@@ -1,0 +1,33 @@
+{
+  "common": {
+    "appName": "CARAMBA",
+    "quickConnect": "Quick Connect",
+    "magicOptimize": "Magic Optimize",
+    "howToConnect": "How to Connect",
+    "copySubscriptionLink": "Copy Subscription Link",
+    "openGuide": "Open Guide",
+    "download": "Download",
+    "guide": "Guide",
+    "recommended": "Recommended",
+    "platforms": {
+      "ios": "iOS",
+      "android": "Android",
+      "windows": "Windows",
+      "macos": "macOS",
+      "linux": "Linux",
+      "tv": "TV"
+    },
+    "setupSnippet": "Copy link -> Open App -> Import from Clipboard/URL -> Connect",
+    "payments": {
+      "title": "Payments",
+      "selectProvider": "Choose a payment method",
+      "balance": "Balance",
+      "buySubscription": "Buy Subscription"
+    },
+    "status": {
+      "connected": "Connected",
+      "optimizing": "Optimizing route",
+      "loading": "Loading..."
+    }
+  }
+}

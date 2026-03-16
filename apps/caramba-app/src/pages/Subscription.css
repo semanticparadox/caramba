@@ -5,7 +5,7 @@
 .sub-page {
     display: flex;
     flex-direction: column;
-    gap: var(--space-md);
+    gap: var(--space-3);
 }
 
 .sub-page .page-header {
@@ -13,22 +13,23 @@
 }
 
 .purchase-msg {
-    border-radius: var(--radius-sm);
-    padding: 10px 12px;
-    font-size: 13px;
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    font-size: 0.8rem;
     font-weight: 600;
+    border: 1px solid transparent;
 }
 
 .purchase-msg.success {
-    background: rgba(16, 185, 129, 0.14);
-    border: 1px solid rgba(16, 185, 129, 0.35);
-    color: #34d399;
+    background: rgba(79, 227, 181, 0.14);
+    border-color: rgba(79, 227, 181, 0.28);
+    color: var(--status-online);
 }
 
 .purchase-msg.error {
-    background: rgba(239, 68, 68, 0.14);
-    border: 1px solid rgba(239, 68, 68, 0.35);
-    color: #f87171;
+    background: rgba(255, 110, 143, 0.14);
+    border-color: rgba(255, 110, 143, 0.28);
+    color: var(--status-error);
 }
 
 /* Subscription List */
@@ -40,10 +41,10 @@
 
 /* Individual Subscription Card */
 .sub-card {
-    padding: var(--space-md);
+    padding: var(--space-4);
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
+    gap: var(--space-2);
 }
 
 .sub-card.active {
@@ -88,7 +89,7 @@
 
 .sub-plan-name {
     font-weight: 700;
-    font-size: 16px;
+    font-size: 0.96rem;
 }
 
 .expand-arrow {
@@ -107,7 +108,7 @@
 .traffic-bar-row {
     display: flex;
     justify-content: space-between;
-    font-size: 13px;
+    font-size: 0.78rem;
     color: var(--text-secondary);
 }
 
@@ -129,7 +130,8 @@
 .sub-meta-row {
     display: flex;
     justify-content: space-between;
-    font-size: 13px;
+    font-size: 0.78rem;
+    gap: var(--space-2);
     color: var(--text-secondary);
 }
 
@@ -139,20 +141,19 @@
 
 /* Note */
 .sub-note {
-    font-size: 12px;
+    font-size: 0.74rem;
     color: var(--text-secondary);
     background: var(--bg-surface);
-    padding: var(--space-sm) var(--space-md);
+    padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-sm);
-    font-style: italic;
 }
 
 .sub-extra-row {
     display: flex;
     flex-wrap: wrap;
     gap: 8px 14px;
-    font-size: 12px;
-    color: var(--text-tertiary);
+    font-size: 0.72rem;
+    color: var(--text-muted);
 }
 
 .sub-actions {
@@ -163,13 +164,21 @@
 }
 
 .btn-text {
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    border: 1px solid var(--border-subtle);
     background: rgba(255, 255, 255, 0.05);
-    color: #dbeafe;
-    border-radius: 10px;
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
     padding: 8px 12px;
-    font-size: 12px;
-    font-weight: 600;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-weight: 700;
+}
+
+.btn-text:hover,
+.btn-text:focus-visible {
+    color: var(--text-primary);
+    border-color: rgba(var(--accent-rgb), 0.32);
 }
 
 .btn-text:disabled {
@@ -195,8 +204,8 @@
 }
 
 .sub-expanded .qr-hint {
-    font-size: 12px;
-    color: var(--text-tertiary);
+    font-size: 0.72rem;
+    color: var(--text-muted);
 }
 
 .link-row {
@@ -208,7 +217,7 @@
 .link-row input {
     flex: 1;
     font-family: 'SF Mono', 'Fira Code', monospace;
-    font-size: 11px;
+    font-size: 0.66rem;
 }
 
 .link-row .copy-btn {
@@ -236,4 +245,67 @@
 .btn-app {
     text-align: center;
     justify-content: center;
+}
+
+.variant-picker-block {
+    width: 100%;
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.variant-picker-head {
+    display: grid;
+    gap: 4px;
+}
+
+.variant-picker-head h4 {
+    font-size: 0.84rem;
+    font-weight: 700;
+}
+
+.variant-picker-head span {
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+}
+
+.variant-picker-list {
+    display: grid;
+    gap: 8px;
+}
+
+.variant-inline-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background: rgba(255, 255, 255, 0.04);
+    text-align: left;
+}
+
+.variant-inline-card.active {
+    border-color: rgba(var(--accent-rgb), 0.35);
+    background: rgba(var(--accent-rgb), 0.12);
+}
+
+.variant-inline-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.variant-inline-meta {
+    font-size: 0.68rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+}
+
+.variant-copy-btn {
+    width: 100%;
 }

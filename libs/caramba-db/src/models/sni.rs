@@ -6,12 +6,16 @@ pub struct SniPoolItem {
     pub domain: String,
     pub tier: i32,
     pub health_score: i32,
+    #[sqlx(default)]
+    pub latency_ms: Option<i32>,
     pub last_check: Option<chrono::NaiveDateTime>,
     pub is_active: bool,
     pub notes: Option<String>,
     pub discovered_by_node_id: Option<i64>,
     #[sqlx(default)]
     pub is_premium: bool,
+    #[sqlx(default)]
+    pub is_favorite: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

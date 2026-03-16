@@ -60,6 +60,27 @@ impl SniRepository {
         Ok(())
     }
 
+    pub async fn unblock_sni(&self, domain: &str) -> Result<()> {
+        sqlx::query("DELETE FROM sni_blacklist WHERE domain = $1")
+            .bind(domain)
+            .execute(&self.pool)
+            .await
+            .context("Failed to unblock SNI domain")?;
+
+        Ok(())
+    }
+
+    pub async fn toggle_sni_favorite(&self, id: i64, favorite: bool) -> Result<()> {
+        sqlx::query("UPDATE sni_pool SET is_favorite = $1 WHERE id = $2")
+            .bind(favorite)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .context("Failed to toggle SNI favorite state")?;
+
+        Ok(())
+    }
+
     pub async fn toggle_sni_active(&self, id: i64, active: bool) -> Result<()> {
         sqlx::query("UPDATE sni_pool SET is_active = $1 WHERE id = $2")
             .bind(active)
@@ -98,6 +119,49 @@ impl SniRepository {
         .context("Failed to fetch blacklisted SNIs")
     }
 
+    pub async fn ensure_blocklist_table(&self) -> Result<()> {
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS sni_blacklist (
+                domain TEXT PRIMARY KEY,
+                reason TEXT,
+                blocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"
+        )
+        .execute(&self.pool)
+        .await
+        .context("Failed to ensure sni_blacklist table")?;
+
+        // Ensure reason column exists (for backward compatibility if table existed without it)
+        let _ = sqlx::query("ALTER TABLE sni_blacklist ADD COLUMN IF NOT EXISTS reason TEXT")
+            .execute(&self.pool)
+            .await;
+
+        Ok(())
+    }
+
+    pub async fn add_to_blocklist(&self, domain: &str, reason: &str) -> Result<()> {
+        self.ensure_blocklist_table().await?;
+
+        sqlx::query(
+            "INSERT INTO sni_blacklist (domain, reason, blocked_at)
+             VALUES ($1, $2, CURRENT_TIMESTAMP)
+             ON CONFLICT (domain) DO UPDATE SET reason = EXCLUDED.reason, blocked_at = CURRENT_TIMESTAMP"
+        )
+        .bind(domain)
+        .bind(reason)
+        .execute(&self.pool)
+        .await
+        .context("Failed to add SNI to blocklist")?;
+
+        // Remove from active pool if present
+        sqlx::query("DELETE FROM sni_pool WHERE domain = $1")
+            .bind(domain)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
     pub async fn seed_default_global_pool_if_empty(&self) -> Result<()> {
         let global_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM sni_pool WHERE discovered_by_node_id IS NULL OR is_premium = TRUE"
@@ -111,7 +175,6 @@ impl SniRepository {
         }
 
         let defaults = [
-            ("gosuslugi.ru", 0, "Public Services"),
             ("www.cloudflare.com", 1, "CDN baseline"),
             ("www.microsoft.com", 1, "Enterprise baseline"),
             ("www.apple.com", 1, "Consumer baseline"),

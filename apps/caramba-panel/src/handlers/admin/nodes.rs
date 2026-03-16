@@ -74,6 +74,7 @@ pub struct NodeManageTemplate {
     pub inbounds: Vec<caramba_db::models::network::Inbound>,
     pub discovered_snis: Vec<NodeSniDisplay>,
     pub nginx_proxy_config: String,
+    pub caddy_proxy_config: String,
 }
 
 #[derive(sqlx::FromRow, serde::Serialize)]
@@ -82,6 +83,7 @@ pub struct NodeSniDisplay {
     pub domain: String,
     pub is_pinned: bool,
     pub health_score: i32,
+    pub latency_ms: Option<i32>,
     pub is_premium: bool,
 }
 
@@ -886,10 +888,12 @@ pub async fn get_node_manage(
                 s.id,
                 s.domain,
                 COALESCE(s.health_score, 100) AS health_score,
+                s.latency_ms,
                 COALESCE(s.is_premium, FALSE) AS is_premium,
                 EXISTS(SELECT 1 FROM node_pinned_snis p WHERE p.node_id = $1 AND p.sni_id = s.id) AS is_pinned
             FROM sni_pool s
             WHERE (s.discovered_by_node_id = $1 OR COALESCE(s.is_premium, FALSE) = TRUE)
+              AND (COALESCE(s.health_score, 100) >= 50 OR EXISTS(SELECT 1 FROM node_pinned_snis p WHERE p.node_id = $1 AND p.sni_id = s.id))
             ORDER BY is_pinned DESC, is_premium DESC, health_score DESC
             LIMIT 200
             "#,
@@ -903,11 +907,12 @@ pub async fn get_node_manage(
                 .into_iter()
                 .map(|row| NodeSniDisplay {
                     id: row.try_get::<i64, _>("id").unwrap_or_default(),
-                    domain: row.try_get::<String, _>("domain").unwrap_or_default(),
-                    is_pinned: row.try_get::<bool, _>("is_pinned").unwrap_or(false),
-                    health_score: row.try_get::<i32, _>("health_score").unwrap_or(100),
-                    is_premium: row.try_get::<bool, _>("is_premium").unwrap_or(false),
-                })
+                        domain: row.try_get::<String, _>("domain").unwrap_or_default(),
+                        is_pinned: row.try_get::<bool, _>("is_pinned").unwrap_or(false),
+                        health_score: row.try_get::<i32, _>("health_score").unwrap_or(100),
+                        latency_ms: row.try_get::<Option<i32>, _>("latency_ms").unwrap_or(None),
+                        is_premium: row.try_get::<bool, _>("is_premium").unwrap_or(false),
+                    })
                 .collect::<Vec<_>>(),
             Err(e) => {
                 error!(
@@ -927,6 +932,7 @@ pub async fn get_node_manage(
                         domain: row.try_get::<String, _>("domain").unwrap_or_default(),
                         is_pinned: false,
                         health_score: row.try_get::<i32, _>("health_score").unwrap_or(100),
+                        latency_ms: None,
                         is_premium: false,
                     })
                     .collect::<Vec<_>>()
@@ -942,6 +948,23 @@ pub async fn get_node_manage(
     // Generate nginx reverse proxy config for relay nodes
     let nginx_proxy_config = if node.is_relay {
         let panel_url = state.settings.get_or_default("panel_url", "").await;
+        let subscription_domain = state
+            .settings
+            .get_or_default("subscription_domain", "")
+            .await;
+        let tma_domain = state.settings.get_or_default("tma_domain", "").await;
+        let subscription_entry_relay_id = state
+            .settings
+            .get_or_default("subscription_entry_relay_id", "0")
+            .await
+            .parse::<i64>()
+            .unwrap_or(0);
+        let tma_entry_relay_id = state
+            .settings
+            .get_or_default("tma_entry_relay_id", "0")
+            .await
+            .parse::<i64>()
+            .unwrap_or(0);
         let upstream = if !panel_url.is_empty() {
             panel_url.trim_end_matches('/').to_string()
         } else {
@@ -954,6 +977,16 @@ pub async fn get_node_manage(
             .next()
             .unwrap_or("YOUR_HUB_IP");
         let relay_domain = format!("{}.example.com", node.name.to_lowercase().replace(' ', "-"));
+        let subscription_host = if subscription_entry_relay_id == node.id && !subscription_domain.trim().is_empty() {
+            subscription_domain.trim().to_string()
+        } else {
+            relay_domain.clone()
+        };
+        let tma_host = if tma_entry_relay_id == node.id && !tma_domain.trim().is_empty() {
+            tma_domain.trim().to_string()
+        } else {
+            subscription_host.clone()
+        };
 
         format!(r#"# Nginx Reverse Proxy for Relay: {node_name}
 # Install: sudo apt install nginx certbot python3-certbot-nginx
@@ -965,17 +998,17 @@ upstream caramba_hub {{
 
 server {{
     listen 80;
-    server_name {relay_domain};
+    server_name {subscription_host} {tma_host};
     return 301 https://$host$request_uri;
 }}
 
 server {{
     listen 443 ssl http2;
-    server_name {relay_domain};
+    server_name {subscription_host} {tma_host};
 
     # SSL — replace with your actual certificate paths
-    ssl_certificate     /etc/letsencrypt/live/{relay_domain}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/{relay_domain}/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/{subscription_host}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{subscription_host}/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
 
@@ -1026,7 +1059,52 @@ server {{
 }}"#,
             node_name = node.name,
             upstream_host = upstream_host,
-            relay_domain = relay_domain,
+            subscription_host = subscription_host,
+            tma_host = tma_host,
+        )
+    } else {
+        String::new()
+    };
+
+    let caddy_proxy_config = if node.is_relay && !nginx_proxy_config.is_empty() {
+        let subscription_domain = state
+            .settings
+            .get_or_default("subscription_domain", "")
+            .await;
+        let tma_domain = state.settings.get_or_default("tma_domain", "").await;
+        let subscription_entry_relay_id = state
+            .settings
+            .get_or_default("subscription_entry_relay_id", "0")
+            .await
+            .parse::<i64>()
+            .unwrap_or(0);
+        let tma_entry_relay_id = state
+            .settings
+            .get_or_default("tma_entry_relay_id", "0")
+            .await
+            .parse::<i64>()
+            .unwrap_or(0);
+        let subscription_host = if subscription_entry_relay_id == node.id && !subscription_domain.trim().is_empty() {
+            subscription_domain.trim().to_string()
+        } else {
+            format!("{}.example.com", node.name.to_lowercase().replace(' ', "-"))
+        };
+        let tma_host = if tma_entry_relay_id == node.id && !tma_domain.trim().is_empty() {
+            tma_domain.trim().to_string()
+        } else {
+            subscription_host.clone()
+        };
+        let upstream = state.settings.get_or_default("panel_url", "").await;
+        let upstream = if upstream.is_empty() {
+            "https://YOUR_HUB_IP".to_string()
+        } else {
+            upstream
+        };
+        format!(
+            "{subscription_host}, {tma_host} {{\n    encode zstd gzip\n\n    handle /sub/* {{\n        reverse_proxy {upstream}\n    }}\n\n    handle /app/* {{\n        reverse_proxy {upstream}\n    }}\n\n    handle /bot/* {{\n        reverse_proxy {upstream}\n    }}\n\n    handle {{\n        respond \"relay-only host\" 403\n    }}\n}}",
+            subscription_host = subscription_host,
+            tma_host = tma_host,
+            upstream = upstream.trim_start_matches("https://").trim_start_matches("http://"),
         )
     } else {
         String::new()
@@ -1042,6 +1120,7 @@ server {{
         inbounds,
         discovered_snis,
         nginx_proxy_config,
+        caddy_proxy_config,
     };
 
     Html(template.render().unwrap()).into_response()

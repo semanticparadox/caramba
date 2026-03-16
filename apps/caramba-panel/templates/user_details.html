@@ -356,11 +356,11 @@
                             <td class="px-6 py-6 text-right">
                                 <div
                                     class="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button
-                                        onclick="openRefundModal( {{ sub.id }}, {{ sub.price }}, {{ sub.created_at.timestamp_millis() }}, {{ sub.expires_at.timestamp_millis() }} )"
-                                        class="btn btn-secondary px-4 py-2 text-[10px] text-amber-500 border-amber-500/20 hover:bg-amber-500/10">
-                                        REFUND
-                                    </button>
+                                     <button
+                                         onclick="openRefundModal( {{ sub.id }}, {{ sub.price }}, {{ sub.created_at.timestamp_millis() }}, {{ sub.expires_at.timestamp_millis() }} )"
+                                         class="btn btn-secondary px-4 py-2 text-[10px] text-amber-500 border-amber-500/20 hover:bg-amber-500/10">
+                                         TERMINATE & REFUND
+                                     </button>
                                     <button hx-delete="{{ admin_path }}/users/subs/{{ sub.id }}"
                                         hx-confirm="Delete subscription?" hx-target="#sub-row-{{ sub.id }}"
                                         hx-swap="outerHTML"
@@ -532,16 +532,16 @@
 <dialog id="refund_modal" class="modal-container">
     <div class="modal-content max-w-sm p-8" onclick="event.stopPropagation()">
         <header class="flex justify-between items-center mb-6">
-            <h3 class="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
-                <i data-lucide="undo-2" class="w-6 h-6 text-amber-500"></i>
-                Liquidation
-            </h3>
+             <h3 class="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                 <i data-lucide="undo-2" class="w-6 h-6 text-amber-500"></i>
+                 Terminate & Refund
+             </h3>
             <button onclick="closeModal('refund_modal')" class="btn-icon w-8 h-8 text-slate-500">
                 <i data-lucide="x" class="w-4 h-4"></i>
             </button>
         </header>
-        <p class="text-[11px] text-slate-500 uppercase tracking-widest font-bold mb-8 leading-relaxed">Sub liquidation
-            will terminate access and credit the user wallet.</p>
+        <p class="text-[11px] text-slate-500 uppercase tracking-widest font-bold mb-8 leading-relaxed">Terminate
+            subscription access and credit the user wallet.</p>
 
         <form id="refund_form" method="post" class="space-y-6">
             <div>

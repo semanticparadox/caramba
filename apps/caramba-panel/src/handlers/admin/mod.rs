@@ -14,6 +14,8 @@ pub mod updates;
 pub mod users;
 pub mod marketplace;
 
+pub use updates::get_updates_page;
+
 // Re-export commonly used functions for convenience
 pub use analytics::{get_system_logs_page, get_traffic_analytics, get_transactions};
 pub use api_keys::{create_api_key, delete_api_key, list_api_keys};

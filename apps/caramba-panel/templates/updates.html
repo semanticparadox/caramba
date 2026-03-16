@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}Update Center{% endblock %}
+{% block header_title %}Update Center{% endblock %}
+
+{% block content %}
+<section class="max-w-6xl mx-auto pb-32">
+
+    <!-- Top Grid: Panel & Agents -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+
+        <!-- Panel Status -->
+        <div class="card p-6 border-l-4 border-l-brand">
+            <header class="flex items-center gap-4 mb-6">
+                <div class="w-12 h-12 rounded-xl bg-brand/10 flex items-center justify-center text-brand">
+                    <i data-lucide="layout-dashboard" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-white">Control Plane</h3>
+                    <p class="text-xs text-slate-500 font-mono">caramba-panel</p>
+                </div>
+                <div class="ml-auto text-right">
+                    <p class="text-[10px] uppercase text-slate-500 font-bold tracking-widest">Version</p>
+                    <p class="text-xl font-mono font-bold text-white">{{ panel_current_version }}</p>
+                </div>
+            </header>
+
+            <div class="bg-black/20 rounded-xl p-4 border border-border-default space-y-3">
+                <div class="flex justify-between items-center">
+                    <span class="text-sm text-slate-400">Update Status</span>
+                    {% if panel_update_available %}
+                        <span class="badge bg-amber-500/10 text-amber-400 border-amber-500/20">Update Available: {{ panel_latest_version }}</span>
+                    {% else %}
+                        <span class="badge badge-online">Up to Date</span>
+                    {% endif %}
+                </div>
+                {% if panel_update_available %}
+                <div class="pt-2">
+                    <button class="btn btn-primary w-full text-sm py-2">
+                        <i data-lucide="download"></i> Update Panel
+                    </button>
+                    <p class="text-[10px] text-slate-500 text-center mt-2">Server restart required.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Node Agents -->
+        <div class="card p-6 border-l-4 border-l-cyan-500">
+            <header class="flex items-center gap-4 mb-6">
+                <div class="w-12 h-12 rounded-xl bg-cyan-500/10 flex items-center justify-center text-cyan-400">
+                    <i data-lucide="server" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-white">Node Agents</h3>
+                    <p class="text-xs text-slate-500 font-mono">caramba-node</p>
+                </div>
+                <div class="ml-auto text-right">
+                    <p class="text-[10px] uppercase text-slate-500 font-bold tracking-widest">Target Release</p>
+                    <p class="text-xl font-mono font-bold text-white">{{ agent_latest_version }}</p>
+                </div>
+            </header>
+
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div class="bg-black/20 rounded-xl p-3 border border-border-default text-center">
+                    <p class="text-2xl font-bold text-white">{{ active_nodes_count }}</p>
+                    <p class="text-[10px] text-slate-500 uppercase">Active Nodes</p>
+                </div>
+                <div class="bg-black/20 rounded-xl p-3 border border-border-default text-center">
+                    <div class="flex justify-center mb-1">
+                        {% if auto_update_agents %}
+                        <i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-400"></i>
+                        {% else %}
+                        <i data-lucide="pause-circle" class="w-5 h-5 text-slate-500"></i>
+                        {% endif %}
+                    </div>
+                    <p class="text-[10px] text-slate-500 uppercase">Auto-Update</p>
+                </div>
+            </div>
+
+            <div class="flex gap-2">
+                <button hx-post="{{ admin_path }}/settings/update/agent/prepare" class="btn btn-secondary flex-1 text-xs">
+                    <i data-lucide="download-cloud"></i> Fetch Latest
+                </button>
+                <button hx-post="{{ admin_path }}/nodes/update/trigger" class="btn btn-primary flex-1 text-xs">
+                    <i data-lucide="send"></i> Rollout Now
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Distributed Workers Table -->
+    <div class="card">
+        <div class="px-6 py-4 border-b border-border-default flex items-center justify-between">
+            <h3 class="font-bold text-white">Distributed Workers Fleet</h3>
+            <span class="text-xs text-slate-500">Sub & Bot Microservices</span>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="table-base">
+                <thead>
+                    <tr>
+                        <th class="pl-6">Role</th>
+                        <th>Instance ID</th>
+                        <th>Status</th>
+                        <th>Version Flow</th>
+                        <th>Last Contact</th>
+                        <th class="pr-6 text-right">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for worker in worker_inventory %}
+                    <tr class="group hover:bg-white/5 transition-colors">
+                        <td class="pl-6">
+                            <span class="inline-flex items-center gap-2 px-2 py-1 rounded bg-slate-800 border border-slate-700 text-xs font-mono text-slate-300">
+                                {{ worker.role }}
+                            </span>
+                        </td>
+                        <td class="font-mono text-xs text-slate-400">{{ worker.worker_id }}</td>
+                        <td>
+                            {% if worker.is_online %}
+                                <span class="inline-flex items-center gap-1.5 text-[10px] font-bold text-emerald-400 uppercase tracking-wider bg-emerald-400/10 px-2 py-0.5 rounded-full border border-emerald-400/20">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Online
+                                </span>
+                            {% else %}
+                                <span class="inline-flex items-center gap-1.5 text-[10px] font-bold text-rose-400 uppercase tracking-wider bg-rose-400/10 px-2 py-0.5 rounded-full border border-rose-400/20">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> Offline
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="flex items-center gap-2 text-xs font-mono">
+                                <span class="text-slate-400">{{ worker.current_version }}</span>
+                                <i data-lucide="arrow-right" class="w-3 h-3 text-slate-600"></i>
+                                <span class="text-white">{{ worker.target_version }}</span>
+                            </div>
+                        </td>
+                        <td class="text-xs text-slate-500">{{ worker.last_seen_ago }}</td>
+                        <td class="pr-6 text-right">
+                            <button class="text-slate-500 hover:text-white transition-colors" title="View Logs">
+                                <i data-lucide="file-text" class="w-4 h-4"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% if worker_inventory.is_empty() %}
+                    <tr>
+                        <td colspan="6" class="text-center py-8 text-slate-500 italic">No distributed workers detected.</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</section>
+{% endblock %}

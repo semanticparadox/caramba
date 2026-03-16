@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import type { SingboxConnectionVariant } from '../context/AuthContext'
 import { QRCodeSVG } from 'qrcode.react'
 import './Servers.css'
 
@@ -12,6 +13,8 @@ interface ServerInfo {
     latency?: number
     status: string
     distance_km?: number
+    available_variant_ids?: string[]
+    recommended_variant_id?: string | null
 }
 
 export default function Servers() {
@@ -22,14 +25,42 @@ export default function Servers() {
     const [loading, setLoading] = useState(true)
     const [selectedServer, setSelectedServer] = useState<ServerInfo | null>(null)
     const [clientType, setClientType] = useState('singbox')
+    const [selectedVariant, setSelectedVariant] = useState<string>('')
     const [configUrl, setConfigUrl] = useState('')
     const [copied, setCopied] = useState(false)
+
+    const singboxVariants = activeSub?.singbox_variants ?? []
+    const availableVariants = selectedServer
+        ? singboxVariants.filter(variant => selectedServer.available_variant_ids?.includes(variant.id))
+        : singboxVariants
+
+    const trackVariantEvent = async (serverId: number, variantId: string, event: string, client = 'singbox') => {
+        if (!token || !activeSub || !variantId) return
+        try {
+            await fetch(`/api/client/subscription/${activeSub.id}/variant-event`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    node_id: serverId,
+                    variant_id: variantId,
+                    event,
+                    client,
+                }),
+            })
+        } catch (error) {
+            console.error('Variant telemetry failed', error)
+        }
+    }
 
     useEffect(() => {
         if (!token) return;
         const fetchData = async () => {
             try {
-                const res = await fetch('/api/client/servers', {
+                const query = activeSub ? `?sub_id=${activeSub.id}` : ''
+                const res = await fetch(`/api/client/servers${query}`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (res.ok) setServers(await res.json());
@@ -37,30 +68,67 @@ export default function Servers() {
             finally { setLoading(false); }
         };
         fetchData();
-    }, [token]);
+    }, [activeSub?.id, token]);
 
     const handleGetConfig = (server: ServerInfo) => {
         if (!activeSub) return;
         setSelectedServer(server);
-        updateConfigUrl(server.id, clientType);
+        const serverVariants = singboxVariants.filter(variant => server.available_variant_ids?.includes(variant.id))
+        const recommendedVariant = serverVariants.find(variant => variant.id === server.recommended_variant_id)
+        const defaultVariant = clientType === 'singbox'
+            ? recommendedVariant?.id ?? serverVariants[0]?.id ?? ''
+            : '';
+        setSelectedVariant(defaultVariant);
+        updateConfigUrl(server.id, clientType, defaultVariant);
+        if (clientType === 'singbox' && defaultVariant) {
+            void trackVariantEvent(server.id, defaultVariant, 'config_opened')
+        }
     }
 
-    const updateConfigUrl = (nodeId: number, type: string) => {
+    const updateConfigUrl = (nodeId: number, type: string, variantId?: string) => {
         if (!activeSub) return;
         let base = activeSub.subscription_url;
+        const params = new URLSearchParams();
+        params.set('client', type);
+        params.set('node_id', String(nodeId));
+        if (type === 'singbox' && variantId) {
+            params.set('variant', variantId);
+        }
         const sep = base.includes('?') ? '&' : '?';
-        setConfigUrl(`${base}${sep}client=${type}&node_id=${nodeId}`);
+        setConfigUrl(`${base}${sep}${params.toString()}`);
     }
 
     const handleClientChange = (type: string) => {
         setClientType(type);
-        if (selectedServer) updateConfigUrl(selectedServer.id, type);
+        const hasCurrentVariant = availableVariants.some(variant => variant.id === selectedVariant)
+        const nextVariant = type === 'singbox'
+            ? ((hasCurrentVariant ? selectedVariant : '') || availableVariants[0]?.id || '')
+            : '';
+        setSelectedVariant(nextVariant);
+        if (selectedServer) updateConfigUrl(selectedServer.id, type, nextVariant);
+    }
+
+    const handleVariantChange = (variant: SingboxConnectionVariant) => {
+        setSelectedVariant(variant.id);
+        if (selectedServer) updateConfigUrl(selectedServer.id, 'singbox', variant.id);
+        if (selectedServer) {
+            void trackVariantEvent(selectedServer.id, variant.id, 'variant_selected')
+        }
     }
 
     const handleCopy = () => {
         navigator.clipboard.writeText(configUrl);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
+        if (selectedServer && clientType === 'singbox' && selectedVariant) {
+            void trackVariantEvent(selectedServer.id, selectedVariant, 'config_copied')
+        }
+    }
+
+    const handleConnectionFeedback = (event: 'connection_succeeded' | 'connection_failed') => {
+        if (selectedServer && clientType === 'singbox' && selectedVariant) {
+            void trackVariantEvent(selectedServer.id, selectedVariant, event)
+        }
     }
 
     if (loading) return <div className="page"><div className="loading">Loading servers...</div></div>;
@@ -89,6 +157,9 @@ export default function Servers() {
                                 <span className={`status-indicator ${server.status}`}>
                                     {server.status === 'online' ? '●' : '○'}
                                 </span>
+                                {!!server.available_variant_ids?.length && (
+                                    <span className="badge badge-success">{server.available_variant_ids.length} paths</span>
+                                )}
                                 {i === 0 && <span className="badge badge-warning">⭐ Best</span>}
                             </div>
                         </div>
@@ -114,6 +185,39 @@ export default function Servers() {
                                 </button>
                             ))}
                         </div>
+                        {clientType === 'singbox' && availableVariants.length > 0 && (
+                            <div className="variant-list">
+                                {availableVariants.map(variant => (
+                                    <button
+                                        key={variant.id}
+                                        className={`variant-card ${selectedVariant === variant.id ? 'active' : ''}`}
+                                        onClick={() => handleVariantChange(variant)}
+                                    >
+                                        <span className="variant-title-row">
+                                            <span className="variant-title">{variant.label}</span>
+                                            <span className="variant-badges">
+                                                {variant.id === selectedServer.recommended_variant_id && (
+                                                    <span className="variant-chip recommended">Best</span>
+                                                )}
+                                                <span className={`variant-chip ${variant.family}`}>
+                                                    {variant.family === 'grpc' ? 'gRPC' : 'VLESS'}
+                                                </span>
+                                            </span>
+                                        </span>
+                                        <span className="variant-meta-row">
+                                            <span>{variant.transport}</span>
+                                            <span>{variant.relay ? 'relay' : 'direct'}</span>
+                                        </span>
+                                        <span className="variant-summary">{variant.summary}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        {clientType === 'singbox' && availableVariants.length === 0 && (
+                            <div className="variant-empty-state">
+                                No sing-box variants available for this server yet.
+                            </div>
+                        )}
                         <div className="qr-wrapper">
                             <QRCodeSVG value={configUrl} size={160} bgColor="#fff" fgColor="#0D0D1A" />
                         </div>
@@ -123,6 +227,22 @@ export default function Servers() {
                                 {copied ? '✓' : '📋'}
                             </button>
                         </div>
+                        {clientType === 'singbox' && selectedVariant && (
+                            <div className="variant-feedback-row">
+                                <button
+                                    className="btn-secondary variant-feedback success"
+                                    onClick={() => handleConnectionFeedback('connection_succeeded')}
+                                >
+                                    Works
+                                </button>
+                                <button
+                                    className="btn-secondary variant-feedback danger"
+                                    onClick={() => handleConnectionFeedback('connection_failed')}
+                                >
+                                    Didn't work
+                                </button>
+                            </div>
+                        )}
                         <button className="btn-secondary close-btn" onClick={() => setSelectedServer(null)}>
                             Close
                         </button>

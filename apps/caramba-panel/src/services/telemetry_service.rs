@@ -41,6 +41,13 @@ impl TelemetryService {
         speed_mbps: Option<i32>,
         discovered_snis: Option<Vec<caramba_shared::DiscoveredSni>>,
         uptime: u64,
+        // Added params
+        latency: Option<f64>,
+        cpu_usage: Option<f64>,
+        memory_usage: Option<f64>,
+        max_ram: Option<u64>,
+        cpu_cores: Option<i32>,
+        cpu_model: Option<String>,
     ) -> Result<()> {
         let node_data: Option<(i64, i64, i64, i64)> = sqlx::query_as(
             "SELECT total_ingress, total_egress, last_session_ingress, last_session_egress FROM nodes WHERE id = $1"
@@ -65,15 +72,12 @@ impl TelemetryService {
             total_in += diff_in as i64;
             total_eq += diff_eg as i64;
 
-            let node_load: Option<(Option<f64>, Option<f64>, Option<i32>)> =
-                sqlx::query_as("SELECT last_cpu, last_ram, max_users FROM nodes WHERE id = $1")
-                    .bind(node_id)
-                    .fetch_optional(&self.pool)
-                    .await?;
+            let prev_max: Option<i32> = sqlx::query_scalar("SELECT max_users FROM nodes WHERE id = $1")
+                .bind(node_id)
+                .fetch_optional(&self.pool)
+                .await?;
 
-            let calculated_max = node_load.and_then(|(cpu, ram, prev_max)| {
-                derive_recommended_max_users(speed_mbps, cpu, ram, prev_max)
-            });
+            let calculated_max = derive_recommended_max_users(speed_mbps, cpu_usage, memory_usage, prev_max);
 
             sqlx::query(
                 "UPDATE nodes SET 
@@ -84,8 +88,14 @@ impl TelemetryService {
                     last_session_egress = $5,
                     uptime = $6,
                     current_speed_mbps = COALESCE($7, current_speed_mbps),
-                    max_users = COALESCE($8, max_users)
-                 WHERE id = $9",
+                    max_users = COALESCE($8, max_users),
+                    last_latency = $9,
+                    last_cpu = $10,
+                    last_ram = $11,
+                    max_ram = COALESCE($12, max_ram),
+                    cpu_cores = COALESCE($13, cpu_cores),
+                    cpu_model = COALESCE($14, cpu_model)
+                 WHERE id = $15",
             )
             .bind(active_connections.map(|c| c as i32))
             .bind(total_in)
@@ -95,6 +105,12 @@ impl TelemetryService {
             .bind(uptime as i64)
             .bind(speed_mbps)
             .bind(calculated_max)
+            .bind(latency)
+            .bind(cpu_usage)
+            .bind(memory_usage)
+            .bind(max_ram.map(|v| v as i64))
+            .bind(cpu_cores)
+            .bind(cpu_model)
             .bind(node_id)
             .execute(&self.pool)
             .await?;
@@ -136,7 +152,21 @@ impl TelemetryService {
                     continue;
                 }
 
-                if let Err(reason) = classify_discovered_domain(&domain)
+                let deny_patterns_str: String = sqlx::query_scalar(
+                "SELECT value FROM settings WHERE key = 'sni_scanner_deny_patterns'"
+                )
+                .fetch_optional(&self.pool)
+                .await
+                .unwrap_or_default()
+                .unwrap_or_else(|| "ovh.net,duckdns.net".to_string());
+
+                let deny_patterns: Vec<String> = deny_patterns_str
+                    .split(',')
+                    .map(|s| s.trim().to_lowercase())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                if let Err(reason) = classify_discovered_domain(&domain, &deny_patterns)
                     .and_then(|_| classify_reserved_domain(&domain, &reserved_control_plane_hosts))
                 {
                     if let Err(e) = auto_blacklist_domain(
@@ -172,11 +202,12 @@ impl TelemetryService {
                 }
 
                 let insert_primary = sqlx::query(
-                    "INSERT INTO sni_pool (domain, tier, notes, is_active, discovered_by_node_id, health_score) VALUES ($1, 1, $2, TRUE, $3, 100) ON CONFLICT(domain) DO UPDATE SET notes = EXCLUDED.notes, discovered_by_node_id = COALESCE(sni_pool.discovered_by_node_id, EXCLUDED.discovered_by_node_id)"
+                    "INSERT INTO sni_pool (domain, tier, notes, is_active, discovered_by_node_id, health_score, latency_ms) VALUES ($1, 1, $2, TRUE, $3, 100, $4) ON CONFLICT(domain) DO UPDATE SET notes = EXCLUDED.notes, discovered_by_node_id = COALESCE(sni_pool.discovered_by_node_id, EXCLUDED.discovered_by_node_id), latency_ms = CASE WHEN sni_pool.latency_ms IS NULL THEN EXCLUDED.latency_ms WHEN EXCLUDED.latency_ms IS NULL THEN sni_pool.latency_ms ELSE LEAST(sni_pool.latency_ms, EXCLUDED.latency_ms) END"
                 )
                     .bind(&domain)
                     .bind(format!("Discovered by Node {} (Sniper)", node_id))
                     .bind(node_id)
+                    .bind(sni.latency_ms as i32)
                     .execute(&self.pool)
                     .await;
 
@@ -202,26 +233,28 @@ impl TelemetryService {
                     domain, node_id
                 );
 
-                let node_sni: Option<String> =
-                    sqlx::query_scalar("SELECT reality_sni FROM nodes WHERE id = $1")
+                let node_status: (Option<String>, String) =
+                    sqlx::query_as("SELECT reality_sni, status FROM nodes WHERE id = $1")
                         .bind(node_id)
-                        .fetch_one(&self.pool)
-                        .await
-                        .unwrap_or(None);
+                        .fetch_optional(&self.pool)
+                        .await?
+                        .unwrap_or((None, "unknown".to_string()));
 
-                let is_generic = node_sni
+                let (current_sni, status) = node_status;
+
+                let is_generic_or_missing = current_sni
                     .as_deref()
-                    .map(|s| s == "www.google.com" || s == "google.com" || s == "www.microsoft.com")
+                    .map(|s| s == "www.google.com" || s == "google.com" || s == "www.microsoft.com" || s == "gosuslugi.ru")
                     .unwrap_or(true);
 
-                if is_generic {
-                    let _ = sqlx::query("UPDATE nodes SET reality_sni = $1 WHERE id = $2")
+                if is_generic_or_missing || status == "provisioning" {
+                    let _ = sqlx::query("UPDATE nodes SET reality_sni = $1, status = 'active' WHERE id = $2")
                         .bind(&domain)
                         .bind(node_id)
                         .execute(&self.pool)
                         .await;
                     info!(
-                        "✨ Neighbor Sniper: Automatically assigned discovered SNI {} to Node {}",
+                        "✨ Neighbor Sniper: Automatically assigned verified SNI {} to Node {} (Provisioning Complete)",
                         domain, node_id
                     );
                 }
@@ -274,7 +307,7 @@ impl TelemetryService {
     }
 }
 
-fn classify_discovered_domain(domain: &str) -> Result<(), String> {
+fn classify_discovered_domain(domain: &str, dynamic_deny_patterns: &[String]) -> Result<(), String> {
     let domain = domain.trim().to_lowercase();
 
     if domain.is_empty() {
@@ -328,6 +361,13 @@ fn classify_discovered_domain(domain: &str) -> Result<(), String> {
         return Err("service/control-plane noise".to_string());
     }
 
+    // Dynamic Database Configured Patterns (e.g., ovh.net, duckdns.net)
+    for pattern in dynamic_deny_patterns {
+        if domain.contains(pattern) {
+            return Err("matches custom deny pattern".to_string());
+        }
+    }
+
     if let Ok(extra) = std::env::var("SNI_SCANNER_DENY_PATTERNS") {
         for pattern in extra
             .split(',')
@@ -335,7 +375,7 @@ fn classify_discovered_domain(domain: &str) -> Result<(), String> {
             .filter(|v| !v.is_empty())
         {
             if domain.contains(&pattern) {
-                return Err("matches custom deny pattern".to_string());
+                return Err("matches env custom deny pattern".to_string());
             }
         }
     }
@@ -446,12 +486,7 @@ async fn load_reserved_control_plane_hosts(pool: &PgPool) -> Result<HashSet<Stri
         collect_host_candidates(&mut hosts, &value);
     }
 
-    for key in [
-        "PANEL_URL",
-        "SERVER_DOMAIN",
-        "API_DOMAIN",
-        "SUBSCRIPTION_DOMAIN",
-    ] {
+    for key in ["PANEL_URL"] {
         if let Ok(value) = std::env::var(key) {
             collect_host_candidates(&mut hosts, &value);
         }
@@ -645,22 +680,26 @@ mod tests {
 
     #[test]
     fn discovered_domain_filter_accepts_normal_domains() {
-        assert!(classify_discovered_domain("hitchhive.app").is_ok());
-        assert!(classify_discovered_domain("api.kd367.fr").is_ok());
+        let deny = vec![];
+        assert!(classify_discovered_domain("hitchhive.app", &deny).is_ok());
+        assert!(classify_discovered_domain("api.kd367.fr", &deny).is_ok());
     }
 
     #[test]
     fn discovered_domain_filter_rejects_noise() {
-        assert!(classify_discovered_domain("Plesk").is_err());
-        assert!(classify_discovered_domain("traefik.default").is_err());
-        assert!(classify_discovered_domain("with space.example.com").is_err());
-        assert!(classify_discovered_domain("localhost").is_err());
-        assert!(classify_discovered_domain("Parallels Panel").is_err());
-        assert!(classify_discovered_domain("vps-40d02f7d.vps.ovh.net").is_err());
-        assert!(classify_discovered_domain("sni-support-required-for-valid-ssl").is_err());
+        let deny = vec!["duckdns.net".to_string(), "ovh.net".to_string()];
+        assert!(classify_discovered_domain("Plesk", &deny).is_err());
+        assert!(classify_discovered_domain("traefik.default", &deny).is_err());
+        assert!(classify_discovered_domain("with space.example.com", &deny).is_err());
+        assert!(classify_discovered_domain("localhost", &deny).is_err());
+        assert!(classify_discovered_domain("Parallels Panel", &deny).is_err());
+        assert!(classify_discovered_domain("vps-40d02f7d.vps.ovh.net", &deny).is_err());
+        assert!(classify_discovered_domain("sni-support-required-for-valid-ssl", &deny).is_err());
+        assert!(classify_discovered_domain("myhome.duckdns.net", &deny).is_err());
         assert!(
             classify_discovered_domain(
-                "9549ca1c6e517b1f5f8db4e7624e0916.f7021182bba21dbfeaa0c9111f25c92d.traefik.default"
+                "9549ca1c6e517b1f5f8db4e7624e0916.f7021182bba21dbfeaa0c9111f25c92d.traefik.default",
+                &deny
             )
             .is_err()
         );

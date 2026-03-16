@@ -1,7 +1,7 @@
 use crate::AppState;
 use axum::{
     Router,
-    extract::{Path, Request, State},
+    extract::{Path, Query, Request, State},
     http::{StatusCode, header, HeaderMap},
     middleware::{self, Next},
     response::{IntoResponse, Json},
@@ -10,11 +10,13 @@ use axum::{
 use hmac::{Hmac, Mac};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::Sha256;
 use sqlx::Row;
 use std::collections::HashMap;
 use std::env;
 use tracing::warn;
+use crate::singbox::connection_variants::available_connection_variants_for_node;
 
 #[inline]
 fn ensure_jwt_crypto_provider() {
@@ -198,6 +200,13 @@ pub fn routes(state: AppState) -> Router<AppState> {
         .route(
             "/subscription/{id}/links",
             get(get_subscription_links_for_user).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/subscription/{id}/variant-event",
+            post(track_subscription_variant_event).layer(middleware::from_fn_with_state(
                 state.clone(),
                 auth_middleware,
             )),
@@ -640,6 +649,7 @@ async fn get_user_subscriptions(
     }
 
     let mut result: Vec<serde_json::Value> = Vec::with_capacity(subs.len());
+    let singbox_variants = state.subscription_service.get_singbox_connection_variants();
     for s in &subs {
         let all_links = match state
             .subscription_service
@@ -707,6 +717,7 @@ async fn get_user_subscriptions(
             "subscription_url": sub_url,
             "vless_links": vless_links,
             "primary_vless_link": primary_vless_link,
+            "singbox_variants": singbox_variants.clone(),
         }));
     }
 
@@ -871,6 +882,13 @@ struct ClientNode {
     status: String,
     distance_km: Option<i32>,
     name: String, // Derived from id or config?
+    available_variant_ids: Vec<String>,
+    recommended_variant_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ServersQuery {
+    sub_id: Option<i64>,
 }
 
 // Helper for flag
@@ -892,6 +910,7 @@ fn get_flag(country: &str) -> String {
 async fn get_active_servers(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<Claims>,
+    Query(params): Query<ServersQuery>,
     headers: axum::http::HeaderMap,
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
 ) -> impl IntoResponse {
@@ -912,6 +931,28 @@ async fn get_active_servers(
         .get_user_nodes(user_id)
         .await
         .unwrap_or_default();
+    let node_infos = state
+        .subscription_service
+        .get_node_infos_with_relays(&nodes)
+        .await
+        .unwrap_or_default();
+    let variants_by_node: HashMap<String, Vec<String>> = node_infos
+        .into_iter()
+        .map(|node| {
+            let variants = available_connection_variants_for_node(&node)
+                .into_iter()
+                .map(|variant| variant.id.to_string())
+                .collect();
+            (node.address, variants)
+        })
+        .collect();
+    let recommended_by_node = build_recommended_variants_by_node(
+        &state.pool,
+        user_id,
+        params.sub_id,
+        &variants_by_node,
+    )
+    .await;
 
     // 1. Get Client IP/Location
     let client_ip = headers
@@ -961,6 +1002,8 @@ async fn get_active_servers(
                 status: status_label,
                 distance_km: dist,
                 name: format!("Node #{} ({} Mbps)", n.id, speed),
+                available_variant_ids: variants_by_node.get(&n.ip).cloned().unwrap_or_default(),
+                recommended_variant_id: recommended_by_node.get(&n.id).cloned().flatten(),
             }
         })
         .collect();
@@ -1328,6 +1371,10 @@ struct PaymentProviderInfo {
     label: String,
 }
 
+fn has_value(value: &str) -> bool {
+    !value.trim().is_empty()
+}
+
 async fn get_payment_providers(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<Claims>,
@@ -1364,35 +1411,51 @@ async fn get_payment_providers(
         });
     }
 
-    if !state.settings.get_or_default("payment_api_key", "").await.is_empty() {
+    if has_value(&state.settings.get_or_default("payment_api_key", "").await) {
         providers.push(PaymentProviderInfo {
             id: "cryptobot".to_string(),
             label: "🪙 Pay with CryptoBot".to_string(),
         });
     }
 
-    if !state.settings.get_or_default("nowpayments_api_key", "").await.is_empty() {
+    if has_value(&state.settings.get_or_default("nowpayments_api_key", "").await)
+        && has_value(&state.settings.get_or_default("nowpayments_ipn_secret", "").await)
+    {
         providers.push(PaymentProviderInfo {
             id: "nowpayments".to_string(),
             label: "🪙 Pay with NowPayments".to_string(),
         });
     }
 
-    if !state.settings.get_or_default("cryptomus_payment_api_key", "").await.is_empty() {
+    if has_value(
+        &state
+            .settings
+            .get_or_default("cryptomus_payment_merchant_id", "")
+            .await,
+    ) && has_value(
+        &state
+            .settings
+            .get_or_default("cryptomus_payment_api_key", "")
+            .await,
+    ) {
         providers.push(PaymentProviderInfo {
             id: "cryptomus".to_string(),
             label: "🪙 Pay with Cryptomus".to_string(),
         });
     }
 
-    if !state.settings.get_or_default("lava_secret_key", "").await.is_empty() {
+    if has_value(&state.settings.get_or_default("lava_project_id", "").await)
+        && has_value(&state.settings.get_or_default("lava_secret_key", "").await)
+    {
         providers.push(PaymentProviderInfo {
             id: "lava".to_string(),
             label: "🪙 Pay with Lava.top".to_string(),
         });
     }
 
-    if !state.settings.get_or_default("aaio_secret_1", "").await.is_empty() {
+    if has_value(&state.settings.get_or_default("aaio_merchant_id", "").await)
+        && has_value(&state.settings.get_or_default("aaio_secret_1", "").await)
+    {
         providers.push(PaymentProviderInfo {
             id: "aaio".to_string(),
             label: "🪙 Pay with AAIO".to_string(),
@@ -1499,6 +1562,199 @@ async fn create_payment_invoice(
 #[derive(Deserialize)]
 struct PinNodeReq {
     node_id: i64,
+}
+
+#[derive(Deserialize)]
+struct VariantEventReq {
+    node_id: i64,
+    variant_id: String,
+    event: String,
+    client: Option<String>,
+}
+
+fn allowed_variant_event(event: &str) -> bool {
+    matches!(
+        event,
+        "variant_selected"
+            | "config_opened"
+            | "config_copied"
+            | "connection_succeeded"
+            | "connection_failed"
+    )
+}
+
+fn variant_event_weight(event: &str) -> i32 {
+    match event {
+        "connection_succeeded" => 8,
+        "connection_failed" => -6,
+        "config_copied" => 4,
+        "config_opened" => 2,
+        "variant_selected" => 1,
+        _ => 0,
+    }
+}
+
+fn choose_recommended_variant(
+    scores: &HashMap<String, i32>,
+    available_variant_ids: &[String],
+) -> Option<String> {
+    available_variant_ids
+        .iter()
+        .filter_map(|variant_id| {
+            scores
+                .get(variant_id)
+                .map(|score| (variant_id.clone(), *score))
+        })
+        .max_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)))
+        .map(|entry| entry.0)
+        .or_else(|| available_variant_ids.first().cloned())
+}
+
+async fn build_recommended_variants_by_node(
+    pool: &sqlx::PgPool,
+    user_id: i64,
+    sub_id: Option<i64>,
+    variants_by_node_ip: &HashMap<String, Vec<String>>,
+) -> HashMap<i64, Option<String>> {
+    let Some(subscription_id) = sub_id else {
+        return HashMap::new();
+    };
+
+    let node_rows = match sqlx::query_as::<_, (i64, String)>(
+        "SELECT id, ip FROM nodes WHERE ip = ANY($1)",
+    )
+    .bind(
+        &variants_by_node_ip
+            .keys()
+            .cloned()
+            .collect::<Vec<String>>(),
+    )
+    .fetch_all(pool)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(_) => return HashMap::new(),
+    };
+
+    let node_ids: Vec<i64> = node_rows.iter().map(|(node_id, _)| *node_id).collect();
+    if node_ids.is_empty() {
+        return HashMap::new();
+    }
+
+    let details_rows = match sqlx::query_scalar::<_, String>(
+        "SELECT details FROM activity_log WHERE user_id = $1 AND action = $2 ORDER BY created_at DESC LIMIT 500",
+    )
+    .bind(user_id)
+    .bind("subscription_variant_event")
+    .fetch_all(pool)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(_) => return HashMap::new(),
+    };
+
+    let mut scores_by_node: HashMap<i64, HashMap<String, i32>> = HashMap::new();
+    for details in details_rows {
+        let Ok(parsed) = serde_json::from_str::<Value>(&details) else {
+            continue;
+        };
+
+        let event_sub_id = parsed.get("subscription_id").and_then(Value::as_i64);
+        let event_node_id = parsed.get("node_id").and_then(Value::as_i64);
+        let event_name = parsed.get("event").and_then(Value::as_str);
+        let variant_id = parsed.get("variant_id").and_then(Value::as_str);
+
+        let (Some(event_sub_id), Some(event_node_id), Some(event_name), Some(variant_id)) =
+            (event_sub_id, event_node_id, event_name, variant_id)
+        else {
+            continue;
+        };
+
+        if event_sub_id != subscription_id || !node_ids.contains(&event_node_id) {
+            continue;
+        }
+
+        let weight = variant_event_weight(event_name);
+        if weight == 0 {
+            continue;
+        }
+
+        let entry = scores_by_node.entry(event_node_id).or_default();
+        *entry.entry(variant_id.to_string()).or_insert(0) += weight;
+    }
+
+    node_rows
+        .into_iter()
+        .map(|(node_id, node_ip)| {
+            let available_variant_ids = variants_by_node_ip
+                .get(&node_ip)
+                .cloned()
+                .unwrap_or_default();
+            let recommended = scores_by_node
+                .get(&node_id)
+                .and_then(|scores| choose_recommended_variant(scores, &available_variant_ids));
+            (node_id, recommended.or_else(|| available_variant_ids.first().cloned()))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod client_variant_event_tests {
+    use super::{allowed_variant_event, choose_recommended_variant, variant_event_weight};
+    use std::collections::HashMap;
+
+    #[test]
+    fn accepts_supported_variant_events() {
+        assert!(allowed_variant_event("variant_selected"));
+        assert!(allowed_variant_event("config_opened"));
+        assert!(allowed_variant_event("config_copied"));
+        assert!(allowed_variant_event("connection_succeeded"));
+        assert!(allowed_variant_event("connection_failed"));
+    }
+
+    #[test]
+    fn rejects_unknown_variant_events() {
+        assert!(!allowed_variant_event("opened"));
+        assert!(!allowed_variant_event("success"));
+    }
+
+    #[test]
+    fn scores_variant_events_by_strength() {
+        assert_eq!(variant_event_weight("variant_selected"), 1);
+        assert_eq!(variant_event_weight("config_opened"), 2);
+        assert_eq!(variant_event_weight("config_copied"), 4);
+        assert_eq!(variant_event_weight("connection_succeeded"), 8);
+        assert_eq!(variant_event_weight("connection_failed"), -6);
+        assert_eq!(variant_event_weight("unknown"), 0);
+    }
+
+    #[test]
+    fn chooses_highest_scoring_available_variant() {
+        let mut scores = HashMap::new();
+        scores.insert("grpc-direct".to_string(), 3);
+        scores.insert("vless-httpupgrade-relay".to_string(), 9);
+
+        let available = vec![
+            "vless-httpupgrade-relay".to_string(),
+            "grpc-direct".to_string(),
+        ];
+
+        assert_eq!(
+            choose_recommended_variant(&scores, &available).as_deref(),
+            Some("vless-httpupgrade-relay")
+        );
+    }
+
+    #[test]
+    fn falls_back_to_first_available_variant_when_no_score_exists() {
+        let scores = HashMap::new();
+        let available = vec!["vless-reality-direct".to_string(), "grpc-direct".to_string()];
+
+        assert_eq!(
+            choose_recommended_variant(&scores, &available).as_deref(),
+            Some("vless-reality-direct")
+        );
+    }
 }
 
 async fn pin_subscription_node(
@@ -1696,8 +1952,86 @@ async fn get_subscription_links_for_user(
         "links": links,
         "vless_links": vless_links,
         "primary_vless_link": vless_links.first().cloned(),
+        "singbox_variants": state.subscription_service.get_singbox_connection_variants(),
     }))
     .into_response()
+}
+
+async fn track_subscription_variant_event(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path(sub_id): Path<i64>,
+    Json(body): Json<VariantEventReq>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    let sub_owner_id: Option<i64> =
+        sqlx::query_scalar("SELECT user_id FROM subscriptions WHERE id = $1")
+            .bind(sub_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
+
+    match sub_owner_id {
+        Some(owner_id) if owner_id == user_id => {}
+        _ => {
+            return (
+                StatusCode::FORBIDDEN,
+                "Subscription not found or access denied",
+            )
+                .into_response();
+        }
+    }
+
+    if !allowed_variant_event(body.event.as_str()) {
+        return (StatusCode::BAD_REQUEST, "Unsupported event").into_response();
+    }
+
+    let client_ip = headers
+        .get("x-forwarded-for")
+        .or_else(|| headers.get("cf-connecting-ip"))
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+
+    let details = serde_json::json!({
+        "subscription_id": sub_id,
+        "node_id": body.node_id,
+        "variant_id": body.variant_id,
+        "event": body.event,
+        "client": body.client.unwrap_or_else(|| "singbox".to_string()),
+    })
+    .to_string();
+
+    match sqlx::query(
+        "INSERT INTO activity_log (user_id, action, details, ip_address) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(user_id)
+    .bind("subscription_variant_event")
+    .bind(details)
+    .bind(if client_ip.is_empty() { None } else { Some(client_ip) })
+    .execute(&state.pool)
+    .await
+    {
+        Ok(_) => Json(serde_json::json!({ "ok": true })).into_response(),
+        Err(err) => {
+            tracing::warn!("Failed to record subscription variant event: {}", err);
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to record event").into_response()
+        }
+    }
 }
 
 async fn get_my_gift_codes(

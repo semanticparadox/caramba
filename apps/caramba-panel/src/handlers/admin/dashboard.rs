@@ -27,6 +27,7 @@ pub struct DashboardTemplate {
     pub total_revenue: String,
     pub total_traffic: String,
     pub total_traffic_30d: String,
+    pub is_zero_network_load: bool,
     pub orders: Vec<OrderWithUser>,
     pub top_users: Vec<UserWithTraffic>,
     pub history_data_json: String,
@@ -100,7 +101,8 @@ pub async fn get_dashboard(State(state): State<AppState>, jar: CookieJar) -> imp
     let total_revenue = format!("{:.2}", stats.total_revenue);
 
     let total_traffic = format_bytes_str(stats.total_traffic_bytes as u64);
-    let total_traffic_30d = total_traffic.clone();
+    let total_traffic_30d = format_bytes_str(stats.total_traffic_30d_bytes as u64);
+    let is_zero_network_load = stats.total_traffic_30d_bytes == 0;
 
     let admin_path = state.admin_path.clone();
 
@@ -149,6 +151,7 @@ pub async fn get_dashboard(State(state): State<AppState>, jar: CookieJar) -> imp
         total_revenue,
         total_traffic,
         total_traffic_30d,
+        is_zero_network_load,
         orders,
         top_users,
         history_data_json: "[0,0,0,0,0]".to_string(),
