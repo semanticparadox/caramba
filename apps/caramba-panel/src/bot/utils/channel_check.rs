@@ -41,18 +41,3 @@ pub async fn check_channel_membership(bot: &Bot, user_id: i64) -> Result<bool> {
         }
     }
 }
-
-/// Get trial duration based on channel membership
-pub fn get_trial_days(is_channel_member: bool) -> i64 {
-    if is_channel_member {
-        std::env::var("CHANNEL_TRIAL_DAYS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(7)
-    } else {
-        std::env::var("FREE_TRIAL_DAYS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(3)
-    }
-}

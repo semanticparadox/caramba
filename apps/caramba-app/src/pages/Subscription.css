@@ -267,10 +267,6 @@
     color: var(--status-online);
 }
 
-.trial-badge {
-    margin-top: var(--space-xs);
-}
-
 .app-links-grid {
     width: 100%;
     display: grid;

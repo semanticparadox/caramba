@@ -29,7 +29,6 @@ export interface UserSubscription {
     duration_days: number;
     note: string | null;
     auto_renew: boolean;
-    is_trial: boolean;
     subscription_uuid: string;
     active_devices?: number;
     device_limit?: number;

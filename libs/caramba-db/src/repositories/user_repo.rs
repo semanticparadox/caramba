@@ -350,16 +350,6 @@ impl UserRepository {
         Ok(())
     }
 
-    pub async fn mark_trial_used(&self, user_id: i64) -> Result<()> {
-        sqlx::query(
-            "UPDATE users SET trial_used = 1, trial_used_at = CURRENT_TIMESTAMP WHERE id = $1",
-        )
-        .bind(user_id)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
     pub async fn get_by_parent_id(&self, parent_id: i64) -> Result<Vec<User>> {
         let rows = sqlx::query("SELECT * FROM users WHERE parent_id = $1")
             .bind(parent_id)

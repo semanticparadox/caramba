@@ -304,7 +304,6 @@ impl StoreService {
                             psub.expires_at,
                             "active",
                             Some("Family"),
-                            false,
                         )
                         .await?;
                 }
@@ -896,7 +895,6 @@ impl StoreService {
                         expires_at,
                         "active",
                         None,
-                        false,
                     )
                     .await?;
                 self.sub_repo.get_by_id(id).await?.unwrap()
@@ -925,7 +923,6 @@ impl StoreService {
                     expires_at,
                     "active",
                     None,
-                    false,
                 )
                 .await?;
             self.sub_repo.get_by_id(id).await?.unwrap()

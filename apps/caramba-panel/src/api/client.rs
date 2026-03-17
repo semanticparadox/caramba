@@ -706,7 +706,6 @@ async fn get_user_subscriptions(
             "duration_days": duration_days,
             "note": s.sub.note,
             "auto_renew": s.sub.auto_renew.unwrap_or(false),
-            "is_trial": s.sub.is_trial.unwrap_or(false),
             "subscription_uuid": s.sub.subscription_uuid,
             "active_devices": active_devices,
             "device_limit": device_limit,
@@ -841,7 +840,6 @@ async fn get_plans(
                         "description": p.description,
                         "traffic_limit_gb": p.traffic_limit_gb,
                         "device_limit": p.device_limit,
-                        "is_trial": p.is_trial.unwrap_or(false),
                         "durations": durations,
                     })
                 })

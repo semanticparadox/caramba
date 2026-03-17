@@ -87,12 +87,11 @@ impl SubscriptionRepository {
         expires_at: DateTime<Utc>,
         status: &str,
         note: Option<&str>,
-        is_trial: bool,
     ) -> Result<i64> {
         let id = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, expires_at, status, note, created_at, is_trial)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, FALSE)
             RETURNING id
             "#
         )
@@ -103,7 +102,6 @@ impl SubscriptionRepository {
         .bind(expires_at)
         .bind(status)
         .bind(note)
-        .bind(is_trial)
         .fetch_one(&self.pool)
         .await
         .context("Failed to create subscription")?;
@@ -263,24 +261,6 @@ impl SubscriptionRepository {
             .execute(&self.pool)
             .await?;
         Ok(())
-    }
-
-    pub async fn get_trial_plan(&self) -> Result<Option<crate::models::store::Plan>> {
-        let mut plan = sqlx::query_as::<_, crate::models::store::Plan>(
-            "SELECT * FROM plans WHERE COALESCE(is_trial, 0) = 1 AND is_active = TRUE LIMIT 1",
-        )
-        .fetch_optional(&self.pool)
-        .await?;
-
-        if let Some(ref mut p) = plan {
-            p.durations = sqlx::query_as::<_, crate::models::store::PlanDuration>(
-                "SELECT * FROM plan_durations WHERE plan_id = $1 ORDER BY duration_days ASC",
-            )
-            .bind(p.id)
-            .fetch_all(&self.pool)
-            .await?;
-        }
-        Ok(plan)
     }
 
     pub async fn get_active_subs_by_plans(

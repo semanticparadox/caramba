@@ -454,9 +454,7 @@ export default function Subscription() {
                                         </details>
                                     )}
 
-                                    {sub.is_trial && (
-                                        <div className="badge badge-warning trial-badge">Пробный период</div>
-                                    )}
+
                                 </div>
                             )}
                         </div>
