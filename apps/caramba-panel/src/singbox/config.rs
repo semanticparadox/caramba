@@ -216,7 +216,10 @@ pub struct VlessTlsConfig {
     // ALPN often needed for Vision/Reality
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alpn: Option<Vec<String>>,
-    pub reality: RealityConfig,
+    // Reality блок включается только когда reality.enabled == true.
+    // Пустой блок с private_key: "" вызывает FATAL в sing-box.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reality: Option<RealityConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -814,7 +814,203 @@ async fn save_config(path: &str, content: &serde_json::Value) -> anyhow::Result<
 
     tokio::fs::write(path, json_str).await?;
     info!("💾 Config saved to {}", path);
+
+    // Генерируем самоподписанный серт для TLS-инбаундов если его ещё нет.
+    // Hysteria2 / VLESS+TLS используют /etc/sing-box/certs/cert.pem + key.pem.
+    // Клиенты подключаются с insecure: true — сертификат нужен только чтобы
+    // sing-box смог запуститься, его валидность не проверяется.
+    let cert_dir = Path::new(path)
+        .parent()
+        .unwrap_or(Path::new("/etc/sing-box"))
+        .join("certs");
+    let cert_path = cert_dir.join("cert.pem");
+    let key_path = cert_dir.join("key.pem");
+
+    if !cert_path.exists() || !key_path.exists() {
+        match ensure_self_signed_cert(&cert_dir, &cert_path, &key_path, content).await {
+            Ok(()) => info!("✅ Self-signed TLS cert generated at {}", cert_dir.display()),
+            Err(e) => error!("⚠️ Failed to generate self-signed cert: {e}. TLS inbounds may fail."),
+        }
+    }
+
     Ok(())
+}
+
+/// Генерирует самоподписанный X.509 сертификат и RSA-ключ в PEM-формате.
+/// CN/SAN берётся из config.json: ищем server_name TLS-инбаундов.
+/// Если не нашли — используем IP-адрес сервера или "localhost".
+/// Срок действия: 10 лет (сертификат не должен истекать, пока нода работает).
+async fn ensure_self_signed_cert(
+    cert_dir: &Path,
+    cert_path: &Path,
+    key_path: &Path,
+    config: &serde_json::Value,
+) -> anyhow::Result<()> {
+    use rcgen::{CertificateParams, DistinguishedName, DnType, KeyPair, SanType};
+    use std::time::{Duration as StdDuration, SystemTime};
+
+    tokio::fs::create_dir_all(cert_dir).await?;
+
+    // Извлекаем server_name из первого TLS-инбаунда в конфиге
+    let cn = extract_tls_server_name(config).unwrap_or_else(|| "vpn.local".to_string());
+    info!("🔐 Generating self-signed cert for CN={}", cn);
+
+    let key_pair = KeyPair::generate()?;
+
+    let mut params = CertificateParams::default();
+
+    let mut dn = DistinguishedName::new();
+    dn.push(DnType::CommonName, &cn);
+    params.distinguished_name = dn;
+
+    // SAN: если cn — это IP-адрес, используем IpAddress SAN, иначе DnsName.
+    // CertificateParams::new принимает только DNS-имена, поэтому используем default()
+    // и задаём subject_alt_names напрямую.
+    if let Ok(ip) = cn.parse::<std::net::IpAddr>() {
+        params.subject_alt_names = vec![SanType::IpAddress(ip)];
+    } else {
+        match cn.clone().try_into() {
+            Ok(dns_name) => {
+                params.subject_alt_names = vec![SanType::DnsName(dns_name)];
+            }
+            Err(_) => {
+                // Невалидное DNS-имя — не добавляем SAN
+                params.subject_alt_names = vec![];
+            }
+        }
+    }
+
+    // Срок действия: сейчас - 1 день (backdate) до сейчас + 3650 дней
+    let now = SystemTime::now();
+    let not_before = now
+        .checked_sub(StdDuration::from_secs(86400))
+        .unwrap_or(now);
+    let not_after = now
+        .checked_add(StdDuration::from_secs(3650 * 86400))
+        .unwrap_or(now);
+    params.not_before = rcgen::date_time_ymd(
+        time_from_system(not_before).0,
+        time_from_system(not_before).1,
+        time_from_system(not_before).2,
+    );
+    params.not_after = rcgen::date_time_ymd(
+        time_from_system(not_after).0,
+        time_from_system(not_after).1,
+        time_from_system(not_after).2,
+    );
+
+    let cert = params.self_signed(&key_pair)?;
+
+    tokio::fs::write(cert_path, cert.pem()).await?;
+    tokio::fs::write(key_path, key_pair.serialize_pem()).await?;
+
+    // Права доступа: только root читает ключ
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = tokio::fs::metadata(key_path).await?.permissions();
+        perms.set_mode(0o600);
+        tokio::fs::set_permissions(key_path, perms).await?;
+    }
+
+    Ok(())
+}
+
+/// Извлекает server_name из TLS-инбаундов конфига.
+/// Приоритет: Hysteria2 tls.server_name > VLESS tls.server_name первого не-Reality инбаунда.
+fn extract_tls_server_name(config: &serde_json::Value) -> Option<String> {
+    let inbounds = config.get("inbounds")?.as_array()?;
+
+    // 1. Hysteria2 inbound — у него всегда нужен реальный серт
+    for inbound in inbounds {
+        if inbound.get("type").and_then(|v| v.as_str()) == Some("hysteria2") {
+            if let Some(sn) = inbound
+                .pointer("/tls/server_name")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty() && !s.contains("google"))
+            {
+                return Some(sn.to_string());
+            }
+        }
+    }
+
+    // 2. VLESS с TLS без Reality
+    for inbound in inbounds {
+        if inbound.get("type").and_then(|v| v.as_str()) == Some("vless") {
+            let tls = inbound.get("tls")?;
+            let enabled = tls.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+            let has_reality = tls
+                .get("reality")
+                .and_then(|r| r.get("enabled"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            if enabled && !has_reality {
+                if let Some(sn) = tls
+                    .get("server_name")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                {
+                    return Some(sn.to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Конвертирует SystemTime в (год, месяц, день) для rcgen::date_time_ymd.
+fn time_from_system(t: std::time::SystemTime) -> (i32, u8, u8) {
+    use std::time::UNIX_EPOCH;
+    let secs = t
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    // Простое вычисление даты без зависимостей
+    let days = secs / 86400;
+    let mut remaining = days;
+
+    let mut year = 1970i32;
+    loop {
+        let days_in_year = if is_leap(year) { 366 } else { 365 };
+        if remaining < days_in_year {
+            break;
+        }
+        remaining -= days_in_year;
+        year += 1;
+    }
+
+    let leap = is_leap(year);
+    let month_days: [i64; 12] = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    let mut month = 1u8;
+    for days_in_month in &month_days {
+        if remaining < *days_in_month {
+            break;
+        }
+        remaining -= days_in_month;
+        month += 1;
+    }
+    let day = (remaining + 1) as u8;
+
+    (year, month, day)
+}
+
+fn is_leap(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
 fn restart_singbox() -> anyhow::Result<()> {

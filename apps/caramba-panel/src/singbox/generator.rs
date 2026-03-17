@@ -97,110 +97,125 @@ impl ConfigGenerator {
                     let security = stream_settings.security.as_deref().unwrap_or("none");
                     if security == "reality" {
                         if let Some(reality) = stream_settings.reality_settings {
-                            tls_config = Some(VlessTlsConfig {
-                                enabled: true,
-                                server_name: reality.server_names.first().cloned().unwrap_or_else(
-                                    || {
-                                        node.reality_sni
-                                            .clone()
-                                            .unwrap_or_else(|| "www.google.com".to_string())
-                                    },
-                                ),
-                                alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
-                                reality: RealityConfig {
+                            let reality_private_key = {
+                                let k = if reality.private_key.is_empty() {
+                                    node.reality_priv.clone().unwrap_or_default()
+                                } else {
+                                    reality.private_key.clone()
+                                };
+                                k.trim()
+                                    .replace('+', "-")
+                                    .replace('/', "_")
+                                    .replace('=', "")
+                            };
+
+                            // Валидируем ключ до создания конфига — пустой ключ вызывает FATAL в sing-box
+                            let pkey_invalid = reality_private_key.is_empty()
+                                || reality_private_key.len() < 43
+                                || reality_private_key.contains(' ');
+                            if pkey_invalid {
+                                warn!(
+                                    "⚠️ Skipping Reality block for inbound '{}' due to INVALID OR MISSING PRIVATE KEY (len: {})",
+                                    inbound.tag,
+                                    reality_private_key.len()
+                                );
+                            } else {
+                                tls_config = Some(VlessTlsConfig {
                                     enabled: true,
-                                    handshake: RealityHandshake {
-                                        server: if reality.dest.is_empty() {
+                                    server_name: reality.server_names.first().cloned().unwrap_or_else(
+                                        || {
                                             node.reality_sni
                                                 .clone()
                                                 .unwrap_or_else(|| "www.google.com".to_string())
-                                        } else {
-                                            reality
+                                        },
+                                    ),
+                                    alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                                    // reality = Some только когда enabled: true и ключ валиден
+                                    reality: Some(RealityConfig {
+                                        enabled: true,
+                                        handshake: RealityHandshake {
+                                            server: if reality.dest.is_empty() {
+                                                node.reality_sni
+                                                    .clone()
+                                                    .unwrap_or_else(|| "www.google.com".to_string())
+                                            } else {
+                                                reality
+                                                    .dest
+                                                    .split(':')
+                                                    .next()
+                                                    .unwrap_or(&reality.dest)
+                                                    .to_string()
+                                            },
+                                            server_port: reality
                                                 .dest
                                                 .split(':')
-                                                .next()
-                                                .unwrap_or(&reality.dest)
-                                                .to_string()
+                                                .last()
+                                                .and_then(|p: &str| p.parse().ok())
+                                                .unwrap_or(443),
                                         },
-                                        server_port: reality
-                                            .dest
-                                            .split(':')
-                                            .last()
-                                            .and_then(|p: &str| p.parse().ok())
-                                            .unwrap_or(443),
-                                    },
-                                    private_key: {
-                                        let k = if reality.private_key.is_empty() {
-                                            node.reality_priv.clone().unwrap_or_default()
-                                        } else {
-                                            reality.private_key
-                                        };
-                                        k.trim()
-                                            .replace('+', "-")
-                                            .replace('/', "_")
-                                            .replace('=', "")
-                                    },
-                                    short_id: {
-                                        let ids = if reality.short_ids.is_empty() {
-                                            node.short_id
-                                                .clone()
-                                                .map(|s| vec![s])
-                                                .unwrap_or_default()
-                                        } else {
-                                            reality.short_ids
-                                        };
-                                        ids.into_iter()
-                                            .map(|s: String| s.trim().to_string())
-                                            .collect()
-                                    },
-                                },
-                                key_path: None,
-                                certificate_path: None,
-                            });
-
-                            if let Some(ref cfg) = tls_config {
-                                let pkey = &cfg.reality.private_key;
-                                let is_invalid =
-                                    pkey.is_empty() || pkey.len() < 43 || pkey.contains(' ');
-                                if cfg.reality.enabled && is_invalid {
-                                    warn!(
-                                        "⚠️ Skipping Reality block for inbound '{}' due to INVALID OR MISSING PRIVATE KEY (len: {})",
-                                        inbound.tag,
-                                        pkey.len()
-                                    );
-                                    tls_config = None;
-                                }
+                                        private_key: reality_private_key,
+                                        short_id: {
+                                            let ids = if reality.short_ids.is_empty() {
+                                                node.short_id
+                                                    .clone()
+                                                    .map(|s| vec![s])
+                                                    .unwrap_or_default()
+                                            } else {
+                                                reality.short_ids
+                                            };
+                                            ids.into_iter()
+                                                .map(|s: String| s.trim().to_string())
+                                                .collect()
+                                        },
+                                    }),
+                                    key_path: None,
+                                    certificate_path: None,
+                                });
                             }
                         }
                     } else if security == "tls" {
-                        let mut server_name = "www.google.com".to_string();
+                        // Для TLS-инбаундов используем домен ноды (если задан),
+                        // иначе IP — серт генерируется агентом с этим CN/SAN.
+                        let mut server_name = node
+                            .domain
+                            .clone()
+                            .unwrap_or_else(|| node.ip.clone());
                         let mut key_path = None;
                         let mut cert_path = None;
 
                         if let Some(tls) = &stream_settings.tls_settings {
-                            server_name = tls.server_name.clone();
+                            // Используем server_name из настроек только если он непустой
+                            if !tls.server_name.is_empty() {
+                                server_name = tls.server_name.clone();
+                            }
                             if let Some(certs) = &tls.certificates {
                                 let certs: &Vec<Certificate> = certs;
                                 if let Some(first) = certs.get(0) {
-                                    key_path = Some(first.key_path.clone());
-                                    cert_path = Some(first.certificate_path.clone());
+                                    if !first.key_path.is_empty() {
+                                        key_path = Some(first.key_path.clone());
+                                    }
+                                    if !first.certificate_path.is_empty() {
+                                        cert_path = Some(first.certificate_path.clone());
+                                    }
                                 }
                             }
+                        }
+
+                        // Самоподписанный серт генерируется агентом на ноде при старте.
+                        // Клиенты подключаются с insecure: true для этих транспортов.
+                        if key_path.is_none() {
+                            key_path = Some("/etc/sing-box/certs/key.pem".to_string());
+                        }
+                        if cert_path.is_none() {
+                            cert_path = Some("/etc/sing-box/certs/cert.pem".to_string());
                         }
 
                         tls_config = Some(VlessTlsConfig {
                             enabled: true,
                             server_name,
                             alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
-                            reality: RealityConfig {
-                                enabled: false,
-                                handshake: RealityHandshake {
-                                    server: "".to_string(),
-                                    server_port: 0,
-                                },
-                                private_key: "".to_string(),
-                                short_id: vec![],
-                            },
+                            // reality = None для обычного TLS — sing-box не должен видеть этот блок
+                            reality: None,
                             key_path,
                             certificate_path: cert_path,
                         });
@@ -479,7 +494,7 @@ impl ConfigGenerator {
                                     },
                                 ),
                                 alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
-                                reality: RealityConfig {
+                                reality: Some(RealityConfig {
                                     enabled: true,
                                     handshake: RealityHandshake {
                                         server: if reality.dest.is_empty() {
@@ -511,39 +526,48 @@ impl ConfigGenerator {
                                     } else {
                                         reality.short_ids
                                     },
-                                },
+                                }),
                                 key_path: None,
                                 certificate_path: None,
                             });
                         }
                     } else if security == "tls" {
-                        let mut server_name = "www.google.com".to_string();
+                        // Для TLS-инбаундов используем домен ноды (если задан),
+                        // иначе IP — серт генерируется агентом с этим CN/SAN.
+                        let mut server_name = node
+                            .domain
+                            .clone()
+                            .unwrap_or_else(|| node.ip.clone());
                         let mut key_path = None;
                         let mut cert_path = None;
 
                         if let Some(tls) = &stream_settings.tls_settings {
-                            server_name = tls.server_name.clone();
+                            if !tls.server_name.is_empty() {
+                                server_name = tls.server_name.clone();
+                            }
                             if let Some(certs) = &tls.certificates {
                                 let certs: &Vec<caramba_db::models::network::Certificate> = certs;
                                 if let Some(first) = certs.get(0) {
-                                    key_path = Some(first.key_path.clone());
-                                    cert_path = Some(first.certificate_path.clone());
+                                    if !first.key_path.is_empty() {
+                                        key_path = Some(first.key_path.clone());
+                                    }
+                                    if !first.certificate_path.is_empty() {
+                                        cert_path = Some(first.certificate_path.clone());
+                                    }
                                 }
                             }
+                        }
+                        if key_path.is_none() {
+                            key_path = Some("/etc/sing-box/certs/key.pem".to_string());
+                        }
+                        if cert_path.is_none() {
+                            cert_path = Some("/etc/sing-box/certs/cert.pem".to_string());
                         }
                         tls_config = Some(VlessTlsConfig {
                             enabled: true,
                             server_name,
                             alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
-                            reality: RealityConfig {
-                                enabled: false,
-                                handshake: RealityHandshake {
-                                    server: "".to_string(),
-                                    server_port: 0,
-                                },
-                                private_key: "".to_string(),
-                                short_id: vec![],
-                            },
+                            reality: None,
                             key_path,
                             certificate_path: cert_path,
                         });
@@ -589,7 +613,7 @@ impl ConfigGenerator {
                                     .cloned()
                                     .unwrap_or_default(),
                                 alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
-                                reality: RealityConfig {
+                                reality: Some(RealityConfig {
                                     enabled: true,
                                     handshake: RealityHandshake {
                                         server: reality
@@ -615,27 +639,34 @@ impl ConfigGenerator {
                                     } else {
                                         reality.short_ids
                                     },
-                                },
+                                }),
                                 key_path: None,
                                 certificate_path: None,
                             });
                         }
                     } else {
-                        let mut server_name = stream_settings
-                            .tls_settings
-                            .as_ref()
-                            .map(|t| t.server_name.clone())
-                            .unwrap_or_else(|| "www.google.com".to_string());
+                        // Для TLS-инбаундов используем домен ноды (если задан),
+                        // иначе IP — серт генерируется агентом с этим CN/SAN.
+                        let mut server_name = node
+                            .domain
+                            .clone()
+                            .unwrap_or_else(|| node.ip.clone());
                         let mut key_path = None;
                         let mut cert_path = None;
 
                         if let Some(tls) = &stream_settings.tls_settings {
-                            server_name = tls.server_name.clone();
+                            if !tls.server_name.is_empty() {
+                                server_name = tls.server_name.clone();
+                            }
                             if let Some(certs) = &tls.certificates {
                                 let certs: &Vec<caramba_db::models::network::Certificate> = certs;
                                 if let Some(first) = certs.get(0) {
-                                    key_path = Some(first.key_path.clone());
-                                    cert_path = Some(first.certificate_path.clone());
+                                    if !first.key_path.is_empty() {
+                                        key_path = Some(first.key_path.clone());
+                                    }
+                                    if !first.certificate_path.is_empty() {
+                                        cert_path = Some(first.certificate_path.clone());
+                                    }
                                 }
                             }
                         }
@@ -651,15 +682,7 @@ impl ConfigGenerator {
                             enabled: true,
                             server_name,
                             alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
-                            reality: RealityConfig {
-                                enabled: false,
-                                handshake: RealityHandshake {
-                                    server: "".to_string(),
-                                    server_port: 0,
-                                },
-                                private_key: "".to_string(),
-                                short_id: vec![],
-                            },
+                            reality: None,
                             key_path,
                             certificate_path: cert_path,
                         });
