@@ -83,16 +83,16 @@ pub async fn add_promo(
 ) -> impl IntoResponse {
     use axum::http::StatusCode;
     let promo_type = form.promo_type.trim().to_ascii_lowercase();
-    if !matches!(promo_type.as_str(), "balance" | "subscription" | "trial") {
+    if !matches!(promo_type.as_str(), "balance" | "subscription") {
         return (StatusCode::BAD_REQUEST, "Invalid promo type").into_response();
     }
     if form.max_uses <= 0 {
         return (StatusCode::BAD_REQUEST, "max_uses must be greater than 0").into_response();
     }
-    if matches!(promo_type.as_str(), "subscription" | "trial") && form.plan_id.is_none() {
+    if promo_type == "subscription" && form.plan_id.is_none() {
         return (
             StatusCode::BAD_REQUEST,
-            "plan_id is required for subscription/trial promo",
+            "plan_id is required for subscription promo",
         )
             .into_response();
     }

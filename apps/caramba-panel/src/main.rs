@@ -707,10 +707,6 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/tools/export",
             axum::routing::get(handlers::admin::export_database),
         )
-        .route(
-            "/tools/trial-config",
-            axum::routing::post(handlers::admin::update_trial_config),
-        )
         // .route("/traffic", axum::routing::get(handlers::admin::get_traffic_analytics)) // Merged into /analytics
         .route(
             "/logs",

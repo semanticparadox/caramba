@@ -80,7 +80,6 @@ export default function Home() {
 
     const hasActiveAccess = activeSubscriptions.length > 0
     const hasPending = pendingSubscriptions.length > 0
-    const shouldShowPurchase = !hasActiveAccess
     const primarySubscription = activeSubscriptions[0] || null
 
     const [copiedSubId, setCopiedSubId] = useState<number | null>(null)
@@ -148,7 +147,7 @@ export default function Home() {
     }
 
     useEffect(() => {
-        if (!token || !shouldShowPurchase || catalogLoaded || catalogLoading) return
+        if (!token || catalogLoaded || catalogLoading) return
 
         const controller = new AbortController()
         const timeout = setTimeout(() => controller.abort(), 12000)
@@ -212,7 +211,7 @@ export default function Home() {
             clearTimeout(timeout)
             controller.abort()
         }
-    }, [token, shouldShowPurchase, catalogLoaded, catalogLoading])
+    }, [token, catalogLoaded, catalogLoading])
 
     const handleSelectDuration = (duration: PlanDuration) => {
         setSelectedDuration(duration)
@@ -242,7 +241,10 @@ export default function Home() {
 
             if (res.ok) {
                 const data = await res.json()
-                if (data.invoice_url) {
+                if (!data.invoice_url) {
+                    setBanner({ type: 'success', text: 'Оплата прошла успешно. Подписка создана.' })
+                    await refreshData()
+                } else if (data.invoice_url) {
                     if (providerId === 'manual') {
                         setBanner({
                             type: 'success',
@@ -418,12 +420,11 @@ export default function Home() {
                 </section>
             )}
 
-            {shouldShowPurchase && (
-                <section id="center-purchase" className="center-module glass-card">
-                    <div className="panel-header">
-                        <h3>Покупка доступа</h3>
-                        <span>Сначала купите подписку, затем подключитесь через Hiddify</span>
-                    </div>
+            <section id="center-purchase" className="center-module glass-card">
+                <div className="panel-header">
+                    <h3>{hasActiveAccess ? 'Продлить или купить ещё' : 'Покупка доступа'}</h3>
+                    <span>{hasActiveAccess ? 'Добавьте новую подписку или продлите существующую' : 'Сначала купите подписку, затем подключитесь через Hiddify'}</span>
+                </div>
 
                     <div className="balance-inline">
                         <span>Баланс</span>
@@ -476,7 +477,6 @@ export default function Home() {
                         </div>
                     )}
                 </section>
-            )}
 
             <section className="home-bento-grid">
                 <article className="bento-card bento-traffic glass-card">

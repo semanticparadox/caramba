@@ -99,11 +99,7 @@ impl CatalogService {
                 continue;
             }
 
-            let default_days = if plan.is_trial.unwrap_or(false) {
-                3
-            } else {
-                30
-            };
+            let default_days = 30;
             let default_price = *base_prices.get(&plan.id).unwrap_or(&0);
 
             let inserted = match sqlx::query_as::<_, PlanDuration>(
@@ -162,7 +158,7 @@ impl CatalogService {
     }
 
     pub async fn get_plans_admin(&self) -> Result<Vec<Plan>> {
-        let mut plans = sqlx::query_as::<_, Plan>("SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans WHERE is_trial = FALSE").fetch_all(&self.pool).await?;
+        let mut plans = sqlx::query_as::<_, Plan>("SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans WHERE is_active = TRUE").fetch_all(&self.pool).await?;
         for plan in &mut plans {
             plan.durations = sqlx::query_as::<_, PlanDuration>(
                 "SELECT * FROM plan_durations WHERE plan_id = $1 ORDER BY duration_days ASC",
@@ -510,14 +506,6 @@ impl CatalogService {
         Ok(order_id)
     }
 
-    pub async fn is_trial_plan(&self, id: i64) -> Result<bool> {
-        let is_trial: bool = sqlx::query_scalar("SELECT is_trial FROM plans WHERE id = $1")
-            .bind(id)
-            .fetch_one(&self.pool)
-            .await?;
-        Ok(is_trial)
-    }
-
     pub async fn admin_refund_subscription(&self, sub_id: i64, amount: i64) -> Result<()> {
         let mut tx = self.pool.begin().await?;
         let sub: caramba_db::models::store::Subscription =
@@ -538,21 +526,6 @@ impl CatalogService {
             .await?;
 
         tx.commit().await?;
-        Ok(())
-    }
-
-    pub async fn update_trial_plan_limits(
-        &self,
-        device_limit: i32,
-        traffic_limit_gb: i32,
-    ) -> Result<()> {
-        sqlx::query(
-            "UPDATE plans SET device_limit = $1, traffic_limit_gb = $2 WHERE is_trial = TRUE",
-        )
-        .bind(device_limit)
-        .bind(traffic_limit_gb)
-        .execute(&self.pool)
-        .await?;
         Ok(())
     }
 

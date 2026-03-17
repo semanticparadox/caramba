@@ -108,13 +108,13 @@
     margin-bottom: var(--space-md);
     background: var(--bg-surface);
     padding: 4px;
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-round);
 }
 
 .client-tabs .tab {
     flex: 1;
     padding: 8px;
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-round);
     font-size: 12px;
     font-weight: 500;
     background: transparent;
@@ -281,7 +281,7 @@
     display: inline-flex;
     align-items: center;
     padding: 2px 8px;
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-round);
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.04em;

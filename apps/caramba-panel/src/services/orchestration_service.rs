@@ -111,14 +111,66 @@ impl OrchestrationService {
             }
         };
 
-        if group_ids.is_empty() {
+        // Если у ноды нет групп — автоматически добавляем её в группу Default,
+        // чтобы она получила все 5-6 шаблонных inbound'ов при первом запуске.
+        let group_ids = if group_ids.is_empty() {
             info!(
-                "Node {} has no groups, using minimal fallback inbound",
+                "Node {} has no groups; auto-assigning to Default group",
                 node_id
             );
-            self.ensure_minimal_default_inbound(&node).await?;
-            return Ok(());
-        }
+            let default_group = match self.node_repo.get_group_by_name("Default").await {
+                Ok(Some(g)) => g,
+                Ok(None) => {
+                    // Группы Default ещё нет — создаём
+                    info!("Default group not found, creating it");
+                    let gid = self
+                        .node_repo
+                        .create_group("Default", Some("Auto-created default group"))
+                        .await
+                        .unwrap_or(0);
+                    match self.node_repo.get_group_by_name("Default").await {
+                        Ok(Some(g)) => g,
+                        _ => {
+                            warn!(
+                                "Could not retrieve Default group after creation (id={}), falling back to minimal inbound",
+                                gid
+                            );
+                            self.ensure_minimal_default_inbound(&node).await?;
+                            return Ok(());
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to query Default group for node {}: {}. Falling back to minimal inbound.",
+                        node_id, e
+                    );
+                    self.ensure_minimal_default_inbound(&node).await?;
+                    return Ok(());
+                }
+            };
+
+            if let Err(e) = self
+                .node_repo
+                .add_node_to_group(node_id, default_group.id)
+                .await
+            {
+                warn!(
+                    "Failed to add node {} to Default group {}: {}. Falling back to minimal inbound.",
+                    node_id, default_group.id, e
+                );
+                self.ensure_minimal_default_inbound(&node).await?;
+                return Ok(());
+            }
+
+            info!(
+                "Node {} successfully added to Default group (id={})",
+                node_id, default_group.id
+            );
+            vec![default_group.id]
+        } else {
+            group_ids
+        };
 
         // 2. Fetch Templates for these groups (Active Only)
         let mut templates = Vec::new();
@@ -129,6 +181,41 @@ impl OrchestrationService {
                     "Failed to fetch templates for group {} (node {}): {}",
                     gid, node_id, e
                 ),
+            }
+        }
+
+        // 2.5 Upgrade legacy minimal Default-group template set.
+        // Older installs often had only VLESS Reality, which breaks strict 9-path subscriptions.
+        let default_group = self
+            .node_repo
+            .get_group_by_name("Default")
+            .await
+            .ok()
+            .flatten();
+        if let Some(group) = default_group {
+            if group_ids.contains(&group.id) {
+                let default_group_template_count = templates
+                    .iter()
+                    .filter(|tpl| tpl.target_group_id == Some(group.id))
+                    .count();
+                if default_group_template_count < 6 {
+                    info!(
+                        "Default group has {} template(s); seeding missing baseline templates",
+                        default_group_template_count
+                    );
+                    let _ = self.bootstrap_default_templates(group.id).await;
+
+                    templates.clear();
+                    for gid in &group_ids {
+                        match self.node_repo.get_templates_for_group(*gid).await {
+                            Ok(group_templates) => templates.extend(group_templates),
+                            Err(e) => warn!(
+                                "Failed to refresh templates for group {} (node {}): {}",
+                                gid, node_id, e
+                            ),
+                        }
+                    }
+                }
             }
         }
 
@@ -324,16 +411,81 @@ impl OrchestrationService {
 
     /// Helper to bootstrap default templates
     async fn bootstrap_default_templates(&self, group_id: i64) -> anyhow::Result<()> {
-        // VLESS Reality
-        let vless_settings = r#"{"clients":[],"decryption":"none"}"#;
-        let vless_stream = r#"{"network":"tcp","security":"reality","reality_settings":{"show":false,"xver":0,"dest":"{{SNI}}:443","server_names":["{{SNI}}"],"private_key":"","short_ids":[""]}}"#;
+        let vless_settings = r#"{"protocol":"vless","clients":[],"decryption":"none"}"#;
+        let hysteria2_settings =
+            r#"{"protocol":"hysteria2","users":[],"up_mbps":100,"down_mbps":100}"#;
+
+        // Direct baseline
+        let vless_reality_stream = r#"{"network":"tcp","security":"reality","realitySettings":{"show":false,"xver":0,"dest":"{{SNI}}:443","serverNames":["{{SNI}}"],"privateKey":"","shortIds":[""]}}"#;
+        let vless_grpc_stream = r#"{"network":"grpc","security":"tls","tlsSettings":{"serverName":"{{SNI}}"},"grpcSettings":{"serviceName":"grpc"}}"#;
+        let hysteria2_stream = r#"{"network":"udp","security":"tls","tlsSettings":{"serverName":"{{SNI}}"},"hysteria2Settings":{"ports":"{{port}}"}}"#;
+
+        // Relay-compatible transports
+        let vless_ws_stream = r#"{"network":"ws","security":"tls","tlsSettings":{"serverName":"{{SNI}}"},"wsSettings":{"path":"/ws","headers":{"Host":"{{SNI}}"}}}"#;
+        let vless_httpupgrade_stream = r#"{"network":"httpupgrade","security":"tls","tlsSettings":{"serverName":"{{SNI}}"},"httpUpgradeSettings":{"path":"/hu","host":"{{SNI}}"}}"#;
+        let vless_tcp_tls_stream =
+            r#"{"network":"tcp","security":"tls","tlsSettings":{"serverName":"{{SNI}}"}}"#;
+
+        // 9-path readiness baseline: 6 protocol templates, which become 9 client routes
+        // when an exit node is paired with a relay node.
         self.create_template(
             "VLESS Reality",
             "vless",
             vless_settings,
-            vless_stream,
+            vless_reality_stream,
             group_id,
-            10000,
+            443,
+            443,
+        )
+        .await?;
+        self.create_template(
+            "VLESS gRPC TLS",
+            "vless",
+            vless_settings,
+            vless_grpc_stream,
+            group_id,
+            10400,
+            10499,
+        )
+        .await?;
+        self.create_template(
+            "Hysteria2",
+            "hysteria2",
+            hysteria2_settings,
+            hysteria2_stream,
+            group_id,
+            11400,
+            11499,
+        )
+        .await?;
+        self.create_template(
+            "VLESS WS TLS",
+            "vless",
+            vless_settings,
+            vless_ws_stream,
+            group_id,
+            12400,
+            12499,
+        )
+        .await?;
+        self.create_template(
+            "VLESS HTTPUpgrade TLS",
+            "vless",
+            vless_settings,
+            vless_httpupgrade_stream,
+            group_id,
+            13400,
+            13499,
+        )
+        .await?;
+        self.create_template(
+            "VLESS TCP TLS",
+            "vless",
+            vless_settings,
+            vless_tcp_tls_stream,
+            group_id,
+            14400,
+            14499,
         )
         .await?;
 
@@ -347,16 +499,31 @@ impl OrchestrationService {
         settings: &str,
         stream: &str,
         group_id: i64,
-        port: i64,
+        port_start: i64,
+        port_end: i64,
     ) -> anyhow::Result<i64> {
+        let existing: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM inbound_templates WHERE name = $1 AND protocol = $2 AND target_group_id = $3 LIMIT 1",
+        )
+        .bind(name)
+        .bind(protocol)
+        .bind(group_id)
+        .fetch_optional(&self.pool)
+        .await
+        .unwrap_or(None);
+
+        if let Some(id) = existing {
+            return Ok(id);
+        }
+
         let id: i64 = sqlx::query_scalar("INSERT INTO inbound_templates (name, protocol, settings_template, stream_settings_template, target_group_id, port_range_start, port_range_end, is_active, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, CURRENT_TIMESTAMP) RETURNING id")
             .bind(name)
             .bind(protocol)
             .bind(settings)
             .bind(stream)
             .bind(group_id)
-            .bind(port)
-            .bind(port)
+            .bind(port_start)
+            .bind(port_end)
             .fetch_one(&self.pool)
             .await?;
         Ok(id)

@@ -1,0 +1,26 @@
+{
+  "name": "caramba",
+  "version": "0.9.1",
+  "description": "CARAMBA is an installer-first platform for operating censorship-resistant VPN infrastructure.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/semanticparadox/caramba.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/semanticparadox/caramba/issues"
+  },
+  "homepage": "https://github.com/semanticparadox/caramba#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@types/node": "^25.5.0"
+  }
+}

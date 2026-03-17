@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import type { SingboxConnectionVariant } from '../context/AuthContext'
 import { QRCodeSVG } from 'qrcode.react'
@@ -19,8 +19,11 @@ interface ServerInfo {
 
 export default function Servers() {
     const navigate = useNavigate()
+    const { subId: subIdParam } = useParams<{ subId?: string }>()
     const { token, subscriptions } = useAuth()
-    const activeSub = subscriptions.find(s => s.status === 'active')
+    const activeSub = subIdParam
+        ? subscriptions.find(s => s.id === Number(subIdParam)) || subscriptions.find(s => s.status === 'active')
+        : subscriptions.find(s => s.status === 'active')
     const [servers, setServers] = useState<ServerInfo[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedServer, setSelectedServer] = useState<ServerInfo | null>(null)
@@ -220,7 +223,11 @@ export default function Servers() {
                                                     <span className="variant-chip recommended">Рекомендуем</span>
                                                 )}
                                                 <span className={`variant-chip ${variant.family}`}>
-                                                    {variant.family === 'grpc' ? 'gRPC' : 'VLESS'}
+                                                    {variant.family === 'grpc'
+                                                        ? 'gRPC'
+                                                        : variant.family === 'hysteria2'
+                                                            ? 'Hysteria2'
+                                                            : 'VLESS'}
                                                 </span>
                                             </span>
                                         </span>

@@ -2,7 +2,7 @@ use crate::singbox::subscription_generator::NodeInfo;
 use anyhow::Result;
 use caramba_db::models::network::Inbound;
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 pub struct SingboxConnectionVariant {
@@ -14,7 +14,7 @@ pub struct SingboxConnectionVariant {
     pub relay: bool,
 }
 
-const FIXED_VARIANTS: [SingboxConnectionVariant; 7] = [
+const FIXED_VARIANTS: [SingboxConnectionVariant; 9] = [
     SingboxConnectionVariant {
         id: "vless-reality-direct",
         label: "VLESS Reality",
@@ -69,6 +69,22 @@ const FIXED_VARIANTS: [SingboxConnectionVariant; 7] = [
         summary: "gRPC through relay for difficult mobile routes.",
         family: "grpc",
         transport: "grpc",
+        relay: true,
+    },
+    SingboxConnectionVariant {
+        id: "hysteria2-direct",
+        label: "Hysteria2 Direct",
+        summary: "Direct Hysteria2 profile for high-throughput open networks.",
+        family: "hysteria2",
+        transport: "udp",
+        relay: false,
+    },
+    SingboxConnectionVariant {
+        id: "hysteria2-relay",
+        label: "Hysteria2 Relay",
+        summary: "Hysteria2 through relay for restrictive mobile paths.",
+        family: "hysteria2",
+        transport: "udp",
         relay: true,
     },
 ];
@@ -141,9 +157,7 @@ fn collect_matching_tags(outbounds: &[Value], variant: SingboxConnectionVariant)
     outbounds
         .iter()
         .filter_map(|outbound| {
-            if !is_supported_vless_outbound(outbound)
-                || !variant_matches_outbound(variant, outbound)
-            {
+            if !variant_matches_outbound(variant, outbound) {
                 return None;
             }
 
@@ -152,11 +166,8 @@ fn collect_matching_tags(outbounds: &[Value], variant: SingboxConnectionVariant)
         .collect()
 }
 
-fn is_supported_vless_outbound(outbound: &Value) -> bool {
-    outbound.get("type").and_then(Value::as_str) == Some("vless")
-}
-
 fn variant_matches_outbound(variant: SingboxConnectionVariant, outbound: &Value) -> bool {
+    let outbound_type = outbound.get("type").and_then(Value::as_str).unwrap_or("");
     let transport = transport_of(outbound);
     let is_relay = outbound.get("detour").and_then(Value::as_str).is_some();
     let is_reality = outbound
@@ -165,15 +176,19 @@ fn variant_matches_outbound(variant: SingboxConnectionVariant, outbound: &Value)
         .and_then(|reality| reality.get("enabled"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let is_vless = outbound_type == "vless";
+    let is_hysteria2 = matches!(outbound_type, "hysteria2" | "hy2");
 
     match variant.id {
-        "vless-reality-direct" => !is_relay && is_reality && transport == "tcp",
-        "vless-httpupgrade-direct" => !is_relay && transport == "httpupgrade",
-        "vless-httpupgrade-relay" => is_relay && transport == "httpupgrade",
-        "vless-ws-relay" => is_relay && transport == "ws",
-        "grpc-auto" => transport == "grpc",
-        "grpc-direct" => !is_relay && transport == "grpc",
-        "grpc-relay" => is_relay && transport == "grpc",
+        "vless-reality-direct" => is_vless && !is_relay && is_reality && transport == "tcp",
+        "vless-httpupgrade-direct" => is_vless && !is_relay && transport == "httpupgrade",
+        "vless-httpupgrade-relay" => is_vless && is_relay && transport == "httpupgrade",
+        "vless-ws-relay" => is_vless && is_relay && transport == "ws",
+        "grpc-auto" => is_vless && transport == "grpc",
+        "grpc-direct" => is_vless && !is_relay && transport == "grpc",
+        "grpc-relay" => is_vless && is_relay && transport == "grpc",
+        "hysteria2-direct" => is_hysteria2 && !is_relay,
+        "hysteria2-relay" => is_hysteria2 && is_relay,
         _ => false,
     }
 }
@@ -210,6 +225,8 @@ fn node_supports_variant(node: &NodeInfo, variant: SingboxConnectionVariant) -> 
             has_vless_inbound(node, false, |network, _| network == "grpc")
         }
         "grpc-relay" => has_vless_inbound(node, true, |network, _| network == "grpc"),
+        "hysteria2-direct" => has_hysteria2_inbound(node, false),
+        "hysteria2-relay" => has_hysteria2_inbound(node, true),
         _ => false,
     }
 }
@@ -223,12 +240,26 @@ where
     }
 
     node.inbounds.iter().any(|inbound| {
-        if !inbound.enable || inbound.protocol != "vless" {
+        if !inbound.enable || !inbound.protocol.eq_ignore_ascii_case("vless") {
             return false;
         }
 
         let (network, security) = inbound_network_security(inbound);
         predicate(network.as_str(), security.as_str())
+    })
+}
+
+fn has_hysteria2_inbound(node: &NodeInfo, requires_relay: bool) -> bool {
+    if requires_relay && node.relay_info.is_none() {
+        return false;
+    }
+
+    node.inbounds.iter().any(|inbound| {
+        inbound.enable
+            && matches!(
+                inbound.protocol.trim().to_ascii_lowercase().as_str(),
+                "hysteria2" | "hy2"
+            )
     })
 }
 
@@ -240,12 +271,13 @@ fn inbound_network_security(inbound: &Inbound) -> (String, String) {
         .get("network")
         .and_then(Value::as_str)
         .unwrap_or("tcp")
-        .to_string();
+        .trim()
+        .to_ascii_lowercase();
 
     let security = parsed
         .get("security")
         .and_then(Value::as_str)
-        .map(ToOwned::to_owned)
+        .map(|value| value.trim().to_ascii_lowercase())
         .unwrap_or_else(|| {
             if parsed.get("realitySettings").is_some() || parsed.get("reality_settings").is_some() {
                 "reality".to_string()
@@ -262,16 +294,16 @@ mod tests {
     use super::{
         apply_connection_variant, available_connection_variants_for_node, fixed_connection_variants,
     };
-    use crate::singbox::subscription_generator::{NodeInfo, UserKeys, generate_singbox_config};
+    use crate::singbox::subscription_generator::{generate_singbox_config, NodeInfo, UserKeys};
     use caramba_db::models::network::Inbound;
     use serde_json::json;
 
     #[test]
     fn returns_expected_fixed_variant_count() {
         let variants = fixed_connection_variants();
-        assert_eq!(variants.len(), 7);
+        assert_eq!(variants.len(), 9);
         assert_eq!(variants[0].id, "vless-reality-direct");
-        assert_eq!(variants[6].id, "grpc-relay");
+        assert_eq!(variants[8].id, "hysteria2-relay");
     }
 
     #[test]
@@ -286,9 +318,11 @@ mod tests {
         assert!(ids.contains(&"vless-httpupgrade-direct"));
         assert!(ids.contains(&"grpc-auto"));
         assert!(ids.contains(&"grpc-direct"));
+        assert!(ids.contains(&"hysteria2-direct"));
         assert!(!ids.contains(&"vless-httpupgrade-relay"));
         assert!(!ids.contains(&"vless-ws-relay"));
         assert!(!ids.contains(&"grpc-relay"));
+        assert!(!ids.contains(&"hysteria2-relay"));
     }
 
     #[test]
@@ -300,6 +334,7 @@ mod tests {
         assert!(ids.contains(&"vless-httpupgrade-relay"));
         assert!(ids.contains(&"vless-ws-relay"));
         assert!(ids.contains(&"grpc-relay"));
+        assert!(ids.contains(&"hysteria2-relay"));
     }
 
     #[test]
@@ -325,11 +360,9 @@ mod tests {
             .unwrap();
 
         let picked_tags = variant_group["outbounds"].as_array().unwrap();
-        assert!(
-            picked_tags
-                .iter()
-                .all(|tag| tag.as_str().unwrap().ends_with("·r"))
-        );
+        assert!(picked_tags
+            .iter()
+            .all(|tag| tag.as_str().unwrap().ends_with("·r")));
     }
 
     #[test]
@@ -347,11 +380,32 @@ mod tests {
 
         let picked_tags = variant_group["outbounds"].as_array().unwrap();
         assert!(!picked_tags.is_empty());
-        assert!(
-            picked_tags
-                .iter()
-                .all(|tag| tag.as_str().unwrap().contains("grpc"))
-        );
+        assert!(picked_tags
+            .iter()
+            .all(|tag| tag.as_str().unwrap().contains("grpc")));
+    }
+
+    #[test]
+    fn applies_hysteria2_direct_variant_with_only_direct_hy2_tags() {
+        let config = build_config_fixture();
+        let variant_config = apply_connection_variant(&config, "hysteria2-direct").unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&variant_config).unwrap();
+
+        let variant_group = parsed["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|outbound| outbound["tag"] == "variant::hysteria2-direct")
+            .unwrap();
+
+        let picked_tags = variant_group["outbounds"].as_array().unwrap();
+        assert!(!picked_tags.is_empty());
+        assert!(picked_tags
+            .iter()
+            .all(|tag| tag.as_str().unwrap().contains("hysteria2")));
+        assert!(picked_tags
+            .iter()
+            .all(|tag| !tag.as_str().unwrap().ends_with("·r")));
     }
 
     fn build_config_fixture() -> String {
@@ -461,6 +515,17 @@ mod tests {
                         "security": "tls",
                         "tlsSettings": { "serverName": "edge.example.com" },
                         "wsSettings": { "path": "/ws" }
+                    }),
+                ),
+                make_inbound(
+                    1,
+                    "hysteria2",
+                    "hysteria2",
+                    11443,
+                    json!({
+                        "network": "udp",
+                        "security": "tls",
+                        "tlsSettings": { "serverName": "edge.example.com" }
                     }),
                 ),
             ],

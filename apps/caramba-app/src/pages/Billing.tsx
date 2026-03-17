@@ -11,8 +11,15 @@ interface Payment {
     created_at: number;
 }
 
+const statusLabels: Record<string, string> = {
+    completed: 'Завершен',
+    pending: 'Ожидает',
+    failed: 'Ошибка',
+    refunded: 'Возврат',
+}
+
 export default function Billing() {
-    const { user, token, error } = useAuth()
+    const { user, userStats: stats, token, error } = useAuth()
     const navigate = useNavigate()
     const [payments, setPayments] = useState<Payment[]>([])
     const [loading, setLoading] = useState(true)
@@ -44,37 +51,36 @@ export default function Billing() {
 
     const formatDate = (ts: number) => new Date(ts * 1000).toLocaleDateString()
     const formatCurrency = (amount: number) =>
-        new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
+        new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'USD' }).format(amount)
+
+    const balance = user?.balance ?? (stats as any)?.balance ?? 0
 
     return (
         <div className="page billing-page">
             <header className="page-header">
                 <button className="back-button" onClick={goBack}>←</button>
-                <h2>Billing</h2>
+                <h2>Баланс и платежи</h2>
             </header>
 
             {!token && (
                 <div className="empty-state">
-                    <div className="empty-icon">🔐</div>
-                    <h3>Authorization Required</h3>
-                    <p>{error || 'Reopen Mini App from bot to manage billing.'}</p>
+                    <div className="empty-icon">AU</div>
+                    <h3>Требуется авторизация</h3>
+                    <p>{error || 'Откройте Mini App из Telegram-бота.'}</p>
                 </div>
             )}
 
             {token && <div className="balance-hero glass-card">
-                <span className="balance-label">Current Balance</span>
+                <span className="balance-label">Текущий баланс</span>
                 <span className="balance-amount gradient-text">
-                    {user ? formatCurrency(user.balance || 0) : '...'}
+                    {formatCurrency(balance)}
                 </span>
-                <button className="btn-secondary" disabled>
-                    💳 Deposit (Coming Soon)
-                </button>
             </div>}
 
             {token && <div className="transactions-section">
-                <h3>Recent Transactions</h3>
+                <h3>История платежей</h3>
                 {loading ? (
-                    <div className="loading">Loading history...</div>
+                    <div className="loading">Загрузка истории...</div>
                 ) : payments.length > 0 ? (
                     <div className="transactions-list">
                         {payments.map(p => (
@@ -88,7 +94,7 @@ export default function Billing() {
                                         {p.amount > 0 ? '+' : ''}{formatCurrency(p.amount)}
                                     </span>
                                     <span className={`badge badge-${p.status.toLowerCase() === 'completed' ? 'success' : p.status.toLowerCase() === 'pending' ? 'warning' : 'error'}`}>
-                                        {p.status}
+                                        {statusLabels[p.status.toLowerCase()] || p.status}
                                     </span>
                                 </div>
                             </div>
@@ -96,8 +102,8 @@ export default function Billing() {
                     </div>
                 ) : (
                     <div className="empty-state">
-                        <div className="empty-icon">💳</div>
-                        <p>No transactions yet</p>
+                        <div className="empty-icon">TX</div>
+                        <p>Платежей пока нет</p>
                     </div>
                 )}
             </div>}

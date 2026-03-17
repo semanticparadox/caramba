@@ -1,11 +1,16 @@
 import { BrowserRouter as Router, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { AppLockProvider } from './context/AppLockContext'
+import { lazy, Suspense } from 'react'
 import Home from './pages/Home'
 import Promo from './pages/Promo'
 import Support from './pages/Support'
 import ConnectGuide from './pages/ConnectGuide'
 import AppLockGate from './components/AppLockGate'
+
+const Servers = lazy(() => import('./pages/Servers'))
+const Subscription = lazy(() => import('./pages/Subscription'))
+const Billing = lazy(() => import('./pages/Billing'))
 import './App.css'
 
 function BottomCommandNav() {
@@ -38,20 +43,22 @@ function App() {
                         <div className="app-mesh" />
                         <div className="app-noise" />
                         <BottomCommandNav />
-                        <Routes>
-                            <Route path="/" element={<Home />} />
-                            <Route path="/subscription" element={<Navigate to="/" replace />} />
-                            <Route path="/servers" element={<Navigate to="/" replace />} />
-                            <Route path="/store" element={<Navigate to="/" replace />} />
-                            <Route path="/plans" element={<Navigate to="/" replace />} />
-                            <Route path="/servers/:subId" element={<Navigate to="/" replace />} />
-                            <Route path="/statistics" element={<Navigate to="/" replace />} />
-                            <Route path="/billing" element={<Navigate to="/" replace />} />
-                            <Route path="/referral" element={<Navigate to="/promo" replace />} />
-                            <Route path="/promo" element={<Promo />} />
-                            <Route path="/support" element={<Support />} />
-                            <Route path="/support/connect" element={<ConnectGuide />} />
-                        </Routes>
+                        <Suspense fallback={<div className="loading">Загрузка...</div>}>
+                            <Routes>
+                                <Route path="/" element={<Home />} />
+                                <Route path="/subscription" element={<Subscription />} />
+                                <Route path="/servers/:subId" element={<Servers />} />
+                                <Route path="/servers" element={<Servers />} />
+                                <Route path="/billing" element={<Billing />} />
+                                <Route path="/store" element={<Navigate to="/" replace />} />
+                                <Route path="/plans" element={<Navigate to="/" replace />} />
+                                <Route path="/statistics" element={<Navigate to="/" replace />} />
+                                <Route path="/referral" element={<Navigate to="/promo" replace />} />
+                                <Route path="/promo" element={<Promo />} />
+                                <Route path="/support" element={<Support />} />
+                                <Route path="/support/connect" element={<ConnectGuide />} />
+                            </Routes>
+                        </Suspense>
                         <AppLockGate />
                     </div>
                 </Router>

@@ -78,7 +78,11 @@ export default function Subscription() {
     }
 
     const openExternal = (url: string) => {
-        window.location.href = url
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+            try { (window as any).Telegram?.WebApp?.openLink?.(url) } catch { window.open(url, '_blank') }
+        } else {
+            window.location.href = url
+        }
     }
 
     const handleActivate = async (subId: number) => {
@@ -171,6 +175,16 @@ export default function Subscription() {
         }, { replace: true })
     }, [searchParams, setSearchParams])
 
+    useEffect(() => {
+        setSelectedVariants((current) => {
+            const next = { ...current }
+            for (const [subId, variantId] of Object.entries(activeById)) {
+                if (!next[Number(subId)] && variantId) next[Number(subId)] = variantId
+            }
+            return next
+        })
+    }, [activeById])
+
     if (isLoading) return <div className="page"><div className="loading">Загрузка подписок...</div></div>
 
     if (!token) {
@@ -188,16 +202,6 @@ export default function Subscription() {
             </div>
         )
     }
-
-    useEffect(() => {
-        setSelectedVariants((current) => {
-            const next = { ...current }
-            for (const [subId, variantId] of Object.entries(activeById)) {
-                if (!next[Number(subId)] && variantId) next[Number(subId)] = variantId
-            }
-            return next
-        })
-    }, [activeById])
 
     return (
         <div className="page sub-page">
@@ -240,7 +244,7 @@ export default function Subscription() {
                     <div className="empty-icon">SV</div>
                     <h3>Подписок пока нет</h3>
                     <p>Активируйте тариф, чтобы получить доступ к VPN-серверам.</p>
-                    <button className="btn-primary" onClick={() => navigate('/plans')}>
+                    <button className="btn-primary" onClick={() => navigate('/')}>
                         Открыть тарифы
                     </button>
                 </div>
@@ -355,7 +359,7 @@ export default function Subscription() {
                                 <div className="sub-expanded">
                                     <div className="qr-wrapper">
                                         <QRCodeSVG
-                                            value={sub.subscription_url}
+                                            value={withClient(sub.subscription_url, 'hiddify')}
                                             size={160}
                                             bgColor="#ffffff"
                                             fgColor="#0D0D1A"

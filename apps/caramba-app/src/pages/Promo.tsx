@@ -176,6 +176,7 @@ export default function Promo() {
                         placeholder="Введите код"
                         value={promoCode}
                         onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && promoCode.trim()) redeemPromo() }}
                     />
                     <button
                         className="btn-primary"
@@ -240,6 +241,7 @@ export default function Promo() {
                         placeholder="Реферальный код"
                         value={referrerCode}
                         onChange={(e) => setReferrerCode(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && referrerCode.trim()) linkReferrer() }}
                     />
                     <button
                         className="btn-secondary"

@@ -28,7 +28,7 @@ export default function DrawerModal({
                         <h3>{title}</h3>
                         {subtitle && <p>{subtitle}</p>}
                     </div>
-                    <button className="modal-close-btn" onClick={onClose} aria-label="Close panel">X</button>
+                    <button className="modal-close-btn" onClick={onClose} aria-label="Закрыть">X</button>
                 </header>
                 <div className="modal-drawer-body">{children}</div>
                 {footer && <div className="modal-drawer-foot">{footer}</div>}

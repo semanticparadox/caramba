@@ -138,7 +138,7 @@ impl PromoService {
                     .await?;
                 format!("Success! Received {} credits to balance.", amount)
             }
-            "subscription" | "trial" => {
+            "subscription" => {
                 let plan_id = promo
                     .plan_id
                     .ok_or_else(|| anyhow::anyhow!("Missing plan for subscription promo"))?;

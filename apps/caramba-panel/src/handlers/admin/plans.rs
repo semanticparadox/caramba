@@ -199,20 +199,6 @@ pub async fn add_plan(
 pub async fn delete_plan(Path(id): Path<i64>, State(state): State<AppState>) -> impl IntoResponse {
     info!("Request to delete plan: {}", id);
 
-    let is_trial = state
-        .catalog_service
-        .is_trial_plan(id)
-        .await
-        .unwrap_or(false);
-
-    if is_trial {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            "Cannot delete system trial plan. Disable it instead.",
-        )
-            .into_response();
-    }
-
     match state.catalog_service.delete_plan_and_refund(id).await {
         Ok((refunded_users, total_refunded_cents)) => {
             info!(

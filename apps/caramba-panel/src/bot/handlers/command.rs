@@ -107,10 +107,6 @@ pub async fn message_handler(
                     )
                     .await;
 
-                    // Trial system auto-creation REMOVED.
-                    // Users must explicitly request a trial via specific command or UI.
-                    // if !u.trial_used.unwrap_or(false) { ... } logic removed.
-
                     Some(u)
                 }
                 Err(e) => {

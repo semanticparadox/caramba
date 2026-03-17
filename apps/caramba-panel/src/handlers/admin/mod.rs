@@ -33,7 +33,7 @@ pub use promo::{add_promo, delete_promo, get_promos};
 pub use settings::{
     apply_deployment_topology, bot_logs_history, bot_logs_page, bot_logs_tail, check_update,
     export_database, get_settings, prepare_agent_update, queue_worker_update, rollout_agent_update,
-    save_settings, toggle_bot, update_trial_config,
+    save_settings, toggle_bot,
 };
 pub use store::{
     create_category, create_product, delete_category, delete_product, get_store_categories_page,

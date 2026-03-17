@@ -324,11 +324,6 @@ pub struct SettingsTemplate {
     pub decoy_max_interval: String,
     pub kill_switch_enabled: bool,
     pub kill_switch_timeout: String,
-    pub free_trial_days: i32,
-    pub channel_trial_days: i32,
-    pub free_trial_traffic_limit: i32,
-    pub free_trial_device_limit: i32,
-    pub required_channel_id: String,
     pub last_export: String,
     pub is_auth: bool,
     pub admin_path: String,
@@ -480,15 +475,6 @@ pub struct SaveSettingsForm {
 }
 
 #[derive(Deserialize)]
-pub struct TrialConfigForm {
-    pub free_trial_days: i32,
-    pub channel_trial_days: i32,
-    pub free_trial_traffic_limit: i32,
-    pub free_trial_device_limit: i32,
-    pub required_channel_id: String,
-}
-
-#[derive(Deserialize)]
 pub struct QueueWorkerUpdateForm {
     pub role: String,
     pub version: Option<String>,
@@ -617,35 +603,6 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .await;
 
     let admin_path = normalize_url_path(&state.admin_path);
-
-    let free_trial_days = state
-        .settings
-        .get_or_default("free_trial_days", "3")
-        .await
-        .parse()
-        .unwrap_or(3);
-    let channel_trial_days = state
-        .settings
-        .get_or_default("channel_trial_days", "7")
-        .await
-        .parse()
-        .unwrap_or(7);
-    let free_trial_traffic_limit = state
-        .settings
-        .get_or_default("free_trial_traffic_limit", "10")
-        .await
-        .parse()
-        .unwrap_or(10);
-    let free_trial_device_limit = state
-        .settings
-        .get_or_default("free_trial_device_limit", "1")
-        .await
-        .parse()
-        .unwrap_or(1);
-    let required_channel_id = state
-        .settings
-        .get_or_default("required_channel_id", "")
-        .await;
 
     let last_export = state.settings.get_or_default("last_export", "Never").await;
 
@@ -926,11 +883,6 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         decoy_max_interval,
         kill_switch_enabled,
         kill_switch_timeout,
-        free_trial_days,
-        channel_trial_days,
-        free_trial_traffic_limit,
-        free_trial_device_limit,
-        required_channel_id,
         last_export,
         is_auth: true,
         admin_path,
@@ -1542,55 +1494,6 @@ pub async fn export_database(State(state): State<AppState>, jar: CookieJar) -> i
                 .into_response()
         }
     }
-}
-
-pub async fn update_trial_config(
-    State(state): State<AppState>,
-    Form(form): Form<TrialConfigForm>,
-) -> impl IntoResponse {
-    use axum::response::Redirect;
-
-    info!(
-        "Trial configuration update requested: default={}, channel={}, channel_id={}",
-        form.free_trial_days, form.channel_trial_days, form.required_channel_id
-    );
-
-    let _ = state
-        .settings
-        .set("free_trial_days", &form.free_trial_days.to_string())
-        .await;
-    let _ = state
-        .settings
-        .set("channel_trial_days", &form.channel_trial_days.to_string())
-        .await;
-    let _ = state
-        .settings
-        .set(
-            "free_trial_traffic_limit",
-            &form.free_trial_traffic_limit.to_string(),
-        )
-        .await;
-    let _ = state
-        .settings
-        .set(
-            "free_trial_device_limit",
-            &form.free_trial_device_limit.to_string(),
-        )
-        .await;
-    let _ = state
-        .settings
-        .set("required_channel_id", &form.required_channel_id)
-        .await;
-
-    if let Err(e) = state
-        .catalog_service
-        .update_trial_plan_limits(form.free_trial_device_limit, form.free_trial_traffic_limit)
-        .await
-    {
-        error!("Failed to update trial plan limits: {}", e);
-    }
-
-    Redirect::to(&format!("{}/settings", state.admin_path)).into_response()
 }
 
 #[derive(serde::Deserialize)]

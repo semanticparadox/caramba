@@ -1,9 +1,9 @@
 use crate::AppState;
 use axum::{
-    Json,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
+    Json,
 };
 use caramba_db::models::network::Inbound;
 use caramba_db::models::node::Node;
@@ -229,12 +229,12 @@ pub async fn get_user_keys(
 
     let user: Option<(String, i64)> = sqlx::query_as(
         r#"
-        SELECT s.vless_uuid, u.tg_id
+        SELECT COALESCE(NULLIF(s.vless_uuid, ''), NULLIF(s.subscription_uuid, '')) AS user_uuid, u.tg_id
         FROM subscriptions s
         JOIN users u ON u.id = s.user_id
         WHERE s.user_id = $1
           AND s.status = 'active'
-          AND s.vless_uuid IS NOT NULL
+          AND COALESCE(NULLIF(s.vless_uuid, ''), NULLIF(s.subscription_uuid, '')) IS NOT NULL
         ORDER BY s.expires_at DESC NULLS LAST, s.created_at DESC
         LIMIT 1
         "#,

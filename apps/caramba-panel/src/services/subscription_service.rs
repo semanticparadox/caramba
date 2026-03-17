@@ -1,6 +1,6 @@
 use crate::services::activity_service::ActivityService;
 use crate::singbox::connection_variants::{
-    SingboxConnectionVariant, apply_connection_variant, fixed_connection_variants,
+    apply_connection_variant, fixed_connection_variants, SingboxConnectionVariant,
 };
 use crate::singbox::subscription_generator::{NodeInfo, UserKeys};
 use anyhow::{Context, Result};
@@ -163,6 +163,22 @@ impl SubscriptionService {
         let mut hasher = Sha256::new();
         hasher.update(material.as_bytes());
         hex::encode(hasher.finalize())
+    }
+
+    fn subscription_user_uuid(sub: &Subscription) -> Option<String> {
+        sub.vless_uuid
+            .as_deref()
+            .map(str::trim)
+            .filter(|uuid| !uuid.is_empty())
+            .map(ToOwned::to_owned)
+            .or_else(|| {
+                let fallback = sub.subscription_uuid.trim();
+                if fallback.is_empty() {
+                    None
+                } else {
+                    Some(fallback.to_string())
+                }
+            })
     }
 
     async fn upsert_device_lease(
@@ -701,45 +717,6 @@ impl SubscriptionService {
         Ok(results)
     }
 
-    pub async fn get_trial_plan(&self) -> Result<Plan> {
-        let mut plan = sqlx::query_as::<_, Plan>(
-            "SELECT * FROM plans WHERE is_trial = TRUE AND is_active = TRUE LIMIT 1",
-        )
-        .fetch_one(&self.pool)
-        .await
-        .context("Trial plan not configured")?;
-
-        plan.durations =
-            sqlx::query_as::<_, PlanDuration>("SELECT * FROM plan_durations WHERE plan_id = $1")
-                .bind(plan.id)
-                .fetch_all(&self.pool)
-                .await?;
-
-        Ok(plan)
-    }
-
-    pub async fn create_trial_subscription(
-        &self,
-        user_id: i64,
-        plan_id: i64,
-        duration_days: i64,
-    ) -> Result<i64> {
-        let sub_id: i64 = sqlx::query_scalar(
-            "INSERT INTO subscriptions 
-             (user_id, plan_id, status, expires_at, used_traffic, is_trial, created_at, subscription_uuid) 
-             VALUES ($1, $2, 'active', CURRENT_TIMESTAMP + ($3 * interval '1 day'), 0, TRUE, CURRENT_TIMESTAMP, $4) 
-             RETURNING id"
-        )
-        .bind(user_id)
-        .bind(plan_id)
-        .bind(duration_days)
-        .bind(Uuid::new_v4().to_string())
-        .fetch_one(&self.pool)
-        .await?;
-
-        Ok(sub_id)
-    }
-
     pub async fn get_subscription_links(&self, sub_id: i64) -> Result<Vec<String>> {
         let mut links = Vec::new();
         let sub: Option<Subscription> = sqlx::query_as("SELECT * FROM subscriptions WHERE id = $1")
@@ -748,7 +725,13 @@ impl SubscriptionService {
             .await?;
 
         if let Some(sub) = sub {
-            let uuid = sub.vless_uuid.clone().unwrap_or_default();
+            let Some(uuid) = Self::subscription_user_uuid(&sub) else {
+                warn!(
+                    "Subscription {} has neither vless_uuid nor subscription_uuid; direct links unavailable",
+                    sub.id
+                );
+                return Ok(links);
+            };
             let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>(&format!(
                 r#"
                 SELECT DISTINCT i.id,
@@ -1517,10 +1500,12 @@ impl SubscriptionService {
     }
 
     pub async fn get_user_keys(&self, sub: &Subscription) -> Result<UserKeys> {
-        let user_uuid = sub
-            .vless_uuid
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("No VLESS UUID for subscription"))?;
+        let user_uuid = Self::subscription_user_uuid(sub).ok_or_else(|| {
+            anyhow::anyhow!(
+                "No UUID available for subscription {} (vless_uuid/subscription_uuid missing)",
+                sub.id
+            )
+        })?;
 
         let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
             .bind(sub.user_id)

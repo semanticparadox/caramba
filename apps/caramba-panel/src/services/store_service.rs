@@ -1100,10 +1100,18 @@ impl StoreService {
         let node_infos: Vec<crate::singbox::subscription_generator::NodeInfo> =
             nodes.iter().map(|n| n.into()).collect();
 
+        let user_uuid = sub
+            .vless_uuid
+            .as_deref()
+            .map(str::trim)
+            .filter(|uuid| !uuid.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| sub.subscription_uuid.clone());
+
         // We need UserKeys
         let user_keys = crate::singbox::subscription_generator::UserKeys {
-            user_uuid: sub.vless_uuid.clone().unwrap_or_default(),
-            hy2_password: sub.vless_uuid.clone().unwrap_or_default(), // Fallback
+            user_uuid: user_uuid.clone(),
+            hy2_password: user_uuid, // Fallback
             _awg_private_key: None,
         };
 

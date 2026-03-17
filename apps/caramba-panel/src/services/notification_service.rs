@@ -90,10 +90,7 @@ impl NotificationService {
              INNER JOIN subscriptions s ON u.id = s.user_id
              WHERE s.node_id = $1
                AND s.status = 'active'
-               AND (
-                   s.expires_at > CURRENT_TIMESTAMP 
-                   OR u.trial_expires_at > CURRENT_TIMESTAMP
-               )
+               AND s.expires_at > CURRENT_TIMESTAMP
              ORDER BY u.id",
         )
         .bind(node_id)

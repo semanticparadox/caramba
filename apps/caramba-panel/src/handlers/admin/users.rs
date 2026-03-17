@@ -286,7 +286,6 @@ enum BroadcastSegment {
     All,
     Active,
     Expiring72h,
-    Trial,
     NoActive,
     Banned,
 }
@@ -296,7 +295,6 @@ impl BroadcastSegment {
         match input.unwrap_or("all").trim().to_ascii_lowercase().as_str() {
             "active" => Self::Active,
             "expiring_72h" => Self::Expiring72h,
-            "trial" => Self::Trial,
             "no_active" => Self::NoActive,
             "banned" => Self::Banned,
             _ => Self::All,
@@ -308,7 +306,6 @@ impl BroadcastSegment {
             Self::All => "all",
             Self::Active => "active",
             Self::Expiring72h => "expiring_72h",
-            Self::Trial => "trial",
             Self::NoActive => "no_active",
             Self::Banned => "banned",
         }
@@ -319,7 +316,6 @@ impl BroadcastSegment {
             Self::All => "All users",
             Self::Active => "Active subscribers",
             Self::Expiring72h => "Expiring in 72h",
-            Self::Trial => "Trial users",
             Self::NoActive => "Without active subscription",
             Self::Banned => "Banned users",
         }
@@ -490,17 +486,6 @@ async fn filter_users_by_segment(
             Ok(users
                 .into_iter()
                 .filter(|u| expiring.contains(&u.id))
-                .collect())
-        }
-        BroadcastSegment::Trial => {
-            let trial = fetch_segment_user_ids(
-                pool,
-                "SELECT DISTINCT user_id FROM subscriptions WHERE status = 'active' AND expires_at > NOW() AND COALESCE(is_trial, false) = TRUE",
-            )
-            .await?;
-            Ok(users
-                .into_iter()
-                .filter(|u| trial.contains(&u.id))
                 .collect())
         }
         BroadcastSegment::NoActive => {

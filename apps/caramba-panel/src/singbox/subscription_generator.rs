@@ -524,15 +524,30 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
                 .map(|s| s.to_string())
         })
         .unwrap_or_else(|| "tcp".to_string());
-    let security = settings
+    // Определяем security: берём из stream_settings, если не задано — определяем по наличию
+    // realitySettings/tlsSettings, иначе "none".
+    // ВАЖНО: дефолт НЕ может быть "reality" — это ломает ws/grpc/httpupgrade инбаунды.
+    let security_raw = settings
         .security
         .clone()
         .or_else(|| {
             v.get("security")
                 .and_then(|s| s.as_str())
                 .map(|s| s.to_string())
-        })
-        .unwrap_or_else(|| "reality".to_string());
+        });
+    let security = security_raw.unwrap_or_else(|| {
+        // Автоопределение: reality → tls → none
+        if settings.reality_settings.is_some()
+            || v.get("realitySettings").is_some()
+            || v.get("reality_settings").is_some()
+        {
+            "reality".to_string()
+        } else if settings.tls_settings.is_some() || v.get("tlsSettings").is_some() {
+            "tls".to_string()
+        } else {
+            "none".to_string()
+        }
+    });
 
     let inbound_sni = extract_sni_from_settings(&settings)
         .or_else(|| extract_sni_from_raw(&v))
@@ -1589,7 +1604,11 @@ pub fn generate_singbox_config(
         .collect();
 
     if all_tags.is_empty() {
-        return Ok(json!({}).to_string());
+        // Все ноды были пропущены (нет активных inbounds или все is_relay=true).
+        // Возвращаем ошибку чтобы вызывающий код мог залогировать и вернуть 500/503.
+        return Err(anyhow::anyhow!(
+            "No proxy outbounds generated: nodes either have no enabled inbounds or all nodes are relay-only infrastructure"
+        ));
     }
 
     // ─── Proxy groups ─────────────────────────────────────────────────────────

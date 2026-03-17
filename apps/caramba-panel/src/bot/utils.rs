@@ -19,7 +19,7 @@ pub fn escape_md(text: &str) -> String {
         .replace("!", "\\!")
 }
 
-// Channel Trial Helpers
+// Bot message helpers
 use crate::AppState;
 use teloxide::prelude::*;
 use tracing::error;

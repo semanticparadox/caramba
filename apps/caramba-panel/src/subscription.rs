@@ -852,16 +852,23 @@ function copyLink(){{
                 // If no relay nodes are configured yet, keep all direct nodes.
             } else {
                 // Non-Russian users: prefer direct nodes (lowest latency).
-                // Still keep relay-chained ones in the list – they won't be
-                // primary but a user can manually select them via the selector.
-                let direct_nodes: Vec<_> = filtered_nodes
+                // "Direct node" here means a node whose primary path doesn't require
+                // a relay entry — but exit nodes that happen to have a relay_id configured
+                // are still valid destinations (they support both direct and relayed paths).
+                // We only demote them when we have pure direct-only alternatives.
+                //
+                // Алгоритм: если есть ноды без relay_id вообще — ставим их первыми.
+                // Exit-ноды с relay_id не выбрасываем — они просто идут после.
+                let (direct_first, relay_exit): (Vec<_>, Vec<_>) = filtered_nodes
                     .iter()
-                    .filter(|n| n.relay_id.is_none())
                     .cloned()
-                    .collect();
-                if !direct_nodes.is_empty() {
-                    filtered_nodes = direct_nodes;
+                    .partition(|n| n.relay_id.is_none());
+                if !direct_first.is_empty() {
+                    let mut ordered = direct_first;
+                    ordered.extend(relay_exit);
+                    filtered_nodes = ordered;
                 }
+                // Если все ноды имеют relay_id — оставляем как есть, не теряем их.
             }
         }
     }
