@@ -516,15 +516,24 @@ pub async fn subscription_handler(
         Err(_) => ("VPN Plan".to_string(), 0),
     };
 
-    let total_traffic_bytes = (plan_details.1 as i64) * 1024 * 1024 * 1024;
+    let traffic_limit_gb = plan_details.1;
     let used_traffic_bytes = sub.used_traffic as i64;
     let expire_timestamp = sub.expires_at.timestamp();
 
     // upload=0; download=used; total=limit; expire=timestamp
-    let user_info_header = format!(
-        "upload=0; download={}; total={}; expire={}",
-        used_traffic_bytes, total_traffic_bytes, expire_timestamp
-    );
+    // When traffic_limit_gb == 0 (unlimited), omit `total` so clients show ∞
+    let user_info_header = if traffic_limit_gb > 0 {
+        let total_traffic_bytes = (traffic_limit_gb as i64) * 1024 * 1024 * 1024;
+        format!(
+            "upload=0; download={}; total={}; expire={}",
+            used_traffic_bytes, total_traffic_bytes, expire_timestamp
+        )
+    } else {
+        format!(
+            "upload=0; download={}; expire={}",
+            used_traffic_bytes, expire_timestamp
+        )
+    };
 
     // ===================================================================
     // client autodetection or raw config mode
