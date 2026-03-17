@@ -108,8 +108,6 @@
                 </div>
             </form>
 
-            <div class="h-px bg-slate-200 dark:bg-white/5 my-5"></div>
-
             <div class="h-px bg-border-default my-8"></div>
 
             <form id="user-notify-form" data-preview-url="{{ admin_path }}/users/notify/preview"
@@ -431,15 +429,15 @@
 </div>
 
 <!-- Modals -->
-<dialog id="devices_modal" class="modal-container">
-    <div class="modal-content max-w-lg p-0" onclick="event.stopPropagation()">
-        <header class="p-6 border-b border-border-default flex justify-between items-center">
-            <h3 class="text-xl font-bold text-slate-900 dark:text-white">Active Sessions</h3>
-            <button onclick="closeModal('devices_modal')" class="btn-icon w-8 h-8 text-slate-500">
-                <i data-lucide="x" class="w-4 h-4"></i>
+<dialog id="devices_modal" class="backdrop:bg-slate-950/80 bg-transparent p-0" onclick="this.close()">
+    <div class="modal-container max-w-lg" onclick="event.stopPropagation()">
+        <header class="modal-header">
+            <h3 class="modal-title">Active Sessions</h3>
+            <button onclick="closeModal('devices_modal')" class="btn-icon">
+                <i data-lucide="x"></i>
             </button>
         </header>
-        <div id="devices_content" class="p-6 min-h-[200px]">
+        <div id="devices_content" class="modal-body min-h-[200px]">
             <div class="flex flex-col items-center justify-center py-12 gap-4 text-slate-500">
                 <div class="w-10 h-10 border-2 border-slate-700 border-t-brand animate-spin rounded-full"></div>
                 <p class="text-[10px] font-bold uppercase tracking-widest">Intercepting device metrics...</p>
@@ -448,40 +446,35 @@
     </div>
 </dialog>
 
-<dialog id="gift_modal" class="modal-container">
-    <div class="modal-content max-w-md p-0 overflow-hidden relative" onclick="event.stopPropagation()">
-        <div class="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-brand/10 to-transparent pointer-events-none">
-        </div>
-
-        <header class="relative flex justify-between items-start p-8 pb-4">
-            <div>
-                <div
-                    class="w-14 h-14 rounded-2xl bg-brand/10 flex items-center justify-center border border-brand/20 mb-5 text-brand transform rotate-3 shadow-lg shadow-brand/10">
+<dialog id="gift_modal" class="backdrop:bg-slate-950/80 bg-transparent p-0" onclick="this.close()">
+    <div class="modal-container max-w-md" onclick="event.stopPropagation()">
+        <header class="modal-header relative overflow-hidden">
+            <div class="absolute top-0 inset-x-0 h-full bg-gradient-to-b from-brand/10 to-transparent pointer-events-none"></div>
+            <div class="relative flex items-start gap-4">
+                <div class="w-14 h-14 rounded-2xl bg-brand/10 flex items-center justify-center border border-brand/20 text-brand transform rotate-3 shadow-lg shadow-brand/10 flex-shrink-0">
                     <i data-lucide="gift" class="w-7 h-7"></i>
                 </div>
-                <h3 class="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Access Grant</h3>
-                <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1">Manual node subscription
-                    gifting</p>
+                <div>
+                    <h3 class="modal-title">Access Grant</h3>
+                    <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1">Manual node subscription gifting</p>
+                </div>
             </div>
-            <button onclick="closeModal('gift_modal')"
-                class="btn-icon w-10 h-10 text-slate-500 bg-white/5 border-white/10">
-                <i data-lucide="x" class="w-5 h-5"></i>
+            <button onclick="closeModal('gift_modal')" class="btn-icon relative">
+                <i data-lucide="x"></i>
             </button>
         </header>
 
-        <div class="p-8 pt-0 relative">
-            <form action="{{ admin_path }}/users/{{ user.id }}/gift" method="post" class="space-y-6">
+        <form action="{{ admin_path }}/users/{{ user.id }}/gift" method="post">
+            <div class="modal-body space-y-6">
                 <div class="space-y-3">
-                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Plan
-                        Configuration</label>
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Plan Configuration</label>
                     <div class="relative">
                         <select name="duration_id" required class="input-field py-4 text-lg appearance-none">
                             {% for plan in available_plans %}
                             <optgroup label="{{ plan.name }}" class="bg-slate-900 text-slate-400">
                                 {% for duration in plan.durations %}
                                 <option value="{{ duration.id }}" class="text-white">
-                                    {{ duration.duration_days }} Days — ${{ format!("{:.2}", duration.price as f64 /
-                                    100.0) }}
+                                    {{ duration.duration_days }} Days — ${{ format!("{:.2}", duration.price as f64 / 100.0) }}
                                 </option>
                                 {% endfor %}
                             </optgroup>
@@ -492,74 +485,66 @@
                         </div>
                     </div>
                 </div>
-
-                <div class="flex gap-3">
-                    <button type="button" class="btn btn-secondary flex-1 py-4"
-                        onclick="closeModal('gift_modal')">REFUSE</button>
-                    <button type="submit" class="btn btn-primary flex-[2] py-4 group">
-                        <i data-lucide="zap" class="w-4 h-4 group-hover:animate-pulse"></i>
-                        PROVISION ACCESS
-                    </button>
-                </div>
-            </form>
-        </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary flex-1 py-4" onclick="closeModal('gift_modal')">REFUSE</button>
+                <button type="submit" class="btn btn-primary flex-[2] py-4 group">
+                    <i data-lucide="zap" class="w-4 h-4 group-hover:animate-pulse"></i>
+                    PROVISION ACCESS
+                </button>
+            </div>
+        </form>
     </div>
 </dialog>
 
-<dialog id="extend_modal" class="modal-container">
-    <div class="modal-content max-w-sm p-8" onclick="event.stopPropagation()">
-        <header class="flex justify-between items-center mb-8">
-            <h3 class="text-xl font-bold text-slate-900 dark:text-white">Temporal Extension</h3>
-            <button onclick="closeModal('extend_modal')" class="btn-icon w-8 h-8 text-slate-500">
-                <i data-lucide="x" class="w-4 h-4"></i>
+<dialog id="extend_modal" class="backdrop:bg-slate-950/80 bg-transparent p-0" onclick="this.close()">
+    <div class="modal-container max-w-sm" onclick="event.stopPropagation()">
+        <header class="modal-header">
+            <h3 class="modal-title">Temporal Extension</h3>
+            <button onclick="closeModal('extend_modal')" class="btn-icon">
+                <i data-lucide="x"></i>
             </button>
         </header>
-        <form id="extend_form" method="post" class="space-y-6">
-            <div>
-                <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Additional
-                    Days</label>
-                <input type="number" name="days" value="30" required class="input-field text-xl font-bold">
+        <form id="extend_form" method="post">
+            <div class="modal-body space-y-6">
+                <div>
+                    <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Additional Days</label>
+                    <input type="number" name="days" value="30" required class="input-field text-xl font-bold">
+                </div>
             </div>
-            <div class="flex gap-3">
-                <button type="button" class="btn btn-secondary flex-1 py-3"
-                    onclick="closeModal('extend_modal')">ABORT</button>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary flex-1 py-3" onclick="closeModal('extend_modal')">ABORT</button>
                 <button type="submit" class="btn btn-primary flex-[2] py-3">EXTEND NODE</button>
             </div>
         </form>
     </div>
 </dialog>
 
-<dialog id="refund_modal" class="modal-container">
-    <div class="modal-content max-w-sm p-8" onclick="event.stopPropagation()">
-        <header class="flex justify-between items-center mb-6">
-             <h3 class="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
-                 <i data-lucide="undo-2" class="w-6 h-6 text-amber-500"></i>
-                 Terminate & Refund
-             </h3>
-            <button onclick="closeModal('refund_modal')" class="btn-icon w-8 h-8 text-slate-500">
-                <i data-lucide="x" class="w-4 h-4"></i>
+<dialog id="refund_modal" class="backdrop:bg-slate-950/80 bg-transparent p-0" onclick="this.close()">
+    <div class="modal-container max-w-sm" onclick="event.stopPropagation()">
+        <header class="modal-header">
+            <h3 class="modal-title flex items-center gap-3">
+                <i data-lucide="undo-2" class="w-5 h-5 text-amber-500"></i>
+                Terminate & Refund
+            </h3>
+            <button onclick="closeModal('refund_modal')" class="btn-icon">
+                <i data-lucide="x"></i>
             </button>
         </header>
-        <p class="text-[11px] text-slate-500 uppercase tracking-widest font-bold mb-8 leading-relaxed">Terminate
-            subscription access and credit the user wallet.</p>
-
-        <form id="refund_form" method="post" class="space-y-6">
-            <div>
-                <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Refund
-                    Magnitude (Cents)</label>
-                <div class="flex gap-2">
-                    <input type="number" id="refund_amount" name="amount" placeholder="0" required
-                        class="input-field flex-1 font-bold">
-                    <button type="button" onclick="calculateProRated()"
-                        class="btn btn-secondary px-4 text-[10px]">AUTO</button>
+        <form id="refund_form" method="post">
+            <div class="modal-body space-y-6">
+                <p class="text-[11px] text-slate-500 uppercase tracking-widest font-bold leading-relaxed">Terminate subscription access and credit the user wallet.</p>
+                <div>
+                    <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Refund Magnitude (Cents)</label>
+                    <div class="flex gap-2">
+                        <input type="number" id="refund_amount" name="amount" placeholder="0" required class="input-field flex-1 font-bold">
+                        <button type="button" onclick="calculateProRated()" class="btn btn-secondary px-4 text-[10px]">AUTO</button>
+                    </div>
                 </div>
             </div>
-            <div class="flex gap-3">
-                <button type="button" class="btn btn-secondary flex-1 py-3"
-                    onclick="closeModal('refund_modal')">ABORT</button>
-                <button type="submit"
-                    class="btn btn-primary flex-[2] py-3 bg-amber-600 border-amber-500/20 hover:bg-amber-500/20 text-white">EXECUTE
-                    REFUND</button>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary flex-1 py-3" onclick="closeModal('refund_modal')">ABORT</button>
+                <button type="submit" class="btn btn-primary flex-[2] py-3 bg-amber-600 border-amber-500/20 hover:bg-amber-500/20 text-white">EXECUTE REFUND</button>
             </div>
         </form>
     </div>

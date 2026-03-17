@@ -13,14 +13,6 @@
             </p>
         </div>
         <div class="flex items-center gap-3">
-            <a href="{{ admin_path }}/nodes/exit" class="btn {% if scope == "exit" %}btn-primary{% else %}btn-secondary{% endif %} px-5">
-                <i data-lucide="send" class="w-4 h-4"></i>
-                Exit Nodes
-            </a>
-            <a href="{{ admin_path }}/nodes/relay" class="btn {% if scope == "relay" %}btn-warning{% else %}btn-secondary{% endif %} px-5">
-                <i data-lucide="network" class="w-4 h-4"></i>
-                Relay Nodes
-            </a>
             <button onclick="openAddNode()" class="btn {% if scope == "relay" %}btn-warning{% else %}btn-primary{% endif %} px-6">
                 <i data-lucide="plus" class="w-4 h-4"></i>
                 Add {% if scope == "relay" %}Relay{% else %}Exit{% endif %}
@@ -29,7 +21,6 @@
                 hx-get="{{ admin_path }}/nodes/rows/{{ scope }}"
                 hx-target="#nodes-table-body"
                 hx-swap="innerHTML"
-                onclick="refreshNodeRows()"
                 class="btn btn-secondary px-4"
                 title="Refresh"
             >
@@ -204,31 +195,6 @@
     const ADMIN_PATH = "{{ admin_path }}";
     const NODES_SCOPE = "{{ scope }}";
 
-    async function loadNodeRows() {
-        const target = document.getElementById('nodes-table-body');
-        if (!target) return;
-        try {
-            const response = await fetch(`${ADMIN_PATH}/nodes/rows/${NODES_SCOPE}`, {
-                credentials: 'same-origin',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-            target.innerHTML = await response.text();
-            if (window.lucide?.createIcons) {
-                window.lucide.createIcons();
-            }
-        } catch (error) {
-            console.error(`Failed to load ${NODES_SCOPE} rows`, error);
-        }
-    }
-
-    function refreshNodeRows() {
-        if (window.htmx) return;
-        void loadNodeRows();
-    }
-
     async function showNodeInstallCommand(nodeId, nodeName) {
         currentNodeInstallCommand = "";
         try {
@@ -261,13 +227,5 @@
         if (relayParent && NODES_SCOPE === 'relay') relayParent.value = "";
         document.getElementById('add-node-modal').showModal();
     }
-
-    document.addEventListener('DOMContentLoaded', () => {
-        if (window.htmx) return;
-        void loadNodeRows();
-        window.setInterval(() => {
-            void loadNodeRows();
-        }, 20000);
-    });
 </script>
 {% endblock %}
