@@ -184,6 +184,14 @@ impl NodeRepository {
             pending_log_collection: row
                 .try_get::<bool, _>("pending_log_collection")
                 .unwrap_or(false),
+            last_sni_rotation: row
+                .try_get::<Option<DateTime<Utc>>, _>("last_sni_rotation")
+                .ok()
+                .flatten(),
+            sni_renew_interval_hours: row
+                .try_get::<Option<i32>, _>("sni_renew_interval_hours")
+                .ok()
+                .flatten(),
         }
     }
 

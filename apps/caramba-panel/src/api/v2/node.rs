@@ -555,12 +555,14 @@ pub async fn rotate_sni(
         return (StatusCode::CONFLICT, "No other SNI available").into_response();
     }
 
-    // 4. Update Node
-    if let Err(e) = sqlx::query("UPDATE nodes SET reality_sni = $1 WHERE id = $2")
-        .bind(&next_sni)
-        .bind(node_id)
-        .execute(&state.pool)
-        .await
+    // 4. Update Node (и фиксируем метку ротации для circuit-breaker)
+    if let Err(e) = sqlx::query(
+        "UPDATE nodes SET reality_sni = $1, last_sni_rotation = NOW() WHERE id = $2",
+    )
+    .bind(&next_sni)
+    .bind(node_id)
+    .execute(&state.pool)
+    .await
     {
         error!("Failed to update node SNI: {}", e);
         return (StatusCode::INTERNAL_SERVER_ERROR, "DB Update Failed").into_response();

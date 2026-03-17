@@ -253,7 +253,8 @@ impl MonitoringService {
     }
 
     async fn check_and_rotate_snis(&self) -> anyhow::Result<()> {
-        let interval_hours = self
+        // Глобальный интервал ротации — применяется к нодам без явной настройки
+        let global_interval_hours = self
             .state
             .settings
             .get_or_default("auto_sni_rotation_interval_hours", "24")
@@ -261,24 +262,39 @@ impl MonitoringService {
             .parse::<i64>()
             .unwrap_or(24);
 
-        if interval_hours <= 0 {
-            return Ok(());
-        }
+        // Если глобальный интервал <= 0, ротируем только ноды с явным per-node интервалом > 0
+        let now = Utc::now();
 
-        let threshold = Utc::now() - chrono::Duration::hours(interval_hours);
-
+        // Выбираем ноды с учётом per-node интервала:
+        //   - sni_renew_interval_hours IS NULL → используем глобальный интервал (если > 0)
+        //   - sni_renew_interval_hours = 0    → автоматическая ротация ОТКЛЮЧЕНА, пропускаем
+        //   - sni_renew_interval_hours > 0    → используем per-node интервал
         let nodes_to_rotate: Vec<i64> = sqlx::query_scalar(
-            "SELECT id FROM nodes WHERE is_enabled = TRUE AND (last_sni_rotation < $1 OR last_sni_rotation IS NULL)"
+            r#"
+            SELECT id FROM nodes
+            WHERE is_enabled = TRUE
+              AND (
+                -- Per-node интервал задан явно (> 0): проверяем по нему
+                (sni_renew_interval_hours > 0
+                    AND (last_sni_rotation IS NULL
+                         OR last_sni_rotation < NOW() - (sni_renew_interval_hours * INTERVAL '1 hour')))
+                OR
+                -- Нода использует глобальный интервал (NULL), глобальный > 0
+                (sni_renew_interval_hours IS NULL AND $1 > 0
+                    AND (last_sni_rotation IS NULL
+                         OR last_sni_rotation < NOW() - ($1 * INTERVAL '1 hour')))
+              )
+            "#,
         )
-        .bind(threshold)
+        .bind(global_interval_hours)
         .fetch_all(&self.state.pool)
         .await?;
 
         if !nodes_to_rotate.is_empty() {
             info!(
-                "Found {} nodes due for routine SNI rotation (interval: {}h)",
+                "Found {} nodes due for routine SNI rotation (global interval: {}h)",
                 nodes_to_rotate.len(),
-                interval_hours
+                global_interval_hours
             );
 
             for node_id in nodes_to_rotate {
@@ -293,6 +309,21 @@ impl MonitoringService {
                             "🔄 Routine Rotation: Node {} switched from {} to {}",
                             node_id, old_sni, new_sni
                         );
+
+                        // Обновляем метку последней ротации
+                        if let Err(e) = sqlx::query(
+                            "UPDATE nodes SET last_sni_rotation = $1 WHERE id = $2",
+                        )
+                        .bind(now)
+                        .bind(node_id)
+                        .execute(&self.state.pool)
+                        .await
+                        {
+                            error!(
+                                "Failed to update last_sni_rotation for node {}: {}",
+                                node_id, e
+                            );
+                        }
 
                         if let Err(e) = self
                             .state

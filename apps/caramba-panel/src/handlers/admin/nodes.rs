@@ -10,7 +10,7 @@ use axum::{
 };
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use super::auth::get_auth_user;
 use crate::AppState;
@@ -1667,4 +1667,118 @@ pub async fn get_node_config_preview(
             "###, e)).into_response()
         }
     }
+}
+
+/// POST /admin/nodes/{id}/rotate-sni
+/// Ручная ротация Reality SNI для конкретной ноды из панели администратора.
+/// Доступна независимо от cooldown агента — это явное действие оператора.
+pub async fn admin_rotate_node_sni(
+    Path(node_id): Path<i64>,
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
+    if get_auth_user(&state, &jar).await.is_none() {
+        return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    info!("Admin manual SNI rotation requested for node {}", node_id);
+
+    match state
+        .security_service
+        .rotate_node_sni(node_id, "Manual Admin Rotation")
+        .await
+    {
+        Ok((old_sni, new_sni, _rotation_id)) => {
+            info!(
+                "✅ Admin SNI rotation: Node {} {} → {}",
+                node_id, old_sni, new_sni
+            );
+            // Сигнализируем ноде применить новый конфиг
+            let _ = state
+                .pubsub
+                .publish(&format!("node_events:{}", node_id), "update")
+                .await;
+
+            let mut resp_headers = axum::http::HeaderMap::new();
+            resp_headers.insert(
+                "HX-Trigger",
+                "refresh_nodes".parse().unwrap(),
+            );
+            (
+                axum::http::StatusCode::OK,
+                resp_headers,
+                format!("SNI ротирован: {} → {}", old_sni, new_sni),
+            )
+                .into_response()
+        }
+        Err(e) if e.to_string().contains("No other SNI") => {
+            warn!("SNI pool exhausted for node {}: {}", node_id, e);
+            (
+                axum::http::StatusCode::CONFLICT,
+                "Пул SNI исчерпан — нет альтернативных записей",
+            )
+                .into_response()
+        }
+        Err(e) => {
+            error!("Failed to rotate SNI for node {}: {}", node_id, e);
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Ошибка ротации: {}", e),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct SniIntervalForm {
+    /// None/empty = глобальная настройка, "0" = никогда, "24"/"168"/"720" = часы
+    pub sni_renew_interval_hours: Option<String>,
+}
+
+/// POST /admin/nodes/{id}/sni-interval
+/// Обновляет per-node интервал автоматической ротации SNI.
+pub async fn update_sni_interval(
+    Path(node_id): Path<i64>,
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Form(form): Form<SniIntervalForm>,
+) -> impl IntoResponse {
+    if get_auth_user(&state, &jar).await.is_none() {
+        return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    // Парсим значение: пустая строка → NULL (глобальная настройка)
+    let interval: Option<i32> = match form.sni_renew_interval_hours.as_deref() {
+        None | Some("") | Some("global") => None,
+        Some(v) => v.parse::<i32>().ok(),
+    };
+
+    if let Err(e) = sqlx::query(
+        "UPDATE nodes SET sni_renew_interval_hours = $1 WHERE id = $2",
+    )
+    .bind(interval)
+    .bind(node_id)
+    .execute(&state.pool)
+    .await
+    {
+        error!(
+            "Failed to update sni_renew_interval_hours for node {}: {}",
+            node_id, e
+        );
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "Ошибка обновления интервала",
+        )
+            .into_response();
+    }
+
+    info!(
+        "Updated sni_renew_interval_hours for node {} to {:?}",
+        node_id, interval
+    );
+
+    let mut resp_headers = axum::http::HeaderMap::new();
+    resp_headers.insert("HX-Trigger", "refresh_nodes".parse().unwrap());
+    (axum::http::StatusCode::OK, resp_headers, "OK").into_response()
 }

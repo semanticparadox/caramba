@@ -11,6 +11,13 @@ mod scanner;
 mod self_update;
 mod sni_check; // NEW
 
+/// Минимальный интервал между ротациями SNI (секунды).
+/// Предотвращает цепные ротации когда весь пул невалиден.
+const SNI_ROTATION_COOLDOWN_SECS: u64 = 1800; // 30 минут
+
+/// Максимум ротаций SNI за один час работы агента.
+const SNI_MAX_ROTATIONS_PER_HOUR: u32 = 3;
+
 fn init_rustls_provider() {
     // rustls 0.23 requires explicit process-wide provider in some feature combinations.
     if tokio_rustls::rustls::crypto::CryptoProvider::get_default().is_none() {
@@ -49,6 +56,13 @@ struct AgentState {
     recent_discoveries: std::sync::Arc<tokio::sync::Mutex<Vec<caramba_shared::DiscoveredSni>>>,
     scan_trigger: tokio::sync::mpsc::Sender<()>, // NEW: Pulse for neighbor sniper
     last_user_usage_totals: std::collections::HashMap<String, u64>,
+    // Защита от бесконечной ротации SNI:
+    // Ротация блокируется если:
+    //   - прошло < SNI_ROTATION_COOLDOWN_SECS с последней ротации
+    //   - в текущем часу уже выполнено >= SNI_MAX_ROTATIONS_PER_HOUR ротаций
+    last_sni_rotation: Option<std::time::Instant>,
+    sni_rotation_count_this_hour: u32,
+    sni_rotation_hour: u64, // uptime / 3600, чтобы сбрасывать счётчик каждый час
 }
 
 #[tokio::main]
@@ -101,6 +115,9 @@ async fn main() -> anyhow::Result<()> {
         recent_discoveries: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
         scan_trigger: scan_tx,
         last_user_usage_totals: std::collections::HashMap::new(),
+        last_sni_rotation: None,
+        sni_rotation_count_this_hour: 0,
+        sni_rotation_hour: 0,
     };
 
     // Initialize HTTP Client
@@ -264,30 +281,77 @@ async fn main() -> anyhow::Result<()> {
                 error!("Failed to fetch settings: {}", e);
             }
 
-            // SNI Health Check
+            // SNI Health Check с circuit-breaker защитой от бесконечной ротации
             if let Some(current_sni) = sni_check::get_current_sni(&args.config_path).await {
                 if let Err(reason) = sni_check::check_reachability(&current_sni).await {
                     error!(
-                        "⚠️ SNI {} failed validation ({})! Triggering rotation...",
+                        "⚠️ SNI {} failed validation ({})! Checking rotation circuit-breaker...",
                         current_sni, reason
                     );
-                    match rotate_sni(&client, &panel_url, &token, &current_sni, &reason).await {
-                        Ok(new_sni) => {
-                            info!("✅ SNI Rotated to {}. Updating config...", new_sni);
-                            // Force immediate config update
-                            if let Err(e) = update_config(
-                                &client,
-                                &panel_url,
-                                &token,
-                                &args.config_path,
-                                &mut state,
-                            )
-                            .await
-                            {
-                                error!("Failed to update config after rotation: {}", e);
+
+                    // Сбрасываем счётчик если начался новый час работы агента
+                    let current_hour = uptime / 3600;
+                    if current_hour != state.sni_rotation_hour {
+                        state.sni_rotation_count_this_hour = 0;
+                        state.sni_rotation_hour = current_hour;
+                    }
+
+                    // Проверяем cooldown — не ротировали ли мы совсем недавно?
+                    let cooldown_ok = state.last_sni_rotation.map_or(true, |t| {
+                        t.elapsed().as_secs() >= SNI_ROTATION_COOLDOWN_SECS
+                    });
+
+                    // Проверяем лимит ротаций за час
+                    let rate_ok = state.sni_rotation_count_this_hour < SNI_MAX_ROTATIONS_PER_HOUR;
+
+                    if !cooldown_ok {
+                        let elapsed = state.last_sni_rotation.unwrap().elapsed().as_secs();
+                        warn!(
+                            "🛑 SNI rotation BLOCKED by cooldown: last rotation was {}s ago (min: {}s). \
+                             Current SNI '{}' will be retried after cooldown expires.",
+                            elapsed, SNI_ROTATION_COOLDOWN_SECS, current_sni
+                        );
+                    } else if !rate_ok {
+                        warn!(
+                            "🛑 SNI rotation BLOCKED by rate-limit: {} rotations already performed \
+                             this hour (max: {}). SNI pool may be exhausted or all SNIs failing.",
+                            state.sni_rotation_count_this_hour, SNI_MAX_ROTATIONS_PER_HOUR
+                        );
+                    } else {
+                        info!(
+                            "🔄 Triggering SNI rotation (rotation #{} this hour)...",
+                            state.sni_rotation_count_this_hour + 1
+                        );
+                        match rotate_sni(&client, &panel_url, &token, &current_sni, &reason).await {
+                            Ok(new_sni) => {
+                                info!("✅ SNI Rotated to {}. Updating config...", new_sni);
+                                state.last_sni_rotation = Some(std::time::Instant::now());
+                                state.sni_rotation_count_this_hour += 1;
+                                // Force immediate config update
+                                if let Err(e) = update_config(
+                                    &client,
+                                    &panel_url,
+                                    &token,
+                                    &args.config_path,
+                                    &mut state,
+                                )
+                                .await
+                                {
+                                    error!("Failed to update config after rotation: {}", e);
+                                }
                             }
+                            // 409 Conflict = панель не нашла другого SNI в пуле
+                            Err(e) if e.to_string().contains("409") || e.to_string().contains("No other SNI") => {
+                                warn!(
+                                    "⚠️ SNI pool exhausted — no alternative SNI available ({}). \
+                                     Activating emergency cooldown to prevent hammering.",
+                                    e
+                                );
+                                // Устанавливаем last_rotation чтобы cooldown сработал немедленно
+                                state.last_sni_rotation = Some(std::time::Instant::now());
+                            }
+                            Err(e) => error!("❌ Failed to rotate SNI: {}", e),
                         }
-                        Err(e) => error!("❌ Failed to rotate SNI: {}", e),
                     }
                 }
             }

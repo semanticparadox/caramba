@@ -93,6 +93,13 @@ pub struct Node {
     pub is_relay: bool,
     #[sqlx(default)]
     pub pending_log_collection: bool,
+
+    // Управление ротацией SNI (миграция 20260317000000)
+    #[sqlx(default)]
+    pub last_sni_rotation: Option<DateTime<Utc>>,
+    /// None = использовать глобальную настройку; Some(0) = никогда; Some(n) = раз в n часов
+    #[sqlx(default)]
+    pub sni_renew_interval_hours: Option<i32>,
 }
 
 impl Node {
@@ -151,5 +158,34 @@ impl Node {
 
     pub fn format_traffic_egress(&self) -> String {
         crate::utils::format_bytes_str(self.total_egress as u64)
+    }
+
+    // ----------------------------------------------------------------
+    // SNI rotation interval helpers (используются в Askama-шаблонах)
+    // ----------------------------------------------------------------
+
+    /// Используется ли глобальный интервал (поле не задано явно)?
+    pub fn sni_interval_is_global(&self) -> bool {
+        self.sni_renew_interval_hours.is_none()
+    }
+
+    /// Автоматическая ротация отключена на этой ноде?
+    pub fn sni_interval_is_never(&self) -> bool {
+        self.sni_renew_interval_hours == Some(0)
+    }
+
+    /// Ротация раз в сутки (24 ч)?
+    pub fn sni_interval_is_daily(&self) -> bool {
+        self.sni_renew_interval_hours == Some(24)
+    }
+
+    /// Ротация раз в неделю (168 ч)?
+    pub fn sni_interval_is_weekly(&self) -> bool {
+        self.sni_renew_interval_hours == Some(168)
+    }
+
+    /// Ротация раз в месяц (720 ч)?
+    pub fn sni_interval_is_monthly(&self) -> bool {
+        self.sni_renew_interval_hours == Some(720)
     }
 }

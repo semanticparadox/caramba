@@ -72,6 +72,31 @@
             <a href="{{ admin_path }}/nodes/{{ node.id }}/inbounds" class="btn-icon w-9 h-9" title="Traffic Inbounds">
                 <i data-lucide="box" class="w-4 h-4"></i>
             </a>
+            <!-- Ротация SNI: ручная кнопка + выбор авто-интервала -->
+            <button
+                hx-post="{{ admin_path }}/nodes/{{ node.id }}/rotate-sni"
+                hx-swap="none"
+                hx-confirm="Ротировать Reality SNI для ноды '{{ node.name }}'?"
+                class="btn-icon w-9 h-9 text-violet-400 bg-violet-400/5 border-violet-400/10 hover:bg-violet-400/20"
+                title="Ротировать SNI">
+                <i data-lucide="shield-check" class="w-4 h-4"></i>
+            </button>
+            <!-- Авто-интервал ротации SNI: сохраняется при изменении без перезагрузки страницы -->
+            <select
+                hx-post="{{ admin_path }}/nodes/{{ node.id }}/sni-interval"
+                hx-trigger="change"
+                hx-swap="none"
+                hx-include="this"
+                name="sni_renew_interval_hours"
+                title="Авто-ротация SNI"
+                class="text-[10px] font-semibold uppercase tracking-wide rounded-lg border border-white/10 bg-slate-900 text-slate-300 px-2 py-1 cursor-pointer hover:border-violet-400/40 focus:outline-none focus:border-violet-400 transition-colors"
+            >
+                <option value="global" {% if node.sni_interval_is_global() %}selected{% endif %}>SNI: Глобально</option>
+                <option value="0"   {% if node.sni_interval_is_never() %}selected{% endif %}>SNI: Никогда</option>
+                <option value="24"  {% if node.sni_interval_is_daily() %}selected{% endif %}>SNI: Каждый день</option>
+                <option value="168" {% if node.sni_interval_is_weekly() %}selected{% endif %}>SNI: Каждую неделю</option>
+                <option value="720" {% if node.sni_interval_is_monthly() %}selected{% endif %}>SNI: Каждый месяц</option>
+            </select>
             <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/sync" hx-swap="none" class="btn-icon w-9 h-9"
                 title="Cluster Sync">
                 <i data-lucide="refresh-cw" class="w-4 h-4"></i>

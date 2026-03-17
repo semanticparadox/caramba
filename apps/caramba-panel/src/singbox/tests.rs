@@ -106,6 +106,8 @@ mod tests {
             node_type: "exit".to_string(),
             is_relay: false,
             pending_log_collection: false,
+            last_sni_rotation: None,
+            sni_renew_interval_hours: None,
         }
     }
 
@@ -884,6 +886,8 @@ mod tests {
             node_type: "exit".to_string(),
             is_relay: false,
             pending_log_collection: false,
+            last_sni_rotation: None,
+            sni_renew_interval_hours: None,
         };
 
         // 2. Create Mock Inbound

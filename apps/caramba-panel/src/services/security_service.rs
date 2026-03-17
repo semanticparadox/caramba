@@ -178,12 +178,14 @@ impl SecurityService {
             return Err(anyhow::anyhow!("No other SNI available"));
         }
 
-        // 3. Update Node
-        sqlx::query("UPDATE nodes SET reality_sni = $1 WHERE id = $2")
-            .bind(&next_sni)
-            .bind(node_id)
-            .execute(&self.pool)
-            .await?;
+        // 3. Update Node (и фиксируем метку ротации для circuit-breaker)
+        sqlx::query(
+            "UPDATE nodes SET reality_sni = $1, last_sni_rotation = NOW() WHERE id = $2",
+        )
+        .bind(&next_sni)
+        .bind(node_id)
+        .execute(&self.pool)
+        .await?;
 
         // 4. Blocklist the old SNI if the rotation is due to a validation failure
         if reason.starts_with("Validation failed:") || reason.starts_with("Auto-Heal:") {

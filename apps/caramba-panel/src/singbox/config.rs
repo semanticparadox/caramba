@@ -204,8 +204,9 @@ pub struct WsTransport {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct HttpUpgradeTransport {
     pub path: String,
+    /// host — строка, не массив. sing-box: "httpupgrade" transport spec.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub host: Option<Vec<String>>,
+    pub host: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

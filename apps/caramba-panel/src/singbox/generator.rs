@@ -229,7 +229,8 @@ impl ConfigGenerator {
                                     transport_config = Some(VlessTransportConfig::HttpUpgrade(
                                         HttpUpgradeTransport {
                                             path: http.path.clone(),
-                                            host: http.host.clone().map(|h| vec![h]),
+                                            // host — строка, не массив (sing-box spec HTTPUpgrade inbound)
+                                            host: http.host.clone(),
                                         },
                                     ));
                                 }
@@ -239,10 +240,11 @@ impl ConfigGenerator {
                                     transport_config = Some(VlessTransportConfig::HttpUpgrade(
                                         HttpUpgradeTransport {
                                             path: xhttp.path.clone(),
+                                            // host — строка, не массив
                                             host: if xhttp.host.is_empty() {
                                                 None
                                             } else {
-                                                Some(vec![xhttp.host.clone()])
+                                                Some(xhttp.host.clone())
                                             },
                                         },
                                     ));

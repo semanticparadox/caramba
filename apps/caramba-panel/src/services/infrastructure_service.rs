@@ -142,6 +142,8 @@ impl InfrastructureService {
             node_type: "exit".to_string(),
             is_relay: false,
             pending_log_collection: false,
+            last_sni_rotation: None,
+            sni_renew_interval_hours: None,
         };
 
         let id = self.node_repo.create_node(&node).await?;
