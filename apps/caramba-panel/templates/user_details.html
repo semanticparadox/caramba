@@ -288,22 +288,22 @@
                                             <input type="hidden" value="{{ sub.subscription_url }}">
                                         </button>
                                     </div>
-                                    {% if let Some(vless_link) = sub.primary_vless_link %}
+                                    {% for link in sub.all_links %}
                                     <div class="flex items-center gap-2 group/link">
                                         <span
-                                            class="text-[9px] font-bold uppercase tracking-widest text-slate-500 w-10">VLSS</span>
+                                            class="text-[9px] font-bold uppercase tracking-widest text-slate-500 w-10">LNK</span>
                                         <div
                                             class="flex-1 bg-black/40 border border-white/5 rounded-lg px-3 py-1.5 text-[11px] font-mono text-emerald-400 overflow-hidden text-ellipsis whitespace-nowrap">
-                                            {{ vless_link }}
+                                            {{ link }}
                                         </div>
                                         <button onclick="copyFromInput(this)"
                                             class="btn-icon w-8 h-8 bg-emerald-500/10 border-emerald-500/20 text-emerald-400">
                                             <i data-lucide="copy" class="w-3 h-3"></i>
-                                            <input type="hidden" value="{{ vless_link }}">
+                                            <input type="hidden" value="{{ link }}">
                                         </button>
                                     </div>
-                                    {% endif %}
-                                    <div class="text-[10px] text-slate-500 flex items-center gap-4 mt-2">
+                                    {% endfor %}
+                                    <div class="text-[10px] text-slate-500 flex items-center gap-4 mt-2 flex-wrap">
                                         {% if let Some(last_node) = sub.last_node_label %}
                                         <div class="flex items-center gap-1.5">
                                             <i data-lucide="globe" class="w-3 h-3"></i>
@@ -319,6 +319,27 @@
                                                     }}</span></span>
                                         </div>
                                         {% endif %}
+                                        <!-- Назначение ноды администратором -->
+                                        <div class="flex items-center gap-1.5">
+                                            <i data-lucide="pin" class="w-3 h-3 text-slate-400"></i>
+                                            <form
+                                                hx-post="{{ admin_path }}/users/subs/{{ sub.id }}/set-node"
+                                                hx-swap="none"
+                                                hx-on::after-request="window.location.reload()">
+                                                <select
+                                                    name="node_id"
+                                                    class="bg-slate-800 border border-white/10 rounded px-2 py-0.5 text-[10px] text-slate-300 cursor-pointer hover:border-brand/40 focus:outline-none focus:border-brand/60 transition-colors"
+                                                    onchange="this.form.requestSubmit()">
+                                                    <option value="">Авто (любой)</option>
+                                                    {% for node in available_nodes %}
+                                                    <option value="{{ node.id }}"
+                                                        {% if sub.is_node_selected(node.id) %}selected{% endif %}>
+                                                        {{ node.flag_or_default() }} {{ node.name }}
+                                                    </option>
+                                                    {% endfor %}
+                                                </select>
+                                            </form>
+                                        </div>
                                     </div>
                                 </div>
                             </td>

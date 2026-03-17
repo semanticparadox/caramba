@@ -161,9 +161,10 @@ export default function Home() {
                     fetch(apiUrl('/api/client/payment/providers'), { headers, signal: controller.signal }),
                 ])
 
+                let loadedPlans: Plan[] = []
                 if (plansRes.ok) {
                     const plansData = await plansRes.json()
-                    const normalizedPlans: Plan[] = Array.isArray(plansData)
+                    loadedPlans = Array.isArray(plansData)
                         ? plansData.map((plan: any) => ({
                             id: Number(plan?.id || 0),
                             name: String(plan?.name || 'Без названия'),
@@ -182,7 +183,7 @@ export default function Home() {
                                 : [],
                         }))
                         : []
-                    setPlans(normalizedPlans)
+                    setPlans(loadedPlans)
                 } else {
                     setPlans([])
                 }
@@ -194,7 +195,10 @@ export default function Home() {
                     setProviders([])
                 }
 
-                setCatalogLoaded(true)
+                // Only mark as loaded if we actually got plans; retry on next render otherwise
+                if (loadedPlans.length > 0) {
+                    setCatalogLoaded(true)
+                }
             } catch (e: any) {
                 if (e?.name !== 'AbortError') {
                     setBanner({ type: 'error', text: e?.message || 'Не удалось загрузить тарифы.' })
@@ -442,6 +446,9 @@ export default function Home() {
                             <div className="empty-icon">PL</div>
                             <h3>Тарифы недоступны</h3>
                             <p>Попробуйте обновить данные или обратитесь в поддержку.</p>
+                            <button className="btn-secondary" style={{ marginTop: 12 }} onClick={() => { setCatalogLoaded(false); setCatalogLoading(false) }}>
+                                Повторить загрузку
+                            </button>
                         </div>
                     ) : (
                         <div className="plans-grid">

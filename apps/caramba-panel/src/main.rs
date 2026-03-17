@@ -886,6 +886,10 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::post(handlers::admin::extend_user_subscription),
         )
         .route(
+            "/users/subs/{id}/set-node",
+            axum::routing::post(handlers::admin::set_subscription_node),
+        )
+        .route(
             "/subs/{id}/devices",
             axum::routing::get(handlers::admin::get_subscription_devices),
         )

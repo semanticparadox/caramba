@@ -12,6 +12,8 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
+use std::collections::HashMap;
+
 use super::auth::get_auth_user;
 use crate::AppState;
 use caramba_db::models::node::Node;
@@ -50,6 +52,44 @@ pub struct NodesRowsPartial {
     // Phase 67
     pub agent_latest_version: String,
     pub auto_update_agents: bool,
+    // Метрики: активные подписки и онлайн-устройства по узлам
+    pub subs_map: HashMap<i64, i64>,
+    pub online_map: HashMap<i64, i64>,
+}
+
+/// Запрашивает счётчики активных подписок и онлайн-устройств (активность за 15 минут)
+/// для всех узлов. Возвращает (subs_map, online_map) node_id -> count.
+async fn fetch_node_metrics(
+    pool: &sqlx::PgPool,
+) -> (HashMap<i64, i64>, HashMap<i64, i64>) {
+    // Активные подписки на каждом узле
+    let subs_rows = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT node_id, COUNT(*)::bigint AS count
+         FROM subscriptions
+         WHERE status = 'active' AND node_id IS NOT NULL
+         GROUP BY node_id",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    let subs_map: HashMap<i64, i64> = subs_rows.into_iter().collect();
+
+    // Уникальные устройства, активные за последние 15 минут
+    let online_rows = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT last_node_id AS node_id, COUNT(DISTINCT subscription_id)::bigint AS count
+         FROM subscription_device_leases
+         WHERE last_seen_at > NOW() - INTERVAL '15 minutes'
+           AND last_node_id IS NOT NULL
+         GROUP BY last_node_id",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    let online_map: HashMap<i64, i64> = online_rows.into_iter().collect();
+
+    (subs_map, online_map)
 }
 
 fn render_nodes_rows_html(
@@ -57,12 +97,16 @@ fn render_nodes_rows_html(
     admin_path: &str,
     agent_latest_version: &str,
     auto_update_agents: bool,
+    subs_map: HashMap<i64, i64>,
+    online_map: HashMap<i64, i64>,
 ) -> String {
     let partial = NodesRowsPartial {
         nodes,
         admin_path: admin_path.to_string(),
         agent_latest_version: agent_latest_version.to_string(),
         auto_update_agents,
+        subs_map,
+        online_map,
     };
 
     partial.render().unwrap_or_else(|e| {
@@ -310,11 +354,16 @@ async fn render_nodes_scope_page(
         .parse()
         .unwrap_or(true);
 
+    // Загружаем метрики подписок и онлайн-устройств для всех узлов
+    let (subs_map, online_map) = fetch_node_metrics(&state.pool).await;
+
     let rows_html = render_nodes_rows_html(
         nodes.clone(),
         &admin_path,
         &agent_latest_version,
         auto_update_agents,
+        subs_map.clone(),
+        online_map.clone(),
     );
     let relay_nodes_count = relay_nodes.len();
     let exit_nodes_count = exit_nodes.len();
@@ -326,6 +375,8 @@ async fn render_nodes_scope_page(
             admin_path: admin_path.clone(),
             agent_latest_version: agent_latest_version.clone(),
             auto_update_agents,
+            subs_map,
+            online_map,
         };
         return Html(template.render().unwrap()).into_response();
     }
@@ -389,11 +440,15 @@ pub async fn get_exit_nodes_rows(State(state): State<AppState>) -> impl IntoResp
         .filter(|node| node.is_exit_node())
         .collect::<Vec<_>>();
 
+    let (subs_map, online_map) = fetch_node_metrics(&state.pool).await;
+
     let template = NodesRowsPartial {
         nodes,
         admin_path,
         agent_latest_version,
         auto_update_agents,
+        subs_map,
+        online_map,
     };
 
     Html(template.render().unwrap()).into_response()
@@ -421,11 +476,15 @@ pub async fn get_relay_nodes_rows(State(state): State<AppState>) -> impl IntoRes
         .filter(|node| node.is_relay_node())
         .collect::<Vec<_>>();
 
+    let (subs_map, online_map) = fetch_node_metrics(&state.pool).await;
+
     let template = NodesRowsPartial {
         nodes,
         admin_path,
         agent_latest_version,
         auto_update_agents,
+        subs_map,
+        online_map,
     };
 
     Html(template.render().unwrap()).into_response()

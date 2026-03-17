@@ -80,6 +80,8 @@ pub struct UserDetailsTemplate {
     pub referrals: Vec<caramba_db::models::store::DetailedReferral>,
     pub total_referral_earnings: String,
     pub available_plans: Vec<Plan>,
+    /// Все активные exit-ноды для дропдауна назначения
+    pub available_nodes: Vec<NodeOption>,
     pub is_auth: bool,
     pub username: String,
     pub admin_path: String,
@@ -94,6 +96,21 @@ pub struct UserOrderDisplay {
     pub created_at: String,
 }
 
+/// Опция узла для выпадающего списка назначения ноды подписке
+#[derive(Debug, Clone)]
+pub struct NodeOption {
+    pub id: i64,
+    pub name: String,
+    pub flag: Option<String>,
+}
+
+impl NodeOption {
+    /// Возвращает флаг или дефолтный эмодзи
+    pub fn flag_or_default(&self) -> &str {
+        self.flag.as_deref().unwrap_or("🌐")
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AdminSubscriptionView {
     pub id: i64,
@@ -105,10 +122,19 @@ pub struct AdminSubscriptionView {
     pub active_devices: i64,
     pub device_limit: i64,
     pub subscription_url: String,
-    pub primary_vless_link: Option<String>,
-    pub vless_links_count: usize,
+    pub all_links: Vec<String>,
     pub last_node_label: Option<String>,
     pub last_sub_access_label: Option<String>,
+    /// Текущий закреплённый узел подписки (для предвыбора в дропдауне)
+    pub node_id: Option<i64>,
+}
+
+impl AdminSubscriptionView {
+    /// Проверяет, закреплена ли подписка именно на данный узел.
+    /// Askama передаёт значения полей по ссылке, поэтому принимаем &i64.
+    pub fn is_node_selected(&self, node_id: &i64) -> bool {
+        self.node_id == Some(*node_id)
+    }
 }
 
 #[derive(Deserialize)]
@@ -132,6 +158,12 @@ pub struct RefundForm {
 #[derive(Deserialize)]
 pub struct ExtendForm {
     pub days: i32,
+}
+
+/// Форма назначения ноды на подписку (None = любой сервер)
+#[derive(Deserialize)]
+pub struct SetNodeForm {
+    pub node_id: Option<i64>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -875,11 +907,7 @@ pub async fn get_user_details(
                 Vec::new()
             }
         };
-        let vless_links: Vec<String> = direct_links
-            .into_iter()
-            .filter(|link| link.starts_with("vless://"))
-            .collect();
-        let primary_vless_link = vless_links.first().cloned();
+        let assigned_node_id = full_sub.as_ref().and_then(|full| full.node_id);
 
         subscriptions.push(AdminSubscriptionView {
             id: sub.id,
@@ -891,10 +919,10 @@ pub async fn get_user_details(
             active_devices: sub.active_devices,
             device_limit: sub.device_limit,
             subscription_url: format!("{}/sub/{}", base_url, sub_uuid),
-            primary_vless_link,
-            vless_links_count: vless_links.len(),
+            all_links: direct_links,
             last_node_label,
             last_sub_access_label,
+            node_id: assigned_node_id,
         });
     }
 
@@ -936,6 +964,17 @@ pub async fn get_user_details(
         .await
         .unwrap_or_default();
 
+    // Загружаем активные exit-ноды для дропдауна назначения ноды подписке
+    let available_nodes: Vec<NodeOption> = sqlx::query_as::<_, (i64, String, Option<String>)>(
+        "SELECT id, name, flag FROM nodes WHERE is_enabled = TRUE AND node_type = 'exit' ORDER BY name",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(id, name, flag)| NodeOption { id, name, flag })
+    .collect();
+
     let template = UserDetailsTemplate {
         user,
         subscriptions,
@@ -943,6 +982,7 @@ pub async fn get_user_details(
         referrals,
         total_referral_earnings: format!("{:.2}", earnings_cents as f64 / 100.0),
         available_plans,
+        available_nodes,
         is_auth: true,
         username: get_auth_user(&state, &jar)
             .await
@@ -1530,4 +1570,47 @@ pub async fn admin_kill_subscription_sessions(
     );
 
     Html(success_html).into_response()
+}
+
+/// Назначить конкретную ноду (или сбросить на «авто») для подписки.
+/// POST /admin/users/subs/:sub_id/set-node
+pub async fn set_subscription_node(
+    State(state): State<AppState>,
+    Path(sub_id): Path<i64>,
+    jar: CookieJar,
+    Form(form): Form<SetNodeForm>,
+) -> impl IntoResponse {
+    if !is_authenticated(&state, &jar).await {
+        return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    if let Err(e) = state
+        .subscription_service
+        .update_subscription_node(sub_id, form.node_id)
+        .await
+    {
+        error!(
+            "Admin failed to set node {:?} for subscription {}: {}",
+            form.node_id, sub_id, e
+        );
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to update node: {}", e),
+        )
+            .into_response();
+    }
+
+    info!(
+        sub_id,
+        node_id = ?form.node_id,
+        "Admin assigned node to subscription"
+    );
+
+    // HTMX: триггер перезагрузки страницы на клиенте
+    (
+        axum::http::StatusCode::OK,
+        [(axum::http::header::HeaderName::from_static("hx-refresh"), "true")],
+        "",
+    )
+        .into_response()
 }
