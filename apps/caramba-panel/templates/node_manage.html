@@ -114,6 +114,71 @@
         </div>
     </div>
 
+    <!-- ── РОТАЦИЯ SNI ────────────────────────────────────────── -->
+    <div class="card overflow-hidden">
+        <div class="px-6 py-4 border-b border-border-default flex items-center justify-between">
+            <h3 class="font-semibold text-slate-900 dark:text-white flex items-center gap-2.5">
+                <i data-lucide="shield-check" class="w-4 h-4 text-violet-400"></i>
+                Ротация SNI
+            </h3>
+            <!-- Кнопка ручной ротации -->
+            <button
+                hx-post="{{ admin_path }}/nodes/{{ node.id }}/rotate-sni"
+                hx-swap="none"
+                hx-confirm="Ротировать Reality SNI для ноды '{{ node.name }}'?"
+                class="btn btn-secondary py-1 text-xs text-violet-400 border-violet-400/20 hover:bg-violet-400/10">
+                <i data-lucide="refresh-cw"></i>
+                Ротировать SNI сейчас
+            </button>
+        </div>
+        <div class="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- Текущий SNI -->
+            <div class="space-y-1.5">
+                <p class="text-[10px] text-slate-500 uppercase tracking-widest font-semibold">Текущий SNI</p>
+                <p class="text-sm text-violet-300 font-mono break-all">
+                    {% if let Some(sni) = node.reality_sni.as_ref() %}
+                    {{ sni }}
+                    {% else %}
+                    <span class="text-slate-500 italic">не выбран</span>
+                    {% endif %}
+                </p>
+            </div>
+            <!-- Последняя ротация -->
+            <div class="space-y-1.5">
+                <p class="text-[10px] text-slate-500 uppercase tracking-widest font-semibold">Последняя ротация</p>
+                <p class="text-sm text-slate-300 font-mono">
+                    {% if let Some(ts) = node.last_sni_rotation.as_ref() %}
+                    {{ ts.format("%Y-%m-%d %H:%M") }} UTC
+                    {% else %}
+                    <span class="text-slate-500 italic">никогда</span>
+                    {% endif %}
+                </p>
+            </div>
+            <!-- Авто-интервал ротации -->
+            <div class="space-y-1.5">
+                <p class="text-[10px] text-slate-500 uppercase tracking-widest font-semibold">Авто-ротация</p>
+                <!-- Сохраняется при изменении без перезагрузки страницы -->
+                <select
+                    hx-post="{{ admin_path }}/nodes/{{ node.id }}/sni-interval"
+                    hx-trigger="change"
+                    hx-swap="none"
+                    hx-include="this"
+                    name="sni_renew_interval_hours"
+                    class="input-field text-sm py-1.5 max-w-xs cursor-pointer"
+                >
+                    <option value="global" {% if node.sni_interval_is_global() %}selected{% endif %}>По умолчанию (глобально)</option>
+                    <option value="0"   {% if node.sni_interval_is_never() %}selected{% endif %}>Выключена</option>
+                    <option value="24"  {% if node.sni_interval_is_daily() %}selected{% endif %}>Каждый день</option>
+                    <option value="168" {% if node.sni_interval_is_weekly() %}selected{% endif %}>Каждую неделю</option>
+                    <option value="720" {% if node.sni_interval_is_monthly() %}selected{% endif %}>Каждый месяц</option>
+                </select>
+                <p class="text-[10px] text-slate-600">
+                    Настройка перезаписывает глобальный интервал для этой ноды.
+                </p>
+            </div>
+        </div>
+    </div>
+
     <!-- Hint Banner -->
     <div class="rounded-2xl border border-brand/20 bg-brand/5 p-4 text-xs text-brand flex items-start gap-2.5">
         <i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5 opacity-80"></i>
