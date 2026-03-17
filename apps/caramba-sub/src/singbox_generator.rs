@@ -479,15 +479,9 @@ fn select_exit_and_relay<'a>(
     }
     exit_nodes.sort_by_key(|node| node.node.id);
 
-    let exit_node = if let Some(exit_id) = preferred_exit_id {
-        exit_nodes
-            .iter()
-            .copied()
-            .find(|n| n.node.id == exit_id)
-            .ok_or_else(|| anyhow!("preferred exit node {} is unavailable", exit_id))?
-    } else {
-        exit_nodes[0]
-    };
+    let exit_node = preferred_exit_id
+        .and_then(|exit_id| exit_nodes.iter().copied().find(|n| n.node.id == exit_id))
+        .unwrap_or(exit_nodes[0]);
 
     let mut relay_nodes = internal_nodes
         .iter()

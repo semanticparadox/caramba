@@ -58,14 +58,17 @@ pub async fn subscription_handler(
         }
     };
 
-    if let Some(exit_id) = sub.node_id {
-        exit_nodes.retain(|n| n.node.id == exit_id);
-        if exit_nodes.is_empty() {
-            return (
-                StatusCode::NOT_FOUND,
-                "Requested exit node is unavailable for this subscription",
-            )
-                .into_response();
+    let mut preferred_exit_id = sub.node_id;
+    if let Some(exit_id) = preferred_exit_id {
+        let exit_available = exit_nodes.iter().any(|n| n.node.id == exit_id);
+        if exit_available {
+            exit_nodes.retain(|n| n.node.id == exit_id);
+        } else {
+            warn!(
+                "Requested exit node {} is unavailable for subscription {}. Falling back to default active exit node.",
+                exit_id, sub.subscription_uuid
+            );
+            preferred_exit_id = None;
         }
     }
 
@@ -100,8 +103,12 @@ pub async fn subscription_handler(
         }
     };
 
-    let config_json =
-        match ConfigGenerator::generate(nodes, &sub.subscription_uuid, &user_keys, sub.node_id) {
+    let config_json = match ConfigGenerator::generate(
+        nodes,
+        &sub.subscription_uuid,
+        &user_keys,
+        preferred_exit_id,
+    ) {
             Ok(cfg) => cfg,
             Err(e) => {
                 error!("Failed to generate strict sing-box profile: {}", e);

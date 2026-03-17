@@ -23,7 +23,7 @@ interface Plan {
     description: string | null
     traffic_limit_gb: number
     device_limit: number
-    durations: PlanDuration[]
+    durations?: PlanDuration[]
 }
 
 interface PaymentProvider {
@@ -80,7 +80,7 @@ export default function Home() {
 
     const hasActiveAccess = activeSubscriptions.length > 0
     const hasPending = pendingSubscriptions.length > 0
-    const shouldShowPurchase = !hasActiveAccess && !hasPending
+    const shouldShowPurchase = !hasActiveAccess
     const primarySubscription = activeSubscriptions[0] || null
 
     const [copiedSubId, setCopiedSubId] = useState<number | null>(null)
@@ -164,7 +164,26 @@ export default function Home() {
 
                 if (plansRes.ok) {
                     const plansData = await plansRes.json()
-                    setPlans(Array.isArray(plansData) ? plansData : [])
+                    const normalizedPlans: Plan[] = Array.isArray(plansData)
+                        ? plansData.map((plan: any) => ({
+                            id: Number(plan?.id || 0),
+                            name: String(plan?.name || 'Без названия'),
+                            description: typeof plan?.description === 'string' ? plan.description : null,
+                            traffic_limit_gb: Number(plan?.traffic_limit_gb || 0),
+                            device_limit: Number(plan?.device_limit || 0),
+                            durations: Array.isArray(plan?.durations)
+                                ? plan.durations
+                                    .map((dur: any) => ({
+                                        id: Number(dur?.id || 0),
+                                        duration_days: Number(dur?.duration_days || 0),
+                                        price: Number(dur?.price || 0),
+                                        price_cents: Number(dur?.price_cents ?? dur?.price ?? 0),
+                                    }))
+                                    .filter((dur: PlanDuration) => dur.id > 0)
+                                : [],
+                        }))
+                        : []
+                    setPlans(normalizedPlans)
                 } else {
                     setPlans([])
                 }
@@ -436,7 +455,7 @@ export default function Home() {
                                         <span>{plan.device_limit > 0 ? `${plan.device_limit} устройств` : 'Без лимита'}</span>
                                     </div>
                                     <div className="duration-grid">
-                                        {plan.durations.map((dur) => (
+                                        {(plan.durations || []).map((dur) => (
                                             <button
                                                 key={dur.id}
                                                 className="duration-btn"
@@ -448,6 +467,9 @@ export default function Home() {
                                                 {purchasingDurationId === dur.id && <span className="dur-spinner">...</span>}
                                             </button>
                                         ))}
+                                        {(plan.durations || []).length === 0 && (
+                                            <div className="plan-empty-note">Варианты длительности пока не настроены для этого тарифа.</div>
+                                        )}
                                     </div>
                                 </article>
                             ))}
