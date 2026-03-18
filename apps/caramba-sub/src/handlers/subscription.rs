@@ -19,11 +19,17 @@ pub async fn subscription_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Response {
-    let client_type = params
+    // Нормализуем тип клиента: hiddify — это тот же sing-box формат
+    let client_type = match params
         .client
         .as_deref()
         .unwrap_or("singbox")
-        .to_ascii_lowercase();
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "hiddify" => "singbox".to_string(),
+        other => other.to_string(),
+    };
     if client_type != "singbox" {
         return (
             StatusCode::BAD_REQUEST,
@@ -121,11 +127,17 @@ pub async fn subscription_handler(
         };
 
     let content = serde_json::to_string_pretty(&config_json).unwrap_or_default();
-    let total_traffic_bytes = (sub.traffic_limit_gb as i64) * 1024 * 1024 * 1024;
-    let user_info_header = format!(
-        "upload=0; download={}; total={}; expire={}",
-        sub.used_traffic, total_traffic_bytes, sub.expire_timestamp
-    );
+    // При traffic_limit_gb == 0 подписка безлимитная — поле total не включаем,
+    // иначе клиенты показывают "0 байт использовано из 0 байт".
+    let user_info_header = if sub.traffic_limit_gb == 0 {
+        format!("upload=0; download={}; expire={}", sub.used_traffic, sub.expire_timestamp)
+    } else {
+        let total_traffic_bytes = (sub.traffic_limit_gb as i64) * 1024 * 1024 * 1024;
+        format!(
+            "upload=0; download={}; total={}; expire={}",
+            sub.used_traffic, total_traffic_bytes, sub.expire_timestamp
+        )
+    };
 
     Response::builder()
         .status(StatusCode::OK)

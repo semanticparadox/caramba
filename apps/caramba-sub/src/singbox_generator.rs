@@ -404,7 +404,17 @@ fn build_vless_outbound(
 
     match network.as_str() {
         "ws" => outbound["transport"] = ws_transport(stream),
-        "httpupgrade" => outbound["transport"] = httpupgrade_transport(stream, node),
+        "httpupgrade" => {
+            outbound["transport"] = httpupgrade_transport(stream, node);
+            // smux мультиплексирование снижает количество TLS-хэндшейков и помогает обходу DPI
+            outbound["multiplex"] = json!({
+                "enabled": true,
+                "protocol": "smux",
+                "max_connections": 4,
+                "min_streams": 4,
+                "padding": true
+            });
+        }
         "grpc" => outbound["transport"] = grpc_transport(stream),
         "tcp" => {}
         other => {
@@ -439,7 +449,9 @@ fn build_hysteria2_outbound(
         "password": user_keys.hy2_password,
         "tls": {
             "enabled": true,
-            "server_name": best_node_sni(node)
+            "server_name": best_node_sni(node),
+            "insecure": true,
+            "alpn": ["h3"]
         }
     });
 
@@ -623,14 +635,169 @@ impl ConfigGenerator {
             ));
         }
 
+        // Формируем теги для selector/urltest из сгенерированных прокси-аутбаундов
+        let proxy_tags: Vec<String> = outbounds
+            .iter()
+            .filter_map(|ob| ob.get("tag").and_then(Value::as_str).map(str::to_string))
+            .collect();
+
+        // Группы: selector → urltest auto-all → все прокси → системные аутбаунды
+        let mut final_outbounds: Vec<Value> = Vec::with_capacity(outbounds.len() + 4);
+
+        // Главный selector: пользователь может переключиться на любой конкретный прокси
+        let mut selector_choices = vec!["auto-all".to_string()];
+        selector_choices.extend(proxy_tags.clone());
+        final_outbounds.push(json!({
+            "type": "selector",
+            "tag": "proxy",
+            "outbounds": selector_choices,
+            "default": "auto-all"
+        }));
+
+        // urltest auto-all: автоматически выбирает самый быстрый путь
+        final_outbounds.push(json!({
+            "type": "urltest",
+            "tag": "auto-all",
+            "outbounds": proxy_tags,
+            "url": "https://www.gstatic.com/generate_204",
+            "interval": "3m",
+            "tolerance": 50
+        }));
+
+        // Системные аутбаунды
+        final_outbounds.push(json!({ "type": "direct", "tag": "direct" }));
+        final_outbounds.push(json!({ "type": "block",  "tag": "block"  }));
+        final_outbounds.push(json!({ "type": "dns",    "tag": "dns-out" }));
+
+        // Сами прокси-аутбаунды
+        final_outbounds.extend(outbounds);
+
+        // ─── DNS ──────────────────────────────────────────────────────────────
+        let dns_config = json!({
+            "servers": [
+                {
+                    "tag": "remote",
+                    "address": "https://8.8.8.8/dns-query",
+                    "address_resolver": "local-plain",
+                    "detour": "proxy"
+                },
+                {
+                    "tag": "local",
+                    "address": "https://223.5.5.5/dns-query",
+                    "address_resolver": "local-plain",
+                    "detour": "direct"
+                },
+                // Только для bootstrap-резолвинга адресов DoH-серверов
+                {
+                    "tag": "local-plain",
+                    "address": "223.5.5.5",
+                    "detour": "direct"
+                },
+                { "tag": "block", "address": "rcode://success" }
+            ],
+            "rules": [
+                // DoH-запросы сами по себе не должны зацикливаться
+                { "outbound": ["any"], "server": "local-plain" },
+                // Clash API mode overrides
+                { "clash_mode": "direct", "server": "local" },
+                { "clash_mode": "global", "server": "remote" },
+                // Китайские и российские домены резолвятся локально
+                { "rule_set": ["geosite-cn"], "server": "local" },
+                { "rule_set": ["geosite-ru"], "server": "local" }
+            ],
+            "final": "remote",
+            "strategy": "prefer_ipv4",
+            "independent_cache": true
+        });
+
+        // ─── Route ────────────────────────────────────────────────────────────
+        let rule_sets = json!([
+            {
+                "type": "remote", "tag": "geoip-private", "format": "binary",
+                "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-private.srs",
+                "download_detour": "direct", "update_interval": "7d"
+            },
+            {
+                "type": "remote", "tag": "geosite-cn", "format": "binary",
+                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
+                "download_detour": "proxy", "update_interval": "3d"
+            },
+            {
+                "type": "remote", "tag": "geoip-cn", "format": "binary",
+                "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
+                "download_detour": "proxy", "update_interval": "3d"
+            },
+            {
+                "type": "remote", "tag": "geosite-ru", "format": "binary",
+                "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-ru.srs",
+                "download_detour": "proxy", "update_interval": "3d"
+            },
+            {
+                "type": "remote", "tag": "geoip-ru", "format": "binary",
+                "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs",
+                "download_detour": "proxy", "update_interval": "3d"
+            }
+        ]);
+
+        let route_config = json!({
+            "auto_detect_interface": true,
+            "final": "proxy",
+            "rules": [
+                // DNS-протокол → dns-out (не должен уходить в прокси напрямую)
+                { "protocol": "dns", "outbound": "dns-out" },
+                // Частные сети → прямое соединение
+                { "ip_is_private": true, "outbound": "direct" },
+                // Китайский и российский трафик идёт напрямую
+                { "rule_set": ["geoip-private", "geosite-cn", "geoip-cn"], "outbound": "direct" },
+                { "rule_set": ["geosite-ru", "geoip-ru"], "outbound": "direct" }
+            ],
+            "rule_set": rule_sets
+        });
+
+        // ─── Client inbounds ──────────────────────────────────────────────────
+        let inbounds_config = json!([
+            {
+                "type": "mixed",
+                "tag": "mixed-in",
+                "listen": "127.0.0.1",
+                "listen_port": 2080,
+                "sniff": true,
+                "sniff_override_destination": true,
+                "set_system_proxy": false
+            },
+            // TUN для прозрачного проксирования (используется Hiddify и sing-box desktop)
+            {
+                "type": "tun",
+                "tag": "tun-in",
+                "inet4_address": "172.19.0.1/30",
+                "auto_route": true,
+                "strict_route": true,
+                "sniff": true,
+                "sniff_override_destination": true,
+                "stack": "mixed"
+            }
+        ]);
+
         Ok(json!({
             "log": { "level": "info", "timestamp": true },
-            "inbounds": [],
-            "outbounds": outbounds,
-            "route": {
-                "auto_detect_interface": true,
-                "final": expected_tags[0],
-                "rules": []
+            "dns": dns_config,
+            "inbounds": inbounds_config,
+            "outbounds": final_outbounds,
+            "route": route_config,
+            "experimental": {
+                "cache_file": {
+                    "enabled": true,
+                    "path": "cache.db",
+                    "store_fakeip": false
+                },
+                "clash_api": {
+                    "external_controller": "127.0.0.1:9090",
+                    "external_ui": "ui",
+                    "external_ui_download_url": "https://github.com/MetaCubeX/Yacd-meta/archive/gh-pages.zip",
+                    "external_ui_download_detour": "proxy",
+                    "default_mode": "rule",
+                    "secret": ""
+                }
             }
         }))
     }
@@ -795,13 +962,49 @@ mod tests {
         }
     }
 
+    // Количество системных аутбаундов, добавляемых перед прокси-аутбаундами:
+    // selector("proxy") + urltest("auto-all") + direct + block + dns-out
+    const SYSTEM_OUTBOUNDS: usize = 5;
+
+    /// Возвращает только прокси-аутбаунды из полного списка (пропускает системные).
+    fn proxy_outbounds(cfg: &Value) -> &[Value] {
+        let all = cfg["outbounds"].as_array().expect("outbounds array");
+        &all[SYSTEM_OUTBOUNDS..]
+    }
+
     #[test]
     fn generates_exactly_nine_variants_in_strict_order() {
         let (nodes, keys) = build_complete_fixture();
         let cfg =
             ConfigGenerator::generate(nodes, "sub-a", &keys, Some(2)).expect("config generation");
 
-        let outbounds = cfg["outbounds"].as_array().expect("outbounds array");
+        let all_outbounds = cfg["outbounds"].as_array().expect("outbounds array");
+        // 9 прокси + 5 системных
+        assert_eq!(all_outbounds.len(), 9 + SYSTEM_OUTBOUNDS);
+
+        // Системные аутбаунды стоят на первых позициях
+        assert_eq!(all_outbounds[0]["tag"].as_str(), Some("proxy"));
+        assert_eq!(all_outbounds[0]["type"].as_str(), Some("selector"));
+        assert_eq!(all_outbounds[1]["tag"].as_str(), Some("auto-all"));
+        assert_eq!(all_outbounds[1]["type"].as_str(), Some("urltest"));
+        assert_eq!(all_outbounds[2]["tag"].as_str(), Some("direct"));
+        assert_eq!(all_outbounds[3]["tag"].as_str(), Some("block"));
+        assert_eq!(all_outbounds[4]["tag"].as_str(), Some("dns-out"));
+
+        // selector содержит auto-all + все 9 тегов прокси
+        let selector_choices = all_outbounds[0]["outbounds"]
+            .as_array()
+            .expect("selector outbounds");
+        assert_eq!(selector_choices[0].as_str(), Some("auto-all"));
+        assert_eq!(selector_choices.len(), 1 + 9);
+
+        // urltest auto-all содержит ровно 9 прокси-тегов
+        let urltest_choices = all_outbounds[1]["outbounds"]
+            .as_array()
+            .expect("urltest outbounds");
+        assert_eq!(urltest_choices.len(), 9);
+
+        let outbounds = proxy_outbounds(&cfg);
         assert_eq!(outbounds.len(), 9);
 
         let tags = outbounds
@@ -840,7 +1043,8 @@ mod tests {
             assert!(outbound.get("detour").is_none());
         }
 
-        assert_eq!(cfg["route"]["final"].as_str(), Some(EXPECTED_TAGS_FULL[0]));
+        // route.final теперь "proxy" (selector), а не первый тег прокси
+        assert_eq!(cfg["route"]["final"].as_str(), Some("proxy"));
     }
 
     #[test]
@@ -853,7 +1057,12 @@ mod tests {
 
         let cfg = ConfigGenerator::generate(exit_only, "sub-no-relay", &keys, Some(2))
             .expect("direct-only fallback");
-        let outbounds = cfg["outbounds"].as_array().expect("outbounds array");
+
+        let all_outbounds = cfg["outbounds"].as_array().expect("outbounds array");
+        // 3 прокси + 5 системных
+        assert_eq!(all_outbounds.len(), 3 + SYSTEM_OUTBOUNDS);
+
+        let outbounds = proxy_outbounds(&cfg);
         assert_eq!(outbounds.len(), 3);
 
         let tags = outbounds
@@ -866,10 +1075,7 @@ mod tests {
                 .iter()
                 .all(|outbound| outbound.get("detour").is_none())
         );
-        assert_eq!(
-            cfg["route"]["final"].as_str(),
-            Some(EXPECTED_TAGS_DIRECT[0])
-        );
+        assert_eq!(cfg["route"]["final"].as_str(), Some("proxy"));
     }
 
     #[test]
@@ -885,13 +1091,16 @@ mod tests {
         let (nodes_a, keys_a) = build_multi_relay_fixture(false);
         let cfg_a = ConfigGenerator::generate(nodes_a, subscription_uuid, &keys_a, Some(2))
             .expect("config generation A");
-        let relay_outbound_a = &cfg_a["outbounds"].as_array().expect("outbounds A")[0];
+        // Первый прокси-аутбаунд — relay WS (индекс SYSTEM_OUTBOUNDS)
+        let relay_outbound_a =
+            &cfg_a["outbounds"].as_array().expect("outbounds A")[SYSTEM_OUTBOUNDS];
         assert_eq!(relay_outbound_a["server"].as_str(), Some(expected_relay_ip));
 
         let (nodes_b, keys_b) = build_multi_relay_fixture(true);
         let cfg_b = ConfigGenerator::generate(nodes_b, subscription_uuid, &keys_b, Some(2))
             .expect("config generation B");
-        let relay_outbound_b = &cfg_b["outbounds"].as_array().expect("outbounds B")[0];
+        let relay_outbound_b =
+            &cfg_b["outbounds"].as_array().expect("outbounds B")[SYSTEM_OUTBOUNDS];
         assert_eq!(relay_outbound_b["server"].as_str(), Some(expected_relay_ip));
     }
 
@@ -904,5 +1113,72 @@ mod tests {
 
         let err = ConfigGenerator::generate(nodes, "sub-a", &keys, Some(2)).expect_err("must fail");
         assert!(err.to_string().contains("missing VLESS+TLS+grpc inbound"));
+    }
+
+    #[test]
+    fn config_has_dns_inbounds_and_experimental() {
+        let (nodes, keys) = build_complete_fixture();
+        let cfg =
+            ConfigGenerator::generate(nodes, "sub-a", &keys, Some(2)).expect("config generation");
+
+        // DNS секция присутствует
+        let dns = &cfg["dns"];
+        assert!(dns.is_object(), "dns section must be present");
+        let dns_servers = dns["servers"].as_array().expect("dns.servers");
+        assert_eq!(dns_servers.len(), 4); // remote, local, local-plain, block
+        assert_eq!(dns["final"].as_str(), Some("remote"));
+
+        // inbounds: mixed + tun
+        let inbounds = cfg["inbounds"].as_array().expect("inbounds array");
+        assert_eq!(inbounds.len(), 2);
+        assert_eq!(inbounds[0]["type"].as_str(), Some("mixed"));
+        assert_eq!(inbounds[0]["listen_port"].as_i64(), Some(2080));
+        assert_eq!(inbounds[1]["type"].as_str(), Some("tun"));
+
+        // experimental
+        assert!(cfg["experimental"]["cache_file"]["enabled"].as_bool() == Some(true));
+        assert!(cfg["experimental"]["clash_api"].is_object());
+
+        // route.rules непустые
+        let route_rules = cfg["route"]["rules"].as_array().expect("route.rules");
+        assert!(!route_rules.is_empty());
+    }
+
+    #[test]
+    fn hysteria2_tls_has_insecure_and_alpn() {
+        let (nodes, keys) = build_complete_fixture();
+        let cfg =
+            ConfigGenerator::generate(nodes, "sub-a", &keys, Some(2)).expect("config generation");
+
+        let outbounds = proxy_outbounds(&cfg);
+        // Найти Hysteria2 relay аутбаунд (FULL_TAG_05 = "05 - Hysteria2 (Relay)")
+        let hy2 = outbounds
+            .iter()
+            .find(|ob| ob["type"].as_str() == Some("hysteria2"))
+            .expect("hysteria2 outbound");
+
+        assert_eq!(hy2["tls"]["insecure"].as_bool(), Some(true));
+        let alpn = hy2["tls"]["alpn"].as_array().expect("alpn array");
+        assert_eq!(alpn[0].as_str(), Some("h3"));
+    }
+
+    #[test]
+    fn httpupgrade_tls_has_multiplex() {
+        let (nodes, keys) = build_complete_fixture();
+        let cfg =
+            ConfigGenerator::generate(nodes, "sub-a", &keys, Some(2)).expect("config generation");
+
+        let outbounds = proxy_outbounds(&cfg);
+        // Найти HTTPUpgrade TLS relay аутбаунд (FULL_TAG_02)
+        let hu = outbounds
+            .iter()
+            .find(|ob| {
+                ob["transport"]["type"].as_str() == Some("httpupgrade")
+            })
+            .expect("httpupgrade outbound");
+
+        let mux = &hu["multiplex"];
+        assert_eq!(mux["enabled"].as_bool(), Some(true));
+        assert_eq!(mux["protocol"].as_str(), Some("smux"));
     }
 }
