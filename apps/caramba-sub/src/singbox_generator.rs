@@ -331,17 +331,16 @@ fn reality_and_tls_block(node: &Node, stream: &Value, security: &str) -> Value {
     }
 }
 
-fn ws_transport(stream: &Value) -> Value {
+fn ws_transport(stream: &Value, node: &Node) -> Value {
     let ws = stream
         .get("ws_settings")
         .or_else(|| stream.get("wsSettings"));
+    // Always use node's current SNI for Host header — DB may have stale domain
+    let sni = best_node_sni(node);
     json!({
         "type": "ws",
         "path": ws.and_then(|v| get_nested_str(v, "path")).unwrap_or("/"),
-        "headers": ws
-            .and_then(|v| v.get("headers"))
-            .cloned()
-            .unwrap_or_else(|| json!({}))
+        "headers": { "Host": sni }
     })
 }
 
@@ -350,10 +349,8 @@ fn httpupgrade_transport(stream: &Value, node: &Node) -> Value {
         .get("httpUpgradeSettings")
         .or_else(|| stream.get("http_upgrade_settings"))
         .or_else(|| stream.get("httpupgrade_settings"));
-    let host = http
-        .and_then(|v| get_nested_str(v, "host"))
-        .map(str::to_string)
-        .unwrap_or_else(|| best_node_sni(node));
+    // Always use node's current SNI for host — DB may have stale domain
+    let host = best_node_sni(node);
     json!({
         "type": "httpupgrade",
         "path": http.and_then(|v| get_nested_str(v, "path")).unwrap_or("/"),
@@ -394,7 +391,7 @@ fn build_vless_outbound(
     }
 
     match network.as_str() {
-        "ws" => outbound["transport"] = ws_transport(stream),
+        "ws" => outbound["transport"] = ws_transport(stream, node),
         "httpupgrade" => {
             outbound["transport"] = httpupgrade_transport(stream, node);
             // smux мультиплексирование снижает количество TLS-хэндшейков и помогает обходу DPI
