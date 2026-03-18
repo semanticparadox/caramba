@@ -828,10 +828,9 @@ async fn save_config(path: &str, content: &serde_json::Value) -> anyhow::Result<
     tokio::fs::write(path, json_str).await?;
     info!("💾 Config saved to {}", path);
 
-    // Генерируем самоподписанный серт для TLS-инбаундов если его ещё нет.
-    // Hysteria2 / VLESS+TLS используют /etc/sing-box/certs/cert.pem + key.pem.
-    // Клиенты подключаются с insecure: true — сертификат нужен только чтобы
-    // sing-box смог запуститься, его валидность не проверяется.
+    // Regenerate self-signed cert on every config update.
+    // Cert must cover ALL TLS inbound server_names (they can change on rotation).
+    // Clients use insecure: true — cert just needs to exist for sing-box to start.
     let cert_dir = Path::new(path)
         .parent()
         .unwrap_or(Path::new("/etc/sing-box"))
@@ -839,19 +838,17 @@ async fn save_config(path: &str, content: &serde_json::Value) -> anyhow::Result<
     let cert_path = cert_dir.join("cert.pem");
     let key_path = cert_dir.join("key.pem");
 
-    if !cert_path.exists() || !key_path.exists() {
-        match ensure_self_signed_cert(&cert_dir, &cert_path, &key_path, content).await {
-            Ok(()) => info!("✅ Self-signed TLS cert generated at {}", cert_dir.display()),
-            Err(e) => error!("⚠️ Failed to generate self-signed cert: {e}. TLS inbounds may fail."),
-        }
+    match ensure_self_signed_cert(&cert_dir, &cert_path, &key_path, content).await {
+        Ok(()) => info!("✅ Self-signed TLS cert generated at {}", cert_dir.display()),
+        Err(e) => error!("⚠️ Failed to generate self-signed cert: {e}. TLS inbounds may fail."),
     }
 
     Ok(())
 }
 
 /// Генерирует самоподписанный X.509 сертификат и RSA-ключ в PEM-формате.
-/// CN/SAN берётся из config.json: ищем server_name TLS-инбаундов.
-/// Если не нашли — используем IP-адрес сервера или "localhost".
+/// CN/SAN берутся из config.json: собираем server_name из ВСЕХ TLS-инбаундов.
+/// Сертификат покрывает все домены через Subject Alternative Names.
 /// Срок действия: 10 лет (сертификат не должен истекать, пока нода работает).
 async fn ensure_self_signed_cert(
     cert_dir: &Path,
@@ -864,9 +861,10 @@ async fn ensure_self_signed_cert(
 
     tokio::fs::create_dir_all(cert_dir).await?;
 
-    // Извлекаем server_name из первого TLS-инбаунда в конфиге
-    let cn = extract_tls_server_name(config).unwrap_or_else(|| "vpn.local".to_string());
-    info!("🔐 Generating self-signed cert for CN={}", cn);
+    // Собираем ВСЕ server_name из TLS-инбаундов
+    let all_names = extract_all_tls_server_names(config);
+    let cn = all_names.first().cloned().unwrap_or_else(|| "vpn.local".to_string());
+    info!("🔐 Generating self-signed cert for CN={}, SANs={:?}", cn, all_names);
 
     let key_pair = KeyPair::generate()?;
 
@@ -876,22 +874,22 @@ async fn ensure_self_signed_cert(
     dn.push(DnType::CommonName, &cn);
     params.distinguished_name = dn;
 
-    // SAN: если cn — это IP-адрес, используем IpAddress SAN, иначе DnsName.
-    // CertificateParams::new принимает только DNS-имена, поэтому используем default()
-    // и задаём subject_alt_names напрямую.
-    if let Ok(ip) = cn.parse::<std::net::IpAddr>() {
-        params.subject_alt_names = vec![SanType::IpAddress(ip)];
-    } else {
-        match cn.clone().try_into() {
-            Ok(dns_name) => {
-                params.subject_alt_names = vec![SanType::DnsName(dns_name)];
-            }
-            Err(_) => {
-                // Невалидное DNS-имя — не добавляем SAN
-                params.subject_alt_names = vec![];
-            }
+    // Add ALL domains as Subject Alternative Names
+    let mut sans = Vec::new();
+    for name in &all_names {
+        if let Ok(ip) = name.parse::<std::net::IpAddr>() {
+            sans.push(SanType::IpAddress(ip));
+        } else if let Ok(dns_name) = name.clone().try_into() {
+            sans.push(SanType::DnsName(dns_name));
         }
     }
+    if sans.is_empty() {
+        // Fallback: use CN
+        if let Ok(dns_name) = cn.clone().try_into() {
+            sans.push(SanType::DnsName(dns_name));
+        }
+    }
+    params.subject_alt_names = sans;
 
     // Срок действия: сейчас - 1 день (backdate) до сейчас + 3650 дней
     let now = SystemTime::now();
@@ -929,48 +927,60 @@ async fn ensure_self_signed_cert(
     Ok(())
 }
 
-/// Извлекает server_name из TLS-инбаундов конфига.
-/// Приоритет: Hysteria2 tls.server_name > VLESS tls.server_name первого не-Reality инбаунда.
-fn extract_tls_server_name(config: &serde_json::Value) -> Option<String> {
-    let inbounds = config.get("inbounds")?.as_array()?;
+/// Извлекает ВСЕ уникальные server_name из TLS-инбаундов конфига.
+/// Собирает домены из Hysteria2 и VLESS+TLS (без Reality) инбаундов.
+fn extract_all_tls_server_names(config: &serde_json::Value) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut seen = HashSet::new();
 
-    // 1. Hysteria2 inbound — у него всегда нужен реальный серт
+    let inbounds = match config.get("inbounds").and_then(|v| v.as_array()) {
+        Some(arr) => arr,
+        None => return names,
+    };
+
     for inbound in inbounds {
-        if inbound.get("type").and_then(|v| v.as_str()) == Some("hysteria2") {
-            if let Some(sn) = inbound
-                .pointer("/tls/server_name")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty() && !s.contains("google"))
-            {
-                return Some(sn.to_string());
-            }
-        }
-    }
+        let inbound_type = inbound.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
-    // 2. VLESS с TLS без Reality
-    for inbound in inbounds {
-        if inbound.get("type").and_then(|v| v.as_str()) == Some("vless") {
-            let tls = inbound.get("tls")?;
-            let enabled = tls.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-            let has_reality = tls
-                .get("reality")
-                .and_then(|r| r.get("enabled"))
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-
-            if enabled && !has_reality {
-                if let Some(sn) = tls
-                    .get("server_name")
+        let sn = match inbound_type {
+            "hysteria2" | "hysteria" | "tuic" => {
+                inbound
+                    .pointer("/tls/server_name")
                     .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                {
-                    return Some(sn.to_string());
+                    .filter(|s| !s.is_empty() && !s.contains("google"))
+                    .map(str::to_string)
+            }
+            "vless" | "trojan" => {
+                let tls = match inbound.get("tls") {
+                    Some(t) => t,
+                    None => continue,
+                };
+                let enabled = tls.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                let has_reality = tls
+                    .get("reality")
+                    .and_then(|r| r.get("enabled"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
+                if enabled && !has_reality {
+                    tls.get("server_name")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                } else {
+                    None
                 }
             }
+            _ => None,
+        };
+
+        if let Some(name) = sn {
+            if seen.insert(name.clone()) {
+                names.push(name);
+            }
         }
     }
 
-    None
+    names
 }
 
 /// Конвертирует SystemTime в (год, месяц, день) для rcgen::date_time_ymd.
