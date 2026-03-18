@@ -279,9 +279,11 @@ fn build_singbox_outbound(
                     });
                 }
             } else if si.security == "tls" {
+                // Сервер использует самоподписанный сертификат — клиент должен пропустить проверку
                 tls = json!({
                     "enabled": true,
                     "server_name": si.sni,
+                    "insecure": true,
                     "utls": { "enabled": true, "fingerprint": si.fingerprint }
                 });
             }

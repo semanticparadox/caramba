@@ -16,8 +16,11 @@ const FULL_TAG_08: &str = "08 - gRPC TLS (Direct)";
 const FULL_TAG_09: &str = "09 - Hysteria2 (Direct)";
 
 const DIRECT_TAG_01: &str = "01 - Reality (Direct)";
-const DIRECT_TAG_02: &str = "02 - gRPC TLS (Direct)";
-const DIRECT_TAG_03: &str = "03 - Hysteria2 (Direct)";
+const DIRECT_TAG_02: &str = "02 - HTTPUpgrade TLS (Direct)";
+const DIRECT_TAG_03: &str = "03 - WS TLS (Direct)";
+const DIRECT_TAG_04: &str = "04 - gRPC TLS (Direct)";
+const DIRECT_TAG_05: &str = "05 - TCP TLS (Direct)";
+const DIRECT_TAG_06: &str = "06 - Hysteria2 (Direct)";
 
 const EXPECTED_TAGS_FULL: [&str; 9] = [
     FULL_TAG_01,
@@ -31,7 +34,14 @@ const EXPECTED_TAGS_FULL: [&str; 9] = [
     FULL_TAG_09,
 ];
 
-const EXPECTED_TAGS_DIRECT: [&str; 3] = [DIRECT_TAG_01, DIRECT_TAG_02, DIRECT_TAG_03];
+const EXPECTED_TAGS_DIRECT: [&str; 6] = [
+    DIRECT_TAG_01,
+    DIRECT_TAG_02,
+    DIRECT_TAG_03,
+    DIRECT_TAG_04,
+    DIRECT_TAG_05,
+    DIRECT_TAG_06,
+];
 
 #[derive(Clone, Copy)]
 enum NodeScope {
@@ -110,7 +120,7 @@ const FULL_VARIANTS: [VariantSpec; 9] = [
     },
 ];
 
-const DIRECT_VARIANTS: [VariantSpec; 3] = [
+const DIRECT_VARIANTS: [VariantSpec; 6] = [
     VariantSpec {
         tag: DIRECT_TAG_01,
         scope: NodeScope::Exit,
@@ -120,11 +130,29 @@ const DIRECT_VARIANTS: [VariantSpec; 3] = [
     VariantSpec {
         tag: DIRECT_TAG_02,
         scope: NodeScope::Exit,
-        kind: VariantKind::VlessTls("grpc"),
+        kind: VariantKind::VlessTls("httpupgrade"),
         detour: None,
     },
     VariantSpec {
         tag: DIRECT_TAG_03,
+        scope: NodeScope::Exit,
+        kind: VariantKind::VlessTls("ws"),
+        detour: None,
+    },
+    VariantSpec {
+        tag: DIRECT_TAG_04,
+        scope: NodeScope::Exit,
+        kind: VariantKind::VlessTls("grpc"),
+        detour: None,
+    },
+    VariantSpec {
+        tag: DIRECT_TAG_05,
+        scope: NodeScope::Exit,
+        kind: VariantKind::VlessTls("tcp"),
+        detour: None,
+    },
+    VariantSpec {
+        tag: DIRECT_TAG_06,
         scope: NodeScope::Exit,
         kind: VariantKind::Hysteria2,
         detour: None,
@@ -185,13 +213,6 @@ fn is_hysteria2(inbound: &Inbound) -> bool {
     )
 }
 
-fn is_vless_reality(stream: &Value) -> bool {
-    let security = stream_security(stream);
-    security == "reality"
-        || stream.get("reality_settings").is_some()
-        || stream.get("realitySettings").is_some()
-}
-
 fn pick_first_matching_inbound<'a, F>(
     node: &'a InternalNode,
     predicate: F,
@@ -221,8 +242,12 @@ fn pick_vless_tls_inbound<'a>(
 }
 
 fn pick_vless_reality_inbound(node: &InternalNode) -> Option<(&Inbound, Value)> {
+    // Явно требуем security=="reality" и network=="tcp", чтобы не захватить
+    // gRPC/WS инбаунды, у которых мог случайно остаться realitySettings.
     pick_first_matching_inbound(node, |inbound, stream| {
-        is_vless(inbound) && is_vless_reality(stream)
+        is_vless(inbound)
+            && stream_security(stream) == "reality"
+            && stream_network(stream) == "tcp"
     })
 }
 
@@ -317,9 +342,11 @@ fn reality_and_tls_block(node: &Node, stream: &Value, security: &str) -> Value {
             .or(inbound_sni)
             .unwrap_or(fallback_sni);
 
+        // Сервер использует самоподписанный сертификат — клиент должен пропустить проверку
         json!({
             "enabled": true,
             "server_name": effective_sni,
+            "insecure": true,
             "utls": {
                 "enabled": true,
                 "fingerprint": "chrome"
@@ -905,8 +932,11 @@ mod tests {
             node: make_node(2, "exit-1", "10.0.0.2", "exit", Some(1)),
             inbounds: vec![
                 make_vless_inbound(7, 2, "exit-reality", 4441, "reality", "tcp"),
-                make_vless_inbound(8, 2, "exit-grpc", 4442, "tls", "grpc"),
-                make_hy2_inbound(9, 2, "exit-hy2", 4443),
+                make_vless_inbound(8, 2, "exit-httpupgrade", 4442, "tls", "httpupgrade"),
+                make_vless_inbound(15, 2, "exit-ws", 4443, "tls", "ws"),
+                make_vless_inbound(16, 2, "exit-grpc", 4444, "tls", "grpc"),
+                make_vless_inbound(17, 2, "exit-tcp", 4445, "tls", "tcp"),
+                make_hy2_inbound(9, 2, "exit-hy2", 4446),
             ],
         };
 
@@ -945,8 +975,11 @@ mod tests {
             node: make_node(2, "exit-1", "10.0.0.2", "exit", None),
             inbounds: vec![
                 make_vless_inbound(7, 2, "exit-reality", 4441, "reality", "tcp"),
-                make_vless_inbound(8, 2, "exit-grpc", 4442, "tls", "grpc"),
-                make_hy2_inbound(9, 2, "exit-hy2", 4443),
+                make_vless_inbound(8, 2, "exit-httpupgrade", 4442, "tls", "httpupgrade"),
+                make_vless_inbound(15, 2, "exit-ws", 4443, "tls", "ws"),
+                make_vless_inbound(16, 2, "exit-grpc", 4444, "tls", "grpc"),
+                make_vless_inbound(17, 2, "exit-tcp", 4445, "tls", "tcp"),
+                make_hy2_inbound(9, 2, "exit-hy2", 4446),
             ],
         };
 
@@ -1059,11 +1092,11 @@ mod tests {
             .expect("direct-only fallback");
 
         let all_outbounds = cfg["outbounds"].as_array().expect("outbounds array");
-        // 3 прокси + 5 системных
-        assert_eq!(all_outbounds.len(), 3 + SYSTEM_OUTBOUNDS);
+        // 6 прокси + 5 системных
+        assert_eq!(all_outbounds.len(), 6 + SYSTEM_OUTBOUNDS);
 
         let outbounds = proxy_outbounds(&cfg);
-        assert_eq!(outbounds.len(), 3);
+        assert_eq!(outbounds.len(), 6);
 
         let tags = outbounds
             .iter()
@@ -1180,5 +1213,35 @@ mod tests {
         let mux = &hu["multiplex"];
         assert_eq!(mux["enabled"].as_bool(), Some(true));
         assert_eq!(mux["protocol"].as_str(), Some("smux"));
+    }
+
+    #[test]
+    fn vless_tls_outbounds_have_insecure_true() {
+        // Сервер использует самоподписанный сертификат — все VLESS+TLS аутбаунды
+        // должны содержать insecure: true, иначе TLS-проверка провалится.
+        let (nodes, keys) = build_complete_fixture();
+        let cfg =
+            ConfigGenerator::generate(nodes, "sub-a", &keys, Some(2)).expect("config generation");
+
+        let outbounds = proxy_outbounds(&cfg);
+        let tls_outbounds: Vec<_> = outbounds
+            .iter()
+            .filter(|ob| ob["type"].as_str() == Some("vless"))
+            .filter(|ob| ob["tls"]["reality"].is_null() || ob["tls"]["reality"].is_null())
+            .filter(|ob| {
+                ob["tls"]["reality"].is_null()
+                    && ob["tls"]["enabled"].as_bool() == Some(true)
+            })
+            .collect();
+
+        // Среди всех VLESS+TLS аутбаундов (не Reality) — у каждого insecure: true
+        for ob in &tls_outbounds {
+            assert_eq!(
+                ob["tls"]["insecure"].as_bool(),
+                Some(true),
+                "VLESS+TLS outbound '{}' is missing insecure: true",
+                ob["tag"].as_str().unwrap_or("?")
+            );
+        }
     }
 }
