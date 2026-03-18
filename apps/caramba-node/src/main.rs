@@ -828,9 +828,9 @@ async fn save_config(path: &str, content: &serde_json::Value) -> anyhow::Result<
     tokio::fs::write(path, json_str).await?;
     info!("💾 Config saved to {}", path);
 
-    // Regenerate self-signed cert on every config update.
-    // Cert must cover ALL TLS inbound server_names (they can change on rotation).
-    // Clients use insecure: true — cert just needs to exist for sing-box to start.
+    // Regenerate self-signed cert only when TLS domains change.
+    // sing-box auto-reloads certs on file change — we must write atomically
+    // to avoid cert/key mismatch during hot-reload.
     let cert_dir = Path::new(path)
         .parent()
         .unwrap_or(Path::new("/etc/sing-box"))
@@ -838,12 +838,39 @@ async fn save_config(path: &str, content: &serde_json::Value) -> anyhow::Result<
     let cert_path = cert_dir.join("cert.pem");
     let key_path = cert_dir.join("key.pem");
 
-    match ensure_self_signed_cert(&cert_dir, &cert_path, &key_path, content).await {
-        Ok(()) => info!("✅ Self-signed TLS cert generated at {}", cert_dir.display()),
-        Err(e) => error!("⚠️ Failed to generate self-signed cert: {e}. TLS inbounds may fail."),
+    let desired_names = extract_all_tls_server_names(content);
+    let needs_regen = if cert_path.exists() && key_path.exists() {
+        !cert_covers_domains(&cert_path, &desired_names).await
+    } else {
+        true
+    };
+
+    if needs_regen {
+        match ensure_self_signed_cert(&cert_dir, &cert_path, &key_path, content).await {
+            Ok(()) => info!("✅ Self-signed TLS cert generated at {}", cert_dir.display()),
+            Err(e) => error!("⚠️ Failed to generate self-signed cert: {e}. TLS inbounds may fail."),
+        }
     }
 
     Ok(())
+}
+
+/// Check if existing cert covers all desired domain names.
+/// Uses a sidecar file (.domains) to track which domains the cert was generated for.
+/// This avoids parsing X.509 and is reliable for our self-signed certs.
+async fn cert_covers_domains(cert_path: &Path, desired: &[String]) -> bool {
+    if desired.is_empty() {
+        return true;
+    }
+    let domains_file = cert_path.with_extension("domains");
+    match tokio::fs::read_to_string(&domains_file).await {
+        Ok(stored) => {
+            let stored_set: HashSet<&str> = stored.lines().collect();
+            let desired_set: HashSet<&str> = desired.iter().map(|s| s.as_str()).collect();
+            stored_set == desired_set
+        }
+        Err(_) => false, // No sidecar → regen needed
+    }
 }
 
 /// Генерирует самоподписанный X.509 сертификат и RSA-ключ в PEM-формате.
@@ -912,17 +939,33 @@ async fn ensure_self_signed_cert(
 
     let cert = params.self_signed(&key_pair)?;
 
-    tokio::fs::write(cert_path, cert.pem()).await?;
-    tokio::fs::write(key_path, key_pair.serialize_pem()).await?;
+    // Write to temp files first, then rename atomically.
+    // sing-box watches cert.pem for changes and hot-reloads — if we write cert
+    // before key, sing-box sees new cert + old key → "private key does not match".
+    // Strategy: write both to .tmp, set permissions, rename KEY first, then CERT.
+    let cert_tmp = cert_path.with_extension("pem.tmp");
+    let key_tmp = key_path.with_extension("pem.tmp");
+
+    tokio::fs::write(&cert_tmp, cert.pem()).await?;
+    tokio::fs::write(&key_tmp, key_pair.serialize_pem()).await?;
 
     // Права доступа: только root читает ключ
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = tokio::fs::metadata(key_path).await?.permissions();
+        let mut perms = tokio::fs::metadata(&key_tmp).await?.permissions();
         perms.set_mode(0o600);
-        tokio::fs::set_permissions(key_path, perms).await?;
+        tokio::fs::set_permissions(&key_tmp, perms).await?;
     }
+
+    // Rename key FIRST — sing-box watches cert.pem, not key.pem.
+    // When cert.pem changes, key.pem is already the matching new key.
+    tokio::fs::rename(&key_tmp, key_path).await?;
+    tokio::fs::rename(&cert_tmp, cert_path).await?;
+
+    // Write sidecar file to track which domains this cert covers
+    let domains_file = cert_path.with_extension("domains");
+    tokio::fs::write(&domains_file, all_names.join("\n")).await?;
 
     Ok(())
 }
