@@ -338,7 +338,8 @@ impl ConfigGenerator {
                     };
 
                     if let Some(tls) = stream_settings.tls_settings {
-                        tls_config.server_name = tls.server_name;
+                        // Don't override server_name — orchestration_service already
+                        // enforced node.reality_sni on all TLS configs
                         if let Some(certs) = tls.certificates {
                             let certs: Vec<caramba_db::models::network::Certificate> = certs;
                             if let Some(first) = certs.get(0) {

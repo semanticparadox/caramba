@@ -1751,10 +1751,14 @@ pub async fn admin_rotate_node_sni(
                 "✅ Admin SNI rotation: Node {} {} → {}",
                 node_id, old_sni, new_sni
             );
-            // Сигнализируем ноде применить новый конфиг
+            // Regenerate config with new SNI and notify node
             let _ = state
-                .pubsub
-                .publish(&format!("node_events:{}", node_id), "update")
+                .orchestration_service
+                .generate_node_config_json(node_id)
+                .await;
+            let _ = state
+                .orchestration_service
+                .notify_node_update(node_id)
                 .await;
 
             let mut resp_headers = axum::http::HeaderMap::new();

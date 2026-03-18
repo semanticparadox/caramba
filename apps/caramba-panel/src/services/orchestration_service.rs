@@ -957,10 +957,19 @@ impl OrchestrationService {
                         reality.public_key = Some(pubkey.to_string());
                         reality.short_ids = vec![sid.to_string()];
                     }
+                }
 
-                    if let Ok(new_json) = serde_json::to_string(&stream) {
-                        inbound.stream_settings = new_json;
+                // Enforce node.reality_sni on ALL TLS inbounds (not just Reality)
+                // so all variants use the same SNI
+                if let Some(tls) = &mut stream.tls_settings {
+                    if let Some(new_sni) = &node.reality_sni {
+                        tls.server_name = new_sni.clone();
                     }
+                }
+
+                // Re-serialize with updated SNI
+                if let Ok(new_json) = serde_json::to_string(&stream) {
+                    inbound.stream_settings = new_json;
                 }
             }
         }
