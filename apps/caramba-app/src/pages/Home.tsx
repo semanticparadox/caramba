@@ -145,7 +145,7 @@ export default function Home() {
     }
 
     useEffect(() => {
-        if (!token || catalogLoaded || catalogLoading) return
+        if (!token || catalogLoaded) return
 
         const controller = new AbortController()
         const timeout = setTimeout(() => controller.abort(), 12000)
@@ -193,10 +193,7 @@ export default function Home() {
                     setProviders([])
                 }
 
-                // Only mark as loaded if we actually got plans; retry on next render otherwise
-                if (loadedPlans.length > 0) {
-                    setCatalogLoaded(true)
-                }
+                setCatalogLoaded(true)
             } catch (e: any) {
                 if (e?.name !== 'AbortError') {
                     setBanner({ type: 'error', text: e?.message || 'Не удалось загрузить тарифы.' })
@@ -213,7 +210,7 @@ export default function Home() {
             clearTimeout(timeout)
             controller.abort()
         }
-    }, [token, catalogLoaded, catalogLoading])
+    }, [token, catalogLoaded])
 
     const handleSelectDuration = (duration: PlanDuration) => {
         setSelectedDuration(duration)
