@@ -358,8 +358,9 @@ export default function Subscription() {
                             {expandedId === sub.id && sub.status === 'active' && (
                                 <div className="sub-expanded">
                                     <div className="qr-wrapper">
+                                        {/* QR — чистая ссылка без ?client=, Hiddify определяет формат по UA */}
                                         <QRCodeSVG
-                                            value={withClient(sub.subscription_url, 'hiddify')}
+                                            value={sub.subscription_url}
                                             size={160}
                                             bgColor="#ffffff"
                                             fgColor="#0D0D1A"
@@ -399,7 +400,7 @@ export default function Subscription() {
                                         <div className="app-links-grid app-links-primary-grid">
                                             <button
                                                 className="btn-primary btn-app"
-                                                onClick={() => openExternal(`hiddify://import/${encodeURIComponent(withClient(sub.subscription_url, 'hiddify'))}`)}
+                                                onClick={() => openExternal(`hiddify://import/${encodeURIComponent(sub.subscription_url)}`)}
                                             >
                                                 Открыть в Hiddify
                                             </button>

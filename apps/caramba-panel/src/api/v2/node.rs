@@ -505,6 +505,12 @@ pub async fn get_config(
 
 /// Rotate SNI for a node
 /// POST /api/v2/node/rotate-sni
+///
+/// Делегирует всю логику в security_service::rotate_node_sni, который:
+///   — проверяет pinned SNI → global favorites → relay whitelist → global pool
+///   — обновляет nodes.reality_sni и nodes.last_sni_rotation
+///   — добавляет старый SNI в blocklist если причина "Validation failed:" или "Auto-Heal:"
+///   — пишет лог в sni_rotation_log
 pub async fn rotate_sni(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
@@ -516,18 +522,18 @@ pub async fn rotate_sni(
         None => return (StatusCode::UNAUTHORIZED, "Missing Token").into_response(),
     };
 
-    // 2. Validate Node
-    let node_res: Result<Option<(i64, Option<String>)>, sqlx::Error> =
-        sqlx::query_as("SELECT id, reality_sni FROM nodes WHERE join_token = $1")
+    // 2. Validate Node by join_token
+    let node_res: Result<Option<(i64,)>, sqlx::Error> =
+        sqlx::query_as("SELECT id FROM nodes WHERE join_token = $1")
             .bind(&token)
             .fetch_optional(&state.pool)
             .await;
 
-    let (node_id, current_sni) = match node_res {
-        Ok(Some((id, sni))) => (id, sni.unwrap_or_else(|| "www.google.com".to_string())),
+    let node_id: i64 = match node_res {
+        Ok(Some((id,))) => id,
         Ok(None) => return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response(),
         Err(e) => {
-            error!("DB Error in rotate_sni: {}", e);
+            error!("DB Error validating join_token in rotate_sni: {}", e);
             return (StatusCode::INTERNAL_SERVER_ERROR, "DB Error").into_response();
         }
     };
@@ -535,104 +541,70 @@ pub async fn rotate_sni(
     let reason = payload
         .get("reason")
         .and_then(|v| v.as_str())
-        .unwrap_or("manual");
+        .unwrap_or("Node-Initiated Rotation");
 
-    // 3. Get Next SNI
-    // Assume Tier 1 for now, or fetch from node settings
-    let next_sni: String = match state
+    // 3. Delegate полностью в security_service (canonical path, нет дублирования логики)
+    match state
         .security_service
-        .get_next_sni(&current_sni, 1, false)
+        .rotate_node_sni(node_id, reason)
         .await
     {
-        Ok(s) => s,
-        Err(e) => {
-            error!("Failed to get next SNI: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to rotate SNI").into_response();
-        }
-    };
-
-    if next_sni == current_sni {
-        return (StatusCode::CONFLICT, "No other SNI available").into_response();
-    }
-
-    // 4. Update Node (и фиксируем метку ротации для circuit-breaker)
-    if let Err(e) = sqlx::query(
-        "UPDATE nodes SET reality_sni = $1, last_sni_rotation = NOW() WHERE id = $2",
-    )
-    .bind(&next_sni)
-    .bind(node_id)
-    .execute(&state.pool)
-    .await
-    {
-        error!("Failed to update node SNI: {}", e);
-        return (StatusCode::INTERNAL_SERVER_ERROR, "DB Update Failed").into_response();
-    }
-
-    // 5. Log Rotation
-    let rotation_id = match state
-        .security_service
-        .log_sni_rotation(node_id, &current_sni, &next_sni, reason)
-        .await
-    {
-        Ok(log) => log.id,
-        Err(e) => {
-            warn!("Failed to log SNI rotation: {}", e);
-            0 // Continue even if logging fails
-        }
-    };
-
-    let orchestration = state.orchestration_service.clone();
-    tokio::spawn(async move {
-        if let Err(e) = orchestration.notify_node_update(node_id).await {
-            error!(
-                "Failed to notify node {} after SNI rotation: {}",
-                node_id, e
+        Ok((old_sni, new_sni, rotation_id)) => {
+            info!(
+                "SNI rotated for node {} (reason: {}): {} → {} (log #{})",
+                node_id, reason, old_sni, new_sni, rotation_id
             );
-        }
-    });
 
-    // 6. Notify Affected Users (async, non-blocking)
-    if let Some(bot) = state
-        .bot_manager
-        .get_bot()
-        .await
-        .ok()
-        .map(|b| b as teloxide::Bot)
-    {
-        let notification_service = state.notification_service.clone();
-        let old_sni = current_sni.clone();
-        let new_sni_clone = next_sni.clone();
+            // Уведомляем ноду о смене конфига (async, не блокируем ответ)
+            let orchestration = state.orchestration_service.clone();
+            tokio::spawn(async move {
+                if let Err(e) = orchestration.notify_node_update(node_id).await {
+                    error!(
+                        "Failed to notify node {} after SNI rotation: {}",
+                        node_id, e
+                    );
+                }
+            });
 
-        tokio::spawn(async move {
-            match notification_service
-                .notify_sni_rotation(&bot, node_id, &old_sni, &new_sni_clone, rotation_id)
-                .await
-            {
-                Ok(count) => info!(
-                    "📱 Notified {} users about SNI rotation on node {}",
-                    count, node_id
-                ),
-                Err(e) => error!("Failed to send SNI rotation notifications: {}", e),
+            // Уведомляем пользователей (async, non-blocking)
+            if let Ok(bot) = state.bot_manager.get_bot().await.map(|b| b as teloxide::Bot) {
+                let notification_service = state.notification_service.clone();
+                let old_clone = old_sni.clone();
+                let new_clone = new_sni.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = notification_service
+                        .notify_sni_rotation(&bot, node_id, &old_clone, &new_clone, rotation_id)
+                        .await
+                    {
+                        error!("Failed to send SNI rotation notifications: {}", e);
+                    }
+                });
             }
-        });
-    } else {
-        warn!("Bot not available, skipping user notifications for SNI rotation");
+
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "status": "rotated",
+                    "old_sni": old_sni,
+                    "new_sni": new_sni,
+                    "rotation_id": rotation_id
+                })),
+            )
+                .into_response()
+        }
+        Err(e) if e.to_string().contains("No other SNI") => {
+            warn!("SNI pool exhausted for node {}: {}", node_id, e);
+            (StatusCode::CONFLICT, "No other SNI available").into_response()
+        }
+        Err(e) => {
+            error!("Failed to rotate SNI for node {}: {}", node_id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Rotation failed: {}", e),
+            )
+                .into_response()
+        }
     }
-
-    info!(
-        "✅ SNI Rotated for Node {}: {} → {} (rotation #{})",
-        node_id, current_sni, next_sni, rotation_id
-    );
-
-    (
-        StatusCode::OK,
-        Json(serde_json::json!({
-            "status": "rotated",
-            "new_sni": next_sni,
-            "rotation_id": rotation_id
-        })),
-    )
-        .into_response()
 }
 
 /// Long Polling for Config Updates

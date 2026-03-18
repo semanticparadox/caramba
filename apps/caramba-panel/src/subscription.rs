@@ -908,8 +908,13 @@ function copyLink(){{
         }
     };
 
-    // Check Redis Cache & Generate
-    let client_type = selected_client.as_deref().unwrap_or("singbox");
+    // Нормализуем тип клиента: "hiddify" — это псевдоним singbox.
+    // Hiddify не принимает ?client=hiddify в URL, но если всё же пришёл — обрабатываем корректно.
+    // Важно: нормализация ДО построения cache_key, иначе получим 2 разных ключа для одного формата.
+    let client_type = match selected_client.as_deref().unwrap_or("singbox") {
+        "hiddify" => "singbox",
+        other => other,
+    };
     let cache_node_id = params.node_id.unwrap_or(0);
     let cache_variant = params.variant.as_deref().unwrap_or("default");
     let cache_key = format!(

@@ -257,11 +257,19 @@ async fn fetch_worker_inventory(pool: &sqlx::PgPool) -> Vec<WorkerInventoryView>
     rows.into_iter()
         .map(|row| {
             let is_online = Utc::now().signed_duration_since(row.last_seen) <= Duration::minutes(3);
+            let current_v = row.current_version.unwrap_or_default();
+            let target_v = row.target_version.unwrap_or_default();
+
+            // Корректное семвер-сравнение: обновление нужно только если target СТРОГО НОВЕЕ current.
+            // Без этой проверки панель показывала "нужно обновление: v0.9.1" при current="0.9.7".
+            let update_available =
+                crate::handlers::api::internal::should_offer_worker_update(&target_v, &current_v);
+
             WorkerInventoryView {
                 role: row.role.to_ascii_uppercase(),
                 worker_id: row.worker_id,
-                current_version: row.current_version.unwrap_or_else(|| "-".to_string()),
-                target_version: row.target_version.unwrap_or_else(|| "-".to_string()),
+                current_version: if current_v.is_empty() { "-".to_string() } else { current_v },
+                target_version: if target_v.is_empty() { "-".to_string() } else { target_v },
                 last_state: row.last_state.to_ascii_uppercase(),
                 last_message: row.last_message.unwrap_or_default(),
                 is_online,
@@ -272,6 +280,7 @@ async fn fetch_worker_inventory(pool: &sqlx::PgPool) -> Vec<WorkerInventoryView>
                 },
                 last_seen: row.last_seen.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
                 last_seen_ago: format_relative_time(row.last_seen),
+                update_available,
             }
         })
         .collect()
@@ -410,6 +419,9 @@ pub struct WorkerInventoryView {
     pub online_label: String,
     pub last_seen: String,
     pub last_seen_ago: String,
+    /// true только если target_version СТРОГО НОВЕЕ current_version (семвер-сравнение).
+    /// Устраняет ложный "нужно обновление" когда target="0.9.1" и current="0.9.7".
+    pub update_available: bool,
 }
 
 #[derive(Template, WebTemplate)]

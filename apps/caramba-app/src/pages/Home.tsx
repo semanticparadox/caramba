@@ -33,11 +33,6 @@ interface PaymentProvider {
 
 type CenterBanner = { type: 'success' | 'error'; text: string } | null
 
-function withClient(url: string, client: string): string {
-    const separator = url.includes('?') ? '&' : '?'
-    return `${url}${separator}client=${encodeURIComponent(client)}`
-}
-
 function formatPrice(priceCents: number): string {
     const major = Math.floor(priceCents / 100)
     const minor = priceCents % 100
@@ -105,14 +100,17 @@ export default function Home() {
         block.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
 
+    // Hiddify определяет тип конфига сам через User-Agent.
+    // Передаём ЧИСТУЮ ссылку подписки без ?client= — иначе Hiddify отклоняет импорт.
     const openHiddify = (sub: UserSubscription) => {
         if (!sub.subscription_url) return
-        window.location.href = withClient(sub.subscription_url, 'hiddify')
+        window.location.href = `hiddify://import/${encodeURIComponent(sub.subscription_url)}`
     }
 
     const copyImportLink = async (sub: UserSubscription) => {
         if (!sub.subscription_url) return
-        await copyText(withClient(sub.subscription_url, 'hiddify'))
+        // Копируем чистую ссылку — Hiddify не принимает ?client=hiddify
+        await copyText(sub.subscription_url)
         setCopiedSubId(sub.id)
         setTimeout(() => setCopiedSubId(null), 1600)
     }

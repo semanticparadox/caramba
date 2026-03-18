@@ -360,7 +360,7 @@ fn parse_semver_tuple(raw: &str) -> Option<(u64, u64, u64)> {
     Some((major, minor, patch))
 }
 
-fn should_offer_worker_update(target_version: &str, current_version: &str) -> bool {
+pub fn should_offer_worker_update(target_version: &str, current_version: &str) -> bool {
     let target = normalize_version(target_version);
     let current = normalize_version(current_version);
 

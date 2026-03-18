@@ -196,11 +196,15 @@ async fn fetch_worker_inventory_shared(
         .map(|row| {
             let is_online = chrono::Utc::now().signed_duration_since(row.last_seen)
                 <= chrono::Duration::minutes(3);
+            let current_v = row.current_version.unwrap_or_default();
+            let target_v = row.target_version.unwrap_or_default();
+            let update_available =
+                crate::handlers::api::internal::should_offer_worker_update(&target_v, &current_v);
             WorkerInventoryView {
                 role: row.role.to_ascii_uppercase(),
                 worker_id: row.worker_id,
-                current_version: row.current_version.unwrap_or("-".into()),
-                target_version: row.target_version.unwrap_or("-".into()),
+                current_version: if current_v.is_empty() { "-".into() } else { current_v },
+                target_version: if target_v.is_empty() { "-".into() } else { target_v },
                 last_state: row.last_state.to_ascii_uppercase(),
                 last_message: row.last_message.unwrap_or_default(),
                 is_online,
@@ -211,6 +215,7 @@ async fn fetch_worker_inventory_shared(
                 },
                 last_seen: row.last_seen.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
                 last_seen_ago: "just now".into(), // Simplified for this view
+                update_available,
             }
         })
         .collect()
