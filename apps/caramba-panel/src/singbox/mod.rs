@@ -10,3 +10,6 @@ pub use inbound_factory::RelayAuthMode;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod repro_bug;
