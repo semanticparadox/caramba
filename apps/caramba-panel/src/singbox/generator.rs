@@ -129,7 +129,7 @@ impl ConfigGenerator {
                                                 .unwrap_or_else(|| "www.google.com".to_string())
                                         },
                                     ),
-                                    alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                                    alpn: None, // Set later based on transport type
                                     // reality = Some только когда enabled: true и ключ валиден
                                     reality: Some(RealityConfig {
                                         enabled: true,
@@ -213,7 +213,7 @@ impl ConfigGenerator {
                         tls_config = Some(VlessTlsConfig {
                             enabled: true,
                             server_name,
-                            alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                            alpn: None, // Set later based on transport type
                             // reality = None для обычного TLS — sing-box не должен видеть этот блок
                             reality: None,
                             key_path,
@@ -312,6 +312,25 @@ impl ConfigGenerator {
                             inbound.tag
                         );
                         continue;
+                    }
+
+                    // Set ALPN based on transport type:
+                    // - HTTPUpgrade/WS require HTTP/1.1 (h2 breaks upgrade handshake)
+                    // - gRPC requires HTTP/2
+                    // - TCP/Reality: both are fine
+                    if let Some(ref mut tls) = tls_config {
+                        tls.alpn = Some(match &transport_config {
+                            Some(VlessTransportConfig::Ws(_))
+                            | Some(VlessTransportConfig::HttpUpgrade(_)) => {
+                                vec!["http/1.1".to_string()]
+                            }
+                            Some(VlessTransportConfig::Grpc(_)) => {
+                                vec!["h2".to_string()]
+                            }
+                            _ => {
+                                vec!["h2".to_string(), "http/1.1".to_string()]
+                            }
+                        });
                     }
 
                     generated_inbounds.push(Inbound::Vless(VlessInbound {

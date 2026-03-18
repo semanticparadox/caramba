@@ -967,6 +967,17 @@ impl OrchestrationService {
                     }
                 }
 
+                // Also unify transport host fields with the current SNI
+                if let Some(new_sni) = &node.reality_sni {
+                    if let Some(ws) = &mut stream.ws_settings {
+                        let headers = ws.headers.get_or_insert_with(Default::default);
+                        headers.insert("Host".to_string(), new_sni.clone());
+                    }
+                    if let Some(hu) = &mut stream.http_upgrade_settings {
+                        hu.host = Some(new_sni.clone());
+                    }
+                }
+
                 // Re-serialize with updated SNI
                 if let Ok(new_json) = serde_json::to_string(&stream) {
                     inbound.stream_settings = new_json;
