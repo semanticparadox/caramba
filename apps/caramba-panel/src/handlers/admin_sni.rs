@@ -80,7 +80,7 @@ pub async fn get_sni_page(
         blacklist,
     };
 
-    Html(template.render().unwrap()).into_response()
+    Html(template.render().unwrap_or_default()).into_response()
 }
 
 #[derive(Deserialize)]

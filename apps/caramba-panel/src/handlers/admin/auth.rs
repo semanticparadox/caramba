@@ -120,10 +120,9 @@ pub async fn login(
         let admin_path = state.admin_path.clone();
 
         let mut headers = axum::http::HeaderMap::new();
-        headers.insert(
-            "HX-Redirect",
-            format!("{}/dashboard", admin_path).parse().unwrap(),
-        );
+        if let Ok(val) = format!("{}/dashboard", admin_path).parse() {
+            headers.insert("HX-Redirect", val);
+        }
 
         // Create session in Redis
         let token = uuid::Uuid::new_v4().to_string();
@@ -178,10 +177,9 @@ pub async fn logout(jar: CookieJar) -> impl IntoResponse {
 
     // Use HX-Redirect for HTMX clients (force full page reload)
     let mut headers = axum::http::HeaderMap::new();
-    headers.insert(
-        "HX-Redirect",
-        format!("{}/login", admin_path).parse().unwrap(),
-    );
+    if let Ok(val) = format!("{}/login", admin_path).parse() {
+        headers.insert("HX-Redirect", val);
+    }
 
     (jar.add(cookie), headers, "Logging out...")
 }

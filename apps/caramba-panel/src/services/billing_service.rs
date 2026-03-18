@@ -124,19 +124,20 @@ impl BillingService {
         Ok(orders)
     }
 
-    /// Get all orders for transactions page
+    /// Get all orders for transactions page (capped at 1000)
     pub async fn get_all_orders(
         &self,
     ) -> Result<Vec<crate::handlers::admin::dashboard::OrderWithUser>> {
         use crate::handlers::admin::dashboard::OrderWithUser;
         let orders = sqlx::query_as::<_, OrderWithUser>(
             r#"
-            SELECT o.id, COALESCE(u.username, u.full_name, 'Unknown') as username, 
+            SELECT o.id, COALESCE(u.username, u.full_name, 'Unknown') as username,
                    to_char(o.total_amount::numeric / 100.0, 'FM999999990.00') as total_amount,
                    o.status, o.created_at
             FROM orders o
             LEFT JOIN users u ON o.user_id = u.id
             ORDER BY o.created_at DESC
+            LIMIT 1000
             "#,
         )
         .fetch_all(&self.pool)

@@ -46,8 +46,8 @@
                                 "{:02}"|format(order.total_amount % 100) }}</span>
                         </td>
                         <td class="px-6 py-4">
-                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium 
-                                {% if order.status == " paid" %}bg-emerald-500/10 text-emerald-400 border
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium
+                                {% if order.status == "paid" %}bg-emerald-500/10 text-emerald-400 border
                                 border-emerald-500/20 {% else %}bg-amber-500/10 text-amber-400 border
                                 border-amber-500/20{% endif %}">
                                 {{ order.status|capitalize }}

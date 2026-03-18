@@ -53,7 +53,7 @@ export default function Billing() {
     const formatCurrency = (amount: number) =>
         new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'USD' }).format(amount)
 
-    const balance = user?.balance ?? (stats as any)?.balance ?? 0
+    const balance = user?.balance ?? stats?.balance ?? 0
 
     return (
         <div className="page billing-page">

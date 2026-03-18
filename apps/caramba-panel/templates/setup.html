@@ -19,7 +19,7 @@
         class="bg-white/80 dark:bg-slate-900/50 backdrop-blur-xl border border-slate-300 dark:border-white/10 rounded-3xl p-8 md:p-10 shadow-2xl relative overflow-hidden">
         <div class="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none"></div>
 
-        <form hx-post="{{ admin_path }}/setup" hx-target="body" hx-swap="outerHTML" class="relative z-10 space-y-8">
+        <form hx-post="{{ admin_path }}/setup/create_admin" hx-target="body" hx-swap="outerHTML" class="relative z-10 space-y-8">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div class="space-y-2">
                     <label for="username"

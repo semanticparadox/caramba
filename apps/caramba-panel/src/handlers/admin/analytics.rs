@@ -155,7 +155,7 @@ pub async fn get_traffic_analytics(
             .await
             .unwrap_or("Admin".to_string()),
     };
-    Html(template.render().unwrap())
+    Html(template.render().unwrap_or_default())
 }
 
 pub async fn get_transactions(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {

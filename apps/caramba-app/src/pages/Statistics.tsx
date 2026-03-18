@@ -24,14 +24,16 @@ export default function Statistics() {
     useEffect(() => {
         if (!stats) return
         setLastTraffic(stats.traffic_used)
-    }, [])
+    }, [stats])
 
     useEffect(() => {
         if (!token) return;
+        const controller = new AbortController()
         const interval = setInterval(async () => {
             try {
                 const res = await fetch('/api/client/user/stats', {
-                    headers: { 'Authorization': `Bearer ${token}` }
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    signal: controller.signal,
                 });
                 if (res.ok) {
                     const data = await res.json();
@@ -42,9 +44,11 @@ export default function Statistics() {
                         return data.traffic_used;
                     });
                 }
-            } catch (e) { console.error(e); }
+            } catch (e: any) {
+                if (e?.name !== 'AbortError') console.error(e);
+            }
         }, 3000)
-        return () => clearInterval(interval)
+        return () => { controller.abort(); clearInterval(interval) }
     }, [token])
 
     const goBack = () => {

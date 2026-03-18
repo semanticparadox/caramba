@@ -102,9 +102,16 @@ export default function Home() {
 
     // Hiddify определяет тип конфига сам через User-Agent.
     // Передаём ЧИСТУЮ ссылку подписки без ?client= — иначе Hiddify отклоняет импорт.
+    // Используем window.open вместо location.href чтобы не уводить Telegram WebView.
+    // Если deep link не сработал — копируем ссылку как фоллбэк.
     const openHiddify = (sub: UserSubscription) => {
         if (!sub.subscription_url) return
-        window.location.href = `hiddify://import/${encodeURIComponent(sub.subscription_url)}`
+        const deepLink = `hiddify://import/${encodeURIComponent(sub.subscription_url)}`
+        const w = window.open(deepLink, '_blank')
+        if (!w) {
+            void copyImportLink(sub)
+            setBanner({ type: 'success', text: 'Ссылка скопирована — вставьте в Hiddify вручную (Новый профиль → Добавить из буфера).' })
+        }
     }
 
     const copyImportLink = async (sub: UserSubscription) => {
@@ -147,6 +154,7 @@ export default function Home() {
     useEffect(() => {
         if (!token || catalogLoaded) return
 
+        let cancelled = false
         const controller = new AbortController()
         const timeout = setTimeout(() => controller.abort(), 12000)
 
@@ -158,6 +166,7 @@ export default function Home() {
                     fetch(apiUrl('/api/client/plans'), { headers, signal: controller.signal }),
                     fetch(apiUrl('/api/client/payment/providers'), { headers, signal: controller.signal }),
                 ])
+                if (cancelled) return
 
                 let loadedPlans: Plan[] = []
                 if (plansRes.ok) {
@@ -195,18 +204,19 @@ export default function Home() {
 
                 setCatalogLoaded(true)
             } catch (e: any) {
-                if (e?.name !== 'AbortError') {
+                if (!cancelled && e?.name !== 'AbortError') {
                     setBanner({ type: 'error', text: e?.message || 'Не удалось загрузить тарифы.' })
                 }
             } finally {
                 clearTimeout(timeout)
-                setCatalogLoading(false)
+                if (!cancelled) setCatalogLoading(false)
             }
         }
 
         void loadCatalog()
 
         return () => {
+            cancelled = true
             clearTimeout(timeout)
             controller.abort()
         }

@@ -62,6 +62,7 @@ export default function Plans() {
             return
         }
 
+        let cancelled = false
         const controller = new AbortController()
         const timeout = setTimeout(() => controller.abort(), 12000)
 
@@ -71,6 +72,7 @@ export default function Plans() {
                     headers,
                     signal: controller.signal,
                 })
+                if (cancelled) return
                 if (plansRes.ok) {
                     const data = await plansRes.json()
                     setPlans(Array.isArray(data) ? data : [])
@@ -80,6 +82,7 @@ export default function Plans() {
                     headers,
                     signal: controller.signal,
                 })
+                if (cancelled) return
                 if (providersRes.ok) {
                     const data = await providersRes.json()
                     setProviders(data.providers || [])
@@ -87,6 +90,7 @@ export default function Plans() {
 
                 setMessage(null)
             } catch (e: any) {
+                if (cancelled) return
                 console.error(e)
                 setMessage({
                     type: 'error',
@@ -94,11 +98,12 @@ export default function Plans() {
                 })
             } finally {
                 clearTimeout(timeout)
-                setLoading(false)
+                if (!cancelled) setLoading(false)
             }
         })()
 
         return () => {
+            cancelled = true
             clearTimeout(timeout)
             controller.abort()
         }

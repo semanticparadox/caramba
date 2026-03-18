@@ -36,21 +36,20 @@
                     </div>
                 </div>
                 <div class="flex gap-2">
-                    <button onclick="copyInstallCommand('{{ key.key }}')" title="Copy Install Command"
-                        class="p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-emerald-400 transition-colors">
+                    <button data-key="{{ key.key }}" data-action="install" title="Copy Install Command"
+                        class="key-action-btn p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-emerald-400 transition-colors">
                         <i data-lucide="terminal-square" class="w-4 h-4"></i>
                     </button>
-                    <button onclick="copyToClipboard('{{ key.key }}')" title="Copy Key"
-                        class="p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors">
+                    <button data-key="{{ key.key }}" data-action="copy" title="Copy Key"
+                        class="key-action-btn p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors">
                         <i data-lucide="copy" class="w-4 h-4"></i>
                     </button>
-                    <form action="{{ admin_path }}/api-keys/delete/{{ key.id }}" method="POST"
-                        onsubmit="return confirm('Delete this key?');">
-                        <button type="submit"
-                            class="p-2 hover:bg-red-500/10 rounded-lg text-slate-400 hover:text-red-400 transition-colors">
-                            <i data-lucide="trash-2" class="w-4 h-4"></i>
-                        </button>
-                    </form>
+                    <button hx-post="{{ admin_path }}/api-keys/delete/{{ key.id }}"
+                        hx-confirm="Delete this key?"
+                        hx-target="body" hx-swap="outerHTML"
+                        class="p-2 hover:bg-red-500/10 rounded-lg text-slate-400 hover:text-red-400 transition-colors">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </button>
                 </div>
             </div>
 
@@ -121,20 +120,24 @@
 </dialog>
 
 <script>
-    function copyToClipboard(text) {
-        navigator.clipboard.writeText(text).then(() => {
-            // Optional: Show toast
-            alert('Key copied!');
-        });
-    }
+    document.querySelectorAll('.key-action-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var key = this.dataset.key;
+            var action = this.dataset.action;
+            if (!key) return;
 
-    function copyInstallCommand(key) {
-        const origin = window.location.origin;
-        // Use the same script URL as in node_manual_install.html
-        const cmd = `curl -fsSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh | sudo bash -s -- --role node --panel "${origin}" --token "${key}"`;
-        navigator.clipboard.writeText(cmd).then(() => {
-            alert('Install command copied to clipboard!');
+            if (action === 'install') {
+                var origin = window.location.origin;
+                var cmd = 'curl -fsSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh | sudo bash -s -- --role node --panel "' + origin + '" --token "' + key + '"';
+                navigator.clipboard.writeText(cmd).then(function() {
+                    showToast('Install command copied to clipboard!');
+                });
+            } else {
+                navigator.clipboard.writeText(key).then(function() {
+                    showToast('Key copied!');
+                });
+            }
         });
-    }
+    });
 </script>
 {% endblock %}

@@ -476,6 +476,20 @@ impl SubscriptionService {
         )
         .await;
 
+        // Notify node to regenerate config with extended subscription
+        let node_id: Option<i64> = sqlx::query_scalar(
+            "SELECT node_id FROM subscriptions WHERE id = $1"
+        )
+        .bind(sub_id)
+        .fetch_optional(&self.pool)
+        .await
+        .ok()
+        .flatten();
+
+        if let (Some(orch), Some(nid)) = (&self.orchestration_service, node_id) {
+            let _ = orch.notify_node_update(nid).await;
+        }
+
         Ok(())
     }
 
@@ -688,16 +702,35 @@ impl SubscriptionService {
             .await?;
 
             if balance >= price {
+                // Wrap extend + balance deduction in a transaction for atomicity
+                let mut tx = self.pool.begin().await?;
+
                 sqlx::query("UPDATE subscriptions SET expires_at = expires_at + interval '30 days' WHERE id = $1")
                     .bind(sub_id)
-                    .execute(&self.pool)
+                    .execute(&mut *tx)
                     .await?;
 
                 sqlx::query("UPDATE users SET balance = balance - $1 WHERE id = $2")
                     .bind(price)
                     .bind(user_id)
-                    .execute(&self.pool)
+                    .execute(&mut *tx)
                     .await?;
+
+                tx.commit().await?;
+
+                // Notify node to regenerate config with renewed subscription
+                let node_id: Option<i64> = sqlx::query_scalar(
+                    "SELECT node_id FROM subscriptions WHERE id = $1"
+                )
+                .bind(sub_id)
+                .fetch_optional(&self.pool)
+                .await
+                .ok()
+                .flatten();
+
+                if let (Some(orch), Some(nid)) = (&self.orchestration_service, node_id) {
+                    let _ = orch.notify_node_update(nid).await;
+                }
 
                 results.push(RenewalResult::Success {
                     user_id,

@@ -378,7 +378,7 @@ async fn render_nodes_scope_page(
             subs_map,
             online_map,
         };
-        return Html(template.render().unwrap()).into_response();
+        return Html(template.render().unwrap_or_default()).into_response();
     }
 
     let template = NodesTemplate {
@@ -399,7 +399,7 @@ async fn render_nodes_scope_page(
         agent_latest_version,
         auto_update_agents,
     };
-    Html(template.render().unwrap()).into_response()
+    Html(template.render().unwrap_or_default()).into_response()
 }
 
 pub async fn get_exit_nodes_page(
@@ -451,7 +451,7 @@ pub async fn get_exit_nodes_rows(State(state): State<AppState>) -> impl IntoResp
         online_map,
     };
 
-    Html(template.render().unwrap()).into_response()
+    Html(template.render().unwrap_or_default()).into_response()
 }
 
 pub async fn get_relay_nodes_rows(State(state): State<AppState>) -> impl IntoResponse {
@@ -487,7 +487,7 @@ pub async fn get_relay_nodes_rows(State(state): State<AppState>) -> impl IntoRes
         online_map,
     };
 
-    Html(template.render().unwrap()).into_response()
+    Html(template.render().unwrap_or_default()).into_response()
 }
 
 pub async fn install_node(
@@ -586,7 +586,7 @@ pub async fn install_node(
             let mut headers = HeaderMap::new();
             headers.insert("HX-Trigger", "refresh_nodes".parse().unwrap());
 
-            let mut html = template.render().unwrap();
+            let mut html = template.render().unwrap_or_default();
             html.push_str("<script>document.getElementById('add-node-modal').close(); document.getElementById('manual-install-modal').showModal();</script>");
 
             (headers, Html(html)).into_response()
@@ -728,10 +728,9 @@ pub async fn update_node(
         return (axum::http::StatusCode::OK, "Saved").into_response();
     }
 
-    headers.insert(
-        "HX-Redirect",
-        format!("{}/nodes", admin_path).parse().unwrap(),
-    );
+    if let Ok(val) = format!("{}/nodes", admin_path).parse() {
+        headers.insert("HX-Redirect", val);
+    }
     (axum::http::StatusCode::OK, headers, "Updated").into_response()
 }
 
@@ -1462,7 +1461,7 @@ server {{
         caddy_proxy_config,
     };
 
-    Html(template.render().unwrap()).into_response()
+    Html(template.render().unwrap_or_default()).into_response()
 }
 
 pub async fn get_node_rescue(
@@ -1484,7 +1483,7 @@ pub async fn get_node_rescue(
         node,
         admin_path: state.admin_path.clone(),
     };
-    Html(template.render().unwrap()).into_response()
+    Html(template.render().unwrap_or_default()).into_response()
 }
 
 pub async fn trigger_scan(Path(id): Path<i64>, State(state): State<AppState>) -> impl IntoResponse {

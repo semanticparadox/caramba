@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import type { SingboxConnectionVariant } from '../context/AuthContext'
 import { QRCodeSVG } from 'qrcode.react'
+import { copyText } from '../lib/copyActions'
 import './Servers.css'
 
 interface ServerInfo {
@@ -127,8 +128,8 @@ export default function Servers() {
         }
     }
 
-    const handleCopy = () => {
-        navigator.clipboard.writeText(configUrl);
+    const handleCopy = async () => {
+        await copyText(configUrl);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
         if (selectedServer && clientType === 'singbox' && selectedVariant) {

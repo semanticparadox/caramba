@@ -41,16 +41,6 @@ pub async fn create_admin(
     jar: CookieJar,
     Form(form): Form<CreateAdminForm>,
 ) -> impl IntoResponse {
-    // Double check if admin exists to prevent abuse if middleware fails
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM admins")
-        .fetch_one(&state.pool)
-        .await
-        .unwrap_or(1); // fail safe: assume 1 if error
-
-    if count > 0 {
-        return (StatusCode::FORBIDDEN, "Setup already completed").into_response();
-    }
-
     let hash = match bcrypt::hash(&form.password, bcrypt::DEFAULT_COST) {
         Ok(h) => h,
         Err(_) => {
@@ -58,13 +48,35 @@ pub async fn create_admin(
         }
     };
 
+    // Atomic check-then-insert inside a transaction to prevent TOCTOU race
+    let mut tx = match state.pool.begin().await {
+        Ok(tx) => tx,
+        Err(_) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM admins")
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap_or(1); // fail safe: assume 1 if error
+
+    if count > 0 {
+        let _ = tx.rollback().await;
+        return (StatusCode::FORBIDDEN, "Setup already completed").into_response();
+    }
+
     match sqlx::query("INSERT INTO admins (username, password_hash) VALUES ($1, $2)")
         .bind(&form.username)
         .bind(hash)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await
     {
         Ok(_) => {
+            if let Err(e) = tx.commit().await {
+                error!("Failed to commit admin creation: {}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+            }
             info!("Setup: Admin {} created successfully.", form.username);
 
             // Auto-login
@@ -75,10 +87,9 @@ pub async fn create_admin(
                 .build();
 
             let mut headers = axum::http::HeaderMap::new();
-            headers.insert(
-                "HX-Redirect",
-                format!("{}/dashboard", admin_path).parse().unwrap(),
-            );
+            if let Ok(val) = format!("{}/dashboard", admin_path).parse() {
+                headers.insert("HX-Redirect", val);
+            }
 
             (StatusCode::OK, jar.add(cookie), headers).into_response()
         }
@@ -91,10 +102,26 @@ pub async fn create_admin(
 
 pub async fn restore_backup(
     State(state): State<AppState>,
+    jar: CookieJar,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
-    // We don't need State because we are overwriting the DB file directly.
-    // However, writing to open DB file is risky.
+    // Defence-in-depth: require authenticated admin session
+    let is_authed = if let Some(cookie) = jar.get("admin_session") {
+        let redis_key = format!("session:{}", cookie.value());
+        state
+            .redis
+            .get(&redis_key)
+            .await
+            .ok()
+            .flatten()
+            .is_some()
+    } else {
+        false
+    };
+    if !is_authed {
+        return (StatusCode::FORBIDDEN, "Authentication required").into_response();
+    }
+
     // Strategy: Write to temp file, then rename/move over caramba.db.
     // Then exit process.
 
@@ -133,10 +160,9 @@ pub async fn restore_backup(
 
                 let admin_path = state.admin_path.clone();
                 let mut headers = axum::http::HeaderMap::new();
-                headers.insert(
-                    "HX-Redirect",
-                    format!("{}/login", admin_path).parse().unwrap(),
-                );
+                if let Ok(val) = format!("{}/login", admin_path).parse() {
+                    headers.insert("HX-Redirect", val);
+                }
 
                 return (StatusCode::OK, headers, "Restored. Restarting...").into_response();
             }

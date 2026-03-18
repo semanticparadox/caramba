@@ -165,7 +165,7 @@ pub async fn get_dashboard(State(state): State<AppState>, jar: CookieJar) -> imp
         admin_path,
         active_page: "dashboard".to_string(),
     };
-    Html(template.render().unwrap())
+    Html(template.render().unwrap_or_default())
 }
 
 /// GET /admin/statusbar - System status partial

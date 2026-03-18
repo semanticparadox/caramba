@@ -98,7 +98,7 @@ pub async fn get_updates_page(State(state): State<AppState>, jar: CookieJar) -> 
         worker_inventory,
     };
 
-    Html(template.render().unwrap()).into_response()
+    Html(template.render().unwrap_or_default()).into_response()
 }
 
 pub async fn trigger_update(

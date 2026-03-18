@@ -60,11 +60,15 @@ export default function Store() {
             return
         }
 
+        const controller = new AbortController()
+        const signal = controller.signal
+
         Promise.all([
-            fetch(apiUrl('/api/client/store/categories'), { headers }).then(r => r.json()),
-            fetch(apiUrl('/api/client/payment/providers'), { headers }).then(r => r.json()),
+            fetch(apiUrl('/api/client/store/categories'), { headers, signal }).then(r => { if (!r.ok) throw new Error(`categories: ${r.status}`); return r.json() }),
+            fetch(apiUrl('/api/client/payment/providers'), { headers, signal }).then(r => { if (!r.ok) throw new Error(`providers: ${r.status}`); return r.json() }),
         ])
             .then(([cats, pays]) => {
+                if (signal.aborted) return
                 setCategories(cats)
                 setProviders(pays.providers || [])
                 if (cats.length > 0) {
@@ -72,8 +76,10 @@ export default function Store() {
                     void loadProducts(cats[0].id)
                 }
             })
-            .catch(console.error)
-            .finally(() => setLoading(false))
+            .catch(e => { if (!signal.aborted) console.error(e) })
+            .finally(() => { if (!signal.aborted) setLoading(false) })
+
+        return () => controller.abort()
     }, [token])
 
     const goBack = () => {

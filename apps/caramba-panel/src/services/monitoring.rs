@@ -87,8 +87,8 @@ impl MonitoringService {
     async fn check_expirations(&self) -> anyhow::Result<()> {
         let now = Utc::now();
 
-        let expired_subs: Vec<(i64, i64)> = sqlx::query_as(
-            "SELECT id, user_id FROM subscriptions WHERE status = 'active' AND expires_at < $1",
+        let expired_subs: Vec<(i64, i64, Option<i64>)> = sqlx::query_as(
+            "SELECT id, user_id, node_id FROM subscriptions WHERE status = 'active' AND expires_at < $1",
         )
         .bind(now)
         .fetch_all(&self.state.pool)
@@ -103,16 +103,27 @@ impl MonitoringService {
             expired_subs.len()
         );
 
-        for (sub_id, user_id) in expired_subs {
+        let mut affected_node_ids = std::collections::HashSet::new();
+
+        for (sub_id, user_id, node_id) in &expired_subs {
             sqlx::query("UPDATE subscriptions SET status = 'expired' WHERE id = $1")
                 .bind(sub_id)
                 .execute(&self.state.pool)
                 .await?;
 
+            if let Some(nid) = node_id {
+                affected_node_ids.insert(*nid);
+            }
+
             info!(
                 "Subscription {} for user {} marked as expired",
                 sub_id, user_id
             );
+        }
+
+        // Notify affected nodes to regenerate configs (remove expired users)
+        for node_id in affected_node_ids {
+            let _ = self.state.orchestration_service.notify_node_update(node_id).await;
         }
 
         Ok(())

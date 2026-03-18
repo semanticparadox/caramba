@@ -81,7 +81,20 @@ export default function Subscription() {
         if (url.startsWith('http://') || url.startsWith('https://')) {
             try { (window as any).Telegram?.WebApp?.openLink?.(url) } catch { window.open(url, '_blank') }
         } else {
-            window.location.href = url
+            // Custom URL schemes (hiddify://, happ://) — use window.open to avoid
+            // navigating the Telegram WebView away. Falls back to location.href.
+            const w = window.open(url, '_blank')
+            if (!w) {
+                // Deep link blocked by WebView — copy the subscription URL as fallback
+                const subUrl = url.match(/import\/(.+)/)?.[1]
+                if (subUrl) {
+                    const decoded = decodeURIComponent(subUrl)
+                    void copyText(decoded)
+                    setMessage({ type: 'success', text: 'Ссылка скопирована — вставьте в приложение вручную.' })
+                } else {
+                    window.location.href = url
+                }
+            }
         }
     }
 

@@ -553,17 +553,11 @@ pub async fn preview_node_config(
                 .unwrap_or_default();
 
         if !linked_plans.is_empty() {
-            let plan_ids_str = linked_plans
-                .iter()
-                .map(|id| id.to_string())
-                .collect::<Vec<_>>()
-                .join(",");
-            let query = format!(
-                "SELECT * FROM subscriptions WHERE status = 'active' AND plan_id IN ({}) LIMIT 5",
-                plan_ids_str
-            );
             let active_subs: Vec<caramba_db::models::store::Subscription> =
-                sqlx::query_as::<_, caramba_db::models::store::Subscription>(&query)
+                sqlx::query_as::<_, caramba_db::models::store::Subscription>(
+                    "SELECT * FROM subscriptions WHERE status = 'active' AND plan_id = ANY($1) LIMIT 5"
+                )
+                    .bind(&linked_plans)
                     .fetch_all(&state.pool)
                     .await
                     .unwrap_or_default();

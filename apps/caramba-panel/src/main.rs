@@ -133,9 +133,14 @@ async fn auth_middleware(
 
     let login_path = format!("{}/login", admin_path);
     let setup_path = format!("{}/setup", admin_path);
+    let setup_create_path = format!("{}/setup/create_admin", admin_path);
 
-    // Allow static assets, login, and setup paths
-    if path == login_path || path.starts_with(&setup_path) || path.starts_with("/assets") {
+    // Allow static assets, login, and initial setup paths (but NOT restore_backup)
+    if path == login_path
+        || path == setup_path
+        || path == setup_create_path
+        || path.starts_with("/assets")
+    {
         return next.run(req).await;
     }
 

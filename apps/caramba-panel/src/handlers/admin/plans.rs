@@ -189,10 +189,9 @@ pub async fn add_plan(
     let admin_path = state.admin_path.clone();
 
     let mut headers = HeaderMap::new();
-    headers.insert(
-        "HX-Redirect",
-        format!("{}/plans", admin_path).parse().unwrap(),
-    );
+    if let Ok(val) = format!("{}/plans", admin_path).parse() {
+        headers.insert("HX-Redirect", val);
+    }
     (axum::http::StatusCode::OK, headers, "Plan Created").into_response()
 }
 

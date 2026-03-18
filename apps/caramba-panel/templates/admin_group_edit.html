@@ -23,14 +23,13 @@
                 </p>
             </div>
         </div>
-        <form action="{{ admin_path }}/groups/{{ group.id }}/rotate" method="POST"
-            onsubmit="return confirm('Rotate all dynamic inbounds in this group? Users will briefly disconnect.');">
-            <button type="submit"
-                class="flex items-center gap-2 bg-amber-600/80 hover:bg-amber-500 text-white font-medium py-2.5 px-5 rounded-xl transition-all border border-white/10">
-                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-                <span>Rotate Inbounds</span>
-            </button>
-        </form>
+        <button hx-post="{{ admin_path }}/groups/{{ group.id }}/rotate"
+            hx-confirm="Rotate all dynamic inbounds in this group? Users will briefly disconnect."
+            hx-target="body" hx-swap="outerHTML"
+            class="flex items-center gap-2 bg-amber-600/80 hover:bg-amber-500 text-white font-medium py-2.5 px-5 rounded-xl transition-all border border-white/10">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+            <span>Rotate Inbounds</span>
+        </button>
     </div>
 
     <!-- Members Table -->

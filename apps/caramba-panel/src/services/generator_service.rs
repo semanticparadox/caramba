@@ -128,7 +128,8 @@ impl GeneratorService {
                 if let Some(priv_key) = &node.reality_priv {
                     stream_settings = stream_settings.replace("{{reality_private}}", priv_key);
                 } else {
-                    warn!("Node {} missing Reality keys for template", node.id);
+                    warn!("Node {} missing Reality keys for template — clearing placeholder", node.id);
+                    stream_settings = stream_settings.replace("{{reality_private}}", "");
                 }
             }
 
@@ -166,7 +167,8 @@ impl GeneratorService {
             if let Some(priv_key) = &node.reality_priv {
                 stream_settings = stream_settings.replace("{{reality_private}}", priv_key);
             } else {
-                warn!("Node {} missing Reality keys for template", node.id);
+                warn!("Node {} missing Reality keys for template — clearing placeholder", node.id);
+                stream_settings = stream_settings.replace("{{reality_private}}", "");
             }
         }
 
@@ -329,6 +331,9 @@ impl GeneratorService {
         if template.protocol == "vless" || template.protocol == "naive" {
             if let Some(pkey) = &node.reality_priv {
                 stream_settings = stream_settings.replace("{{reality_private}}", pkey);
+            } else if stream_settings.contains("{{reality_private}}") {
+                warn!("Node {} missing Reality keys during rotation — clearing placeholder", node.id);
+                stream_settings = stream_settings.replace("{{reality_private}}", "");
             }
         }
 
