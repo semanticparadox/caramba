@@ -566,12 +566,18 @@ pub async fn preview_node_config(
             if let Ok(mut settings) = serde_json::from_str::<InboundType>(&inbound.settings) {
                 match &mut settings {
                     InboundType::Vless(vless) => {
+                        // Determine if this inbound uses Reality (flow only for Reality+TCP)
+                        let stream_json: serde_json::Value = serde_json::from_str(&inbound.stream_settings).unwrap_or_default();
+                        let security = stream_json.get("security").and_then(|v| v.as_str()).unwrap_or("");
+                        let network = stream_json.get("network").and_then(|v| v.as_str()).unwrap_or("tcp");
+                        let use_flow = security == "reality" && network == "tcp";
+
                         for sub in &active_subs {
                             if let Some(uuid) = &sub.vless_uuid {
                                 vless.clients.push(VlessClient {
                                     id: uuid.clone(),
                                     email: format!("user_{}", sub.user_id),
-                                    flow: "xtls-rprx-vision".to_string(),
+                                    flow: if use_flow { "xtls-rprx-vision".to_string() } else { "".to_string() },
                                 });
                             }
                         }

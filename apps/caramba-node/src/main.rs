@@ -63,6 +63,8 @@ struct AgentState {
     last_sni_rotation: Option<std::time::Instant>,
     sni_rotation_count_this_hour: u32,
     sni_rotation_hour: u64, // uptime / 3600, чтобы сбрасывать счётчик каждый час
+    /// Ports currently opened in firewall by the agent (port, protocol)
+    open_firewall_ports: HashSet<(u16, String)>,
 }
 
 #[tokio::main]
@@ -118,6 +120,7 @@ async fn main() -> anyhow::Result<()> {
         last_sni_rotation: None,
         sni_rotation_count_this_hour: 0,
         sni_rotation_hour: 0,
+        open_firewall_ports: HashSet::new(),
     };
 
     // Initialize HTTP Client
@@ -135,6 +138,13 @@ async fn main() -> anyhow::Result<()> {
                 "⚠️ Failed to fetch initial config: {}. Will retry in mainloop.",
                 e
             );
+        }
+    }
+
+    // Sync firewall for existing config (in case agent restarted but config hash unchanged)
+    if let Ok(existing) = tokio::fs::read_to_string(&args.config_path).await {
+        if let Ok(config_json) = serde_json::from_str::<serde_json::Value>(&existing) {
+            sync_firewall(&config_json, &mut state);
         }
     }
 
@@ -768,6 +778,9 @@ async fn check_and_update_config(
         save_config(config_path, &config_resp.content).await?;
         state.current_hash = Some(config_resp.hash);
 
+        // Sync firewall ports before restarting
+        sync_firewall(&config_resp.content, state);
+
         // Restart sing-box
         restart_singbox()?;
 
@@ -1011,6 +1024,126 @@ fn time_from_system(t: std::time::SystemTime) -> (i32, u8, u8) {
 
 fn is_leap(year: i32) -> bool {
     (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+/// Extract required ports from sing-box config and sync firewall rules.
+/// Opens new ports, closes ports no longer needed. Supports ufw and iptables.
+fn sync_firewall(config: &serde_json::Value, state: &mut AgentState) {
+    let mut desired: HashSet<(u16, String)> = HashSet::new();
+
+    if let Some(inbounds) = config.get("inbounds").and_then(|v| v.as_array()) {
+        for ib in inbounds {
+            let port = ib
+                .get("listen_port")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u16;
+            if port == 0 {
+                continue;
+            }
+            let inbound_type = ib.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            // Hysteria2 and TUIC use UDP (QUIC), everything else is TCP
+            let proto = match inbound_type {
+                "hysteria2" | "hysteria" | "tuic" => "udp",
+                _ => "tcp",
+            };
+            desired.insert((port, proto.to_string()));
+            // Hysteria2 also needs TCP for some implementations, add both
+            if proto == "udp" {
+                desired.insert((port, "tcp".to_string()));
+            }
+        }
+    }
+
+    // Always keep SSH (22) and standard HTTPS (443) — never close them
+    desired.insert((22, "tcp".to_string()));
+    desired.insert((443, "tcp".to_string()));
+
+    let to_open: Vec<_> = desired.difference(&state.open_firewall_ports).cloned().collect();
+    let to_close: Vec<_> = state.open_firewall_ports.difference(&desired).cloned().collect();
+
+    if to_open.is_empty() && to_close.is_empty() {
+        return;
+    }
+
+    let has_ufw = std::process::Command::new("which")
+        .arg("ufw")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    let ufw_active = if has_ufw {
+        std::process::Command::new("ufw")
+            .arg("status")
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains("Status: active"))
+            .unwrap_or(false)
+    } else {
+        false
+    };
+
+    for (port, proto) in &to_open {
+        if ufw_active {
+            let rule = format!("{}/{}", port, proto);
+            let out = std::process::Command::new("ufw")
+                .args(["allow", &rule])
+                .output();
+            match out {
+                Ok(o) if o.status.success() => info!("🔓 Firewall: opened {}", rule),
+                Ok(o) => warn!("⚠️ ufw allow {} failed: {}", rule, String::from_utf8_lossy(&o.stderr)),
+                Err(e) => warn!("⚠️ ufw allow {} error: {}", rule, e),
+            }
+        } else {
+            // Fallback to iptables
+            let out = std::process::Command::new("iptables")
+                .args([
+                    "-C", "INPUT", "-p", proto, "--dport", &port.to_string(), "-j", "ACCEPT",
+                ])
+                .output();
+            let already_exists = out.map(|o| o.status.success()).unwrap_or(false);
+            if !already_exists {
+                let out = std::process::Command::new("iptables")
+                    .args([
+                        "-I", "INPUT", "-p", proto, "--dport", &port.to_string(), "-j", "ACCEPT",
+                    ])
+                    .output();
+                match out {
+                    Ok(o) if o.status.success() => info!("🔓 Firewall: opened {}/{}", port, proto),
+                    Ok(o) => warn!("⚠️ iptables open {}/{} failed: {}", port, proto, String::from_utf8_lossy(&o.stderr)),
+                    Err(e) => warn!("⚠️ iptables open {}/{} error: {}", port, proto, e),
+                }
+            }
+        }
+    }
+
+    for (port, proto) in &to_close {
+        // Never close SSH or 443
+        if *port == 22 || *port == 443 {
+            continue;
+        }
+        if ufw_active {
+            let rule = format!("{}/{}", port, proto);
+            let out = std::process::Command::new("ufw")
+                .args(["delete", "allow", &rule])
+                .output();
+            match out {
+                Ok(o) if o.status.success() => info!("🔒 Firewall: closed {}", rule),
+                _ => {}
+            }
+        } else {
+            let out = std::process::Command::new("iptables")
+                .args([
+                    "-D", "INPUT", "-p", proto, "--dport", &port.to_string(), "-j", "ACCEPT",
+                ])
+                .output();
+            match out {
+                Ok(o) if o.status.success() => info!("🔒 Firewall: closed {}/{}", port, proto),
+                _ => {}
+            }
+        }
+    }
+
+    state.open_firewall_ports = desired;
+    info!("🛡️ Firewall synced: {} ports open", state.open_firewall_ports.len());
 }
 
 fn restart_singbox() -> anyhow::Result<()> {

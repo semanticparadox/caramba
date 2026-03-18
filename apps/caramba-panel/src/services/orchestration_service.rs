@@ -1056,10 +1056,8 @@ impl OrchestrationService {
                                     vless.clients.push(VlessClient {
                                         id: uuid.clone(),
                                         email: auth_name,
-                                        // Only apply flow for TCP + REALITY/TLS
-                                        flow: if network == "tcp"
-                                            && (security == "reality" || security == "tls")
-                                        {
+                                        // Only apply flow for Reality+TCP (NOT plain TLS+TCP)
+                                        flow: if network == "tcp" && security == "reality" {
                                             "xtls-rprx-vision".to_string()
                                         } else {
                                             "".to_string()
