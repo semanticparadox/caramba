@@ -172,6 +172,7 @@ pub struct ShadowtlsHandshake {
 pub struct VlessUser {
     pub name: String,
     pub uuid: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub flow: Option<String>,
 }
 
@@ -180,8 +181,14 @@ pub struct VlessUser {
 pub enum VlessTransportConfig {
     Ws(WsTransport),
     HttpUpgrade(HttpUpgradeTransport),
+    Grpc(GrpcTransport),
     #[serde(rename = "xhttp")]
     Xhttp(XhttpTransport),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GrpcTransport {
+    pub service_name: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

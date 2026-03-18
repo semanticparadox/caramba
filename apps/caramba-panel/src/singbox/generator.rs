@@ -250,6 +250,19 @@ impl ConfigGenerator {
                                     ));
                                 }
                             }
+                            "grpc" => {
+                                // gRPC transport — read service_name from raw stream_settings JSON
+                                let raw: serde_json::Value = serde_json::from_str(&inbound.stream_settings).unwrap_or_default();
+                                let grpc = raw.get("grpcSettings").or_else(|| raw.get("grpc_settings"));
+                                let service_name = grpc
+                                    .and_then(|g| g.get("serviceName").or_else(|| g.get("service_name")))
+                                    .and_then(|s| s.as_str())
+                                    .unwrap_or("grpc")
+                                    .to_string();
+                                transport_config = Some(VlessTransportConfig::Grpc(
+                                    GrpcTransport { service_name },
+                                ));
+                            }
                             "xhttp" | "splithttp" => {
                                 if let Some(xhttp) = stream_settings.xhttp_settings.as_ref() {
                                     transport_config = Some(VlessTransportConfig::HttpUpgrade(
