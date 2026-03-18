@@ -7,22 +7,19 @@ pub struct ConfigGenerator;
 
 const FULL_TAG_01: &str = "01 - WS TLS (Relay)";
 const FULL_TAG_02: &str = "02 - HTTPUpgrade TLS (Relay)";
-const FULL_TAG_03: &str = "03 - gRPC TLS (Relay)";
-const FULL_TAG_04: &str = "04 - TCP TLS (Relay)";
-const FULL_TAG_05: &str = "05 - Hysteria2 (Relay)";
-const FULL_TAG_06: &str = "06 - Reality (Relay)";
-const FULL_TAG_07: &str = "07 - Reality (Direct)";
-const FULL_TAG_08: &str = "08 - gRPC TLS (Direct)";
-const FULL_TAG_09: &str = "09 - Hysteria2 (Direct)";
+const FULL_TAG_03: &str = "03 - TCP TLS (Relay)";
+const FULL_TAG_04: &str = "04 - Hysteria2 (Relay)";
+const FULL_TAG_05: &str = "05 - Reality (Relay)";
+const FULL_TAG_06: &str = "06 - Reality (Direct)";
+const FULL_TAG_07: &str = "07 - Hysteria2 (Direct)";
 
 const DIRECT_TAG_01: &str = "01 - Reality (Direct)";
 const DIRECT_TAG_02: &str = "02 - HTTPUpgrade TLS (Direct)";
 const DIRECT_TAG_03: &str = "03 - WS TLS (Direct)";
-const DIRECT_TAG_04: &str = "04 - gRPC TLS (Direct)";
-const DIRECT_TAG_05: &str = "05 - TCP TLS (Direct)";
-const DIRECT_TAG_06: &str = "06 - Hysteria2 (Direct)";
+const DIRECT_TAG_04: &str = "04 - TCP TLS (Direct)";
+const DIRECT_TAG_05: &str = "05 - Hysteria2 (Direct)";
 
-const EXPECTED_TAGS_FULL: [&str; 9] = [
+const EXPECTED_TAGS_FULL: [&str; 7] = [
     FULL_TAG_01,
     FULL_TAG_02,
     FULL_TAG_03,
@@ -30,17 +27,14 @@ const EXPECTED_TAGS_FULL: [&str; 9] = [
     FULL_TAG_05,
     FULL_TAG_06,
     FULL_TAG_07,
-    FULL_TAG_08,
-    FULL_TAG_09,
 ];
 
-const EXPECTED_TAGS_DIRECT: [&str; 6] = [
+const EXPECTED_TAGS_DIRECT: [&str; 5] = [
     DIRECT_TAG_01,
     DIRECT_TAG_02,
     DIRECT_TAG_03,
     DIRECT_TAG_04,
     DIRECT_TAG_05,
-    DIRECT_TAG_06,
 ];
 
 #[derive(Clone, Copy)]
@@ -63,64 +57,52 @@ struct VariantSpec {
     detour: Option<&'static str>,
 }
 
-const FULL_VARIANTS: [VariantSpec; 9] = [
+const FULL_VARIANTS: [VariantSpec; 7] = [
     VariantSpec {
         tag: FULL_TAG_01,
         scope: NodeScope::Relay,
         kind: VariantKind::VlessTls("ws"),
-        detour: Some(FULL_TAG_07),
+        detour: Some(FULL_TAG_06),
     },
     VariantSpec {
         tag: FULL_TAG_02,
         scope: NodeScope::Relay,
         kind: VariantKind::VlessTls("httpupgrade"),
-        detour: Some(FULL_TAG_07),
+        detour: Some(FULL_TAG_06),
     },
     VariantSpec {
         tag: FULL_TAG_03,
         scope: NodeScope::Relay,
-        kind: VariantKind::VlessTls("grpc"),
-        detour: Some(FULL_TAG_08),
+        kind: VariantKind::VlessTls("tcp"),
+        detour: Some(FULL_TAG_06),
     },
     VariantSpec {
         tag: FULL_TAG_04,
         scope: NodeScope::Relay,
-        kind: VariantKind::VlessTls("tcp"),
+        kind: VariantKind::Hysteria2,
         detour: Some(FULL_TAG_07),
     },
     VariantSpec {
         tag: FULL_TAG_05,
         scope: NodeScope::Relay,
-        kind: VariantKind::Hysteria2,
-        detour: Some(FULL_TAG_09),
+        kind: VariantKind::VlessReality,
+        detour: Some(FULL_TAG_06),
     },
     VariantSpec {
         tag: FULL_TAG_06,
-        scope: NodeScope::Relay,
+        scope: NodeScope::Exit,
         kind: VariantKind::VlessReality,
-        detour: Some(FULL_TAG_07),
+        detour: None,
     },
     VariantSpec {
         tag: FULL_TAG_07,
-        scope: NodeScope::Exit,
-        kind: VariantKind::VlessReality,
-        detour: None,
-    },
-    VariantSpec {
-        tag: FULL_TAG_08,
-        scope: NodeScope::Exit,
-        kind: VariantKind::VlessTls("grpc"),
-        detour: None,
-    },
-    VariantSpec {
-        tag: FULL_TAG_09,
         scope: NodeScope::Exit,
         kind: VariantKind::Hysteria2,
         detour: None,
     },
 ];
 
-const DIRECT_VARIANTS: [VariantSpec; 6] = [
+const DIRECT_VARIANTS: [VariantSpec; 5] = [
     VariantSpec {
         tag: DIRECT_TAG_01,
         scope: NodeScope::Exit,
@@ -142,17 +124,11 @@ const DIRECT_VARIANTS: [VariantSpec; 6] = [
     VariantSpec {
         tag: DIRECT_TAG_04,
         scope: NodeScope::Exit,
-        kind: VariantKind::VlessTls("grpc"),
-        detour: None,
-    },
-    VariantSpec {
-        tag: DIRECT_TAG_05,
-        scope: NodeScope::Exit,
         kind: VariantKind::VlessTls("tcp"),
         detour: None,
     },
     VariantSpec {
-        tag: DIRECT_TAG_06,
+        tag: DIRECT_TAG_05,
         scope: NodeScope::Exit,
         kind: VariantKind::Hysteria2,
         detour: None,
@@ -385,18 +361,6 @@ fn httpupgrade_transport(stream: &Value, node: &Node) -> Value {
     })
 }
 
-fn grpc_transport(stream: &Value) -> Value {
-    let grpc = stream
-        .get("grpcSettings")
-        .or_else(|| stream.get("grpc_settings"));
-    json!({
-        "type": "grpc",
-        "service_name": grpc
-            .and_then(|v| get_nested_str(v, "service_name").or_else(|| get_nested_str(v, "serviceName")))
-            .unwrap_or("grpc")
-    })
-}
-
 fn build_vless_outbound(
     node: &Node,
     inbound: &Inbound,
@@ -442,7 +406,6 @@ fn build_vless_outbound(
                 "padding": true
             });
         }
-        "grpc" => outbound["transport"] = grpc_transport(stream),
         "tcp" => {}
         other => {
             return Err(anyhow!(
@@ -921,7 +884,6 @@ mod tests {
             inbounds: vec![
                 make_vless_inbound(1, 1, "relay-ws", 4431, "tls", "ws"),
                 make_vless_inbound(2, 1, "relay-httpupgrade", 4432, "tls", "httpupgrade"),
-                make_vless_inbound(3, 1, "relay-grpc", 4433, "tls", "grpc"),
                 make_vless_inbound(4, 1, "relay-tcp", 4434, "tls", "tcp"),
                 make_hy2_inbound(5, 1, "relay-hy2", 4435),
                 make_vless_inbound(6, 1, "relay-reality", 4436, "reality", "tcp"),
@@ -934,7 +896,6 @@ mod tests {
                 make_vless_inbound(7, 2, "exit-reality", 4441, "reality", "tcp"),
                 make_vless_inbound(8, 2, "exit-httpupgrade", 4442, "tls", "httpupgrade"),
                 make_vless_inbound(15, 2, "exit-ws", 4443, "tls", "ws"),
-                make_vless_inbound(16, 2, "exit-grpc", 4444, "tls", "grpc"),
                 make_vless_inbound(17, 2, "exit-tcp", 4445, "tls", "tcp"),
                 make_hy2_inbound(9, 2, "exit-hy2", 4446),
             ],
@@ -954,7 +915,6 @@ mod tests {
             inbounds: vec![
                 make_vless_inbound(1, 1, "relay1-ws", 4431, "tls", "ws"),
                 make_vless_inbound(2, 1, "relay1-httpupgrade", 4432, "tls", "httpupgrade"),
-                make_vless_inbound(3, 1, "relay1-grpc", 4433, "tls", "grpc"),
                 make_vless_inbound(4, 1, "relay1-tcp", 4434, "tls", "tcp"),
                 make_hy2_inbound(5, 1, "relay1-hy2", 4435),
                 make_vless_inbound(6, 1, "relay1-reality", 4436, "reality", "tcp"),
@@ -965,7 +925,6 @@ mod tests {
             inbounds: vec![
                 make_vless_inbound(10, 3, "relay2-ws", 4531, "tls", "ws"),
                 make_vless_inbound(11, 3, "relay2-httpupgrade", 4532, "tls", "httpupgrade"),
-                make_vless_inbound(12, 3, "relay2-grpc", 4533, "tls", "grpc"),
                 make_vless_inbound(13, 3, "relay2-tcp", 4534, "tls", "tcp"),
                 make_hy2_inbound(14, 3, "relay2-hy2", 4535),
                 make_vless_inbound(15, 3, "relay2-reality", 4536, "reality", "tcp"),
@@ -977,7 +936,6 @@ mod tests {
                 make_vless_inbound(7, 2, "exit-reality", 4441, "reality", "tcp"),
                 make_vless_inbound(8, 2, "exit-httpupgrade", 4442, "tls", "httpupgrade"),
                 make_vless_inbound(15, 2, "exit-ws", 4443, "tls", "ws"),
-                make_vless_inbound(16, 2, "exit-grpc", 4444, "tls", "grpc"),
                 make_vless_inbound(17, 2, "exit-tcp", 4445, "tls", "tcp"),
                 make_hy2_inbound(9, 2, "exit-hy2", 4446),
             ],
@@ -1006,14 +964,14 @@ mod tests {
     }
 
     #[test]
-    fn generates_exactly_nine_variants_in_strict_order() {
+    fn generates_exactly_seven_variants_in_strict_order() {
         let (nodes, keys) = build_complete_fixture();
         let cfg =
             ConfigGenerator::generate(nodes, "sub-a", &keys, Some(2)).expect("config generation");
 
         let all_outbounds = cfg["outbounds"].as_array().expect("outbounds array");
-        // 9 прокси + 5 системных
-        assert_eq!(all_outbounds.len(), 9 + SYSTEM_OUTBOUNDS);
+        // 7 прокси + 5 системных
+        assert_eq!(all_outbounds.len(), 7 + SYSTEM_OUTBOUNDS);
 
         // Системные аутбаунды стоят на первых позициях
         assert_eq!(all_outbounds[0]["tag"].as_str(), Some("proxy"));
@@ -1024,21 +982,21 @@ mod tests {
         assert_eq!(all_outbounds[3]["tag"].as_str(), Some("block"));
         assert_eq!(all_outbounds[4]["tag"].as_str(), Some("dns-out"));
 
-        // selector содержит auto-all + все 9 тегов прокси
+        // selector содержит auto-all + все 7 тегов прокси
         let selector_choices = all_outbounds[0]["outbounds"]
             .as_array()
             .expect("selector outbounds");
         assert_eq!(selector_choices[0].as_str(), Some("auto-all"));
-        assert_eq!(selector_choices.len(), 1 + 9);
+        assert_eq!(selector_choices.len(), 1 + 7);
 
-        // urltest auto-all содержит ровно 9 прокси-тегов
+        // urltest auto-all содержит ровно 7 прокси-тегов
         let urltest_choices = all_outbounds[1]["outbounds"]
             .as_array()
             .expect("urltest outbounds");
-        assert_eq!(urltest_choices.len(), 9);
+        assert_eq!(urltest_choices.len(), 7);
 
         let outbounds = proxy_outbounds(&cfg);
-        assert_eq!(outbounds.len(), 9);
+        assert_eq!(outbounds.len(), 7);
 
         let tags = outbounds
             .iter()
@@ -1047,12 +1005,11 @@ mod tests {
         assert_eq!(tags, EXPECTED_TAGS_FULL);
 
         let expected_detours = [
+            Some(FULL_TAG_06),
+            Some(FULL_TAG_06),
+            Some(FULL_TAG_06),
             Some(FULL_TAG_07),
-            Some(FULL_TAG_07),
-            Some(FULL_TAG_08),
-            Some(FULL_TAG_07),
-            Some(FULL_TAG_09),
-            Some(FULL_TAG_07),
+            Some(FULL_TAG_06),
         ];
         for (idx, expected) in expected_detours.iter().enumerate() {
             assert_eq!(
@@ -1060,13 +1017,13 @@ mod tests {
                 *expected
             );
         }
-        for outbound in outbounds.iter().take(6) {
+        for outbound in outbounds.iter().take(5) {
             assert_eq!(
                 outbound.get("server").and_then(Value::as_str),
                 Some("10.0.0.1")
             );
         }
-        for outbound in outbounds.iter().skip(6) {
+        for outbound in outbounds.iter().skip(5) {
             assert_eq!(
                 outbound.get("server").and_then(Value::as_str),
                 Some("10.0.0.2")
@@ -1092,11 +1049,11 @@ mod tests {
             .expect("direct-only fallback");
 
         let all_outbounds = cfg["outbounds"].as_array().expect("outbounds array");
-        // 6 прокси + 5 системных
-        assert_eq!(all_outbounds.len(), 6 + SYSTEM_OUTBOUNDS);
+        // 5 прокси + 5 системных
+        assert_eq!(all_outbounds.len(), 5 + SYSTEM_OUTBOUNDS);
 
         let outbounds = proxy_outbounds(&cfg);
-        assert_eq!(outbounds.len(), 6);
+        assert_eq!(outbounds.len(), 5);
 
         let tags = outbounds
             .iter()
@@ -1141,11 +1098,11 @@ mod tests {
     fn fails_when_required_direct_variant_is_missing() {
         let (mut nodes, keys) = build_complete_fixture();
         if let Some(exit) = nodes.iter_mut().find(|n| n.node.id == 2) {
-            exit.inbounds.retain(|inbound| inbound.tag != "exit-grpc");
+            exit.inbounds.retain(|inbound| inbound.tag != "exit-reality");
         }
 
         let err = ConfigGenerator::generate(nodes, "sub-a", &keys, Some(2)).expect_err("must fail");
-        assert!(err.to_string().contains("missing VLESS+TLS+grpc inbound"));
+        assert!(err.to_string().contains("missing VLESS+Reality inbound"));
     }
 
     #[test]

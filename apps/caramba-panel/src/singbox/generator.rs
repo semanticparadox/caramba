@@ -314,24 +314,10 @@ impl ConfigGenerator {
                         continue;
                     }
 
-                    // Set ALPN based on transport type:
-                    // - HTTPUpgrade/WS require HTTP/1.1 (h2 breaks upgrade handshake)
-                    // - gRPC requires HTTP/2
-                    // - TCP/Reality: both are fine
-                    if let Some(ref mut tls) = tls_config {
-                        tls.alpn = Some(match &transport_config {
-                            Some(VlessTransportConfig::Ws(_))
-                            | Some(VlessTransportConfig::HttpUpgrade(_)) => {
-                                vec!["http/1.1".to_string()]
-                            }
-                            Some(VlessTransportConfig::Grpc(_)) => {
-                                vec!["h2".to_string()]
-                            }
-                            _ => {
-                                vec!["h2".to_string(), "http/1.1".to_string()]
-                            }
-                        });
-                    }
+                    // ALPN intentionally NOT set on server inbounds.
+                    // sing-box docs: "connection will fail if no mutually supported protocol".
+                    // Without ALPN from server, there's no negotiation conflict with any transport.
+                    // tls_config.alpn remains None → omitted from JSON via skip_serializing_if.
 
                     generated_inbounds.push(Inbound::Vless(VlessInbound {
                         tag: inbound.tag,
@@ -526,7 +512,7 @@ impl ConfigGenerator {
                                             .unwrap_or_else(|| "www.google.com".to_string())
                                     },
                                 ),
-                                alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                                alpn: None, // Intentionally omitted — avoids ALPN negotiation conflicts
                                 reality: Some(RealityConfig {
                                     enabled: true,
                                     handshake: RealityHandshake {
@@ -599,7 +585,7 @@ impl ConfigGenerator {
                         tls_config = Some(VlessTlsConfig {
                             enabled: true,
                             server_name,
-                            alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                            alpn: None, // Intentionally omitted — avoids ALPN negotiation conflicts
                             reality: None,
                             key_path,
                             certificate_path: cert_path,
@@ -645,7 +631,7 @@ impl ConfigGenerator {
                                     .first()
                                     .cloned()
                                     .unwrap_or_default(),
-                                alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                                alpn: None, // Intentionally omitted — avoids ALPN negotiation conflicts
                                 reality: Some(RealityConfig {
                                     enabled: true,
                                     handshake: RealityHandshake {
@@ -714,7 +700,7 @@ impl ConfigGenerator {
                         tls_config = Some(VlessTlsConfig {
                             enabled: true,
                             server_name,
-                            alpn: Some(vec!["h2".to_string(), "http/1.1".to_string()]),
+                            alpn: None, // Intentionally omitted — avoids ALPN negotiation conflicts
                             reality: None,
                             key_path,
                             certificate_path: cert_path,
