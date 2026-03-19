@@ -10,7 +10,31 @@ use tracing::{error, info, warn};
 
 #[derive(Deserialize)]
 pub struct SubParams {
-    pub client: Option<String>, // only "singbox" is supported
+    pub client: Option<String>,
+}
+
+/// Detect client type from User-Agent header when ?client= is not specified.
+fn detect_client_from_ua(headers: &HeaderMap) -> &'static str {
+    let ua = headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    if ua.contains("clash") || ua.contains("stash") || ua.contains("mihomo") {
+        "clash"
+    } else if ua.contains("shadowrocket")
+        || ua.contains("v2rayn")
+        || ua.contains("v2rayng")
+        || ua.contains("streisand")
+        || ua.contains("fair")
+        || ua.contains("nekoray")
+    {
+        "v2ray"
+    } else {
+        // Default: sing-box format (works for Hiddify, SFI, SFA, NekoBox)
+        "singbox"
+    }
 }
 
 pub async fn subscription_handler(
@@ -19,31 +43,28 @@ pub async fn subscription_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Response {
-    // Нормализуем тип клиента: hiddify — это тот же sing-box формат
-    let client_type = match params
-        .client
-        .as_deref()
-        .unwrap_or("singbox")
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "hiddify" => "singbox".to_string(),
-        other => other.to_string(),
+    let client_type = match params.client.as_deref() {
+        Some(c) => match c.to_ascii_lowercase().as_str() {
+            "hiddify" | "singbox" | "sing-box" | "sfi" | "sfa" | "nekobox" => "singbox",
+            "clash" | "clashmeta" | "mihomo" | "stash" => "clash",
+            "v2ray" | "v2rayn" | "v2rayng" | "xray" | "shadowrocket" | "streisand" => "v2ray",
+            _ => detect_client_from_ua(&headers),
+        },
+        None => detect_client_from_ua(&headers),
     };
-    if client_type != "singbox" {
-        return (
-            StatusCode::BAD_REQUEST,
-            "Only sing-box subscriptions are supported",
-        )
-            .into_response();
-    }
 
     let client_ip = get_client_ip(&headers).unwrap_or_else(|| "0.0.0.0".to_string());
     info!(
-        "Subscription request: UUID={}, client_ip={}",
-        uuid, client_ip
+        "Subscription request: UUID={}, client={}, ip={}",
+        uuid, client_type, client_ip
     );
 
+    // For V2Ray and Clash formats, proxy to panel which has full generators
+    if client_type == "v2ray" || client_type == "clash" {
+        return proxy_to_panel(&state, &uuid, client_type).await;
+    }
+
+    // Sing-box format — generate locally with strict variant control
     let sub = match state.panel_client.get_subscription(&uuid).await {
         Ok(s) => s,
         Err(e) => {
@@ -127,8 +148,6 @@ pub async fn subscription_handler(
         };
 
     let content = serde_json::to_string_pretty(&config_json).unwrap_or_default();
-    // При traffic_limit_gb == 0 подписка безлимитная — поле total не включаем,
-    // иначе клиенты показывают "0 байт использовано из 0 байт".
     let user_info_header = if sub.traffic_limit_gb == 0 {
         format!("upload=0; download={}; expire={}", sub.used_traffic, sub.expire_timestamp)
     } else {
@@ -150,6 +169,55 @@ pub async fn subscription_handler(
         .body(content)
         .unwrap()
         .into_response()
+}
+
+/// Proxy subscription requests for V2Ray/Clash formats to the panel,
+/// which has full generators for these formats.
+async fn proxy_to_panel(state: &AppState, uuid: &str, client_type: &str) -> Response {
+    let panel_sub_url = format!(
+        "{}/api/internal/subscription/{}?client={}",
+        state.config.panel_url, uuid, client_type
+    );
+
+    let resp = match state
+        .panel_client
+        .raw_get(&panel_sub_url)
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            error!("Failed to proxy subscription to panel: {}", e);
+            return (
+                StatusCode::BAD_GATEWAY,
+                "Panel subscription endpoint unavailable",
+            )
+                .into_response();
+        }
+    };
+
+    let status = resp.status();
+    let mut builder = Response::builder().status(status.as_u16());
+
+    // Forward relevant headers from panel response
+    for key in &[
+        "content-type",
+        "profile-title",
+        "profile-update-interval",
+        "subscription-userinfo",
+    ] {
+        if let Some(val) = resp.headers().get(*key) {
+            if let Ok(v) = val.to_str() {
+                builder = builder.header(*key, v);
+            }
+        }
+    }
+
+    builder = builder
+        .header(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate")
+        .header(header::PRAGMA, "no-cache");
+
+    let body = resp.text().await.unwrap_or_default();
+    builder.body(body).unwrap().into_response()
 }
 
 fn get_client_ip(headers: &HeaderMap) -> Option<String> {

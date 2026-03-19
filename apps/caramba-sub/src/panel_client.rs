@@ -211,6 +211,17 @@ impl PanelClient {
 
         Ok(())
     }
+
+    /// Raw GET request with auth — used for proxying subscription requests to panel
+    pub async fn raw_get(&self, url: &str) -> Result<reqwest::Response> {
+        let resp = self
+            .client
+            .get(url)
+            .bearer_auth(&self.auth_token)
+            .send()
+            .await?;
+        Ok(resp)
+    }
 }
 
 // Data structures (detailed for config generation)
