@@ -909,7 +909,8 @@ impl ConfigGenerator {
             rule_set: None,
         });
 
-        // 1. BitTorrent Blocking (Protocol + Geosite)
+        // 1. BitTorrent Blocking (protocol-based only; inline geosite is
+        //    unsupported in sing-box 1.8+ and crashes the server)
         if node.config_block_torrent {
             router_rules.push(RouteRule {
                 action: Some("reject".to_string()),
@@ -918,18 +919,6 @@ impl ConfigGenerator {
                 port: None,
                 domain: None,
                 geosite: None,
-                geoip: None,
-                domain_resolver: None,
-                rule_set: None,
-            });
-            // Try to use geosite if available, but keep protocol as primary fallback
-            router_rules.push(RouteRule {
-                action: Some("reject".to_string()),
-                geosite: Some(vec!["category-p2p".to_string()]),
-                outbound: None,
-                protocol: None,
-                port: None,
-                domain: None,
                 geoip: None,
                 domain_resolver: None,
                 rule_set: None,

@@ -1225,6 +1225,12 @@ pub fn generate_clash_config(
                                 "grpc-service-name": si.grpc_service
                             });
                         }
+                        if si.network == "httpupgrade" {
+                            proxy["http-upgrade-opts"] = json!({
+                                "path": si.ws_path,
+                                "host": si.sni
+                            });
+                        }
                         proxies.push(proxy);
                     }
                     "vmess" => {
@@ -1252,6 +1258,12 @@ pub fn generate_clash_config(
                         if si.network == "grpc" {
                             proxy["grpc-opts"] = json!({
                                 "grpc-service-name": si.grpc_service
+                            });
+                        }
+                        if si.network == "httpupgrade" {
+                            proxy["http-upgrade-opts"] = json!({
+                                "path": si.ws_path,
+                                "host": si.sni
                             });
                         }
                         proxies.push(proxy);
@@ -1284,6 +1296,13 @@ pub fn generate_clash_config(
                             proxy["network"] = json!("grpc");
                             proxy["grpc-opts"] = json!({
                                 "grpc-service-name": si.grpc_service
+                            });
+                        }
+                        if si.network == "httpupgrade" {
+                            proxy["network"] = json!("httpupgrade");
+                            proxy["http-upgrade-opts"] = json!({
+                                "path": si.ws_path,
+                                "host": si.sni
                             });
                         }
                         proxies.push(proxy);
