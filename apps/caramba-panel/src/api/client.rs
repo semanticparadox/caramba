@@ -254,6 +254,20 @@ pub fn routes(state: AppState) -> Router<AppState> {
                 auth_middleware,
             )),
         )
+        .route(
+            "/subscription/{id}/devices",
+            get(get_subscription_devices).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/subscription/{sub_id}/devices/{device_id}",
+            delete(kick_subscription_device).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
 }
 
 async fn auth_telegram(
@@ -481,6 +495,7 @@ async fn get_user_stats(
         total_upload: i64,
         simple_mode_enabled: bool,
         simple_mode_plan_id: i64,
+        brand_name: String,
     }
 
     let balance_opt: Option<i64> = sqlx::query_scalar("SELECT balance FROM users WHERE tg_id = $1")
@@ -573,6 +588,10 @@ async fn get_user_stats(
             .await
             .parse()
             .unwrap_or(0),
+        brand_name: state
+            .settings
+            .get_or_default("brand_name", "CARAMBA")
+            .await,
     })
     .into_response()
 }
@@ -2304,4 +2323,159 @@ async fn set_referrer_code(
         .into_response(),
         Err(err) => (StatusCode::BAD_REQUEST, err.to_string()).into_response(),
     }
+}
+
+// ============================================================================
+// Device Management
+// ============================================================================
+
+#[derive(Serialize)]
+struct DeviceInfo {
+    id: i64,
+    device_name: String,
+    last_ip: String,
+    last_seen_at: String,
+    first_seen_at: String,
+    is_current: bool,
+}
+
+fn mask_ip(ip: &str) -> String {
+    if let Some(dot_pos) = ip.rfind('.') {
+        format!("{}.*", &ip[..dot_pos])
+    } else if let Some(colon_pos) = ip.rfind(':') {
+        format!("{}:*", &ip[..colon_pos])
+    } else {
+        ip.to_string()
+    }
+}
+
+async fn get_subscription_devices(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path(sub_id): Path<i64>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+
+    // Verify subscription belongs to this user
+    let owner_tg_id = sqlx::query_scalar::<_, i64>(
+        "SELECT u.tg_id FROM subscriptions s JOIN users u ON s.user_id = u.id WHERE s.id = $1",
+    )
+    .bind(sub_id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+
+    if owner_tg_id != Some(tg_id) {
+        return (StatusCode::FORBIDDEN, "Not your subscription").into_response();
+    }
+
+    let client_ip = headers
+        .get("x-forwarded-for")
+        .or_else(|| headers.get("cf-connecting-ip"))
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+
+    #[derive(sqlx::FromRow)]
+    struct DeviceLease {
+        id: i64,
+        device_name: Option<String>,
+        last_ip: String,
+        last_seen_at: chrono::DateTime<chrono::Utc>,
+        first_seen_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    let leases = sqlx::query_as::<_, DeviceLease>(
+        r#"SELECT id, device_name, last_ip, last_seen_at, first_seen_at
+           FROM subscription_device_leases
+           WHERE subscription_id = $1
+             AND last_seen_at > NOW() - INTERVAL '15 minutes'
+             AND last_ip <> '0.0.0.0'
+           ORDER BY last_seen_at DESC"#,
+    )
+    .bind(sub_id)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    let devices: Vec<DeviceInfo> = leases
+        .into_iter()
+        .map(|l| DeviceInfo {
+            id: l.id,
+            device_name: l.device_name.unwrap_or_else(|| "Unknown".to_string()),
+            is_current: l.last_ip == client_ip,
+            last_ip: mask_ip(&l.last_ip),
+            last_seen_at: l.last_seen_at.to_rfc3339(),
+            first_seen_at: l.first_seen_at.to_rfc3339(),
+        })
+        .collect();
+
+    Json(devices).into_response()
+}
+
+async fn kick_subscription_device(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path((sub_id, device_id)): Path<(i64, i64)>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+
+    // Verify subscription belongs to this user
+    let owner_tg_id = sqlx::query_scalar::<_, i64>(
+        "SELECT u.tg_id FROM subscriptions s JOIN users u ON s.user_id = u.id WHERE s.id = $1",
+    )
+    .bind(sub_id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+
+    if owner_tg_id != Some(tg_id) {
+        return (StatusCode::FORBIDDEN, "Not your subscription").into_response();
+    }
+
+    // Fetch device lease — must belong to this subscription
+    let device_ip = sqlx::query_scalar::<_, String>(
+        "SELECT last_ip FROM subscription_device_leases WHERE id = $1 AND subscription_id = $2",
+    )
+    .bind(device_id)
+    .bind(sub_id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+
+    let ip = match device_ip {
+        Some(ip) => ip,
+        None => return (StatusCode::NOT_FOUND, "Device not found").into_response(),
+    };
+
+    // Delete from device leases
+    let _ = sqlx::query("DELETE FROM subscription_device_leases WHERE id = $1 AND subscription_id = $2")
+        .bind(device_id)
+        .bind(sub_id)
+        .execute(&state.pool)
+        .await;
+
+    // Delete from legacy IP tracking
+    let _ = sqlx::query(
+        "DELETE FROM subscription_ip_tracking WHERE subscription_id = $1 AND client_ip = $2",
+    )
+    .bind(sub_id)
+    .bind(&ip)
+    .execute(&state.pool)
+    .await;
+
+    // Best-effort: kill active connections on nodes via Clash API
+    // The connection_service handles this in background — we just clean the DB records
+    // and the device will be blocked on next config request (15-min window expired)
+
+    let _ = crate::services::activity_service::ActivityService::log(
+        &state.pool,
+        "Device:Kicked",
+        &format!("User kicked device {} (IP {}) from sub #{}", device_id, mask_ip(&ip), sub_id),
+    )
+    .await;
+
+    Json(serde_json::json!({ "ok": true, "message": "Device disconnected" })).into_response()
 }

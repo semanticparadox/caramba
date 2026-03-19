@@ -1352,6 +1352,7 @@ impl SubscriptionService {
             || ua.contains("xray")
             || ua.contains("fair")
             || ua.contains("shadowrocket")
+            || ua.contains("happ")
         {
             "v2ray".to_string()
         } else if ua.contains("mozilla") || ua.contains("chrome") || ua.contains("safari") {

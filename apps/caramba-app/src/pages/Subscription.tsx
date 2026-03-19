@@ -29,6 +29,23 @@ function withVariant(url: string, client: string, variant?: string) {
     return `${base}&variant=${encodeURIComponent(variant)}`
 }
 
+interface DeviceEntry {
+    id: number
+    device_name: string
+    last_ip: string
+    last_seen_at: string
+    first_seen_at: string
+    is_current: boolean
+}
+
+function timeAgo(iso: string): string {
+    const diff = Date.now() - new Date(iso).getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 1) return 'только что'
+    if (mins < 60) return `${mins} мин. назад`
+    return `${Math.floor(mins / 60)} ч. назад`
+}
+
 export default function Subscription() {
     const { subscriptions, isLoading, refreshData, token, error } = useAuth()
     const navigate = useNavigate()
@@ -41,6 +58,41 @@ export default function Subscription() {
     const [giftingId, setGiftingId] = useState<number | null>(null)
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
     const [selectedVariants, setSelectedVariants] = useState<Record<number, string>>({})
+    const [devicesSubId, setDevicesSubId] = useState<number | null>(null)
+    const [devices, setDevices] = useState<DeviceEntry[]>([])
+    const [devicesLoading, setDevicesLoading] = useState(false)
+    const [kickingDeviceId, setKickingDeviceId] = useState<number | null>(null)
+
+    const loadDevices = async (subId: number) => {
+        if (!token) return
+        if (devicesSubId === subId) { setDevicesSubId(null); return }
+        setDevicesSubId(subId)
+        setDevicesLoading(true)
+        try {
+            const res = await fetch(`/api/client/subscription/${subId}/devices`, {
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            if (res.ok) setDevices(await res.json())
+            else setDevices([])
+        } catch { setDevices([]) }
+        finally { setDevicesLoading(false) }
+    }
+
+    const kickDevice = async (subId: number, deviceId: number) => {
+        if (!token) return
+        setKickingDeviceId(deviceId)
+        try {
+            await fetch(`/api/client/subscription/${subId}/devices/${deviceId}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            setDevices(prev => prev.filter(d => d.id !== deviceId))
+            setMessage({ type: 'success', text: 'Устройство отключено.' })
+            await refreshData()
+        } catch {
+            setMessage({ type: 'error', text: 'Не удалось отключить устройство.' })
+        } finally { setKickingDeviceId(null) }
+    }
 
     const sorted = [...subscriptions].sort((a, b) => {
         const order: Record<string, number> = { active: 0, pending: 1, expired: 2 }
@@ -313,9 +365,14 @@ export default function Subscription() {
                             )}
 
                             <div className="sub-extra-row">
-                                <span>
+                                <button
+                                    className="btn-text"
+                                    onClick={(e) => { e.stopPropagation(); loadDevices(sub.id) }}
+                                    style={{ padding: 0, minHeight: 'auto', fontSize: '0.78rem' }}
+                                >
                                     Устройства: {sub.active_devices ?? 0}/{(sub.device_limit ?? 0) > 0 ? sub.device_limit : '∞'}
-                                </span>
+                                    {' '}{devicesSubId === sub.id ? '^' : 'v'}
+                                </button>
                                 {sub.last_node_name && (
                                     <span>
                                         Последний узел: {sub.last_node_flag ? `${sub.last_node_flag} ` : ''}{sub.last_node_name}
@@ -323,6 +380,39 @@ export default function Subscription() {
                                     </span>
                                 )}
                             </div>
+
+                            {devicesSubId === sub.id && (
+                                <div className="devices-panel">
+                                    {devicesLoading ? (
+                                        <span className="devices-loading">Загрузка...</span>
+                                    ) : devices.length === 0 ? (
+                                        <span className="devices-empty">Нет активных устройств (15 мин. окно)</span>
+                                    ) : (
+                                        <div className="devices-list">
+                                            {devices.map(d => (
+                                                <div key={d.id} className="device-row">
+                                                    <div className="device-info">
+                                                        <span className="device-name">
+                                                            {d.device_name}
+                                                            {d.is_current && <span className="device-current-badge">текущее</span>}
+                                                        </span>
+                                                        <span className="device-meta">{d.last_ip} · {timeAgo(d.last_seen_at)}</span>
+                                                    </div>
+                                                    {!d.is_current && (
+                                                        <button
+                                                            className="btn-text device-kick-btn"
+                                                            onClick={() => kickDevice(sub.id, d.id)}
+                                                            disabled={kickingDeviceId === d.id}
+                                                        >
+                                                            {kickingDeviceId === d.id ? '...' : 'Отключить'}
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                             <div className="sub-extra-row">
                                 <span>Последнее обновление конфига: {formatDateTime(sub.last_sub_access)}</span>
                             </div>

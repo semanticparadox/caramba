@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import type { SingboxConnectionVariant } from '../context/AuthContext'
 import { QRCodeSVG } from 'qrcode.react'
 import { copyText } from '../lib/copyActions'
+import { buildConfigUrl } from '../lib/subscriptionUrl'
 import './Servers.css'
 
 interface ServerInfo {
@@ -99,15 +100,7 @@ export default function Servers() {
 
     const updateConfigUrl = (nodeId: number, type: string, variantId?: string) => {
         if (!activeSub) return;
-        let base = activeSub.subscription_url;
-        const params = new URLSearchParams();
-        params.set('client', type);
-        params.set('node_id', String(nodeId));
-        if (type === 'singbox' && variantId) {
-            params.set('variant', variantId);
-        }
-        const sep = base.includes('?') ? '&' : '?';
-        setConfigUrl(`${base}${sep}${params.toString()}`);
+        setConfigUrl(buildConfigUrl(activeSub, { client: type, nodeId, variantId }));
     }
 
     const handleClientChange = (type: string) => {

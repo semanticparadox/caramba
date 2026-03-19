@@ -15,16 +15,16 @@
     --bg-secondary: var(--bg-elevated);
     --bg-glass-border: rgba(255, 255, 255, 0.1);
 
-    --accent-rgb: 69, 224, 203;
+    --accent-rgb: 255, 152, 56;
     --accent-primary: rgb(var(--accent-rgb));
-    --accent-secondary: #6eb6ff;
+    --accent-secondary: #ff8a3d;
     --accent-purple: var(--accent-primary);
-    --accent-gradient: linear-gradient(132deg, rgba(var(--accent-rgb), 0.95) 0%, rgba(110, 182, 255, 0.92) 100%);
-    --accent-soft-gradient: linear-gradient(132deg, rgba(var(--accent-rgb), 0.15) 0%, rgba(110, 182, 255, 0.15) 100%);
+    --accent-gradient: linear-gradient(132deg, rgba(255, 152, 56, 0.95) 0%, rgba(255, 100, 70, 0.92) 100%);
+    --accent-soft-gradient: linear-gradient(132deg, rgba(255, 152, 56, 0.15) 0%, rgba(255, 100, 70, 0.15) 100%);
 
     --text-primary: #f6fbff;
     --text-secondary: rgba(246, 251, 255, 0.72);
-    --text-muted: rgba(246, 251, 255, 0.45);
+    --text-muted: rgba(246, 251, 255, 0.58);
     --text-tertiary: var(--text-muted);
 
     --status-online: #4fe3b5;
@@ -82,7 +82,7 @@ body {
     -moz-osx-font-smoothing: grayscale;
     background:
         radial-gradient(125% 115% at 82% 0%, rgba(var(--accent-rgb), 0.18) 0%, rgba(var(--accent-rgb), 0) 52%),
-        radial-gradient(86% 95% at 5% 15%, rgba(110, 182, 255, 0.15) 0%, rgba(110, 182, 255, 0) 62%),
+        radial-gradient(86% 95% at 5% 15%, rgba(255, 140, 50, 0.10) 0%, rgba(255, 140, 50, 0) 62%),
         linear-gradient(180deg, var(--bg-canvas) 0%, var(--bg-core) 100%);
     color: var(--text-primary);
     overflow-x: hidden;
@@ -200,7 +200,7 @@ button:disabled {
 
 .btn-primary {
     border: 1px solid rgba(var(--accent-rgb), 0.3);
-    color: #041217;
+    color: #2d1200;
     background: var(--accent-gradient);
     box-shadow: var(--shadow-glow);
 }

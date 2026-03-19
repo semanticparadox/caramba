@@ -144,6 +144,36 @@ pub async fn get_dashboard(State(state): State<AppState>, jar: CookieJar) -> imp
         })
         .collect();
 
+    // Fetch real chart data from daily_stats
+    let traffic_history = state
+        .analytics_service
+        .get_traffic_history()
+        .await
+        .unwrap_or_default();
+    let mut history_labels: Vec<String> = traffic_history.iter().map(|d| d.date.clone()).collect();
+    let mut history_data: Vec<i64> = traffic_history
+        .iter()
+        .map(|d| d.traffic_used / (1024 * 1024 * 1024)) // Convert to GB for chart
+        .collect();
+    // Reverse to chronological order (query returns DESC)
+    history_labels.reverse();
+    history_data.reverse();
+    if history_labels.is_empty() {
+        history_labels.push("Today".to_string());
+        history_data.push(0);
+    }
+
+    let node_traffic = state
+        .analytics_service
+        .get_node_traffic_stats()
+        .await
+        .unwrap_or_default();
+    let node_labels: Vec<String> = node_traffic.iter().map(|n| n.name.clone()).collect();
+    let node_series: Vec<i64> = node_traffic
+        .iter()
+        .map(|n| n.total_traffic / (1024 * 1024 * 1024))
+        .collect();
+
     let template = DashboardTemplate {
         active_nodes,
         total_users,
@@ -154,10 +184,10 @@ pub async fn get_dashboard(State(state): State<AppState>, jar: CookieJar) -> imp
         is_zero_network_load,
         orders,
         top_users,
-        history_data_json: "[0,0,0,0,0]".to_string(),
-        history_labels_json: r#"["Mon", "Tue", "Wed", "Thu", "Fri"]"#.to_string(),
-        node_series_json: "[100]".to_string(),
-        node_labels_json: r#"["All Nodes"]"#.to_string(),
+        history_data_json: serde_json::to_string(&history_data).unwrap_or_else(|_| "[0]".to_string()),
+        history_labels_json: serde_json::to_string(&history_labels).unwrap_or_else(|_| r#"["Today"]"#.to_string()),
+        node_series_json: serde_json::to_string(&node_series).unwrap_or_else(|_| "[0]".to_string()),
+        node_labels_json: serde_json::to_string(&node_labels).unwrap_or_else(|_| r#"["All"]"#.to_string()),
         activities,
         bot_status,
         is_auth: true,

@@ -11,7 +11,7 @@
     z-index: -2;
     background-image:
         radial-gradient(circle at 14% 22%, rgba(var(--accent-rgb), 0.12) 0 24%, transparent 56%),
-        radial-gradient(circle at 84% 10%, rgba(110, 182, 255, 0.15) 0 20%, transparent 52%),
+        radial-gradient(circle at 84% 10%, rgba(255, 140, 50, 0.10) 0 20%, transparent 52%),
         linear-gradient(180deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
         linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
     background-size: auto, auto, 28px 28px, 28px 28px;
@@ -40,7 +40,7 @@
     padding: var(--space-2);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-round);
-    background: rgba(11, 17, 28, 0.82);
+    background: rgba(11, 17, 28, 0.90);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.28);
@@ -54,7 +54,7 @@
     font-size: 0.7rem;
     text-decoration: none;
     font-weight: 700;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.08em;
     transition: color var(--ease-default), border-color var(--ease-default), background var(--ease-default);
@@ -67,7 +67,7 @@
 }
 
 .rail-link.active {
-    color: #051217;
+    color: #2d1200;
     border-color: rgba(var(--accent-rgb), 0.36);
     background: var(--accent-gradient);
 }

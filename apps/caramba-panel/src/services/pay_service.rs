@@ -1,4 +1,5 @@
 use crate::bot_manager::BotManager;
+use crate::services::activity_service::ActivityService;
 use crate::services::payment::{PaymentAdapter, cryptomus::CryptomusAdapter};
 use crate::services::store_service::StoreService;
 use anyhow::Result;
@@ -791,6 +792,31 @@ impl PayService {
         external_id: Option<String>,
         payload: &str,
     ) -> Result<()> {
+        // Idempotency check: skip if this (method, external_id) was already processed
+        if let Some(ref ext_id) = external_id {
+            let already = sqlx::query_scalar::<_, i64>(
+                "SELECT id FROM payments WHERE method = $1 AND external_id = $2 LIMIT 1",
+            )
+            .bind(method)
+            .bind(ext_id)
+            .fetch_optional(&self.pool)
+            .await?;
+
+            if already.is_some() {
+                info!(
+                    "Duplicate webhook ignored: method={}, external_id={}",
+                    method, ext_id
+                );
+                let _ = ActivityService::log(
+                    &self.pool,
+                    "Payment:Duplicate",
+                    &format!("Ignored duplicate {} / {}", method, ext_id),
+                )
+                .await;
+                return Ok(());
+            }
+        }
+
         let parts: Vec<&str> = payload.split(':').collect();
         if parts.len() < 3 {
             if let Ok(user_id) = payload.parse::<i64>() {
@@ -866,6 +892,14 @@ impl PayService {
             amount_units,
         )
         .await;
+
+        let _ = ActivityService::log(
+            &self.pool,
+            "Order",
+            &format!("Order #{} paid ${:.2} via {} for user {}", order_id, amount_usd, method, user_id),
+        )
+        .await;
+
         Ok(())
     }
 
@@ -939,10 +973,18 @@ impl PayService {
             .execute(&mut *tx)
             .await?;
 
-        let payment_id: i64 = sqlx::query_scalar(
+        let payment_id: i64 = match sqlx::query_scalar(
             "INSERT INTO payments (user_id, method, amount, external_id, status) VALUES ($1, $2, $3, $4, 'paid') RETURNING id"
         )
-            .bind(user_id).bind(method).bind(amount_units).bind(external_id).fetch_one(&mut *tx).await?;
+            .bind(user_id).bind(method).bind(amount_units).bind(&external_id).fetch_one(&mut *tx).await {
+            Ok(id) => id,
+            Err(sqlx::Error::Database(db_err)) if db_err.is_unique_violation() => {
+                info!("Duplicate payment insert caught by DB constraint: method={}, external_id={:?}", method, external_id);
+                tx.rollback().await?;
+                return Ok(());
+            }
+            Err(e) => return Err(e.into()),
+        };
 
         if let Some((referrer_tg_id, bonus)) = self
             .store_service
@@ -972,6 +1014,16 @@ impl PayService {
         let _ = crate::services::analytics_service::AnalyticsService::track_revenue(
             &self.pool,
             amount_units,
+        )
+        .await;
+
+        let _ = ActivityService::log(
+            &self.pool,
+            "Payment",
+            &format!(
+                "Balance +${:.2} for user {} via {}, ext_id={:?}",
+                amount_usd, user_id, method, external_id
+            ),
         )
         .await;
 

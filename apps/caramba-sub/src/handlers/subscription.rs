@@ -33,6 +33,7 @@ fn detect_client_from_ua(headers: &HeaderMap) -> &'static str {
         || ua.contains("streisand")
         || ua.contains("fair")
         || ua.contains("nekoray")
+        || ua.contains("happ")
     {
         "v2ray"
     } else {

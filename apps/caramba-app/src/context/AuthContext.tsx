@@ -13,6 +13,7 @@ export interface UserStats {
     traffic_limit: number;
     simple_mode_enabled?: boolean;
     simple_mode_plan_id?: number;
+    brand_name?: string;
 }
 
 export interface UserSubscription {
