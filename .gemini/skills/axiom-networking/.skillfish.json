@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "axiom-networking",
+  "owner": "charleswiltgen",
+  "repo": "axiom",
+  "path": ".claude-plugin/plugins/axiom/skills/axiom-networking",
+  "branch": "main",
+  "sha": "5d6dce14849e710a1010f7921f2726f24162101c",
+  "source": "manual"
+}

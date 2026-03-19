@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "rust-engineer",
+  "owner": "jeffallan",
+  "repo": "claude-skills",
+  "path": "skills/rust-engineer",
+  "branch": "main",
+  "sha": "fdf40bf033758cbd8235d36023311429d21f8d79",
+  "source": "manual"
+}

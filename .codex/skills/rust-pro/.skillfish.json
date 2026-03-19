@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "rust-pro",
+  "owner": "rbergman",
+  "repo": "dark-matter-marketplace",
+  "path": "plugins/language-pro/skills/rust-pro",
+  "branch": "main",
+  "sha": "59ff9a9dd68438befc44924dce387782de20ae67",
+  "source": "manual"
+}
