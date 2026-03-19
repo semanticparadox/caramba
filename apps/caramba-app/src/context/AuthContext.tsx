@@ -55,6 +55,7 @@ export interface SingboxConnectionVariant {
 interface User {
     id: number;
     username: string;
+    full_name?: string;
     active_subscriptions: number;
     balance?: number;
 }

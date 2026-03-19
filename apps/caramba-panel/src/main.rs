@@ -1316,6 +1316,13 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/caramba-api/v2/bot/subs/{id}/activate",
             axum::routing::post(handlers::api::bot::activate_sub),
         )
+        // Admin bot endpoints
+        .route("/api/v2/bot/admin/check", axum::routing::post(handlers::api::bot::admin_check))
+        .route("/api/v2/bot/admin/stats", axum::routing::get(handlers::api::bot::admin_stats))
+        .route("/api/v2/bot/admin/gift", axum::routing::post(handlers::api::bot::admin_gift))
+        .route("/api/v2/bot/admin/ban", axum::routing::post(handlers::api::bot::admin_ban))
+        .route("/api/v2/bot/admin/unban", axum::routing::post(handlers::api::bot::admin_unban))
+        .route("/api/v2/bot/admin/promos", axum::routing::get(handlers::api::bot::admin_list_promos).post(handlers::api::bot::admin_create_promo))
         .route(
             "/api/v2/client/recommended",
             axum::routing::get(api::v2::client::get_recommended_nodes),

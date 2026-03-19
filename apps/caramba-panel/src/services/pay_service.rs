@@ -1027,6 +1027,20 @@ impl PayService {
         )
         .await;
 
+        // Admin notification
+        let username: String = sqlx::query_scalar("SELECT COALESCE(username, tg_id::TEXT) FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await
+            .unwrap_or(None)
+            .unwrap_or_else(|| user_id.to_string());
+        self.bot_manager
+            .notify_admins(
+                &self.pool,
+                &format!("💰 Payment ${:.2} from {} via {}", amount_usd, username, method),
+            )
+            .await;
+
         Ok(())
     }
 }

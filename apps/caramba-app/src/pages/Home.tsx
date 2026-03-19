@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import WebApp from '@twa-dev/sdk'
 import { useNavigate } from 'react-router-dom'
+import { QRCodeSVG } from 'qrcode.react'
 import DrawerModal from '../components/DrawerModal'
 import { apiUrl } from '../config'
 import { useAuth, UserSubscription } from '../context/AuthContext'
@@ -90,6 +91,7 @@ export default function Home() {
 
     const [serversBySubId, setServersBySubId] = useState<Record<number, ServerInfo[]>>({})
     const [selectedNodeBySubId, setSelectedNodeBySubId] = useState<Record<number, number | null>>({})
+    const [qrSubId, setQrSubId] = useState<number | null>(null)
 
     const providerCards = mapProviderCards(providers)
 
@@ -337,7 +339,6 @@ export default function Home() {
         }
     }
 
-    const isSimpleMode = stats?.simple_mode_enabled === true
     const totalDownload = stats?.total_download || 0
     const totalUpload = stats?.total_upload || 0
 
@@ -347,9 +348,8 @@ export default function Home() {
                 <span className={`state-dot ${hasActiveAccess ? 'is-online' : hasPending ? 'is-waiting' : 'is-idle'}`} />
                 <div className="compact-hero-copy">
                     <p className="hero-kicker">{stats?.brand_name || 'VPN'}</p>
-                    <h1>{user?.username || 'Пользователь'}</h1>
+                    <h1>{user?.full_name || user?.username || 'Пользователь'}</h1>
                 </div>
-                {isSimpleMode && <span className="hero-mode">Упрощенный</span>}
             </section>
 
             {banner && (
@@ -385,40 +385,54 @@ export default function Home() {
                             </div>
                         )}
 
-                        {uniqueServers.length > 0 && (
-                            <div className="country-quick-picker">
+                        <div className="country-quick-picker">
+                            <button
+                                className={`country-chip ${!selectedNodeId ? 'active' : ''}`}
+                                onClick={() => setSelectedNode(sub.id, null)}
+                            >
+                                Авто
+                            </button>
+                            {uniqueServers.length > 0 ? uniqueServers.map(server => (
                                 <button
-                                    className={`country-chip ${!selectedNodeId ? 'active' : ''}`}
-                                    onClick={() => setSelectedNode(sub.id, null)}
+                                    key={server.id}
+                                    className={`country-chip ${selectedNodeId === server.id ? 'active' : ''}`}
+                                    onClick={() => setSelectedNode(sub.id, server.id)}
                                 >
-                                    Авто
+                                    {server.flag} {server.country_code}
                                 </button>
-                                {uniqueServers.map(server => (
-                                    <button
-                                        key={server.id}
-                                        className={`country-chip ${selectedNodeId === server.id ? 'active' : ''}`}
-                                        onClick={() => setSelectedNode(sub.id, server.id)}
-                                    >
-                                        {server.flag} {server.country_code}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
+                            )) : (
+                                <span className="country-chip loading-chip">Загрузка...</span>
+                            )}
+                        </div>
 
                         <button className="btn-primary" onClick={() => openHiddify(sub)}>
                             Открыть Hiddify
                         </button>
                         <div className="sub-card-actions">
+                            <button className="btn-ghost" onClick={() => setQrSubId(qrSubId === sub.id ? null : sub.id)}>
+                                QR
+                            </button>
                             <button className="btn-ghost" onClick={() => void copyImportLink(sub)}>
-                                {copiedSubId === sub.id ? 'Скопировано' : 'Скопировать ссылку'}
+                                {copiedSubId === sub.id ? 'Скопировано' : 'Ссылка'}
                             </button>
                             <button className="btn-ghost" onClick={() => navigate(`/servers/${sub.id}`)}>
                                 Серверы
                             </button>
-                            <button className="btn-ghost" onClick={() => void refreshData()}>
-                                Обновить
+                            <button className="btn-ghost" onClick={() => navigate('/subscription')}>
+                                {sub.active_devices ?? 0} устр.
                             </button>
                         </div>
+
+                        {qrSubId === sub.id && (
+                            <div className="sub-qr-panel">
+                                <div className="sub-qr-wrap">
+                                    <QRCodeSVG value={getSubUrl(sub)} size={180} bgColor="#ffffff" fgColor="#0D0D1A" level="M" includeMargin />
+                                </div>
+                                <div className="sub-qr-url">
+                                    <input type="text" readOnly value={getSubUrl(sub)} onClick={e => e.currentTarget.select()} />
+                                </div>
+                            </div>
+                        )}
                     </section>
                 )
             })}

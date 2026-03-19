@@ -61,6 +61,14 @@ impl MonitoringService {
     }
 
     async fn check_node_status(&self) -> anyhow::Result<()> {
+        // Get names of nodes about to go offline (for admin notification)
+        let going_offline: Vec<(String, String)> = sqlx::query_as(
+            "SELECT name, country_code FROM nodes WHERE last_seen < CURRENT_TIMESTAMP - INTERVAL '90 seconds' AND status != 'offline' AND status != 'new' AND status != 'disabled'"
+        )
+        .fetch_all(&self.state.pool)
+        .await
+        .unwrap_or_default();
+
         let rows_affected = sqlx::query("UPDATE nodes SET status = 'offline' WHERE last_seen < CURRENT_TIMESTAMP - INTERVAL '90 seconds' AND status != 'offline' AND status != 'new' AND status != 'disabled'")
             .execute(&self.state.pool)
             .await?
@@ -68,6 +76,11 @@ impl MonitoringService {
 
         if rows_affected > 0 {
             info!("Marked {} nodes as offline", rows_affected);
+            let names: Vec<String> = going_offline.iter().map(|(n, c)| format!("{} ({})", n, c)).collect();
+            self.state.bot_manager.notify_admins(
+                &self.state.pool,
+                &format!("🔴 Nodes went OFFLINE: {}", names.join(", ")),
+            ).await;
         }
         Ok(())
     }
@@ -113,6 +126,27 @@ impl MonitoringService {
 
             if let Some(nid) = node_id {
                 affected_node_ids.insert(*nid);
+            }
+
+            // Notify user that subscription expired
+            let tg_id: Option<i64> = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(&self.state.pool)
+                .await
+                .unwrap_or(None);
+            if let Some(tg_id) = tg_id {
+                let plan_name: String = sqlx::query_scalar(
+                    "SELECT COALESCE(p.name, 'Subscription') FROM subscriptions s JOIN plans p ON s.plan_id = p.id WHERE s.id = $1"
+                )
+                .bind(sub_id)
+                .fetch_optional(&self.state.pool)
+                .await
+                .unwrap_or(None)
+                .unwrap_or_else(|| "Subscription".to_string());
+                let _ = self.state.bot_manager.send_notification(
+                    tg_id,
+                    &format!("⏰ Your subscription \"{}\" has expired. Renew to keep your VPN access.", plan_name),
+                ).await;
             }
 
             info!(

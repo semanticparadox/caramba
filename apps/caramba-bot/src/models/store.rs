@@ -242,3 +242,18 @@ pub struct SubscriptionWithPlan {
     pub active_devices: i64,
     pub device_limit: i64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemStats {
+    pub active_nodes: i64,
+    pub total_users: i64,
+    pub active_subs: i64,
+    pub total_revenue: f64,
+    pub traffic_30d_gb: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromoInfo {
+    pub code: String,
+    pub use_count: i64,
+}

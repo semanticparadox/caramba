@@ -300,4 +300,46 @@ impl BotManager {
             Ok(())
         }
     }
+
+    /// Send a notification to all configured admin Telegram IDs.
+    /// Reads `admin_notification_tg_ids` from settings (comma-separated).
+    /// Silently ignores individual send failures.
+    pub async fn notify_admins(
+        &self,
+        pool: &sqlx::PgPool,
+        message: &str,
+    ) {
+        let admin_ids_str: String = sqlx::query_scalar(
+            "SELECT value FROM settings WHERE key = 'admin_notification_tg_ids'"
+        )
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None)
+        .unwrap_or_default();
+
+        if admin_ids_str.is_empty() {
+            return;
+        }
+
+        for id_str in admin_ids_str.split(',') {
+            if let Ok(tg_id) = id_str.trim().parse::<i64>() {
+                let _ = self.send_notification(tg_id, message).await;
+            }
+        }
+    }
+
+    /// Check if a given tg_id is in the admin list.
+    pub async fn is_admin_tg_id(pool: &sqlx::PgPool, tg_id: i64) -> bool {
+        let admin_ids_str: String = sqlx::query_scalar(
+            "SELECT value FROM settings WHERE key = 'admin_notification_tg_ids'"
+        )
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None)
+        .unwrap_or_default();
+
+        admin_ids_str
+            .split(',')
+            .any(|s| s.trim().parse::<i64>().ok() == Some(tg_id))
+    }
 }

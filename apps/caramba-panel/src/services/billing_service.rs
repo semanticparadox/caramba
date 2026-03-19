@@ -49,7 +49,14 @@ impl BillingService {
             .await?;
 
         if let Some(referrer_id) = user.referrer_id {
-            let bonus = amount_cents / 10; // 10%
+            let bonus_pct: i64 = sqlx::query_scalar::<_, String>(
+                "SELECT value FROM settings WHERE key = 'referral_bonus_percent'"
+            )
+            .fetch_optional(&mut **tx)
+            .await?
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(10);
+            let bonus = amount_cents * bonus_pct / 100;
             if bonus > 0 {
                 sqlx::query("UPDATE users SET balance = balance + $1 WHERE id = $2")
                     .bind(bonus)

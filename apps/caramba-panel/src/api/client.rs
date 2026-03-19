@@ -41,6 +41,7 @@ pub struct AuthResponse {
 pub struct AuthUserInfo {
     pub id: i64,
     pub username: String,
+    pub full_name: Option<String>,
     pub active_subscriptions: i64,
     pub balance: f64,
 }
@@ -268,6 +269,12 @@ pub fn routes(state: AppState) -> Router<AppState> {
                 auth_middleware,
             )),
         )
+        .route(
+            "/user/notifications",
+            get(get_notification_preferences)
+                .put(update_notification_preferences)
+                .layer(middleware::from_fn_with_state(state.clone(), auth_middleware)),
+        )
 }
 
 async fn auth_telegram(
@@ -354,7 +361,7 @@ async fn auth_telegram(
     };
 
     // 4. Look up user by tg_id
-    let user_row = sqlx::query("SELECT id, username, balance FROM users WHERE tg_id = $1")
+    let user_row = sqlx::query("SELECT id, username, full_name, balance FROM users WHERE tg_id = $1")
         .bind(tg_id)
         .fetch_optional(&state.pool)
         .await
@@ -370,6 +377,7 @@ async fn auth_telegram(
     let user_row = user_row.unwrap();
     let user_id: i64 = user_row.get("id");
     let username: String = user_row.try_get("username").unwrap_or_default();
+    let full_name: Option<String> = user_row.try_get("full_name").unwrap_or(None);
     let balance: i64 = user_row.try_get("balance").unwrap_or(0);
 
     // Count active subscriptions
@@ -420,6 +428,7 @@ async fn auth_telegram(
         user: AuthUserInfo {
             id: user_id,
             username,
+            full_name,
             active_subscriptions: active_subs,
             balance: balance as f64 / 100.0,
         },
@@ -1085,6 +1094,7 @@ async fn get_user_referrals(
         referral_link: String,
         total_earned_cents: i64,
         total_earned_usd: f64,
+        bonus_percent: i64,
         referrals: Vec<ReferralEntry>,
     }
 
@@ -1135,12 +1145,20 @@ async fn get_user_referrals(
             })
             .collect::<Vec<_>>();
 
+        let bonus_percent: i64 = state
+            .settings
+            .get_or_default("referral_bonus_percent", "10")
+            .await
+            .parse()
+            .unwrap_or(10);
+
         Json(ReferralStats {
             referral_code: code,
             referred_count: count,
             referral_link: link,
             total_earned_cents,
             total_earned_usd: total_earned_cents as f64 / 100.0,
+            bonus_percent,
             referrals,
         })
         .into_response()
@@ -2478,4 +2496,82 @@ async fn kick_subscription_device(
     .await;
 
     Json(serde_json::json!({ "ok": true, "message": "Device disconnected" })).into_response()
+}
+
+// ============================================================================
+// Notification Preferences
+// ============================================================================
+
+#[derive(Serialize, Deserialize)]
+struct NotificationPrefs {
+    notify_new_device: bool,
+    notify_traffic_warnings: bool,
+    notify_expiry_reminders: bool,
+}
+
+async fn get_notification_preferences(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    let prefs = sqlx::query_as::<_, (bool, bool, bool)>(
+        "SELECT notify_new_device, notify_traffic_warnings, notify_expiry_reminders FROM notification_preferences WHERE user_id = $1"
+    )
+    .bind(user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+
+    let (nd, tw, er) = prefs.unwrap_or((true, true, true));
+
+    Json(NotificationPrefs {
+        notify_new_device: nd,
+        notify_traffic_warnings: tw,
+        notify_expiry_reminders: er,
+    })
+    .into_response()
+}
+
+async fn update_notification_preferences(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Json(body): Json<NotificationPrefs>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    let _ = sqlx::query(
+        "INSERT INTO notification_preferences (user_id, notify_new_device, notify_traffic_warnings, notify_expiry_reminders, updated_at)
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+         ON CONFLICT (user_id) DO UPDATE SET
+            notify_new_device = $2, notify_traffic_warnings = $3, notify_expiry_reminders = $4, updated_at = CURRENT_TIMESTAMP"
+    )
+    .bind(user_id)
+    .bind(body.notify_new_device)
+    .bind(body.notify_traffic_warnings)
+    .bind(body.notify_expiry_reminders)
+    .execute(&state.pool)
+    .await;
+
+    Json(serde_json::json!({ "ok": true })).into_response()
 }

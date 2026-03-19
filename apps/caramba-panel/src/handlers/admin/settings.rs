@@ -324,6 +324,8 @@ pub struct SettingsTemplate {
     pub internal_api_token_source: String,
     pub bot_username: String,
     pub brand_name: String,
+    pub referral_bonus_percent: String,
+    pub admin_notification_tg_ids: String,
     pub terms_of_service: String,
     pub bot_buttons_mode: String,
     pub bot_support_button_always_on: bool,
@@ -465,6 +467,8 @@ pub struct SaveSettingsForm {
     pub panel_url: Option<String>,
     pub bot_username: Option<String>,
     pub brand_name: Option<String>,
+    pub referral_bonus_percent: Option<String>,
+    pub admin_notification_tg_ids: Option<String>,
     pub terms_of_service: Option<String>,
     pub bot_buttons_mode: Option<String>,
     pub bot_support_button_always_on: Option<String>,
@@ -576,6 +580,8 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         resolve_internal_api_token(&state).await;
     let bot_username = state.settings.get_or_default("bot_username", "").await;
     let brand_name = state.settings.get_or_default("brand_name", "CARAMBA").await;
+    let referral_bonus_percent = state.settings.get_or_default("referral_bonus_percent", "10").await;
+    let admin_notification_tg_ids = state.settings.get_or_default("admin_notification_tg_ids", "").await;
     let terms_of_service = state
         .settings
         .get_or_default("terms_of_service", "Welcome to CARAMBA.")
@@ -886,6 +892,8 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         internal_api_token_source,
         bot_username,
         brand_name,
+        referral_bonus_percent,
+        admin_notification_tg_ids,
         terms_of_service,
         bot_buttons_mode,
         bot_support_button_always_on,
@@ -1148,6 +1156,12 @@ pub async fn save_settings(
     }
     if let Some(v) = form.brand_name {
         settings.insert("brand_name".to_string(), v);
+    }
+    if let Some(v) = form.referral_bonus_percent {
+        settings.insert("referral_bonus_percent".to_string(), v);
+    }
+    if let Some(v) = form.admin_notification_tg_ids {
+        settings.insert("admin_notification_tg_ids".to_string(), v);
     }
     if let Some(v) = form.terms_of_service {
         settings.insert("terms_of_service".to_string(), v);

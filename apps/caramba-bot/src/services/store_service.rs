@@ -1,4 +1,5 @@
 use crate::api_client::ApiClient;
+use crate::models::store::SystemStats;
 use crate::models::store::{
     CartItem, DetailedSubscription, GiftCode, Plan, Product, StoreCategory, Subscription,
     SubscriptionIpTracking, User,
@@ -355,5 +356,32 @@ impl StoreService {
         self.api
             .get::<Vec<String>>(&format!("/subs/{}/links", sub_id))
             .await
+    }
+
+    pub async fn get_system_stats(&self) -> Result<SystemStats> {
+        self.api.get("/admin/stats").await
+    }
+
+    pub async fn admin_gift_subscription(&self, username: &str, days: i64) -> Result<i64> {
+        #[derive(serde::Serialize)]
+        struct GiftReq { username: String, days: i64 }
+        #[derive(serde::Deserialize)]
+        struct GiftRes { subscription_id: i64 }
+        let res: GiftRes = self.api.post("/admin/gift", &GiftReq { username: username.to_string(), days }).await?;
+        Ok(res.subscription_id)
+    }
+
+    pub async fn ban_user_by_username(&self, username: &str) -> Result<()> {
+        #[derive(serde::Serialize)]
+        struct Req { username: String }
+        let _: serde_json::Value = self.api.post("/admin/ban", &Req { username: username.to_string() }).await?;
+        Ok(())
+    }
+
+    pub async fn unban_user_by_username(&self, username: &str) -> Result<()> {
+        #[derive(serde::Serialize)]
+        struct Req { username: String }
+        let _: serde_json::Value = self.api.post("/admin/unban", &Req { username: username.to_string() }).await?;
+        Ok(())
     }
 }

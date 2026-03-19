@@ -44,14 +44,14 @@ export default function ConnectGuide() {
         <div className="page connect-guide-page">
             <header className="page-header">
                 <button className="back-button" onClick={() => navigate('/support')}>{'<'}</button>
-                <h2>Hiddify</h2>
+                <h2>Подключение</h2>
             </header>
 
             <section className="connect-hero glass-card">
                 <div className="connect-hero-copy">
-                    <h3>Подключение только через Hiddify</h3>
+                    <h3>Подключение к VPN</h3>
                     <p>
-                        Скопируйте ссылку подписки из центра, откройте Hiddify и выполните импорт. После импорта рабочие маршруты подтянутся автоматически.
+                        Скопируйте ссылку подписки, откройте любой совместимый клиент и выполните импорт. Рекомендуем Hiddify — после импорта маршруты подтянутся автоматически.
                     </p>
                 </div>
 
@@ -84,7 +84,7 @@ export default function ConnectGuide() {
             <section className="platform-select glass-card">
                 <div className="platform-select-head">
                     <h3>Выберите устройство</h3>
-                    <span>Только Hiddify</span>
+                    <span>Доступные клиенты</span>
                 </div>
 
                 <div className="platform-chip-grid">
@@ -130,7 +130,7 @@ export default function ConnectGuide() {
 
                         <div className="app-card-actions">
                             <button className="btn-secondary" onClick={() => window.open(entry.officialUrl, '_blank', 'noopener,noreferrer')}>
-                                Скачать Hiddify
+                                Скачать {entry.name}
                             </button>
                             {entry.fallbackUrl && (
                                 <button

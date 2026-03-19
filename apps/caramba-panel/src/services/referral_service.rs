@@ -155,7 +155,14 @@ impl ReferralService {
         let referrer_id = user.0.or(user.1);
 
         if let Some(r_id) = referrer_id {
-            let bonus = amount_cents / 10;
+            let bonus_pct: i64 = sqlx::query_scalar::<_, String>(
+                "SELECT value FROM settings WHERE key = 'referral_bonus_percent'"
+            )
+            .fetch_optional(&mut **pool)
+            .await?
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(10);
+            let bonus = amount_cents * bonus_pct / 100;
             if bonus > 0 {
                 // 1. Update balance
                 sqlx::query("UPDATE users SET balance = balance + $1 WHERE id = $2")

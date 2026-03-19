@@ -19,6 +19,7 @@ interface ReferralStats {
     referral_link: string
     total_earned_cents: number
     total_earned_usd: number
+    bonus_percent: number
     referrals: ReferralEntry[]
 }
 
@@ -190,7 +191,7 @@ export default function Promo() {
 
             <section className="promo-card glass-card">
                 <h3>Реферальная программа</h3>
-                <p>Делитесь ссылкой, приглашайте друзей и получайте бонусы.</p>
+                <p>Приглашайте друзей и получайте <strong>{referralStats?.bonus_percent ?? 10}%</strong> от каждой их оплаты на ваш баланс.</p>
 
                 {loadingReferrals ? (
                     <div className="promo-empty">Загружаем данные по рефералам...</div>

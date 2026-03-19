@@ -255,6 +255,68 @@ pub async fn message_handler(
             return Ok(());
         }
 
+        // --- Admin Commands ---
+        if text.starts_with("/admin") || text.starts_with("/stats") || text.starts_with("/gift ")
+            || text.starts_with("/promo ") || text.starts_with("/ban ") || text.starts_with("/unban ")
+        {
+            let is_admin = is_admin_tg_id(&state, tg_id).await;
+            if !is_admin {
+                let _ = bot.send_message(msg.chat.id, "Access denied.").await;
+                return Ok(());
+            }
+
+            if text == "/admin" || text == "/admin@" || text.starts_with("/admin ") {
+                let _ = bot.send_message(msg.chat.id,
+                    "🔧 <b>Admin Commands</b>\n\n\
+                    /stats — System overview\n\
+                    /gift @username 30d — Gift subscription\n\
+                    /promo create CODE balance 500 — Create promo\n\
+                    /promo list — Active promos\n\
+                    /ban @username — Ban user\n\
+                    /unban @username — Unban user"
+                ).parse_mode(ParseMode::Html).await;
+                return Ok(());
+            }
+
+            if text == "/stats" {
+                return handle_admin_stats(&bot, &msg, &state).await;
+            }
+
+            if text.starts_with("/gift ") {
+                return handle_admin_gift(&bot, &msg, &state, text).await;
+            }
+
+            if text.starts_with("/promo ") {
+                return handle_admin_promo(&bot, &msg, &state, text).await;
+            }
+
+            if text.starts_with("/ban ") {
+                let username = text.strip_prefix("/ban ").unwrap_or("").trim().trim_start_matches('@');
+                if username.is_empty() {
+                    let _ = bot.send_message(msg.chat.id, "Usage: /ban @username").await;
+                } else {
+                    match state.store_service.ban_user_by_username(username).await {
+                        Ok(_) => { let _ = bot.send_message(msg.chat.id, format!("Banned @{}", username)).await; }
+                        Err(e) => { let _ = bot.send_message(msg.chat.id, format!("Error: {}", e)).await; }
+                    }
+                }
+                return Ok(());
+            }
+
+            if text.starts_with("/unban ") {
+                let username = text.strip_prefix("/unban ").unwrap_or("").trim().trim_start_matches('@');
+                if username.is_empty() {
+                    let _ = bot.send_message(msg.chat.id, "Usage: /unban @username").await;
+                } else {
+                    match state.store_service.unban_user_by_username(username).await {
+                        Ok(_) => { let _ = bot.send_message(msg.chat.id, format!("Unbanned @{}", username)).await; }
+                        Err(e) => { let _ = bot.send_message(msg.chat.id, format!("Error: {}", e)).await; }
+                    }
+                }
+                return Ok(());
+            }
+        }
+
         // 3. Normal Message Processing (User is verified)
         // Check for Reply to Transfer or Note
         if let Some(reply) = msg.reply_to_message() {
@@ -1080,5 +1142,122 @@ pub async fn message_handler(
         }
     }
 
+    Ok(())
+}
+
+// ============================================================================
+// Admin Command Helpers
+// ============================================================================
+
+async fn is_admin_tg_id(state: &AppState, tg_id: i64) -> bool {
+    let admin_ids_str = state.settings.get_or_default("admin_notification_tg_ids", "").await;
+    admin_ids_str
+        .split(',')
+        .any(|s| s.trim().parse::<i64>().ok() == Some(tg_id))
+}
+
+async fn handle_admin_stats(
+    bot: &Bot,
+    msg: &Message,
+    state: &AppState,
+) -> Result<(), teloxide::RequestError> {
+    let stats = state.store_service.get_system_stats().await;
+    match stats {
+        Ok(s) => {
+            let text = format!(
+                "📊 <b>System Stats</b>\n\n\
+                Nodes: {} active\n\
+                Users: {}\n\
+                Active subs: {}\n\
+                Revenue: ${:.2}\n\
+                Traffic (30d): {} GB",
+                s.active_nodes, s.total_users, s.active_subs,
+                s.total_revenue, s.traffic_30d_gb,
+            );
+            let _ = bot.send_message(msg.chat.id, text).parse_mode(ParseMode::Html).await;
+        }
+        Err(e) => {
+            let _ = bot.send_message(msg.chat.id, format!("Error: {}", e)).await;
+        }
+    }
+    Ok(())
+}
+
+async fn handle_admin_gift(
+    bot: &Bot,
+    msg: &Message,
+    state: &AppState,
+    text: &str,
+) -> Result<(), teloxide::RequestError> {
+    // /gift @username 30d
+    let parts: Vec<&str> = text.splitn(3, ' ').collect();
+    if parts.len() < 3 {
+        let _ = bot.send_message(msg.chat.id, "Usage: /gift @username 30d").await;
+        return Ok(());
+    }
+    let username = parts[1].trim_start_matches('@');
+    let duration_str = parts[2].trim();
+    let days: i64 = duration_str
+        .trim_end_matches('d')
+        .parse()
+        .unwrap_or(0);
+    if days <= 0 {
+        let _ = bot.send_message(msg.chat.id, "Invalid duration. Use e.g. 30d").await;
+        return Ok(());
+    }
+
+    match state.store_service.admin_gift_subscription(username, days).await {
+        Ok(sub_id) => {
+            let _ = bot.send_message(msg.chat.id, format!("Gift sub #{} created for @{} ({} days)", sub_id, username, days)).await;
+        }
+        Err(e) => {
+            let _ = bot.send_message(msg.chat.id, format!("Error: {}", e)).await;
+        }
+    }
+    Ok(())
+}
+
+async fn handle_admin_promo(
+    bot: &Bot,
+    msg: &Message,
+    state: &AppState,
+    text: &str,
+) -> Result<(), teloxide::RequestError> {
+    let parts: Vec<&str> = text.splitn(5, ' ').collect();
+    // /promo list
+    if parts.len() >= 2 && parts[1] == "list" {
+        match state.promo_service.list_promos().await {
+            Ok(promos) => {
+                if promos.is_empty() {
+                    let _ = bot.send_message(msg.chat.id, "No active promos.").await;
+                } else {
+                    let lines: Vec<String> = promos.iter().map(|p| {
+                        format!("<code>{}</code> — {} uses", p.code, p.use_count)
+                    }).collect();
+                    let _ = bot.send_message(msg.chat.id, format!("📋 <b>Active Promos</b>\n\n{}", lines.join("\n")))
+                        .parse_mode(ParseMode::Html).await;
+                }
+            }
+            Err(e) => { let _ = bot.send_message(msg.chat.id, format!("Error: {}", e)).await; }
+        }
+        return Ok(());
+    }
+    // /promo create CODE balance 500
+    if parts.len() >= 5 && parts[1] == "create" {
+        let code = parts[2];
+        let promo_type = parts[3];
+        let value: i64 = parts[4].parse().unwrap_or(0);
+        if value <= 0 {
+            let _ = bot.send_message(msg.chat.id, "Invalid value.").await;
+            return Ok(());
+        }
+        match state.promo_service.create_promo(code, promo_type, value).await {
+            Ok(_) => { let _ = bot.send_message(msg.chat.id, format!("Promo {} created ({} = {})", code, promo_type, value)).await; }
+            Err(e) => { let _ = bot.send_message(msg.chat.id, format!("Error: {}", e)).await; }
+        }
+        return Ok(());
+    }
+
+    let _ = bot.send_message(msg.chat.id, "Usage:\n/promo list\n/promo create CODE balance 500").await;
     Ok(())
 }
