@@ -21,7 +21,11 @@ fn detect_client_from_ua(headers: &HeaderMap) -> &'static str {
         .unwrap_or("")
         .to_ascii_lowercase();
 
-    if ua.contains("clash") || ua.contains("stash") || ua.contains("mihomo") {
+    // Check sing-box clients FIRST — Hiddify UA contains "ClashMeta" and "v2ray"
+    // e.g. "HiddifyNext/4.0.0 (ios) like ClashMeta v2ray sing-box"
+    if ua.contains("hiddify") || ua.contains("sing-box") || ua.contains("sfi") || ua.contains("sfa") {
+        "singbox"
+    } else if ua.contains("clash") || ua.contains("stash") || ua.contains("mihomo") {
         "clash"
     } else if ua.contains("shadowrocket")
         || ua.contains("v2rayn")
@@ -32,7 +36,6 @@ fn detect_client_from_ua(headers: &HeaderMap) -> &'static str {
     {
         "v2ray"
     } else {
-        // Default: sing-box format (works for Hiddify, SFI, SFA, NekoBox)
         "singbox"
     }
 }
