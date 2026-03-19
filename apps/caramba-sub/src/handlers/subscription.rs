@@ -142,6 +142,8 @@ pub async fn subscription_handler(
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/json")
+        .header(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate")
+        .header(header::PRAGMA, "no-cache")
         .header("profile-title", &sub.plan_name)
         .header("profile-update-interval", "2")
         .header("Subscription-Userinfo", &user_info_header)
