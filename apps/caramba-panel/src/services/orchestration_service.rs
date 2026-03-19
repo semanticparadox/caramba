@@ -1102,7 +1102,8 @@ impl OrchestrationService {
                                     );
                                     hy2.users.push(Hysteria2User {
                                         name: Some(auth_name),
-                                        password: uuid.replace("-", ""),
+                                        // Password must match client format: "tg_id:uuid_no_dashes"
+                                        password: format!("{}:{}", tg_id, uuid.replace("-", "")),
                                     });
                                 }
                             }

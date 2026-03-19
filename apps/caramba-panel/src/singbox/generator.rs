@@ -372,11 +372,8 @@ impl ConfigGenerator {
                         .iter()
                         .map(|u| Hysteria2User {
                             name: u.name.clone(),
-                            password: format!(
-                                "{}:{}",
-                                u.name.as_deref().unwrap_or("unknown"),
-                                u.password.replace("-", "")
-                            ),
+                            // Password already in "tg_id:uuid" format from orchestration_service
+                            password: u.password.clone(),
                         })
                         .collect();
 
