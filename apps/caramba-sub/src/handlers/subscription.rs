@@ -185,7 +185,7 @@ pub async fn subscription_handler(
 /// which has full generators for these formats.
 async fn proxy_to_panel(state: &AppState, uuid: &str, client_type: &str) -> Response {
     let panel_sub_url = format!(
-        "{}/api/internal/subscription/{}?client={}",
+        "{}/sub/{}?client={}",
         state.config.panel_url, uuid, client_type
     );
 
@@ -206,6 +206,20 @@ async fn proxy_to_panel(state: &AppState, uuid: &str, client_type: &str) -> Resp
     };
 
     let status = resp.status();
+
+    if status.is_redirection() {
+        let location = resp.headers().get("location").and_then(|v| v.to_str().ok());
+        error!(
+            "Panel returned redirect {} -> {:?} (Host header may not match subscription_domain)",
+            status, location
+        );
+        return (
+            StatusCode::BAD_GATEWAY,
+            "Panel subscription redirect loop",
+        )
+            .into_response();
+    }
+
     let mut builder = Response::builder().status(status.as_u16());
 
     // Forward relevant headers from panel response

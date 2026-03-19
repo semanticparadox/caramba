@@ -224,8 +224,10 @@ impl PanelClient {
     }
 
     pub async fn raw_get_with_host(&self, url: &str, host: &str) -> Result<reqwest::Response> {
-        let resp = self
-            .client
+        let no_redirect = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+        let resp = no_redirect
             .get(url)
             .bearer_auth(&self.auth_token)
             .header("Host", host)
