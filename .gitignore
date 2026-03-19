@@ -110,3 +110,11 @@ check_braces.py
 /playwright/.auth/
 AGENTS.md
 GEMINI.md
+
+# Agent/IDE config — never commit
+.claude/
+.codex/
+.gemini/
+.taskwing/
+.beads/.beads-credential-key
+.beads/push-state.json
