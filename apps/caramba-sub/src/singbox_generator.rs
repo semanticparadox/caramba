@@ -394,14 +394,8 @@ fn build_vless_outbound(
         "ws" => outbound["transport"] = ws_transport(stream, node),
         "httpupgrade" => {
             outbound["transport"] = httpupgrade_transport(stream, node);
-            // smux мультиплексирование снижает количество TLS-хэндшейков и помогает обходу DPI
-            outbound["multiplex"] = json!({
-                "enabled": true,
-                "protocol": "smux",
-                "max_connections": 4,
-                "min_streams": 4,
-                "padding": true
-            });
+            // Multiplex removed: server inbound has no multiplex config,
+            // so smux framing causes protocol mismatch → timeout
         }
         "tcp" => {}
         other => {
@@ -1164,9 +1158,10 @@ mod tests {
             })
             .expect("httpupgrade outbound");
 
-        let mux = &hu["multiplex"];
-        assert_eq!(mux["enabled"].as_bool(), Some(true));
-        assert_eq!(mux["protocol"].as_str(), Some("smux"));
+        // Multiplex must NOT be present — server inbound has no multiplex,
+        // so smux framing causes protocol mismatch
+        assert!(hu.get("multiplex").is_none() || hu["multiplex"].is_null(),
+            "httpupgrade outbound must not have multiplex");
     }
 
     #[test]
