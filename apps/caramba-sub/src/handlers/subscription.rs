@@ -65,11 +65,18 @@ pub async fn subscription_handler(
     }
 
     // Sing-box format — generate locally with strict variant control
+    // Retry once on connection errors (reqwest may reuse a stale connection)
     let sub = match state.panel_client.get_subscription(&uuid).await {
         Ok(s) => s,
         Err(e) => {
-            error!("Failed to fetch subscription: {}", e);
-            return (StatusCode::NOT_FOUND, "Subscription not found").into_response();
+            warn!("First attempt failed for {}: {}. Retrying...", uuid, e);
+            match state.panel_client.get_subscription(&uuid).await {
+                Ok(s) => s,
+                Err(e2) => {
+                    error!("Failed to fetch subscription after retry: {}", e2);
+                    return (StatusCode::NOT_FOUND, "Subscription not found").into_response();
+                }
+            }
         }
     };
 
