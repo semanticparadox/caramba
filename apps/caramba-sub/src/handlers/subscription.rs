@@ -191,7 +191,7 @@ async fn proxy_to_panel(state: &AppState, uuid: &str, client_type: &str) -> Resp
 
     let resp = match state
         .panel_client
-        .raw_get(&panel_sub_url)
+        .raw_get_with_host(&panel_sub_url, &state.config.domain)
         .await
     {
         Ok(r) => r,

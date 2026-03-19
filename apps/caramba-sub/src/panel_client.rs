@@ -222,6 +222,17 @@ impl PanelClient {
             .await?;
         Ok(resp)
     }
+
+    pub async fn raw_get_with_host(&self, url: &str, host: &str) -> Result<reqwest::Response> {
+        let resp = self
+            .client
+            .get(url)
+            .bearer_auth(&self.auth_token)
+            .header("Host", host)
+            .send()
+            .await?;
+        Ok(resp)
+    }
 }
 
 // Data structures (detailed for config generation)
