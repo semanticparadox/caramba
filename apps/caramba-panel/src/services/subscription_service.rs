@@ -1509,6 +1509,33 @@ impl SubscriptionService {
         Ok(node_infos)
     }
 
+    /// Fetch all active relay nodes with their inbounds — used to auto-match
+    /// relay chains to every exit node at config generation time.
+    pub async fn get_all_active_relay_infos(&self) -> Result<Vec<NodeInfo>> {
+        let relay_nodes: Vec<Node> = sqlx::query_as(
+            "SELECT * FROM nodes WHERE is_relay = TRUE AND status = 'active'"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        if relay_nodes.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let relay_ids: Vec<i64> = relay_nodes.iter().map(|n| n.id).collect();
+        let inbounds_map = self.fetch_inbounds_for_nodes(&relay_ids).await?;
+
+        let result = relay_nodes
+            .iter()
+            .map(|node| {
+                let inbounds = inbounds_map.get(&node.id).cloned().unwrap_or_default();
+                NodeInfo::new(node, inbounds)
+            })
+            .collect();
+
+        Ok(result)
+    }
+
     async fn fetch_inbounds_for_nodes(
         &self,
         node_ids: &[i64],
@@ -1643,8 +1670,9 @@ impl SubscriptionService {
         sub: &Subscription,
         nodes: &[NodeInfo],
         keys: &UserKeys,
+        relay_nodes: &[NodeInfo],
     ) -> Result<String> {
-        crate::singbox::subscription_generator::generate_clash_config(sub, nodes, keys)
+        crate::singbox::subscription_generator::generate_clash_config(sub, nodes, keys, relay_nodes)
     }
 
     pub fn generate_v2ray(
@@ -1652,8 +1680,9 @@ impl SubscriptionService {
         sub: &Subscription,
         nodes: &[NodeInfo],
         keys: &UserKeys,
+        relay_nodes: &[NodeInfo],
     ) -> Result<String> {
-        crate::singbox::subscription_generator::generate_v2ray_config(sub, nodes, keys)
+        crate::singbox::subscription_generator::generate_v2ray_config(sub, nodes, keys, relay_nodes)
     }
 
     pub fn generate_singbox(
@@ -1662,9 +1691,10 @@ impl SubscriptionService {
         nodes: &[NodeInfo],
         keys: &UserKeys,
         variant: Option<&str>,
+        relay_nodes: &[NodeInfo],
     ) -> Result<String> {
         let config =
-            crate::singbox::subscription_generator::generate_singbox_config(sub, nodes, keys)?;
+            crate::singbox::subscription_generator::generate_singbox_config(sub, nodes, keys, relay_nodes)?;
 
         match variant {
             Some(variant_id) => apply_connection_variant(&config, variant_id),

@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn returns_only_supported_variants_for_node() {
-        let mut node = build_target_node_fixture();
+        let (mut node, _relay_nodes) = build_target_node_fixture();
         node.relay_info = None;
 
         let variants = available_connection_variants_for_node(&node);
@@ -327,7 +327,10 @@ mod tests {
 
     #[test]
     fn returns_relay_variants_when_relay_and_matching_inbounds_exist() {
-        let node = build_target_node_fixture();
+        let (mut node, relay_nodes) = build_target_node_fixture();
+        // available_connection_variants_for_node still checks relay_info
+        // to determine if relay variants are available for this node.
+        node.relay_info = Some(Box::new(relay_nodes[0].clone()));
         let variants = available_connection_variants_for_node(&node);
         let ids: Vec<&str> = variants.iter().map(|variant| variant.id).collect();
 
@@ -362,7 +365,7 @@ mod tests {
         let picked_tags = variant_group["outbounds"].as_array().unwrap();
         assert!(picked_tags
             .iter()
-            .all(|tag| tag.as_str().unwrap().ends_with("·r")));
+            .all(|tag| tag.as_str().unwrap().contains("·via·")));
     }
 
     #[test]
@@ -405,21 +408,21 @@ mod tests {
             .all(|tag| tag.as_str().unwrap().contains("hysteria2")));
         assert!(picked_tags
             .iter()
-            .all(|tag| !tag.as_str().unwrap().ends_with("·r")));
+            .all(|tag| !tag.as_str().unwrap().contains("·via·")));
     }
 
     fn build_config_fixture() -> String {
-        let target_node = build_target_node_fixture();
+        let (target_node, relay_nodes) = build_target_node_fixture();
         let user_keys = UserKeys {
             user_uuid: "uuid-123".to_string(),
             hy2_password: "tg:uuid-123".to_string(),
             _awg_private_key: None,
         };
 
-        generate_singbox_config(&match_any_sub(), &[target_node], &user_keys).unwrap()
+        generate_singbox_config(&match_any_sub(), &[target_node], &user_keys, &relay_nodes).unwrap()
     }
 
-    fn build_target_node_fixture() -> NodeInfo {
+    fn build_target_node_fixture() -> (NodeInfo, Vec<NodeInfo>) {
         let relay_inbound = make_inbound(
             2,
             "relay_entry",
@@ -455,7 +458,7 @@ mod tests {
             config_block_torrent: false,
         };
 
-        NodeInfo {
+        let exit_node = NodeInfo {
             name: "TargetNode".to_string(),
             address: "10.0.0.3".to_string(),
             reality_port: Some(443),
@@ -529,13 +532,15 @@ mod tests {
                     }),
                 ),
             ],
-            relay_info: Some(Box::new(relay_node)),
+            relay_info: None,
             country_code: Some("DE".to_string()),
             is_relay: false,
             config_block_ads: false,
             config_block_porn: false,
             config_block_torrent: false,
-        }
+        };
+
+        (exit_node, vec![relay_node])
     }
 
     fn make_inbound(

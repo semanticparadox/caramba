@@ -1116,6 +1116,7 @@ impl StoreService {
             &sub,
             &node_infos,
             &user_keys,
+            &[],
         )?;
 
         use base64::Engine;

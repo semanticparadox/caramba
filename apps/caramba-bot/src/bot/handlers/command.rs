@@ -241,7 +241,7 @@ pub async fn message_handler(
                             .set_chat_menu_button()
                             .chat_id(msg.chat.id)
                             .menu_button(teloxide::types::MenuButton::WebApp {
-                                text: "🚀 Open App".to_string(),
+                                text: if user.language_code.as_deref() == Some("ru") { "Открыть".to_string() } else { "Open".to_string() },
                                 web_app: teloxide::types::WebAppInfo { url },
                             })
                             .await;

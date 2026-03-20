@@ -170,46 +170,40 @@ fn format_node_label(node: &NodeInfo) -> String {
     country_flag(node.country_code.as_deref()).to_string()
 }
 
-/// Compact protocol + transport label (no "VLESS" prefix, shortened names).
+/// Compact protocol + transport label — user-friendly names instead of
+/// protocol jargon.
 fn format_proto_label(protocol: &str, si: &StreamInfo) -> String {
     match protocol.to_ascii_lowercase().as_str() {
         "vless" => {
             match si.network.as_str() {
                 "tcp" => match si.security.as_str() {
-                    "reality" => "Reality",
-                    "tls" => "TCP·TLS",
+                    "reality" => "Stealth",
+                    "tls" => "Secure",
                     _ => "TCP",
                 },
-                "ws" => "WS",
-                "grpc" => "gRPC",
+                "ws" => "WebSocket",
+                "grpc" => "Stream",
                 "xhttp" | "splithttp" => "XHTTP",
-                "httpupgrade" => "HTTPUpgrade",
+                "httpupgrade" => "HTTP",
                 other => other,
             }
             .to_string()
         }
-        "vmess" => {
-            let net = match si.network.as_str() {
-                "ws" => "WS",
-                "grpc" => "gRPC",
-                _ => "TCP",
-            };
-            format!("VMess·{}", net)
-        }
+        "vmess" => "VMess".to_string(),
         "trojan" => match si.security.as_str() {
-            "reality" => "Trojan·Reality".to_string(),
-            _ => format!("Trojan·{}", si.network.to_ascii_uppercase()),
+            "reality" => "Trojan·Stealth".to_string(),
+            _ => "Trojan".to_string(),
         },
         "hysteria2" | "hy2" => {
             if si.hy2_obfs.is_some() {
-                "hy2·obfs".to_string()
+                "Speed+".to_string()
             } else {
-                "hy2".to_string()
+                "Speed".to_string()
             }
         }
         "tuic" => "TUIC".to_string(),
-        "shadowsocks" | "ss" => "SS".to_string(),
-        "amneziawg" => "AWG".to_string(),
+        "shadowsocks" | "ss" => "Shadow".to_string(),
+        "amneziawg" => "Amnezia".to_string(),
         "naive" => "Naive".to_string(),
         other => other.to_ascii_uppercase(),
     }
@@ -232,7 +226,7 @@ fn build_singbox_outbound(
     // - XHTTP/SplitHTTP: proprietary Xray-core transport
     // - gRPC: limited/broken support in sing-box 1.8+
     // Both still appear in V2Ray base64 and Clash configs.
-    if matches!(si.network.as_str(), "xhttp" | "splithttp" | "grpc") {
+    if matches!(si.network.as_str(), "xhttp" | "splithttp") {
         return None;
     }
 
@@ -818,6 +812,7 @@ pub fn generate_v2ray_config(
     _sub: &Subscription,
     nodes: &[NodeInfo],
     user_keys: &UserKeys,
+    _relay_nodes: &[NodeInfo],
 ) -> Result<String> {
     let mut links = Vec::new();
 
@@ -1140,6 +1135,7 @@ pub fn generate_clash_config(
     _sub: &Subscription,
     nodes: &[NodeInfo],
     user_keys: &UserKeys,
+    _relay_nodes: &[NodeInfo],
 ) -> Result<String> {
     let mut proxies = Vec::new();
 
@@ -1516,6 +1512,7 @@ pub fn generate_singbox_config(
     _sub: &Subscription,
     nodes: &[NodeInfo],
     user_keys: &UserKeys,
+    relay_nodes: &[NodeInfo],
 ) -> Result<String> {
     // Tags split by whether they go through a relay or not.
     let mut direct_tags: Vec<String> = vec![];
@@ -1554,12 +1551,12 @@ pub fn generate_singbox_config(
                 direct_tags.push(direct_tag);
             }
 
-            // ── Relay-chained outbound ────────────────────────────────────────
-            if let Some(relay) = &node.relay_info {
+            // ── Relay-chained outbounds (auto-matched) ─────────────────────
+            for relay in relay_nodes {
                 if let Some(relay_ob_tag) =
                     ensure_relay_outbound(relay, user_keys, &mut proxy_outbounds, &mut relay_cache)
                 {
-                    let via_tag = format!("{}·{}·r", slug(&node.name), slug(&inbound.tag));
+                    let via_tag = format!("{}·{}·via·{}", slug(&node.name), slug(&inbound.tag), slug(&relay.name));
                     let relay_label = format_node_label(relay);
                     if let Some(mut ob) = build_singbox_outbound(
                         &via_tag,

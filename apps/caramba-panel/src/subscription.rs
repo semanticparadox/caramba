@@ -979,12 +979,19 @@ function copyLink(){{
             .into_response();
     }
 
+    // Fetch all active relay nodes for auto-relay chain generation.
+    let relay_nodes = state
+        .subscription_service
+        .get_all_active_relay_infos()
+        .await
+        .unwrap_or_default();
+
     let (content, content_type, _filename): (String, &'static str, &'static str) = match client_type
     {
         "clash" => {
             match state
                 .subscription_service
-                .generate_clash(&sub, &node_infos, &user_keys)
+                .generate_clash(&sub, &node_infos, &user_keys, &relay_nodes)
             {
                 Ok(c) => (c, "text/yaml; charset=utf-8", "config.yaml"),
                 Err(e) => {
@@ -997,7 +1004,7 @@ function copyLink(){{
         "v2ray" => {
             match state
                 .subscription_service
-                .generate_v2ray(&sub, &node_infos, &user_keys)
+                .generate_v2ray(&sub, &node_infos, &user_keys, &relay_nodes)
             {
                 Ok(c) => (c, "text/plain; charset=utf-8", "config.txt"),
                 Err(e) => {
@@ -1013,6 +1020,7 @@ function copyLink(){{
                 &node_infos,
                 &user_keys,
                 params.variant.as_deref(),
+                &relay_nodes,
             ) {
                 Ok(c) => (c, "application/json; charset=utf-8", "config.json"),
                 Err(e) => {

@@ -194,7 +194,7 @@ mod tests {
 
         // 1. Test Sing-box JSON
         let json_config =
-            generate_singbox_config(&match_any_sub(), &[node.clone()], &user_keys).unwrap();
+            generate_singbox_config(&match_any_sub(), &[node.clone()], &user_keys, &[]).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
 
         let outbound = parsed["outbounds"]
@@ -217,7 +217,7 @@ mod tests {
         assert_eq!(mux["padding"], true);
 
         // 2. Test VLESS Link
-        let _links_base64 = generate_v2ray_config(&match_any_sub(), &[node], &user_keys).unwrap();
+        let _links_base64 = generate_v2ray_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
         // Since it's base64, we'd need to decode it to verify fully, but let's assume if it generated, logic ran.
         // For unit test simplicity in this environment, checking the JSON structure is the critical part for Sing-box.
     }
@@ -241,7 +241,7 @@ mod tests {
 
         let node = create_mock_node("hysteria2", stream_settings);
 
-        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys).unwrap();
+        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
 
         let outbound = parsed["outbounds"]
@@ -275,7 +275,7 @@ mod tests {
 
         let node = create_mock_node("tuic", stream_settings);
 
-        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys).unwrap();
+        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
 
         let outbound = parsed["outbounds"]
@@ -304,7 +304,7 @@ mod tests {
 
         let node = create_mock_node("naive", stream_settings);
 
-        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys).unwrap();
+        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
 
         let outbound = parsed["outbounds"]
@@ -327,7 +327,7 @@ mod tests {
         };
 
         let node = create_mock_node("vless", json!({"network":"tcp","security":"reality"}));
-        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys).unwrap();
+        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
 
         let outbound = parsed["outbounds"]
@@ -357,7 +357,7 @@ mod tests {
         });
         let node = create_mock_node("vless", stream_settings);
 
-        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys).unwrap();
+        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
 
         // 1. Check Route Rules
@@ -426,7 +426,7 @@ mod tests {
         node.frontend_url = Some("frontend.fake-shop.com".to_string()); // Masquerade Domain
 
         // Test VLESS Link (v2ray config)
-        let links_base64 = generate_v2ray_config(&match_any_sub(), &[node], &user_keys).unwrap();
+        let links_base64 = generate_v2ray_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
         use base64::Engine;
         let links_str = String::from_utf8(
             base64::engine::general_purpose::STANDARD

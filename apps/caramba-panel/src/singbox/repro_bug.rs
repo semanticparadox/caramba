@@ -103,7 +103,7 @@ mod tests {
             }
         }));
         let node = mock_node("DE-01", vec![inbound]);
-        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys()).unwrap();
+        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys(), &[]).unwrap();
         let config: serde_json::Value = serde_json::from_str(&config_str).unwrap();
 
         // Верхнеуровневые секции обязаны присутствовать
@@ -129,7 +129,7 @@ mod tests {
             }
         }));
         let node = mock_node("DE-01", vec![inbound]);
-        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys()).unwrap();
+        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys(), &[]).unwrap();
         let config: serde_json::Value = serde_json::from_str(&config_str).unwrap();
 
         let inbounds = config["inbounds"].as_array().expect("inbounds не массив");
@@ -156,7 +156,7 @@ mod tests {
             }
         }));
         let node = mock_node("DE-01", vec![inbound]);
-        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys()).unwrap();
+        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys(), &[]).unwrap();
         let config: serde_json::Value = serde_json::from_str(&config_str).unwrap();
 
         let rules = config["route"]["rules"].as_array().expect("route.rules не массив");
@@ -194,7 +194,7 @@ mod tests {
         // Если нет (например, отсутствует обязательное поле) — fallback на node-level.
         // Добавляем dest, чтобы serde мог полностью распарсить RealitySettings.
         let node = mock_node("DE-01", vec![inbound]);
-        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys()).unwrap();
+        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys(), &[]).unwrap();
         let config: serde_json::Value = serde_json::from_str(&config_str).unwrap();
 
         let outbounds = config["outbounds"].as_array().unwrap();
@@ -248,7 +248,7 @@ mod tests {
         }));
         let node = mock_node("DE-01", vec![inbound]);
         // mock_node: reality_public_key = "test_pub_key_base64", short_id = "abcd1234"
-        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys()).unwrap();
+        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys(), &[]).unwrap();
         let config: serde_json::Value = serde_json::from_str(&config_str).unwrap();
 
         let outbounds = config["outbounds"].as_array().unwrap();
@@ -283,7 +283,7 @@ mod tests {
             }
         }));
         let node = mock_node("DE-01", vec![inbound]);
-        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys()).unwrap();
+        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys(), &[]).unwrap();
         let config: serde_json::Value = serde_json::from_str(&config_str).unwrap();
 
         let outbounds = config["outbounds"].as_array().unwrap();
@@ -317,7 +317,7 @@ mod tests {
             }
         }));
         let node = mock_node("DE-01", vec![inbound]);
-        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys()).unwrap();
+        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys(), &[]).unwrap();
         let config: serde_json::Value = serde_json::from_str(&config_str).unwrap();
 
         let outbounds = config["outbounds"].as_array().unwrap();
@@ -355,7 +355,7 @@ mod tests {
             })),
         ];
         let node = mock_node("Germany 01", inbounds);
-        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys()).unwrap();
+        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys(), &[]).unwrap();
         let config: serde_json::Value = serde_json::from_str(&config_str).unwrap();
 
         let outbounds = config["outbounds"].as_array().unwrap();
@@ -443,7 +443,7 @@ mod tests {
         ];
 
         let node = mock_node("DE-01", inbounds);
-        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys()).unwrap();
+        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys(), &[]).unwrap();
         let config: serde_json::Value = serde_json::from_str(&config_str).unwrap();
 
         let outbounds = config["outbounds"].as_array().unwrap();
@@ -501,7 +501,7 @@ mod tests {
             }
         }));
         let node = mock_node("DE-01", vec![inbound]);
-        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys()).unwrap();
+        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys(), &[]).unwrap();
         let config: serde_json::Value = serde_json::from_str(&config_str).unwrap();
 
         let outbounds = config["outbounds"].as_array().unwrap();
@@ -538,7 +538,7 @@ mod tests {
         relay_node.is_relay = true;
 
         // Если только relay нода — ошибка (нет proxy outbounds)
-        let result = generate_singbox_config(&mock_sub(), &[relay_node], &mock_keys());
+        let result = generate_singbox_config(&mock_sub(), &[relay_node], &mock_keys(), &[]);
         assert!(result.is_err(), "Конфиг только из relay-ноды должен возвращать ошибку");
     }
 
@@ -558,7 +558,7 @@ mod tests {
         }));
 
         let node = mock_node("DE-01", vec![xhttp_inbound, reality_inbound]);
-        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys()).unwrap();
+        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys(), &[]).unwrap();
         let config: serde_json::Value = serde_json::from_str(&config_str).unwrap();
 
         let outbounds = config["outbounds"].as_array().unwrap();
@@ -584,7 +584,7 @@ mod tests {
             "realitySettings": { "serverNames": ["t.de"], "publicKey": "k", "shortIds": ["s"] }
         }));
         let node = mock_node("DE-01", vec![inbound]);
-        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys()).unwrap();
+        let config_str = generate_singbox_config(&mock_sub(), &[node], &mock_keys(), &[]).unwrap();
         let config: serde_json::Value = serde_json::from_str(&config_str).unwrap();
 
         let dns_servers = config["dns"]["servers"].as_array().expect("dns.servers не массив");
