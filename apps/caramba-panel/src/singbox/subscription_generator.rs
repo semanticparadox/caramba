@@ -165,35 +165,28 @@ fn country_flag(code: Option<&str>) -> &'static str {
     }
 }
 
-/// "{flag} {node_name}" — used as prefix in proxy labels
+/// Country flag emoji only — node name omitted since flag is sufficient
 fn format_node_label(node: &NodeInfo) -> String {
-    let flag = country_flag(node.country_code.as_deref());
-    format!("{} {}", flag, node.name)
+    country_flag(node.country_code.as_deref()).to_string()
 }
 
-/// Human-readable protocol + transport label.
-///
-/// Examples:
-///   VLESS·REALITY   VLESS·WS·TLS   VLESS·XHTTP·TLS
-///   Hysteria2       TUIC·v5         AmneziaWG
+/// Compact protocol + transport label (no "VLESS" prefix, shortened names).
 fn format_proto_label(protocol: &str, si: &StreamInfo) -> String {
     match protocol.to_ascii_lowercase().as_str() {
         "vless" => {
-            let transport = match si.network.as_str() {
+            match si.network.as_str() {
                 "tcp" => match si.security.as_str() {
-                    "reality" => "TCP·REALITY",
+                    "reality" => "Reality",
                     "tls" => "TCP·TLS",
                     _ => "TCP",
                 },
-                "ws" => "WS·TLS",
-                "grpc" => "gRPC·TLS",
-                // XHTTP / SplitHTTP: Xray-core proprietary — label clearly so
-                // admins know it only works in V2Ray/Xray links.
-                "xhttp" | "splithttp" => "XHTTP [Xray only]",
-                "httpupgrade" => "HTTPUpgrade·TLS",
+                "ws" => "WS",
+                "grpc" => "gRPC",
+                "xhttp" | "splithttp" => "XHTTP",
+                "httpupgrade" => "HTTPUpgrade",
                 other => other,
-            };
-            format!("VLESS·{}", transport)
+            }
+            .to_string()
         }
         "vmess" => {
             let net = match si.network.as_str() {
@@ -204,20 +197,20 @@ fn format_proto_label(protocol: &str, si: &StreamInfo) -> String {
             format!("VMess·{}", net)
         }
         "trojan" => match si.security.as_str() {
-            "reality" => "Trojan·REALITY".to_string(),
+            "reality" => "Trojan·Reality".to_string(),
             _ => format!("Trojan·{}", si.network.to_ascii_uppercase()),
         },
         "hysteria2" | "hy2" => {
             if si.hy2_obfs.is_some() {
-                "Hysteria2·OBFS".to_string()
+                "hy2·obfs".to_string()
             } else {
-                "Hysteria2".to_string()
+                "hy2".to_string()
             }
         }
-        "tuic" => "TUIC·v5".to_string(),
-        "shadowsocks" | "ss" => "Shadowsocks".to_string(),
-        "amneziawg" => "AmneziaWG".to_string(),
-        "naive" => "NaïveProxy".to_string(),
+        "tuic" => "TUIC".to_string(),
+        "shadowsocks" | "ss" => "SS".to_string(),
+        "amneziawg" => "AWG".to_string(),
+        "naive" => "Naive".to_string(),
         other => other.to_ascii_uppercase(),
     }
 }
@@ -855,7 +848,7 @@ pub fn generate_v2ray_config(
                 } else {
                     ""
                 };
-                let label_raw = format!("{} | {}{}", node_label, proto_label, relay_suffix);
+                let label_raw = format!("{} {}{}", node_label, proto_label, relay_suffix);
                 let label = urlencoding::encode(&label_raw);
 
                 // XHTTP / SplitHTTP links are Xray-core only — skip for sing-box
@@ -1169,7 +1162,7 @@ pub fn generate_clash_config(
                 let node_label = format_node_label(node);
                 let is_relay_path = node.relay_info.is_some();
                 let relay_suffix = if is_relay_path { " ↪" } else { "" };
-                let name = format!("{} | {}{}", node_label, proto_label, relay_suffix);
+                let name = format!("{} {}{}", node_label, proto_label, relay_suffix);
 
                 // XHTTP / SplitHTTP is a proprietary Xray-core transport that
                 // Clash Meta does not support.  Skip it here; it still appears
@@ -1393,7 +1386,7 @@ pub fn generate_clash_config(
         }
         // Legacy fallback
         else if node.reality_port.is_some() {
-            let legacy_name = format!("{} | VLESS·REALITY", format_node_label(node));
+            let legacy_name = format!("{} Reality", format_node_label(node));
             direct_names.push(legacy_name.clone());
             proxies.push(json!({
                 "name": legacy_name,
@@ -1414,7 +1407,7 @@ pub fn generate_clash_config(
 
         // Legacy Hysteria2
         if !node.is_relay && node.hy2_port.is_some() {
-            let hy2_legacy_name = format!("{} | Hysteria2", format_node_label(node));
+            let hy2_legacy_name = format!("{} hy2", format_node_label(node));
             direct_names.push(hy2_legacy_name.clone());
             proxies.push(json!({
                 "name": hy2_legacy_name,
@@ -1556,7 +1549,7 @@ pub fn generate_singbox_config(
             {
                 // Human-readable label stored as _remark (stripped at send time,
                 // helps debugging raw JSON configs).
-                ob["_remark"] = json!(format!("{} | {}", node_label, proto_label));
+                ob["_remark"] = json!(format!("{} {}", node_label, proto_label));
                 proxy_outbounds.push(ob);
                 direct_tags.push(direct_tag);
             }
@@ -1577,8 +1570,8 @@ pub fn generate_singbox_config(
                         Some(&relay_ob_tag),
                     ) {
                         ob["_remark"] = json!(format!(
-                            "{} → {} | {} ↪",
-                            relay_label, node_label, proto_label
+                            "{} via {} {} ↪",
+                            node_label, relay_label, proto_label
                         ));
                         proxy_outbounds.push(ob);
                         relay_tags.push(via_tag);
@@ -1609,7 +1602,7 @@ pub fn generate_singbox_config(
                         "utls": { "enabled": true, "fingerprint": "chrome" },
                         "fragment": { "enabled": true, "size": "1-500", "sleep": "0-5" }
                     },
-                    "_remark": format!("{} | VLESS·REALITY", node_label)
+                    "_remark": format!("{} Reality", node_label)
                 });
                 proxy_outbounds.push(ob);
                 direct_tags.push(tag);
