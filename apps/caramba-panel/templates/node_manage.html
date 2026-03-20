@@ -49,6 +49,13 @@
                 <i data-lucide="scroll-text"></i>
                 Logs
             </button>
+            <button hx-get="{{ admin_path }}/nodes/{{ node.id }}/edit"
+                hx-target="#node-edit-modal-content"
+                hx-on::after-request="document.getElementById('node-edit-modal').showModal()"
+                class="btn btn-primary">
+                <i data-lucide="pencil"></i>
+                Edit
+            </button>
         </div>
     </div>
 
@@ -473,6 +480,15 @@
 <!-- Edit Inbound Modal -->
 <dialog id="edit-inbound-modal" class="backdrop:bg-slate-950/80 bg-transparent p-0 backdrop:backdrop-blur-sm">
     <div id="edit-inbound-modal-content" class="modal-container max-w-4xl" onclick="event.stopPropagation()">
+        <div class="flex items-center justify-center p-12 text-slate-500">
+            <i data-lucide="loader-2" class="w-6 h-6 animate-spin mr-3"></i> Loading...
+        </div>
+    </div>
+</dialog>
+
+<!-- Node Edit Modal -->
+<dialog id="node-edit-modal" class="backdrop:bg-slate-950/80 bg-transparent p-0 backdrop:backdrop-blur-sm">
+    <div id="node-edit-modal-content" class="modal-container max-w-lg" onclick="event.stopPropagation()">
         <div class="flex items-center justify-center p-12 text-slate-500">
             <i data-lucide="loader-2" class="w-6 h-6 animate-spin mr-3"></i> Loading...
         </div>
