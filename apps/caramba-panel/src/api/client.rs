@@ -979,11 +979,13 @@ async fn get_active_servers(
         build_recommended_variants_by_node(&state.pool, user_id, params.sub_id, &variants_by_node)
             .await;
 
-    // 1. Get Client IP/Location
+    // 1. Get Client IP/Location (consistent with subscription.rs)
     let client_ip = headers
-        .get("X-Forwarded-For")
+        .get("cf-connecting-ip")
+        .or_else(|| headers.get("x-forwarded-for"))
         .and_then(|h| h.to_str().ok())
-        .map(|s| s.split(',').next().unwrap_or("").trim().to_string())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim().to_string())
         .unwrap_or_else(|| addr.ip().to_string());
 
     let user_coords = get_client_coordinates(state.clone(), client_ip).await;

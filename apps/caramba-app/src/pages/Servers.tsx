@@ -33,6 +33,9 @@ export default function Servers() {
     const [loading, setLoading] = useState(true)
     const [selectedServer, setSelectedServer] = useState<ServerInfo | null>(null)
     const [countryFilter, setCountryFilter] = useState<string | null>(null)
+    const [pinningNodeId, setPinningNodeId] = useState<number | null>(null)
+    const [pinnedNodeId, setPinnedNodeId] = useState<number | null>(activeSub?.last_node_id ?? null)
+    const [pinMessage, setPinMessage] = useState<string | null>(null)
     const [clientType, setClientType] = useState('singbox')
     const [selectedVariant, setSelectedVariant] = useState<string>('')
     const [configUrl, setConfigUrl] = useState('')
@@ -86,6 +89,26 @@ export default function Servers() {
         };
         fetchData();
     }, [activeSub?.id, token]);
+
+    const handlePinServer = async (nodeId: number | null) => {
+        if (!activeSub || !token) return
+        setPinningNodeId(nodeId)
+        setPinMessage(null)
+        try {
+            const res = await fetch(`/api/client/subscription/${activeSub.id}/server`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ node_id: nodeId }),
+            })
+            if (res.ok) {
+                setPinnedNodeId(nodeId)
+                setPinMessage(nodeId ? 'Сервер выбран. Обновите конфиг в клиенте.' : 'Автовыбор включён.')
+            } else {
+                setPinMessage('Не удалось переключить сервер.')
+            }
+        } catch { setPinMessage('Ошибка сети.') }
+        finally { setPinningNodeId(null) }
+    }
 
     const handleGetConfig = (server: ServerInfo) => {
         if (!activeSub) return;
@@ -171,6 +194,14 @@ export default function Servers() {
                 ) : null;
             })()}
 
+            {pinMessage && <div className="home-banner success">{pinMessage}</div>}
+
+            {pinnedNodeId && (
+                <button className="btn-ghost" style={{ width: '100%', marginBottom: 8 }} onClick={() => handlePinServer(null)}>
+                    Сбросить выбор (Авто)
+                </button>
+            )}
+
             <div className="servers-list">
                 {servers
                     .filter(s => !countryFilter || s.country_code === countryFilter)
@@ -203,13 +234,22 @@ export default function Servers() {
                                 {server.is_full && <span className="badge badge-error">Заполнен</span>}
                             </div>
                         </div>
-                        <button
-                            className="btn-secondary"
-                            onClick={() => handleGetConfig(server)}
-                            disabled={server.is_full}
-                        >
-                            {server.is_full ? 'Сервер заполнен' : 'Открыть настройку'}
-                        </button>
+                        <div className="server-actions">
+                            <button
+                                className={`btn-primary ${pinnedNodeId === server.id ? 'pinned' : ''}`}
+                                onClick={() => handlePinServer(server.id)}
+                                disabled={server.is_full || pinningNodeId !== null}
+                            >
+                                {pinningNodeId === server.id ? '...' : pinnedNodeId === server.id ? '✓ Выбран' : server.is_full ? 'Заполнен' : 'Подключить'}
+                            </button>
+                            <button
+                                className="btn-secondary"
+                                onClick={() => handleGetConfig(server)}
+                                disabled={server.is_full}
+                            >
+                                Настроить
+                            </button>
+                        </div>
                     </div>
                     );
                 })}
