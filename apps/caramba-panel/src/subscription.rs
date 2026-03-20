@@ -104,8 +104,33 @@ mod tests {
     }
 }
 
-/// Check if an IP belongs to major Russian ASN allocations.
-/// Covers primary Russian CIDR blocks (Rostelecom, MTS, Beeline, MegaFon, Yandex).
+/// Check if client's country matches any relay node's country.
+/// Returns true if the user should get relay-chained paths prioritized.
+async fn should_prioritize_relay(
+    state: &crate::AppState,
+    client_ip: &str,
+) -> bool {
+    // Get client country via GeoIP
+    let client_cc = match state.geo_service.get_location(client_ip).await {
+        Some(geo) => geo.country_code.to_uppercase(),
+        None => return false,
+    };
+
+    // Get country codes of all relay nodes
+    let relay_countries: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT country_code FROM nodes WHERE is_relay = TRUE AND status = 'active' AND country_code IS NOT NULL",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    relay_countries
+        .iter()
+        .any(|rc| rc.eq_ignore_ascii_case(&client_cc))
+}
+
+// Legacy is_russian_ip kept as dead code fallback — replaced by should_prioritize_relay
+#[allow(dead_code)]
 fn is_russian_ip(ip_str: &str) -> bool {
     let ip: std::net::IpAddr = match ip_str.parse() {
         Ok(ip) => ip,
@@ -829,19 +854,18 @@ function copyLink(){{
 
     // Geo-aware ordering: always exclude pure relay infrastructure nodes from
     // user subscriptions (is_relay == true nodes are transit-only infra).
-    // Then for Russian IPs, put relay-chained nodes first so that sing-box /
-    // Clash auto-select picks a working relay path when RKN whitelists are
-    // active, while still including direct paths as an auto-fallback (if direct
-    // works it will be faster and auto-test will prefer it).
+    // If user's country matches a relay node's country, put relay-chained
+    // exit nodes first so auto-select picks a working relay path when
+    // local censorship blocks direct foreign routes.
     if params.node_id.is_none() {
         // Always remove pure relay infrastructure nodes – they are not
         // user-facing destinations, only inter-node transport hops.
         filtered_nodes.retain(|n| !n.is_relay);
 
         if filtered_nodes.len() > 1 {
-            let is_russian = is_russian_ip(&client_ip);
+            let prioritize_relay = should_prioritize_relay(&state, &client_ip).await;
 
-            if is_russian {
+            if prioritize_relay {
                 // For Russian users we want:
                 //   1. Relay-chained destination nodes (relay_id.is_some()) → first.
                 //   2. Direct destination nodes (relay_id.is_none())        → fallback.

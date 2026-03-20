@@ -17,6 +17,9 @@ interface ServerInfo {
     distance_km?: number
     available_variant_ids?: string[]
     recommended_variant_id?: string | null
+    active_connections?: number
+    max_users?: number
+    is_full?: boolean
 }
 
 export default function Servers() {
@@ -29,6 +32,7 @@ export default function Servers() {
     const [servers, setServers] = useState<ServerInfo[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedServer, setSelectedServer] = useState<ServerInfo | null>(null)
+    const [countryFilter, setCountryFilter] = useState<string | null>(null)
     const [clientType, setClientType] = useState('singbox')
     const [selectedVariant, setSelectedVariant] = useState<string>('')
     const [configUrl, setConfigUrl] = useState('')
@@ -150,9 +154,37 @@ export default function Servers() {
                 Обычный импорт остается основным путем. Этот экран нужен только для дополнительной настройки, если хотите улучшить совместимость или проверить другой маршрут.
             </p>
 
+            {(() => {
+                const countries = [...new Set(servers.map(s => s.country_code))];
+                return countries.length > 1 ? (
+                    <div className="country-quick-picker">
+                        <button className={`country-chip ${!countryFilter ? 'active' : ''}`} onClick={() => setCountryFilter(null)}>Все</button>
+                        {countries.map(cc => {
+                            const s = servers.find(sv => sv.country_code === cc);
+                            return (
+                                <button key={cc} className={`country-chip ${countryFilter === cc ? 'active' : ''}`} onClick={() => setCountryFilter(cc)}>
+                                    {s?.flag} {cc}
+                                </button>
+                            );
+                        })}
+                    </div>
+                ) : null;
+            })()}
+
             <div className="servers-list">
-                {servers.map((server, i) => (
-                    <div key={server.id} className={`server-item glass-card ${i === 0 ? 'best' : ''}`}>
+                {servers
+                    .filter(s => !countryFilter || s.country_code === countryFilter)
+                    .map((server, i) => {
+                    const capacity = server.max_users && server.max_users > 0
+                        ? `${server.active_connections ?? 0}/${server.max_users}`
+                        : `${server.active_connections ?? 0}/∞`;
+                    const loadPct = server.max_users && server.max_users > 0
+                        ? ((server.active_connections ?? 0) / server.max_users) * 100
+                        : 0;
+                    const loadColor = loadPct > 90 ? 'error' : loadPct > 70 ? 'warning' : 'success';
+
+                    return (
+                    <div key={server.id} className={`server-item glass-card ${i === 0 && !countryFilter ? 'best' : ''} ${server.is_full ? 'full' : ''}`}>
                         <div className="server-row">
                             <span className="server-flag">{server.flag}</span>
                             <div className="server-info">
@@ -163,20 +195,24 @@ export default function Servers() {
                                 </span>
                             </div>
                             <div className="server-right">
-                                <span className={`status-indicator ${server.status}`}>
-                                    {server.status === 'online' ? '●' : '○'}
-                                </span>
+                                <span className={`badge badge-${loadColor}`}>{capacity}</span>
                                 {!!server.available_variant_ids?.length && (
-                                    <span className="badge badge-success">{server.available_variant_ids.length} вариантов</span>
+                                    <span className="badge badge-success">{server.available_variant_ids.length} вар.</span>
                                 )}
-                                {i === 0 && <span className="badge badge-warning">⭐ Лучший</span>}
+                                {i === 0 && !countryFilter && <span className="badge badge-warning">Лучший</span>}
+                                {server.is_full && <span className="badge badge-error">Заполнен</span>}
                             </div>
                         </div>
-                        <button className="btn-secondary" onClick={() => handleGetConfig(server)}>
-                            Открыть настройку
+                        <button
+                            className="btn-secondary"
+                            onClick={() => handleGetConfig(server)}
+                            disabled={server.is_full}
+                        >
+                            {server.is_full ? 'Сервер заполнен' : 'Открыть настройку'}
                         </button>
                     </div>
-                ))}
+                    );
+                })}
             </div>
 
             {selectedServer && (

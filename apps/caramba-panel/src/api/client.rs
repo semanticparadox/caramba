@@ -903,13 +903,16 @@ async fn get_client_coordinates(state: AppState, ip: String) -> Option<(f64, f64
 struct ClientNode {
     id: i64,
     country_code: Option<String>,
-    flag: String,         // Calculated on backend
-    latency: Option<i32>, // Still mocked or from health check?
+    flag: String,
+    latency: Option<i32>,
     status: String,
     distance_km: Option<i32>,
-    name: String, // Derived from id or config?
+    name: String,
     available_variant_ids: Vec<String>,
     recommended_variant_id: Option<String>,
+    active_connections: i32,
+    max_users: i32,
+    is_full: bool,
 }
 
 #[derive(Deserialize)]
@@ -989,9 +992,10 @@ async fn get_active_servers(
     let mut client_nodes: Vec<ClientNode> = nodes
         .into_iter()
         .filter(|n| {
-            let users_ok = n.max_users <= 0 || n.active_connections.unwrap_or(0) < n.max_users;
+            // Hide relay infrastructure nodes from users
+            if n.is_relay { return false; }
             let load_ok = n.last_cpu.unwrap_or(0.0) < 95.0 && n.last_ram.unwrap_or(0.0) < 98.0;
-            users_ok && load_ok
+            load_ok
         })
         .map(|n| {
             let dist = if let (Some(u_lat), Some(u_lon), Some(n_lat), Some(n_lon)) = (
@@ -1016,16 +1020,23 @@ async fn get_active_servers(
                 status_label = "fast".to_string(); // fast badge
             }
 
+            let connections = n.active_connections.unwrap_or(0);
+            let max = n.max_users;
+            let is_full = max > 0 && connections >= max;
+
             ClientNode {
                 id: n.id,
                 country_code: n.country_code.clone(),
                 flag: get_flag(n.country_code.as_deref().unwrap_or("US")),
-                latency: n.last_latency.map(|l| l as i32), // Use last reported latency
-                status: status_label,
+                latency: n.last_latency.map(|l| l as i32),
+                status: if is_full { "full".to_string() } else { status_label },
                 distance_km: dist,
                 name: format!("Node #{} ({} Mbps)", n.id, speed),
                 available_variant_ids: variants_by_node.get(&n.ip).cloned().unwrap_or_default(),
                 recommended_variant_id: recommended_by_node.get(&n.id).cloned().flatten(),
+                active_connections: connections,
+                max_users: max,
+                is_full,
             }
         })
         .collect();
