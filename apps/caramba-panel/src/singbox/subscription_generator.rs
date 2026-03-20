@@ -228,11 +228,11 @@ fn build_singbox_outbound(
     user_keys: &UserKeys,
     detour: Option<&str>,
 ) -> Option<serde_json::Value> {
-    // XHTTP / SplitHTTP is a proprietary Xray-core transport.
-    // sing-box does NOT support it — skip unconditionally for all protocols.
-    // V2Ray base64 links (generate_v2ray_config) still emit correct XHTTP
-    // links because those are consumed by Xray-core clients.
-    if matches!(si.network.as_str(), "xhttp" | "splithttp") {
+    // Skip transports not reliably supported by sing-box:
+    // - XHTTP/SplitHTTP: proprietary Xray-core transport
+    // - gRPC: limited/broken support in sing-box 1.8+
+    // Both still appear in V2Ray base64 and Clash configs.
+    if matches!(si.network.as_str(), "xhttp" | "splithttp" | "grpc") {
         return None;
     }
 
