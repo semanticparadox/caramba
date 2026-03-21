@@ -327,20 +327,23 @@ pub async fn heartbeat(
         .get_or_default("agent_latest_version", "0.0.0")
         .await;
 
-    let target_version = if auto_update_agents {
-        // If auto-update is ON, force latest version
-        Some(latest_version)
-    } else {
-        // If auto-update is OFF, check if specific target version is set for this node
-        let stored_target: Option<String> =
-            sqlx::query_scalar("SELECT target_version FROM nodes WHERE id = $1")
-                .bind(node_id)
-                .fetch_optional(&state.pool)
-                .await
-                .unwrap_or(None);
+    // Per-node target_version (set by "Rollout Now") always takes priority
+    let stored_target: Option<String> =
+        sqlx::query_scalar::<_, String>("SELECT COALESCE(target_version, '') FROM nodes WHERE id = $1")
+            .bind(node_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None)
+            .filter(|v: &String| !v.is_empty() && v != "0.0.0");
 
-        stored_target
-    };
+    let target_version = stored_target.or_else(|| {
+        // Fall back to global agent_latest_version only if auto-update is ON
+        if auto_update_agents && latest_version != "0.0.0" {
+            Some(latest_version)
+        } else {
+            None
+        }
+    });
 
     // 6. Action Trigger (Log Collection, etc.)
     let mut action = AgentAction::None;
