@@ -133,6 +133,13 @@ pub fn routes(state: AppState) -> Router<AppState> {
                 auth_middleware,
             )),
         )
+        .route(
+            "/relay-countries",
+            get(get_relay_countries).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
         // Store endpoints
         .route(
             "/store/categories",
@@ -1077,6 +1084,55 @@ async fn get_active_servers(
     });
 
     Json(client_nodes).into_response()
+}
+
+// Relay Countries Endpoint
+async fn get_relay_countries(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    #[derive(Serialize)]
+    struct RelayCountry {
+        code: String,
+        flag: String,
+        name: String,
+    }
+
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT DISTINCT country_code FROM nodes WHERE is_relay = TRUE AND status = 'active' AND country_code IS NOT NULL ORDER BY country_code",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    let countries: Vec<RelayCountry> = rows
+        .into_iter()
+        .map(|(code,)| {
+            let flag = get_flag(&code);
+            let name = match code.to_uppercase().as_str() {
+                "RU" => "Россия",
+                "US" => "США",
+                "DE" => "Германия",
+                "NL" => "Нидерланды",
+                "FI" => "Финляндия",
+                "FR" => "Франция",
+                "GB" | "UK" => "Великобритания",
+                "TR" => "Турция",
+                "KZ" => "Казахстан",
+                "UA" => "Украина",
+                "CA" => "Канада",
+                "JP" => "Япония",
+                "SG" => "Сингапур",
+                _ => &code,
+            };
+            RelayCountry {
+                code: code.to_uppercase(),
+                flag,
+                name: name.to_string(),
+            }
+        })
+        .collect();
+
+    Json(countries)
 }
 
 // Billing / Payments Endpoint

@@ -36,6 +36,13 @@ export const PLATFORM_DIRECTORY: PlatformDirectory[] = [
         confidence: 'high',
       },
       {
+        id: 'happ-ios',
+        name: 'Happ',
+        description: 'Минималистичный клиент на базе sing-box. Бесплатно.',
+        officialUrl: 'https://apps.apple.com/app/happ-proxy-utility/id6504287215',
+        confidence: 'high',
+      },
+      {
         id: 'streisand-ios',
         name: 'Streisand',
         description: 'Альтернативный клиент с поддержкой VLESS/Trojan. Бесплатно.',
@@ -72,6 +79,13 @@ export const PLATFORM_DIRECTORY: PlatformDirectory[] = [
         description: 'Универсальный клиент с автоимпортом. Бесплатно.',
         officialUrl: HIDDIFY_SITE,
         fallbackUrl: HIDDIFY_RELEASES,
+        confidence: 'high',
+      },
+      {
+        id: 'happ-android',
+        name: 'Happ',
+        description: 'Минималистичный клиент на базе sing-box. Бесплатно.',
+        officialUrl: 'https://play.google.com/store/apps/details?id=com.happ.proxy',
         confidence: 'high',
       },
       {

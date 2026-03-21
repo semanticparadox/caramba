@@ -5,7 +5,6 @@ import { QRCodeSVG } from 'qrcode.react'
 import DrawerModal from '../components/DrawerModal'
 import { apiUrl } from '../config'
 import { useAuth, UserSubscription } from '../context/AuthContext'
-import { useAppLock } from '../context/AppLockContext'
 import { copyText } from '../lib/copyActions'
 import { mapProviderCards } from '../lib/paymentProviders'
 import { formatBytes, getUsageSnapshot, usageProgress } from '../lib/subscriptionMetrics'
@@ -53,7 +52,7 @@ function formatDuration(days: number): string {
 export default function Home() {
     const navigate = useNavigate()
     const { userStats: stats, isLoading, user, subscriptions, refreshData, token, error } = useAuth()
-    const { isPinEnabled, lockNow } = useAppLock()
+
 
     const usage = getUsageSnapshot(stats, subscriptions)
 
@@ -111,6 +110,17 @@ export default function Home() {
         if (!w) {
             void copyImportLink(sub)
             setBanner({ type: 'success', text: 'Ссылка скопирована — вставьте в Hiddify вручную (Новый профиль → Добавить из буфера).' })
+        }
+    }
+
+    const openHapp = (sub: UserSubscription) => {
+        if (!sub.subscription_url) return
+        const url = getSubUrl(sub)
+        const deepLink = `sing-box://import-remote-profile?url=${encodeURIComponent(url)}`
+        const w = window.open(deepLink, '_blank')
+        if (!w) {
+            void copyImportLink(sub)
+            setBanner({ type: 'success', text: 'Ссылка скопирована — вставьте в Happ вручную.' })
         }
     }
 
@@ -291,7 +301,7 @@ export default function Home() {
                 <span className={`state-dot ${hasActiveAccess ? 'is-online' : hasPending ? 'is-waiting' : 'is-idle'}`} />
                 <div className="compact-hero-copy">
                     <p className="hero-kicker">Добро пожаловать</p>
-                    <h1>{user?.full_name || user?.username || 'Пользователь'}</h1>
+                    <h1>{user?.full_name || user?.username || 'EXA ROBOT'}</h1>
                 </div>
             </section>
 
@@ -324,19 +334,30 @@ export default function Home() {
                                 <div className="progress-fill-mini" style={{ width: `${usageProgress(sub)}%` }} />
                             </div>
                         )}
+                        <div className="sub-card-stats">
+                            <span>↓ {formatBytes(totalDownload)}</span>
+                            <span>↑ {formatBytes(totalUpload)}</span>
+                        </div>
 
-                        <button className="btn-primary" onClick={() => openHiddify(sub)}>
-                            Открыть Hiddify
-                        </button>
+                        <div className="sub-card-connect">
+                            <button className="btn-primary" onClick={() => openHiddify(sub)}>
+                                Подключить в Hiddify
+                            </button>
+                            <button className="btn-primary btn-secondary" onClick={() => openHapp(sub)}>
+                                Подключить в Happ
+                            </button>
+                        </div>
                         <div className="sub-card-actions">
                             <button className="btn-ghost" onClick={() => setQrSubId(qrSubId === sub.id ? null : sub.id)}>
-                                QR
+                                Показать QR
                             </button>
                             <button className="btn-ghost" onClick={() => void copyImportLink(sub)}>
-                                {copiedSubId === sub.id ? 'Скопировано' : 'Ссылка'}
+                                {copiedSubId === sub.id ? 'Скопировано' : 'Скопировать ссылку'}
                             </button>
+                        </div>
+                        <div className="sub-card-actions">
                             <button className="btn-ghost" onClick={() => navigate(`/servers/${sub.id}`)}>
-                                Серверы
+                                Выбрать сервер
                             </button>
                             <button className="btn-ghost" onClick={() => navigate(`/devices?sub=${sub.id}`)}>
                                 Устройства {sub.active_devices ?? 0}/{(sub.device_limit ?? 0) > 0 ? sub.device_limit : '∞'}
@@ -520,26 +541,6 @@ export default function Home() {
                     </div>
                 </article>
 
-                <article className="bento-card glass-card">
-                    <div className="bento-head">
-                        <h3>Быстрые действия</h3>
-                        <span>Навигация</span>
-                    </div>
-                    <div className="control-grid control-grid-single">
-                        <button className="control-card" onClick={() => navigate('/promo')}>
-                            <span className="control-title">Промо и рефералы</span>
-                            <span className="control-subtitle">Активируйте код и поделитесь ссылкой</span>
-                        </button>
-                        <button className="control-card" onClick={() => navigate('/support/connect')}>
-                            <span className="control-title">Инструкция Hiddify</span>
-                            <span className="control-subtitle">Пошаговый импорт для вашего устройства</span>
-                        </button>
-                        <button className="control-card" onClick={isPinEnabled ? lockNow : () => navigate('/support')}>
-                            <span className="control-title">{isPinEnabled ? 'Заблокировать Mini App' : 'Настроить PIN'}</span>
-                            <span className="control-subtitle">{isPinEnabled ? 'Мгновенная блокировка экрана' : 'Защитите доступ к приложению'}</span>
-                        </button>
-                    </div>
-                </article>
             </section>
 
             <DrawerModal

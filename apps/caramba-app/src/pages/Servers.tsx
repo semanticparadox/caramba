@@ -119,6 +119,8 @@ export default function Servers() {
     const [selectedVariant, setSelectedVariant] = useState<string>('')
     const [configUrl, setConfigUrl] = useState('')
     const [copied, setCopied] = useState(false)
+    const [relayCountries, setRelayCountries] = useState<{code: string, flag: string, name: string}[]>([])
+    const [selectedRelay, setSelectedRelay] = useState<string>('auto')
 
     const singboxVariants = activeSub?.singbox_variants ?? []
     const availableVariants = selectedServer
@@ -168,7 +170,16 @@ export default function Servers() {
             } catch (e) { console.error(e); }
             finally { setLoading(false); }
         };
+        const fetchRelays = async () => {
+            try {
+                const res = await fetch('/api/client/relay-countries', {
+                    headers: { Authorization: `Bearer ${token}` },
+                })
+                if (res.ok) setRelayCountries(await res.json())
+            } catch { /* ignore */ }
+        };
         fetchData();
+        fetchRelays();
     }, [activeSub?.id, token]);
 
     const handlePinServer = async (nodeId: number | null) => {
@@ -274,6 +285,24 @@ export default function Servers() {
                     </div>
                 ) : null;
             })()}
+
+            {relayCountries.length > 0 && (
+                <div className="relay-picker glass-card" style={{ padding: 'var(--space-sm) var(--space-md)' }}>
+                    <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                        Обход блокировок через Relay
+                    </p>
+                    <div className="country-quick-picker">
+                        <button className={`country-chip ${selectedRelay === 'none' ? 'active' : ''}`} onClick={() => setSelectedRelay('none')}>
+                            Не нужно
+                        </button>
+                        {relayCountries.map(rc => (
+                            <button key={rc.code} className={`country-chip ${selectedRelay === rc.code ? 'active' : ''}`} onClick={() => setSelectedRelay(rc.code)}>
+                                {rc.flag} {rc.name}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {pinMessage && <div className="home-banner success">{pinMessage}</div>}
 

@@ -13,6 +13,7 @@ pub struct SubParams {
     pub client: Option<String>, // "clash" | "v2ray" | "singbox"
     pub node_id: Option<i64>,
     pub variant: Option<String>,
+    pub relay_country: Option<String>, // e.g. "RU", "US", "none" — override geo-based relay selection
 }
 
 fn parse_ip_maybe(value: &str) -> Option<std::net::IpAddr> {
@@ -624,9 +625,10 @@ function copyLink(){{
     let cache_node_id = effective_node_id.unwrap_or(0);
     let cache_variant = params.variant.as_deref().unwrap_or("default");
     let cache_cc = client_cc.as_deref().unwrap_or("XX");
+    let cache_relay = params.relay_country.as_deref().unwrap_or("auto");
     let cache_key = format!(
-        "sub_config_v4:{}:{}:{}:{}:{}",
-        uuid, client_type, cache_node_id, cache_variant, cache_cc
+        "sub_config_v5:{}:{}:{}:{}:{}:{}",
+        uuid, client_type, cache_node_id, cache_variant, cache_cc, cache_relay
     );
 
     if let Ok(Some(cached_config)) = state.redis.get(&cache_key).await {
@@ -667,7 +669,21 @@ function copyLink(){{
         .await
         .unwrap_or_default();
 
-    let relay_nodes: Vec<_> = match &client_cc {
+    // Relay selection priority:
+    // 1. Explicit relay_country param from user (TMA picker) — "RU", "US", or "none"
+    // 2. Auto-detected client country via GeoIP
+    // 3. Fallback: include all relays
+    let relay_filter_cc: Option<String> = match params.relay_country.as_deref() {
+        Some("none") | Some("NONE") => {
+            // User explicitly said "no relay needed"
+            Some("NONE".to_string())
+        }
+        Some(cc) if cc.len() == 2 => Some(cc.to_uppercase()),
+        _ => client_cc.clone(),
+    };
+
+    let relay_nodes: Vec<_> = match relay_filter_cc.as_deref() {
+        Some("NONE") => vec![], // No relays
         Some(cc) => all_relay_nodes
             .into_iter()
             .filter(|r| {
@@ -677,7 +693,7 @@ function copyLink(){{
                     .unwrap_or(false)
             })
             .collect(),
-        // Unknown geo — include all relays as fallback.
+        // Unknown geo, no explicit choice — include all relays as fallback.
         None => all_relay_nodes,
     };
 

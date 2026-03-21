@@ -10,6 +10,7 @@ use tracing::{error, info};
 #[derive(Deserialize)]
 pub struct SubParams {
     pub client: Option<String>,
+    pub relay_country: Option<String>,
 }
 
 /// Detect client type from User-Agent header when ?client= is not specified.
@@ -69,7 +70,7 @@ pub async fn subscription_handler(
     // All formats proxied to panel — panel has the authoritative generators
     // for sing-box (geo-based auto-relay, proper naming), v2ray, and clash.
     // Forward client IP and User-Agent so panel can do device tracking and geo filtering.
-    proxy_to_panel(&state, &uuid, client_type, &client_ip, user_agent.as_deref()).await
+    proxy_to_panel(&state, &uuid, client_type, &client_ip, user_agent.as_deref(), params.relay_country.as_deref()).await
 }
 
 /// Proxy subscription requests to the panel, which has the authoritative
@@ -80,11 +81,15 @@ async fn proxy_to_panel(
     client_type: &str,
     client_ip: &str,
     user_agent: Option<&str>,
+    relay_country: Option<&str>,
 ) -> Response {
-    let panel_sub_url = format!(
+    let mut panel_sub_url = format!(
         "{}/sub/{}?client={}",
         state.config.panel_url, uuid, client_type
     );
+    if let Some(rc) = relay_country {
+        panel_sub_url.push_str(&format!("&relay_country={}", rc));
+    }
 
     let resp = match state
         .panel_client
