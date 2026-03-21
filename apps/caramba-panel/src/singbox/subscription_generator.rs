@@ -256,9 +256,10 @@ fn build_singbox_outbound(
                     },
                     "utls": { "enabled": true, "fingerprint": si.fingerprint }
                 });
-                // TLS fragment helps bypass DPI on direct TCP+Reality connections.
-                // Don't apply on relay chains – the relay transport already obfuscates.
-                if si.network == "tcp" && detour.is_none() {
+                // TLS fragment removed — Hiddify 4.0 doesn't support fragment as object in tls block.
+                // sing-box native fragment is configured at outbound level, not inside tls.
+                if false {
+                    // Placeholder — re-enable when Hiddify supports it
                     tls["fragment"] = json!({
                         "enabled": true,
                         "size": "1-500",
@@ -1596,8 +1597,7 @@ pub fn generate_singbox_config(
                             "public_key": node.reality_public_key.as_deref().unwrap_or(""),
                             "short_id": node.reality_short_id.as_deref().unwrap_or("")
                         },
-                        "utls": { "enabled": true, "fingerprint": "chrome" },
-                        "fragment": { "enabled": true, "size": "1-500", "sleep": "0-5" }
+                        "utls": { "enabled": true, "fingerprint": "chrome" }
                     },
                     "_remark": format!("{} Reality", node_label)
                 });
