@@ -381,12 +381,24 @@ async fn auth_telegram(
     let balance: i64 = user_row.try_get("balance").unwrap_or(0);
 
     // Fallback to Telegram initData first_name + last_name if DB full_name is empty
-    let full_name = db_full_name.filter(|n| !n.trim().is_empty()).or_else(|| {
+    let full_name = if db_full_name.as_ref().map_or(true, |n| n.trim().is_empty()) {
         let first = user_json.get("first_name").and_then(|v| v.as_str()).unwrap_or("");
         let last = user_json.get("last_name").and_then(|v| v.as_str()).unwrap_or("");
         let combined = format!("{} {}", first, last).trim().to_string();
-        if combined.is_empty() { None } else { Some(combined) }
-    });
+        if !combined.is_empty() {
+            // Persist to DB so it's available everywhere
+            let _ = sqlx::query("UPDATE users SET full_name = $1 WHERE id = $2")
+                .bind(&combined)
+                .bind(user_id)
+                .execute(&state.pool)
+                .await;
+            Some(combined)
+        } else {
+            None
+        }
+    } else {
+        db_full_name
+    };
 
     // Count active subscriptions
     let active_subs: i64 = sqlx::query_scalar(
@@ -1669,7 +1681,7 @@ async fn create_payment_invoice(
 
 #[derive(Deserialize)]
 struct PinNodeReq {
-    node_id: i64,
+    node_id: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -1896,7 +1908,7 @@ async fn pin_subscription_node(
             // Update
             match state
                 .subscription_service
-                .update_subscription_node(sub_id, Some(body.node_id))
+                .update_subscription_node(sub_id, body.node_id)
                 .await
             {
                 Ok(_) => Json(serde_json::json!({"ok": true})).into_response(),
