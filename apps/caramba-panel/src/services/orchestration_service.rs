@@ -194,15 +194,10 @@ impl OrchestrationService {
             .flatten();
         if let Some(group) = default_group {
             if group_ids.contains(&group.id) {
-                let default_group_template_count = templates
-                    .iter()
-                    .filter(|tpl| tpl.target_group_id == Some(group.id))
-                    .count();
-                if default_group_template_count < 8 {
-                    info!(
-                        "Default group has {} template(s); seeding missing baseline templates",
-                        default_group_template_count
-                    );
+                {
+                    // Always run bootstrap — it's idempotent (skips existing templates by name).
+                    // This ensures new template types (TUIC, NaiveProxy) get created for groups
+                    // that were seeded before those templates existed.
                     let _ = self.bootstrap_default_templates(group.id).await;
 
                     templates.clear();
