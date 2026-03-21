@@ -198,7 +198,7 @@ impl OrchestrationService {
                     .iter()
                     .filter(|tpl| tpl.target_group_id == Some(group.id))
                     .count();
-                if default_group_template_count < 6 {
+                if default_group_template_count < 8 {
                     info!(
                         "Default group has {} template(s); seeding missing baseline templates",
                         default_group_template_count
@@ -414,6 +414,8 @@ impl OrchestrationService {
         let vless_settings = r#"{"protocol":"vless","clients":[],"decryption":"none"}"#;
         let hysteria2_settings =
             r#"{"protocol":"hysteria2","users":[],"up_mbps":100,"down_mbps":100}"#;
+        let naive_settings = r#"{"protocol":"naive","users":[]}"#;
+        let tuic_settings = r#"{"protocol":"tuic","users":[],"congestion":"bbr"}"#;
 
         // Direct baseline
         let vless_reality_stream = r#"{"network":"tcp","security":"reality","realitySettings":{"show":false,"xver":0,"dest":"{{SNI}}:443","serverNames":["{{SNI}}"],"privateKey":"","shortIds":[""]}}"#;
@@ -425,6 +427,8 @@ impl OrchestrationService {
         let vless_httpupgrade_stream = r#"{"network":"httpupgrade","security":"tls","tlsSettings":{"serverName":"{{SNI}}"},"httpUpgradeSettings":{"path":"/hu","host":"{{SNI}}"}}"#;
         let vless_tcp_tls_stream =
             r#"{"network":"tcp","security":"tls","tlsSettings":{"serverName":"{{SNI}}"}}"#;
+        let naive_stream = r#"{"network":"tcp","security":"tls","tlsSettings":{"serverName":"{{SNI}}"}}"#;
+        let tuic_stream = r#"{"network":"udp","security":"tls","tlsSettings":{"serverName":"{{SNI}}"},"tuicSettings":{"congestion":"bbr"}}"#;
 
         // 9-path readiness baseline: 6 protocol templates, which become 9 client routes
         // when an exit node is paired with a relay node.
@@ -486,6 +490,26 @@ impl OrchestrationService {
             group_id,
             14400,
             14499,
+        )
+        .await?;
+        self.create_template(
+            "NaiveProxy",
+            "naive",
+            naive_settings,
+            naive_stream,
+            group_id,
+            15400,
+            15499,
+        )
+        .await?;
+        self.create_template(
+            "TUIC",
+            "tuic",
+            tuic_settings,
+            tuic_stream,
+            group_id,
+            16400,
+            16499,
         )
         .await?;
 
