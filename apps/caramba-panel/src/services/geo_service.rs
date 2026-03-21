@@ -94,10 +94,12 @@ impl GeoService {
 
         // 3. Fallback API
         // Only if not private IP
-        if ip == "127.0.0.1" || ip == "::1" {
+        if ip == "127.0.0.1" || ip == "::1" || ip == "0.0.0.0" {
+            tracing::debug!("GeoIP: skipping API lookup for local/unset IP {}", ip);
             return None;
         }
 
+        // Primary: ip-api.com (free, 45 req/min)
         let url = format!("http://ip-api.com/json/{}?fields=countryCode,lat,lon", ip);
         match reqwest::get(&url).await {
             Ok(resp) => {
@@ -107,14 +109,37 @@ impl GeoService {
                         lat: json.lat,
                         lon: json.lon,
                     };
+                    tracing::debug!("GeoIP: ip-api.com resolved {} → {}", ip, data.country_code);
                     let mut cache = self.cache.lock().unwrap();
                     cache.insert(ip.to_string(), (data.clone(), Instant::now()));
                     return Some(data);
                 }
             }
-            Err(e) => tracing::warn!("GeoIP API failed for {}: {}", ip, e),
+            Err(e) => tracing::warn!("GeoIP: ip-api.com failed for {}: {}", ip, e),
         }
 
+        // Secondary: ipinfo.io (free, 50k req/month)
+        let url2 = format!("https://ipinfo.io/{}/json", ip);
+        match reqwest::get(&url2).await {
+            Ok(resp) => {
+                if let Ok(json) = resp.json::<serde_json::Value>().await {
+                    if let Some(cc) = json.get("country").and_then(|v| v.as_str()) {
+                        let data = GeoData {
+                            country_code: cc.to_uppercase(),
+                            lat: 0.0,
+                            lon: 0.0,
+                        };
+                        tracing::debug!("GeoIP: ipinfo.io resolved {} → {}", ip, data.country_code);
+                        let mut cache = self.cache.lock().unwrap();
+                        cache.insert(ip.to_string(), (data.clone(), Instant::now()));
+                        return Some(data);
+                    }
+                }
+            }
+            Err(e) => tracing::warn!("GeoIP: ipinfo.io also failed for {}: {}", ip, e),
+        }
+
+        tracing::warn!("GeoIP: all lookups failed for {}", ip);
         None
     }
 }

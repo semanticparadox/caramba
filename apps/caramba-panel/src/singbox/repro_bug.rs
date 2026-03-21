@@ -199,10 +199,10 @@ mod tests {
 
         let outbounds = config["outbounds"].as_array().unwrap();
 
-        // Тег должен быть в формате slug·tag·d, а НЕ "01 - Reality (Direct)"
+        // Тег должен быть в формате "{flag} {proto_label}", а НЕ "01 - Reality (Direct)"
         let vless_ob = outbounds.iter()
-            .find(|o| o["type"] == "vless" && o["tag"].as_str().map(|t| t.ends_with("·d")).unwrap_or(false))
-            .expect("VLESS outbound с суффиксом ·d не найден");
+            .find(|o| o["type"] == "vless" && o["tag"].as_str() == Some("🇩🇪 Stealth"))
+            .expect("VLESS outbound с тегом '🇩🇪 Stealth' не найден");
 
         // flow обязателен для Reality+TCP (xtls-rprx-vision)
         let flow = vless_ob["flow"].as_str().unwrap_or("");
@@ -253,7 +253,7 @@ mod tests {
 
         let outbounds = config["outbounds"].as_array().unwrap();
         let vless_ob = outbounds.iter()
-            .find(|o| o["type"] == "vless" && o["tag"].as_str().map(|t| t.ends_with("·d")).unwrap_or(false))
+            .find(|o| o["type"] == "vless" && o["tag"].as_str() == Some("🇩🇪 Stealth"))
             .expect("VLESS outbound не найден");
 
         // Должен использоваться node-level public_key
@@ -288,7 +288,7 @@ mod tests {
 
         let outbounds = config["outbounds"].as_array().unwrap();
         let vless_ob = outbounds.iter()
-            .find(|o| o["type"] == "vless" && o["tag"].as_str().map(|t| t.ends_with("·d")).unwrap_or(false))
+            .find(|o| o["type"] == "vless" && o["tag"].as_str() == Some("🇩🇪 Stream"))
             .expect("VLESS gRPC outbound не найден");
 
         // gRPC не должен иметь flow (не поддерживается с Vision)
@@ -378,17 +378,18 @@ mod tests {
             }
         }
 
-        // Теги прокси-аутбаундов должны заканчиваться на ·d (direct)
+        // Теги прокси-аутбаундов должны быть в формате "{flag} {proto_label}"
         let proxy_tags: Vec<&str> = outbounds.iter()
             .filter(|o| matches!(o["type"].as_str(), Some("vless") | Some("hysteria2")))
             .filter_map(|o| o["tag"].as_str())
             .collect();
 
         assert!(!proxy_tags.is_empty(), "Нет proxy outbounds");
+        // Tags should start with flag emoji and contain a proto label
         for tag in &proxy_tags {
             assert!(
-                tag.ends_with("·d"),
-                "Тег '{}' не заканчивается на ·d — неверный формат direct outbound",
+                tag.starts_with("🇩🇪"),
+                "Тег '{}' не начинается с флага 🇩🇪 — неверный формат direct outbound",
                 tag
             );
         }
@@ -468,24 +469,24 @@ mod tests {
         assert_eq!(vless_obs.len(), 4, "Ожидается 4 VLESS outbound");
         assert_eq!(hy2_obs.len(), 1, "Ожидается 1 Hysteria2 outbound");
 
-        // Reality outbound должен иметь reality блок
+        // Reality outbound должен иметь reality блок (tag: "🇩🇪 Stealth")
         let reality_ob = proxy_obs.iter()
-            .find(|o| o["tag"].as_str().map(|t| t.contains("reality_tcp")).unwrap_or(false))
-            .expect("Reality TCP outbound не найден");
+            .find(|o| o["tag"].as_str() == Some("🇩🇪 Stealth"))
+            .expect("Reality TCP outbound '🇩🇪 Stealth' не найден");
         assert!(reality_ob["tls"]["reality"]["enabled"] == true, "reality.enabled должен быть true");
         assert_eq!(reality_ob["flow"].as_str().unwrap_or(""), "xtls-rprx-vision",
             "Reality TCP должен иметь flow");
 
-        // HTTPUpgrade должен иметь multiplex
+        // HTTPUpgrade должен иметь multiplex (tag: "🇩🇪 HTTP")
         let httpupgrade_ob = proxy_obs.iter()
-            .find(|o| o["tag"].as_str().map(|t| t.contains("httpupgrade")).unwrap_or(false))
-            .expect("HTTPUpgrade outbound не найден");
+            .find(|o| o["tag"].as_str() == Some("🇩🇪 HTTP"))
+            .expect("HTTPUpgrade outbound '🇩🇪 HTTP' не найден");
         assert!(httpupgrade_ob["multiplex"].is_object(), "HTTPUpgrade должен иметь multiplex");
 
-        // gRPC не должен иметь flow
+        // gRPC не должен иметь flow (tag: "🇩🇪 Stream")
         let grpc_ob = proxy_obs.iter()
-            .find(|o| o["tag"].as_str().map(|t| t.contains("grpc")).unwrap_or(false))
-            .expect("gRPC outbound не найден");
+            .find(|o| o["tag"].as_str() == Some("🇩🇪 Stream"))
+            .expect("gRPC outbound '🇩🇪 Stream' не найден");
         let grpc_flow = grpc_ob["flow"].as_str().unwrap_or("");
         assert!(grpc_flow.is_empty(), "gRPC не должен иметь flow");
     }

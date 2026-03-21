@@ -120,20 +120,6 @@ fn is_placeholder_sni(sni: &str) -> bool {
 
 // ─── Label & display helpers ──────────────────────────────────────────────────
 
-/// Make a URL-safe slug from a node name (for use in tags)
-fn slug(s: &str) -> String {
-    s.chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>()
-        .to_lowercase()
-}
-
 /// Return a flag emoji for a 2-letter ISO country code
 fn country_flag(code: Option<&str>) -> &'static str {
     match code.map(|s| s.trim()).unwrap_or("") {
@@ -488,7 +474,7 @@ fn ensure_relay_outbound(
 
     let ri = pick?;
     let r_si = parse_stream_settings(&ri.stream_settings, relay);
-    let r_tag = format!("relay·{}", slug(&relay.name));
+    let r_tag = format!("relay {}", country_flag(relay.country_code.as_deref()));
 
     let ob = build_singbox_outbound(&r_tag, ri, &relay.address, &r_si, user_keys, None)?;
 
@@ -1523,6 +1509,22 @@ pub fn generate_singbox_config(
     // Cache: relay_node_address -> relay outbound tag (avoid duplicates).
     let mut relay_cache: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
+    // Track used tags to ensure uniqueness.
+    let mut used_tags: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // Helper: make a tag unique by appending " 2", " 3", etc. if needed.
+    let unique_tag = |base: String, used: &mut std::collections::HashSet<String>| -> String {
+        if used.insert(base.clone()) {
+            return base;
+        }
+        for i in 2..100 {
+            let candidate = format!("{} {}", base, i);
+            if used.insert(candidate.clone()) {
+                return candidate;
+            }
+        }
+        base // should never reach here
+    };
 
     // ─── Build outbounds ──────────────────────────────────────────────────────
     for node in nodes {
@@ -1541,13 +1543,13 @@ pub fn generate_singbox_config(
             let proto_label = format_proto_label(&inbound.protocol, &si);
 
             // ── Direct outbound ───────────────────────────────────────────────
-            let direct_tag = format!("{}·{}·d", slug(&node.name), slug(&inbound.tag));
-            if let Some(mut ob) =
+            let direct_tag = unique_tag(
+                format!("{} {}", node_label, proto_label),
+                &mut used_tags,
+            );
+            if let Some(ob) =
                 build_singbox_outbound(&direct_tag, inbound, endpoint, &si, user_keys, None)
             {
-                // Human-readable label stored as _remark (stripped at send time,
-                // helps debugging raw JSON configs).
-                ob["_remark"] = json!(format!("{} {}", node_label, proto_label));
                 proxy_outbounds.push(ob);
                 direct_tags.push(direct_tag);
             }
@@ -1557,9 +1559,12 @@ pub fn generate_singbox_config(
                 if let Some(relay_ob_tag) =
                     ensure_relay_outbound(relay, user_keys, &mut proxy_outbounds, &mut relay_cache)
                 {
-                    let via_tag = format!("{}·{}·via·{}", slug(&node.name), slug(&inbound.tag), slug(&relay.name));
                     let relay_label = format_node_label(relay);
-                    if let Some(mut ob) = build_singbox_outbound(
+                    let via_tag = unique_tag(
+                        format!("{} {} via {}", node_label, proto_label, relay_label),
+                        &mut used_tags,
+                    );
+                    if let Some(ob) = build_singbox_outbound(
                         &via_tag,
                         inbound,
                         endpoint,
@@ -1567,10 +1572,6 @@ pub fn generate_singbox_config(
                         user_keys,
                         Some(&relay_ob_tag),
                     ) {
-                        ob["_remark"] = json!(format!(
-                            "{} via {} {} ↪",
-                            node_label, relay_label, proto_label
-                        ));
                         proxy_outbounds.push(ob);
                         relay_tags.push(via_tag);
                     }
@@ -1581,7 +1582,7 @@ pub fn generate_singbox_config(
         // ── Legacy fallback: node has no inbounds stored ──────────────────────
         if enabled.is_empty() {
             if let Some(port) = node.reality_port {
-                let tag = format!("{}·legacy", slug(&node.name));
+                let tag = unique_tag(format!("{} Stealth", node_label), &mut used_tags);
                 let ob = json!({
                     "type": "vless",
                     "tag": &tag,

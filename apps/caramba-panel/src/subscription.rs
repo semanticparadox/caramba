@@ -132,13 +132,21 @@ pub async fn subscription_handler(
         }
     }
 
-    // 0.5 Extract IP and User-Agent for tracking
+    // 0.5 Extract IP, User-Agent, and country header for tracking
     let user_agent = req
         .headers()
         .get(header::USER_AGENT)
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
     let client_ip = extract_client_ip(req.headers());
+    // Try geo headers from reverse proxy (Caddy geo module, Cloudflare, etc.)
+    let client_country_header = req
+        .headers()
+        .get("x-country-code")
+        .or_else(|| req.headers().get("cf-ipcountry"))
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.trim().to_uppercase())
+        .filter(|cc| cc.len() == 2 && cc != "XX" && cc != "T1");
 
     // 1. Rate Limit (30 req / min per UUID)
     let rate_key = format!("rate:sub:{}", uuid);
@@ -589,25 +597,34 @@ function copyLink(){{
     };
 
     // Нормализуем тип клиента: "hiddify" — это псевдоним singbox.
-    // Hiddify не принимает ?client=hiddify в URL, но если всё же пришёл — обрабатываем корректно.
-    // Важно: нормализация ДО построения cache_key, иначе получим 2 разных ключа для одного формата.
     let client_type = match selected_client.as_deref().unwrap_or("singbox") {
         "hiddify" => "singbox",
         other => other,
     };
+
+    // Determine client country: header from reverse proxy > GeoIP service.
+    // Needed for: 1) relay geo-filtering, 2) cache key (different countries = different configs).
+    let client_cc: Option<String> = match &client_country_header {
+        Some(cc) => Some(cc.clone()),
+        None => state
+            .geo_service
+            .get_location(&client_ip)
+            .await
+            .map(|geo| geo.country_code.to_uppercase()),
+    };
+    if client_cc.is_none() {
+        warn!("GeoIP lookup failed for {} — relay filtering will include all relays", client_ip);
+    }
+
     let cache_node_id = effective_node_id.unwrap_or(0);
     let cache_variant = params.variant.as_deref().unwrap_or("default");
+    let cache_cc = client_cc.as_deref().unwrap_or("XX");
     let cache_key = format!(
-        "sub_config_v3:{}:{}:{}:{}",
-        uuid, client_type, cache_node_id, cache_variant
+        "sub_config_v4:{}:{}:{}:{}:{}",
+        uuid, client_type, cache_node_id, cache_variant, cache_cc
     );
 
     if let Ok(Some(cached_config)) = state.redis.get(&cache_key).await {
-        let _filename = match client_type {
-            "clash" => "config.yaml",
-            "v2ray" => "config.txt",
-            _ => "config.json",
-        };
         let content_type = match client_type {
             "clash" => "text/yaml; charset=utf-8",
             "v2ray" => "text/plain; charset=utf-8",
@@ -638,33 +655,25 @@ function copyLink(){{
     // Fetch relay nodes for auto-relay chain generation.
     // Only include relays whose country matches the client's geo — the user
     // should only see relay paths through their own country (e.g. a Russian
-    // user gets `via·russia` chains, not `via·usa`).
+    // user gets `via 🇷🇺` chains, not `via 🇺🇸`).
     let all_relay_nodes = state
         .subscription_service
         .get_all_active_relay_infos()
         .await
         .unwrap_or_default();
 
-    let relay_nodes: Vec<_> = {
-        let client_cc = state
-            .geo_service
-            .get_location(&client_ip)
-            .await
-            .map(|geo| geo.country_code.to_uppercase());
-
-        match client_cc {
-            Some(cc) => all_relay_nodes
-                .into_iter()
-                .filter(|r| {
-                    r.country_code
-                        .as_ref()
-                        .map(|rc| rc.eq_ignore_ascii_case(&cc))
-                        .unwrap_or(false)
-                })
-                .collect(),
-            // Unknown geo — include all relays as fallback.
-            None => all_relay_nodes,
-        }
+    let relay_nodes: Vec<_> = match &client_cc {
+        Some(cc) => all_relay_nodes
+            .into_iter()
+            .filter(|r| {
+                r.country_code
+                    .as_ref()
+                    .map(|rc| rc.eq_ignore_ascii_case(cc))
+                    .unwrap_or(false)
+            })
+            .collect(),
+        // Unknown geo — include all relays as fallback.
+        None => all_relay_nodes,
     };
 
     let (content, content_type, _filename): (String, &'static str, &'static str) = match client_type

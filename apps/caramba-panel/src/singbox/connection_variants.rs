@@ -365,7 +365,7 @@ mod tests {
         let picked_tags = variant_group["outbounds"].as_array().unwrap();
         assert!(picked_tags
             .iter()
-            .all(|tag| tag.as_str().unwrap().contains("·via·")));
+            .all(|tag| tag.as_str().unwrap().contains(" via ")));
     }
 
     #[test]
@@ -385,7 +385,10 @@ mod tests {
         assert!(!picked_tags.is_empty());
         assert!(picked_tags
             .iter()
-            .all(|tag| tag.as_str().unwrap().contains("grpc")));
+            .all(|tag| {
+                let t = tag.as_str().unwrap();
+                t.contains("Stream")
+            }));
     }
 
     #[test]
@@ -405,10 +408,10 @@ mod tests {
         assert!(!picked_tags.is_empty());
         assert!(picked_tags
             .iter()
-            .all(|tag| tag.as_str().unwrap().contains("hysteria2")));
+            .all(|tag| tag.as_str().unwrap().contains("Speed")));
         assert!(picked_tags
             .iter()
-            .all(|tag| !tag.as_str().unwrap().contains("·via·")));
+            .all(|tag| !tag.as_str().unwrap().contains(" via ")));
     }
 
     fn build_config_fixture() -> String {

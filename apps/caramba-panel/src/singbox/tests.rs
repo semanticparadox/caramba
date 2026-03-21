@@ -397,7 +397,7 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|o| o["tag"].as_str().unwrap().contains("test_inbound"))
+            .find(|o| o["type"] == "vless" && o["transport"]["type"] == "httpupgrade")
             .expect("Outbound missing");
 
         let mux = &outbound["multiplex"];
