@@ -926,6 +926,8 @@ struct ClientNode {
 #[derive(Deserialize)]
 struct ServersQuery {
     sub_id: Option<i64>,
+    lat: Option<f64>,
+    lon: Option<f64>,
 }
 
 // Helper for flag
@@ -996,7 +998,11 @@ async fn get_active_servers(
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|| addr.ip().to_string());
 
-    let user_coords = get_client_coordinates(state.clone(), client_ip).await;
+    let user_coords = if let (Some(lat), Some(lon)) = (params.lat, params.lon) {
+        Some((lat, lon))
+    } else {
+        get_client_coordinates(state.clone(), client_ip).await
+    };
 
     // 2. Map to ClientNode & Calculate Distance & Load Score
     let mut client_nodes: Vec<ClientNode> = nodes

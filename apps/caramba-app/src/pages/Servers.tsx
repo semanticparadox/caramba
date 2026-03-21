@@ -22,6 +22,33 @@ interface ServerInfo {
     is_full?: boolean
 }
 
+// Estimate user location from timezone (rough but works without permissions)
+function estimateCoords(): { lat: number; lon: number } | null {
+    try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+        const tzCoords: Record<string, [number, number]> = {
+            'America/New_York': [40.7, -74.0],
+            'America/Chicago': [41.8, -87.6],
+            'America/Denver': [39.7, -104.9],
+            'America/Los_Angeles': [34.0, -118.2],
+            'America/Toronto': [43.6, -79.3],
+            'America/Vancouver': [49.2, -123.1],
+            'Europe/London': [51.5, -0.1],
+            'Europe/Paris': [48.8, 2.3],
+            'Europe/Berlin': [52.5, 13.4],
+            'Europe/Moscow': [55.7, 37.6],
+            'Asia/Tokyo': [35.6, 139.7],
+            'Asia/Shanghai': [31.2, 121.4],
+            'Asia/Dubai': [25.2, 55.2],
+            'Asia/Tehran': [35.6, 51.3],
+            'Australia/Sydney': [-33.8, 151.2],
+        }
+        const match = tzCoords[tz]
+        if (match) return { lat: match[0], lon: match[1] }
+    } catch { /* ignore */ }
+    return null
+}
+
 export default function Servers() {
     const navigate = useNavigate()
     const { subId: subIdParam } = useParams<{ subId?: string }>()
@@ -80,7 +107,9 @@ export default function Servers() {
         const fetchData = async () => {
             try {
                 const query = activeSub ? `?sub_id=${activeSub.id}` : ''
-                const res = await fetch(`/api/client/servers${query}`, {
+                const coords = estimateCoords()
+                const coordsParam = coords ? `&lat=${coords.lat}&lon=${coords.lon}` : ''
+                const res = await fetch(`/api/client/servers${query}${coordsParam}`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (res.ok) setServers(await res.json());
@@ -198,7 +227,7 @@ export default function Servers() {
 
             {pinnedNodeId && (
                 <button className="btn-ghost" style={{ width: '100%', marginBottom: 8 }} onClick={() => handlePinServer(null)}>
-                    Сбросить выбор (Авто)
+                    Автоподбор
                 </button>
             )}
 
