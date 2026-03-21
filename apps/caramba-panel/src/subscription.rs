@@ -613,7 +613,12 @@ function copyLink(){{
             .map(|geo| geo.country_code.to_uppercase()),
     };
     if client_cc.is_none() {
-        warn!("GeoIP lookup failed for {} — relay filtering will include all relays", client_ip);
+        warn!(
+            "GeoIP lookup failed for client_ip={}, country_header={:?} — relay filtering will include all relays",
+            client_ip, client_country_header
+        );
+    } else {
+        tracing::debug!("Subscription geo: client_ip={}, country={}", client_ip, client_cc.as_deref().unwrap_or("?"));
     }
 
     let cache_node_id = effective_node_id.unwrap_or(0);

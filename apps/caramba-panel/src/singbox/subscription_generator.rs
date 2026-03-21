@@ -369,7 +369,17 @@ fn build_singbox_outbound(
                 ob["obfs"] = json!({ "type": "salamander", "password": obfs });
             }
             if let Some(ports) = &si.hy2_ports {
-                ob["server_ports"] = json!(ports);
+                // server_ports must be a JSON array of port-range strings (sing-box 1.11+).
+                // Skip if it's just the same single port as server_port.
+                let single = inbound.listen_port.to_string();
+                if ports != &single {
+                    // Convert comma/space separated ranges to array
+                    let ranges: Vec<&str> = ports.split([',', ' '])
+                        .map(|s| s.trim())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    ob["server_ports"] = json!(ranges);
+                }
             }
         }
         "tuic" => {

@@ -251,7 +251,7 @@ mod tests {
             .find(|o| o["type"] == "hysteria2")
             .expect("Hysteria2 outbound not found");
 
-        assert_eq!(outbound["server_ports"], "20000-50000");
+        assert_eq!(outbound["server_ports"], serde_json::json!(["20000-50000"]));
         assert_eq!(outbound["obfs"]["type"], "salamander");
         assert_eq!(outbound["obfs"]["password"], "myobfspassword");
     }
