@@ -18,7 +18,6 @@ mod config;
 mod geo_service;
 mod handlers;
 mod panel_client;
-mod singbox_generator;
 
 use config::FrontendConfig;
 use geo_service::GeoService;

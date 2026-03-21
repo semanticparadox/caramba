@@ -1,12 +1,11 @@
 use crate::AppState;
-use crate::singbox_generator::ConfigGenerator;
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 #[derive(Deserialize)]
 pub struct SubParams {
@@ -63,127 +62,13 @@ pub async fn subscription_handler(
         uuid, client_type, client_ip
     );
 
-    // For V2Ray and Clash formats, proxy to panel which has full generators
-    if client_type == "v2ray" || client_type == "clash" {
-        return proxy_to_panel(&state, &uuid, client_type).await;
-    }
-
-    // Sing-box format — generate locally with strict variant control
-    // Retry once on connection errors (reqwest may reuse a stale connection)
-    let sub = match state.panel_client.get_subscription(&uuid).await {
-        Ok(s) => s,
-        Err(e) => {
-            warn!("First attempt failed for {}: {}. Retrying...", uuid, e);
-            match state.panel_client.get_subscription(&uuid).await {
-                Ok(s) => s,
-                Err(e2) => {
-                    error!("Failed to fetch subscription after retry: {}", e2);
-                    return (StatusCode::NOT_FOUND, "Subscription not found").into_response();
-                }
-            }
-        }
-    };
-
-    if sub.status != "active" {
-        return (StatusCode::FORBIDDEN, "Subscription inactive").into_response();
-    }
-
-    let mut exit_nodes = match state.panel_client.get_active_exit_nodes().await {
-        Ok(nodes) => nodes,
-        Err(e) => {
-            error!("Failed to fetch active exit nodes: {}", e);
-            return (StatusCode::SERVICE_UNAVAILABLE, "No exit nodes available").into_response();
-        }
-    };
-
-    let mut preferred_exit_id = sub.node_id;
-    if let Some(exit_id) = preferred_exit_id {
-        let exit_available = exit_nodes.iter().any(|n| n.node.id == exit_id);
-        if exit_available {
-            exit_nodes.retain(|n| n.node.id == exit_id);
-        } else {
-            warn!(
-                "Requested exit node {} is unavailable for subscription {}. Falling back to default active exit node.",
-                exit_id, sub.subscription_uuid
-            );
-            preferred_exit_id = None;
-        }
-    }
-
-    if exit_nodes.is_empty() {
-        return (StatusCode::SERVICE_UNAVAILABLE, "No exit nodes available").into_response();
-    }
-
-    let relay_nodes = match state.panel_client.get_active_relay_nodes().await {
-        Ok(nodes) => nodes,
-        Err(e) => {
-            warn!(
-                "Failed to fetch active relay nodes: {}. Falling back to direct-only variants.",
-                e
-            );
-            Vec::new()
-        }
-    };
-
-    let mut nodes = Vec::with_capacity(exit_nodes.len() + relay_nodes.len());
-    nodes.extend(exit_nodes);
-    nodes.extend(relay_nodes);
-
-    if nodes.is_empty() {
-        return (StatusCode::SERVICE_UNAVAILABLE, "No nodes available").into_response();
-    }
-
-    let user_keys = match state.panel_client.get_user_keys(sub.user_id).await {
-        Ok(k) => k,
-        Err(e) => {
-            error!("Failed to fetch user keys: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Key error").into_response();
-        }
-    };
-
-    let config_json = match ConfigGenerator::generate(
-        nodes,
-        &sub.subscription_uuid,
-        &user_keys,
-        preferred_exit_id,
-    ) {
-            Ok(cfg) => cfg,
-            Err(e) => {
-                error!("Failed to generate strict sing-box profile: {}", e);
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to build sing-box profile",
-                )
-                    .into_response();
-            }
-        };
-
-    let content = serde_json::to_string_pretty(&config_json).unwrap_or_default();
-    let user_info_header = if sub.traffic_limit_gb == 0 {
-        format!("upload=0; download={}; expire={}", sub.used_traffic, sub.expire_timestamp)
-    } else {
-        let total_traffic_bytes = (sub.traffic_limit_gb as i64) * 1024 * 1024 * 1024;
-        format!(
-            "upload=0; download={}; total={}; expire={}",
-            sub.used_traffic, total_traffic_bytes, sub.expire_timestamp
-        )
-    };
-
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/json")
-        .header(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate")
-        .header(header::PRAGMA, "no-cache")
-        .header("profile-title", &sub.plan_name)
-        .header("profile-update-interval", "2")
-        .header("Subscription-Userinfo", &user_info_header)
-        .body(content)
-        .unwrap()
-        .into_response()
+    // All formats proxied to panel — panel has the authoritative generators
+    // for sing-box (geo-based auto-relay, proper naming), v2ray, and clash.
+    proxy_to_panel(&state, &uuid, client_type).await
 }
 
-/// Proxy subscription requests for V2Ray/Clash formats to the panel,
-/// which has full generators for these formats.
+/// Proxy subscription requests to the panel, which has the authoritative
+/// generators for all formats (sing-box, v2ray, clash).
 async fn proxy_to_panel(state: &AppState, uuid: &str, client_type: &str) -> Response {
     let panel_sub_url = format!(
         "{}/sub/{}?client={}",
