@@ -316,7 +316,9 @@ mod tests {
             .expect("Naive outbound not found");
 
         assert_eq!(outbound["username"], "uuid");
-        assert_eq!(outbound["tls"]["utls"]["fingerprint"], "chrome");
+        // NaiveProxy TLS only supports server_name — no alpn, utls, insecure
+        assert!(outbound["tls"]["utls"].is_null(), "naive outbound should not have utls");
+        assert!(outbound["tls"]["alpn"].is_null(), "naive outbound should not have alpn");
     }
 
     // Helper stub

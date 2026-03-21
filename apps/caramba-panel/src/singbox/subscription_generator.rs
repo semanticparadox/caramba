@@ -403,11 +403,11 @@ fn build_singbox_outbound(
             ob["server_port"] = json!(inbound.listen_port);
             ob["username"] = json!(user_keys.user_uuid);
             ob["password"] = json!(user_keys.hy2_password);
+            // NaiveProxy TLS only supports: server_name, certificate, certificate_path, ech.
+            // alpn, utls, insecure etc. are NOT supported and cause parse errors.
             ob["tls"] = json!({
                 "enabled": true,
-                "server_name": si.sni,
-                "alpn": ["h2", "http/1.1"],
-                "utls": { "enabled": true, "fingerprint": si.fingerprint }
+                "server_name": si.sni
             });
         }
         "amneziawg" => {
