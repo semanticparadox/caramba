@@ -53,18 +53,23 @@ pub struct Subscription {
     pub plan_id: i64,
     pub node_id: Option<i64>,
     pub vless_uuid: Option<String>,
-    pub expires_at: DateTime<Utc>,
+    pub subscription_uuid: String,
     pub status: String,
     pub used_traffic: i64,
+    pub device_count: Option<i32>,
+    pub activated_at: Option<DateTime<Utc>>,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
     pub traffic_updated_at: Option<DateTime<Utc>>,
     pub note: Option<String>,
     pub auto_renew: Option<bool>,
-    pub alerts_sent: Option<String>, // JSON array: ["80_percent", "90_percent"]
+    pub alerts_sent: Option<String>,
     pub is_trial: Option<bool>,
-    pub subscription_uuid: String,              // For subscription URLs
-    pub last_sub_access: Option<DateTime<Utc>>, // Track subscription URL access
-    pub created_at: DateTime<Utc>,
-    pub relay_country: Option<String>,          // Persisted relay country choice (e.g. "RU", "US", "none")
+    pub last_sub_access: Option<DateTime<Utc>>,
+    pub last_access_ip: Option<String>,
+    pub last_access_ua: Option<String>,
+    pub organization_id: Option<i64>,
+    pub relay_country: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
