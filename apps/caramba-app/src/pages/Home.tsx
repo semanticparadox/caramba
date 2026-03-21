@@ -96,7 +96,16 @@ export default function Home() {
     // Server selection is now done on the dedicated Servers page
 
     const getSubUrl = (sub: UserSubscription): string => {
-        return sub.subscription_url
+        const base = sub.subscription_url
+        // Include persisted relay choice from Servers page
+        try {
+            const relay = localStorage.getItem(`relay_${sub.id}`)
+            if (relay && relay !== 'auto') {
+                const sep = base.includes('?') ? '&' : '?'
+                return `${base}${sep}relay_country=${relay}`
+            }
+        } catch { /* ignore */ }
+        return base
     }
 
     // Hiddify определяет тип конфига сам через User-Agent.
