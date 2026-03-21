@@ -10,6 +10,7 @@ import AppLockGate from './components/AppLockGate'
 
 const Servers = lazy(() => import('./pages/Servers'))
 const Subscription = lazy(() => import('./pages/Subscription'))
+const Devices = lazy(() => import('./pages/Devices'))
 const Billing = lazy(() => import('./pages/Billing'))
 import './App.css'
 
@@ -18,6 +19,7 @@ function BottomCommandNav() {
     const isCenter = location.pathname === '/'
         || location.pathname.startsWith('/subscription')
         || location.pathname.startsWith('/servers')
+        || location.pathname.startsWith('/devices')
         || location.pathname.startsWith('/plans')
         || location.pathname.startsWith('/store')
         || location.pathname.startsWith('/billing')
@@ -49,6 +51,7 @@ function App() {
                                 <Route path="/subscription" element={<Subscription />} />
                                 <Route path="/servers/:subId" element={<Servers />} />
                                 <Route path="/servers" element={<Servers />} />
+                                <Route path="/devices" element={<Devices />} />
                                 <Route path="/billing" element={<Billing />} />
                                 <Route path="/store" element={<Navigate to="/" replace />} />
                                 <Route path="/plans" element={<Navigate to="/" replace />} />

@@ -338,7 +338,7 @@ export default function Home() {
                             <button className="btn-ghost" onClick={() => navigate(`/servers/${sub.id}`)}>
                                 Серверы
                             </button>
-                            <button className="btn-ghost" onClick={() => navigate(`/subscription?sub=${sub.id}&connect=1`)}>
+                            <button className="btn-ghost" onClick={() => navigate(`/devices?sub=${sub.id}`)}>
                                 Устройства {sub.active_devices ?? 0}/{(sub.device_limit ?? 0) > 0 ? sub.device_limit : '∞'}
                             </button>
                         </div>
