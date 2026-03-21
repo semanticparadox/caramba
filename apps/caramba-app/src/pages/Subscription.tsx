@@ -226,6 +226,8 @@ export default function Subscription() {
         const shouldOpenConnect = searchParams.get('connect') === '1'
         if (!shouldOpenConnect || !subIdParam) return
         setExpandedId(subIdParam)
+        // Auto-expand devices panel when navigated from "Устройства" button
+        loadDevices(subIdParam)
         if (searchParams.get('optimized') === '1') {
             setMessage({
                 type: 'success',
@@ -257,7 +259,7 @@ export default function Subscription() {
             <div className="page sub-page">
                 <header className="page-header">
                     <button className="back-button" onClick={() => navigate('/')}>{'<'}</button>
-                    <h2>Мои сервисы</h2>
+                    <h2>Подписки</h2>
                 </header>
                 <div className="empty-state">
                     <div className="empty-icon">AU</div>

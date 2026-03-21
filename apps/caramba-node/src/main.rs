@@ -681,15 +681,20 @@ async fn collect_user_usage_delta(
     let mut current_totals: std::collections::HashMap<String, u64> =
         std::collections::HashMap::new();
 
-    for conn in connections {
-        let Some(user) = extract_subscription_identity(&conn) else {
+    let mut identified = 0u32;
+    let mut anonymous = 0u32;
+
+    for conn in &connections {
+        let Some(user) = extract_subscription_identity(conn) else {
+            anonymous += 1;
             continue;
         };
+        identified += 1;
 
         let upload =
-            extract_counter_field(&conn, &["upload", "uploadTotal", "uplink", "sent"]).unwrap_or(0);
+            extract_counter_field(conn, &["upload", "uploadTotal", "uplink", "sent"]).unwrap_or(0);
         let download = extract_counter_field(
-            &conn,
+            conn,
             &["download", "downloadTotal", "downlink", "received"],
         )
         .unwrap_or(0);
@@ -697,6 +702,13 @@ async fn collect_user_usage_delta(
         let total = upload.saturating_add(download);
         let entry = current_totals.entry(user).or_insert(0);
         *entry = entry.saturating_add(total);
+    }
+
+    if anonymous > 0 || identified > 0 {
+        tracing::debug!(
+            "Traffic: {} connections total, {} identified (user_*), {} anonymous",
+            identified + anonymous, identified, anonymous
+        );
     }
 
     let mut delta_map = std::collections::HashMap::new();
@@ -718,6 +730,7 @@ async fn collect_user_usage_delta(
     if delta_map.is_empty() {
         None
     } else {
+        tracing::debug!("Traffic delta: {:?}", delta_map);
         Some(delta_map)
     }
 }
