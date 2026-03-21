@@ -1862,5 +1862,15 @@ pub fn generate_singbox_config(
         }
     });
 
+    // Strip internal _remark fields before serializing — Hiddify 4.0+ rejects unknown fields.
+    let mut config = config;
+    if let Some(outbounds) = config.get_mut("outbounds").and_then(|v| v.as_array_mut()) {
+        for ob in outbounds {
+            if let Some(obj) = ob.as_object_mut() {
+                obj.remove("_remark");
+            }
+        }
+    }
+
     Ok(serde_json::to_string_pretty(&config)?)
 }
