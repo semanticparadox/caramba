@@ -104,306 +104,6 @@ mod tests {
     }
 }
 
-/// Check if client's country matches any relay node's country.
-/// Returns true if the user should get relay-chained paths prioritized.
-async fn should_prioritize_relay(
-    state: &crate::AppState,
-    client_ip: &str,
-) -> bool {
-    // Get client country via GeoIP
-    let client_cc = match state.geo_service.get_location(client_ip).await {
-        Some(geo) => geo.country_code.to_uppercase(),
-        None => return false,
-    };
-
-    // Get country codes of all relay nodes
-    let relay_countries: Vec<String> = sqlx::query_scalar(
-        "SELECT DISTINCT country_code FROM nodes WHERE is_relay = TRUE AND status = 'active' AND country_code IS NOT NULL",
-    )
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
-
-    relay_countries
-        .iter()
-        .any(|rc| rc.eq_ignore_ascii_case(&client_cc))
-}
-
-// Legacy is_russian_ip kept as dead code fallback — replaced by should_prioritize_relay
-#[allow(dead_code)]
-fn is_russian_ip(ip_str: &str) -> bool {
-    let ip: std::net::IpAddr = match ip_str.parse() {
-        Ok(ip) => ip,
-        Err(_) => return false,
-    };
-    let ipv4 = match ip {
-        std::net::IpAddr::V4(v4) => v4,
-        std::net::IpAddr::V6(_) => return false,
-    };
-    let octets = ipv4.octets();
-    let (a, b) = (octets[0], octets[1]);
-    #[allow(clippy::match_like_matches_macro)]
-    match (a, b) {
-        // Rostelecom, MTS, Beeline, MegaFon, Yandex and other major RU allocations
-        (2, 60..=63)
-        | (5, 3..=5)
-        | (5, 8..=9)
-        | (5, 16..=18)
-        | (5, 34..=35)
-        | (5, 44..=45)
-        | (5, 100..=104)
-        | (5, 128..=131)
-        | (5, 164..=167)
-        | (5, 187..=189)
-        | (5, 228..=229)
-        | (5, 248..=255)
-        | (31, 13)
-        | (31, 28..=31)
-        | (31, 40..=44)
-        | (31, 128..=134)
-        | (31, 173)
-        | (31, 180..=184)
-        | (37, 1)
-        | (37, 9)
-        | (37, 18..=19)
-        | (37, 26..=29)
-        | (37, 44..=45)
-        | (37, 110)
-        | (37, 112)
-        | (37, 140)
-        | (37, 144..=145)
-        | (37, 192..=193)
-        | (37, 204..=205)
-        | (37, 228..=230)
-        | (46, 0..=3)
-        | (46, 8..=10)
-        | (46, 16..=20)
-        | (46, 28..=30)
-        | (46, 34..=48)
-        | (46, 146..=148)
-        | (46, 158..=160)
-        | (46, 172..=175)
-        | (46, 226..=228)
-        | (46, 236..=243)
-        | (62, 76..=77)
-        | (62, 89)
-        | (62, 109)
-        | (62, 117..=118)
-        | (62, 133)
-        | (62, 176..=177)
-        | (62, 181..=182)
-        | (62, 205)
-        | (62, 213)
-        | (62, 220..=221)
-        | (77, 34..=37)
-        | (77, 40..=41)
-        | (77, 50..=51)
-        | (77, 66..=67)
-        | (77, 72..=75)
-        | (77, 82..=83)
-        | (77, 88)
-        | (77, 91)
-        | (77, 94..=95)
-        | (77, 105..=106)
-        | (77, 220..=223)
-        | (77, 232..=247)
-        | (78, 25)
-        | (78, 29..=31)
-        | (78, 36..=37)
-        | (78, 85)
-        | (78, 106..=107)
-        | (78, 153..=155)
-        | (79, 104..=105)
-        | (79, 120..=126)
-        | (79, 133..=134)
-        | (79, 137..=142)
-        | (79, 164..=175)
-        | (80, 64..=69)
-        | (80, 73)
-        | (80, 76..=77)
-        | (80, 83..=91)
-        | (80, 237..=254)
-        | (81, 16..=26)
-        | (81, 176..=177)
-        | (81, 195)
-        | (81, 200..=201)
-        | (81, 211)
-        | (81, 222)
-        | (83, 149)
-        | (83, 166..=167)
-        | (83, 172..=173)
-        | (83, 219..=222)
-        | (83, 234..=237)
-        | (85, 21..=22)
-        | (85, 26)
-        | (85, 90)
-        | (85, 92..=95)
-        | (85, 115..=116)
-        | (85, 140..=143)
-        | (85, 172..=176)
-        | (85, 192..=199)
-        | (85, 234..=237)
-        | (85, 249)
-        | (87, 103..=104)
-        | (87, 117)
-        | (87, 224..=226)
-        | (87, 228..=250)
-        | (88, 68..=69)
-        | (88, 81..=87)
-        | (88, 135)
-        | (88, 196..=210)
-        | (89, 22)
-        | (89, 109..=110)
-        | (89, 169)
-        | (89, 175..=179)
-        | (89, 184..=185)
-        | (89, 204..=208)
-        | (89, 218..=222)
-        | (89, 249..=253)
-        | (90, 150..=155)
-        | (90, 176..=179)
-        | (90, 188..=189)
-        | (91, 77..=79)
-        | (91, 103..=105)
-        | (91, 122)
-        | (91, 132..=133)
-        | (91, 188..=228)
-        | (91, 234..=245)
-        | (92, 37..=39)
-        | (92, 50..=51)
-        | (92, 100..=101)
-        | (92, 112)
-        | (92, 124..=125)
-        | (92, 240..=243)
-        | (93, 72)
-        | (93, 80..=85)
-        | (93, 100..=101)
-        | (93, 153)
-        | (93, 170..=171)
-        | (93, 178..=191)
-        | (94, 19..=20)
-        | (94, 24..=26)
-        | (94, 41..=43)
-        | (94, 50..=51)
-        | (94, 72..=73)
-        | (94, 79..=80)
-        | (94, 100..=102)
-        | (94, 124..=125)
-        | (94, 130..=131)
-        | (94, 137)
-        | (94, 139..=143)
-        | (94, 153..=159)
-        | (94, 180..=181)
-        | (94, 228..=251)
-        | (95, 24..=25)
-        | (95, 54..=55)
-        | (95, 69..=79)
-        | (95, 104..=106)
-        | (95, 142..=143)
-        | (95, 154..=167)
-        | (95, 173..=174)
-        | (95, 180..=189)
-        | (109, 110..=111)
-        | (109, 124..=127)
-        | (109, 164..=167)
-        | (109, 184..=185)
-        | (109, 194..=207)
-        | (109, 224..=227)
-        | (109, 234..=253)
-        | (176, 14..=15)
-        | (176, 28)
-        | (176, 36)
-        | (176, 49..=51)
-        | (176, 59..=60)
-        | (176, 96..=119)
-        | (176, 195..=215)
-        | (176, 226)
-        | (176, 233..=234)
-        | (178, 16..=19)
-        | (178, 34..=49)
-        | (178, 66..=72)
-        | (178, 120..=121)
-        | (178, 126..=127)
-        | (178, 140)
-        | (178, 166..=179)
-        | (178, 208..=238)
-        | (188, 16..=17)
-        | (188, 32..=45)
-        | (188, 64..=69)
-        | (188, 113)
-        | (188, 116..=134)
-        | (188, 162..=170)
-        | (188, 186..=187)
-        | (188, 226..=234)
-        | (193, 0..=3)
-        | (193, 18..=27)
-        | (193, 32..=33)
-        | (193, 41)
-        | (193, 58)
-        | (193, 104..=109)
-        | (193, 124)
-        | (193, 148..=150)
-        | (193, 164)
-        | (193, 176)
-        | (193, 232..=243)
-        | (194, 8..=9)
-        | (194, 28..=29)
-        | (194, 50..=58)
-        | (194, 67)
-        | (194, 79)
-        | (194, 84..=87)
-        | (194, 105)
-        | (194, 135)
-        | (194, 150..=152)
-        | (194, 186..=190)
-        | (194, 226..=228)
-        | (195, 2..=3)
-        | (195, 16..=19)
-        | (195, 34..=47)
-        | (195, 54..=56)
-        | (195, 62)
-        | (195, 68..=70)
-        | (195, 80..=91)
-        | (195, 128..=133)
-        | (195, 140..=149)
-        | (195, 161..=162)
-        | (195, 170..=171)
-        | (195, 182..=189)
-        | (195, 208..=211)
-        | (195, 218..=219)
-        | (195, 230..=243)
-        | (212, 1)
-        | (212, 3..=5)
-        | (212, 14..=22)
-        | (212, 32..=34)
-        | (212, 41..=42)
-        | (212, 46..=62)
-        | (212, 106..=120)
-        | (212, 148..=166)
-        | (212, 176..=195)
-        | (212, 220..=222)
-        | (213, 5)
-        | (213, 24..=25)
-        | (213, 33..=34)
-        | (213, 59)
-        | (213, 79..=80)
-        | (213, 87)
-        | (213, 108..=109)
-        | (213, 166..=180)
-        | (213, 219..=234)
-        | (217, 8..=10)
-        | (217, 14..=15)
-        | (217, 24..=25)
-        | (217, 65..=73)
-        | (217, 106..=119)
-        | (217, 148..=150)
-        | (217, 170..=175)
-        | (217, 195..=197)
-        | (217, 212) => true,
-        _ => false,
-    }
-}
-
 pub async fn subscription_handler(
     Path(uuid): Path<String>,
     Query(params): Query<SubParams>,
@@ -845,66 +545,22 @@ function copyLink(){{
         return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response();
     }
 
-    let mut filtered_nodes =
-        filter_nodes_for_subscription(nodes_raw.clone(), params.node_id, |n| n.id);
+    // Determine effective node_id: explicit URL param > pinned server from TMA > none.
+    // When a user selects a server in TMA, sub.node_id is set.  The subscription
+    // URL from the client app does NOT always carry ?node_id=, so we fall back
+    // to the persisted pin.  This ensures "one subscription = one server".
+    let effective_node_id = params.node_id.or(sub.node_id);
 
-    if filtered_nodes.is_empty() && params.node_id.is_none() {
+    let mut filtered_nodes =
+        filter_nodes_for_subscription(nodes_raw.clone(), effective_node_id, |n| n.id);
+
+    if filtered_nodes.is_empty() && effective_node_id.is_none() {
         filtered_nodes = std::mem::take(&mut nodes_raw);
     }
 
-    // Geo-aware ordering: always exclude pure relay infrastructure nodes from
-    // user subscriptions (is_relay == true nodes are transit-only infra).
-    // If user's country matches a relay node's country, put relay-chained
-    // exit nodes first so auto-select picks a working relay path when
-    // local censorship blocks direct foreign routes.
-    if params.node_id.is_none() {
-        // Always remove pure relay infrastructure nodes – they are not
-        // user-facing destinations, only inter-node transport hops.
-        filtered_nodes.retain(|n| !n.is_relay);
-
-        if filtered_nodes.len() > 1 {
-            let prioritize_relay = should_prioritize_relay(&state, &client_ip).await;
-
-            if prioritize_relay {
-                // For Russian users we want:
-                //   1. Relay-chained destination nodes (relay_id.is_some()) → first.
-                //   2. Direct destination nodes (relay_id.is_none())        → fallback.
-                //
-                // Both end up in the same sing-box config. The URLTest auto
-                // group picks the fastest working path.  When whitelists block
-                // direct foreign routes the relay paths win automatically.
-                let (mut relay_nodes, direct_nodes): (Vec<_>, Vec<_>) = filtered_nodes
-                    .iter()
-                    .cloned()
-                    .partition(|n| n.relay_id.is_some());
-
-                if !relay_nodes.is_empty() {
-                    relay_nodes.extend(direct_nodes);
-                    filtered_nodes = relay_nodes;
-                }
-                // If no relay nodes are configured yet, keep all direct nodes.
-            } else {
-                // Non-Russian users: prefer direct nodes (lowest latency).
-                // "Direct node" here means a node whose primary path doesn't require
-                // a relay entry — but exit nodes that happen to have a relay_id configured
-                // are still valid destinations (they support both direct and relayed paths).
-                // We only demote them when we have pure direct-only alternatives.
-                //
-                // Алгоритм: если есть ноды без relay_id вообще — ставим их первыми.
-                // Exit-ноды с relay_id не выбрасываем — они просто идут после.
-                let (direct_first, relay_exit): (Vec<_>, Vec<_>) = filtered_nodes
-                    .iter()
-                    .cloned()
-                    .partition(|n| n.relay_id.is_none());
-                if !direct_first.is_empty() {
-                    let mut ordered = direct_first;
-                    ordered.extend(relay_exit);
-                    filtered_nodes = ordered;
-                }
-                // Если все ноды имеют relay_id — оставляем как есть, не теряем их.
-            }
-        }
-    }
+    // Always remove pure relay infrastructure nodes – they are not
+    // user-facing destinations, only inter-node transport hops.
+    filtered_nodes.retain(|n| !n.is_relay);
 
     if filtered_nodes.is_empty() {
         return (StatusCode::NOT_FOUND, "Requested server not found").into_response();
@@ -939,7 +595,7 @@ function copyLink(){{
         "hiddify" => "singbox",
         other => other,
     };
-    let cache_node_id = params.node_id.unwrap_or(0);
+    let cache_node_id = effective_node_id.unwrap_or(0);
     let cache_variant = params.variant.as_deref().unwrap_or("default");
     let cache_key = format!(
         "sub_config_v3:{}:{}:{}:{}",
@@ -979,12 +635,37 @@ function copyLink(){{
             .into_response();
     }
 
-    // Fetch all active relay nodes for auto-relay chain generation.
-    let relay_nodes = state
+    // Fetch relay nodes for auto-relay chain generation.
+    // Only include relays whose country matches the client's geo — the user
+    // should only see relay paths through their own country (e.g. a Russian
+    // user gets `via·russia` chains, not `via·usa`).
+    let all_relay_nodes = state
         .subscription_service
         .get_all_active_relay_infos()
         .await
         .unwrap_or_default();
+
+    let relay_nodes: Vec<_> = {
+        let client_cc = state
+            .geo_service
+            .get_location(&client_ip)
+            .await
+            .map(|geo| geo.country_code.to_uppercase());
+
+        match client_cc {
+            Some(cc) => all_relay_nodes
+                .into_iter()
+                .filter(|r| {
+                    r.country_code
+                        .as_ref()
+                        .map(|rc| rc.eq_ignore_ascii_case(&cc))
+                        .unwrap_or(false)
+                })
+                .collect(),
+            // Unknown geo — include all relays as fallback.
+            None => all_relay_nodes,
+        }
+    };
 
     let (content, content_type, _filename): (String, &'static str, &'static str) = match client_type
     {
