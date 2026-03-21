@@ -4,6 +4,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
+use sqlx;
 use tracing::{error, warn};
 
 use crate::AppState;
@@ -576,6 +577,20 @@ function copyLink(){{
         return (StatusCode::NOT_FOUND, "Requested server not found").into_response();
     }
 
+    // Auto-select first (nearest) server for new users who haven't chosen yet.
+    // Prevents dumping 40+ outbounds to the client on first subscription fetch.
+    if effective_node_id.is_none() && filtered_nodes.len() > 1 {
+        if let Some(first) = filtered_nodes.first() {
+            let auto_id = first.id;
+            filtered_nodes.retain(|n| n.id == auto_id);
+            let _ = state
+                .subscription_service
+                .update_subscription_node(sub.id, Some(auto_id))
+                .await;
+            tracing::info!("Auto-selected node {} for new subscription {}", auto_id, sub.id);
+        }
+    }
+
     // Persist last explicitly selected node so UI/miniapp can show where the user last pulled config from.
     if let Some(selected_node_id) = params.node_id {
         if filtered_nodes.iter().any(|n| n.id == selected_node_id) {
@@ -671,12 +686,24 @@ function copyLink(){{
         .unwrap_or_default();
 
     // Relay selection priority:
-    // 1. Explicit relay_country param from user (TMA picker) — "RU", "US", or "none"
-    // 2. Auto-detected client country via GeoIP
-    // 3. Fallback: include all relays
-    let relay_filter_cc: Option<String> = match params.relay_country.as_deref() {
+    // 1. Explicit relay_country URL param (from TMA picker)
+    // 2. Persisted relay_country in subscription DB record
+    // 3. Auto-detected client country via GeoIP
+    // 4. Fallback: include all relays
+    let effective_relay = params.relay_country.clone()
+        .or_else(|| sub.relay_country.clone());
+
+    // Persist relay choice when explicitly provided via URL param
+    if let Some(rc) = &params.relay_country {
+        let _ = sqlx::query("UPDATE subscriptions SET relay_country = $1 WHERE id = $2")
+            .bind(rc)
+            .bind(sub.id)
+            .execute(&state.pool)
+            .await;
+    }
+
+    let relay_filter_cc: Option<String> = match effective_relay.as_deref() {
         Some("none") | Some("NONE") => {
-            // User explicitly said "no relay needed"
             Some("NONE".to_string())
         }
         Some(cc) if cc.len() == 2 => Some(cc.to_uppercase()),

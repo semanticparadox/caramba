@@ -64,6 +64,7 @@ pub struct Subscription {
     pub subscription_uuid: String,              // For subscription URLs
     pub last_sub_access: Option<DateTime<Utc>>, // Track subscription URL access
     pub created_at: DateTime<Utc>,
+    pub relay_country: Option<String>,          // Persisted relay country choice (e.g. "RU", "US", "none")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
