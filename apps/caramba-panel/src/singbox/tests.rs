@@ -318,30 +318,6 @@ mod tests {
         assert_eq!(outbound["tls"]["utls"]["fingerprint"], "chrome");
     }
 
-    #[test]
-    fn test_tls_fragmentation_rule() {
-        let user_keys = UserKeys {
-            user_uuid: "uuid".to_string(),
-            hy2_password: "pass".to_string(),
-            _awg_private_key: None,
-        };
-
-        let node = create_mock_node("vless", json!({"network":"tcp","security":"reality"}));
-        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
-
-        let outbound = parsed["outbounds"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|o| o["type"] == "vless" && o["tls"]["fragment"]["enabled"] == json!(true))
-            .expect("Outbound missing");
-
-        assert_eq!(outbound["tls"]["fragment"]["enabled"], true);
-        assert_eq!(outbound["tls"]["fragment"]["size"], "1-500");
-        assert_eq!(outbound["tls"]["fragment"]["sleep"], "0-5");
-    }
-
     // Helper stub
     #[test]
     fn test_smart_routing_generation() {

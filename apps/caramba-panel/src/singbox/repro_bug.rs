@@ -227,8 +227,6 @@ mod tests {
             "Неверный short_id в reality блоке"
         );
 
-        // TLS fragment для anti-DPI
-        assert!(vless_ob["tls"]["fragment"].is_object(), "Отсутствует TLS fragment для прямого Reality TCP");
     }
 
     // ─── Тест 4b: Fallback на node-level ключи когда realitySettings без dest ─

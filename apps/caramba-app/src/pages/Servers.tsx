@@ -219,7 +219,7 @@ export default function Servers() {
 
     const updateConfigUrl = (nodeId: number, type: string, variantId?: string) => {
         if (!activeSub) return;
-        setConfigUrl(buildConfigUrl(activeSub, { client: type, nodeId, variantId }));
+        setConfigUrl(buildConfigUrl(activeSub, { client: type, nodeId, variantId, relayCountry: selectedRelay }));
     }
 
     const handleClientChange = (type: string) => {
