@@ -1,18 +1,19 @@
+use crate::bot::translations::t;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, KeyboardMarkup};
 
-pub fn main_menu() -> KeyboardMarkup {
+pub fn main_menu(lang: Option<&str>) -> KeyboardMarkup {
     KeyboardMarkup::new(vec![
         vec![
-            KeyboardButton::new("🛍 Buy Subscription"),
-            KeyboardButton::new("🔐 My Services"),
+            KeyboardButton::new(t(lang, "kb.buy_sub")),
+            KeyboardButton::new(t(lang, "kb.my_services")),
         ],
         vec![
-            KeyboardButton::new("📦 Digital Store"),
-            KeyboardButton::new("👤 My Profile"),
+            KeyboardButton::new(t(lang, "kb.digital_store")),
+            KeyboardButton::new(t(lang, "kb.my_profile")),
         ],
         vec![
-            KeyboardButton::new("🎁 Bonuses / Referral"),
-            KeyboardButton::new("❓ Support"),
+            KeyboardButton::new(t(lang, "kb.bonuses")),
+            KeyboardButton::new(t(lang, "kb.support")),
         ],
     ])
     .resize_keyboard()
@@ -25,10 +26,10 @@ pub fn language_keyboard() -> InlineKeyboardMarkup {
     ]])
 }
 
-pub fn terms_keyboard() -> InlineKeyboardMarkup {
+pub fn terms_keyboard(lang: Option<&str>) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![
-        InlineKeyboardButton::callback("✅ Accept", "accept_terms"),
-        InlineKeyboardButton::callback("❌ Decline", "decline_terms"),
+        InlineKeyboardButton::callback(t(lang, "kb.accept"), "accept_terms"),
+        InlineKeyboardButton::callback(t(lang, "kb.decline"), "decline_terms"),
     ]])
 }
 

@@ -1,91 +1,133 @@
-# Caramba Current State
+# Caramba — Current State (v0.9.14)
 
-This document reflects the current state of the codebase as of **February 2026**.
+Дата / Date: March 2026
 
-## Workspace Modules
+---
 
-`apps/caramba-panel`
-- **Role:** Control Plane & Orchestrator.
-- **Tech:** Rust, Axum, Askama (HTMX), SQLx (PostgreSQL), Redis.
-- **Responsibilities:**
-    - Admin UI (`/admin`) for managing nodes, users, plans, and settings.
-    - Node API (`/api/v2/node`) for agent communication.
-    - Bot API (`/api/v2/bot`) for external bot worker.
-    - Internal API (`/api/internal`) for trusted workers.
-    - Config generation (Sing-box) and distribution.
-    - User/Subscription management and billing.
+## RU
 
-`apps/caramba-node`
-- **Role:** Node Agent.
-- **Tech:** Rust.
-- **Responsibilities:**
-    - Runs on VPN servers alongside Sing-box.
-    - Pulls config from Panel.
-    - Reports heartbeat, traffic stats, and system metrics.
-    - Performs neighborhood SNI scanning.
-    - Handles self-updates.
-    - Implements Kill Switch and Decoy traffic logic.
+### Модули
 
-`apps/caramba-bot`
-- **Role:** Telegram Bot Worker.
-- **Tech:** Rust, Teloxide.
-- **Responsibilities:**
-    - Handles Telegram user interactions (start, plans, profile, support).
-    - Communicates with Panel via `/api/v2/bot`.
-    - Can run locally (embedded) or as a standalone worker.
-    - Supports self-updates.
+| Модуль | Роль | Стек |
+| --- | --- | --- |
+| `apps/caramba-panel` | Панель управления, API, оркестрация | Rust, Axum, Askama/HTMX, SQLx, Redis |
+| `apps/caramba-bot` | Telegram бот | Rust, Teloxide |
+| `apps/caramba-app` | Telegram Mini App | React, TypeScript |
+| `apps/caramba-node` | Агент на VPN-нодах | Rust |
+| `apps/caramba-sub` | Сервис подписок | Rust, Axum |
+| `apps/caramba-installer` | CLI установщик | Rust |
+| `libs/caramba-db` | Модели, репозитории, миграции | SQLx (PostgreSQL) |
+| `libs/caramba-shared` | Общие типы и контракты | Rust |
 
-`apps/caramba-sub`
-- **Role:** Subscription/Frontend Worker.
-- **Tech:** Rust, Axum.
-- **Responsibilities:**
-    - Serves subscription links (SIP002, Clash, Sing-box).
-    - Proxies API requests if needed.
-    - Acts as an edge node for the panel.
-    - Supports self-updates.
+### Реализованные возможности (v0.9.5 -- v0.9.14)
 
-`apps/caramba-installer`
-- **Role:** CLI Tool.
-- **Tech:** Rust.
-- **Responsibilities:**
-    - Installation, upgrade, backup, restore, and diagnostics.
+#### Telegram Mini App (TMA)
+- Редизайн: тема sunset, компактный hero-блок, QR-коды для подключения.
+- Управление устройствами: список подключённых устройств, отключение через API.
+- Гайд по подключению для разных клиентов (Hiddify, V2rayNG, Shadowrocket и др.).
+- Fallback на `full_name`, если `first_name` не доступно; удалён сломанный выбор страны.
 
-`libs/caramba-db`
-- **Role:** Shared Data Layer.
-- **Tech:** SQLx.
-- **Responsibilities:**
-    - Database models and repositories.
-    - Migrations.
+#### Платежи
+- Идемпотентность платежей (дедупликация при повторных callback-ах).
+- Провайдеры: Cryptomus, NowPayments, Telegram Stars, Lava, AAIO.
 
-`libs/caramba-shared`
-- **Role:** Shared Types.
-- **Responsibilities:**
-    - API request/response structs.
-    - Common configuration types.
+#### Авто-relay по гео
+- Relay-ноды автоматически подбираются по стране клиента.
+- Пользовательские названия серверов (user-friendly naming).
+- Relay-ноды скрыты из пользовательского интерфейса.
 
-## Key Features
+#### Админ-бот
+- Команды: `/stats`, `/gift`, `/promo`, `/ban`.
+- Локализация бота (RU/EN).
 
-### Networking & Censorship Resistance
-- **Protocols:** VLESS (Reality, TCP/GRPC), Hysteria2, Trojan, TUIC, NaiveProxy, ShadowSocks, AmneziaWG.
-- **SNI Management:** Automated Reality SNI rotation, neighborhood scanning, manual pinning/blocking.
-- **Geo-Routing:** Intelligent node selection based on client location.
-- **Relay Support:** Node relaying for high-restriction environments.
+#### Уведомления
+- Система уведомлений для администраторов (платежи, статус нод).
 
-### Operations
-- **One-Command Install:** `curl | bash` installer for all roles.
-- **Distributed Topology:** Supports separate hosts for Panel, Nodes, Bot, and Subscription workers.
-- **Self-Updating:** Agents and workers can update themselves from GitHub releases via Panel orchestration.
-- **Observability:** Real-time node status, traffic monitoring, and logs collection.
+#### Реферальная программа
+- Настраиваемый бонус (дни подписки) за приведённого пользователя.
 
-### User Management & Billing
-- **Telegram Integration:** Bot-driven user flow.
-- **Plans:** Traffic-limited, time-limited, and trial plans.
-- **Payments:** Crypto (Cryptomus, NowPayments), Telegram Stars, Lava, AAIO.
-- **Referrals:** Multi-level referral system.
-- **Gift Codes:** Pre-paid subscription codes.
+#### Панель администратора
+- UI ёмкости серверов (capacity bars).
+- Фильтр по странам.
+- Кнопка Edit на странице ноды для настройки relay_id.
+- Реальные графики аналитики.
 
-## Known Issues (Audit Findings)
+#### Генерация конфигураций
+- Компактные теги подключений (без названия страны, сокращённые протоколы).
+- Пропуск gRPC транспорта для sing-box конфигов (совместимость).
+- Восстановлена поддержка gRPC для V2Ray/Clash.
+- Исправлен geosite rule, вызывавший краш sing-box 1.8+.
 
-1.  **Sync Timeout:** Node synchronization can time out due to inefficient pub/sub or database locking.
-2.  **UI Redundancies:** Some settings in the admin panel are duplicated or misplaced.
-3.  **Documentation Drift:** Legacy docs referenced files or features that have changed (now corrected).
+#### Протоколы
+VLESS (Reality, WS, HTTPUpgrade, gRPC), Hysteria2, TUIC, Shadowsocks, NaiveProxy, VMess, Trojan, AmneziaWG.
+
+#### Ноды
+- Heartbeat с телеметрией (latency, CPU, RAM, скорость).
+- SNI-сканирование и управление (pin/block).
+- Блокировка торрентов по умолчанию для новых нод.
+- Kill Switch и Decoy traffic.
+
+---
+
+## EN
+
+### Modules
+
+| Module | Role | Stack |
+| --- | --- | --- |
+| `apps/caramba-panel` | Control plane, API, orchestration | Rust, Axum, Askama/HTMX, SQLx, Redis |
+| `apps/caramba-bot` | Telegram bot | Rust, Teloxide |
+| `apps/caramba-app` | Telegram Mini App | React, TypeScript |
+| `apps/caramba-node` | VPN node agent | Rust |
+| `apps/caramba-sub` | Subscription service | Rust, Axum |
+| `apps/caramba-installer` | CLI installer | Rust |
+| `libs/caramba-db` | Models, repositories, migrations | SQLx (PostgreSQL) |
+| `libs/caramba-shared` | Shared types and contracts | Rust |
+
+### Implemented Features (v0.9.5 -- v0.9.14)
+
+#### Telegram Mini App (TMA)
+- Redesign: sunset theme, compact hero block, QR codes for connection.
+- Device management: list connected devices, kick via API.
+- Multi-client connect guide (Hiddify, V2rayNG, Shadowrocket, etc.).
+- Fallback to `full_name` when `first_name` is unavailable; removed broken country picker.
+
+#### Payments
+- Payment idempotency (deduplication on repeated callbacks).
+- Providers: Cryptomus, NowPayments, Telegram Stars, Lava, AAIO.
+
+#### Auto-relay by geo
+- Relay nodes are automatically selected based on client country.
+- User-friendly server naming.
+- Relay nodes hidden from user-facing UI.
+
+#### Admin bot
+- Commands: `/stats`, `/gift`, `/promo`, `/ban`.
+- Bot localization (RU/EN).
+
+#### Notifications
+- Notification system for admins (payments, node status).
+
+#### Referral program
+- Configurable bonus (subscription days) for referred users.
+
+#### Admin panel
+- Server capacity UI (capacity bars).
+- Country filter.
+- Edit button on node detail page for relay_id configuration.
+- Real analytics charts.
+
+#### Config generation
+- Compact connection tags (no country name, shortened protocols).
+- Skip gRPC transport for sing-box configs (compatibility).
+- Restored gRPC support for V2Ray/Clash.
+- Fixed geosite rule that crashed sing-box 1.8+.
+
+#### Protocols
+VLESS (Reality, WS, HTTPUpgrade, gRPC), Hysteria2, TUIC, Shadowsocks, NaiveProxy, VMess, Trojan, AmneziaWG.
+
+#### Nodes
+- Heartbeat with telemetry (latency, CPU, RAM, speed).
+- SNI scanning and management (pin/block).
+- Torrent blocking enabled by default for new nodes.
+- Kill Switch and Decoy traffic.

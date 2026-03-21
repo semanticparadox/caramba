@@ -1,164 +1,179 @@
-# CARAMBA
+# Caramba
 
-CARAMBA is an installer-first platform for operating censorship-resistant VPN infrastructure.
+---
 
-It combines a Rust control plane, distributed workers, node agents, and Telegram client surfaces into one operational system that can start simple (single host) and scale to distributed production.
+## RU
 
-## Install (One Command)
+### Caramba — VPN-панель с Telegram Mini App
+
+Комплексное решение для управления VPN-сервисом: панель администратора, Telegram бот, Mini App для пользователей, автоматическая генерация конфигураций sing-box/V2Ray/Clash.
+
+### Возможности
+
+#### Для пользователей
+- Telegram Mini App для управления подпиской
+- Автоматический подбор серверов по геолокации
+- QR-код и ссылка для импорта в VPN-клиент
+- Управление подключёнными устройствами (просмотр и отключение)
+- Поддержка клиентов: Hiddify, V2rayNG, NekoBox, Shadowrocket, Sing-box и др.
+- Реферальная программа с настраиваемым бонусом
+
+#### Для администраторов
+- Веб-панель с аналитикой и управлением
+- Telegram бот с админ-командами (`/stats`, `/gift`, `/promo`, `/ban`)
+- Авто-relay: relay-ноды автоматически подбираются по стране пользователя
+- Управление нодами, планами, промокодами
+- Мониторинг: трафик, устройства, ёмкость серверов
+- Уведомления о платежах и статусе нод
+
+#### Протоколы
+VLESS (Reality, WS, HTTPUpgrade, gRPC), Hysteria2, TUIC, Shadowsocks, NaiveProxy, VMess, Trojan, AmneziaWG
+
+#### Архитектура
+- **caramba-panel** — основной сервер (Axum, PostgreSQL, Redis)
+- **caramba-bot** — Telegram бот (Teloxide)
+- **caramba-app** — Telegram Mini App (React, TypeScript)
+- **caramba-node** — агент на VPN-нодах
+- **caramba-sub** — сервис подписок
+- **caramba-installer** — установщик
+
+#### Быстрый старт
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh | sudo bash
 ```
 
-This installs the `caramba` CLI, which becomes the single entrypoint for install, upgrade, diagnostics, backup restore, and uninstall.
+Установщик (`caramba` CLI) — единая точка входа для установки, обновления, диагностики, бэкапа и удаления.
 
-## Why This Project Exists
+#### Режимы развёртывания
 
-Most VPN stacks fail in operations, not in protocol support: ad-hoc provisioning, inconsistent config rollout, weak observability, and painful upgrades.
-
-CARAMBA solves that by standardizing the lifecycle:
-
-- install and upgrade through one installer flow;
-- panel-driven node onboarding and config orchestration;
-- centralized subscriptions and Telegram-facing delivery;
-- progressive migration from hub topology to distributed topology.
-
-## What CARAMBA Can Do
-
-### Control plane and orchestration
-
-- Add nodes, issue install commands, and track pending -> active lifecycle.
-- Build/sync Sing-box config from panel-managed inbounds and templates.
-- Run SNI discovery and assign pinned/filtered SNI candidates.
-- Trigger operational actions: sync, restart, rotate ports/SNI, rollout updates.
-
-### Node operations
-
-- Agent heartbeats with telemetry (latency, CPU, RAM, speed, status).
-- Config pull and update flow for external node hosts.
-- Metrics and logs visibility through the panel.
-
-### Connectivity resilience
-
-- Neighbor SNI scan pipeline and candidate pool handling.
-- SNI pin/block operations for cleaner masking behavior.
-- Support for anti-blocking deployment patterns via Sing-box generation.
-
-### Commercial and user layer
-
-- Plans, subscriptions, devices, promo center, and transaction records.
-- Telegram bot and Mini App integration for end-user access flows.
-- Admin messaging tools for user notifications and campaigns.
-
-## Who It Is For
-
-- Independent operators running anti-censorship access nodes.
-- Teams building managed VPN services with Telegram UX.
-- Projects that need to move from MVP hub to distributed production without replacing tooling.
-
-## Deployment Modes
-
-| Mode | Topology | Best for |
+| Режим | Топология | Для чего |
 | --- | --- | --- |
-| Hub | Panel + Sub (+ optional Bot) on one host | quick launch, testnets, small deployments |
-| Distributed | Panel on control host, Sub/Bot workers and nodes on separate hosts | production scale, fault isolation, security boundaries |
+| Hub | Panel + Sub (+ Bot) на одном хосте | быстрый запуск, тесты, небольшие инсталляции |
+| Distributed | Panel на управляющем хосте, Sub/Bot/Node на отдельных | продакшен, изоляция, масштабирование |
 
-## Architecture
-
-```mermaid
-flowchart LR
-    U[Telegram users / client apps] --> B[Bot + Mini App]
-    U --> S[Sub/Frontend worker]
-    B --> P[Panel control plane]
-    S --> P
-    N[Node agents] --> P
-    P --> N
-    P --> DB[(PostgreSQL)]
-    P --> R[(Redis)]
-```
-
-## Quick Start (First 10 Minutes)
-
-1. Run the one-command installer on your control host.
-2. Complete interactive setup: domain, admin path, install dir, DB password, admin credentials.
-3. Open panel using your hidden admin path.
-4. Create first node and copy generated node install command.
-5. Run node command on remote server and verify heartbeat.
-6. Create inbound template, sync config, and verify subscription output.
-
-## Installer Commands
-
-```bash
-caramba install --hub
-caramba install --panel
-caramba install --node
-caramba install --sub
-caramba install --bot
-
-caramba upgrade
-caramba diagnose
-caramba restore --file /path/to/backup.tar.gz
-caramba uninstall
-```
-
-## Role-Based Install Examples
-
-```bash
-# Node host
-curl -fsSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh \
-  | sudo bash -s -- --role node --panel "https://panel.example.com" --token "EXA-ENROLL-XXXX"
-
-# Sub/frontend worker host
-curl -fsSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh \
-  | sudo bash -s -- --role sub --panel "https://panel.example.com" --domain "sub.example.com" --token "<INTERNAL_API_TOKEN>"
-
-# Bot worker host
-curl -fsSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh \
-  | sudo bash -s -- --role bot --panel "https://panel.example.com" --bot-token "<BOT_TOKEN>" --panel-token "<INTERNAL_API_TOKEN>"
-```
-
-## Repository Layout
-
-- `apps/caramba-panel` - admin UI, APIs, orchestration, rollout logic
-- `apps/caramba-node` - node agent
-- `apps/caramba-sub` - subscription/frontend worker
-- `apps/caramba-bot` - Telegram bot worker
-- `apps/caramba-installer` - installer and upgrade tooling
-- `apps/caramba-app` - Mini App frontend assets
-- `libs/caramba-db` - DB models, repositories, migrations
-- `libs/caramba-shared` - shared contracts and config types
-
-## Development
+#### Разработка
 
 ```bash
 cargo check --workspace
 cargo test --workspace
+cd apps/caramba-app && npm run build
+```
+
+Запуск сервисов локально:
+
+```bash
+cargo run -p caramba-panel
+cargo run -p caramba-sub
+cargo run -p caramba-bot
+cargo run -p caramba-node
+```
+
+#### Документация
+
+- `docs/API.md` — API-эндпоинты
+- `docs/CONFIGURATION.md` — параметры конфигурации
+- `docs/DATABASE.md` — схема БД
+- `docs/DEPLOYMENT.md` — развёртывание
+- `docs/DEVELOPMENT.md` — разработка
+- `docs/MODULES.md` — модули системы
+
+---
+
+## EN
+
+### Caramba — VPN Panel with Telegram Mini App
+
+A complete VPN service management solution: admin panel, Telegram bot, Mini App for users, automatic config generation for sing-box/V2Ray/Clash.
+
+### Features
+
+#### For users
+- Telegram Mini App for subscription management
+- Automatic server selection by geolocation
+- QR code and link for import into VPN clients
+- Device management (list and kick connected devices)
+- Client support: Hiddify, V2rayNG, NekoBox, Shadowrocket, Sing-box, etc.
+- Referral program with configurable bonus
+
+#### For administrators
+- Web panel with analytics and management
+- Telegram bot with admin commands (`/stats`, `/gift`, `/promo`, `/ban`)
+- Auto-relay: relay nodes are automatically selected based on user's country
+- Node, plan, and promo code management
+- Monitoring: traffic, devices, server capacity
+- Payment and node status notifications
+
+#### Protocols
+VLESS (Reality, WS, HTTPUpgrade, gRPC), Hysteria2, TUIC, Shadowsocks, NaiveProxy, VMess, Trojan, AmneziaWG
+
+#### Architecture
+- **caramba-panel** — main server (Axum, PostgreSQL, Redis)
+- **caramba-bot** — Telegram bot (Teloxide)
+- **caramba-app** — Telegram Mini App (React, TypeScript)
+- **caramba-node** — agent on VPN nodes
+- **caramba-sub** — subscription service
+- **caramba-installer** — installer
+
+#### Quick Start
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh | sudo bash
+```
+
+The installer (`caramba` CLI) is the single entrypoint for install, upgrade, diagnostics, backup, and uninstall.
+
+#### Deployment Modes
+
+| Mode | Topology | Best for |
+| --- | --- | --- |
+| Hub | Panel + Sub (+ Bot) on one host | quick launch, testing, small deployments |
+| Distributed | Panel on control host, Sub/Bot/Node on separate hosts | production, isolation, scaling |
+
+#### Development
+
+```bash
+cargo check --workspace
+cargo test --workspace
+cd apps/caramba-app && npm run build
 ```
 
 Run services locally:
 
 ```bash
 cargo run -p caramba-panel
-cargo run -p caramba-node
 cargo run -p caramba-sub
 cargo run -p caramba-bot
+cargo run -p caramba-node
 ```
 
-## Docs
+#### Repository Layout
 
-- `docs/DEPLOYMENT.md`
-- `docs/CONFIGURATION.md`
-- `docs/MODULES.md`
-- `docs/API.md`
-- `docs/DATABASE.md`
-- `docs/DEVELOPMENT.md`
+```
+apps/caramba-panel      — admin UI, APIs, orchestration
+apps/caramba-node       — node agent
+apps/caramba-sub        — subscription/frontend worker
+apps/caramba-bot        — Telegram bot worker
+apps/caramba-installer  — installer and upgrade tooling
+apps/caramba-app        — Mini App frontend (React/TS)
+libs/caramba-db         — DB models, repositories, migrations
+libs/caramba-shared     — shared contracts and config types
+```
+
+#### Documentation
+
+- `docs/API.md` — API endpoints
+- `docs/CONFIGURATION.md` — configuration reference
+- `docs/DATABASE.md` — database schema
+- `docs/DEPLOYMENT.md` — deployment guide
+- `docs/DEVELOPMENT.md` — development guide
+- `docs/MODULES.md` — system modules
+
+---
 
 ## CI/CD
 
-Release workflow: `.github/workflows/release.yml`
-
-- Runs on tags matching `v*`.
-- Can also be started manually via GitHub Actions.
+Release workflow: `.github/workflows/release.yml` — runs on tags matching `v*` or manual dispatch.
 
 ## License
 
