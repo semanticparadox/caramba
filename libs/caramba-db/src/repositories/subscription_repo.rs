@@ -166,7 +166,7 @@ impl SubscriptionRepository {
         status: &str,
         expires_at: DateTime<Utc>,
     ) -> Result<()> {
-        sqlx::query("UPDATE subscriptions SET status = $1, expires_at = $2 WHERE id = $3")
+        sqlx::query("UPDATE subscriptions SET status = $1, expires_at = $2, used_traffic = 0 WHERE id = $3")
             .bind(status)
             .bind(expires_at)
             .bind(id)

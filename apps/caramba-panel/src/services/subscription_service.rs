@@ -148,18 +148,11 @@ impl SubscriptionService {
 
     fn device_fingerprint(
         subscription_id: i64,
-        normalized_ip: &str,
+        _normalized_ip: &str,
         user_agent: Option<&str>,
     ) -> String {
-        let material = match Self::normalize_user_agent(user_agent) {
-            Some(ua) => format!(
-                "sub:{}|ua:{}|ip:{}",
-                subscription_id,
-                ua.to_ascii_lowercase(),
-                normalized_ip
-            ),
-            None => format!("sub:{}|ip:{}", subscription_id, normalized_ip),
-        };
+        let ua = user_agent.unwrap_or("unknown");
+        let material = format!("sub:{}|ua:{}", subscription_id, ua);
         let mut hasher = Sha256::new();
         hasher.update(material.as_bytes());
         hex::encode(hasher.finalize())
@@ -462,7 +455,7 @@ impl SubscriptionService {
     }
 
     pub async fn admin_extend(&self, sub_id: i64, days: i32) -> Result<()> {
-        sqlx::query("UPDATE subscriptions SET expires_at = expires_at + ($1 * interval '1 day') WHERE id = $2")
+        sqlx::query("UPDATE subscriptions SET expires_at = expires_at + ($1 * interval '1 day'), used_traffic = 0 WHERE id = $2")
             .bind(days)
             .bind(sub_id)
             .execute(&self.pool)
@@ -705,7 +698,7 @@ impl SubscriptionService {
                 // Wrap extend + balance deduction in a transaction for atomicity
                 let mut tx = self.pool.begin().await?;
 
-                sqlx::query("UPDATE subscriptions SET expires_at = expires_at + interval '30 days' WHERE id = $1")
+                sqlx::query("UPDATE subscriptions SET expires_at = expires_at + interval '30 days', used_traffic = 0 WHERE id = $1")
                     .bind(sub_id)
                     .execute(&mut *tx)
                     .await?;
