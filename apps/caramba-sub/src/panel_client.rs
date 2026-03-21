@@ -235,6 +235,30 @@ impl PanelClient {
             .await?;
         Ok(resp)
     }
+
+    /// Proxy a subscription request to panel, forwarding the original client's
+    /// IP and User-Agent so panel can do device tracking and geo-based filtering.
+    pub async fn proxy_subscription(
+        &self,
+        url: &str,
+        host: &str,
+        client_ip: &str,
+        user_agent: Option<&str>,
+    ) -> Result<reqwest::Response> {
+        let no_redirect = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+        let mut req = no_redirect
+            .get(url)
+            .bearer_auth(&self.auth_token)
+            .header("Host", host)
+            .header("X-Forwarded-For", client_ip);
+        if let Some(ua) = user_agent {
+            req = req.header("User-Agent", ua);
+        }
+        let resp = req.send().await?;
+        Ok(resp)
+    }
 }
 
 // Data structures (detailed for config generation)

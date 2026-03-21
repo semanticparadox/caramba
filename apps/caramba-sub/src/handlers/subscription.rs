@@ -57,19 +57,30 @@ pub async fn subscription_handler(
     };
 
     let client_ip = get_client_ip(&headers).unwrap_or_else(|| "0.0.0.0".to_string());
+    let user_agent = headers
+        .get("user-agent")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
     info!(
-        "Subscription request: UUID={}, client={}, ip={}",
-        uuid, client_type, client_ip
+        "Subscription request: UUID={}, client={}, ip={}, ua={:?}",
+        uuid, client_type, client_ip, user_agent
     );
 
     // All formats proxied to panel — panel has the authoritative generators
     // for sing-box (geo-based auto-relay, proper naming), v2ray, and clash.
-    proxy_to_panel(&state, &uuid, client_type).await
+    // Forward client IP and User-Agent so panel can do device tracking and geo filtering.
+    proxy_to_panel(&state, &uuid, client_type, &client_ip, user_agent.as_deref()).await
 }
 
 /// Proxy subscription requests to the panel, which has the authoritative
 /// generators for all formats (sing-box, v2ray, clash).
-async fn proxy_to_panel(state: &AppState, uuid: &str, client_type: &str) -> Response {
+async fn proxy_to_panel(
+    state: &AppState,
+    uuid: &str,
+    client_type: &str,
+    client_ip: &str,
+    user_agent: Option<&str>,
+) -> Response {
     let panel_sub_url = format!(
         "{}/sub/{}?client={}",
         state.config.panel_url, uuid, client_type
@@ -77,7 +88,7 @@ async fn proxy_to_panel(state: &AppState, uuid: &str, client_type: &str) -> Resp
 
     let resp = match state
         .panel_client
-        .raw_get_with_host(&panel_sub_url, &state.config.domain)
+        .proxy_subscription(&panel_sub_url, &state.config.domain, client_ip, user_agent)
         .await
     {
         Ok(r) => r,
