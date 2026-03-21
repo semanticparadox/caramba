@@ -2103,14 +2103,13 @@ pub async fn queue_worker_update(
         worker_asset_name(role)
     );
 
-    let asset_check = reqwest::Client::new()
+    let asset_resp = match reqwest::Client::new()
         .get(&asset_url)
         .header("User-Agent", "caramba-panel")
         .send()
-        .await;
-
-    match asset_check {
-        Ok(resp) if resp.status().is_success() => {}
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => resp,
         Ok(resp) => {
             return (
                 StatusCode::BAD_GATEWAY,
@@ -2133,7 +2132,17 @@ pub async fn queue_worker_update(
             )
                 .into_response();
         }
-    }
+    };
+
+    // Download and compute SHA256
+    let worker_hash = match asset_resp.bytes().await {
+        Ok(bytes) => {
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            format!("{:x}", hasher.finalize())
+        }
+        Err(_) => String::new(),
+    };
 
     let target_version_key = format!("worker_{}_target_version", role);
     let update_url_key = format!("worker_{}_update_url", role);
@@ -2142,7 +2151,7 @@ pub async fn queue_worker_update(
     let mut updates = HashMap::new();
     updates.insert(target_version_key, version.clone());
     updates.insert(update_url_key, asset_url.clone());
-    updates.insert(update_hash_key, String::new());
+    updates.insert(update_hash_key, worker_hash);
     if let Err(e) = state.settings.set_multiple(updates).await {
         error!("Failed to save worker update metadata: {}", e);
         return (
