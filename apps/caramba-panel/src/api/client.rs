@@ -377,8 +377,16 @@ async fn auth_telegram(
     let user_row = user_row.unwrap();
     let user_id: i64 = user_row.get("id");
     let username: String = user_row.try_get("username").unwrap_or_default();
-    let full_name: Option<String> = user_row.try_get("full_name").unwrap_or(None);
+    let db_full_name: Option<String> = user_row.try_get("full_name").unwrap_or(None);
     let balance: i64 = user_row.try_get("balance").unwrap_or(0);
+
+    // Fallback to Telegram initData first_name + last_name if DB full_name is empty
+    let full_name = db_full_name.filter(|n| !n.trim().is_empty()).or_else(|| {
+        let first = user_json.get("first_name").and_then(|v| v.as_str()).unwrap_or("");
+        let last = user_json.get("last_name").and_then(|v| v.as_str()).unwrap_or("");
+        let combined = format!("{} {}", first, last).trim().to_string();
+        if combined.is_empty() { None } else { Some(combined) }
+    });
 
     // Count active subscriptions
     let active_subs: i64 = sqlx::query_scalar(

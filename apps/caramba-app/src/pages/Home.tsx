@@ -7,7 +7,6 @@ import { apiUrl } from '../config'
 import { useAuth, UserSubscription } from '../context/AuthContext'
 import { useAppLock } from '../context/AppLockContext'
 import { copyText } from '../lib/copyActions'
-import { buildConfigUrl } from '../lib/subscriptionUrl'
 import { mapProviderCards } from '../lib/paymentProviders'
 import { formatBytes, getUsageSnapshot, usageProgress } from '../lib/subscriptionMetrics'
 import './Home.css'
@@ -31,14 +30,6 @@ interface Plan {
 interface PaymentProvider {
     id: string
     label: string
-}
-
-interface ServerInfo {
-    id: number
-    name: string
-    country_code: string
-    flag: string
-    status: string
 }
 
 type CenterBanner = { type: 'success' | 'error'; text: string } | null
@@ -89,8 +80,6 @@ export default function Home() {
     const [purchasingDurationId, setPurchasingDurationId] = useState<number | null>(null)
     const [banner, setBanner] = useState<CenterBanner>(null)
 
-    const [serversBySubId, setServersBySubId] = useState<Record<number, ServerInfo[]>>({})
-    const [selectedNodeBySubId, setSelectedNodeBySubId] = useState<Record<number, number | null>>({})
     const [qrSubId, setQrSubId] = useState<number | null>(null)
 
     const providerCards = mapProviderCards(providers)
@@ -105,55 +94,9 @@ export default function Home() {
         block.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
 
-    // Fetch servers for each active subscription
-    useEffect(() => {
-        if (!token || activeSubscriptions.length === 0) return
-        let cancelled = false
-
-        const fetchServers = async () => {
-            for (const sub of activeSubscriptions) {
-                if (serversBySubId[sub.id]) continue
-                try {
-                    const res = await fetch(`/api/client/servers?sub_id=${sub.id}`, {
-                        headers: { Authorization: `Bearer ${token}` },
-                    })
-                    if (res.ok && !cancelled) {
-                        const data: ServerInfo[] = await res.json()
-                        setServersBySubId(prev => ({ ...prev, [sub.id]: data }))
-                    }
-                } catch {
-                    // silently ignore server fetch failures
-                }
-            }
-        }
-
-        void fetchServers()
-        return () => { cancelled = true }
-    }, [token, activeSubscriptions.map(s => s.id).join(',')])
-
-    const getUniqueCountryServers = (subId: number): ServerInfo[] => {
-        const servers = serversBySubId[subId] || []
-        const seen = new Set<string>()
-        return servers
-            .filter(s => s.status === 'online')
-            .filter(s => {
-                if (seen.has(s.country_code)) return false
-                seen.add(s.country_code)
-                return true
-            })
-    }
-
-    const getSelectedNodeId = (subId: number): number | null => {
-        return selectedNodeBySubId[subId] ?? null
-    }
-
-    const setSelectedNode = (subId: number, nodeId: number | null) => {
-        setSelectedNodeBySubId(prev => ({ ...prev, [subId]: nodeId }))
-    }
+    // Server selection is now done on the dedicated Servers page
 
     const getSubUrl = (sub: UserSubscription): string => {
-        const nodeId = getSelectedNodeId(sub.id)
-        if (nodeId) return buildConfigUrl(sub, { nodeId })
         return sub.subscription_url
     }
 
@@ -347,7 +290,7 @@ export default function Home() {
             <section className="compact-hero glass-card">
                 <span className={`state-dot ${hasActiveAccess ? 'is-online' : hasPending ? 'is-waiting' : 'is-idle'}`} />
                 <div className="compact-hero-copy">
-                    <p className="hero-kicker">{stats?.brand_name || 'VPN'}</p>
+                    <p className="hero-kicker">Добро пожаловать</p>
                     <h1>{user?.full_name || user?.username || 'Пользователь'}</h1>
                 </div>
             </section>
@@ -365,9 +308,6 @@ export default function Home() {
             )}
 
             {activeSubscriptions.map((sub) => {
-                const uniqueServers = getUniqueCountryServers(sub.id)
-                const selectedNodeId = getSelectedNodeId(sub.id)
-
                 return (
                     <section key={sub.id} className="sub-card glass-card">
                         <div className="sub-card-head">
@@ -385,26 +325,6 @@ export default function Home() {
                             </div>
                         )}
 
-                        <div className="country-quick-picker">
-                            <button
-                                className={`country-chip ${!selectedNodeId ? 'active' : ''}`}
-                                onClick={() => setSelectedNode(sub.id, null)}
-                            >
-                                Авто
-                            </button>
-                            {uniqueServers.length > 0 ? uniqueServers.map(server => (
-                                <button
-                                    key={server.id}
-                                    className={`country-chip ${selectedNodeId === server.id ? 'active' : ''}`}
-                                    onClick={() => setSelectedNode(sub.id, server.id)}
-                                >
-                                    {server.flag} {server.country_code}
-                                </button>
-                            )) : (
-                                <span className="country-chip loading-chip">Загрузка...</span>
-                            )}
-                        </div>
-
                         <button className="btn-primary" onClick={() => openHiddify(sub)}>
                             Открыть Hiddify
                         </button>
@@ -418,8 +338,8 @@ export default function Home() {
                             <button className="btn-ghost" onClick={() => navigate(`/servers/${sub.id}`)}>
                                 Серверы
                             </button>
-                            <button className="btn-ghost" onClick={() => navigate('/subscription')}>
-                                {sub.active_devices ?? 0} устр.
+                            <button className="btn-ghost" onClick={() => navigate(`/subscription?sub=${sub.id}&connect=1`)}>
+                                Устройства {sub.active_devices ?? 0}/{(sub.device_limit ?? 0) > 0 ? sub.device_limit : '∞'}
                             </button>
                         </div>
 
