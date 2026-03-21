@@ -1,6 +1,6 @@
 {
   "name": "caramba",
-  "version": "0.9.37",
+  "version": "0.9.38",
   "description": "CARAMBA is an installer-first platform for operating censorship-resistant VPN infrastructure.",
   "main": "index.js",
   "directories": {
