@@ -475,11 +475,11 @@ mod tests {
         assert_eq!(reality_ob["flow"].as_str().unwrap_or(""), "xtls-rprx-vision",
             "Reality TCP должен иметь flow");
 
-        // HTTPUpgrade должен иметь multiplex (tag: "🇩🇪 HTTP")
+        // HTTPUpgrade НЕ должен иметь multiplex (tag: "🇩🇪 HTTP")
         let httpupgrade_ob = proxy_obs.iter()
             .find(|o| o["tag"].as_str() == Some("🇩🇪 HTTP"))
             .expect("HTTPUpgrade outbound '🇩🇪 HTTP' не найден");
-        assert!(httpupgrade_ob["multiplex"].is_object(), "HTTPUpgrade должен иметь multiplex");
+        assert!(!httpupgrade_ob["multiplex"].is_object(), "HTTPUpgrade не должен иметь multiplex");
 
         // gRPC не должен иметь flow (tag: "🇩🇪 Stream")
         let grpc_ob = proxy_obs.iter()

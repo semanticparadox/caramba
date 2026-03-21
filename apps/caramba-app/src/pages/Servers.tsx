@@ -120,7 +120,14 @@ export default function Servers() {
     const [configUrl, setConfigUrl] = useState('')
     const [copied, setCopied] = useState(false)
     const [relayCountries, setRelayCountries] = useState<{code: string, flag: string, name: string}[]>([])
-    const [selectedRelay, setSelectedRelay] = useState<string>('auto')
+    const [selectedRelay, setSelectedRelay] = useState<string>(() => {
+        try { return localStorage.getItem(`relay_${activeSub?.id}`) || 'auto' } catch { return 'auto' }
+    })
+
+    const handleRelayChange = (code: string) => {
+        setSelectedRelay(code)
+        try { if (activeSub) localStorage.setItem(`relay_${activeSub.id}`, code) } catch { /* ignore */ }
+    }
 
     const singboxVariants = activeSub?.singbox_variants ?? []
     const availableVariants = selectedServer
@@ -292,11 +299,11 @@ export default function Servers() {
                         Обход блокировок через Relay
                     </p>
                     <div className="country-quick-picker">
-                        <button className={`country-chip ${selectedRelay === 'none' ? 'active' : ''}`} onClick={() => setSelectedRelay('none')}>
+                        <button className={`country-chip ${selectedRelay === 'none' ? 'active' : ''}`} onClick={() => handleRelayChange('none')}>
                             Не нужно
                         </button>
                         {relayCountries.map(rc => (
-                            <button key={rc.code} className={`country-chip ${selectedRelay === rc.code ? 'active' : ''}`} onClick={() => setSelectedRelay(rc.code)}>
+                            <button key={rc.code} className={`country-chip ${selectedRelay === rc.code ? 'active' : ''}`} onClick={() => handleRelayChange(rc.code)}>
                                 {rc.flag} {rc.name}
                             </button>
                         ))}

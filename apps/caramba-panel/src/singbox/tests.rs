@@ -205,16 +205,17 @@ mod tests {
             .expect("Outbound not found");
 
         assert_eq!(outbound["type"], "vless");
-        assert_eq!(outbound["packet_encoding"], "packetaddr");
+        // HTTPUpgrade outbounds no longer have packet_encoding
+        assert!(outbound.get("packet_encoding").is_none() || outbound["packet_encoding"].is_null(),
+            "HTTPUpgrade should not have packet_encoding");
 
         let transport = &outbound["transport"];
         assert_eq!(transport["type"], "httpupgrade");
         assert_eq!(transport["path"], "/xhttp-path");
 
-        // Check Multiplex defaults
-        let mux = &outbound["multiplex"];
-        assert_eq!(mux["enabled"], true);
-        assert_eq!(mux["padding"], true);
+        // HTTPUpgrade outbounds no longer have multiplex
+        assert!(!outbound["multiplex"].is_object(),
+            "HTTPUpgrade should not have multiplex");
 
         // 2. Test VLESS Link
         let _links_base64 = generate_v2ray_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
@@ -368,7 +369,7 @@ mod tests {
             .expect("GeoIP:ru rule missing");
         assert_eq!(geoip_rule["outbound"], "direct");
 
-        // 2. Check multiplex enforcement
+        // 2. HTTPUpgrade outbounds no longer have multiplex
         let outbound = parsed["outbounds"]
             .as_array()
             .unwrap()
@@ -376,10 +377,8 @@ mod tests {
             .find(|o| o["type"] == "vless" && o["transport"]["type"] == "httpupgrade")
             .expect("Outbound missing");
 
-        let mux = &outbound["multiplex"];
-        assert_eq!(mux["enabled"], true);
-        assert_eq!(mux["max_connections"], 4);
-        assert_eq!(mux["padding"], true);
+        assert!(!outbound["multiplex"].is_object(),
+            "HTTPUpgrade should not have multiplex");
     }
 
     // Helper stub

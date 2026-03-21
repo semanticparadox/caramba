@@ -224,11 +224,12 @@ fn build_singbox_outbound(
             ob["server"] = json!(endpoint);
             ob["server_port"] = json!(inbound.listen_port);
             ob["uuid"] = json!(user_keys.user_uuid);
-            ob["flow"] = if !si.flow.is_empty() {
-                json!(si.flow)
-            } else {
-                json!("")
-            };
+            // flow (xtls-rprx-vision) is only valid for Reality+TCP connections.
+            // Setting it on non-Reality or non-TCP outbounds breaks some clients (Happ).
+            // Omitting the field entirely (not even empty string) is safest.
+            if !si.flow.is_empty() && si.security == "reality" && si.network == "tcp" {
+                ob["flow"] = json!(si.flow);
+            }
 
             let mut tls = json!({ "enabled": false });
             if si.security == "reality" {
@@ -279,20 +280,11 @@ fn build_singbox_outbound(
                 }
                 "httpupgrade" => {
                     // Standard HTTP Upgrade — fully supported by sing-box.
+                    // Multiplex removed for broader client compatibility (Happ doesn't support smux).
                     ob["transport"] = json!({
                         "type": "httpupgrade",
                         "path": si.ws_path,
                         "host": si.sni
-                    });
-                    ob["packet_encoding"] = json!(si.packet_encoding.as_deref().unwrap_or("xudp"));
-                    ob["multiplex"] = si.xmux.clone().unwrap_or_else(|| {
-                        json!({
-                            "enabled": true,
-                            "protocol": "smux",
-                            "max_connections": 4,
-                            "min_streams": 4,
-                            "padding": true
-                        })
                     });
                 }
                 "xhttp" | "splithttp" => {

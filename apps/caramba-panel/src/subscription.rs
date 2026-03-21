@@ -127,7 +127,8 @@ pub async fn subscription_handler(
 
             if host_clean != sub_domain_clean {
                 let proto = "https";
-                let full_url = format!("{}://{}/sub/{}", proto, sub_domain, uuid);
+                let query = req.uri().query().map(|q| format!("?{}", q)).unwrap_or_default();
+                let full_url = format!("{}://{}/sub/{}{}", proto, sub_domain, uuid, query);
                 return axum::response::Redirect::permanent(&full_url).into_response();
             }
         }
