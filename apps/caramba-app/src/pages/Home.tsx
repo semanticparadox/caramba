@@ -136,7 +136,7 @@ export default function Home() {
     const openHapp = (sub: UserSubscription) => {
         if (!sub.subscription_url) return
         const url = getSubUrl(sub)
-        const deepLink = `sing-box://import-remote-profile?url=${encodeURIComponent(url)}`
+        const deepLink = `happ://import/${encodeURIComponent(url)}`
         const w = window.open(deepLink, '_blank')
         if (!w) {
             void copyImportLink(sub)
@@ -394,6 +394,24 @@ export default function Home() {
                                 </div>
                             </div>
                         )}
+
+                        <div className="app-download-section">
+                            <p className="app-download-label">Скачать приложение</p>
+                            <div className="app-download-grid">
+                                <a href="https://play.google.com/store/apps/details?id=app.hiddify.com" target="_blank" rel="noopener" className="app-download-btn">
+                                    <span className="app-icon">📱</span>
+                                    <span>Hiddify Android</span>
+                                </a>
+                                <a href="https://apps.apple.com/ua/app/hiddify-proxy-vpn/id6596777532" target="_blank" rel="noopener" className="app-download-btn">
+                                    <span className="app-icon">🍎</span>
+                                    <span>Hiddify iOS</span>
+                                </a>
+                                <a href="https://github.com/coolcoala/koala-clash" target="_blank" rel="noopener" className="app-download-btn app-download-wide">
+                                    <span className="app-icon">💻</span>
+                                    <span>Koala Clash — Windows / macOS / Linux</span>
+                                </a>
+                            </div>
+                        </div>
                     </section>
                 )
             })}
