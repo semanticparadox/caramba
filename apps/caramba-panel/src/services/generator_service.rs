@@ -65,6 +65,18 @@ impl GeneratorService {
         );
 
         for node in &nodes {
+            // Relay nodes only need Hysteria2 for transit — skip all other templates.
+            // Creating exit-node inbounds (Reality:443, gRPC, WS, etc.) on relay nodes
+            // causes port conflicts and crashes sing-box.
+            if node.is_relay {
+                let relay_templates: Vec<_> = templates.iter()
+                    .filter(|t| t.protocol == "hysteria2")
+                    .collect();
+                for template in &relay_templates {
+                    let _ = self.ensure_inbound_exists(node, template).await;
+                }
+                continue;
+            }
             for template in &templates {
                 match self.ensure_inbound_exists(node, template).await {
                     Ok(_) => info!(

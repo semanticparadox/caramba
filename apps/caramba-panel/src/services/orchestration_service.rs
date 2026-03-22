@@ -247,7 +247,13 @@ impl OrchestrationService {
         }
 
         // 4. Instantiate Inbounds from Templates
-        for template in templates {
+        // Relay nodes only get Hysteria2 — other protocols cause port conflicts.
+        let applicable_templates: Vec<_> = if node.is_relay {
+            templates.into_iter().filter(|t| t.protocol == "hysteria2").collect()
+        } else {
+            templates
+        };
+        for template in applicable_templates {
             if let Err(e) = self
                 .instantiate_inbound_from_template(&node, &template)
                 .await
