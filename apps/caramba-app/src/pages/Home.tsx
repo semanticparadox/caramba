@@ -97,9 +97,20 @@ export default function Home() {
 
     const getSubUrl = (sub: UserSubscription): string => {
         const base = sub.subscription_url
-        // Include persisted relay choice from Servers page
         try {
-            const relay = localStorage.getItem(`relay_${sub.id}`)
+            let relay = localStorage.getItem(`relay_${sub.id}`)
+            // Auto-detect relay for new users based on timezone
+            if (!relay) {
+                const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+                const russianTimezones = [
+                    'Europe/Moscow', 'Europe/Samara', 'Europe/Kaliningrad',
+                    'Asia/Yekaterinburg', 'Asia/Omsk', 'Asia/Novosibirsk',
+                    'Asia/Krasnoyarsk', 'Asia/Irkutsk', 'Asia/Yakutsk',
+                    'Asia/Vladivostok', 'Asia/Magadan', 'Asia/Kamchatka',
+                ]
+                relay = russianTimezones.includes(tz) ? 'RU' : 'none'
+                localStorage.setItem(`relay_${sub.id}`, relay)
+            }
             if (relay && relay !== 'auto') {
                 const sep = base.includes('?') ? '&' : '?'
                 return `${base}${sep}relay_country=${relay}`
