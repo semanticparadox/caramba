@@ -807,9 +807,25 @@ pub async fn test_node_connection(
 pub async fn delete_node(State(state): State<AppState>, Path(id): Path<i64>) -> impl IntoResponse {
     info!("Request to delete node ID: {}", id);
 
+    // Collect affected users before deletion clears node_id from subscriptions
+    let affected_tg_ids: Vec<i64> = sqlx::query_scalar(
+        "SELECT DISTINCT u.tg_id FROM subscriptions s JOIN users u ON s.user_id = u.id WHERE s.node_id = $1 AND s.status = 'active' AND u.tg_id > 0"
+    )
+    .bind(id)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
     match state.infrastructure_service.delete_node(id).await {
         Ok(_) => {
             info!("Node {} deleted successfully", id);
+
+            // Notify affected users about server removal
+            for tg_id in affected_tg_ids {
+                let msg = "⚠️ Сервер был удалён\\. Выберите новый сервер в Mini App → Серверы\\.";
+                let _ = state.bot_manager.send_notification(tg_id, msg).await;
+            }
+
             (
                 axum::http::StatusCode::OK,
                 [("HX-Trigger", "refresh_nodes")],

@@ -2429,11 +2429,26 @@ async fn set_referrer_code(
     };
 
     match state.user_service.set_referrer(user_id, code).await {
-        Ok(_) => Json(serde_json::json!({
-            "ok": true,
-            "message": "Referrer linked successfully",
-        }))
-        .into_response(),
+        Ok(_) => {
+            // Notify the referrer about new referral
+            let referrer_tg_id: Option<i64> = sqlx::query_scalar(
+                "SELECT u2.tg_id FROM users u1 JOIN users u2 ON u2.id = u1.referrer_id WHERE u1.id = $1"
+            )
+            .bind(user_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
+            if let Some(ref_tg_id) = referrer_tg_id {
+                let msg = "👤 Новый реферал\\! Пользователь присоединился по вашей ссылке\\.";
+                let _ = state.bot_manager.send_notification(ref_tg_id, msg).await;
+            }
+
+            Json(serde_json::json!({
+                "ok": true,
+                "message": "Referrer linked successfully",
+            }))
+            .into_response()
+        }
         Err(err) => (StatusCode::BAD_REQUEST, err.to_string()).into_response(),
     }
 }

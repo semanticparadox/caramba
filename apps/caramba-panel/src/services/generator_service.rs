@@ -32,6 +32,11 @@ impl GeneratorService {
     }
 
     /// Syncs inbounds for all nodes in a specific group based on active templates.
+    // TODO: After sync completes, consider notifying affected users to update their configs.
+    // This should NOT be automatic (sync runs during heartbeats). Instead, add a dedicated
+    // admin endpoint/button "Notify users to update" that broadcasts:
+    // "🔄 Сервис обновлён! Обновите подписку в VPN-клиенте (потяните вниз для обновления)."
+    // See handlers/admin/users.rs notify_all_users() for broadcast infrastructure.
     pub async fn sync_group_inbounds(&self, group_id: i64) -> Result<()> {
         let node_repo = NodeRepository::new(self.pool.clone());
 

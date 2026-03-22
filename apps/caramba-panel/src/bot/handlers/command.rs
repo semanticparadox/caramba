@@ -107,6 +107,22 @@ pub async fn message_handler(
                     )
                     .await;
 
+                    // Notify referrer about new referral (only for genuinely new users)
+                    if let Some(r_id) = referrer_id {
+                        if r_id != u.id {
+                            let referrer_tg_id: Option<i64> =
+                                sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
+                                    .bind(r_id)
+                                    .fetch_optional(&state.pool)
+                                    .await
+                                    .unwrap_or(None);
+                            if let Some(ref_tg_id) = referrer_tg_id {
+                                let msg = "👤 Новый реферал\\! Пользователь присоединился по вашей ссылке\\.";
+                                let _ = state.bot_manager.send_notification(ref_tg_id, msg).await;
+                            }
+                        }
+                    }
+
                     Some(u)
                 }
                 Err(e) => {
@@ -443,6 +459,19 @@ pub async fn message_handler(
                         match state.store_service.set_user_referrer(u.id, ref_code).await {
                             Ok(_) => {
                                 let _ = bot.send_message(msg.chat.id, "✅ *Referrer Linked\\!*\n\nYou've successfully set your referrer\\.").parse_mode(ParseMode::MarkdownV2).await;
+
+                                // Notify referrer about new referral
+                                let referrer_tg_id: Option<i64> = sqlx::query_scalar(
+                                    "SELECT u2.tg_id FROM users u1 JOIN users u2 ON u2.id = u1.referrer_id WHERE u1.id = $1"
+                                )
+                                .bind(u.id)
+                                .fetch_optional(&state.pool)
+                                .await
+                                .unwrap_or(None);
+                                if let Some(ref_tg_id) = referrer_tg_id {
+                                    let notify_msg = "👤 Новый реферал\\! Пользователь присоединился по вашей ссылке\\.";
+                                    let _ = state.bot_manager.send_notification(ref_tg_id, notify_msg).await;
+                                }
                             }
                             Err(e) => {
                                 let _ = bot
