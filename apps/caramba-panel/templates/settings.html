@@ -75,6 +75,17 @@
 
                     <div>
                         <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Admin
+                            Notification TG IDs</label>
+                        <input type="text" form="main-settings-form" name="admin_notification_tg_ids"
+                            value="{{ admin_notification_tg_ids }}" placeholder="123456789,987654321"
+                            class="input-field">
+                        <p class="text-[10px] text-slate-500 mt-2 ml-1">Comma-separated Telegram IDs for admin
+                            notifications (payments, node alerts, etc.).</p>
+                    </div>
+
+                    <div>
+                        <label
                             class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Support
                             Username</label>
                         <div class="relative">

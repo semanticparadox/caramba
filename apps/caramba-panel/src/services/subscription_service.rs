@@ -586,17 +586,23 @@ impl SubscriptionService {
                 plan_id,
                 node_id,
                 vless_uuid,
-                COALESCE(expires_at, created_at, CURRENT_TIMESTAMP) AS expires_at,
+                COALESCE(subscription_uuid, CONCAT('legacy-', id::text)) AS subscription_uuid,
                 COALESCE(status, 'pending') AS status,
                 COALESCE(used_traffic, 0)::bigint AS used_traffic,
+                device_count,
+                activated_at,
+                COALESCE(expires_at, created_at, CURRENT_TIMESTAMP) AS expires_at,
+                COALESCE(created_at, CURRENT_TIMESTAMP) AS created_at,
                 traffic_updated_at,
                 note,
                 COALESCE(auto_renew, FALSE) AS auto_renew,
                 COALESCE(alerts_sent, '[]') AS alerts_sent,
                 COALESCE(is_trial, FALSE) AS is_trial,
-                COALESCE(subscription_uuid, CONCAT('legacy-', id::text)) AS subscription_uuid,
                 last_sub_access,
-                COALESCE(created_at, CURRENT_TIMESTAMP) AS created_at
+                last_access_ip,
+                last_access_ua,
+                organization_id,
+                relay_country
             FROM subscriptions
             WHERE user_id = $1
             ORDER BY COALESCE(created_at, CURRENT_TIMESTAMP) DESC

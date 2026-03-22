@@ -46,7 +46,8 @@ pub struct PlanDuration {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, FromRow)]
+#[sqlx(default)]
 pub struct Subscription {
     pub id: i64,
     pub user_id: i64,
