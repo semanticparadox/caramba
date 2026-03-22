@@ -237,17 +237,22 @@ pub async fn message_handler(
                     .unwrap_or_else(|| "User".to_string());
                 let welcome_text = format!(
                     "👋 <b>Привет, {}!</b>\n\n\
-                    Добро пожаловать в EXA ROBOT — ваш VPN-сервис.\n\n\
-                    📱 <b>Как начать:</b>\n\
-                    1. Откройте Mini App кнопкой ниже\n\
-                    2. Выберите и оплатите тариф\n\
-                    3. Нажмите «Подключить в Hiddify» или «Подключить в Happ»\n\n\
-                    🌍 <b>Выбор сервера и Relay:</b>\n\
-                    В разделе «Выбрать сервер» вы можете выбрать страну подключения. \
-                    Если в вашей стране есть блокировки — выберите Relay вашей страны \
-                    для обхода ограничений.\n\
-                    После смены сервера обновите подписку в VPN-приложении.\n\n\
-                    📲 Скачайте: Hiddify (Android/iOS) или Koala Clash (ПК)",
+                    Добро пожаловать в EXA ROBOT — ваш персональный VPN-сервис.\n\n\
+                    📱 <b>Как подключиться:</b>\n\
+                    1. Откройте Mini App кнопкой «Запустить» ниже\n\
+                    2. Выберите и оплатите подходящий тариф\n\
+                    3. Нажмите «Подключить в Hiddify» или «Подключить в Happ» — конфигурация импортируется автоматически\n\
+                    4. Также вы можете нажать «Скопировать ссылку» и вставить её вручную в любое совместимое VPN-приложение (Hiddify, Happ, Streisand, V2rayNG, Koala Clash и др.)\n\n\
+                    🌍 <b>Обход блокировок (Relay):</b>\n\
+                    Если в вашей стране действуют интернет-блокировки или белые списки — \
+                    откройте раздел «Выбрать сервер» и включите Relay для вашей страны. \
+                    Relay направит трафик через промежуточный сервер в вашем регионе, \
+                    что позволяет обойти ограничения.\n\
+                    После любых изменений настроек обновите подписку в VPN-приложении \
+                    (потяните вниз или удалите и добавьте профиль заново).\n\n\
+                    📲 <b>Скачать приложение:</b>\n\
+                    • Android/iOS — <a href=\"https://hiddify.com\">Hiddify</a>\n\
+                    • Windows/macOS/Linux — <a href=\"https://github.com/coolcoala/koala-clash\">Koala Clash</a>",
                     user_name
                 );
                 let bot_for_task = bot.clone();
@@ -282,7 +287,7 @@ pub async fn message_handler(
                         .set_chat_menu_button()
                         .chat_id(msg.chat.id)
                         .menu_button(teloxide::types::MenuButton::WebApp {
-                            text: "🚀 Открыть приложение".to_string(),
+                            text: "🚀 Запустить".to_string(),
                             web_app: teloxide::types::WebAppInfo {
                                 url: web_app_url.parse().unwrap(),
                             },
