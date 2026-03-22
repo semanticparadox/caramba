@@ -236,8 +236,18 @@ pub async fn message_handler(
                     .map(|u| u.full_name())
                     .unwrap_or_else(|| "User".to_string());
                 let welcome_text = format!(
-                    "👋 <b>Hello, {}!</b>\n\n\
-                    Use the menu below to manage your VPN subscriptions and digital goods.",
+                    "👋 <b>Привет, {}!</b>\n\n\
+                    Добро пожаловать в EXA ROBOT — ваш VPN-сервис.\n\n\
+                    📱 <b>Как начать:</b>\n\
+                    1. Откройте Mini App кнопкой ниже\n\
+                    2. Выберите и оплатите тариф\n\
+                    3. Нажмите «Подключить в Hiddify» или «Подключить в Happ»\n\n\
+                    🌍 <b>Выбор сервера и Relay:</b>\n\
+                    В разделе «Выбрать сервер» вы можете выбрать страну подключения. \
+                    Если в вашей стране есть блокировки — выберите Relay вашей страны \
+                    для обхода ограничений.\n\
+                    После смены сервера обновите подписку в VPN-приложении.\n\n\
+                    📲 Скачайте: Hiddify (Android/iOS) или Koala Clash (ПК)",
                     user_name
                 );
                 let bot_for_task = bot.clone();
@@ -272,7 +282,7 @@ pub async fn message_handler(
                         .set_chat_menu_button()
                         .chat_id(msg.chat.id)
                         .menu_button(teloxide::types::MenuButton::WebApp {
-                            text: "🚀 Open App".to_string(),
+                            text: "🚀 Открыть приложение".to_string(),
                             web_app: teloxide::types::WebAppInfo {
                                 url: web_app_url.parse().unwrap(),
                             },
