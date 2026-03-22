@@ -451,7 +451,7 @@ impl StoreService {
             r#"
             INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, expires_at, status)
             VALUES ($1, $2, $3, $4, $5, 'pending')
-            RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at
+            RETURNING *
             "#
         )
         .bind(user_id)
@@ -666,7 +666,7 @@ impl StoreService {
             r#"
             INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, expires_at, status)
             VALUES ($1, $2, $3, $4, $5, 'pending')
-            RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at
+            RETURNING *
             "#
         )
         .bind(user_id)
@@ -729,7 +729,7 @@ impl StoreService {
             UPDATE subscriptions 
             SET user_id = $1 
             WHERE id = $2 
-            RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at
+            RETURNING *
             "#
         )
         .bind(target_user.id)
@@ -811,7 +811,7 @@ impl StoreService {
             r#"
             INSERT INTO subscriptions (user_id, plan_id, node_id, vless_uuid, expires_at, status, subscription_uuid, created_at)
             VALUES ($1, $2, $3, $4, $5, 'active', $6, CURRENT_TIMESTAMP)
-            RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at
+            RETURNING *
             "#
         )
         .bind(user_id).bind(plan_id).bind(node_id).bind(vless_uuid).bind(expires_at).bind(sub_uuid)

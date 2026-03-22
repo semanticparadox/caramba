@@ -508,7 +508,7 @@ impl SubscriptionService {
             r#"
             INSERT INTO subscriptions (user_id, plan_id, node_id, vless_uuid, expires_at, status, subscription_uuid, created_at)
             VALUES ($1, $2, $3, $4, $5, 'active', $6, CURRENT_TIMESTAMP)
-            RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access, created_at
+            RETURNING *
             "#
         )
         .bind(user_id)
