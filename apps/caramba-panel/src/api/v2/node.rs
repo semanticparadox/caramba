@@ -8,7 +8,7 @@ use caramba_shared::api::{AgentAction, HeartbeatRequest, HeartbeatResponse};
 use caramba_shared::config::ConfigResponse;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use tracing::{error, info, warn};
 
 #[derive(Deserialize)]
@@ -57,17 +57,18 @@ pub async fn heartbeat(
     };
 
     // 2. Validate Node
-    let (node_id, node_country_code, node_country) = match sqlx::query_as::<
+    // Заодно читаем status и is_relay ДО обновления, чтобы определить первое подключение
+    let (node_id, node_country_code, node_country, pre_update_status, node_is_relay) = match sqlx::query_as::<
         _,
-        (i64, Option<String>, Option<String>),
+        (i64, Option<String>, Option<String>, Option<String>, bool),
     >(
-        "SELECT id, country_code, country FROM nodes WHERE join_token = $1",
+        "SELECT id, country_code, country, status, COALESCE(is_relay, false) FROM nodes WHERE join_token = $1",
     )
     .bind(&token)
     .fetch_optional(&state.pool)
     .await
     {
-        Ok(Some((id, cc, c))) => (id, cc, c),
+        Ok(Some((id, cc, c, st, relay))) => (id, cc, c, st, relay),
         Ok(None) => return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response(),
         Err(e) => {
             let msg = e.to_string();
@@ -77,7 +78,7 @@ pub async fn heartbeat(
                     .fetch_optional(&state.pool)
                     .await
                 {
-                    Ok(Some(id)) => (id, None, None),
+                    Ok(Some(id)) => (id, None, None, None, false),
                     Ok(None) => return (StatusCode::UNAUTHORIZED, "Invalid Token").into_response(),
                     Err(e2) => {
                         error!("DB Error in heartbeat fallback: {}", e2);
@@ -107,6 +108,28 @@ pub async fn heartbeat(
             "Primary node heartbeat update failed for node {}: {}",
             node_id, e
         );
+    }
+
+    // Auto-provision: если нода впервые подключилась (статус 'provisioning' = ещё не сконфигурирована),
+    // запускаем провизионирование в фоне чтобы не блокировать ответ heartbeat.
+    if pre_update_status.as_deref() == Some("provisioning") {
+        let pool_clone = state.pool.clone();
+        let orch_clone = state.orchestration_service.clone();
+        tokio::spawn(async move {
+            if node_is_relay {
+                if let Err(e) = auto_provision_relay(node_id, &pool_clone, &orch_clone).await {
+                    error!("Auto-provision relay failed for node {}: {}", node_id, e);
+                } else {
+                    info!("Auto-provision relay complete for node {}", node_id);
+                }
+            } else {
+                if let Err(e) = auto_provision_exit(node_id, &pool_clone, &orch_clone).await {
+                    error!("Auto-provision exit failed for node {}: {}", node_id, e);
+                } else {
+                    info!("Auto-provision exit complete for node {}", node_id);
+                }
+            }
+        });
     }
 
     // GeoIP Check (Async) — trigger if country_code OR country/city/flag are missing
@@ -145,72 +168,99 @@ pub async fn heartbeat(
 
     // 4. Process Per-User Traffic Usage
     // Orchestrator tags sing-box users as "user_{tg_id}" (Telegram ID).
-    // We resolve tg_id → internal user_id → active subscription.
+    // Вместо N*2 отдельных запросов используем пакетную обработку:
+    //   1 SELECT для разрешения всех tg_id → user_id
+    //   1 UPDATE с unnest() для записи трафика всех пользователей сразу
     let mut touched_subscriptions: HashSet<i64> = HashSet::new();
     if let Some(ref usage_map) = req.user_usage {
         let mut relay_legacy_usage_bytes: u64 = 0;
         let mut attributed_count = 0u32;
         let mut unresolved_count = 0u32;
 
+        // Собираем пары (tg_id, bytes) для пользователей и отдельно relay_legacy
+        let mut tg_id_bytes: Vec<(i64, u64)> = Vec::new();
         for (tag, bytes) in usage_map {
             if tag.starts_with("user_") {
                 if let Ok(tg_id) = tag[5..].parse::<i64>() {
-                    // Resolve tg_id → internal user_id
-                    let user_id_res: Result<Option<i64>, _> =
-                        sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
-                            .bind(tg_id)
-                            .fetch_optional(&state.pool)
-                            .await;
+                    tg_id_bytes.push((tg_id, *bytes));
+                }
+            }
+            if tag.starts_with("relay_") && tag.ends_with("_legacy") {
+                relay_legacy_usage_bytes = relay_legacy_usage_bytes.saturating_add(*bytes);
+            }
+        }
 
-                    match user_id_res {
-                        Ok(Some(uid)) => {
-                            // Update traffic on the user's active subscription
-                            let updated_sub_id: Option<i64> = sqlx::query_scalar(
-                                r#"
-                                UPDATE subscriptions
-                                SET used_traffic = used_traffic + $1, traffic_updated_at = CURRENT_TIMESTAMP
-                                WHERE id = (
-                                    SELECT id FROM subscriptions
-                                    WHERE user_id = $2 AND status = 'active'
-                                    ORDER BY expires_at DESC LIMIT 1
-                                )
-                                RETURNING id
-                                "#
-                            )
-                            .bind(*bytes as i64)
-                            .bind(uid)
-                            .fetch_optional(&state.pool)
-                            .await
-                            .unwrap_or(None);
+        if !tg_id_bytes.is_empty() {
+            // Шаг 1: один запрос для разрешения всех tg_id в user_id
+            let all_tg_ids: Vec<i64> = tg_id_bytes.iter().map(|(tg_id, _)| *tg_id).collect();
 
-                            if let Some(sub_id) = updated_sub_id {
-                                touched_subscriptions.insert(sub_id);
-                                attributed_count += 1;
-                            } else {
-                                tracing::warn!(
-                                    "Traffic: user {} (tg_id={}) has no active subscription, {} bytes lost",
-                                    uid, tg_id, bytes
-                                );
-                                unresolved_count += 1;
-                            }
-                        }
-                        Ok(None) => {
-                            tracing::warn!(
-                                "Traffic: tg_id={} not found in users table, {} bytes lost",
-                                tg_id, bytes
-                            );
-                            unresolved_count += 1;
-                        }
-                        Err(e) => {
-                            tracing::error!("Traffic: DB error resolving tg_id={}: {}", tg_id, e);
-                            unresolved_count += 1;
-                        }
-                    }
+            let rows: Vec<(i64, i64)> =
+                sqlx::query_as("SELECT id, tg_id FROM users WHERE tg_id = ANY($1)")
+                    .bind(&all_tg_ids)
+                    .fetch_all(&state.pool)
+                    .await
+                    .unwrap_or_default();
+
+            // tg_id → user_id
+            let tg_to_uid: HashMap<i64, i64> = rows.into_iter().map(|(id, tg_id)| (tg_id, id)).collect();
+
+            // Логируем пользователей, которых не нашли в БД
+            for (tg_id, bytes) in &tg_id_bytes {
+                if !tg_to_uid.contains_key(tg_id) {
+                    tracing::warn!(
+                        "Traffic: tg_id={} not found in users table, {} bytes lost",
+                        tg_id, bytes
+                    );
+                    unresolved_count += 1;
                 }
             }
 
-            if tag.starts_with("relay_") && tag.ends_with("_legacy") {
-                relay_legacy_usage_bytes = relay_legacy_usage_bytes.saturating_add(*bytes);
+            // Шаг 2: один bulk UPDATE через unnest() для всех найденных пользователей
+            let mut user_ids: Vec<i64> = Vec::new();
+            let mut bytes_vec: Vec<i64> = Vec::new();
+            for (tg_id, bytes) in &tg_id_bytes {
+                if let Some(&uid) = tg_to_uid.get(tg_id) {
+                    user_ids.push(uid);
+                    bytes_vec.push(*bytes as i64);
+                }
+            }
+
+            if !user_ids.is_empty() {
+                // Обновляем трафик одним запросом; RETURNING id для отслеживания квот
+                let resolved_count = user_ids.len() as u32;
+                let updated_ids: Vec<i64> = sqlx::query_scalar(
+                    r#"
+                    UPDATE subscriptions s
+                    SET used_traffic = used_traffic + c.bytes,
+                        traffic_updated_at = NOW()
+                    FROM (
+                        SELECT unnest($1::bigint[]) AS user_id,
+                               unnest($2::bigint[]) AS bytes
+                    ) c
+                    WHERE s.user_id = c.user_id
+                      AND s.status = 'active'
+                    RETURNING s.id
+                    "#,
+                )
+                .bind(&user_ids)
+                .bind(&bytes_vec)
+                .fetch_all(&state.pool)
+                .await
+                .unwrap_or_default();
+
+                let updated_sub_count = updated_ids.len() as u32;
+                attributed_count += updated_sub_count;
+                touched_subscriptions.extend(updated_ids);
+
+                // Пользователи, у которых нет активной подписки — UPDATE их не затронул
+                let no_sub_count = resolved_count.saturating_sub(updated_sub_count);
+                if no_sub_count > 0 {
+                    tracing::warn!(
+                        "Traffic: {} user(s) had no active subscription, bytes lost",
+                        no_sub_count
+                    );
+                    unresolved_count += no_sub_count;
+                }
             }
         }
 
@@ -349,16 +399,30 @@ pub async fn heartbeat(
         }
     });
 
-    // 6. Action Trigger (Log Collection, etc.)
-    let mut action = AgentAction::None;
-    let pending_logs: bool =
-        sqlx::query_scalar("SELECT pending_log_collection FROM nodes WHERE id = $1")
-            .bind(node_id)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap_or(false);
+    // 6. Action Trigger (Log Collection, Config Update, etc.)
+    // Читаем auto_configure и pending_log_collection одним запросом.
+    // auto_configure выставляется при провизионировании; при успешном чтении сбрасываем флаг.
+    let (auto_configure, pending_logs): (bool, bool) = sqlx::query_as(
+        "SELECT COALESCE(auto_configure, false), COALESCE(pending_log_collection, false) FROM nodes WHERE id = $1",
+    )
+    .bind(node_id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap_or((false, false));
 
-    if pending_logs {
+    // Сбрасываем флаг auto_configure, чтобы следующий heartbeat не повторял UpdateConfig
+    if auto_configure {
+        let _ = sqlx::query("UPDATE nodes SET auto_configure = false WHERE id = $1")
+            .bind(node_id)
+            .execute(&state.pool)
+            .await;
+    }
+
+    let mut action = AgentAction::None;
+    if auto_configure {
+        // UpdateConfig имеет приоритет: нода должна сначала подтянуть конфиг
+        action = AgentAction::UpdateConfig;
+    } else if pending_logs {
         action = AgentAction::CollectLogs;
     }
 
@@ -995,4 +1059,98 @@ pub async fn report_node_logs(
 
     info!("✅ Logs received and stored for node {}", node_id);
     StatusCode::OK.into_response()
+}
+
+/// Авто-провизионирование relay-ноды.
+///
+/// Relay-ноды не сканируют SNI самостоятельно — они получают whitelist из пула.
+/// Выбираем лучший premium/favorite SNI, обновляем reality_sni, ставим status=active,
+/// auto_configure=true и уведомляем orchestration, чтобы нода получила обновлённый конфиг.
+async fn auto_provision_relay(
+    node_id: i64,
+    pool: &sqlx::PgPool,
+    orch: &crate::services::orchestration_service::OrchestrationService,
+) -> anyhow::Result<()> {
+    // Выбираем лучший premium/favorite SNI, не попавший в blacklist
+    let sni: Option<String> = sqlx::query_scalar(
+        r#"
+        SELECT domain FROM sni_pool
+        WHERE (is_premium = true OR is_favorite = true)
+          AND domain NOT IN (SELECT domain FROM sni_blacklist)
+        ORDER BY COALESCE(health_score, 100) DESC, latency_ms ASC NULLS LAST
+        LIMIT 1
+        "#,
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    let Some(domain) = sni else {
+        anyhow::bail!("No premium/favorite SNI available for relay node {}", node_id);
+    };
+
+    // Обновляем ноду: reality_sni, status=active, auto_configure=true
+    sqlx::query(
+        "UPDATE nodes SET reality_sni = $1, status = 'active', auto_configure = true WHERE id = $2",
+    )
+    .bind(&domain)
+    .bind(node_id)
+    .execute(pool)
+    .await?;
+
+    info!(
+        "Auto-provisioned relay node {} with SNI '{}'",
+        node_id, domain
+    );
+
+    // Сигнализируем агенту подтянуть новый конфиг
+    orch.notify_node_update(node_id).await?;
+
+    Ok(())
+}
+
+/// Авто-провизионирование exit-ноды.
+///
+/// Exit-ноды используют favorite SNI из пула для Reality-конфигурации.
+/// Выбираем лучший favorite SNI, обновляем reality_sni, ставим status=active,
+/// auto_configure=true и уведомляем orchestration.
+async fn auto_provision_exit(
+    node_id: i64,
+    pool: &sqlx::PgPool,
+    orch: &crate::services::orchestration_service::OrchestrationService,
+) -> anyhow::Result<()> {
+    // Выбираем лучший favorite SNI, не попавший в blacklist
+    let sni: Option<String> = sqlx::query_scalar(
+        r#"
+        SELECT domain FROM sni_pool
+        WHERE is_favorite = true
+          AND domain NOT IN (SELECT domain FROM sni_blacklist)
+        ORDER BY COALESCE(health_score, 100) DESC NULLS LAST
+        LIMIT 1
+        "#,
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    let Some(domain) = sni else {
+        anyhow::bail!("No favorite SNI available for exit node {}", node_id);
+    };
+
+    // Обновляем ноду: reality_sni, status=active, auto_configure=true
+    sqlx::query(
+        "UPDATE nodes SET reality_sni = $1, status = 'active', auto_configure = true WHERE id = $2",
+    )
+    .bind(&domain)
+    .bind(node_id)
+    .execute(pool)
+    .await?;
+
+    info!(
+        "Auto-provisioned exit node {} with SNI '{}'",
+        node_id, domain
+    );
+
+    // Сигнализируем агенту подтянуть новый конфиг
+    orch.notify_node_update(node_id).await?;
+
+    Ok(())
 }
