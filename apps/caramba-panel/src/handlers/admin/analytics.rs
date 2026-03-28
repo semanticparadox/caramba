@@ -248,6 +248,7 @@ pub async fn get_system_logs_page(
     let payload = UnifiedLogService::get_logs(
         &state.pool,
         &state.redis,
+        &state.task_health,
         &source,
         if category.is_empty() {
             None
@@ -271,7 +272,7 @@ pub async fn get_system_logs_page(
     let template = SystemLogsTemplate {
         logs: payload.logs,
         categories: payload.categories,
-        sources: vec!["all", "system", "bot", "node"]
+        sources: vec!["all", "system", "bot", "node", "monitoring"]
             .into_iter()
             .map(str::to_string)
             .collect(),

@@ -1,5 +1,6 @@
 use crate::services::logging_service::LoggingService;
 use crate::services::redis_service::RedisService;
+use crate::services::task_health::TaskHealthRegistry;
 use anyhow::Result;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -30,6 +31,7 @@ impl UnifiedLogService {
     pub async fn get_logs(
         pool: &PgPool,
         redis: &RedisService,
+        task_health: &TaskHealthRegistry,
         source: &str,
         category: Option<&str>,
         node_filter: Option<(i64, String)>,
@@ -100,6 +102,29 @@ impl UnifiedLogService {
                             line,
                             Some(format!("{} · {}", node_name, service_name)),
                         ));
+                    }
+                }
+            }
+        }
+
+        // Добавляем ошибки фоновых задач как источник "monitoring"
+        if normalized_source.is_empty()
+            || normalized_source == "all"
+            || normalized_source == "monitoring"
+        {
+            let task_entries = task_health.get_all().await;
+            for task in task_entries {
+                if let Some(ref err) = task.last_error {
+                    if let Some(last_run) = task.last_run {
+                        logs.push(UnifiedLogEntry {
+                            source: "monitoring".to_string(),
+                            level: "ERROR".to_string(),
+                            category: "background_task".to_string(),
+                            message: format!("[{}] {}", task.name, err),
+                            node_label: None,
+                            created_at: last_run.format("%Y-%m-%d %H:%M:%S").to_string(),
+                            sort_ts: last_run.timestamp(),
+                        });
                     }
                 }
             }
