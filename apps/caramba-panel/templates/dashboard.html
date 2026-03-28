@@ -314,6 +314,76 @@
         </div>
     </div>
 
+    <!-- System Health -->
+    <div class="card-section">
+        <div class="p-6 border-b border-slate-200 dark:border-white/5 flex items-center justify-between">
+            <div>
+                <h3 class="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                    <i data-lucide="activity" class="w-5 h-5 text-brand"></i>
+                    System Health
+                </h3>
+                <p class="text-slate-500 dark:text-slate-500 text-sm">Node status and background task monitoring</p>
+            </div>
+            <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand/5 border border-brand/20">
+                <div class="w-1.5 h-1.5 rounded-full bg-brand animate-pulse"></div>
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Auto-refresh 30s</span>
+            </div>
+        </div>
+
+        <div class="p-6 space-y-6">
+
+            <!-- Node Status Summary -->
+            <div>
+                <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-3">Node Status</p>
+                <div class="flex flex-wrap items-center gap-3">
+                    <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full
+                        bg-emerald-500/10 border border-emerald-500/20 text-emerald-400
+                        text-xs font-semibold">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                        {{ nodes_active }} active
+                    </span>
+                    <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full
+                        bg-rose-500/10 border border-rose-500/20 text-rose-400
+                        text-xs font-semibold">
+                        <span class="w-2 h-2 rounded-full bg-rose-400"></span>
+                        {{ nodes_offline }} offline
+                    </span>
+                    <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full
+                        bg-amber-500/10 border border-amber-500/20 text-amber-400
+                        text-xs font-semibold">
+                        <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                        {{ nodes_provisioning }} provisioning
+                    </span>
+                </div>
+            </div>
+
+            <!-- Background Tasks Table -->
+            <div>
+                <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-3">Background Tasks</p>
+                <div class="overflow-x-auto rounded-xl border border-white/5">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-white/5 text-[10px] uppercase tracking-widest text-slate-500">
+                                <th class="px-5 py-3 text-left font-bold">Task</th>
+                                <th class="px-5 py-3 text-left font-bold">Last Run</th>
+                                <th class="px-5 py-3 text-right font-bold">Runs</th>
+                                <th class="px-5 py-3 text-right font-bold">Errors</th>
+                                <th class="px-5 py-3 text-center font-bold">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody
+                            hx-get="{{ admin_path }}/api/health/tasks"
+                            hx-trigger="every 30s"
+                            hx-swap="innerHTML">
+                            {% include "partials/task_health_rows.html" %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
 </div>
 
 <script>

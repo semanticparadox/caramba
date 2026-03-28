@@ -418,8 +418,9 @@ pub async fn get_relay_nodes_page(
     render_nodes_scope_page(&state, &headers, &jar, NodesScope::Relay).await
 }
 
-pub async fn get_exit_nodes_rows(State(state): State<AppState>) -> impl IntoResponse {
-    let admin_path = state.admin_path.clone();
+/// Возвращает HTML-строки таблицы узлов для HTMX-запросов (refresh по scope).
+async fn render_nodes_rows_for_scope(state: &AppState, scope: NodesScope) -> Response {
+    let admin_path = normalized_admin_path(&state.admin_path);
     let agent_latest_version = state
         .settings
         .get_or_default("agent_latest_version", "0.0.0")
@@ -437,7 +438,7 @@ pub async fn get_exit_nodes_rows(State(state): State<AppState>) -> impl IntoResp
         .await
         .unwrap_or_default()
         .into_iter()
-        .filter(|node| node.is_exit_node())
+        .filter(|node| scope.matches_node(node))
         .collect::<Vec<_>>();
 
     let (subs_map, online_map) = fetch_node_metrics(&state.pool).await;
@@ -454,40 +455,12 @@ pub async fn get_exit_nodes_rows(State(state): State<AppState>) -> impl IntoResp
     Html(template.render().unwrap_or_default()).into_response()
 }
 
+pub async fn get_exit_nodes_rows(State(state): State<AppState>) -> impl IntoResponse {
+    render_nodes_rows_for_scope(&state, NodesScope::Exit).await
+}
+
 pub async fn get_relay_nodes_rows(State(state): State<AppState>) -> impl IntoResponse {
-    let admin_path = state.admin_path.clone();
-    let agent_latest_version = state
-        .settings
-        .get_or_default("agent_latest_version", "0.0.0")
-        .await;
-    let auto_update_agents: bool = state
-        .settings
-        .get_or_default("auto_update_agents", "true")
-        .await
-        .parse()
-        .unwrap_or(true);
-
-    let nodes = state
-        .infrastructure_service
-        .get_all_nodes()
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|node| node.is_relay_node())
-        .collect::<Vec<_>>();
-
-    let (subs_map, online_map) = fetch_node_metrics(&state.pool).await;
-
-    let template = NodesRowsPartial {
-        nodes,
-        admin_path,
-        agent_latest_version,
-        auto_update_agents,
-        subs_map,
-        online_map,
-    };
-
-    Html(template.render().unwrap_or_default()).into_response()
+    render_nodes_rows_for_scope(&state, NodesScope::Relay).await
 }
 
 pub async fn install_node(

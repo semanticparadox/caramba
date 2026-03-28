@@ -23,10 +23,26 @@
         </span>
     </td>
     <td class="px-4 py-3">
-        {% if node.ip.starts_with("pending-") && node.status == "new" %}
-        <span class="badge badge-pending">PENDING SETUP</span>
+        {% if node.status == "new" || node.status == "provisioning" %}
+        <span class="badge badge-pending flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+            AUTO-CONFIGURING...
+        </span>
         {% elif node.status == "active" %}
-        <span class="badge badge-online">ACTIVE</span>
+        <span class="badge badge-online flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            ONLINE
+        </span>
+        {% elif node.status == "disabled" %}
+        <span class="badge badge-offline flex items-center gap-1.5" style="color:#94a3b8;background:rgba(148,163,184,0.08);border-color:rgba(148,163,184,0.15)">
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+            DISABLED
+        </span>
+        {% elif node.status == "offline" %}
+        <span class="badge badge-offline flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+            OFFLINE
+        </span>
         {% else %}
         <span class="badge badge-offline">{{ node.status|uppercase }}</span>
         {% endif %}
@@ -82,10 +98,7 @@
             <a href="{{ admin_path }}/nodes/{{ node.id }}/inbounds" class="btn-icon w-9 h-9" title="Traffic Inbounds">
                 <i data-lucide="box" class="w-4 h-4"></i>
             </a>
-            <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/sync" hx-swap="none" class="btn-icon w-9 h-9"
-                title="Cluster Sync">
-                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-            </button>
+            {# Sync Config скрыт из списка — доступен только на странице управления нодой #}
             <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/toggle" hx-swap="none"
                 class="btn-icon w-9 h-9 {% if node.is_enabled %}text-emerald-400 bg-emerald-400/5 border-emerald-400/10{% else %}text-amber-400 bg-amber-500/5 border-amber-500/10{% endif %}"
                 title="{% if node.is_enabled %}Deactivate{% else %}Activate{% endif %}">

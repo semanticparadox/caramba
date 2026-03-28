@@ -1,0 +1,41 @@
+{% for task in task_health_items %}
+<tr class="hover:bg-white/5 transition-colors group">
+    <td class="px-5 py-3 font-mono text-xs text-slate-300">{{ task.name }}</td>
+    <td class="px-5 py-3 text-xs text-slate-400">
+        {% if let Some(last_run) = task.last_run %}
+            {{ last_run.format("%Y-%m-%d %H:%M:%S").to_string() }}
+        {% else %}
+            <span class="text-slate-600">—</span>
+        {% endif %}
+    </td>
+    <td class="px-5 py-3 text-xs text-slate-400 text-right font-mono">{{ task.run_count }}</td>
+    <td class="px-5 py-3 text-xs text-right font-mono
+        {% if task.error_count > 0 %}text-rose-400{% else %}text-slate-500{% endif %}">
+        {{ task.error_count }}
+    </td>
+    <td class="px-5 py-3 text-center">
+        {% if task.error_count > 0 %}
+        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest bg-rose-500/10 text-rose-400 border border-rose-500/20">
+            <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+            Error
+        </span>
+        {% else if task.run_count == 0 %}
+        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest bg-slate-500/10 text-slate-400 border border-slate-500/20">
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+            Idle
+        </span>
+        {% else %}
+        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            OK
+        </span>
+        {% endif %}
+    </td>
+</tr>
+{% else %}
+<tr>
+    <td colspan="5" class="px-5 py-6 text-center text-slate-600 text-xs">
+        No background tasks registered yet.
+    </td>
+</tr>
+{% endfor %}
