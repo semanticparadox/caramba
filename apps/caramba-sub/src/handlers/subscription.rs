@@ -5,7 +5,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[derive(Deserialize)]
 pub struct SubParams {
@@ -75,6 +75,8 @@ pub async fn subscription_handler(
 
 /// Proxy subscription requests to the panel, which has the authoritative
 /// generators for all formats (sing-box, v2ray, clash).
+/// При успешном ответе панели — кешируем тело в Redis на 5 минут.
+/// При недоступности панели — отдаём закешированный конфиг вместо 502.
 async fn proxy_to_panel(
     state: &AppState,
     uuid: &str,
@@ -91,6 +93,8 @@ async fn proxy_to_panel(
         panel_sub_url.push_str(&format!("&relay_country={}", rc));
     }
 
+    let cache_key = format!("sub:config:{}:{}", uuid, client_type);
+
     let resp = match state
         .panel_client
         .proxy_subscription(&panel_sub_url, &state.config.domain, client_ip, user_agent)
@@ -99,6 +103,23 @@ async fn proxy_to_panel(
         Ok(r) => r,
         Err(e) => {
             error!("Failed to proxy subscription to panel: {}", e);
+
+            // Панель недоступна — пробуем отдать закешированный конфиг
+            if let Some(ref redis_client) = state.redis_client {
+                if let Ok(mut conn) = redis_client.get_multiplexed_async_connection().await {
+                    if let Ok(cached) = redis::cmd("GET")
+                        .arg(&cache_key)
+                        .query_async::<Vec<u8>>(&mut conn)
+                        .await
+                    {
+                        if !cached.is_empty() {
+                            warn!("Serving cached config for {} (panel down)", uuid);
+                            return (StatusCode::OK, cached).into_response();
+                        }
+                    }
+                }
+            }
+
             return (
                 StatusCode::BAD_GATEWAY,
                 "Panel subscription endpoint unavailable",
@@ -142,8 +163,27 @@ async fn proxy_to_panel(
         .header(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate")
         .header(header::PRAGMA, "no-cache");
 
-    let body = resp.text().await.unwrap_or_default();
-    builder.body(body).unwrap().into_response()
+    let body_bytes = resp.bytes().await.unwrap_or_default();
+
+    // Кешируем успешный ответ панели на 5 минут (только для 2xx)
+    if status.is_success() {
+        if let Some(ref redis_client) = state.redis_client {
+            if let Ok(mut conn) = redis_client.get_multiplexed_async_connection().await {
+                let _: Result<(), _> = redis::cmd("SET")
+                    .arg(&cache_key)
+                    .arg(body_bytes.as_ref())
+                    .arg("EX")
+                    .arg(300u64) // TTL 5 минут
+                    .query_async(&mut conn)
+                    .await;
+            }
+        }
+    }
+
+    builder
+        .body(axum::body::Body::from(body_bytes))
+        .unwrap()
+        .into_response()
 }
 
 fn get_client_ip(headers: &HeaderMap) -> Option<String> {

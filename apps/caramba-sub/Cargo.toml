@@ -40,13 +40,10 @@ sha2 = "0.10"
 mime_guess = "2.0"
 uuid = { version = "1.11", features = ["v4"] }
 
-# GeoIP (for Phase 4)
-maxminddb = { version = "0.24", optional = true }
-dotenvy = "0.15.7"
+redis = { version = "1.0.3", features = ["tokio-comp"] }
 
-[features]
-default = ["geoip"]
-geoip = ["maxminddb"]
+dotenvy = "0.15.7"
+caramba-shared = { path = "../../libs/caramba-shared", features = ["geo", "self-update"] }
 
 [[bin]]
 name = "caramba-sub"

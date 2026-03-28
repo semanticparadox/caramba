@@ -5,14 +5,12 @@ use axum::{
     routing::get,
     Router,
 };
-use sha2::{Digest, Sha256};
 use std::net::SocketAddr;
-use std::os::unix::fs::PermissionsExt;
-use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use caramba_shared::self_update::{apply_self_update, restart_service};
 
 mod config;
 mod geo_service;
@@ -107,6 +105,8 @@ pub struct AppState {
     pub panel_client: panel_client::PanelClient,
     pub geo_service: Arc<GeoService>,
     pub metrics: Arc<FrontendMetrics>,
+    /// Redis клиент для кеширования конфигов подписок (опциональный — сервис работает без него)
+    pub redis_client: Option<redis::Client>,
 }
 
 impl AppState {
@@ -114,11 +114,26 @@ impl AppState {
         let panel_client =
             panel_client::PanelClient::new(config.panel_url.clone(), config.auth_token.clone());
 
+        // Инициализируем Redis клиент из переменной окружения REDIS_URL (опционально)
+        let redis_client = std::env::var("REDIS_URL").ok().and_then(|url| {
+            match redis::Client::open(url.as_str()) {
+                Ok(client) => {
+                    tracing::info!("Redis cache enabled for subscription configs");
+                    Some(client)
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to initialize Redis client (caching disabled): {}", e);
+                    None
+                }
+            }
+        });
+
         Self {
             config,
             panel_client,
             geo_service,
             metrics: Arc::new(FrontendMetrics::default()),
+            redis_client,
         }
     }
 }
@@ -185,68 +200,6 @@ fn local_sub_worker_id(config: &FrontendConfig) -> String {
     format!("sub:{}", hostname)
 }
 
-fn verify_sha256(bytes: &[u8], expected_hex: &str) -> bool {
-    let expected = expected_hex.trim().to_ascii_lowercase();
-    if expected.len() != 64 || !expected.chars().all(|c| c.is_ascii_hexdigit()) {
-        return false;
-    }
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    let actual = format!("{:x}", hasher.finalize());
-    actual == expected
-}
-
-async fn apply_self_update(asset_url: &str, expected_sha256: Option<&str>) -> anyhow::Result<()> {
-    let response = reqwest::Client::new()
-        .get(asset_url)
-        .send()
-        .await?
-        .error_for_status()?;
-    let bytes = response.bytes().await?;
-
-    if let Some(hash) = expected_sha256 {
-        if !hash.trim().is_empty() && !verify_sha256(&bytes, hash) {
-            return Err(anyhow::anyhow!("SHA256 mismatch for downloaded binary"));
-        }
-    }
-
-    let exe_path = std::env::current_exe()?;
-    let exe_parent = exe_path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("Failed to detect executable parent directory"))?;
-    let tmp_path = exe_parent.join(format!(
-        ".caramba-sub.update.{}.tmp",
-        uuid::Uuid::new_v4().to_string().replace('-', "")
-    ));
-
-    tokio::fs::write(&tmp_path, &bytes).await?;
-    std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755))?;
-    std::fs::rename(&tmp_path, &exe_path)?;
-    Ok(())
-}
-
-fn restart_sub_service() {
-    match Command::new("systemctl")
-        .args(["restart", "caramba-sub.service"])
-        .status()
-    {
-        Ok(status) if status.success() => {
-            tracing::info!("caramba-sub.service restart requested after self-update.");
-        }
-        Ok(status) => {
-            tracing::error!(
-                "Failed to restart caramba-sub.service (status: {}). Manual restart required.",
-                status
-            );
-        }
-        Err(e) => {
-            tracing::error!(
-                "Failed to execute systemctl restart for caramba-sub.service: {}",
-                e
-            );
-        }
-    }
-}
 
 fn start_worker_update_loop(state: AppState) {
     tokio::spawn(async move {
@@ -294,7 +247,7 @@ fn start_worker_update_loop(state: AppState) {
                 )
                 .await;
 
-            match apply_self_update(&asset_url, payload.sha256.as_deref()).await {
+            match apply_self_update(&asset_url, payload.sha256.as_deref(), "caramba-sub").await {
                 Ok(_) => {
                     let _ = state
                         .panel_client
@@ -312,7 +265,7 @@ fn start_worker_update_loop(state: AppState) {
                         )
                         .await;
 
-                    restart_sub_service();
+                    restart_service("caramba-sub.service");
                     return;
                 }
                 Err(e) => {
