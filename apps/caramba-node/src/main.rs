@@ -1,5 +1,6 @@
 use caramba_shared::api::{HeartbeatRequest, HeartbeatResponse};
 use caramba_shared::config::ConfigResponse;
+use caramba_shared::self_update::{apply_self_update, restart_service};
 use clap::Parser;
 use std::collections::HashSet;
 use std::path::Path;
@@ -8,7 +9,6 @@ use sysinfo::System;
 use tracing::{error, info, warn};
 
 mod scanner;
-mod self_update;
 mod sni_check; // NEW
 
 /// Минимальный интервал между ротациями SNI (секунды).
@@ -253,11 +253,20 @@ async fn main() -> anyhow::Result<()> {
                                     let hash = json["hash"].as_str().unwrap_or("");
 
                                     if !download_url.is_empty() && !hash.is_empty() {
-                                        if let Err(e) =
-                                            self_update::perform_update(&client, download_url, hash)
-                                                .await
+                                        match apply_self_update(
+                                            download_url,
+                                            Some(hash),
+                                            "caramba-node",
+                                        )
+                                        .await
                                         {
-                                            error!("❌ Self-update failed: {}", e);
+                                            Ok(_) => {
+                                                restart_service("caramba-node");
+                                                std::process::exit(0);
+                                            }
+                                            Err(e) => {
+                                                error!("Self-update failed: {}", e);
+                                            }
                                         }
                                     }
                                 }
@@ -269,11 +278,15 @@ async fn main() -> anyhow::Result<()> {
             }
             Err(e) => {
                 failures += 1;
-                error!("❌ Heartbeat failed ({}/10): {}", failures, e);
-                if failures >= 10 {
-                    warn!("⚠️ Too many failures, backing off...");
-                    tokio::time::sleep(Duration::from_secs(60)).await;
-                }
+                let backoff_secs = match failures {
+                    1..=2 => 10,
+                    3..=4 => 20,
+                    5..=6 => 40,
+                    7..=9 => 60,
+                    _ => 120,
+                };
+                error!("❌ Heartbeat failed ({}, backoff {}s): {}", failures, backoff_secs, e);
+                tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
             }
         }
 
@@ -379,8 +392,27 @@ async fn main() -> anyhow::Result<()> {
                 if let Err(e) = stop_singbox() {
                     error!("❌ FAILED TO STOP VPN SERVICE: {}", e);
                 } else {
+                    // Verify sing-box actually stopped
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    let still_running = std::process::Command::new("pgrep")
+                        .arg("-x")
+                        .arg("sing-box")
+                        .output()
+                        .map(|o| o.status.success())
+                        .unwrap_or(false);
+
+                    if still_running {
+                        warn!("⚠️ sing-box still running after stop, sending SIGKILL");
+                        let _ = std::process::Command::new("pkill")
+                            .arg("-9")
+                            .arg("-x")
+                            .arg("sing-box")
+                            .output();
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
+
                     state.vpn_stopped_by_kill_switch = true;
-                    warn!("💀 VPN Service has been terminated.");
+                    info!("🛑 Kill switch activated: VPN service confirmed stopped");
                 }
             }
         }
@@ -522,10 +554,16 @@ async fn send_heartbeat(
     let (traffic_up, traffic_down) = collect_total_traffic(client).await.unwrap_or((0, 0));
     let user_usage = collect_user_usage_delta(client, &mut state.last_user_usage_totals).await;
 
+    let status = if state.vpn_stopped_by_kill_switch {
+        "kill_switch_active".to_string()
+    } else {
+        "running".to_string()
+    };
+
     let payload = HeartbeatRequest {
         version: env!("CARGO_PKG_VERSION").to_string(),
         uptime,
-        status: "running".to_string(),
+        status,
         config_hash: state.current_hash.clone(),
         traffic_up,
         traffic_down,
