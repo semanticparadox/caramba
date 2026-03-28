@@ -5,6 +5,7 @@ pub mod export_service; // NEW: Database and settings export/backup
 pub mod infrastructure_service;
 pub mod logging_service; // NEW
 pub mod monitoring;
+pub mod task_health;
 pub mod notification_service;
 pub mod orchestration_service;
 pub mod pay_service;

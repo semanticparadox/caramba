@@ -1,7 +1,8 @@
 use crate::AppState;
 use chrono::Utc;
+use sqlx::PgPool;
 use tokio::time::{Duration, interval};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 pub struct MonitoringService {
     state: AppState,
@@ -21,31 +22,75 @@ impl MonitoringService {
             interval.tick().await;
             minute_counter += 1;
 
-            if let Err(e) = self.check_node_status().await {
-                error!("Monitoring error (node status): {}", e);
+            match self.check_node_status().await {
+                Ok(_) => self.state.task_health.record_success("check_node_status").await,
+                Err(e) => {
+                    error!("Monitoring error (node status): {}", e);
+                    self.state.task_health.record_error("check_node_status", &e.to_string()).await;
+                }
             }
-            if let Err(e) = self.check_frontend_status().await {
-                error!("Monitoring error (frontend status): {}", e);
+            match self.check_frontend_status().await {
+                Ok(_) => self.state.task_health.record_success("check_frontend_status").await,
+                Err(e) => {
+                    error!("Monitoring error (frontend status): {}", e);
+                    self.state.task_health.record_error("check_frontend_status", &e.to_string()).await;
+                }
             }
 
             if minute_counter % 5 == 0 {
-                if let Err(e) = self.check_expirations().await {
-                    error!("Monitoring error (expirations): {}", e);
+                match self.check_expirations().await {
+                    Ok(_) => self.state.task_health.record_success("check_expirations").await,
+                    Err(e) => {
+                        error!("Monitoring error (expirations): {}", e);
+                        self.state.task_health.record_error("check_expirations", &e.to_string()).await;
+                    }
                 }
-                if let Err(e) = self.check_traffic().await {
-                    error!("Monitoring error (traffic): {}", e);
+                match self.check_traffic().await {
+                    Ok(_) => self.state.task_health.record_success("check_traffic").await,
+                    Err(e) => {
+                        error!("Monitoring error (traffic): {}", e);
+                        self.state.task_health.record_error("check_traffic", &e.to_string()).await;
+                    }
                 }
             }
 
             if minute_counter % 60 == 0 {
-                if let Err(e) = self.process_auto_renewals().await {
-                    error!("Auto-renewal processing error: {}", e);
+                match self.process_auto_renewals().await {
+                    Ok(_) => self.state.task_health.record_success("process_auto_renewals").await,
+                    Err(e) => {
+                        error!("Auto-renewal processing error: {}", e);
+                        self.state.task_health.record_error("process_auto_renewals", &e.to_string()).await;
+                    }
+                }
+                match self.check_low_balances().await {
+                    Ok(_) => self.state.task_health.record_success("check_low_balances").await,
+                    Err(e) => {
+                        error!("Low balance check error: {}", e);
+                        self.state.task_health.record_error("check_low_balances", &e.to_string()).await;
+                    }
+                }
+            }
+
+            // Каждые 60 тиков (30 минут при тике 30 сек): суточное пополнение трафика.
+            // Пополнение делается на daily_traffic_mb МБ — восстанавливает доступ
+            // пользователям бесплатного плана, исчерпавшим дневной лимит.
+            if minute_counter % 60 == 0 {
+                match daily_traffic_topup(&self.state.pool).await {
+                    Ok(_) => self.state.task_health.record_success("daily_traffic_topup").await,
+                    Err(e) => {
+                        error!("Daily traffic top-up error: {}", e);
+                        self.state.task_health.record_error("daily_traffic_topup", &e.to_string()).await;
+                    }
                 }
             }
 
             if minute_counter % 360 == 0 {
-                if let Err(e) = self.check_traffic_alerts().await {
-                    error!("Traffic alerts error: {}", e);
+                match self.check_traffic_alerts().await {
+                    Ok(_) => self.state.task_health.record_success("check_traffic_alerts").await,
+                    Err(e) => {
+                        error!("Traffic alerts error: {}", e);
+                        self.state.task_health.record_error("check_traffic_alerts", &e.to_string()).await;
+                    }
                 }
                 if minute_counter > 10000 {
                     minute_counter = 0;
@@ -53,8 +98,12 @@ impl MonitoringService {
             }
 
             if minute_counter % 60 == 0 {
-                if let Err(e) = self.check_and_rotate_snis().await {
-                    error!("Auto SNI Rotation check error: {}", e);
+                match self.check_and_rotate_snis().await {
+                    Ok(_) => self.state.task_health.record_success("check_and_rotate_snis").await,
+                    Err(e) => {
+                        error!("Auto SNI Rotation check error: {}", e);
+                        self.state.task_health.record_error("check_and_rotate_snis", &e.to_string()).await;
+                    }
                 }
             }
         }
@@ -190,28 +239,59 @@ impl MonitoringService {
                     amount,
                     plan_name,
                 } => {
-                    if let Ok(Some(user)) =
-                        sqlx::query_as::<_, (i64,)>("SELECT tg_id FROM users WHERE id = $1")
-                            .bind(user_id)
-                            .fetch_optional(&self.state.pool)
-                            .await
-                    {
-                        let msg = format!(
-                            "✅ *Auto\\-Renewed\\!*\n\n\
-                             💎 Plan: {}\n\
-                             💳 Charged: ${:.2}\n\
-                             📅 Valid for: 30 days",
-                            plan_name.replace("-", "\\-").replace(".", "\\."),
-                            amount as f64 / 100.0
-                        );
+                    // Получаем tg_id и язык пользователя одним запросом
+                    let user_row = sqlx::query_as::<_, (i64, Option<String>)>(
+                        "SELECT tg_id, language_code FROM users WHERE id = $1",
+                    )
+                    .bind(user_id)
+                    .fetch_optional(&self.state.pool)
+                    .await;
 
-                        let _ = self.state.bot_manager.send_notification(user.0, &msg).await;
+                    if let Ok(Some((tg_id, lang))) = user_row {
+                        // Получаем новую дату истечения после продления
+                        let new_expires: Option<chrono::DateTime<Utc>> =
+                            sqlx::query_scalar("SELECT expires_at FROM subscriptions WHERE id = $1")
+                                .bind(sub_id)
+                                .fetch_optional(&self.state.pool)
+                                .await
+                                .unwrap_or(None);
+
+                        let expires_str = new_expires
+                            .map(|dt| dt.format("%Y-%m-%d").to_string())
+                            .unwrap_or_else(|| "N/A".to_string());
+
+                        let lang_ref = lang.as_deref();
+                        let amount_str = format!("{:.2}", amount as f64 / 100.0);
+                        let is_ru = lang_ref.map_or(true, |l| l.starts_with("ru"));
+
+                        // Экранируем символы для MarkdownV2
+                        let plan_escaped = escape_md(&plan_name);
+                        let expires_escaped = escape_md(&expires_str);
+
+                        let msg = if is_ru {
+                            format!(
+                                "✅ *Подписка автоматически продлена*\n\n\
+                                 💎 Тариф: *{plan_escaped}*\n\
+                                 📅 Действует до: *{expires_escaped}*\n\
+                                 💳 Списано: *${amount_str}*"
+                            )
+                        } else {
+                            format!(
+                                "✅ *Subscription Auto\\-Renewed*\n\n\
+                                 💎 Plan: *{plan_escaped}*\n\
+                                 📅 Valid until: *{expires_escaped}*\n\
+                                 💳 Charged: *${amount_str}*"
+                            )
+                        };
+
+                        let _ = self.state.bot_manager.send_notification(tg_id, &msg).await;
 
                         info!(
-                            "Auto-renewed subscription {} for user {}, charged ${:.2}",
+                            "Auto-renewed subscription {} for user {}, charged ${:.2}, expires {}",
                             sub_id,
                             user_id,
-                            amount as f64 / 100.0
+                            amount as f64 / 100.0,
+                            expires_str
                         );
                     }
                 }
@@ -221,30 +301,150 @@ impl MonitoringService {
                     required,
                     available,
                 } => {
-                    if let Ok(Some(user)) =
-                        sqlx::query_as::<_, (i64,)>("SELECT tg_id FROM users WHERE id = $1")
-                            .bind(user_id)
-                            .fetch_optional(&self.state.pool)
-                            .await
-                    {
-                        let msg = format!(
-                            "⚠️ *Auto\\-Renewal Failed*\n\n\
-                             💰 Balance: ${:.2}\n\
-                             💳 Required: ${:.2}\n\n\
-                             Please top up your account to renew your subscription\\.",
-                            available as f64 / 100.0,
-                            required as f64 / 100.0
-                        );
+                    let user_row = sqlx::query_as::<_, (i64, Option<String>)>(
+                        "SELECT tg_id, language_code FROM users WHERE id = $1",
+                    )
+                    .bind(user_id)
+                    .fetch_optional(&self.state.pool)
+                    .await;
 
-                        let _ = self.state.bot_manager.send_notification(user.0, &msg).await;
+                    if let Ok(Some((tg_id, lang))) = user_row {
+                        // Получаем имя плана для информативного сообщения
+                        let plan_name: String = sqlx::query_scalar(
+                            "SELECT COALESCE(p.name, 'Subscription') FROM subscriptions s \
+                             JOIN plans p ON s.plan_id = p.id WHERE s.id = $1",
+                        )
+                        .bind(sub_id)
+                        .fetch_optional(&self.state.pool)
+                        .await
+                        .unwrap_or(None)
+                        .unwrap_or_else(|| "Subscription".to_string());
 
-                        info!(
-                            "Auto-renewal failed for sub {} (user {}): insufficient funds",
-                            sub_id, user_id
+                        let lang_ref = lang.as_deref();
+                        let is_ru = lang_ref.map_or(true, |l| l.starts_with("ru"));
+                        let plan_escaped = escape_md(&plan_name);
+                        let avail_str = format!("{:.2}", available as f64 / 100.0);
+                        let req_str = format!("{:.2}", required as f64 / 100.0);
+
+                        let msg = if is_ru {
+                            format!(
+                                "⚠️ *Автопродление не выполнено*\n\n\
+                                 💎 Тариф: *{plan_escaped}*\n\
+                                 💰 Баланс: *${avail_str}*\n\
+                                 💳 Требуется: *${req_str}*\n\n\
+                                 Пополните баланс, чтобы продолжить пользоваться VPN\\."
+                            )
+                        } else {
+                            format!(
+                                "⚠️ *Auto\\-Renewal Failed*\n\n\
+                                 💎 Plan: *{plan_escaped}*\n\
+                                 💰 Balance: *${avail_str}*\n\
+                                 💳 Required: *${req_str}*\n\n\
+                                 Please top up your account to keep your VPN access\\."
+                            )
+                        };
+
+                        let _ = self.state.bot_manager.send_notification(tg_id, &msg).await;
+
+                        warn!(
+                            "Auto-renewal failed for sub {} (user {}): balance={} required={}",
+                            sub_id, user_id, available, required
                         );
                     }
                 }
             }
+        }
+
+        Ok(())
+    }
+
+    /// Проверяет пользователей с активными подписками (auto_renew=true) и балансом < 100 центов.
+    /// Использует Redis-ключ `balance_warned:{user_id}` с TTL 24ч для дедупликации —
+    /// не спамим пользователю больше одного предупреждения в сутки.
+    async fn check_low_balances(&self) -> anyhow::Result<()> {
+        // Выбираем пользователей с авто-продлением и низким балансом
+        let low_balance_users: Vec<(i64, i64, Option<String>, String)> = sqlx::query_as(
+            r#"
+            SELECT DISTINCT u.id, u.tg_id, u.language_code, p.name
+            FROM users u
+            JOIN subscriptions s ON s.user_id = u.id
+            JOIN plans p ON s.plan_id = p.id
+            WHERE s.status = 'active'
+              AND s.auto_renew = TRUE
+              AND u.balance < 100
+            ORDER BY u.id
+            "#,
+        )
+        .fetch_all(&self.state.pool)
+        .await?;
+
+        if low_balance_users.is_empty() {
+            return Ok(());
+        }
+
+        info!(
+            "Found {} users with low balance and active auto-renew subscriptions",
+            low_balance_users.len()
+        );
+
+        for (user_db_id, tg_id, lang, plan_name) in low_balance_users {
+            let redis_key = format!("balance_warned:{}", user_db_id);
+
+            // Проверяем дедупликацию: уже предупреждали за последние 24 часа?
+            let already_warned = self
+                .state
+                .redis
+                .exists(&redis_key)
+                .await
+                .unwrap_or(false);
+
+            if already_warned {
+                continue;
+            }
+
+            // Получаем актуальный баланс для отображения пользователю
+            let balance: i64 =
+                sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
+                    .bind(user_db_id)
+                    .fetch_optional(&self.state.pool)
+                    .await
+                    .unwrap_or(None)
+                    .unwrap_or(0);
+
+            let balance_str = format!("{:.2}", balance as f64 / 100.0);
+            let plan_escaped = escape_md(&plan_name);
+            let lang_ref = lang.as_deref();
+            let is_ru = lang_ref.map_or(true, |l| l.starts_with("ru"));
+
+            let msg = if is_ru {
+                format!(
+                    "⚠️ *Баланс заканчивается*\n\n\
+                     Ваш текущий баланс: *${balance_str}*\n\n\
+                     Для автопродления подписки «{plan_escaped}» необходимо пополнить счёт\\. \
+                     Пополните баланс заранее, чтобы не потерять доступ\\."
+                )
+            } else {
+                format!(
+                    "⚠️ *Balance Running Low*\n\n\
+                     Your current balance: *${balance_str}*\n\n\
+                     Top up to ensure auto\\-renewal of your «{plan_escaped}» subscription \
+                     and avoid losing access\\."
+                )
+            };
+
+            let _ = self.state.bot_manager.send_notification(tg_id, &msg).await;
+
+            // Ставим флаг в Redis на 24 часа — не беспокоим снова до следующих суток
+            if let Err(e) = self.state.redis.set(&redis_key, "1", 86400).await {
+                error!("Failed to set balance_warned Redis key for user {}: {}", user_db_id, e);
+            }
+
+            info!(
+                "Sent low balance warning to user {} (tg_id={}), balance=${:.2}",
+                user_db_id,
+                tg_id,
+                balance as f64 / 100.0
+            );
         }
 
         Ok(())
@@ -274,14 +474,19 @@ impl MonitoringService {
             {
                 let msg = match alert_type {
                     AlertType::Traffic80 => {
-                        "⚠️ *Traffic Alert*\n\n\
-                         You've used *80%* of your traffic\\.\n\
-                         Consider upgrading your plan or topping up\\."
+                        "⚠️ *Traffic Warning*\n\n\
+                         You've used *80%* of your monthly traffic\\.\n\
+                         Consider upgrading your plan to avoid interruption\\."
                     }
                     AlertType::Traffic90 => {
-                        "⚠️ *Traffic Alert*\n\n\
+                        "🔶 *Traffic Critical*\n\n\
                          You've used *90%* of your traffic\\.\n\
-                         _Service will be paused at 100%\\._"
+                         _Access will be paused when the limit is reached\\._"
+                    }
+                    AlertType::TrafficExceeded => {
+                        "🔴 *Traffic Limit Reached*\n\n\
+                         Your traffic quota is exhausted\\.\n\
+                         Access has been paused\\. Upgrade or wait for the daily top\\-up to resume\\."
                     }
                     AlertType::Expiry3Days => {
                         "⏰ *Expiry Alert*\n\n\
@@ -392,4 +597,57 @@ impl MonitoringService {
         }
         Ok(())
     }
+}
+
+/// Экранирует специальные символы MarkdownV2 для Telegram.
+/// Список символов взят из официальной документации Bot API.
+fn escape_md(s: &str) -> String {
+    let special = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'];
+    let mut out = String::with_capacity(s.len() + 8);
+    for c in s.chars() {
+        if special.contains(&c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Суточное пополнение трафика для подписок с daily_traffic_mb > 0.
+///
+/// Логика:
+/// - Берём все активные подписки, где план имеет daily_traffic_mb > 0.
+/// - Если last_daily_topup_at < начала текущего дня (UTC) — делаем пополнение:
+///   уменьшаем used_traffic на daily_traffic_mb (не уходим в минус).
+/// - Одновременно сбрасываем last_daily_topup_at = CURRENT_DATE (начало дня UTC).
+///
+/// Функция вынесена за impl чтобы её можно было вызывать из мониторинга по пулу
+/// без копирования AppState.
+async fn daily_traffic_topup(pool: &PgPool) -> anyhow::Result<()> {
+    let rows = sqlx::query(
+        r#"
+        UPDATE subscriptions s
+        SET used_traffic = GREATEST(0, s.used_traffic - (p.daily_traffic_mb::BIGINT * 1024 * 1024)),
+            last_daily_topup_at = CURRENT_DATE::TIMESTAMPTZ
+        FROM plans p
+        WHERE s.plan_id = p.id
+          AND s.status = 'active'
+          AND COALESCE(p.daily_traffic_mb, 0) > 0
+          AND (
+              s.last_daily_topup_at IS NULL
+              OR s.last_daily_topup_at < CURRENT_DATE::TIMESTAMPTZ
+          )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    if rows.rows_affected() > 0 {
+        info!(
+            "Суточное пополнение трафика: обновлено {} подписок",
+            rows.rows_affected()
+        );
+    }
+
+    Ok(())
 }

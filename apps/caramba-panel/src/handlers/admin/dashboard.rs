@@ -4,6 +4,7 @@
 use askama::Template;
 use askama_web::WebTemplate;
 use axum::{
+    Json,
     extract::State,
     response::{Html, IntoResponse},
 };
@@ -277,4 +278,10 @@ pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
         active_subs_24h: active_subs_24h.to_string(),
     };
     Html(template.render().unwrap_or_default())
+}
+
+/// Возвращает JSON-список состояний всех фоновых задач мониторинга.
+/// Используется для admin API: GET /admin/api/health/tasks
+pub async fn get_task_health(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.task_health.get_all().await)
 }

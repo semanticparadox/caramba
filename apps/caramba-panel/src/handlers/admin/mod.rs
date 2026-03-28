@@ -20,7 +20,7 @@ pub use updates::get_updates_page;
 pub use analytics::{get_system_logs_page, get_traffic_analytics, get_transactions};
 pub use api_keys::{create_api_key, delete_api_key, list_api_keys};
 pub use auth::{get_auth_user, get_login, is_authenticated, login, logout};
-pub use dashboard::{get_dashboard, get_statusbar};
+pub use dashboard::{get_dashboard, get_statusbar, get_task_health};
 pub use frontends::get_frontends;
 pub use nodes::{
     activate_node, block_sni, delete_node, get_install_sh, get_node_edit, get_node_install_script,
@@ -43,7 +43,8 @@ pub use users::{
     admin_gift_subscription, admin_kill_subscription_sessions, delete_user_subscription,
     extend_user_subscription, get_subscription_devices, get_user_details, get_users,
     notify_all_users, notify_preview, notify_user, refund_user_subscription,
-    set_subscription_node, update_user, update_user_balance,
+    reset_user_referral_rates, set_subscription_node, update_user, update_user_balance,
+    update_user_referral_rates,
 };
 
 pub use marketplace::{

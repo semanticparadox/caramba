@@ -80,6 +80,7 @@ pub struct AppState {
     pub session_secret: String,
     pub admin_path: String,
     pub system_stats: Arc<tokio::sync::Mutex<sysinfo::System>>,
+    pub task_health: Arc<services::task_health::TaskHealthRegistry>,
 }
 
 #[derive(Parser)]
@@ -525,6 +526,9 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         geo_path_opt.as_deref(),
     ));
 
+    // Реестр здоровья фоновых задач — собирает статистику успехов/ошибок каждого воркера
+    let task_health = Arc::new(services::task_health::TaskHealthRegistry::new());
+
     // App state
     let state = AppState {
         pool: pool.clone(),
@@ -559,6 +563,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         session_secret,
         admin_path: admin_path_prefix.clone(),
         system_stats,
+        task_health,
     };
 
     if let Err(e) = state.sni_repo.seed_default_global_pool_if_empty().await {
@@ -1055,6 +1060,11 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
                 .post(handlers::admin_orgs::create_organization),
         )
         // .route("/store/orders", axum::routing::get(handlers::admin_store::orders_page)) // Handled by analytics/dashboard now
+        // Task Health API — состояние фоновых воркеров мониторинга
+        .route(
+            "/api/health/tasks",
+            axum::routing::get(handlers::admin::get_task_health),
+        )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
