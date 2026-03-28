@@ -223,6 +223,87 @@
             </div>
             {% endif %}
         </article>
+
+        <!-- Индивидуальные реферальные ставки -->
+        <article class="card p-8">
+            <header class="flex justify-between items-center mb-6">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-violet-500/10 flex items-center justify-center text-violet-400 border border-violet-500/20">
+                        <i data-lucide="percent" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Custom Referral Rates</h4>
+                        {% if referral_rates.is_some() %}
+                        <p class="text-[10px] text-violet-400 font-semibold mt-0.5">Individual rates active</p>
+                        {% else %}
+                        <p class="text-[10px] text-slate-500 mt-0.5">Using global defaults</p>
+                        {% endif %}
+                    </div>
+                </div>
+                {% if referral_rates.is_some() %}
+                <button
+                    hx-delete="{{ admin_path }}/users/{{ user.id }}/referral-rates"
+                    hx-confirm="Reset this user to global referral settings?"
+                    hx-swap="none"
+                    class="text-[10px] font-bold text-red-400 hover:text-red-300 uppercase tracking-widest transition-colors">
+                    Reset to Global
+                </button>
+                {% endif %}
+            </header>
+
+            <form hx-post="{{ admin_path }}/users/{{ user.id }}/referral-rates" hx-swap="none" class="space-y-4">
+                <div>
+                    <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">
+                        Payment Commission (%)
+                    </label>
+                    {% if let Some(rates) = referral_rates.as_ref() %}
+                    <input type="number" name="bonus_percent" min="0" max="100"
+                        placeholder="Leave blank for global default"
+                        value="{{ rates.bonus_percent_str() }}"
+                        class="input-field text-sm">
+                    {% else %}
+                    <input type="number" name="bonus_percent" min="0" max="100"
+                        placeholder="Leave blank for global default"
+                        class="input-field text-sm">
+                    {% endif %}
+                </div>
+                <div>
+                    <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">
+                        Referrer Sign-up Bonus (cents)
+                    </label>
+                    {% if let Some(rates) = referral_rates.as_ref() %}
+                    <input type="number" name="referrer_signup_bonus_cents" min="0"
+                        placeholder="Leave blank for global default"
+                        value="{{ rates.referrer_signup_str() }}"
+                        class="input-field text-sm">
+                    {% else %}
+                    <input type="number" name="referrer_signup_bonus_cents" min="0"
+                        placeholder="Leave blank for global default"
+                        class="input-field text-sm">
+                    {% endif %}
+                </div>
+                <div>
+                    <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">
+                        Referred User Sign-up Bonus (cents)
+                    </label>
+                    {% if let Some(rates) = referral_rates.as_ref() %}
+                    <input type="number" name="referred_signup_bonus_cents" min="0"
+                        placeholder="Leave blank for global default"
+                        value="{{ rates.referred_signup_str() }}"
+                        class="input-field text-sm">
+                    {% else %}
+                    <input type="number" name="referred_signup_bonus_cents" min="0"
+                        placeholder="Leave blank for global default"
+                        class="input-field text-sm">
+                    {% endif %}
+                </div>
+                <button type="submit"
+                    class="w-full py-3 px-4 rounded-2xl bg-violet-500/10 border border-violet-500/20 text-violet-400 text-[11px] font-bold uppercase tracking-widest hover:bg-violet-500/20 transition-colors">
+                    Save Custom Rates
+                </button>
+            </form>
+        </article>
     </div>
 
     <!-- Right Column: Subscriptions & Orders -->

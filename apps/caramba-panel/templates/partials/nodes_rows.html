@@ -23,25 +23,32 @@
         </span>
     </td>
     <td class="px-4 py-3">
-        {% if node.status == "new" || node.status == "provisioning" %}
-        <span class="badge badge-pending flex items-center gap-1.5">
+        {% if node.status == "new" %}
+        {# Нода создана, агент ещё не отправил первый heartbeat — auto-provision ждёт подключения #}
+        <span class="badge badge-pending flex items-center gap-1.5" title="Waiting for agent first heartbeat">
+            <span class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"></span>
+            Waiting for agent...
+        </span>
+        {% elif node.status == "provisioning" %}
+        {# Агент подключился, идёт авто-конфигурация sing-box (Task 3) #}
+        <span class="badge flex items-center gap-1.5" style="background:rgba(234,179,8,0.12);color:#eab308;border-color:rgba(234,179,8,0.2)" title="Agent connected, auto-configuring sing-box">
             <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
-            AUTO-CONFIGURING...
+            Auto-configuring...
         </span>
         {% elif node.status == "active" %}
         <span class="badge badge-online flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-            ONLINE
-        </span>
-        {% elif node.status == "disabled" %}
-        <span class="badge badge-offline flex items-center gap-1.5" style="color:#94a3b8;background:rgba(148,163,184,0.08);border-color:rgba(148,163,184,0.15)">
-            <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-            DISABLED
+            Online
         </span>
         {% elif node.status == "offline" %}
-        <span class="badge badge-offline flex items-center gap-1.5">
+        <span class="badge badge-offline flex items-center gap-1.5" title="{% if let Some(ls) = node.last_seen %}Last seen: {{ ls.format("%Y-%m-%d %H:%M") }} UTC{% else %}Never connected{% endif %}">
             <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-            OFFLINE
+            Offline
+        </span>
+        {% elif node.status == "disabled" %}
+        <span class="badge flex items-center gap-1.5" style="color:#64748b;background:rgba(100,116,139,0.1);border-color:rgba(100,116,139,0.2)">
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+            Disabled
         </span>
         {% else %}
         <span class="badge badge-offline">{{ node.status|uppercase }}</span>
@@ -89,16 +96,16 @@
             <button type="button" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}"
                 onclick="showNodeInstallCommand(this.dataset.nodeId, this.dataset.nodeName)"
                 class="btn-icon w-9 h-9 bg-brand/5 text-brand border-brand/10 hover:bg-brand/20"
-                title="Installation Matrix">
+                title="Installation Script">
                 <i data-lucide="terminal" class="w-4 h-4"></i>
             </button>
-            <a href="{{ admin_path }}/nodes/{{ node.id }}/manage" class="btn-icon w-9 h-9" title="Core Config">
+            <a href="{{ admin_path }}/nodes/{{ node.id }}/manage" class="btn-icon w-9 h-9" title="Node Details">
                 <i data-lucide="sliders" class="w-4 h-4"></i>
             </a>
             <a href="{{ admin_path }}/nodes/{{ node.id }}/inbounds" class="btn-icon w-9 h-9" title="Traffic Inbounds">
                 <i data-lucide="box" class="w-4 h-4"></i>
             </a>
-            {# Sync Config скрыт из списка — доступен только на странице управления нодой #}
+            {# Sync Config и Scan SNI доступны только на странице деталей ноды (admin override) #}
             <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/toggle" hx-swap="none"
                 class="btn-icon w-9 h-9 {% if node.is_enabled %}text-emerald-400 bg-emerald-400/5 border-emerald-400/10{% else %}text-amber-400 bg-amber-500/5 border-amber-500/10{% endif %}"
                 title="{% if node.is_enabled %}Deactivate{% else %}Activate{% endif %}">

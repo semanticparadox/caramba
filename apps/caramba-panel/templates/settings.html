@@ -127,42 +127,6 @@
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6 border-t border-border-default">
-                        <div>
-                            <label
-                                class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-3 ml-1 flex items-center gap-2">
-                                <i data-lucide="layout" class="w-3.5 h-3.5 text-brand"></i>
-                                Simple Mode (One Subscription)
-                            </label>
-                            <div
-                                class="flex items-center justify-between p-4 bg-black/20 border border-border-default rounded-2xl">
-                                <span class="text-xs text-slate-400 font-medium">Streamline UI for single product</span>
-                                <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" form="main-settings-form" name="simple_mode_enabled"
-                                        value="true" class="sr-only peer" {% if simple_mode_enabled %}checked{% endif
-                                        %}>
-                                    <div
-                                        class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand">
-                                    </div>
-                                </label>
-                            </div>
-                        </div>
-
-                        <div>
-                            <label
-                                class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-3 ml-1 flex items-center gap-2">
-                                <i data-lucide="award" class="w-3.5 h-3.5 text-accent"></i>
-                                Main Subscription Plan
-                            </label>
-                            <select form="main-settings-form" name="simple_mode_plan_id" class="input-field">
-                                <option value="0">--- Select Plan ---</option>
-                                {% for plan in all_plans %}
-                                <option value="{{ plan.id }}" {% if plan.id==simple_mode_plan_id %}selected{% endif %}>
-                                    {{ plan.name }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -181,6 +145,58 @@
 
                 <textarea form="main-settings-form" name="terms_of_service"
                     class="input-field h-64 custom-scrollbar resize-y font-mono text-sm leading-relaxed p-6">{{ terms_of_service }}</textarea>
+            </div>
+
+            <!-- Referral Settings -->
+            <div class="card p-8">
+                <header class="flex items-center gap-4 mb-8">
+                    <div
+                        class="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 border border-emerald-500/20">
+                        <i data-lucide="share-2" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-slate-900 dark:text-white">Referral Settings</h3>
+                        <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Commission
+                            rates and sign-up bonuses for the referral program</p>
+                    </div>
+                </header>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div>
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Payment
+                            Commission (%)</label>
+                        <input type="number" form="main-settings-form" name="referral_bonus_percent"
+                            value="{{ referral_bonus_percent }}" min="0" max="100"
+                            placeholder="10" class="input-field">
+                        <p class="text-[10px] text-slate-500 mt-2 ml-1">Referrer earns this % of each payment made by
+                            their referrals.</p>
+                    </div>
+
+                    <div>
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Referrer
+                            Sign-up Bonus (cents)</label>
+                        <input type="number" form="main-settings-form"
+                            name="referral_referrer_signup_bonus_cents"
+                            value="{{ referral_referrer_signup_bonus_cents }}" min="0"
+                            placeholder="0" class="input-field">
+                        <p class="text-[10px] text-slate-500 mt-2 ml-1">Credited to referrer when their friend
+                            registers. 100 = $1.00.</p>
+                    </div>
+
+                    <div>
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Referred
+                            User Sign-up Bonus (cents)</label>
+                        <input type="number" form="main-settings-form"
+                            name="referral_referred_signup_bonus_cents"
+                            value="{{ referral_referred_signup_bonus_cents }}" min="0"
+                            placeholder="0" class="input-field">
+                        <p class="text-[10px] text-slate-500 mt-2 ml-1">Credited to new user on their first sign-up via
+                            referral link. 100 = $1.00.</p>
+                    </div>
+                </div>
             </div>
         </div>
 

@@ -4,7 +4,6 @@
 use askama::Template;
 use askama_web::WebTemplate;
 use axum::{
-    Json,
     extract::State,
     response::{Html, IntoResponse},
 };
@@ -13,6 +12,7 @@ use axum_extra::extract::cookie::CookieJar;
 use super::auth::get_auth_user;
 use crate::AppState;
 use crate::services::logging_service::LoggingService;
+use crate::services::task_health::TaskHealth;
 use crate::utils::format_bytes_str;
 
 // ============================================================================
@@ -41,6 +41,19 @@ pub struct DashboardTemplate {
     pub username: String,
     pub admin_path: String,
     pub active_page: String,
+    // Данные для секции System Health
+    pub task_health_items: Vec<TaskHealth>,
+    pub nodes_active: i64,
+    pub nodes_offline: i64,
+    pub nodes_provisioning: i64,
+}
+
+/// Шаблон HTMX-партиала для строк таблицы фоновых задач.
+/// Используется для авто-обновления через hx-get каждые 30 секунд.
+#[derive(Template, WebTemplate)]
+#[template(path = "partials/task_health_rows.html")]
+pub struct TaskHealthRowsPartial {
+    pub task_health_items: Vec<TaskHealth>,
 }
 
 #[derive(Template, WebTemplate)]
@@ -175,6 +188,36 @@ pub async fn get_dashboard(State(state): State<AppState>, jar: CookieJar) -> imp
         .map(|n| n.total_traffic / (1024 * 1024 * 1024))
         .collect();
 
+    // Получаем статусы нод для секции System Health
+    #[derive(sqlx::FromRow)]
+    struct NodeStatusCount {
+        status: String,
+        count: i64,
+    }
+    let node_status_rows = sqlx::query_as::<_, NodeStatusCount>(
+        "SELECT status, COUNT(*) as count FROM nodes GROUP BY status",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    let mut nodes_active: i64 = 0;
+    let mut nodes_offline: i64 = 0;
+    let mut nodes_provisioning: i64 = 0;
+    for row in &node_status_rows {
+        match row.status.as_str() {
+            "active" | "online" => nodes_active += row.count,
+            "offline" | "error" | "unreachable" => nodes_offline += row.count,
+            "provisioning" | "pending" | "installing" => nodes_provisioning += row.count,
+            _ => {}
+        }
+    }
+
+    // Получаем список фоновых задач мониторинга
+    let mut task_health_items = state.task_health.get_all().await;
+    // Сортируем по имени для стабильного порядка в таблице
+    task_health_items.sort_by(|a, b| a.name.cmp(&b.name));
+
     let template = DashboardTemplate {
         active_nodes,
         total_users,
@@ -195,6 +238,10 @@ pub async fn get_dashboard(State(state): State<AppState>, jar: CookieJar) -> imp
         username,
         admin_path,
         active_page: "dashboard".to_string(),
+        task_health_items,
+        nodes_active,
+        nodes_offline,
+        nodes_provisioning,
     };
     Html(template.render().unwrap_or_default())
 }
@@ -280,8 +327,12 @@ pub async fn get_statusbar(State(state): State<AppState>) -> impl IntoResponse {
     Html(template.render().unwrap_or_default())
 }
 
-/// Возвращает JSON-список состояний всех фоновых задач мониторинга.
+/// Возвращает HTMX-партиал с таблицей фоновых задач мониторинга.
 /// Используется для admin API: GET /admin/api/health/tasks
+/// Автоматически обновляется через hx-trigger="every 30s" на клиенте.
 pub async fn get_task_health(State(state): State<AppState>) -> impl IntoResponse {
-    Json(state.task_health.get_all().await)
+    let mut task_health_items = state.task_health.get_all().await;
+    task_health_items.sort_by(|a, b| a.name.cmp(&b.name));
+    let partial = TaskHealthRowsPartial { task_health_items };
+    Html(partial.render().unwrap_or_default())
 }
