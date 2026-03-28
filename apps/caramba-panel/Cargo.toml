@@ -1,6 +1,6 @@
 [package]
 name = "caramba-panel"
-version = "0.9.46"
+version = "0.9.47"
 edition = "2024"
 
 [dependencies]
@@ -47,6 +47,7 @@ redis = { version = "1.0.3", features = ["tokio-comp", "tokio-rustls-comp", "con
 # removal of bb8-redis and bb8
 sha2 = "0.10"
 hmac = "0.12"
+subtle = "2.6"
 md5 = "0.8"
 sysinfo = "0.38"
 # actually sysinfo 0.30 -> 0.33 is smaller jump. 0.38 is huge.
@@ -58,7 +59,7 @@ sysinfo = "0.38"
 # 0.38 introduced many changes. I'll stick to 0.33 for sysinfo to minimize breakage for now, or maybe 0.38 if I'm brave.
 # Let's go with 0.33 for sysinfo.
 
-caramba-shared = { path = "../../libs/caramba-shared" }
+caramba-shared = { path = "../../libs/caramba-shared", features = ["geo"] }
 serde_yaml = "0.9"
 urlencoding = "2.1"
 url = "2.5"
