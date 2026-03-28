@@ -282,83 +282,62 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
     // Check if redis_url actually starts with redis://, if not, assume it's just host:port or similar and prefix, or default
     // Basic fallback for robust dev env
-    let redis_service = match services::redis_service::RedisService::new(&redis_url).await {
-        Ok(r) => Arc::new(r),
-        Err(e) => {
-            // Fallback to internal/mock if real redis fails? For now failure is fatal as planned.
-            tracing::error!("Redis connection failed: {}. Ensure Redis is running.", e);
-            return Err(e);
+    let redis_service = {
+        let mut last_err = None;
+        let mut redis_ok = None;
+        for attempt in 1..=5 {
+            match services::redis_service::RedisService::new(&redis_url).await {
+                Ok(r) => {
+                    tracing::info!("Redis connected (attempt {})", attempt);
+                    redis_ok = Some(Arc::new(r));
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!("Redis connection attempt {}/5 failed: {}", attempt, e);
+                    last_err = Some(e);
+                    if attempt < 5 {
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    }
+                }
+            }
+        }
+        match redis_ok {
+            Some(r) => r,
+            None => {
+                tracing::error!("Redis connection failed after 5 attempts. Cannot start.");
+                return Err(last_err.unwrap());
+            }
         }
     };
 
     // Initialize PubSub Service (Moved up for dependency injection)
-    let pubsub_service = services::pubsub_service::PubSubService::new(redis_url.clone())
-        .await
-        .expect("Failed to init PubSub");
-
-    // Initialize store service (Mutable arc workaround or refcell? No, just Arc<Mutex> or init structure)
-    // Actually store service is Arc'd everywhere. We need interior mutability or just init first then set.
-    // Rust doesn't like cyclic deps.
-    // Solution: Create the struct, then Arc it later? No, `new` returns Self.
-    // Let's use `Arc::get_mut`? Only works if single owner.
-    // We will use a dedicated method `set_orchestration_service` on the raw struct before Arc-ing if possible,
-    // OR use interior mutability (Mutex/RwLock) for the orchestration_service field.
-    // BUT `store_service` is used in `orchestration_service` constructor! Circular dependency!
-    //
-    // Break cycle:
-    // 1. Create `StoreService` (without orch).
-    // 2. Create `OrchestrationService` (with store).
-    // 3. Inject `OrchestrationService` into `StoreService` via internal Mutex/Cell or just a method if we keep a handle.
-    //
-    // Current `StoreService` struct definition:
-    // pub struct StoreService { ... }
-    //
-    // We can't modify `Arc<StoreService>` contents if shared.
-    //
-    // We need to change `StoreService` to hold `RwLock<Option<Arc<OrchestrationService>>>`.
-    //
-    // However, for this specific task (Trigger-Based Sync), we can just inject it at the call site if we restructure?
-    // No, `purchase_plan` is inside `StoreService`.
-    //
-    // Let's use `Arc<RwLock<Option<Arc<OrchestrationService>>>>` inside `StoreService` or similar.
-    // But `StoreService` is already written without locks.
-    //
-    // Alternative: `ConnectionService` handles high level flows?
-    // Or just pass `OrchestrationService` to the handler and have the handler call `store.purchase` then `orch.notify`.
-    // That is cleaner but requires changing all call sites (bot, admin).
-    //
-    // Given constraints, I'll modify `main.rs` to hack the cycle using `unsafe` or `Arc::new_cyclic` equivalent?
-    //
-    // Let's look at `store_service.rs`. I added `orchestration_service: Option<Arc<...>>`.
-    // Since it's immutable `self`, I can't set it later unless it's in a Mutex/RwLock.
-    //
-    // Wait, `StoreService` methods take `&self`.
-    // I need `std::sync::RwLock` or `tokio::sync::RwLock` for interior mutability.
-    //
-    // Let's correct `StoreService` struct in previous step to use `RwLock`?
-    // Or simpler:
-    // Just modify `StoreService` to NOT hold `OrchestrationService`.
-    // Instead, create a `HighLevelOrchestrator` or similar? No time.
-    //
-    // Let's use `std::sync::OnceLock` or similar?
-    //
-    // Actually, `Arc::get_mut` works if I haven't cloned it yet.
-    //
-    // 1. Create `store_service` raw.
-    // 2. Create `orch_service` (needs `Arc<StoreService>`). This forces me to Arc `store_service`.
-    // 3. Now I have `Arc<StoreService>`. I cannot mutate it.
-    //
-    // Okay, I will modify `StoreService` to use `std::sync::RwLock<Option<Arc<OrchestrationService>>>`.
-    //
-    // Re-reading `store_service.rs`... I just added `Option<Arc<...>>`.
-    // This won't work with `set_orchestration_service` taking `&mut self` if I have an `Arc`.
-    //
-    // CORRECT FIX:
-    // Change `StoreService` field to:
-    // `pub orchestration_service: std::sync::RwLock<Option<Arc<OrchestrationService>>>`
-    // And `set_` takes `&self`.
-
-    // Let's pause and fix `store_service.rs` first.
+    let pubsub_service = {
+        let mut last_err_ps = None;
+        let mut pubsub_ok = None;
+        for attempt in 1..=5 {
+            match services::pubsub_service::PubSubService::new(redis_url.clone()).await {
+                Ok(ps) => {
+                    tracing::info!("PubSub connected (attempt {})", attempt);
+                    pubsub_ok = Some(ps);
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!("PubSub connection attempt {}/5 failed: {}", attempt, e);
+                    last_err_ps = Some(e);
+                    if attempt < 5 {
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    }
+                }
+            }
+        }
+        match pubsub_ok {
+            Some(ps) => ps,
+            None => {
+                tracing::error!("PubSub connection failed after 5 attempts. Cannot start.");
+                return Err(last_err_ps.unwrap());
+            }
+        }
+    };
 
     // Initialize store service
     let store_service_raw = services::store_service::StoreService::new(pool.clone());
@@ -454,6 +433,9 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             },
         )
         .await;
+    // Читаем имя бота из настроек — сохраняется при первом запуске бота через get_me()
+    let marketplace_bot_username = settings.get_or_default("bot_username", "").await;
+    let marketplace_api_domain = api_domain.clone();
 
     let pay_service = Arc::new(services::pay_service::PayService::new(
         pool.clone(),
@@ -491,6 +473,8 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         aaio_merchant_id.clone(),
         aaio_secret_1.clone(),
         aaio_secret_2.clone(),
+        marketplace_api_domain,
+        marketplace_bot_username,
         (*store_service).clone(),
         (*subscription_service).clone(),
     ));
@@ -523,7 +507,9 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         pool.clone(),
     ));
 
-    let session_secret = std::env::var("SESSION_SECRET").unwrap_or_else(|_| "secret".to_string());
+    let session_secret = std::env::var("SESSION_SECRET")
+        .expect("SESSION_SECRET must be set (minimum 32 characters)");
+    assert!(session_secret.len() >= 32, "SESSION_SECRET must be at least 32 characters");
 
     let promo_service = Arc::new(services::promo_service::PromoService::new(pool.clone()));
 
@@ -856,6 +842,11 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         )
         .route("/users/{id}/update", post(handlers::admin::update_user))
         .route(
+            "/users/{id}/referral-rates",
+            post(handlers::admin::update_user_referral_rates)
+                .delete(handlers::admin::reset_user_referral_rates),
+        )
+        .route(
             "/users/{id}/gift",
             post(handlers::admin::admin_gift_subscription),
         )
@@ -1078,6 +1069,122 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     };
     tracing::info!("Admin panel available at: {}", admin_path);
 
+    // Единый роутер API-маршрутов — регистрируется под /api и /caramba-api через .nest().
+    // Webhooks добавлены в оба префикса для единообразия (ранее были только под /api).
+    let api_routes: axum::Router<AppState> = axum::Router::new()
+        // Payments & Webhooks
+        .route(
+            "/payments/{source}",
+            axum::routing::post(handlers::admin::handle_payment),
+        )
+        .nest("/webhooks", api::webhooks::router())
+        // Family API
+        .route(
+            "/family/invite",
+            axum::routing::post(handlers::api::family::generate_invite),
+        )
+        .route(
+            "/family/join",
+            axum::routing::post(handlers::api::family::redeem_invite),
+        )
+        // Agent V2 API — node management
+        .route(
+            "/v2/node/heartbeat",
+            axum::routing::post(api::v2::node::heartbeat),
+        )
+        .route(
+            "/v2/node/config",
+            axum::routing::get(api::v2::node::get_config),
+        )
+        .route(
+            "/v2/node/rotate-sni",
+            axum::routing::post(api::v2::node::rotate_sni),
+        )
+        .route(
+            "/v2/node/update-info",
+            axum::routing::get(api::v2::node::get_update_info),
+        )
+        .route(
+            "/v2/node/updates/poll",
+            axum::routing::get(api::v2::node::poll_updates),
+        )
+        .route(
+            "/v2/node/logs",
+            axum::routing::post(api::v2::node::report_node_logs),
+        )
+        .route(
+            "/v2/node/settings",
+            axum::routing::get(api::v2::node::get_settings),
+        )
+        .route(
+            "/v2/node/register",
+            axum::routing::post(api::v2::node::register),
+        )
+        // Bot API — защищённый роутер с проверкой X-Bot-Token
+        .nest("/v2/bot", api::v2::bot_routes())
+        // AI Routing — рекомендованные узлы для клиента
+        .route(
+            "/v2/client/recommended",
+            axum::routing::get(api::v2::client::get_recommended_nodes),
+        )
+        // Client API
+        .nest("/client", api::client::routes(state.clone()))
+        // Internal API for Microservices (Sub/Bot)
+        .route(
+            "/internal/nodes/active",
+            axum::routing::get(handlers::api::internal::get_active_nodes),
+        )
+        .route(
+            "/internal/nodes/active/exit",
+            axum::routing::get(handlers::api::internal::get_active_exit_nodes),
+        )
+        .route(
+            "/internal/nodes/active/relay",
+            axum::routing::get(handlers::api::internal::get_active_relay_nodes),
+        )
+        .route(
+            "/internal/subscriptions/{uuid}",
+            axum::routing::get(handlers::api::internal::get_subscription),
+        )
+        .route(
+            "/internal/users/{id}/keys",
+            axum::routing::get(handlers::api::internal::get_user_keys),
+        )
+        .route(
+            "/internal/frontend/heartbeat",
+            axum::routing::post(handlers::api::internal::frontend_heartbeat),
+        )
+        .route(
+            "/internal/workers/{role}/updates/poll",
+            axum::routing::get(handlers::api::internal::poll_worker_update),
+        )
+        .route(
+            "/internal/workers/{role}/updates/report",
+            axum::routing::post(handlers::api::internal::report_worker_update),
+        )
+        // Frontend API Routes
+        .route(
+            "/admin/frontends",
+            axum::routing::get(handlers::frontend::list_frontends)
+                .post(handlers::frontend::create_frontend),
+        )
+        .route(
+            "/admin/frontends/by-region/{region}",
+            axum::routing::get(handlers::frontend::get_active_frontends),
+        )
+        .route(
+            "/admin/frontends/{id}",
+            axum::routing::delete(handlers::frontend::delete_frontend),
+        )
+        .route(
+            "/admin/frontends/{id}/rotate-token",
+            axum::routing::post(handlers::frontend::rotate_token),
+        )
+        .route(
+            "/admin/frontends/{domain}/heartbeat",
+            axum::routing::post(handlers::frontend::frontend_heartbeat),
+        );
+
     let app = axum::Router::new()
         .route(
             "/",
@@ -1121,219 +1228,10 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             &format!("{}/setup/restore_backup", admin_path),
             axum::routing::post(handlers::setup::restore_backup),
         )
-        .route(
-            "/api/payments/{source}",
-            axum::routing::post(handlers::admin::handle_payment),
-        )
-        .nest("/api/webhooks", api::webhooks::router())
-        .route(
-            "/caramba-api/payments/{source}",
-            axum::routing::post(handlers::admin::handle_payment),
-        )
-        // Family API
-        .route(
-            "/api/family/invite",
-            axum::routing::post(handlers::api::family::generate_invite),
-        )
-        .route(
-            "/caramba-api/family/invite",
-            axum::routing::post(handlers::api::family::generate_invite),
-        )
-        .route(
-            "/api/family/join",
-            axum::routing::post(handlers::api::family::redeem_invite),
-        )
-        .route(
-            "/caramba-api/family/join",
-            axum::routing::post(handlers::api::family::redeem_invite),
-        )
-        // Agent V2 API
-        .route(
-            "/api/v2/node/heartbeat",
-            axum::routing::post(api::v2::node::heartbeat),
-        )
-        .route(
-            "/caramba-api/v2/node/heartbeat",
-            axum::routing::post(api::v2::node::heartbeat),
-        )
-        .route(
-            "/api/v2/node/config",
-            axum::routing::get(api::v2::node::get_config),
-        )
-        .route(
-            "/caramba-api/v2/node/config",
-            axum::routing::get(api::v2::node::get_config),
-        )
-        .route(
-            "/api/v2/node/rotate-sni",
-            axum::routing::post(api::v2::node::rotate_sni),
-        )
-        .route(
-            "/caramba-api/v2/node/rotate-sni",
-            axum::routing::post(api::v2::node::rotate_sni),
-        )
-        .route(
-            "/api/v2/node/update-info",
-            axum::routing::get(api::v2::node::get_update_info),
-        )
-        .route(
-            "/caramba-api/v2/node/update-info",
-            axum::routing::get(api::v2::node::get_update_info),
-        )
-        .route(
-            "/api/v2/node/updates/poll",
-            axum::routing::get(api::v2::node::poll_updates),
-        ) // NEW
-        .route(
-            "/caramba-api/v2/node/updates/poll",
-            axum::routing::get(api::v2::node::poll_updates),
-        )
-        .route(
-            "/api/v2/node/logs",
-            axum::routing::post(api::v2::node::report_node_logs),
-        ) // NEW
-        .route(
-            "/caramba-api/v2/node/logs",
-            axum::routing::post(api::v2::node::report_node_logs),
-        )
-        .route(
-            "/api/v2/node/settings",
-            axum::routing::get(api::v2::node::get_settings),
-        ) // NEW
-        .route(
-            "/caramba-api/v2/node/settings",
-            axum::routing::get(api::v2::node::get_settings),
-        )
-        .route(
-            "/api/v2/node/register",
-            axum::routing::post(api::v2::node::register),
-        ) // NEW Enrollment
-        .route(
-            "/caramba-api/v2/node/register",
-            axum::routing::post(api::v2::node::register),
-        )
-        .route(
-            "/api/v2/bot/verify",
-            axum::routing::post(handlers::api::bot::verify_user),
-        )
-        .route(
-            "/caramba-api/v2/bot/verify",
-            axum::routing::post(handlers::api::bot::verify_user),
-        )
-        .route(
-            "/api/v2/bot/users",
-            axum::routing::post(handlers::api::bot::upsert_user),
-        )
-        .route(
-            "/caramba-api/v2/bot/users",
-            axum::routing::post(handlers::api::bot::upsert_user),
-        )
-        .route(
-            "/api/v2/bot/users/tg/{tg_id}",
-            axum::routing::get(handlers::api::bot::get_user_by_tg),
-        )
-        .route(
-            "/caramba-api/v2/bot/users/tg/{tg_id}",
-            axum::routing::get(handlers::api::bot::get_user_by_tg),
-        )
-        .route(
-            "/api/v2/bot/referrers/resolve/{code}",
-            axum::routing::get(handlers::api::bot::resolve_referrer),
-        )
-        .route(
-            "/caramba-api/v2/bot/referrers/resolve/{code}",
-            axum::routing::get(handlers::api::bot::resolve_referrer),
-        )
-        .route(
-            "/api/v2/bot/users/{id}/subs",
-            axum::routing::get(handlers::api::bot::get_user_subs),
-        )
-        .route(
-            "/caramba-api/v2/bot/users/{id}/subs",
-            axum::routing::get(handlers::api::bot::get_user_subs),
-        )
-        .route(
-            "/api/v2/bot/plans",
-            axum::routing::get(handlers::api::bot::get_plans),
-        )
-        .route(
-            "/caramba-api/v2/bot/plans",
-            axum::routing::get(handlers::api::bot::get_plans),
-        )
-        .route(
-            "/api/v2/bot/store/categories",
-            axum::routing::get(handlers::api::bot::get_categories),
-        )
-        .route(
-            "/caramba-api/v2/bot/store/categories",
-            axum::routing::get(handlers::api::bot::get_categories),
-        )
-        .route(
-            "/api/v2/bot/store/categories/{id}/products",
-            axum::routing::get(handlers::api::bot::get_products_by_category),
-        )
-        .route(
-            "/caramba-api/v2/bot/store/categories/{id}/products",
-            axum::routing::get(handlers::api::bot::get_products_by_category),
-        )
-        .route(
-            "/api/v2/bot/users/{id}/purchase-plan",
-            axum::routing::post(handlers::api::bot::purchase_plan),
-        )
-        .route(
-            "/caramba-api/v2/bot/users/{id}/purchase-plan",
-            axum::routing::post(handlers::api::bot::purchase_plan),
-        )
-        .route(
-            "/api/v2/bot/users/{id}/purchase-product",
-            axum::routing::post(handlers::api::bot::purchase_product),
-        )
-        .route(
-            "/caramba-api/v2/bot/users/{id}/purchase-product",
-            axum::routing::post(handlers::api::bot::purchase_product),
-        )
-        .route(
-            "/api/v2/bot/settings/{key}",
-            axum::routing::get(handlers::api::bot::get_settings),
-        )
-        .route(
-            "/caramba-api/v2/bot/settings/{key}",
-            axum::routing::get(handlers::api::bot::get_settings),
-        )
-        .route(
-            "/api/v2/bot/subs/{id}/links",
-            axum::routing::get(handlers::api::bot::get_sub_links),
-        )
-        .route(
-            "/caramba-api/v2/bot/subs/{id}/links",
-            axum::routing::get(handlers::api::bot::get_sub_links),
-        )
-        .route(
-            "/api/v2/bot/subs/{id}/activate",
-            axum::routing::post(handlers::api::bot::activate_sub),
-        )
-        .route(
-            "/caramba-api/v2/bot/subs/{id}/activate",
-            axum::routing::post(handlers::api::bot::activate_sub),
-        )
-        // Admin bot endpoints
-        .route("/api/v2/bot/admin/check", axum::routing::post(handlers::api::bot::admin_check))
-        .route("/api/v2/bot/admin/stats", axum::routing::get(handlers::api::bot::admin_stats))
-        .route("/api/v2/bot/admin/gift", axum::routing::post(handlers::api::bot::admin_gift))
-        .route("/api/v2/bot/admin/ban", axum::routing::post(handlers::api::bot::admin_ban))
-        .route("/api/v2/bot/admin/unban", axum::routing::post(handlers::api::bot::admin_unban))
-        .route("/api/v2/bot/admin/promos", axum::routing::get(handlers::api::bot::admin_list_promos).post(handlers::api::bot::admin_create_promo))
-        .route(
-            "/api/v2/client/recommended",
-            axum::routing::get(api::v2::client::get_recommended_nodes),
-        ) // AI Routing
-        .route(
-            "/caramba-api/v2/client/recommended",
-            axum::routing::get(api::v2::client::get_recommended_nodes),
-        )
-        // Client API
-        .nest("/api/client", api::client::routes(state.clone()))
-        .nest("/caramba-api/client", api::client::routes(state.clone()))
+        // Единый роутер для всех API-маршрутов — регистрируется под /api и /caramba-api
+        // через .nest(), чтобы не дублировать каждый маршрут дважды.
+        .nest("/api", api_routes.clone())
+        .nest("/caramba-api", api_routes)
         // Public Subscription URL endpoint
         .route(
             "/sub/{uuid}",
@@ -1344,114 +1242,6 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         .route(
             "/app/{*path}",
             axum::routing::get(handlers::local_app::serve_app_assets),
-        )
-        // Internal API for Microservices (Sub/Bot)
-        .route(
-            "/api/internal/nodes/active",
-            axum::routing::get(handlers::api::internal::get_active_nodes),
-        )
-        .route(
-            "/api/internal/nodes/active/exit",
-            axum::routing::get(handlers::api::internal::get_active_exit_nodes),
-        )
-        .route(
-            "/api/internal/nodes/active/relay",
-            axum::routing::get(handlers::api::internal::get_active_relay_nodes),
-        )
-        .route(
-            "/caramba-api/internal/nodes/active",
-            axum::routing::get(handlers::api::internal::get_active_nodes),
-        )
-        .route(
-            "/caramba-api/internal/nodes/active/exit",
-            axum::routing::get(handlers::api::internal::get_active_exit_nodes),
-        )
-        .route(
-            "/caramba-api/internal/nodes/active/relay",
-            axum::routing::get(handlers::api::internal::get_active_relay_nodes),
-        )
-        .route(
-            "/api/internal/subscriptions/{uuid}",
-            axum::routing::get(handlers::api::internal::get_subscription),
-        )
-        .route(
-            "/caramba-api/internal/subscriptions/{uuid}",
-            axum::routing::get(handlers::api::internal::get_subscription),
-        )
-        .route(
-            "/api/internal/users/{id}/keys",
-            axum::routing::get(handlers::api::internal::get_user_keys),
-        )
-        .route(
-            "/caramba-api/internal/users/{id}/keys",
-            axum::routing::get(handlers::api::internal::get_user_keys),
-        )
-        .route(
-            "/api/internal/frontend/heartbeat",
-            axum::routing::post(handlers::api::internal::frontend_heartbeat),
-        )
-        .route(
-            "/caramba-api/internal/frontend/heartbeat",
-            axum::routing::post(handlers::api::internal::frontend_heartbeat),
-        )
-        .route(
-            "/api/internal/workers/{role}/updates/poll",
-            axum::routing::get(handlers::api::internal::poll_worker_update),
-        )
-        .route(
-            "/caramba-api/internal/workers/{role}/updates/poll",
-            axum::routing::get(handlers::api::internal::poll_worker_update),
-        )
-        .route(
-            "/api/internal/workers/{role}/updates/report",
-            axum::routing::post(handlers::api::internal::report_worker_update),
-        )
-        .route(
-            "/caramba-api/internal/workers/{role}/updates/report",
-            axum::routing::post(handlers::api::internal::report_worker_update),
-        )
-        // Frontend API Routes (Must be top level to match /api/admin/frontends)
-        .route(
-            "/api/admin/frontends",
-            axum::routing::get(handlers::frontend::list_frontends)
-                .post(handlers::frontend::create_frontend),
-        )
-        .route(
-            "/caramba-api/admin/frontends",
-            axum::routing::get(handlers::frontend::list_frontends)
-                .post(handlers::frontend::create_frontend),
-        )
-        .route(
-            "/api/admin/frontends/by-region/{region}",
-            axum::routing::get(handlers::frontend::get_active_frontends),
-        )
-        .route(
-            "/caramba-api/admin/frontends/by-region/{region}",
-            axum::routing::get(handlers::frontend::get_active_frontends),
-        )
-        .route(
-            "/api/admin/frontends/{id}",
-            axum::routing::delete(handlers::frontend::delete_frontend),
-        )
-        .route(
-            "/caramba-api/admin/frontends/{id}",
-            axum::routing::delete(handlers::frontend::delete_frontend),
-        )
-        .route(
-            "/api/admin/frontends/{id}/rotate-token",
-            axum::routing::post(handlers::frontend::rotate_token),
-        )
-        .route(
-            "/caramba-api/admin/frontends/{id}/rotate-token",
-            axum::routing::post(handlers::frontend::rotate_token),
-        )
-        .route(
-            "/api/admin/frontends/{domain}/heartbeat",
-            axum::routing::post(handlers::frontend::frontend_heartbeat),
-        )
-        .route(
-            "/caramba-api/admin/frontends/{domain}/heartbeat",
-            axum::routing::post(handlers::frontend::frontend_heartbeat),
         )
         .nest(&admin_path, admin_routes)
         .route(
@@ -1497,9 +1287,39 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
+    .with_graceful_shutdown(shutdown_signal())
     .await?;
 
     Ok(())
+}
+
+// Ожидает SIGTERM (systemd/Docker) или Ctrl-C и инициирует graceful shutdown
+async fn shutdown_signal() {
+    use tokio::signal;
+
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("Failed to install CTRL+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("Failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    tracing::info!("Shutdown signal received, starting graceful shutdown");
 }
 
 fn ensure_ssh_keys() -> Result<String> {
