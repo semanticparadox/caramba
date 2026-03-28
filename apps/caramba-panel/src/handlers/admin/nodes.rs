@@ -92,6 +92,59 @@ async fn fetch_node_metrics(
     (subs_map, online_map)
 }
 
+/// Общие данные для рендера страницы / HTMX-строк узлов.
+/// Загружается один раз, используется и полной страницей, и partial-рендером.
+struct NodeListData {
+    nodes_for_scope: Vec<Node>,
+    relay_nodes: Vec<Node>,
+    exit_nodes: Vec<Node>,
+    all_nodes_count: usize,
+    admin_path: String,
+    agent_latest_version: String,
+    auto_update_agents: bool,
+    subs_map: HashMap<i64, i64>,
+    online_map: HashMap<i64, i64>,
+}
+
+async fn fetch_node_list_data(state: &AppState, scope: NodesScope) -> NodeListData {
+    let all_nodes = state
+        .infrastructure_service
+        .get_all_nodes()
+        .await
+        .unwrap_or_else(|e| {
+            error!("Failed to load nodes list: {}", e);
+            Vec::new()
+        });
+
+    let relay_nodes: Vec<Node> = all_nodes.iter().filter(|n| n.is_relay_node()).cloned().collect();
+    let exit_nodes: Vec<Node> = all_nodes.iter().filter(|n| n.is_exit_node()).cloned().collect();
+    let nodes_for_scope: Vec<Node> = all_nodes.iter().filter(|n| scope.matches_node(n)).cloned().collect();
+    let all_nodes_count = all_nodes.len();
+
+    let admin_path = normalized_admin_path(&state.admin_path);
+    let agent_latest_version = state.settings.get_or_default("agent_latest_version", "0.0.0").await;
+    let auto_update_agents: bool = state
+        .settings
+        .get_or_default("auto_update_agents", "true")
+        .await
+        .parse()
+        .unwrap_or(true);
+
+    let (subs_map, online_map) = fetch_node_metrics(&state.pool).await;
+
+    NodeListData {
+        nodes_for_scope,
+        relay_nodes,
+        exit_nodes,
+        all_nodes_count,
+        admin_path,
+        agent_latest_version,
+        auto_update_agents,
+        subs_map,
+        online_map,
+    }
+}
+
 fn render_nodes_rows_html(
     nodes: Vec<Node>,
     admin_path: &str,
@@ -317,87 +370,47 @@ async fn render_nodes_scope_page(
     jar: &CookieJar,
     scope: NodesScope,
 ) -> Response {
-    let all_nodes = match state.infrastructure_service.get_all_nodes().await {
-        Ok(nodes) => nodes,
-        Err(e) => {
-            error!("Failed to load nodes list: {}", e);
-            Vec::new()
-        }
-    };
-    let relay_nodes = all_nodes
-        .iter()
-        .filter(|node| node.is_relay_node())
-        .cloned()
-        .collect::<Vec<_>>();
-    let exit_nodes = all_nodes
-        .iter()
-        .filter(|node| node.is_exit_node())
-        .cloned()
-        .collect::<Vec<_>>();
-    let nodes = all_nodes
-        .iter()
-        .filter(|node| scope.matches_node(node))
-        .cloned()
-        .collect::<Vec<_>>();
+    let data = fetch_node_list_data(state, scope).await;
 
-    let admin_path = normalized_admin_path(&state.admin_path);
-
-    // Fetch Update Settings (Phase 67)
-    let agent_latest_version = state
-        .settings
-        .get_or_default("agent_latest_version", "0.0.0")
-        .await;
-    let auto_update_agents: bool = state
-        .settings
-        .get_or_default("auto_update_agents", "true")
-        .await
-        .parse()
-        .unwrap_or(true);
-
-    // Загружаем метрики подписок и онлайн-устройств для всех узлов
-    let (subs_map, online_map) = fetch_node_metrics(&state.pool).await;
-
-    let rows_html = render_nodes_rows_html(
-        nodes.clone(),
-        &admin_path,
-        &agent_latest_version,
-        auto_update_agents,
-        subs_map.clone(),
-        online_map.clone(),
-    );
-    let relay_nodes_count = relay_nodes.len();
-    let exit_nodes_count = exit_nodes.len();
-    let total_nodes_count = all_nodes.len();
-
+    // HTMX partial refresh — вернуть только строки таблицы
     if headers.contains_key("HX-Request") || headers.contains_key("hx-request") {
         let template = NodesRowsPartial {
-            nodes,
-            admin_path: admin_path.clone(),
-            agent_latest_version: agent_latest_version.clone(),
-            auto_update_agents,
-            subs_map,
-            online_map,
+            nodes: data.nodes_for_scope,
+            admin_path: data.admin_path,
+            agent_latest_version: data.agent_latest_version,
+            auto_update_agents: data.auto_update_agents,
+            subs_map: data.subs_map,
+            online_map: data.online_map,
         };
         return Html(template.render().unwrap_or_default()).into_response();
     }
 
+    let rows_html = render_nodes_rows_html(
+        data.nodes_for_scope.clone(),
+        &data.admin_path,
+        &data.agent_latest_version,
+        data.auto_update_agents,
+        data.subs_map.clone(),
+        data.online_map.clone(),
+    );
+
     let template = NodesTemplate {
-        nodes,
-        relay_nodes,
+        nodes: data.nodes_for_scope,
+        relay_nodes: data.relay_nodes.clone(),
         rows_html,
         scope: scope.as_str().to_string(),
         scope_title: scope.title().to_string(),
-        total_nodes_count,
-        exit_nodes_count,
-        relay_nodes_count,
+        total_nodes_count: data.all_nodes_count,
+        exit_nodes_count: data.exit_nodes.len(),
+        relay_nodes_count: data.relay_nodes.len(),
         is_auth: true,
         username: get_auth_user(state, jar)
             .await
             .unwrap_or("Admin".to_string()),
-        admin_path,
+        admin_path: data.admin_path,
         active_page: scope.active_page().to_string(),
-        agent_latest_version,
-        auto_update_agents,
+        agent_latest_version: data.agent_latest_version,
+        auto_update_agents: data.auto_update_agents,
     };
     Html(template.render().unwrap_or_default()).into_response()
 }
@@ -419,39 +432,17 @@ pub async fn get_relay_nodes_page(
 }
 
 /// Возвращает HTML-строки таблицы узлов для HTMX-запросов (refresh по scope).
+/// Переиспользует fetch_node_list_data для единообразия с полной страницей.
 async fn render_nodes_rows_for_scope(state: &AppState, scope: NodesScope) -> Response {
-    let admin_path = normalized_admin_path(&state.admin_path);
-    let agent_latest_version = state
-        .settings
-        .get_or_default("agent_latest_version", "0.0.0")
-        .await;
-    let auto_update_agents: bool = state
-        .settings
-        .get_or_default("auto_update_agents", "true")
-        .await
-        .parse()
-        .unwrap_or(true);
-
-    let nodes = state
-        .infrastructure_service
-        .get_all_nodes()
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|node| scope.matches_node(node))
-        .collect::<Vec<_>>();
-
-    let (subs_map, online_map) = fetch_node_metrics(&state.pool).await;
-
+    let data = fetch_node_list_data(state, scope).await;
     let template = NodesRowsPartial {
-        nodes,
-        admin_path,
-        agent_latest_version,
-        auto_update_agents,
-        subs_map,
-        online_map,
+        nodes: data.nodes_for_scope,
+        admin_path: data.admin_path,
+        agent_latest_version: data.agent_latest_version,
+        auto_update_agents: data.auto_update_agents,
+        subs_map: data.subs_map,
+        online_map: data.online_map,
     };
-
     Html(template.render().unwrap_or_default()).into_response()
 }
 
@@ -846,6 +837,9 @@ pub async fn toggle_node_enable(
     }
 }
 
+/// Admin override: принудительная активация ноды через панель.
+/// В нормальном flow это происходит автоматически при первом heartbeat (Task 3).
+/// Используется только при ручном вмешательстве администратора.
 pub async fn activate_node(
     Path(id): Path<i64>,
     State(state): State<AppState>,
@@ -1453,6 +1447,8 @@ server {{
     Html(template.render().unwrap_or_default()).into_response()
 }
 
+/// Возвращает модальное окно с командами для ручного восстановления агента.
+/// Функционален: показывает systemd команды для диагностики на сервере.
 pub async fn get_node_rescue(
     Path(id): Path<i64>,
     State(state): State<AppState>,
