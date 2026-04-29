@@ -268,9 +268,11 @@
                     class="nav-pill {% if active_page == "sni" %}active{% endif %}">SNI Pool</a>
                 {% endif %}
 
-                {% if active_page == "users" || active_page == "api_keys" || active_page == "promo" || active_page == "notifications" || active_page == "tickets" %}
+                {% if active_page == "users" || active_page == "api_keys" || active_page == "promo" || active_page == "notifications" || active_page == "tickets" || active_page == "orgs" %}
                 <a href="{{ admin_path }}/users"
                     class="nav-pill {% if active_page == "users" %}active{% endif %}">Users</a>
+                <a href="{{ admin_path }}/orgs"
+                    class="nav-pill {% if active_page == "orgs" %}active{% endif %}">Organizations</a>
                 <a href="{{ admin_path }}/tickets"
                     class="nav-pill {% if active_page == "tickets" %}active{% endif %}">Tickets</a>
                 <a href="{{ admin_path }}/api-keys"
@@ -292,13 +294,15 @@
                     class="nav-pill {% if active_page == "transactions" %}active{% endif %}">Transactions</a>
                 {% endif %}
 
-                {% if active_page == "settings" || active_page == "bot_logs" || active_page == "backups" %}
+                {% if active_page == "settings" || active_page == "bot_logs" || active_page == "backups" || active_page == "updates" %}
                 <a href="{{ admin_path }}/settings"
                     class="nav-pill {% if active_page == "settings" %}active{% endif %}">Settings</a>
                 <a href="{{ admin_path }}/bot"
                     class="nav-pill {% if active_page == "bot_logs" %}active{% endif %}">Telegram Bot</a>
                 <a href="{{ admin_path }}/backups"
                     class="nav-pill {% if active_page == "backups" %}active{% endif %}">Backups</a>
+                <a href="{{ admin_path }}/updates"
+                    class="nav-pill {% if active_page == "updates" %}active{% endif %}">Updates</a>
                 {% endif %}
 
             </nav>
@@ -330,7 +334,7 @@
 
                     <!-- Users -->
                     <a href="{{ admin_path }}/users"
-                        class="dock-item {% if active_page == "users" || active_page == "api_keys" || active_page == "promo" || active_page == "notifications" %}active{% endif %}"
+                        class="dock-item {% if active_page == "users" || active_page == "api_keys" || active_page == "promo" || active_page == "notifications" || active_page == "orgs" %}active{% endif %}"
                         title="Users">
                         <i data-lucide="users" class="dock-item-icon"></i>
                         <span class="dock-item-label">Users</span>
@@ -354,7 +358,7 @@
 
                     <!-- System -->
                     <a href="{{ admin_path }}/settings"
-                        class="dock-item {% if active_page == "settings" || active_page == "bot_logs" || active_page == "backups" %}active{% endif %}"
+                        class="dock-item {% if active_page == "settings" || active_page == "bot_logs" || active_page == "backups" || active_page == "updates" %}active{% endif %}"
                         title="System">
                         <i data-lucide="settings" class="dock-item-icon"></i>
                         <span class="dock-item-label">System</span>
