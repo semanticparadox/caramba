@@ -1,3 +1,11 @@
+use crate::bot::handlers::admin::{
+    handle_broadcast_confirm, send_admin_stats, send_ticket_detail, send_ticket_list,
+    AdminFsmState,
+};
+use crate::bot::keyboards::admin::{
+    broadcast_category_keyboard, broadcast_segment_keyboard, broadcast_severity_keyboard,
+    ticket_status_keyboard,
+};
 use crate::bot::keyboards::make_amount_keyboard;
 use crate::bot::keyboards::{main_menu, terms_keyboard};
 use crate::bot::translations::{t, tf};
@@ -1669,6 +1677,371 @@ pub async fn callback_handler(
                     }
                     _ => {
                         let _ = bot.answer_callback_query(callback_id).await;
+                    }
+                }
+            }
+
+            // ==================================================================
+            // Административные callbacks (prefix "adm:")
+            // Каждый handler проверяет is_admin перед выполнением действия.
+            // ==================================================================
+            adm if adm.starts_with("adm:") => {
+                let _ = bot.answer_callback_query(callback_id.clone()).await;
+
+                // Проверка прав — двойное ограждение (первое — на уровне команды /admin)
+                if !state.admin_service.is_admin(tg_id).await {
+                    let _ = bot
+                        .answer_callback_query(callback_id)
+                        .text(t(None, "admin.tickets.no_admin"))
+                        .show_alert(false)
+                        .await;
+                    return Ok(());
+                }
+
+                let chat_id = q.message.as_ref().map(|m| m.chat().id).unwrap_or(ChatId(tg_id));
+                let msg_id = q.message.as_ref().map(|m| m.id());
+
+                match adm {
+                    // --------------------------------------------------------
+                    // Главное меню
+                    // --------------------------------------------------------
+                    "adm:menu" => {
+                        let open_count = state
+                            .admin_service
+                            .list_tickets(Some("open"), 100, 0)
+                            .await
+                            .map(|v| v.len())
+                            .unwrap_or(0);
+                        let kb = crate::bot::keyboards::admin::admin_main_menu(open_count);
+                        if let Some(mid) = msg_id {
+                            let _ = bot
+                                .edit_message_text(chat_id, mid, t(None, "admin.menu.title"))
+                                .parse_mode(ParseMode::Html)
+                                .reply_markup(kb)
+                                .await;
+                        } else {
+                            let _ = bot
+                                .send_message(chat_id, t(None, "admin.menu.title"))
+                                .parse_mode(ParseMode::Html)
+                                .reply_markup(kb)
+                                .await;
+                        }
+                    }
+
+                    // --------------------------------------------------------
+                    // Статистика
+                    // --------------------------------------------------------
+                    "adm:stats" => {
+                        let _ = send_admin_stats(&bot, chat_id, &state).await;
+                    }
+
+                    // --------------------------------------------------------
+                    // Модерация (placeholder)
+                    // --------------------------------------------------------
+                    "adm:moderation" => {
+                        let _ = bot
+                            .answer_callback_query(callback_id)
+                            .text("Скоро...")
+                            .show_alert(false)
+                            .await;
+                    }
+
+                    // --------------------------------------------------------
+                    // Закрыть меню
+                    // --------------------------------------------------------
+                    "adm:close" => {
+                        if let Some(mid) = msg_id {
+                            let _ = bot.delete_message(chat_id, mid).await;
+                        }
+                    }
+
+                    // --------------------------------------------------------
+                    // Noop для счётчиков в пагинации
+                    // --------------------------------------------------------
+                    "adm:noop" => {}
+
+                    // --------------------------------------------------------
+                    // Список тикетов: adm:tickets:list:<page>:<filter>
+                    // --------------------------------------------------------
+                    tickets_list if tickets_list.starts_with("adm:tickets:list:") => {
+                        let rest = tickets_list.strip_prefix("adm:tickets:list:").unwrap_or("0:open");
+                        let mut parts = rest.splitn(2, ':');
+                        let page: usize = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+                        let filter = parts.next().unwrap_or("open");
+                        let _ = send_ticket_list(&bot, chat_id, msg_id, &state, page, filter).await;
+                    }
+
+                    // --------------------------------------------------------
+                    // Детали тикета: adm:ticket:<id>
+                    // --------------------------------------------------------
+                    ticket_detail if ticket_detail.starts_with("adm:ticket:") => {
+                        let ticket_id: i64 = ticket_detail
+                            .strip_prefix("adm:ticket:")
+                            .and_then(|s| s.parse().ok())
+                            .unwrap_or(0);
+                        if ticket_id > 0 {
+                            let _ = send_ticket_detail(&bot, chat_id, msg_id, &state, ticket_id).await;
+                        }
+                    }
+
+                    // --------------------------------------------------------
+                    // Начать ответ на тикет: adm:reply:<ticket_id>
+                    // --------------------------------------------------------
+                    reply if reply.starts_with("adm:reply:") => {
+                        let ticket_id: i64 = reply
+                            .strip_prefix("adm:reply:")
+                            .and_then(|s| s.parse().ok())
+                            .unwrap_or(0);
+                        if ticket_id > 0 {
+                            // Устанавливаем FSM-состояние ожидания текста
+                            state
+                                .admin_fsm
+                                .set(tg_id, AdminFsmState::ReplyTo { ticket_id })
+                                .await;
+                            let _ = bot
+                                .send_message(chat_id, t(None, "admin.reply.prompt"))
+                                .await;
+                        }
+                    }
+
+                    // --------------------------------------------------------
+                    // Назначить тикет на себя: adm:assign:<ticket_id>
+                    // --------------------------------------------------------
+                    assign if assign.starts_with("adm:assign:") => {
+                        let ticket_id: i64 = assign
+                            .strip_prefix("adm:assign:")
+                            .and_then(|s| s.parse().ok())
+                            .unwrap_or(0);
+                        if ticket_id > 0 {
+                            match state.admin_service.assign_ticket(ticket_id, tg_id).await {
+                                Ok(_) => {
+                                    let _ = bot
+                                        .send_message(chat_id, t(None, "admin.assign.success"))
+                                        .await;
+                                    let _ = send_ticket_detail(&bot, chat_id, msg_id, &state, ticket_id).await;
+                                }
+                                Err(e) => {
+                                    error!(ticket_id, tg_id, error = %e, "Failed to assign ticket");
+                                    let _ = bot
+                                        .send_message(chat_id, "Не удалось назначить тикет.")
+                                        .await;
+                                }
+                            }
+                        }
+                    }
+
+                    // --------------------------------------------------------
+                    // Меню смены статуса: adm:status:<ticket_id>
+                    // --------------------------------------------------------
+                    status_menu if status_menu.starts_with("adm:status:") => {
+                        let ticket_id: i64 = status_menu
+                            .strip_prefix("adm:status:")
+                            .and_then(|s| s.parse().ok())
+                            .unwrap_or(0);
+                        if ticket_id > 0 {
+                            let kb = ticket_status_keyboard(ticket_id);
+                            let text = format!("Выберите новый статус для тикета #{}:", ticket_id);
+                            if let Some(mid) = msg_id {
+                                let _ = bot
+                                    .edit_message_text(chat_id, mid, text)
+                                    .reply_markup(kb)
+                                    .await;
+                            } else {
+                                let _ = bot
+                                    .send_message(chat_id, text)
+                                    .reply_markup(kb)
+                                    .await;
+                            }
+                        }
+                    }
+
+                    // --------------------------------------------------------
+                    // Установить статус: adm:setstatus:<ticket_id>:<status>
+                    // --------------------------------------------------------
+                    setstatus if setstatus.starts_with("adm:setstatus:") => {
+                        let rest = setstatus.strip_prefix("adm:setstatus:").unwrap_or("");
+                        let mut parts = rest.splitn(2, ':');
+                        let ticket_id: i64 =
+                            parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+                        let new_status = parts.next().unwrap_or("");
+                        if ticket_id > 0 && !new_status.is_empty() {
+                            match state
+                                .admin_service
+                                .change_ticket_status(ticket_id, tg_id, new_status)
+                                .await
+                            {
+                                Ok(_) => {
+                                    let _ = bot
+                                        .send_message(chat_id, t(None, "admin.status.changed"))
+                                        .await;
+                                    let _ = send_ticket_detail(&bot, chat_id, msg_id, &state, ticket_id).await;
+                                }
+                                Err(e) => {
+                                    error!(ticket_id, new_status, tg_id, error = %e, "Failed to change ticket status");
+                                    let _ = bot
+                                        .send_message(chat_id, "Не удалось изменить статус.")
+                                        .await;
+                                }
+                            }
+                        }
+                    }
+
+                    // --------------------------------------------------------
+                    // Broadcast: старт
+                    // --------------------------------------------------------
+                    "adm:bcast:start" => {
+                        // Очищаем любой предыдущий черновик
+                        state.admin_fsm.clear(tg_id).await;
+                        let text = t(None, "admin.broadcast.step_segment");
+                        let kb = broadcast_segment_keyboard();
+                        if let Some(mid) = msg_id {
+                            let _ = bot
+                                .edit_message_text(chat_id, mid, text)
+                                .reply_markup(kb)
+                                .await;
+                        } else {
+                            let _ = bot
+                                .send_message(chat_id, text)
+                                .reply_markup(kb)
+                                .await;
+                        }
+                    }
+
+                    // --------------------------------------------------------
+                    // Broadcast: выбор сегмента adm:bcast:seg:<segment>
+                    // --------------------------------------------------------
+                    seg if seg.starts_with("adm:bcast:seg:") => {
+                        let segment = seg.strip_prefix("adm:bcast:seg:").unwrap_or("all");
+                        // Сохраняем сегмент в FSM (временно в BcastAwaitTitle с пустыми полями)
+                        // Будем строить состояние шаг за шагом через промежуточные варианты.
+                        // На этом этапе сегмент известен, категория и тяжесть ещё нет —
+                        // переходим к выбору категории через отдельный callback.
+                        // Запоминаем сегмент в FSM как BcastAwaitTitle с пустыми category/severity
+                        state
+                            .admin_fsm
+                            .set(
+                                tg_id,
+                                AdminFsmState::BcastAwaitTitle {
+                                    segment: segment.to_string(),
+                                    category: String::new(), // заполнится на шаге 2
+                                    severity: String::new(), // заполнится на шаге 3
+                                },
+                            )
+                            .await;
+                        let text = t(None, "admin.broadcast.step_category");
+                        let kb = broadcast_category_keyboard();
+                        if let Some(mid) = msg_id {
+                            let _ = bot
+                                .edit_message_text(chat_id, mid, text)
+                                .reply_markup(kb)
+                                .await;
+                        } else {
+                            let _ = bot
+                                .send_message(chat_id, text)
+                                .reply_markup(kb)
+                                .await;
+                        }
+                    }
+
+                    // --------------------------------------------------------
+                    // Broadcast: выбор категории adm:bcast:cat:<category>
+                    // --------------------------------------------------------
+                    cat if cat.starts_with("adm:bcast:cat:") => {
+                        let category = cat.strip_prefix("adm:bcast:cat:").unwrap_or("other");
+                        // Извлекаем текущее состояние, дополняем category
+                        let current = state.admin_fsm.get(tg_id).await;
+                        if let Some(AdminFsmState::BcastAwaitTitle { segment, .. }) = current {
+                            state
+                                .admin_fsm
+                                .set(
+                                    tg_id,
+                                    AdminFsmState::BcastAwaitTitle {
+                                        segment,
+                                        category: category.to_string(),
+                                        severity: String::new(),
+                                    },
+                                )
+                                .await;
+                            let text = t(None, "admin.broadcast.step_severity");
+                            let kb = broadcast_severity_keyboard();
+                            if let Some(mid) = msg_id {
+                                let _ = bot
+                                    .edit_message_text(chat_id, mid, text)
+                                    .reply_markup(kb)
+                                    .await;
+                            } else {
+                                let _ = bot
+                                    .send_message(chat_id, text)
+                                    .reply_markup(kb)
+                                    .await;
+                            }
+                        } else {
+                            // Состояние потеряно — начинаем заново
+                            let _ = bot
+                                .send_message(chat_id, "Состояние потеряно. Начните заново: /admin")
+                                .await;
+                        }
+                    }
+
+                    // --------------------------------------------------------
+                    // Broadcast: выбор severity adm:bcast:sev:<severity>
+                    // --------------------------------------------------------
+                    sev if sev.starts_with("adm:bcast:sev:") => {
+                        let severity = sev.strip_prefix("adm:bcast:sev:").unwrap_or("info");
+                        let current = state.admin_fsm.get(tg_id).await;
+                        if let Some(AdminFsmState::BcastAwaitTitle { segment, category, .. }) = current {
+                            // Переходим к вводу заголовка (текстовый ввод)
+                            state
+                                .admin_fsm
+                                .set(
+                                    tg_id,
+                                    AdminFsmState::BcastAwaitTitle {
+                                        segment,
+                                        category,
+                                        severity: severity.to_string(),
+                                    },
+                                )
+                                .await;
+                            let _ = bot
+                                .send_message(chat_id, t(None, "admin.broadcast.step_title"))
+                                .await;
+                        } else {
+                            let _ = bot
+                                .send_message(chat_id, "Состояние потеряно. Начните заново: /admin")
+                                .await;
+                        }
+                    }
+
+                    // --------------------------------------------------------
+                    // Broadcast: подтверждение отправки
+                    // --------------------------------------------------------
+                    "adm:bcast:confirm" => {
+                        let _ = handle_broadcast_confirm(&bot, chat_id, msg_id, tg_id, &state).await;
+                    }
+
+                    // --------------------------------------------------------
+                    // Broadcast: отмена
+                    // --------------------------------------------------------
+                    "adm:bcast:cancel" => {
+                        state.admin_fsm.clear(tg_id).await;
+                        let text = t(None, "admin.broadcast.cancelled");
+                        if let Some(mid) = msg_id {
+                            let _ = bot
+                                .edit_message_text(chat_id, mid, text)
+                                .reply_markup(InlineKeyboardMarkup::new(vec![vec![
+                                    InlineKeyboardButton::callback("В меню", "adm:menu"),
+                                ]]))
+                                .await;
+                        } else {
+                            let _ = bot.send_message(chat_id, text).await;
+                        }
+                    }
+
+                    // --------------------------------------------------------
+                    // Неизвестный adm: callback — игнорируем
+                    // --------------------------------------------------------
+                    _ => {
+                        info!(adm, "Unknown admin callback");
                     }
                 }
             }
