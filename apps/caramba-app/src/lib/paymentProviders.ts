@@ -12,8 +12,10 @@ export type PaymentProviderCard = PaymentProviderApiItem & {
   accent: 'violet' | 'lime' | 'cyan' | 'amber' | 'rose'
 }
 
+// fallbackDescription передаётся снаружи чтобы избежать hardcoded строк в lib-слое
 export const mapProviderCards = (
   providers: PaymentProviderApiItem[],
+  fallbackDescription = '',
 ): PaymentProviderCard[] =>
   providers.map((provider) => {
     const meta = PAYMENT_PROVIDER_META[provider.id]
@@ -22,8 +24,8 @@ export const mapProviderCards = (
       return {
         ...provider,
         title: provider.label,
-        description: 'Доступный способ оплаты для вашей подписки.',
-        accent: 'violet',
+        description: fallbackDescription || provider.label,
+        accent: 'violet' as const,
       }
     }
 
