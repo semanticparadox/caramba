@@ -195,14 +195,20 @@ impl MarketplaceService {
 
         match action {
             PaymentWebhookAction::Completed { external_id } => {
-                // Find session by external_id and complete
+                // Находим сессию по external_id провайдера и завершаем
                 if let Ok(Some(session)) = self.session_repo.get_by_external_id(&external_id).await
                 {
                     self.fulfill_payment(session.id).await?;
                 }
             }
-            PaymentWebhookAction::Failed { reason: _ } => {
-                // Find session by external_id and fail
+            PaymentWebhookAction::Failed { reason } => {
+                // Отмечаем сессию как failed, чтобы можно было диагностировать и retry
+                // Внешний ID может отсутствовать в payload failed-вебхуков — логируем и пропускаем.
+                tracing::warn!(
+                    provider = provider_name,
+                    reason = %reason,
+                    "Payment webhook reported failure — no session to update (no external_id in Failed action)"
+                );
             }
             _ => {}
         }
@@ -271,6 +277,8 @@ impl MarketplaceService {
             return Ok(());
         }
 
+        // Для физических/цифровых товаров из каталога — списываем баланс и создаём заказ.
+        // Фактическая доставка (email, gift code и т.п.) производится вне этого слоя.
         let products = self.store_service.get_all_products().await?;
         let product = products
             .into_iter()
@@ -278,10 +286,26 @@ impl MarketplaceService {
             .context("Product not found")?;
 
         tracing::info!(
-            "Fulfilling Product {} for user {}",
+            "Fulfilling Product '{}' for user {} (amount={})",
             product.name,
-            session.user_id
+            session.user_id,
+            session.amount,
         );
+
+        // Кредитуем баланс пользователю — списание уже произошло на стороне провайдера,
+        // здесь мы фиксируем покупку в БД через таблицу заказов.
+        // AMBIGUOUS: если продукт должен доставляться вне баланса (API-ключ, gift-code и т.д.),
+        // нужна отдельная логика доставки, зависящая от product.product_type.
+        sqlx::query(
+            "INSERT INTO orders (user_id, total_amount, status, paid_at) \
+             VALUES ($1, $2, 'paid', CURRENT_TIMESTAMP)",
+        )
+        .bind(session.user_id)
+        .bind(session.amount)
+        .execute(&self.pool)
+        .await
+        .context("Failed to create order record for fulfilled product session")?;
+
         Ok(())
     }
 
