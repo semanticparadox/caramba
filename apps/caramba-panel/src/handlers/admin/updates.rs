@@ -251,7 +251,9 @@ async fn fetch_worker_inventory_shared(
                     "offline".into()
                 },
                 last_seen: row.last_seen.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
-                last_seen_ago: "just now".into(), // Simplified for this view
+                last_seen_ago: crate::handlers::admin::settings::format_relative_time(
+                    row.last_seen,
+                ),
                 update_available,
             }
         })

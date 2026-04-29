@@ -1209,10 +1209,6 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::get(handlers::api::health::health_check),
         )
         // Payments & Webhooks
-        .route(
-            "/payments/{source}",
-            axum::routing::post(handlers::admin::handle_payment),
-        )
         .nest("/webhooks", api::webhooks::router())
         // Family API
         .route(

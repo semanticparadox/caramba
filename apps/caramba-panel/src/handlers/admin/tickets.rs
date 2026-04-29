@@ -635,23 +635,44 @@ pub async fn set_status(
 
 // ── Запросы к БД ──────────────────────────────────────────────────────────
 
+/// Whitelist of valid ticket statuses (mirrors migrations/20260429000000_notifications_and_tickets.sql)
+const ALLOWED_TICKET_STATUSES: &[&str] = &[
+    "open",
+    "in_progress",
+    "awaiting_user",
+    "resolved",
+    "closed",
+];
+
 async fn fetch_ticket_list(
     state: &AppState,
     status_filter: &str,
     search: &str,
     offset: i64,
 ) -> Result<(Vec<TicketRow>, i64, i64), sqlx::Error> {
-    // Строим условия фильтрации
-    let status_cond = if status_filter.is_empty() {
-        "TRUE".to_string()
+    // Validate status against allowlist — anything outside it is dropped.
+    // Prevents SQL injection via the `status` query param while keeping the
+    // filter optional.
+    let valid_status: Option<&str> = if status_filter.is_empty() {
+        None
     } else {
-        format!("t.status = '{}'", status_filter.replace('\'', ""))
+        ALLOWED_TICKET_STATUSES
+            .iter()
+            .find(|s| **s == status_filter)
+            .copied()
     };
+
+    // Bind ordering: $1 = LIMIT, $2 = OFFSET, $3 = status (if any), $4 = search (if any).
+    let status_cond = if valid_status.is_some() {
+        "t.status = $3"
+    } else {
+        "TRUE"
+    };
+    let search_param_idx = if valid_status.is_some() { 4 } else { 3 };
     let search_cond = if search.is_empty() {
         "TRUE".to_string()
     } else {
-        // Используем параметризованный запрос через bind ниже
-        "t.subject ILIKE $3".to_string()
+        format!("t.subject ILIKE ${}", search_param_idx)
     };
 
     let query_str = format!(
@@ -681,42 +702,42 @@ async fn fetch_ticket_list(
 
     let search_pattern = format!("%{}%", search);
 
-    let rows: Vec<TicketRow> = if search.is_empty() {
-        sqlx::query_as(&query_str)
-            .bind(PAGE_SIZE)
-            .bind(offset)
-            .fetch_all(&state.pool)
-            .await?
-    } else {
-        sqlx::query_as(&query_str)
-            .bind(PAGE_SIZE)
-            .bind(offset)
-            .bind(&search_pattern)
-            .fetch_all(&state.pool)
-            .await?
-    };
+    let mut q = sqlx::query_as::<_, TicketRow>(&query_str)
+        .bind(PAGE_SIZE)
+        .bind(offset);
+    if let Some(s) = valid_status {
+        q = q.bind(s);
+    }
+    if !search.is_empty() {
+        q = q.bind(&search_pattern);
+    }
+    let rows: Vec<TicketRow> = q.fetch_all(&state.pool).await?;
 
-    // Общий счётчик для пагинации
+    // Общий счётчик для пагинации (binds: $1 = status (if any), $2 = search (if any))
+    let count_status_cond = if valid_status.is_some() {
+        "t.status = $1"
+    } else {
+        "TRUE"
+    };
+    let count_search_idx = if valid_status.is_some() { 2 } else { 1 };
+    let count_search_cond = if search.is_empty() {
+        "TRUE".to_string()
+    } else {
+        format!("t.subject ILIKE ${}", count_search_idx)
+    };
     let count_str = format!(
-        r#"SELECT COUNT(*) FROM tickets t WHERE {status_cond} AND {search_cond}"#,
-        status_cond = status_cond,
-        search_cond = if search.is_empty() {
-            "TRUE".to_string()
-        } else {
-            "t.subject ILIKE $1".to_string()
-        },
+        r#"SELECT COUNT(*) FROM tickets t WHERE {} AND {}"#,
+        count_status_cond, count_search_cond,
     );
 
-    let total: i64 = if search.is_empty() {
-        sqlx::query_scalar(&count_str)
-            .fetch_one(&state.pool)
-            .await?
-    } else {
-        sqlx::query_scalar(&count_str)
-            .bind(&search_pattern)
-            .fetch_one(&state.pool)
-            .await?
-    };
+    let mut cq = sqlx::query_scalar::<_, i64>(&count_str);
+    if let Some(s) = valid_status {
+        cq = cq.bind(s);
+    }
+    if !search.is_empty() {
+        cq = cq.bind(&search_pattern);
+    }
+    let total: i64 = cq.fetch_one(&state.pool).await?;
 
     // Количество открытых тикетов (для заголовка)
     let open_count: i64 =

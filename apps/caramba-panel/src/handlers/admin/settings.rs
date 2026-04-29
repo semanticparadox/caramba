@@ -227,7 +227,7 @@ async fn fetch_worker_update_reports(pool: &sqlx::PgPool) -> Vec<WorkerUpdateRep
         .collect()
 }
 
-fn format_relative_time(dt: DateTime<Utc>) -> String {
+pub(crate) fn format_relative_time(dt: DateTime<Utc>) -> String {
     let now = Utc::now();
     let diff = now.signed_duration_since(dt);
     if diff < Duration::seconds(60) {
