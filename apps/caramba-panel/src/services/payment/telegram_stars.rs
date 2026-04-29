@@ -4,6 +4,9 @@ use caramba_db::models::store::{PaymentSession, User};
 
 use super::provider::{PaymentProvider, PaymentWebhookAction};
 
+// StarsProvider не используется в production — см. комментарии в marketplace_service.rs.
+// Оставлен как задокументированная заглушка для будущей интеграции.
+#[allow(dead_code)]
 pub struct StarsProvider;
 
 #[async_trait]

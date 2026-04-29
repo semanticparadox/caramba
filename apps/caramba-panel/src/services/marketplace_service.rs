@@ -16,7 +16,9 @@ use super::payment::lava::LavaProvider;
 use super::payment::manual::ManualProvider;
 use super::payment::nowpayments::NowPaymentsProvider;
 use super::payment::provider::{PaymentProvider, PaymentWebhookAction};
-use super::payment::telegram_stars::StarsProvider;
+// StarsProvider намеренно исключён из MarketplaceService: интерфейс PaymentProvider
+// не имеет доступа к bot_token и tg_id, которые требуются Bot API для createInvoiceLink.
+// Рабочий путь для Stars — PayService::create_stars_invoice (вызывается из бота).
 use super::store_service::StoreService;
 use super::subscription_service::SubscriptionService;
 
@@ -55,7 +57,7 @@ impl MarketplaceService {
             .expect("Failed to create HTTP client for MarketplaceService");
         let mut providers: HashMap<String, Box<dyn PaymentProvider>> = HashMap::new();
 
-        providers.insert("stars".to_string(), Box::new(StarsProvider));
+        // "stars" намеренно отсутствует — см. комментарий к импортам выше.
         providers.insert("manual".to_string(), Box::new(ManualProvider));
 
         if !nowpayments_key.is_empty() && !nowpayments_ipn_secret.is_empty() {
