@@ -136,6 +136,8 @@ async fn main() {
     let promo_service = crate::services::promo_service::PromoService::new(api_client.clone());
     let pay_service = crate::services::pay_service::PayService::new(api_client.clone());
     let logging_service = crate::services::logging_service::LoggingService::new(api_client.clone());
+    let admin_service = crate::services::admin_service::AdminService::new(api_client.clone());
+    let admin_fsm = crate::bot::handlers::admin::AdminFsmStorage::default();
 
     let state = AppState {
         settings,
@@ -144,6 +146,8 @@ async fn main() {
         pay_service,
         logging_service,
         api_client: api_client.clone(),
+        admin_service,
+        admin_fsm,
     };
 
     let bot = Bot::new(token);
