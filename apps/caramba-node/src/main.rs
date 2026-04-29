@@ -231,7 +231,11 @@ async fn main() -> anyhow::Result<()> {
                     // Simple string comparison for now, or use semver crate if added
                     // Assuming versions are "x.y.z"
                     let current_version = env!("CARGO_PKG_VERSION");
-                    if target_ver.trim_start_matches('v') != current_version.trim_start_matches('v')
+                    // Нормализуем оба значения: убираем 'v' префикс и пробелы.
+                    // Без нормализации "v0.9.47" != "0.9.47" — бесконечный цикл обновления.
+                    let target_normalized = target_ver.trim().trim_start_matches('v');
+                    let current_normalized = current_version.trim().trim_start_matches('v');
+                    if target_normalized != current_normalized
                         && target_ver != "0.0.0"
                     {
                         info!(
@@ -906,6 +910,51 @@ async fn save_config(path: &str, content: &serde_json::Value) -> anyhow::Result<
     Ok(())
 }
 
+/// Разбирает строку "notAfter=Jan 27 00:00:00 2036 GMT" из вывода `openssl x509 -enddate`.
+/// Возвращает Unix timestamp или 0 при ошибке разбора.
+fn parse_openssl_enddate(stdout: &[u8]) -> i64 {
+    let output = String::from_utf8_lossy(stdout);
+    for line in output.lines() {
+        let line = line.trim();
+        let raw = if let Some(v) = line.strip_prefix("notAfter=") {
+            v.trim()
+        } else {
+            continue;
+        };
+        // Формат: "Jan 27 00:00:00 2036 GMT"
+        let parts: Vec<&str> = raw.split_whitespace().collect();
+        if parts.len() < 4 {
+            continue;
+        }
+        let month_str = parts[0];
+        let day: u32 = parts[1].parse().unwrap_or(0);
+        // Время содержит ':', пропускаем parts[2]
+        let year: i32 = parts[3].parse().unwrap_or(0);
+        if year < 2000 || day == 0 {
+            continue;
+        }
+        let month: u32 = match month_str {
+            "Jan" => 1, "Feb" => 2, "Mar" => 3, "Apr" => 4,
+            "May" => 5, "Jun" => 6, "Jul" => 7, "Aug" => 8,
+            "Sep" => 9, "Oct" => 10, "Nov" => 11, "Dec" => 12,
+            _ => continue,
+        };
+        // Простое приближение Unix timestamp (без chrono): точность ±1 день достаточна.
+        // (year - 1970) * 365.2425 * 86400 + month_days + day * 86400
+        let days_since_epoch: i64 = {
+            let y = year as i64 - 1970;
+            let leap_days = (y / 4) - (y / 100) + (y / 400);
+            let month_days_cumul: [i64; 13] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365];
+            let is_leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+            let mdays = month_days_cumul[month as usize - 1]
+                + if is_leap && month > 2 { 1 } else { 0 };
+            y * 365 + leap_days + mdays + (day as i64 - 1)
+        };
+        return days_since_epoch * 86400;
+    }
+    0
+}
+
 /// Check if existing cert covers all desired domain names.
 /// Uses a sidecar file (.domains) to track which domains the cert was generated for.
 /// This avoids parsing X.509 and is reliable for our self-signed certs.
@@ -1337,10 +1386,12 @@ async fn check_certificates(config_path: &str) -> Vec<caramba_shared::api::Certi
                             // Implementation detail: Shared struct requires expires_at: i64.
                             // We can use 0 for now or implement parsing.
 
+                            // Парсим дату истечения из строки "notAfter=Month Day HH:MM:SS YYYY GMT"
+                            let expires_at = parse_openssl_enddate(&out.stdout);
                             statuses.push(caramba_shared::api::CertificateStatus {
                                 sni,
                                 valid,
-                                expires_at: 0, // TODO: Parse logic
+                                expires_at,
                                 error: None,
                             });
                         }
