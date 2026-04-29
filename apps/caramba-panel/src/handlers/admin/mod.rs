@@ -7,6 +7,7 @@ pub mod frontends;
 pub mod marketplace;
 pub mod nodes;
 pub mod notifications;
+pub mod payments;
 pub mod plans;
 pub mod promo;
 pub mod settings;
@@ -50,6 +51,8 @@ pub use users::{
 pub use marketplace::{
     approve_manual_payment, get_marketplace_page, reject_manual_payment, save_marketplace_settings,
 };
+
+pub use payments::test_provider_connection;
 
 // Stubs removed
 

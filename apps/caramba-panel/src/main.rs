@@ -730,6 +730,11 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/settings/update/worker/queue",
             axum::routing::post(handlers::admin::queue_worker_update),
         )
+        // Тест-подключение к платёжным провайдерам (не создаёт реальных сессий)
+        .route(
+            "/payments/{provider}/test",
+            axum::routing::post(handlers::admin::test_provider_connection),
+        )
         // New Bot Page
         .route("/bot", axum::routing::get(handlers::admin::bot_logs_page))
         // Tools Logic (Page removed, actions preserved)
