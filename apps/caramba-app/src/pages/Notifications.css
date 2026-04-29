@@ -1,0 +1,217 @@
+/* ======================================
+   Notifications Page
+   ====================================== */
+
+.notifications-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+/* Фильтр-таб-бар */
+.notif-tabs {
+    display: flex;
+    gap: var(--space-2);
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: var(--space-2);
+}
+
+.notif-tab {
+    flex: 1;
+    min-height: 38px;
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: background var(--ease-default), color var(--ease-default), border-color var(--ease-default);
+}
+
+.notif-tab.active {
+    background: rgba(var(--accent-rgb), 0.12);
+    border-color: rgba(var(--accent-rgb), 0.32);
+    color: var(--accent-primary);
+}
+
+/* Кнопка «Прочитать все» */
+.notif-mark-all-row {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.notif-mark-all-btn {
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-round);
+    color: var(--text-secondary);
+    font-size: 0.74rem;
+    font-weight: 600;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: background var(--ease-default), color var(--ease-default);
+    min-height: auto;
+    width: auto;
+}
+
+.notif-mark-all-btn:hover,
+.notif-mark-all-btn:focus-visible {
+    background: var(--bg-glass);
+    color: var(--text-primary);
+}
+
+/* Список */
+.notif-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+/* Карточка уведомления */
+.notif-item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-glass);
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    transition: background var(--ease-default), border-color var(--ease-default);
+    position: relative;
+}
+
+.notif-item:hover,
+.notif-item:focus-visible {
+    background: var(--bg-glass-hover);
+    border-color: var(--border-strong);
+}
+
+/* Непрочитанное — выделить рамкой акцента */
+.notif-item.is-unread {
+    border-color: rgba(var(--accent-rgb), 0.22);
+    background: rgba(var(--accent-rgb), 0.06);
+}
+
+/* Левая колонка: иконка категории */
+.notif-cat-icon {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    display: grid;
+    place-items: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+}
+
+/* Основное содержимое */
+.notif-content {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+}
+
+.notif-title {
+    font-size: 0.86rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.notif-body {
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+    line-height: 1.45;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* Правая колонка: дот + время */
+.notif-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--space-1);
+    flex-shrink: 0;
+}
+
+.notif-time {
+    font-size: 0.66rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+/* Точка серьёзности */
+.notif-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.notif-dot.info    { background: var(--status-online); box-shadow: 0 0 6px var(--status-online); }
+.notif-dot.warning { background: var(--status-warning); box-shadow: 0 0 6px var(--status-warning); }
+.notif-dot.error   { background: var(--status-error); box-shadow: 0 0 6px var(--status-error); }
+
+/* Бейдж счётчика непрочитанных в шапке */
+.unread-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border-radius: var(--radius-round);
+    background: var(--accent-gradient);
+    color: #2d1200;
+    font-size: 0.64rem;
+    font-weight: 700;
+    line-height: 1;
+    margin-left: var(--space-2);
+    vertical-align: middle;
+}
+
+/* Ссылка на настройки уведомлений */
+.notif-prefs-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background var(--ease-default);
+    width: 100%;
+    text-align: left;
+    min-height: auto;
+}
+
+.notif-prefs-link:hover {
+    background: var(--bg-glass);
+}
+
+@media (max-width: 420px) {
+    .notif-item {
+        padding: var(--space-3);
+    }
+}
