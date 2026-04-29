@@ -535,6 +535,111 @@ pub fn t(lang: Option<&str>, key: &str) -> &'static str {
         ("msg.payment_declined", true) => "❌ *Платёж отклонён*\n\nПлатёж на сумму *${0}* через *{1}* не прошёл\\.\n\nПопробуйте другой способ оплаты или обратитесь в поддержку\\.",
         ("msg.payment_declined", false) => "❌ *Payment Declined*\n\nYour payment of *${0}* via *{1}* was declined\\.\n\nPlease try a different payment method or contact support\\.",
 
+        // =====================================================================
+        // Admin menu
+        // =====================================================================
+        ("admin.menu.title", true) => "<b>Панель администратора</b>\n\nВыберите раздел:",
+        ("admin.menu.title", false) => "<b>Admin Panel</b>\n\nSelect a section:",
+
+        ("admin.menu.tickets", true) => "Тикеты",
+        ("admin.menu.tickets", false) => "Tickets",
+
+        ("admin.menu.broadcast", true) => "Broadcast уведомление",
+        ("admin.menu.broadcast", false) => "Broadcast Notification",
+
+        ("admin.menu.stats", true) => "Статистика",
+        ("admin.menu.stats", false) => "Statistics",
+
+        ("admin.menu.moderation", true) => "Модерация (скоро)",
+        ("admin.menu.moderation", false) => "Moderation (soon)",
+
+        // =====================================================================
+        // Admin tickets
+        // =====================================================================
+        ("admin.tickets.empty", true) => "Тикетов по данному фильтру не найдено.",
+        ("admin.tickets.empty", false) => "No tickets found for this filter.",
+
+        ("admin.tickets.list_title", true) => "<b>Тикеты</b>",
+        ("admin.tickets.list_title", false) => "<b>Tickets</b>",
+
+        ("admin.tickets.no_admin", true) => "Недоступно.",
+        ("admin.tickets.no_admin", false) => "Access denied.",
+
+        // =====================================================================
+        // Admin ticket detail
+        // =====================================================================
+        ("admin.ticket.detail_subject", true) => "Тема",
+        ("admin.ticket.detail_subject", false) => "Subject",
+
+        ("admin.ticket.detail_status", true) => "Статус",
+        ("admin.ticket.detail_status", false) => "Status",
+
+        ("admin.ticket.detail_category", true) => "Категория",
+        ("admin.ticket.detail_category", false) => "Category",
+
+        ("admin.ticket.detail_user", true) => "Пользователь",
+        ("admin.ticket.detail_user", false) => "User",
+
+        ("admin.ticket.detail_assignee", true) => "Назначен",
+        ("admin.ticket.detail_assignee", false) => "Assigned to",
+
+        ("admin.ticket.detail_messages", true) => "Последние сообщения",
+        ("admin.ticket.detail_messages", false) => "Recent messages",
+
+        ("admin.ticket.detail_unassigned", true) => "Не назначен",
+        ("admin.ticket.detail_unassigned", false) => "Unassigned",
+
+        // =====================================================================
+        // Admin reply FSM
+        // =====================================================================
+        ("admin.reply.prompt", true) => "Введите текст ответа:",
+        ("admin.reply.prompt", false) => "Enter your reply:",
+
+        ("admin.reply.sent", true) => "Ответ отправлен.",
+        ("admin.reply.sent", false) => "Reply sent.",
+
+        ("admin.reply.cancelled", true) => "Ответ отменён.",
+        ("admin.reply.cancelled", false) => "Reply cancelled.",
+
+        // =====================================================================
+        // Admin broadcast FSM
+        // =====================================================================
+        ("admin.broadcast.step_segment", true) => "Шаг 1/5 — Кому отправить?\n\nВыберите сегмент аудитории:",
+        ("admin.broadcast.step_segment", false) => "Step 1/5 — Who to notify?\n\nSelect audience segment:",
+
+        ("admin.broadcast.step_category", true) => "Шаг 2/5 — Категория уведомления:",
+        ("admin.broadcast.step_category", false) => "Step 2/5 — Notification category:",
+
+        ("admin.broadcast.step_severity", true) => "Шаг 3/5 — Уровень важности:",
+        ("admin.broadcast.step_severity", false) => "Step 3/5 — Severity level:",
+
+        ("admin.broadcast.step_title", true) => "Шаг 4/5 — Введите заголовок уведомления:",
+        ("admin.broadcast.step_title", false) => "Step 4/5 — Enter notification title:",
+
+        ("admin.broadcast.step_body", true) => "Шаг 5/5 — Введите текст уведомления:",
+        ("admin.broadcast.step_body", false) => "Step 5/5 — Enter notification body:",
+
+        ("admin.broadcast.confirm_prompt", true) => "Подтвердите отправку broadcast:",
+        ("admin.broadcast.confirm_prompt", false) => "Confirm broadcast send:",
+
+        ("admin.broadcast.sent", true) => "Broadcast отправлен.",
+        ("admin.broadcast.sent", false) => "Broadcast sent.",
+
+        ("admin.broadcast.cancelled", true) => "Broadcast отменён.",
+        ("admin.broadcast.cancelled", false) => "Broadcast cancelled.",
+
+        ("admin.broadcast.error", true) => "Ошибка отправки broadcast. Проверьте логи.",
+        ("admin.broadcast.error", false) => "Broadcast send failed. Check logs.",
+
+        // =====================================================================
+        // Admin assign / status
+        // =====================================================================
+        ("admin.assign.success", true) => "Тикет назначен на вас.",
+        ("admin.assign.success", false) => "Ticket assigned to you.",
+
+        ("admin.status.changed", true) => "Статус тикета изменён.",
+        ("admin.status.changed", false) => "Ticket status updated.",
+
         // Fallback - unknown key
         (_, _) => "???",
     }
