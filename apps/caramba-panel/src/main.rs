@@ -1126,6 +1126,12 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     // Единый роутер API-маршрутов — регистрируется под /api и /caramba-api через .nest().
     // Webhooks добавлены в оба префикса для единообразия (ранее были только под /api).
     let api_routes: axum::Router<AppState> = axum::Router::new()
+        // Public health probe — for uptime monitors / load balancers / k8s liveness.
+        // No auth, returns 200 + JSON when core deps are reachable, 503 otherwise.
+        .route(
+            "/health",
+            axum::routing::get(handlers::api::health::health_check),
+        )
         // Payments & Webhooks
         .route(
             "/payments/{source}",

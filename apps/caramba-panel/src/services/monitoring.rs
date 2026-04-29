@@ -13,6 +13,22 @@ impl MonitoringService {
         Self { state }
     }
 
+    /// Record a task error and page admins ONCE when consecutive failures
+    /// cross the alert threshold (currently 3 — see task_health::ALERT_THRESHOLD).
+    /// Single transient errors are silent; sustained failure escalates.
+    async fn record_error(&self, name: &str, err: &str) {
+        if let Some(count) = self.state.task_health.record_error(name, err).await {
+            let alert = format!(
+                "⚠️ *Background task is failing*\n\nTask: `{}`\nConsecutive errors: {}\nLast error: `{}`\n\nCheck panel logs and the System Health admin tab.",
+                name, count, err
+            );
+            self.state
+                .bot_manager
+                .notify_admins(&self.state.pool, &alert)
+                .await;
+        }
+    }
+
     pub async fn start(&self) {
         info!("Starting background monitoring service...");
         let mut interval = interval(Duration::from_secs(30));
@@ -26,14 +42,14 @@ impl MonitoringService {
                 Ok(_) => self.state.task_health.record_success("check_node_status").await,
                 Err(e) => {
                     error!("Monitoring error (node status): {}", e);
-                    self.state.task_health.record_error("check_node_status", &e.to_string()).await;
+                    self.record_error("check_node_status", &e.to_string()).await;
                 }
             }
             match self.check_frontend_status().await {
                 Ok(_) => self.state.task_health.record_success("check_frontend_status").await,
                 Err(e) => {
                     error!("Monitoring error (frontend status): {}", e);
-                    self.state.task_health.record_error("check_frontend_status", &e.to_string()).await;
+                    self.record_error("check_frontend_status", &e.to_string()).await;
                 }
             }
 
@@ -42,14 +58,14 @@ impl MonitoringService {
                     Ok(_) => self.state.task_health.record_success("check_expirations").await,
                     Err(e) => {
                         error!("Monitoring error (expirations): {}", e);
-                        self.state.task_health.record_error("check_expirations", &e.to_string()).await;
+                        self.record_error("check_expirations", &e.to_string()).await;
                     }
                 }
                 match self.check_traffic().await {
                     Ok(_) => self.state.task_health.record_success("check_traffic").await,
                     Err(e) => {
                         error!("Monitoring error (traffic): {}", e);
-                        self.state.task_health.record_error("check_traffic", &e.to_string()).await;
+                        self.record_error("check_traffic", &e.to_string()).await;
                     }
                 }
             }
@@ -59,14 +75,14 @@ impl MonitoringService {
                     Ok(_) => self.state.task_health.record_success("process_auto_renewals").await,
                     Err(e) => {
                         error!("Auto-renewal processing error: {}", e);
-                        self.state.task_health.record_error("process_auto_renewals", &e.to_string()).await;
+                        self.record_error("process_auto_renewals", &e.to_string()).await;
                     }
                 }
                 match self.check_low_balances().await {
                     Ok(_) => self.state.task_health.record_success("check_low_balances").await,
                     Err(e) => {
                         error!("Low balance check error: {}", e);
-                        self.state.task_health.record_error("check_low_balances", &e.to_string()).await;
+                        self.record_error("check_low_balances", &e.to_string()).await;
                     }
                 }
             }
@@ -79,7 +95,7 @@ impl MonitoringService {
                     Ok(_) => self.state.task_health.record_success("daily_traffic_topup").await,
                     Err(e) => {
                         error!("Daily traffic top-up error: {}", e);
-                        self.state.task_health.record_error("daily_traffic_topup", &e.to_string()).await;
+                        self.record_error("daily_traffic_topup", &e.to_string()).await;
                     }
                 }
             }
@@ -89,7 +105,7 @@ impl MonitoringService {
                     Ok(_) => self.state.task_health.record_success("check_traffic_alerts").await,
                     Err(e) => {
                         error!("Traffic alerts error: {}", e);
-                        self.state.task_health.record_error("check_traffic_alerts", &e.to_string()).await;
+                        self.record_error("check_traffic_alerts", &e.to_string()).await;
                     }
                 }
                 if minute_counter > 10000 {
@@ -102,7 +118,7 @@ impl MonitoringService {
                     Ok(_) => self.state.task_health.record_success("check_and_rotate_snis").await,
                     Err(e) => {
                         error!("Auto SNI Rotation check error: {}", e);
-                        self.state.task_health.record_error("check_and_rotate_snis", &e.to_string()).await;
+                        self.record_error("check_and_rotate_snis", &e.to_string()).await;
                     }
                 }
             }
@@ -135,6 +151,16 @@ impl MonitoringService {
     }
 
     async fn check_frontend_status(&self) -> anyhow::Result<()> {
+        // Snapshot which frontends are about to flip to offline so we can alert
+        // by hostname, not just by row-count.
+        let going_offline: Vec<(String, String)> = sqlx::query_as(
+            "SELECT domain, region FROM frontend_servers \
+             WHERE last_heartbeat < CURRENT_TIMESTAMP - INTERVAL '90 seconds' AND status != 'offline'"
+        )
+        .fetch_all(&self.state.pool)
+        .await
+        .unwrap_or_default();
+
         let rows_affected = sqlx::query("UPDATE frontend_servers SET status = 'offline' WHERE last_heartbeat < CURRENT_TIMESTAMP - INTERVAL '90 seconds' AND status != 'offline'")
             .execute(&self.state.pool)
             .await?
@@ -142,6 +168,17 @@ impl MonitoringService {
 
         if rows_affected > 0 {
             info!("Marked {} frontends as offline", rows_affected);
+            let hosts: Vec<String> = going_offline
+                .iter()
+                .map(|(domain, region)| format!("{} [{}]", domain, region))
+                .collect();
+            self.state
+                .bot_manager
+                .notify_admins(
+                    &self.state.pool,
+                    &format!("🟠 Frontend(s) went OFFLINE: {}", hosts.join(", ")),
+                )
+                .await;
         }
         Ok(())
     }

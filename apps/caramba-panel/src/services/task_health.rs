@@ -12,7 +12,15 @@ pub struct TaskHealth {
     pub last_error: Option<String>,
     pub run_count: u64,
     pub error_count: u64,
+    /// Consecutive errors since last success — used to gate admin alerts so
+    /// transient single-shot failures don't page out.
+    #[serde(default)]
+    pub consecutive_errors: u64,
 }
+
+/// Threshold of consecutive errors at which admins are paged for a task.
+/// Below this count failures are treated as transient (just logged).
+pub const ALERT_THRESHOLD: u64 = 3;
 
 #[derive(Clone)]
 pub struct TaskHealthRegistry {
@@ -38,14 +46,19 @@ impl TaskHealthRegistry {
                 last_error: None,
                 run_count: 0,
                 error_count: 0,
+                consecutive_errors: 0,
             });
         entry.last_run = Some(Utc::now());
         entry.last_success = Some(Utc::now());
         entry.run_count += 1;
+        entry.consecutive_errors = 0;
     }
 
     /// Записываем ошибку задачи — сохраняем сообщение и обновляем счётчики.
-    pub async fn record_error(&self, name: &str, error: &str) {
+    /// Returns `Some(consecutive_errors)` if the count just crossed
+    /// `ALERT_THRESHOLD` (i.e. exactly equals it now), so the caller can
+    /// alert admins ONCE per stuck-task incident. Returns `None` otherwise.
+    pub async fn record_error(&self, name: &str, error: &str) -> Option<u64> {
         let mut tasks = self.tasks.write().await;
         let entry = tasks
             .entry(name.to_string())
@@ -56,11 +69,19 @@ impl TaskHealthRegistry {
                 last_error: None,
                 run_count: 0,
                 error_count: 0,
+                consecutive_errors: 0,
             });
         entry.last_run = Some(Utc::now());
         entry.last_error = Some(error.to_string());
         entry.run_count += 1;
         entry.error_count += 1;
+        entry.consecutive_errors += 1;
+
+        if entry.consecutive_errors == ALERT_THRESHOLD {
+            Some(entry.consecutive_errors)
+        } else {
+            None
+        }
     }
 
     /// Возвращает срез текущего состояния всех зарегистрированных задач.
