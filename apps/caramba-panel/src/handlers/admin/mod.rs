@@ -53,10 +53,17 @@ pub use marketplace::{
 
 // Stubs removed
 
+/// POST /api/payments/{source} — legacy stub.
+/// Платёжные вебхуки направляются через /api/webhooks/payment/{provider}.
+/// Этот endpoint намеренно заглушён; входящие запросы логируем для отладки.
 pub async fn handle_payment(
-    axum::extract::Path(_source): axum::extract::Path<String>,
+    axum::extract::Path(source): axum::extract::Path<String>,
     axum::extract::State(_state): axum::extract::State<crate::AppState>,
     _body: axum::body::Bytes,
 ) -> impl axum::response::IntoResponse {
+    tracing::warn!(
+        source = %source,
+        "Payment request to legacy /api/payments/{{source}} endpoint — use /api/webhooks/payment/{{provider}} instead"
+    );
     axum::http::StatusCode::NOT_IMPLEMENTED
 }

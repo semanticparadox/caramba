@@ -1537,6 +1537,8 @@ pub async fn get_subscription_devices(
 
     let mut html = String::new();
 
+    // admin_path из env — экранируем HTML-атрибуты; sub_id — числовой i64, безопасен
+    let admin_path_esc = escape_html(&admin_path);
     html.push_str(&format!(
         r##"
         <div class="flex justify-between items-center mb-6 p-4 rounded-2xl bg-orange-500/10 border border-orange-500/10 shadow-lg shadow-orange-500/5">
@@ -1544,12 +1546,14 @@ pub async fn get_subscription_devices(
                 <p class="text-sm font-bold text-orange-400 mb-0.5">Manage Active Sessions</p>
                 <p class="text-[11px] text-slate-500">Disconnect all current devices immediately</p>
             </div>
-            <button hx-post="{}/subs/{}/devices/kill" hx-target="#devices_content" hx-confirm="This will disconnect ALL currently connected users for this subscription. Continue?"
+            <button hx-post="{admin_path}/subs/{sub_id}/devices/kill" hx-target="#devices_content" hx-confirm="This will disconnect ALL currently connected users for this subscription. Continue?"
                 class="px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition-all shadow-lg shadow-orange-500/20 active:scale-95">
                 Reset All
             </button>
         </div>
-        "##, admin_path, sub_id
+        "##,
+        admin_path = admin_path_esc,
+        sub_id = sub_id,
     ));
 
     if ips.is_empty() {
@@ -1563,12 +1567,18 @@ pub async fn get_subscription_devices(
     html.push_str("<tbody class='divide-y divide-white/5'>");
     for ip_record in ips {
         let time_ago = format_duration(chrono::Utc::now() - ip_record.last_seen_at);
-        let device = ip_record
-            .user_agent
-            .unwrap_or_else(|| "Unknown".to_string());
+        // Экранируем строки из БД перед вставкой в HTML — user_agent может содержать <script>
+        let device = escape_html(
+            ip_record
+                .user_agent
+                .as_deref()
+                .unwrap_or("Unknown"),
+        );
+        let ip_escaped = escape_html(&ip_record.client_ip);
+        let time_ago_escaped = escape_html(&time_ago);
         html.push_str(&format!(
             "<tr class='hover:bg-white/5 transition-colors'><td class='px-6 py-4 text-xs font-semibold text-white'>{}</td><td class='px-6 py-4 text-xs text-indigo-400 font-mono'>{}</td><td class='px-6 py-4 text-[10px] text-slate-400 font-medium'>{} ago</td></tr>",
-            device, ip_record.client_ip, time_ago
+            device, ip_escaped, time_ago_escaped
         ));
     }
     html.push_str("</tbody></table></div>");
@@ -1603,6 +1613,9 @@ pub async fn admin_kill_subscription_sessions(
             .into_response();
     }
 
+    // sub_id — числовой i64, безопасен для интерполяции.
+    // admin_path берётся из env, экранируем HTML-атрибуты на всякий случай.
+    let admin_path_escaped = escape_html(&state.admin_path);
     let success_html = format!(
         r##"
         <div class="flex flex-col items-center justify-center py-12 text-center animate-fade-in">
@@ -1610,14 +1623,15 @@ pub async fn admin_kill_subscription_sessions(
                 <i data-lucide='check-circle' class="w-10 h-10"></i>
             </div>
             <h4 class="text-xl font-bold text-white mb-2 tracking-tight">Sessions Reset Successfully</h4>
-            <p class="text-sm text-slate-500 mb-8 px-12 leading-relaxed">All active connections for subscription #{} have been terminated. It may take up to 60 seconds for all caches to clear.</p>
-            <button hx-get="{}/subs/{}/devices" hx-target="#devices_content"
+            <p class="text-sm text-slate-500 mb-8 px-12 leading-relaxed">All active connections for subscription #{sub_id} have been terminated. It may take up to 60 seconds for all caches to clear.</p>
+            <button hx-get="{admin_path}/subs/{sub_id}/devices" hx-target="#devices_content"
                 class="px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-white text-sm font-bold transition-all active:scale-95" style="backdrop-filter: blur(10px);">
                 Refresh Device List
             </button>
         </div>
         "##,
-        sub_id, state.admin_path, sub_id
+        sub_id = sub_id,
+        admin_path = admin_path_escaped,
     );
 
     Html(success_html).into_response()

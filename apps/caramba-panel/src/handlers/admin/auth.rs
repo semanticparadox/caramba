@@ -203,6 +203,11 @@ pub async fn login(
         )
             .into_response()
     } else {
+        warn!(
+            ip = %client_ip,
+            username = %form.username,
+            "Admin login failed: invalid credentials",
+        );
         Html("<div class='text-red-500 text-sm mt-2'>Invalid username or password</div>")
             .into_response()
     }
