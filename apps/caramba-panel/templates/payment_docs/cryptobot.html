@@ -1,0 +1,61 @@
+<section class="payment-doc" id="doc-cryptobot">
+  <h3>CryptoBot — нативная крипто-оплата через Telegram</h3>
+  <p class="doc-lead">Бот от команды Telegram для приёма USDT, TON, BTC и других монет прямо внутри мессенджера. Идеально для аудитории, которая уже пользуется Telegram-кошельком.</p>
+
+  <div class="doc-tags">
+    <span class="tag tag-telegram">Telegram-native</span>
+    <span class="tag tag-kyc-none">KYC: нет</span>
+    <span class="tag">Комиссия: 3%</span>
+    <span class="tag">Лимит: до ~$1 000 за сделку без KYC</span>
+    <span class="tag">Валюты: USDT · TON · BTC · ETH · BNB · TRX</span>
+  </div>
+
+  <h4>Когда подойдёт</h4>
+  <ul>
+    <li>Ваша аудитория — Telegram-пользователи, у которых уже есть @wallet или другой крипто-кошелёк.</li>
+    <li>Вы хотите принимать крипту без регистрации юридического лица и без KYC.</li>
+    <li>Средний чек подписки не превышает ~$1 000 в одной транзакции.</li>
+    <li>Нужна простая интеграция: CryptoBot работает через единый API без сложной инфраструктуры.</li>
+  </ul>
+
+  <h4>Регистрация</h4>
+  <ol>
+    <li>Откройте бота <a href="https://t.me/CryptoBot" target="_blank" rel="noopener">t.me/CryptoBot</a> в Telegram и нажмите <strong>Start</strong>.</li>
+    <li>Перейдите в раздел <strong>Pay</strong> (кнопка в меню) → <strong>My Apps</strong> → <strong>Create App</strong>.</li>
+    <li>Придумайте название приложения (например, «Caramba VPN»), нажмите <strong>Save</strong>.</li>
+    <li>Готово — никаких документов не требуется, только аккаунт в Telegram.</li>
+  </ol>
+
+  <h4>Где взять ключи</h4>
+  <ol>
+    <li>В боте @CryptoBot перейдите <strong>Pay → My Apps</strong> и выберите ваше приложение.</li>
+    <li>Нажмите <strong>API Token</strong> — скопируйте строку вида <code>12345:AABBccDDeeFF...</code>.</li>
+    <li>Вставьте этот токен в поле <strong>«CryptoBot API Token»</strong> в настройках панели (вкладка Payments).</li>
+  </ol>
+
+  <h4>Webhook URL</h4>
+  <p>Добавьте в кабинет CryptoBot следующий URL для получения уведомлений об оплате:</p>
+  <pre><code>{{ panel_url }}/api/webhooks/payment/cryptobot</code></pre>
+  <p>Где настроить: @CryptoBot → <strong>Pay → My Apps → ваше приложение → Webhooks → Add Webhook</strong>. Вставьте URL выше и выберите событие <strong>invoice_paid</strong>.</p>
+
+  <h4>Особенности</h4>
+  <ul>
+    <li>Проверка подписи: заголовок запроса — <code>crypto-pay-api-signature</code>. Значение — HMAC-SHA256 от тела запроса, ключ — SHA256-хэш вашего API-токена. Панель проверяет это автоматически.</li>
+    <li>Выводить средства можно прямо на любой крипто-кошелёк без ограничений — CryptoBot не является банком.</li>
+    <li>Лимит $1 000 за транзакцию без верификации; при необходимости Telegram предложит пройти дополнительную проверку.</li>
+    <li>В России CryptoBot работает стабильно, так как работает через инфраструктуру Telegram.</li>
+  </ul>
+
+  <h4>Тестирование</h4>
+  <ol>
+    <li>CryptoBot не имеет официального sandbox. Для теста создайте инвойс на минимальную сумму (например, 0.01 USDT) через панель и оплатите его вручную со своего кошелька.</li>
+    <li>Проверьте, что панель получила webhook: раздел <strong>Logs</strong> → фильтр по <code>cryptobot</code>.</li>
+  </ol>
+
+  <h4>Возможные проблемы</h4>
+  <ul>
+    <li><strong>Webhook не приходит</strong> → убедитесь, что URL панели доступен снаружи (не localhost). Проверьте раздел Webhooks в @CryptoBot — должен быть статус «Active».</li>
+    <li><strong>Подпись не совпадает</strong> → убедитесь, что в поле токена сохранён именно токен приложения из раздела <em>Pay</em>, а не Bot Token из @BotFather.</li>
+    <li><strong>Invoice в статусе «expired»</strong> → по умолчанию инвойс живёт 1 час. Убедитесь, что пользователь не затягивает оплату. Срок задаётся параметром <code>expires_in</code> при создании инвойса (панель использует 3600 секунд).</li>
+  </ul>
+</section>

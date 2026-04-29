@@ -1,0 +1,68 @@
+<section class="payment-doc" id="doc-tribute">
+  <h3>Tribute — монетизация в Telegram для авторов и создателей</h3>
+  <p class="doc-lead">Telegram-нативная платформа для creator economy. Не требует ИП, бизнес-аккаунта или верификации. Идеально для Mini App — пользователь платит прямо в Telegram без выхода в браузер.</p>
+
+  <div class="doc-tags">
+    <span class="tag tag-telegram">Telegram-native</span>
+    <span class="tag tag-kyc-none">KYC: нет</span>
+    <span class="tag">Комиссия: 5%</span>
+    <span class="tag">Оплата: через Telegram</span>
+  </div>
+
+  <h4>Когда подойдёт</h4>
+  <ul>
+    <li>Вы хотите монетизировать контент или услуги прямо внутри Telegram без юридического лица.</li>
+    <li>Ваша аудитория — Telegram-пользователи; оплата происходит нативно, без перехода на внешние сайты.</li>
+    <li>Нужен самый простой старт: Tribute активируется за несколько минут через Telegram-бота.</li>
+    <li>Комиссия 5% — приемлемый уровень для Telegram-нативного решения без KYC.</li>
+  </ul>
+
+  <h4>Регистрация</h4>
+  <ol>
+    <li>Откройте бота <a href="https://tribute.tg" target="_blank" rel="noopener">tribute.tg</a> или найдите @tributeapp в Telegram.</li>
+    <li>Нажмите <strong>Start</strong> и следуйте инструкциям: подключите ваш Telegram-аккаунт или бота.</li>
+    <li>Создайте продукт или подписку — Tribute позволяет задать разные тарифы и описания.</li>
+    <li>Никаких документов не требуется — только Telegram-аккаунт.</li>
+  </ol>
+
+  <h4>Где взять ключи</h4>
+  <ol>
+    <li>В личном кабинете Tribute (через Telegram-бота или веб-интерфейс) перейдите в <strong>Settings → API / Integrations</strong>.</li>
+    <li>Скопируйте <strong>API Key</strong> — это ваш ключ для создания ссылок на оплату через API.</li>
+    <li>Скопируйте <strong>Webhook Secret</strong> — он используется для верификации входящих уведомлений от Tribute.</li>
+    <li>Вставьте:
+      <ul>
+        <li><strong>API Key</strong> → поле <strong>«Tribute API Key»</strong> (<code>tribute_api_key</code>)</li>
+        <li><strong>Webhook Secret</strong> → поле <strong>«Tribute Webhook Secret»</strong> (<code>tribute_webhook_secret</code>)</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h4>Webhook URL</h4>
+  <p>Добавьте в кабинет Tribute следующий URL для уведомлений об оплате:</p>
+  <pre><code>{{ panel_url }}/api/webhooks/payment/tribute</code></pre>
+  <p>Где настроить: <strong>Settings → Webhooks → Add Webhook URL</strong>. Вставьте URL выше. Убедитесь, что события оплаты (<strong>payment.completed</strong>) включены.</p>
+
+  <h4>Особенности</h4>
+  <ul>
+    <li>Проверка подписи: заголовок <code>X-Tribute-Signature</code>. Значение — HMAC-SHA256 от тела запроса, ключ — ваш Webhook Secret. Панель проверяет автоматически.</li>
+    <li>Tribute — это creator-платформа; некоторые функции (например, рекуррентные подписки) могут быть реализованы иначе, чем в классических процессорах.</li>
+    <li>Вывод средств — через механизм Tribute (уточните способы в кабинете). Налоговая ответственность — на вас как на физлице.</li>
+    <li>Если вы используете Tribute вместе с ботом: убедитесь, что ваш бот подключён к Tribute в настройках интеграции.</li>
+  </ul>
+
+  <h4>Тестирование</h4>
+  <ol>
+    <li>Уточните наличие тестового режима в документации Tribute (<a href="https://tribute.tg" target="_blank" rel="noopener">tribute.tg</a>).</li>
+    <li>Если sandbox недоступен: сделайте тестовую оплату минимальной суммы через Mini App, используя свой аккаунт.</li>
+    <li>Проверьте получение webhook в разделе <strong>Logs</strong> панели.</li>
+  </ol>
+
+  <h4>Возможные проблемы</h4>
+  <ul>
+    <li><strong>Webhook не приходит</strong> → убедитесь, что URL панели доступен по HTTPS. Tribute требует валидный TLS-сертификат.</li>
+    <li><strong>Подпись не совпадает</strong> → убедитесь, что Webhook Secret скопирован полностью без лишних пробелов или символов переноса строки.</li>
+    <li><strong>API Key не работает</strong> → проверьте, что вы используете ключ из раздела <strong>API / Integrations</strong>, а не токен бота или другой идентификатор.</li>
+    <li><strong>Оплата не отображается в панели</strong> → проверьте логи (<strong>Logs → фильтр tribute</strong>). Убедитесь, что переключатель <code>tribute_enabled</code> включён в настройках.</li>
+  </ul>
+</section>

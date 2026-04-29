@@ -1,0 +1,62 @@
+<section class="payment-doc" id="doc-telegram-stars">
+  <h3>Telegram Stars — встроенная валюта Telegram</h3>
+  <p class="doc-lead">Нативная валюта Telegram для монетизации внутри Mini App и ботов. Не требует KYC и юридического лица. Настраивается через @BotFather — панель только показывает или скрывает эту опцию у пользователей.</p>
+
+  <div class="doc-tags">
+    <span class="tag tag-telegram">Telegram-native</span>
+    <span class="tag tag-kyc-none">KYC: нет</span>
+    <span class="tag">Комиссия: берёт Telegram (~30%)</span>
+    <span class="tag">Курс: ~$0.013 за 1 Star</span>
+  </div>
+
+  <h4>Когда подойдёт</h4>
+  <ul>
+    <li>Ваши пользователи — активные пользователи Telegram Premium, у которых уже есть Stars на балансе.</li>
+    <li>Хотите предложить оплату без привязки банковской карты — Stars покупают через Telegram в один клик.</li>
+    <li>Нет возможности подключить карточный процессинг, но нужен хоть какой-то способ оплаты.</li>
+    <li>Небольшие суммы подписки — Stars оптимальны для платежей до ~$5–10 в месяц.</li>
+  </ul>
+
+  <h4>Регистрация</h4>
+  <ol>
+    <li>Telegram Stars не требует отдельной регистрации. Нужен только бот, созданный через <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a>.</li>
+    <li>Убедитесь, что ваш Bot Token уже заполнен в настройках панели (вкладка <strong>General → Bot Token</strong>).</li>
+    <li>В @BotFather выполните команду <strong>/mybots</strong> → выберите вашего бота → <strong>Bot Settings → Configure Stars</strong> → следуйте инструкциям для активации приёма Stars.</li>
+  </ol>
+
+  <h4>Настройка в панели</h4>
+  <ol>
+    <li>На вкладке <strong>Payments</strong> найдите переключатель <strong>«Telegram Stars»</strong>.</li>
+    <li>Включите переключатель (<code>telegram_stars_enabled</code>) — после этого опция Stars появится в Mini App у пользователей при выборе способа оплаты.</li>
+    <li>Курс (Stars за месяц подписки) рассчитывается автоматически из цены плана в USD и текущего курса Telegram (~$0.013/Star). Telegram устанавливает курс сам — в панели ручная установка не нужна.</li>
+  </ol>
+
+  <h4>Webhook URL</h4>
+  <p>Для Telegram Stars webhook настраивается <strong>автоматически</strong> через Bot API — отдельный URL вводить не нужно. Панель получает уведомления через механизм <code>SuccessfulPayment</code> update от Telegram Bot API.</p>
+  <p>Убедитесь, что webhook вашего бота указывает на:</p>
+  <pre><code>{{ panel_url }}/api/webhooks/telegram</code></pre>
+  <p>Это уже настроено, если панель работает в штатном режиме (бот активен).</p>
+
+  <h4>Особенности</h4>
+  <ul>
+    <li>Telegram берёт ~30% комиссии с покупок Stars через App Store/Google Play. При прямой покупке через Telegram Web комиссия ниже.</li>
+    <li>Возврат Stars пользователю возможен через Bot API (<code>refundStarPayment</code>). Панель поддерживает возвраты из раздела <strong>Transactions</strong>.</li>
+    <li>Stars нельзя вывести напрямую в фиатные деньги самостоятельно — Telegram планирует программу монетизации для разработчиков. Уточняйте актуальные условия в <a href="https://core.telegram.org/bots/payments-stars" target="_blank" rel="noopener">документации Telegram</a>.</li>
+    <li>PreCheckoutQuery — это временный запрос перед оплатой. На него <strong>обязательно</strong> нужно ответить в течение 10 секунд через Bot API. Панель обрабатывает это автоматически.</li>
+    <li>Тестовые платежи Stars: в Telegram есть режим тестовых платежей через @ShopBot — используйте его для проверки без реального списания Stars.</li>
+  </ul>
+
+  <h4>Тестирование</h4>
+  <ol>
+    <li>Используйте тестовый Bot Token (зарегистрируйте отдельного бота через @BotFather) и тестовый Stars-invoice.</li>
+    <li>В Telegram клиенте на iOS/Android в настройках разработчика включите <strong>Test Server</strong> — платежи там не списывают реальные Stars.</li>
+    <li>Альтернатива: в @BotFather выполните <code>/mybots → Settings → Payments → Test payments</code>.</li>
+  </ol>
+
+  <h4>Возможные проблемы</h4>
+  <ul>
+    <li><strong>Оплата не проходит, пользователь видит ошибку</strong> → проверьте, что бот активен и webhook работает. Stars-платёж полностью идёт через Telegram Bot API.</li>
+    <li><strong>PreCheckoutQuery не отвечает вовремя</strong> → панель должна ответить за 10 секунд. Если база данных или сервис замедлен — платёж будет отклонён Telegram.</li>
+    <li><strong>Stars не зачислились после оплаты</strong> → убедитесь, что событие <code>SuccessfulPayment</code> обрабатывается в боте. Проверьте логи панели.</li>
+  </ul>
+</section>

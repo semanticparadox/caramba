@@ -1,0 +1,81 @@
+<section class="payment-doc" id="doc-btcpay">
+  <h3>BTCPay Server — самохостинг, ноль KYC, ноль комиссий</h3>
+  <p class="doc-lead">Открытый self-hosted Bitcoin и крипто-процессинг. Никаких посредников, никакой верификации личности, никаких комиссий (кроме blockchain fee). Нужен VPS для установки.</p>
+
+  <div class="doc-tags">
+    <span class="tag tag-crypto">Крипта</span>
+    <span class="tag tag-kyc-none">KYC: нет</span>
+    <span class="tag">Комиссия: 0% (только blockchain fee)</span>
+    <span class="tag">BTC · LN · USDT · и другие (зависит от плагинов)</span>
+  </div>
+
+  <h4>Когда подойдёт</h4>
+  <ul>
+    <li>Максимальная приватность и независимость от сторонних сервисов — ваш сервер, ваши ключи.</li>
+    <li>Нулевые комиссии (только транзакционные сборы сети) при больших объёмах.</li>
+    <li>Принципиальный отказ от KYC — BTCPay Server не хранит данные о платежах на чужих серверах.</li>
+    <li>Технически подготовленный администратор — требуется Docker и свой VPS.</li>
+  </ul>
+
+  <h4>Установка BTCPay Server</h4>
+  <ol>
+    <li>Арендуйте VPS (минимум 2 CPU, 4 GB RAM, 100 GB SSD) у любого зарубежного хостинга. Подойдут Hetzner, DigitalOcean, Vultr, OVH.</li>
+    <li>На сервере выполните официальный установочный скрипт:
+      <pre><code>curl -sSL https://raw.githubusercontent.com/btcpayserver/btcpayserver-docker/master/btcpay-setup.sh -o btcpay-setup.sh
+chmod +x btcpay-setup.sh
+export BTCPAY_HOST="pay.your-domain.com"
+export NBITCOIN_NETWORK="mainnet"
+export BTCPAYGEN_CRYPTO1="btc"
+export BTCPAYGEN_REVERSEPROXY="nginx"
+export BTCPAYGEN_LIGHTNING="lnd"
+. ./btcpay-setup.sh -i</code></pre>
+    </li>
+    <li>Настройте DNS: создайте A-запись для домена <code>pay.your-domain.com</code>, указывающую на IP вашего VPS.</li>
+    <li>Дождитесь синхронизации Bitcoin-ноды (занимает от нескольких часов до 1–2 дней).</li>
+    <li>Откройте <code>https://pay.your-domain.com</code> — зарегистрируйтесь как первый администратор.</li>
+  </ol>
+
+  <h4>Где взять ключи</h4>
+  <ol>
+    <li>В BTCPay Server войдите как администратор → перейдите в ваш <strong>Store</strong>.</li>
+    <li>Скопируйте <strong>Store ID</strong>: <strong>Store → Settings → General → Store ID</strong>.</li>
+    <li>Создайте API Key: <strong>Account → API Keys → Generate Key</strong>. Выберите нужные права (минимум: <em>Create Invoice</em>, <em>View Stores</em>). Скопируйте ключ.</li>
+    <li>Создайте Webhook (см. ниже) — при создании BTCPay покажет <strong>Webhook Secret</strong>.</li>
+    <li>Вставьте в настройки панели:
+      <ul>
+        <li>URL вашего BTCPay → <strong>«BTCPay URL»</strong> (<code>btcpay_url</code>), например <code>https://pay.your-domain.com</code></li>
+        <li>API Key → <strong>«BTCPay API Key»</strong> (<code>btcpay_api_key</code>)</li>
+        <li>Store ID → <strong>«BTCPay Store ID»</strong> (<code>btcpay_store_id</code>)</li>
+        <li>Webhook Secret → <strong>«BTCPay Webhook Secret»</strong> (<code>btcpay_webhook_secret</code>)</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h4>Webhook URL</h4>
+  <p>Добавьте в BTCPay Server следующий URL для уведомлений:</p>
+  <pre><code>{{ panel_url }}/api/webhooks/payment/btcpay</code></pre>
+  <p>Где настроить: <strong>Store → Settings → Webhooks → Create Webhook</strong>. Вставьте URL выше. Выберите событие <strong>InvoiceSettled</strong> (и <strong>InvoiceExpired</strong> для отслеживания истёкших счетов). Скопируйте показанный <strong>Secret</strong>.</p>
+
+  <h4>Особенности</h4>
+  <ul>
+    <li>Проверка подписи: заголовок <code>BTCPay-Sig</code> в формате <code>sha256=&lt;hex&gt;</code>. HMAC-SHA256 от raw body с вашим Webhook Secret. Панель проверяет автоматически.</li>
+    <li>Синхронизация полной Bitcoin-ноды занимает время и дисковое место (~650 GB для mainnet). Для экономии используйте <strong>Pruned Mode</strong> или подключитесь к удалённой ноде.</li>
+    <li>Lightning Network доступна для мгновенных и дешёвых транзакций — требует дополнительной настройки LND-ноды в BTCPay.</li>
+    <li>BTCPay Server — открытый код (MIT лицензия). Регулярно обновляйте через <code>btcpay-update.sh</code> для безопасности.</li>
+  </ul>
+
+  <h4>Тестирование</h4>
+  <ol>
+    <li>В BTCPay Server перейдите в <strong>Store → Settings → General → Bitcoin</strong> и переключитесь на <strong>Testnet</strong> или <strong>Regtest</strong>.</li>
+    <li>В режиме Regtest вы можете сами генерировать тестовые монеты командой <code>bitcoin-cli -regtest generatetoaddress 101 &lt;ваш адрес&gt;</code>.</li>
+    <li>Создайте тестовый инвойс через панель и оплатите с тестового кошелька (Electrum, BlueWallet с testnet).</li>
+  </ol>
+
+  <h4>Возможные проблемы</h4>
+  <ul>
+    <li><strong>Webhook не приходит</strong> → убедитесь, что URL панели доступен из интернета. BTCPay должен иметь возможность делать HTTPS-запросы к вашей панели.</li>
+    <li><strong>Подпись не совпадает</strong> → убедитесь, что Webhook Secret скопирован из BTCPay при создании webhook — после этого он не отображается повторно (создайте новый, если потеряли).</li>
+    <li><strong>Нода не синхронизируется</strong> → проверьте наличие места на диске. Используйте <code>docker logs btcpayserver_bitcoind</code> для диагностики.</li>
+    <li><strong>BTCPay недоступен после перезагрузки сервера</strong> → убедитесь, что Docker настроен на автозапуск: <code>systemctl enable docker</code>. BTCPay запускается автоматически через Docker Compose.</li>
+  </ul>
+</section>

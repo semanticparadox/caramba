@@ -971,6 +971,18 @@
         </div>
     </div>
 
+    <!-- Инструкции по настройке платёжных провайдеров -->
+    <details class="payment-docs-section mt-8">
+        <summary class="flex items-center gap-2 cursor-pointer px-4 py-3 rounded-xl bg-black/20 border border-border-default text-sm font-semibold text-slate-300 hover:text-white hover:bg-black/30 transition-colors select-none">
+            <i data-lucide="book-open" class="w-4 h-4 text-brand"></i>
+            Инструкции по настройке платёжных провайдеров
+            <span class="ml-auto text-xs font-normal text-slate-500">13 провайдеров — разверните для чтения</span>
+        </summary>
+        <div class="payment-docs-grid mt-4">
+            {% include "payment_docs/_index.html" %}
+        </div>
+    </details>
+
     <!-- Sticky Save Button -->
     <div id="sticky-save-btn" class="fixed bottom-8 right-8 z-50 transform hover:scale-105 transition-all duration-300">
         <button type="submit" form="main-settings-form"

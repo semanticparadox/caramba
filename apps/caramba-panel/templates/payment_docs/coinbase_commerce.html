@@ -1,0 +1,71 @@
+<section class="payment-doc" id="doc-coinbase-commerce">
+  <h3>Coinbase Commerce — крипта для мирового рынка</h3>
+  <p class="doc-lead">Платёжная платформа от Coinbase для приёма криптовалют от пользователей по всему миру. Требует Coinbase-аккаунт. 1% комиссии, широкая поддержка монет, простая интеграция.</p>
+
+  <div class="doc-tags">
+    <span class="tag tag-world">Мировой рынок</span>
+    <span class="tag tag-crypto">Крипта</span>
+    <span class="tag tag-kyc-light">KYC: лёгкий (Coinbase account)</span>
+    <span class="tag">Комиссия: 1%</span>
+    <span class="tag">BTC · ETH · USDC · LTC · BCH · DAI</span>
+  </div>
+
+  <h4>Когда подойдёт</h4>
+  <ul>
+    <li>Ваша аудитория — международная; нужен надёжный крипто-процессор с хорошей репутацией.</li>
+    <li>Пользователи уже используют Coinbase и хотят платить напрямую с него.</li>
+    <li>Нужна поддержка USDC (стейблкоин Coinbase) для исключения волатильности.</li>
+    <li>Важна простота: минимум настроек, один API-ключ, понятная документация.</li>
+  </ul>
+
+  <h4>Регистрация</h4>
+  <ol>
+    <li>Если у вас ещё нет аккаунта Coinbase — зарегистрируйтесь на <a href="https://coinbase.com" target="_blank" rel="noopener">coinbase.com</a> (требует email и верификацию личности через Coinbase).</li>
+    <li>Откройте <a href="https://commerce.coinbase.com" target="_blank" rel="noopener">commerce.coinbase.com</a> и войдите через ваш Coinbase-аккаунт.</li>
+    <li>Создайте Commerce-аккаунт: укажите название бизнеса и сайт.</li>
+    <li>После входа в Commerce Dashboard перейдите в <strong>Settings → API Keys</strong>.</li>
+  </ol>
+
+  <h4>Где взять ключи</h4>
+  <ol>
+    <li>В кабинете Coinbase Commerce перейдите: <strong>Settings → API Keys</strong>.</li>
+    <li>Нажмите <strong>Create API Key</strong> — скопируйте сгенерированный ключ.</li>
+    <li>Для Webhook Secret: перейдите в <strong>Settings → Webhook subscriptions → Add an endpoint</strong> → введите URL webhook (см. ниже) → после сохранения скопируйте <strong>Signing Secret</strong>.</li>
+    <li>Вставьте:
+      <ul>
+        <li>API Key → <strong>«Coinbase Commerce API Key»</strong> (<code>coinbase_api_key</code>)</li>
+        <li>Webhook Signing Secret → <strong>«Coinbase Webhook Secret»</strong> (<code>coinbase_webhook_secret</code>)</li>
+      </ul>
+    </li>
+    <li>Переключатель <code>coinbase_enabled</code> включите в настройках панели после сохранения ключей.</li>
+  </ol>
+
+  <h4>Webhook URL</h4>
+  <p>Добавьте в кабинет Coinbase Commerce следующий URL для уведомлений:</p>
+  <pre><code>{{ panel_url }}/api/webhooks/payment/coinbase_commerce</code></pre>
+  <p>Где настроить: <strong>Settings → Webhook subscriptions → Add an endpoint</strong>. Вставьте URL выше. Выберите события: <strong>charge:confirmed</strong>, <strong>charge:failed</strong>, <strong>charge:pending</strong>. После сохранения скопируйте <strong>Signing Secret</strong>.</p>
+
+  <h4>Особенности</h4>
+  <ul>
+    <li>Проверка подписи: заголовок <code>X-CC-Webhook-Signature</code>. Значение — HMAC-SHA256 hex от тела запроса, ключ — ваш Webhook Signing Secret. Панель проверяет автоматически.</li>
+    <li>Coinbase Commerce работает с Managed Wallets — средства поступают напрямую на ваш Coinbase-кошелёк или внутренний кошелёк Commerce. Вывод — через интерфейс Coinbase.</li>
+    <li>Из России доступ к сайту Coinbase может быть ограничен. Пользователям из РФ нужен VPN для покупки крипты на Coinbase, но <em>платёж через Commerce работает без ограничений по IP</em>.</li>
+    <li>Coinbase Commerce НЕ поддерживает Lightning Network — только on-chain Bitcoin.</li>
+    <li>Charge истекает через 1 час после создания, если оплата не поступила.</li>
+  </ul>
+
+  <h4>Тестирование</h4>
+  <ol>
+    <li>Coinbase Commerce не предоставляет официальный sandbox. Для тестирования используйте реальные транзакции на малые суммы.</li>
+    <li>Создайте инвойс на минимальную сумму (например, $0.50 в USDC) через панель и оплатите его с тестового кошелька.</li>
+    <li>Проверьте получение webhook в <strong>Settings → Webhook subscriptions → ваш endpoint → Delivery Attempts</strong>.</li>
+  </ol>
+
+  <h4>Возможные проблемы</h4>
+  <ul>
+    <li><strong>Webhook не приходит</strong> → убедитесь, что endpoint добавлен и URL панели доступен по HTTPS. Посмотрите <strong>Delivery Attempts</strong> в кабинете Commerce.</li>
+    <li><strong>Подпись не совпадает</strong> → убедитесь, что используется именно <strong>Signing Secret</strong> из раздела Webhooks, а не API Key. Это разные значения.</li>
+    <li><strong>Charge в статусе «unresolved»</strong> → пользователь отправил неверную сумму или в несколько транзакций. Вручную проверьте в кабинете Commerce и при необходимости запросите доплату или верните средства.</li>
+    <li><strong>Аккаунт Commerce заморожен</strong> → Coinbase может заморозить Commerce при подозрительной активности. Свяжитесь с поддержкой Coinbase, предоставив информацию о вашем бизнесе.</li>
+  </ul>
+</section>

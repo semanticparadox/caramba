@@ -1,0 +1,64 @@
+<section class="payment-doc" id="doc-nowpayments">
+  <h3>NOWPayments — 200+ криптовалют, минимальный KYC</h3>
+  <p class="doc-lead">Глобальный крипто-процессинг с поддержкой более 200 монет. Не требует юридического лица; KYC появляется только при значительных объёмах. Комиссия от 0.5%.</p>
+
+  <div class="doc-tags">
+    <span class="tag tag-crypto">Крипта</span>
+    <span class="tag tag-kyc-light">KYC: минимальный (при больших объёмах)</span>
+    <span class="tag">Комиссия: 0.5%</span>
+    <span class="tag">200+ валют</span>
+  </div>
+
+  <h4>Когда подойдёт</h4>
+  <ul>
+    <li>Нужна максимальная поддержка криптовалют — NOWPayments принимает более 200 монет.</li>
+    <li>Вы хотите работать без регистрации ИП и с минимальными требованиями к документам.</li>
+    <li>Ваша аудитория — международная; NOWPayments работает глобально, включая пользователей из РФ.</li>
+    <li>Нужен автоматический конвертер: NOWPayments позволяет мгновенно конвертировать полученную крипту в стейблкоины.</li>
+  </ul>
+
+  <h4>Регистрация</h4>
+  <ol>
+    <li>Откройте <a href="https://nowpayments.io" target="_blank" rel="noopener">nowpayments.io</a> и нажмите <strong>Sign Up</strong>.</li>
+    <li>Укажите email и пароль. Подтвердите email — письмо приходит в течение 1–2 минут.</li>
+    <li>Войдите в кабинет. Для небольших объёмов KYC не требуется сразу — можно начать принимать платежи сразу после регистрации.</li>
+    <li>Перейдите в <strong>Store Settings</strong> — задайте название магазина и основную валюту для расчётов.</li>
+  </ol>
+
+  <h4>Где взять ключи</h4>
+  <ol>
+    <li>В кабинете перейдите: <strong>Store Settings → API Keys</strong>.</li>
+    <li>Нажмите <strong>Generate API Key</strong> — скопируйте полученный ключ (поле <strong>API Key</strong>).</li>
+    <li>Там же нажмите <strong>Generate IPN Secret Key</strong> — скопируйте значение (поле <strong>IPN Secret</strong>).</li>
+    <li>Вставьте <strong>API Key</strong> в поле <strong>«NOWPayments API Key»</strong>, а <strong>IPN Secret</strong> — в поле <strong>«NOWPayments IPN Secret»</strong> в настройках панели.</li>
+  </ol>
+
+  <h4>Webhook URL</h4>
+  <p>Добавьте в кабинет NOWPayments следующий URL для IPN-уведомлений:</p>
+  <pre><code>{{ panel_url }}/api/webhooks/payment/nowpayments</code></pre>
+  <p>Где настроить: <strong>Store Settings → IPN URL</strong>. Вставьте URL выше и сохраните. Убедитесь, что поле <strong>IPN Enabled</strong> включено.</p>
+
+  <h4>Особенности</h4>
+  <ul>
+    <li>Проверка подписи: заголовок <code>x-nowpayments-sig</code>. Значение — HMAC-SHA512 от тела JSON-запроса, ключ — ваш IPN Secret. Панель проверяет автоматически.</li>
+    <li>NOWPayments не является банком; вывод — на крипто-кошелёк по запросу из кабинета.</li>
+    <li>Из-за курсовых колебаний итоговая сумма в крипте может незначительно отличаться от выставленной — это нормально.</li>
+    <li>В РФ NOWPayments доступен без VPN; если возникают блокировки, используйте API напрямую (панель общается по API, а не через сайт).</li>
+  </ul>
+
+  <h4>Тестирование</h4>
+  <ol>
+    <li>NOWPayments предоставляет sandbox: перейдите в <a href="https://sandbox.nowpayments.io" target="_blank" rel="noopener">sandbox.nowpayments.io</a> и создайте отдельный аккаунт.</li>
+    <li>Получите sandbox API Key в том же разделе <strong>Store Settings → API Keys</strong>.</li>
+    <li>Временно замените API Key в настройках панели на sandbox-ключ, создайте тестовый инвойс и симулируйте оплату через sandbox-интерфейс.</li>
+    <li>После тестирования верните продакшн-ключ.</li>
+  </ol>
+
+  <h4>Возможные проблемы</h4>
+  <ul>
+    <li><strong>Webhook не приходит</strong> → убедитесь, что IPN URL сохранён и <strong>IPN Enabled</strong> включён. Посмотрите лог в <strong>Store Settings → IPN Logs</strong>.</li>
+    <li><strong>Подпись не совпадает</strong> → убедитесь, что вы используете <strong>IPN Secret</strong>, а не API Key. Это разные поля.</li>
+    <li><strong>Платёж «partially paid»</strong> → пользователь отправил меньше нужной суммы. Панель обрабатывает такой статус как незавершённый; пользователь должен доплатить на тот же адрес.</li>
+    <li><strong>Валюта недоступна</strong> → не все 200+ монет активны по умолчанию. Активируйте нужные в <strong>Store Settings → Currencies</strong>.</li>
+  </ul>
+</section>

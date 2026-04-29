@@ -1,0 +1,63 @@
+<section class="payment-doc" id="doc-oxapay">
+  <h3>OxaPay — крипта с поддержкой РФ, комиссия 0.4%</h3>
+  <p class="doc-lead">Крипто-агрегатор, популярный среди российских пользователей и разработчиков. Минимальный KYC, 0.4% комиссия, Telegram-поддержка. Подходит как основной или резервный крипто-канал.</p>
+
+  <div class="doc-tags">
+    <span class="tag tag-crypto">Крипта</span>
+    <span class="tag tag-kyc-light">KYC: минимальный</span>
+    <span class="tag">Комиссия: 0.4%</span>
+    <span class="tag">USDT · BTC · ETH · TON · и другие</span>
+  </div>
+
+  <h4>Когда подойдёт</h4>
+  <ul>
+    <li>Нужна самая низкая комиссия среди крипто-провайдеров (0.4%) при адекватной надёжности.</li>
+    <li>Ваши пользователи — из России или СНГ, платят криптой. OxaPay известен в этом сегменте.</li>
+    <li>Нужна быстрая и простая интеграция с одним API-ключом (merchant key).</li>
+    <li>Хотите использовать Telegram для оперативной поддержки от команды OxaPay.</li>
+  </ul>
+
+  <h4>Регистрация</h4>
+  <ol>
+    <li>Откройте <a href="https://oxapay.com" target="_blank" rel="noopener">oxapay.com</a> и нажмите <strong>Sign Up</strong>.</li>
+    <li>Укажите email и пароль. Подтвердите email.</li>
+    <li>В кабинете перейдите в <strong>Merchants → Create Merchant</strong>. Укажите название вашего магазина и URL.</li>
+    <li>KYC минимальный — для старта достаточно email. При росте оборота могут запросить дополнительные данные.</li>
+  </ol>
+
+  <h4>Где взять ключи</h4>
+  <ol>
+    <li>В кабинете перейдите: <strong>Merchants → ваш мерчант → API Keys</strong>.</li>
+    <li>Скопируйте <strong>Merchant Key</strong> — единственный ключ, необходимый для интеграции.</li>
+    <li>Вставьте <strong>Merchant Key</strong> в поле <strong>«OxaPay Merchant Key»</strong> (<code>oxapay_merchant_key</code>) в настройках панели.</li>
+  </ol>
+
+  <h4>Webhook URL</h4>
+  <p>Добавьте в кабинет OxaPay следующий URL для уведомлений:</p>
+  <pre><code>{{ panel_url }}/api/webhooks/payment/oxapay</code></pre>
+  <p>Где настроить: <strong>Merchants → ваш мерчант → Settings → Callback URL</strong>. Вставьте URL выше и сохраните изменения.</p>
+
+  <h4>Особенности</h4>
+  <ul>
+    <li>Проверка подписи: заголовок <code>HMAC</code>. Значение — SHA512 hex от тела запроса. Ключ для HMAC — ваш Merchant Key. Панель проверяет автоматически.</li>
+    <li>OxaPay поддерживает TON, что важно для рынка РФ и интеграции с Telegram-экосистемой.</li>
+    <li>Поддержка в Telegram доступна через официальный канал OxaPay — быстрый ответ на технические вопросы.</li>
+    <li>Вывод средств на внешний крипто-кошелёк производится из раздела <strong>Payouts</strong> в кабинете.</li>
+    <li>В РФ OxaPay работает стабильно; API доступен без VPN.</li>
+  </ul>
+
+  <h4>Тестирование</h4>
+  <ol>
+    <li>OxaPay предоставляет тестовый режим — переключите мерчант в режим <strong>Sandbox</strong> в настройках (<strong>Merchants → ваш мерчант → Settings → Mode</strong>).</li>
+    <li>В sandbox-режиме создайте инвойс через панель — оплата симулируется без реальных средств.</li>
+    <li>После тестирования переключите мерчант обратно в <strong>Live</strong> режим.</li>
+  </ol>
+
+  <h4>Возможные проблемы</h4>
+  <ul>
+    <li><strong>Webhook не приходит</strong> → убедитесь, что Callback URL сохранён и URL панели доступен по HTTPS. Посмотрите историю вызовов в <strong>Merchants → ваш мерчант → Webhook Logs</strong>.</li>
+    <li><strong>Подпись не совпадает</strong> → убедитесь, что Merchant Key скопирован без лишних символов. SHA512 чувствителен к точному значению ключа.</li>
+    <li><strong>Мерчант заблокирован</strong> → обратитесь в поддержку OxaPay через Telegram. Укажите ваш Merchant ID и опишите ситуацию.</li>
+    <li><strong>Инвойс в статусе «waiting»</strong> → пользователь ещё не отправил оплату. Инвойс истекает через заданное время (по умолчанию 30 минут). После истечения создайте новый.</li>
+  </ul>
+</section>
