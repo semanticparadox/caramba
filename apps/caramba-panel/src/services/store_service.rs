@@ -1037,13 +1037,11 @@ impl StoreService {
         &self,
         user_id: i64,
         duration: &caramba_db::models::store::PlanDuration,
-        // NOTE: транзакция передаётся для контекста, но sub_repo не принимает &mut tx.
-        // Операции со схемой выполняются через pool внутри repo, но баланс уже снят в tx выше.
-        // AMBIGUOUS: sub_repo не имеет tx-aware методов — если нужна полная атомарность,
-        // потребуется добавить tx-версии в sub_repo (out-of-scope).
-        _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> Result<Subscription> {
-        let existing_sub = self.sub_repo.get_active_by_user(user_id).await?;
+        // Все операции с подписками выполняются через tx-aware варианты репозитория,
+        // чтобы списание баланса и изменение подписки были атомарны.
+        let existing_sub = self.sub_repo.get_active_by_user_tx(tx, user_id).await?;
 
         let sub = if let Some(active_sub) = existing_sub {
             if active_sub.plan_id != duration.plan_id {
@@ -1052,7 +1050,8 @@ impl StoreService {
                 let sub_uuid = Uuid::new_v4().to_string();
                 let id = self
                     .sub_repo
-                    .create(
+                    .create_tx(
+                        tx,
                         user_id,
                         duration.plan_id,
                         &vless_uuid,
@@ -1063,7 +1062,7 @@ impl StoreService {
                     )
                     .await?;
                 self.sub_repo
-                    .get_by_id(id)
+                    .get_by_id_tx(tx, id)
                     .await?
                     .ok_or_else(|| anyhow::anyhow!("Subscription {} not found after insert", id))?
             } else {
@@ -1073,10 +1072,10 @@ impl StoreService {
                     Utc::now() + Duration::days(duration.duration_days as i64)
                 };
                 self.sub_repo
-                    .update_expiry(active_sub.id, new_expires_at)
+                    .update_expiry_tx(tx, active_sub.id, new_expires_at)
                     .await?;
                 self.sub_repo
-                    .get_by_id(active_sub.id)
+                    .get_by_id_tx(tx, active_sub.id)
                     .await?
                     .ok_or_else(|| {
                         anyhow::anyhow!(
@@ -1091,7 +1090,8 @@ impl StoreService {
             let sub_uuid = Uuid::new_v4().to_string();
             let id = self
                 .sub_repo
-                .create(
+                .create_tx(
+                    tx,
                     user_id,
                     duration.plan_id,
                     &vless_uuid,
@@ -1102,7 +1102,7 @@ impl StoreService {
                 )
                 .await?;
             self.sub_repo
-                .get_by_id(id)
+                .get_by_id_tx(tx, id)
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("Subscription {} not found after insert", id))?
         };

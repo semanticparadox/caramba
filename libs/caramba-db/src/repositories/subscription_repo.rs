@@ -1,7 +1,7 @@
 use crate::models::store::{Subscription, SubscriptionWithDetails};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use std::collections::HashSet;
 use std::net::IpAddr;
 
@@ -23,6 +23,19 @@ impl SubscriptionRepository {
             .context("Failed to fetch subscription by ID")
     }
 
+    /// Tx-aware вариант: читает подписку по id внутри переданной транзакции.
+    pub async fn get_by_id_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: i64,
+    ) -> Result<Option<Subscription>> {
+        sqlx::query_as::<_, Subscription>("SELECT * FROM subscriptions WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&mut **tx)
+            .await
+            .context("Failed to fetch subscription by ID (tx)")
+    }
+
     pub async fn get_by_uuid(&self, uuid: &str) -> Result<Option<Subscription>> {
         sqlx::query_as::<_, Subscription>(
             "SELECT * FROM subscriptions WHERE subscription_uuid = $1",
@@ -41,6 +54,23 @@ impl SubscriptionRepository {
         .fetch_optional(&self.pool)
         .await
         .context("Failed to fetch active subscription for user")
+    }
+
+    /// Tx-aware вариант: читает активную подписку пользователя внутри транзакции.
+    /// Используется там, где чтение должно происходить в рамках той же транзакции,
+    /// что и последующее изменение (например, в extend_subscription).
+    pub async fn get_active_by_user_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        user_id: i64,
+    ) -> Result<Option<Subscription>> {
+        sqlx::query_as::<_, Subscription>(
+            "SELECT * FROM subscriptions WHERE user_id = $1 AND status = 'active' ORDER BY expires_at DESC LIMIT 1"
+        )
+        .bind(user_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .context("Failed to fetch active subscription for user (tx)")
     }
 
     pub async fn get_active_by_plan(&self, plan_id: i64) -> Result<Vec<Subscription>> {
@@ -109,11 +139,60 @@ impl SubscriptionRepository {
         Ok(id)
     }
 
+    /// Tx-aware вариант: создаёт подписку внутри переданной транзакции.
+    /// Атомарность со списанием баланса обеспечивается единой транзакцией вызывающей стороны.
+    pub async fn create_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        user_id: i64,
+        plan_id: i64,
+        vless_uuid: &str,
+        sub_uuid: &str,
+        expires_at: DateTime<Utc>,
+        status: &str,
+        note: Option<&str>,
+    ) -> Result<i64> {
+        let id = sqlx::query_scalar::<_, i64>(
+            r#"
+            INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, expires_at, status, note, created_at, is_trial)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, FALSE)
+            RETURNING id
+            "#
+        )
+        .bind(user_id)
+        .bind(plan_id)
+        .bind(vless_uuid)
+        .bind(sub_uuid)
+        .bind(expires_at)
+        .bind(status)
+        .bind(note)
+        .fetch_one(&mut **tx)
+        .await
+        .context("Failed to create subscription (tx)")?;
+
+        Ok(id)
+    }
+
     pub async fn update_expiry(&self, id: i64, new_expiry: DateTime<Utc>) -> Result<()> {
         sqlx::query("UPDATE subscriptions SET expires_at = $1, status = 'active' WHERE id = $2")
             .bind(new_expiry)
             .bind(id)
             .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Tx-aware вариант: обновляет дату истечения подписки внутри транзакции.
+    pub async fn update_expiry_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: i64,
+        new_expiry: DateTime<Utc>,
+    ) -> Result<()> {
+        sqlx::query("UPDATE subscriptions SET expires_at = $1, status = 'active' WHERE id = $2")
+            .bind(new_expiry)
+            .bind(id)
+            .execute(&mut **tx)
             .await?;
         Ok(())
     }
