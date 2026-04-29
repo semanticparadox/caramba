@@ -93,7 +93,13 @@ async fn proxy_to_panel(
         panel_sub_url.push_str(&format!("&relay_country={}", rc));
     }
 
-    let cache_key = format!("sub:config:{}:{}", uuid, client_type);
+    // Ключ кеша включает relay_country — разные страны дают разные конфиги.
+    let cache_key = format!(
+        "sub:config:{}:{}:{}",
+        uuid,
+        client_type,
+        relay_country.unwrap_or("")
+    );
 
     let resp = match state
         .panel_client
@@ -104,17 +110,29 @@ async fn proxy_to_panel(
         Err(e) => {
             error!("Failed to proxy subscription to panel: {}", e);
 
-            // Панель недоступна — пробуем отдать закешированный конфиг
+            // Панель недоступна — пробуем отдать закешированный конфиг.
+            // Кеш хранит тело и content-type вместе (разделитель \x00).
+            // Без правильного content-type клиенты (sing-box, clash) не распознают формат.
             if let Some(ref redis_client) = state.redis_client {
                 if let Ok(mut conn) = redis_client.get_multiplexed_async_connection().await {
-                    if let Ok(cached) = redis::cmd("GET")
+                    if let Ok(cached_raw) = redis::cmd("GET")
                         .arg(&cache_key)
                         .query_async::<Vec<u8>>(&mut conn)
                         .await
                     {
-                        if !cached.is_empty() {
+                        if !cached_raw.is_empty() {
                             warn!("Serving cached config for {} (panel down)", uuid);
-                            return (StatusCode::OK, cached).into_response();
+                            // Извлекаем content-type и тело из закешированного blob'а
+                            let (ct, body) = split_cached_entry(&cached_raw);
+                            let ct_val = ct.unwrap_or("application/json");
+                            return Response::builder()
+                                .status(StatusCode::OK)
+                                .header(header::CONTENT_TYPE, ct_val)
+                                .header(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate")
+                                .header(header::PRAGMA, "no-cache")
+                                .body(axum::body::Body::from(body.to_vec()))
+                                .unwrap()
+                                .into_response();
                         }
                     }
                 }
@@ -145,9 +163,10 @@ async fn proxy_to_panel(
 
     let mut builder = Response::builder().status(status.as_u16());
 
-    // Forward relevant headers from panel response
+    // Forward relevant headers from panel response.
+    // content-type не включён здесь — он будет установлен явно ниже
+    // из захваченного значения для согласованности с Redis fallback.
     for key in &[
-        "content-type",
         "profile-title",
         "profile-update-interval",
         "subscription-userinfo",
@@ -163,15 +182,25 @@ async fn proxy_to_panel(
         .header(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate")
         .header(header::PRAGMA, "no-cache");
 
+    // Собираем content-type ДО потребления тела ответа
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+
     let body_bytes = resp.bytes().await.unwrap_or_default();
 
-    // Кешируем успешный ответ панели на 5 минут (только для 2xx)
+    // Кешируем успешный ответ панели на 5 минут (только для 2xx).
+    // Формат blob: "<content-type>\x00<body>" — позволяет восстановить заголовок при fallback.
     if status.is_success() {
         if let Some(ref redis_client) = state.redis_client {
             if let Ok(mut conn) = redis_client.get_multiplexed_async_connection().await {
+                let cached_entry = build_cached_entry(&content_type, &body_bytes);
                 let _: Result<(), _> = redis::cmd("SET")
                     .arg(&cache_key)
-                    .arg(body_bytes.as_ref())
+                    .arg(cached_entry.as_slice())
                     .arg("EX")
                     .arg(300u64) // TTL 5 минут
                     .query_async(&mut conn)
@@ -181,9 +210,31 @@ async fn proxy_to_panel(
     }
 
     builder
+        .header(header::CONTENT_TYPE, content_type)
         .body(axum::body::Body::from(body_bytes))
         .unwrap()
         .into_response()
+}
+
+/// Собирает blob для хранения в Redis: "<content-type>\x00<body>".
+fn build_cached_entry(content_type: &str, body: &[u8]) -> Vec<u8> {
+    let mut entry = content_type.as_bytes().to_vec();
+    entry.push(0x00); // разделитель
+    entry.extend_from_slice(body);
+    entry
+}
+
+/// Разбирает blob из Redis на (content-type, body).
+/// Если разделитель не найден — весь blob считается телом (обратная совместимость).
+fn split_cached_entry(raw: &[u8]) -> (Option<&str>, &[u8]) {
+    if let Some(pos) = raw.iter().position(|&b| b == 0x00) {
+        let ct = std::str::from_utf8(&raw[..pos]).ok();
+        let body = &raw[pos + 1..];
+        (ct, body)
+    } else {
+        // Старый формат кеша без content-type заголовка
+        (None, raw)
+    }
 }
 
 fn get_client_ip(headers: &HeaderMap) -> Option<String> {
