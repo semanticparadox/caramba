@@ -229,6 +229,16 @@ export default function Support() {
                 <span className="contact-arrow">{'>'}</span>
             </button>
 
+            {/* Быстрый переход к тикетам — прямо в разделе поддержки */}
+            <button className="contact-hero glass-card" onClick={() => navigate('/tickets')}>
+                <span className="contact-icon">TK</span>
+                <div>
+                    <span className="contact-title">{t('support.ticketsTitle')}</span>
+                    <span className="contact-desc">{t('support.ticketsDesc')}</span>
+                </div>
+                <span className="contact-arrow">{'>'}</span>
+            </button>
+
             <section className="support-connect-card glass-card">
                 <div>
                     <h3>{t('support.connectionIssueTitle')}</h3>
