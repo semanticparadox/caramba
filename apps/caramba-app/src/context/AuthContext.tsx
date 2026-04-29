@@ -98,35 +98,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [error, setError] = useState<string | null>(null);
 
     const fetchWithTimeout = async (input: RequestInfo | URL, init?: RequestInit, timeoutMs = 12000) => {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+        const timeoutController = new AbortController();
+        const timeout = setTimeout(() => timeoutController.abort(), timeoutMs);
+        // Объединяем внешний signal (если есть) с timeout-signal через AbortSignal.any
+        // Фоллбэк для браузеров без AbortSignal.any: используем только timeout-signal
+        const externalSignal = (init as RequestInit & { signal?: AbortSignal })?.signal;
+        const signal = externalSignal && typeof AbortSignal.any === 'function'
+            ? AbortSignal.any([timeoutController.signal, externalSignal])
+            : timeoutController.signal;
         try {
-            return await fetch(input, { ...init, signal: controller.signal });
+            return await fetch(input, { ...init, signal });
         } finally {
             clearTimeout(timeout);
         }
     };
 
-    // Initial Auth
+    // Initial Auth — выполняется один раз при монтировании если нет токена в localStorage
     useEffect(() => {
+        if (token) return; // токен уже есть — пропускаем, следующий эффект займётся данными
+
+        const controller = new AbortController();
+
         const initAuth = async () => {
             try {
                 setError(null);
-                WebApp.ready();
-                WebApp.expand();
-                let initData = (WebApp.initData || '').trim();
-                if (!initData) {
-                    const fallbackData = (window as any)?.Telegram?.WebApp?.initData;
-                    if (typeof fallbackData === 'string') {
-                        initData = fallbackData.trim();
-                    }
-                }
+                // Используем только SDK — (window as any) fallback убран: @twa-dev/sdk нормализует initData
+                const initData = (WebApp.initData || '').trim();
 
                 if (initData) {
                     const response = await fetchWithTimeout('/api/client/auth/telegram', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ init_data: initData }),
+                        signal: controller.signal,
                     });
 
                     if (response.ok) {
@@ -137,35 +141,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         setError(null);
                     } else {
                         const errText = await response.text();
-                        console.error("Auth failed:", errText);
                         setError(errText || `Auth failed (${response.status})`);
                     }
                 } else if (!import.meta.env.DEV) {
-                    console.warn("No initData found");
                     setError('Telegram auth data is missing. Reopen Mini App from bot.');
                 } else {
-                    console.warn("Dev mode — no Telegram initData");
+                    // Dev-режим — данных Telegram нет, показываем предупреждение
                     setError('Dev mode: no Telegram initData');
                 }
             } catch (e: any) {
-                console.error("Auth error:", e);
-                setError(e?.name === 'AbortError' ? 'Auth request timed out' : e.message);
+                if (e?.name === 'AbortError') return; // компонент размонтирован — игнорируем
+                setError(e?.name === 'AbortError' ? 'Auth request timed out' : (e.message ?? 'Unknown auth error'));
             }
         };
 
-        if (!token) {
-            initAuth();
-        }
+        void initAuth();
+
+        return () => { controller.abort(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Fetch Data when token is available
+    // Fetch Data when token is available — запускаем refreshData при появлении токена
     useEffect(() => {
         if (token) {
-            refreshData();
+            void refreshData();
         } else {
+            // Токен так и не появился — снимаем флаг загрузки через небольшую задержку
             const timer = setTimeout(() => setIsLoading(false), 1000);
             return () => clearTimeout(timer);
         }
+    // refreshData намеренно не включён в deps — его идентичность стабильна внутри рендера,
+    // добавление привело бы к повторным вызовам при каждом обновлении данных.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token]);
 
     const refreshData = async () => {
@@ -197,21 +204,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     total_download: s.total_download || s.traffic_used || 0,
                     total_upload: s.total_upload || 0,
                 });
-            } else {
-                console.warn("Stats fetch failed:", statsRes.status, await statsRes.text().catch(() => ''));
             }
+            // Тихая ошибка stats — данные просто не обновятся, но UX не ломается
             if (subsRes.ok) {
                 const data = await subsRes.json();
-                console.log("Subscriptions fetched:", data?.length || 0, "items");
-                // API now returns an array
+                // API возвращает массив подписок
                 setSubscriptions(Array.isArray(data) ? data : [data]);
             } else {
-                console.error("Subscriptions fetch failed:", subsRes.status, await subsRes.text().catch(() => ''));
                 setSubscriptions([]);
             }
         } catch (e: any) {
-            console.error("Data fetch error:", e);
-            setError(e?.name === 'AbortError' ? 'Data request timed out' : e.message);
+            if (e?.name !== 'AbortError') {
+                setError(e?.name === 'AbortError' ? 'Data request timed out' : (e.message ?? 'Data fetch error'));
+            }
         } finally {
             setIsLoading(false);
         }
