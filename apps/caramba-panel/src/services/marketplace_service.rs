@@ -16,6 +16,7 @@ use super::payment::lava::LavaProvider;
 use super::payment::manual::ManualProvider;
 use super::payment::nowpayments::NowPaymentsProvider;
 use super::payment::provider::{PaymentProvider, PaymentWebhookAction};
+use super::payment::stripe::StripeProvider;
 // StarsProvider намеренно исключён из MarketplaceService: интерфейс PaymentProvider
 // не имеет доступа к bot_token и tg_id, которые требуются Bot API для createInvoiceLink.
 // Рабочий путь для Stars — PayService::create_stars_invoice (вызывается из бота).
@@ -45,6 +46,8 @@ impl MarketplaceService {
         aaio_merchant_id: String,
         aaio_secret_1: String,
         aaio_secret_2: String,
+        stripe_secret_key: String,
+        stripe_webhook_secret: String,
         api_domain: String,
         bot_username: String,
         store_service: StoreService,
@@ -112,6 +115,19 @@ impl MarketplaceService {
                     merchant_id: aaio_merchant_id,
                     secret_1: aaio_secret_1,
                     secret_2: aaio_secret_2,
+                }),
+            );
+        }
+
+        // Stripe: регистрируем если задан секретный ключ.
+        // webhook_secret нужен для проверки подписи вебхука (whsec_...).
+        if !stripe_secret_key.is_empty() {
+            providers.insert(
+                "stripe".to_string(),
+                Box::new(StripeProvider {
+                    secret_key: stripe_secret_key,
+                    webhook_secret: stripe_webhook_secret,
+                    bot_username: bot_username.clone(),
                 }),
             );
         }
@@ -197,19 +213,34 @@ impl MarketplaceService {
 
         match action {
             PaymentWebhookAction::Completed { external_id } => {
-                // Находим сессию по external_id провайдера и завершаем
-                if let Ok(Some(session)) = self.session_repo.get_by_external_id(&external_id).await
-                {
+                // Провайдеры возвращают session UUID в поле external_id.
+                // Пробуем сначала найти сессию по UUID (основной путь),
+                // затем — по полю external_id в базе (резервный путь).
+                let session_opt = if let Ok(uuid) = external_id.parse::<uuid::Uuid>() {
+                    self.session_repo.get_by_id(uuid).await.ok().flatten()
+                } else {
+                    self.session_repo
+                        .get_by_external_id(&external_id)
+                        .await
+                        .ok()
+                        .flatten()
+                };
+
+                if let Some(session) = session_opt {
                     self.fulfill_payment(session.id).await?;
+                } else {
+                    tracing::warn!(
+                        provider = provider_name,
+                        external_id = %external_id,
+                        "Received Completed webhook but no matching payment session found"
+                    );
                 }
             }
             PaymentWebhookAction::Failed { reason } => {
-                // Отмечаем сессию как failed, чтобы можно было диагностировать и retry
-                // Внешний ID может отсутствовать в payload failed-вебхуков — логируем и пропускаем.
                 tracing::warn!(
                     provider = provider_name,
                     reason = %reason,
-                    "Payment webhook reported failure — no session to update (no external_id in Failed action)"
+                    "Payment webhook reported failure"
                 );
             }
             _ => {}

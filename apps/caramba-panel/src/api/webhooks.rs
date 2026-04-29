@@ -19,33 +19,60 @@ async fn handle_payment_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
-    // Determine signature based on provider. NowPayments uses x-nowpayments-sig, CryptoBot uses crypto-pay-api-signature.
-    let signature = match provider.as_str() {
-        "nowpayments" => headers
-            .get("x-nowpayments-sig")
-            .and_then(|v| v.to_str().ok()),
+    // Каждый провайдер передаёт подпись в своём заголовке:
+    //   CryptoBot    — crypto-pay-api-signature  (HMAC-SHA256 hex)
+    //   NowPayments  — x-nowpayments-sig         (HMAC-SHA512 hex)
+    //   Lava.top     — Signature                 (HMAC-SHA256 hex)
+    //   Cryptomus    — sign                      (MD5 hex, в заголовке)
+    //   AAIO         — подпись передаётся в теле формы (поле sign),
+    //                  поэтому здесь мы передаём пустую строку, а
+    //                  AaioProvider::verify_webhook читает тело самостоятельно.
+    let sig_str: String = match provider.as_str() {
         "cryptobot" => headers
             .get("crypto-pay-api-signature")
-            .and_then(|v| v.to_str().ok()),
-        _ => None, // Some providers don't use webhooks or headers
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string(),
+        "nowpayments" => headers
+            .get("x-nowpayments-sig")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string(),
+        "lava" => headers
+            .get("Signature")
+            .or_else(|| headers.get("signature"))
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string(),
+        "cryptomus" => headers
+            .get("sign")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string(),
+        // Stripe-Signature: "t=<ts>,v1=<hex>"
+        "stripe" => headers
+            .get("stripe-signature")
+            .or_else(|| headers.get("Stripe-Signature"))
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string(),
+        // AAIO embeds the signature in the form body; AaioProvider reads it from payload bytes.
+        // manual/balance/stars don't use webhooks — signature is irrelevant.
+        _ => String::new(),
     };
-
-    let sig_str = signature.unwrap_or("");
 
     match state
         .marketplace_service
-        .handle_webhook(&provider, &body, sig_str)
+        .handle_webhook(&provider, &body, &sig_str)
         .await
     {
         Ok(_) => {
-            tracing::info!("Successfully processed webhook for provider: {}", provider);
+            tracing::info!(provider = %provider, "Webhook processed successfully");
             (axum::http::StatusCode::OK, "OK").into_response()
         }
         Err(e) => {
-            tracing::error!("Failed to process webhook for {}: {}", provider, e);
-            // We return 200 OK even on error to prevent webhook retries if the signature was invalid,
-            // but return 400 if it's genuinely a bad request we want them to retry.
-            // For safety, let's return 400 so we can see it in logs, but some providers prefer 200 to stop retry loops.
+            tracing::error!(provider = %provider, error = %e, "Webhook processing failed");
+            // 400 so the provider logs a delivery failure and retries (except for duplicate-safe ones).
             (axum::http::StatusCode::BAD_REQUEST, e.to_string()).into_response()
         }
     }

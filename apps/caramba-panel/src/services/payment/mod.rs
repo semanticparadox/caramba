@@ -30,6 +30,7 @@ pub mod cryptobot;
 pub mod manual;
 pub mod nowpayments;
 pub mod provider;
+pub mod stripe;
 pub mod telegram_stars;
 
 #[allow(unused_imports)]

@@ -1,35 +1,28 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use hmac::{Hmac, Mac};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 use sha2::Sha256;
 
 use super::provider::{PaymentProvider, PaymentWebhookAction};
 use caramba_db::models::store::{PaymentSession, User};
 
-#[derive(Serialize)]
-struct LavaInvoiceReq {
-    account: String,
-    amount: f64,
-    #[serde(rename = "orderId")]
-    order_id: String,
-    comment: String,
-    #[serde(rename = "hookUrl")]
-    hook_url: String,
-}
-
-#[derive(Deserialize)]
-struct LavaInvoiceRes {
-    #[serde(default)]
-    _status: Option<bool>,
-    url: Option<String>,
-}
-
 pub struct LavaProvider {
     pub project_id: String,
     pub secret_key: String,
     pub api_domain: String,
+}
+
+#[derive(Deserialize)]
+struct LavaResponse {
+    data: Option<LavaData>,
+    error: Option<Value>,
+}
+
+#[derive(Deserialize)]
+struct LavaData {
+    url: String,
 }
 
 #[async_trait]
@@ -44,18 +37,33 @@ impl PaymentProvider for LavaProvider {
         _user: &User,
         client: &reqwest::Client,
     ) -> Result<String> {
-        let req_body = LavaInvoiceReq {
-            account: self.project_id.clone(),
-            amount: (session.amount as f64) / 100.0,
-            order_id: session.id.to_string(),
-            comment: format!("VPN Subscription (Product: {})", session.product_id),
-            hook_url: format!("https://{}/api/webhooks/payment/lava", self.api_domain),
-        };
+        // Lava.ru Business API v2 — HMAC-SHA256 подпись тела запроса
+        let amount_rub = (session.amount as f64) / 100.0;
+
+        let json_body = serde_json::json!({
+            "sum": amount_rub,
+            "orderId": session.id.to_string(),
+            "shopId": self.project_id,
+            "comment": format!("VPN Subscription (Product: {})", session.product_id),
+            "hookUrl": format!("https://{}/api/webhooks/payment/lava", self.api_domain),
+            "expire": 3600
+        });
+
+        let body_str = serde_json::to_string(&json_body)?;
+
+        // Подпись = HMAC-SHA256(body_str, key=secret_key)
+        type HmacSha256 = Hmac<Sha256>;
+        let mut mac = HmacSha256::new_from_slice(self.secret_key.as_bytes())
+            .context("Invalid Lava secret key")?;
+        mac.update(body_str.as_bytes());
+        let signature = hex::encode(mac.finalize().into_bytes());
 
         let res = client
-            .post("https://api.lava.top/business/invoice/create")
-            .header("Authorization", &self.secret_key)
-            .json(&req_body)
+            .post("https://api.lava.ru/business/invoice/create")
+            .header("Signature", &signature)
+            .header("Accept", "application/json")
+            .header("Content-Type", "application/json")
+            .body(body_str)
             .send()
             .await
             .context("Failed to send request to Lava")?;
@@ -65,16 +73,20 @@ impl PaymentProvider for LavaProvider {
             anyhow::bail!("Lava API Error: {}", error_text);
         }
 
-        let invoice: LavaInvoiceRes = res.json().await.context("Failed to parse Lava response")?;
-        if let Some(url) = invoice.url {
-            Ok(url)
+        let lava_res: LavaResponse = res.json().await.context("Failed to parse Lava response")?;
+        if let Some(data) = lava_res.data {
+            Ok(data.url)
         } else {
-            anyhow::bail!("Lava API missing invoice URL");
+            anyhow::bail!(
+                "Lava API missing invoice URL: {:?}",
+                lava_res.error
+            )
         }
     }
 
     async fn verify_webhook(&self, payload: &[u8], signature: &str) -> Result<bool> {
-        // Lava signs webhooks with HMAC-SHA256 using the project secret key.
+        // Lava подписывает вебхуки HMAC-SHA256(body, key=secret_key)
+        // Подпись передаётся в заголовке `Signature`.
         type HmacSha256 = Hmac<Sha256>;
         let mut mac = HmacSha256::new_from_slice(self.secret_key.as_bytes())
             .context("Invalid HMAC key length")?;
@@ -87,6 +99,7 @@ impl PaymentProvider for LavaProvider {
         let data: Value = serde_json::from_slice(payload).context("Invalid Lava webhook JSON")?;
 
         let status = data.get("status").and_then(|v| v.as_str()).unwrap_or("");
+        // Lava.ru возвращает orderId (camelCase) в вебхуке
         let order_id = data
             .get("orderId")
             .or_else(|| data.get("order_id"))
@@ -100,6 +113,9 @@ impl PaymentProvider for LavaProvider {
         match status {
             "success" => Ok(PaymentWebhookAction::Completed {
                 external_id: order_id.to_string(),
+            }),
+            "error" | "fail" | "expired" => Ok(PaymentWebhookAction::Failed {
+                reason: status.to_string(),
             }),
             _ => Ok(PaymentWebhookAction::Pending),
         }

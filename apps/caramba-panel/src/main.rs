@@ -411,6 +411,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     let crystalpay_secret = settings.get_or_default("crystalpay_secret", "").await;
 
     let stripe_secret_key = settings.get_or_default("stripe_secret_key", "").await;
+    let stripe_webhook_secret = settings.get_or_default("stripe_webhook_secret", "").await;
     let cryptomus_merchant_id = settings.get_or_default("cryptomus_merchant_id", "").await;
     let cryptomus_payment_api_key = settings
         .get_or_default("cryptomus_payment_api_key", "")
@@ -448,7 +449,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         nowpayments_key.clone(),
         crystalpay_login,
         crystalpay_secret,
-        stripe_secret_key,
+        stripe_secret_key.clone(),
         cryptomus_merchant_id.clone(),
         cryptomus_payment_api_key.clone(),
         aaio_merchant_id.clone(),
@@ -474,6 +475,8 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         aaio_merchant_id.clone(),
         aaio_secret_1.clone(),
         aaio_secret_2.clone(),
+        stripe_secret_key,
+        stripe_webhook_secret,
         marketplace_api_domain,
         marketplace_bot_username,
         (*store_service).clone(),

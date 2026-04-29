@@ -1,21 +1,10 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use async_trait::async_trait;
-use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::provider::{PaymentProvider, PaymentWebhookAction};
 use caramba_db::models::store::{PaymentSession, User};
-
-#[derive(Serialize)]
-struct AaioInvoiceReq {
-    merchant_id: String,
-    amount: f64,
-    currency: String,
-    order_id: String,
-    desc: String,
-    lang: String,
-}
 
 pub struct AaioProvider {
     pub merchant_id: String,
@@ -49,16 +38,7 @@ impl PaymentProvider for AaioProvider {
         hasher.update(sign_str.as_bytes());
         let sign = hex::encode(hasher.finalize());
 
-        // Build the redirect URL using AaioInvoiceReq fields for documentation clarity.
-        let _req = AaioInvoiceReq {
-            merchant_id: self.merchant_id.clone(),
-            amount,
-            currency: currency.to_string(),
-            order_id: order_id.clone(),
-            desc: format!("VPN Subscription (Product: {})", session.product_id),
-            lang: "en".to_string(),
-        };
-
+        // AAIO использует GET-ссылку для оплаты — параметры передаются в query string.
         let url = format!(
             "https://aaio.so/merchant/pay?merchant_id={}&amount={}&currency={}&order_id={}&sign={}&desc={}",
             self.merchant_id,
@@ -75,10 +55,22 @@ impl PaymentProvider for AaioProvider {
         Ok(url)
     }
 
-    async fn verify_webhook(&self, payload: &[u8], signature: &str) -> Result<bool> {
-        // AAIO webhook signature: SHA-256 of "merchant_id:amount:currency:secret_2:order_id"
-        // The exact field order matches the invoice creation signature but uses secret_2.
-        let data: Value = serde_json::from_slice(payload).context("Invalid AAIO webhook JSON")?;
+    async fn verify_webhook(&self, payload: &[u8], _signature: &str) -> Result<bool> {
+        // AAIO отправляет вебхук как application/x-www-form-urlencoded.
+        // Подпись передаётся в поле `sign` внутри тела запроса (не в заголовке).
+        // Алгоритм верификации: SHA-256("merchant_id:amount:currency:secret_2:order_id")
+        let body_str = std::str::from_utf8(payload).unwrap_or("");
+
+        // Разбираем тело как form-urlencoded; при неудаче — как JSON (устаревший формат)
+        let params: std::collections::HashMap<String, String> =
+            serde_urlencoded::from_str(body_str).unwrap_or_default();
+
+        let data: Value = if params.is_empty() {
+            // Если urldecode не дал результата — пробуем JSON
+            serde_json::from_slice(payload).unwrap_or(serde_json::json!({}))
+        } else {
+            serde_json::to_value(&params).unwrap_or(serde_json::json!({}))
+        };
 
         let amount = data
             .get("amount")
@@ -92,6 +84,14 @@ impl PaymentProvider for AaioProvider {
             .get("order_id")
             .and_then(|v| v.as_str())
             .unwrap_or_default();
+        let sign_from_body = data
+            .get("sign")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+
+        if sign_from_body.is_empty() {
+            return Ok(false);
+        }
 
         let sign_str = format!(
             "{}:{}:{}:{}:{}",
@@ -101,11 +101,19 @@ impl PaymentProvider for AaioProvider {
         hasher.update(sign_str.as_bytes());
         let expected = hex::encode(hasher.finalize());
 
-        Ok(signature == expected)
+        Ok(sign_from_body == expected)
     }
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {
-        let data: Value = serde_json::from_slice(payload).context("Invalid AAIO webhook JSON")?;
+        // AAIO webhooks are form-urlencoded; parse accordingly.
+        let body_str = std::str::from_utf8(payload).unwrap_or("");
+        let params: std::collections::HashMap<String, String> =
+            serde_urlencoded::from_str(body_str).unwrap_or_default();
+        let data: Value = if params.is_empty() {
+            serde_json::from_slice(payload).unwrap_or(serde_json::json!({}))
+        } else {
+            serde_json::to_value(&params).unwrap_or(serde_json::json!({}))
+        };
 
         let status = data
             .get("status")
