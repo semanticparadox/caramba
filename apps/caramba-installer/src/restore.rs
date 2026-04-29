@@ -8,6 +8,30 @@ use std::path::Path;
 use std::process::Command;
 use tar::Archive;
 
+/// Пытается остановить systemd-сервис. Не возвращает ошибку, если сервис не существует.
+fn try_stop_service(service: &str) {
+    let status = Command::new("systemctl")
+        .args(["stop", service])
+        .status();
+    match status {
+        Ok(s) if s.success() => println!("  Stopped {}", service),
+        Ok(_) => println!("  {} was not running (OK)", service),
+        Err(e) => println!("  Warning: could not stop {}: {}", service, e),
+    }
+}
+
+/// Пытается запустить systemd-сервис. Ошибка логируется, не пробрасывается.
+fn try_start_service(service: &str) {
+    let status = Command::new("systemctl")
+        .args(["start", service])
+        .status();
+    match status {
+        Ok(s) if s.success() => println!("  Started {}", service),
+        Ok(s) => println!("  Warning: {} start exited with {}", service, s),
+        Err(e) => println!("  Warning: could not start {}: {}", service, e),
+    }
+}
+
 pub fn run_restore(backup_path: &str) -> Result<()> {
     println!("{}", style("\n=== CARAMBA RESTORE TOOL ===").bold().green());
 
@@ -16,10 +40,10 @@ pub fn run_restore(backup_path: &str) -> Result<()> {
         return Err(anyhow!("Backup file not found: {}", backup_path));
     }
 
-    println!("📦 Backup file: {}", backup_path);
+    println!("Backup file: {}", backup_path);
 
     // 1. Extract
-    println!("🔄 Extracting backup...");
+    println!("Extracting backup...");
     let file = File::open(path)?;
     let tar = GzDecoder::new(file);
     let mut archive = Archive::new(tar);
@@ -43,49 +67,74 @@ pub fn run_restore(backup_path: &str) -> Result<()> {
     }
 
     let extract_dir = extract_dir.ok_or_else(|| anyhow!("Invalid backup archive structure"))?;
-    println!("✅ Archive extracted to temporary location");
+    println!("Archive extracted to temporary location");
 
     // 2. Show Env Info
     let env_file = extract_dir.join("env_sanitized.txt");
     if env_file.exists() {
         println!(
             "\n{}",
-            style("⚙️  Environment Configuration (Sanitized):").bold()
+            style("Environment Configuration (Sanitized):").bold()
         );
         let mut content = String::new();
         File::open(env_file)?.read_to_string(&mut content)?;
         println!("{}", content);
         println!(
             "{}",
-            style("⚠️  IMPORTANT: Merge these values into your .env file.").yellow()
+            style("IMPORTANT: Merge these values into your .env file.").yellow()
         );
     }
 
     // 3. Database Restore
-    let sql_file = extract_dir.join("backup.sql"); // Assuming backup.sql is the name
+    let sql_file = extract_dir.join("backup.sql");
     if sql_file.exists() {
         println!("\nFound database dump: {:?}", sql_file.file_name().unwrap());
         if Confirm::new()
             .with_prompt("Do you want to try and restore this to PostgreSQL? (Requires psql)")
             .interact()?
         {
-            // Ask for DB URL or use default?
             let db_url = dialoguer::Input::<String>::new()
                 .with_prompt("Enter DATABASE_URL (postgres://user:pass@localhost/db)")
                 .interact_text()?;
 
+            // Останавливаем сервисы чтобы избежать конфликтов во время импорта.
+            // Это предотвращает повреждение данных при одновременной записи.
+            println!(
+                "\n{}",
+                style("Stopping Caramba services before database restore...").yellow()
+            );
+            let managed_services = [
+                "caramba-panel.service",
+                "caramba-sub.service",
+                "caramba-bot.service",
+            ];
+            for svc in &managed_services {
+                try_stop_service(svc);
+            }
+
             println!("Restoring database...");
-            // psql $DATABASE_URL < backup.sql — передаём аргументы напрямую, без shell-интерполяции
+            // psql $DATABASE_URL < backup.sql — аргументы передаются напрямую, без shell-интерполяции
             let sql_content = std::fs::File::open(&sql_file)?;
             let status = Command::new("psql")
                 .arg(&db_url)
                 .stdin(sql_content)
                 .status()?;
 
+            // Перезапускаем сервисы в любом случае (успех или ошибка).
+            println!("\nRestarting Caramba services...");
+            for svc in &managed_services {
+                try_start_service(svc);
+            }
+
             if status.success() {
                 println!("{}", style("Database restored successfully.").green());
             } else {
-                println!("{}", style("Database restore failed.").red());
+                // Возвращаем ошибку — caller (main) должен сообщить о сбое.
+                return Err(anyhow!(
+                    "psql exited with status {}. Database restore may be incomplete. \
+                     Check the PostgreSQL logs for details.",
+                    status
+                ));
             }
         }
     } else {
