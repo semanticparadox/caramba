@@ -310,6 +310,8 @@ pub struct SettingsTemplate {
     pub masked_bot_token: String,
     pub masked_lava_project_id: String,
     pub masked_lava_secret_key: String,
+    pub masked_stripe_secret_key: String,
+    pub masked_stripe_webhook_secret: String,
     pub payment_ipn_url: String,
     pub currency_rate: String,
     pub support_url: String,
@@ -485,6 +487,8 @@ pub struct SaveSettingsForm {
     pub aaio_secret_2: Option<String>,
     pub lava_project_id: Option<String>,
     pub lava_secret_key: Option<String>,
+    pub stripe_secret_key: Option<String>,
+    pub stripe_webhook_secret: Option<String>,
     pub manual_enabled: Option<String>,
     pub telegram_stars_enabled: Option<String>,
     pub payment_ipn_url: Option<String>,
@@ -570,6 +574,8 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .await;
     let lava_project_id = state.settings.get_or_default("lava_project_id", "").await;
     let lava_secret_key = state.settings.get_or_default("lava_secret_key", "").await;
+    let stripe_secret_key = state.settings.get_or_default("stripe_secret_key", "").await;
+    let stripe_webhook_secret = state.settings.get_or_default("stripe_webhook_secret", "").await;
     let bot_token = state.settings.get_or_default("bot_token", "").await;
     let telegram_stars_enabled = state
         .settings
@@ -866,6 +872,16 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     } else {
         "".to_string()
     };
+    let masked_stripe_secret_key = if !stripe_secret_key.is_empty() {
+        mask_key(&stripe_secret_key)
+    } else {
+        "".to_string()
+    };
+    let masked_stripe_webhook_secret = if !stripe_webhook_secret.is_empty() {
+        mask_key(&stripe_webhook_secret)
+    } else {
+        "".to_string()
+    };
 
     let masked_cryptomus_merchant_id = if !cryptomus_merchant_id.is_empty() {
         mask_key(&cryptomus_merchant_id)
@@ -964,6 +980,8 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         masked_aaio_secret_2,
         masked_lava_project_id,
         masked_lava_secret_key,
+        masked_stripe_secret_key,
+        masked_stripe_webhook_secret,
         payment_ipn_url,
         currency_rate,
         support_url,
@@ -1162,6 +1180,30 @@ pub async fn save_settings(
     if let Some(v) = form.lava_secret_key {
         if !v.is_empty() && v != masked_lava_secret {
             settings.insert("lava_secret_key".to_string(), v);
+        }
+    }
+
+    let current_stripe_secret = state.settings.get_or_default("stripe_secret_key", "").await;
+    let masked_stripe_secret = if !current_stripe_secret.is_empty() {
+        mask_key(&current_stripe_secret)
+    } else {
+        "".to_string()
+    };
+    if let Some(v) = form.stripe_secret_key {
+        if !v.is_empty() && v != masked_stripe_secret {
+            settings.insert("stripe_secret_key".to_string(), v);
+        }
+    }
+
+    let current_stripe_webhook = state.settings.get_or_default("stripe_webhook_secret", "").await;
+    let masked_stripe_webhook = if !current_stripe_webhook.is_empty() {
+        mask_key(&current_stripe_webhook)
+    } else {
+        "".to_string()
+    };
+    if let Some(v) = form.stripe_webhook_secret {
+        if !v.is_empty() && v != masked_stripe_webhook {
+            settings.insert("stripe_webhook_secret".to_string(), v);
         }
     }
 
