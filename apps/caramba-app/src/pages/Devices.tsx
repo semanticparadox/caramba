@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -22,6 +22,16 @@ function deviceIcon(name: string): string {
     return '📱'
 }
 
+// Валидация имени: 1-32 символа, без управляющих символов
+function sanitizeName(raw: string): string {
+    return raw
+        .split('')
+        .filter(c => c.charCodeAt(0) >= 32)
+        .join('')
+        .trim()
+        .slice(0, 32)
+}
+
 export default function Devices() {
     const { t } = useTranslation()
     const navigate = useNavigate()
@@ -35,6 +45,17 @@ export default function Devices() {
     const [fetchError, setFetchError] = useState<string | null>(null)
     const [kickingId, setKickingId] = useState<number | null>(null)
     const [kickError, setKickError] = useState<{ id: number; msg: string } | null>(null)
+
+    // Kill-all state
+    const [killAllConfirming, setKillAllConfirming] = useState(false)
+    const [killAllBusy, setKillAllBusy] = useState(false)
+    const [killAllError, setKillAllError] = useState<string | null>(null)
+
+    // Rename state: tracks which device is in edit mode and its draft value
+    const [renamingId, setRenamingId] = useState<number | null>(null)
+    const [renameDraft, setRenameDraft] = useState('')
+    const [renameError, setRenameError] = useState<string | null>(null)
+    const renameInputRef = useRef<HTMLInputElement>(null)
 
     // Форматирование времени через i18n-ключи вместо хардкодных строк
     const timeAgo = (iso: string): string => {
@@ -73,6 +94,14 @@ export default function Devices() {
         return () => clearInterval(interval)
     }, [fetchDevices])
 
+    // Фокус на поле ввода при открытии редактирования имени
+    useEffect(() => {
+        if (renamingId !== null && renameInputRef.current) {
+            renameInputRef.current.focus()
+            renameInputRef.current.select()
+        }
+    }, [renamingId])
+
     const kickDevice = async (deviceId: number) => {
         if (!token || !subId) return
         setKickingId(deviceId)
@@ -90,6 +119,72 @@ export default function Devices() {
         } catch {
             setKickError({ id: deviceId, msg: t('devices.kickNetworkError') })
         } finally { setKickingId(null) }
+    }
+
+    // Отключить все устройства — с подтверждением
+    const killAllDevices = async () => {
+        if (!token || !subId) return
+        setKillAllBusy(true)
+        setKillAllError(null)
+        setKillAllConfirming(false)
+        try {
+            const res = await fetch(`/api/client/subscription/${subId}/devices/kill-all`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            if (res.ok) {
+                setDevices([])
+                // Отложенный рефетч через 5 секунд — подтверждаем что список пуст
+                setTimeout(() => { void fetchDevices() }, 5000)
+            } else {
+                setKillAllError(t('devices.killAllError'))
+            }
+        } catch {
+            setKillAllError(t('devices.killAllNetworkError'))
+        } finally { setKillAllBusy(false) }
+    }
+
+    // Начало редактирования имени устройства
+    const startRename = (device: DeviceEntry) => {
+        setRenamingId(device.id)
+        setRenameDraft(device.device_name)
+        setRenameError(null)
+    }
+
+    // Сохранить имя устройства (PUT /api/client/subscription/{sub_id}/devices/{id}/name)
+    const saveRename = async (deviceId: number) => {
+        if (!token || !subId) return
+        const name = sanitizeName(renameDraft)
+        setRenamingId(null)
+
+        // Оптимистичное обновление локального состояния
+        setDevices(prev => prev.map(d =>
+            d.id === deviceId ? { ...d, device_name: name || d.device_name } : d
+        ))
+
+        try {
+            const res = await fetch(`/api/client/subscription/${subId}/devices/${deviceId}/name`, {
+                method: 'PUT',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ name }),
+            })
+            if (!res.ok) {
+                setRenameError(t('devices.renameError'))
+                // Откат к серверным данным при ошибке
+                void fetchDevices()
+            }
+        } catch {
+            setRenameError(t('devices.renameError'))
+            void fetchDevices()
+        }
+    }
+
+    const cancelRename = () => {
+        setRenamingId(null)
+        setRenameDraft('')
     }
 
     const deviceLimit = (sub?.device_limit ?? 0) > 0 ? sub!.device_limit : null
@@ -151,7 +246,7 @@ export default function Devices() {
                 </div>
             )}
 
-            {/* Ошибка при отключении устройства — показываем с кнопкой повтора */}
+            {/* Ошибка при отключении устройства */}
             {kickError && (
                 <div className="devices-error">
                     <p>{kickError.msg}</p>
@@ -159,6 +254,16 @@ export default function Devices() {
                         {t('devices.retry')}
                     </button>
                     <button className="btn-ghost" style={{ marginTop: 4 }} onClick={() => setKickError(null)}>
+                        {t('common.close')}
+                    </button>
+                </div>
+            )}
+
+            {/* Ошибки переименования и kill-all */}
+            {(renameError || killAllError) && (
+                <div className="devices-error">
+                    <p>{renameError || killAllError}</p>
+                    <button className="btn-ghost" style={{ marginTop: 4 }} onClick={() => { setRenameError(null); setKillAllError(null) }}>
                         {t('common.close')}
                     </button>
                 </div>
@@ -177,7 +282,34 @@ export default function Devices() {
                         <div key={device.id} className={`device-card${device.is_current ? ' current' : ''}`}>
                             <div className="device-icon">{deviceIcon(device.device_name)}</div>
                             <div className="device-info">
-                                <div className="device-name">{device.device_name || t('devices.unknown')}</div>
+                                {/* Inline rename: иконка карандаша рядом с именем */}
+                                {renamingId === device.id ? (
+                                    <input
+                                        ref={renameInputRef}
+                                        className="device-name-input"
+                                        value={renameDraft}
+                                        maxLength={32}
+                                        placeholder={t('devices.renamePlaceholder')}
+                                        onChange={e => setRenameDraft(e.target.value)}
+                                        onBlur={() => void saveRename(device.id)}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter') void saveRename(device.id)
+                                            if (e.key === 'Escape') cancelRename()
+                                        }}
+                                    />
+                                ) : (
+                                    <div className="device-name-row">
+                                        <span className="device-name">{device.device_name || t('devices.unknown')}</span>
+                                        <button
+                                            className="btn-rename"
+                                            onClick={() => startRename(device)}
+                                            title="Rename"
+                                            aria-label="Rename device"
+                                        >
+                                            ✏️
+                                        </button>
+                                    </div>
+                                )}
                                 <div className="device-meta">
                                     <span>IP: {device.last_ip}</span>
                                     <span>{timeAgo(device.last_seen_at)}</span>
@@ -198,6 +330,40 @@ export default function Devices() {
                             </div>
                         </div>
                     ))}
+                </div>
+            )}
+
+            {/* Кнопка «Отключить всё» — только когда есть хотя бы одно устройство */}
+            {!loading && devices.length > 0 && (
+                <div className="devices-kill-all-wrap">
+                    {killAllConfirming ? (
+                        <div className="devices-kill-all-confirm">
+                            <p className="devices-kill-all-confirm-text">{t('devices.killAllConfirm')}</p>
+                            <div className="devices-kill-all-confirm-actions">
+                                <button
+                                    className="btn-kick"
+                                    onClick={() => void killAllDevices()}
+                                    disabled={killAllBusy}
+                                >
+                                    {killAllBusy ? '...' : t('devices.killAll')}
+                                </button>
+                                <button
+                                    className="btn-ghost"
+                                    onClick={() => setKillAllConfirming(false)}
+                                    disabled={killAllBusy}
+                                >
+                                    {t('common.cancel')}
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <button
+                            className="btn-kill-all"
+                            onClick={() => setKillAllConfirming(true)}
+                        >
+                            {t('devices.killAll')}
+                        </button>
+                    )}
                 </div>
             )}
 
