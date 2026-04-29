@@ -60,6 +60,25 @@ pub fn bot_routes() -> axum::Router<AppState> {
             "/referral/signup-bonus",
             post(handlers::api::bot::referral_signup_bonus),
         )
+        // Корзина: оплата и очистка
+        .route(
+            "/users/{id}/checkout-cart",
+            post(handlers::api::bot::checkout_cart),
+        )
+        .route(
+            "/users/{id}/cart",
+            axum::routing::delete(handlers::api::bot::clear_cart),
+        )
+        // Сессии подписки
+        .route(
+            "/subs/{id}/kill-sessions",
+            post(handlers::api::bot::kill_subscription_sessions),
+        )
+        // Конфиг-файл одной подписки (без утечки остальных)
+        .route(
+            "/subs/{id}/config-file",
+            get(handlers::api::bot::get_sub_config_file),
+        )
         // Применяем проверку токена ко всем маршрутам этого роутера
         .route_layer(axum::middleware::from_fn(bot_auth::require_bot_token))
 }

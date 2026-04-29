@@ -2,7 +2,7 @@ use crate::services::store_service::PurchaseResult;
 use crate::AppState;
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -553,6 +553,329 @@ pub async fn referral_signup_bonus(
         Err(e) => {
             tracing::error!("Failed to apply signup bonus: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, "Failed to apply signup bonus").into_response()
+        }
+    }
+}
+
+// ============================================================================
+// Корзина и чекаут
+// ============================================================================
+
+/// POST /api/v2/bot/users/{user_id}/checkout-cart
+/// Оплачивает содержимое корзины пользователя, списывая баланс и создавая заказ.
+/// Идемпотентность: если корзина пуста — 422 Unprocessable Entity (не 500).
+pub async fn checkout_cart(
+    State(state): State<AppState>,
+    Path(user_id): Path<i64>,
+) -> impl IntoResponse {
+    // Проверяем, что пользователь существует, чтобы избежать создания заказа-сироты
+    let user_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)")
+        .bind(user_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(false);
+
+    if !user_exists {
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({
+            "ok": false,
+            "error": "user_not_found",
+            "message": "User not found"
+        }))).into_response();
+    }
+
+    match state.store_service.checkout_cart(user_id).await {
+        Ok(messages) => Json(serde_json::json!({
+            "ok": true,
+            "messages": messages,
+        }))
+        .into_response(),
+        Err(e) => {
+            let msg = e.to_string();
+            // Отличаем бизнес-ошибки (пустая корзина, нет денег) от системных сбоев,
+            // чтобы бот мог показать пользователю понятный текст.
+            let (status, error_code) = if msg.contains("Cart is empty") {
+                (StatusCode::UNPROCESSABLE_ENTITY, "cart_empty")
+            } else if msg.contains("Insufficient balance") {
+                (StatusCode::PAYMENT_REQUIRED, "insufficient_balance")
+            } else {
+                tracing::error!(user_id, "checkout_cart failed: {}", msg);
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
+            };
+            (
+                status,
+                Json(serde_json::json!({
+                    "ok": false,
+                    "error": error_code,
+                    "message": msg,
+                })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// DELETE /api/v2/bot/users/{user_id}/cart
+/// Очищает корзину пользователя. Идемпотентен: повторный вызов на пустой корзине возвращает 200.
+pub async fn clear_cart(
+    State(state): State<AppState>,
+    Path(user_id): Path<i64>,
+) -> impl IntoResponse {
+    match state.store_service.clear_cart(user_id).await {
+        Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
+        Err(e) => {
+            tracing::error!(user_id, "clear_cart failed: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "ok": false,
+                "error": "internal_error",
+                "message": e.to_string(),
+            })))
+                .into_response()
+        }
+    }
+}
+
+// ============================================================================
+// Сессии подписки
+// ============================================================================
+
+/// POST /api/v2/bot/subs/{sub_id}/kill-sessions
+/// Принудительно сбрасывает все активные сессии подписки, удаляя записи IP-трекинга.
+/// Ожидаемый эффект: клиенты должны повторно загрузить конфигурацию (новый запрос к /sub/uuid).
+/// Тело запроса: { "user_id": i64 } — обязательно для проверки владельца подписки.
+///
+/// Архитектурная заметка: в текущей схеме нет серверной таблицы сессий с push-инвалидацией.
+/// Sing-box core на узле не поддерживает принудительный разрыв соединения без перезагрузки конфига.
+/// Удаление строк из subscription_ip_tracking освобождает слоты устройств так, что при
+/// следующем pull клиента новый IP будет принят как «первый» и не заблокирован лимитом устройств.
+pub async fn kill_subscription_sessions(
+    State(state): State<AppState>,
+    Path(sub_id): Path<i64>,
+    Json(payload): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let user_id = match payload.get("user_id").and_then(|v| v.as_i64()) {
+        Some(id) => id,
+        None => {
+            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                "ok": false,
+                "error": "missing_user_id",
+                "message": "Request body must contain user_id"
+            })))
+                .into_response()
+        }
+    };
+
+    // Проверяем, что подписка принадлежит указанному пользователю.
+    // Это предотвращает использование эндпоинта для чужих подписок через подбор sub_id.
+    let owner_check: Option<i64> =
+        sqlx::query_scalar("SELECT user_id FROM subscriptions WHERE id = $1")
+            .bind(sub_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
+
+    match owner_check {
+        None => {
+            return (StatusCode::NOT_FOUND, Json(serde_json::json!({
+                "ok": false,
+                "error": "subscription_not_found",
+                "message": "Subscription not found"
+            })))
+                .into_response()
+        }
+        Some(owner_id) if owner_id != user_id => {
+            return (StatusCode::FORBIDDEN, Json(serde_json::json!({
+                "ok": false,
+                "error": "forbidden",
+                "message": "Subscription does not belong to this user"
+            })))
+                .into_response()
+        }
+        _ => {}
+    }
+
+    match state.store_service.kill_subscription_connections(sub_id).await {
+        Ok(()) => Json(serde_json::json!({
+            "ok": true,
+            "message": "Active sessions cleared. Clients must re-authenticate on next connect.",
+        }))
+        .into_response(),
+        Err(e) => {
+            tracing::error!(sub_id, "kill_subscription_sessions failed: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "ok": false,
+                "error": "internal_error",
+                "message": e.to_string(),
+            })))
+                .into_response()
+        }
+    }
+}
+
+// ============================================================================
+// Конфиг-файл для отдельной подписки
+// ============================================================================
+
+#[derive(Deserialize)]
+pub struct SubConfigParams {
+    pub user_id: i64,
+    /// Тип клиента: "singbox" | "v2ray" | "clash" (по умолчанию "singbox")
+    pub client: Option<String>,
+}
+
+/// GET /api/v2/bot/subs/{sub_id}/config-file?user_id={uid}&client={type}
+/// Возвращает конфигурацию sing-box/v2ray/clash только для одной подписки.
+/// Бот использует это вместо полного профиля пользователя, чтобы не утечить
+/// ссылки всех подписок в один конфиг.
+pub async fn get_sub_config_file(
+    State(state): State<AppState>,
+    Path(sub_id): Path<i64>,
+    Query(params): Query<SubConfigParams>,
+) -> impl IntoResponse {
+    let user_id = params.user_id;
+
+    // Загружаем подписку и проверяем владельца
+    let sub = match state.subscription_service.get_by_id(sub_id).await {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, "Subscription not found").into_response();
+        }
+        Err(e) => {
+            tracing::error!(sub_id, "get_sub_config_file: db error: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response();
+        }
+    };
+
+    // Проверка владельца — бот передаёт user_id, мы проверяем соответствие
+    if sub.user_id != user_id {
+        return (StatusCode::FORBIDDEN, "Subscription does not belong to this user").into_response();
+    }
+
+    // Подписка должна быть активной
+    if sub.status != "active" {
+        return (
+            StatusCode::FORBIDDEN,
+            "Subscription is not active",
+        )
+            .into_response();
+    }
+
+    // Получаем ключи пользователя
+    let user_keys = match state.subscription_service.get_user_keys(&sub).await {
+        Ok(k) => k,
+        Err(e) => {
+            tracing::error!(sub_id, "get_sub_config_file: get_user_keys failed: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to get user keys").into_response();
+        }
+    };
+
+    // Получаем узлы для подписки (через план пользователя, как в /sub/:uuid)
+    let nodes_raw = match state.store_service.get_user_nodes(sub.user_id).await {
+        Ok(nodes) if !nodes.is_empty() => nodes,
+        _ => match state.store_service.get_active_nodes().await {
+            Ok(nodes) => nodes,
+            Err(_) => {
+                return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response();
+            }
+        },
+    };
+
+    // Фильтруем: только exit-узлы (не relay-инфраструктура) и только закреплённый узел подписки (если есть)
+    let mut filtered = nodes_raw
+        .into_iter()
+        .filter(|n| !n.is_relay)
+        .collect::<Vec<_>>();
+
+    if let Some(pinned_node) = sub.node_id {
+        let pinned: Vec<_> = filtered.iter().filter(|n| n.id == pinned_node).cloned().collect();
+        if !pinned.is_empty() {
+            filtered = pinned;
+        }
+    }
+
+    if filtered.is_empty() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "No servers available for this subscription")
+            .into_response();
+    }
+
+    let node_infos = match state
+        .subscription_service
+        .get_node_infos_with_relays(&filtered)
+        .await
+    {
+        Ok(infos) => infos,
+        Err(e) => {
+            tracing::error!(sub_id, "get_sub_config_file: get_node_infos failed: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to process nodes").into_response();
+        }
+    };
+
+    // Relay-узлы для гео-цепочек (без фильтрации по стране — бот не знает страну клиента)
+    let relay_nodes = state
+        .subscription_service
+        .get_all_active_relay_infos()
+        .await
+        .unwrap_or_default();
+
+    let client_type = match params.client.as_deref().unwrap_or("singbox") {
+        "hiddify" => "singbox",
+        other => other,
+    };
+
+    match client_type {
+        "clash" => {
+            match state
+                .subscription_service
+                .generate_clash(&sub, &node_infos, &user_keys, &relay_nodes)
+            {
+                Ok(content) => (
+                    StatusCode::OK,
+                    [(axum::http::header::CONTENT_TYPE, "text/yaml; charset=utf-8")],
+                    content,
+                )
+                    .into_response(),
+                Err(e) => {
+                    tracing::error!(sub_id, "clash generation failed: {}", e);
+                    (StatusCode::INTERNAL_SERVER_ERROR, "Config generation failed").into_response()
+                }
+            }
+        }
+        "v2ray" => {
+            match state
+                .subscription_service
+                .generate_v2ray(&sub, &node_infos, &user_keys, &relay_nodes)
+            {
+                Ok(content) => (
+                    StatusCode::OK,
+                    [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+                    content,
+                )
+                    .into_response(),
+                Err(e) => {
+                    tracing::error!(sub_id, "v2ray generation failed: {}", e);
+                    (StatusCode::INTERNAL_SERVER_ERROR, "Config generation failed").into_response()
+                }
+            }
+        }
+        _ => {
+            // По умолчанию — singbox JSON
+            match state.subscription_service.generate_singbox(
+                &sub,
+                &node_infos,
+                &user_keys,
+                None,
+                &relay_nodes,
+            ) {
+                Ok(content) => (
+                    StatusCode::OK,
+                    [(axum::http::header::CONTENT_TYPE, "application/json; charset=utf-8")],
+                    content,
+                )
+                    .into_response(),
+                Err(e) => {
+                    tracing::error!(sub_id, "singbox generation failed: {}", e);
+                    (StatusCode::INTERNAL_SERVER_ERROR, "Config generation failed").into_response()
+                }
+            }
         }
     }
 }
