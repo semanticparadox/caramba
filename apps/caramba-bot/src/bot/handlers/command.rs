@@ -21,12 +21,20 @@ pub async fn message_handler(
     let tg_id = msg.chat.id.0 as i64;
 
     if let Some(payment) = msg.successful_payment() {
+        // Идемпотентный ключ — charge_id гарантированно уникален для каждого платежа.
+        // Передаём его панели, чтобы та могла игнорировать повторные события от Telegram.
+        let charge_id = payment.provider_payment_charge_id.clone();
         let amount_xtr = payment.total_amount as f64;
-        // 1 USD approx 50 XTR
+        // 1 USD ≈ 50 XTR (курс Telegram Stars)
         let amount_usd = amount_xtr / 50.0;
+
         info!(
-            "Processing Stars Payment: {} XTR (${:.2})",
-            amount_xtr, amount_usd
+            tg_id,
+            charge_id = %charge_id,
+            amount_xtr,
+            amount_usd,
+            payload = %payment.invoice_payload,
+            "Processing Stars payment"
         );
 
         match state
@@ -34,27 +42,25 @@ pub async fn message_handler(
             .process_any_payment(
                 amount_usd,
                 "stars",
-                Some(payment.provider_payment_charge_id.clone()),
+                Some(charge_id.clone()),
                 &payment.invoice_payload,
             )
             .await
         {
             Ok(_) => {
-                // Log successful payment
                 let _ = state
                     .logging_service
                     .log_user(
                         Some(tg_id),
                         "payment_stars",
                         &format!(
-                            "Stars payment successful: {} XTR (${:.2})",
-                            amount_xtr, amount_usd
+                            "Stars payment successful: {} XTR (${:.2}) charge={}",
+                            amount_xtr, amount_usd, charge_id
                         ),
                         None,
                     )
                     .await;
 
-                // Look up user lang for payment messages
                 let pay_lang = state.store_service.get_user_by_tg_id(tg_id).await
                     .ok().flatten().and_then(|u| u.language_code.clone());
                 let _ = bot
@@ -62,7 +68,7 @@ pub async fn message_handler(
                     .await;
             }
             Err(e) => {
-                error!("Stars payment processing failed: {}", e);
+                error!(tg_id, charge_id = %charge_id, error = %e, "Stars payment processing failed");
                 let pay_lang = state.store_service.get_user_by_tg_id(tg_id).await
                     .ok().flatten().and_then(|u| u.language_code.clone());
                 let _ = bot
@@ -579,7 +585,9 @@ pub async fn message_handler(
                     .reply_markup(kb)
                     .await;
             }
-        } else if text == "🛒 My Cart" || text == "/cart" {
+        } else if text == "🛒 My Cart" || text == "/cart"
+            || text == t(lang, "kb.view_cart") || text == t(Some("en"), "kb.view_cart")
+        {
             if let Some(user) = &user_res {
                 let cart_items_res: AnyhowResult<Vec<CartItem>> =
                     state.store_service.get_user_cart(user.id).await;
@@ -1046,18 +1054,28 @@ pub async fn message_handler(
                 let clean_username = support_username.trim_start_matches('@');
                 let url = format!("https://t.me/{}", clean_username);
 
-                let kb = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::url(
-                    t(lang, "kb.contact_support"),
-                    url.parse().unwrap(),
-                )]]);
-
-                let _ = bot
-                    .send_message(
-                        msg.chat.id,
-                        t(lang, "msg.support_prompt"),
-                    )
-                    .reply_markup(kb)
-                    .await;
+                match url.parse::<reqwest::Url>() {
+                    Ok(parsed_url) => {
+                        let kb = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::url(
+                            t(lang, "kb.contact_support"),
+                            parsed_url,
+                        )]]);
+                        let _ = bot
+                            .send_message(
+                                msg.chat.id,
+                                t(lang, "msg.support_prompt"),
+                            )
+                            .reply_markup(kb)
+                            .await;
+                    }
+                    Err(e) => {
+                        error!(support_username = %clean_username, error = %e, "Invalid support URL; falling back to text");
+                        let _ = bot
+                            .send_message(msg.chat.id, t(lang, "msg.support_not_configured"))
+                            .reply_markup(main_menu(lang))
+                            .await;
+                    }
+                }
             }
         } else if text == "/devices" || text == "📱 My Devices" {
             if let Some(u) = &user_res {
