@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use caramba_db::models::promo::PromoCode;
-use caramba_db::models::store::User;
 use chrono::Utc;
 use sqlx::PgPool;
 
@@ -41,14 +40,20 @@ impl BillingService {
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         user_id: i64,
         amount_cents: i64,
-        payment_id: Option<i64>,
+        _payment_id: Option<i64>,
     ) -> Result<Option<(i64, i64)>> {
-        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_one(&mut **tx)
-            .await?;
+        // Проверяем оба поля — referrer_id (новое) и referred_by (легаси)
+        let referrer: Option<(Option<i64>, Option<i64>)> = sqlx::query_as(
+            "SELECT referrer_id, referred_by FROM users WHERE id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(&mut **tx)
+        .await?;
 
-        if let Some(referrer_id) = user.referrer_id {
+        let referrer_id = referrer
+            .and_then(|(r, rb)| r.or(rb));
+
+        if let Some(referrer_id) = referrer_id {
             let bonus_pct: i64 = sqlx::query_scalar::<_, String>(
                 "SELECT value FROM settings WHERE key = 'referral_bonus_percent'"
             )
@@ -64,11 +69,15 @@ impl BillingService {
                     .execute(&mut **tx)
                     .await?;
 
-                sqlx::query("INSERT INTO referral_bonuses (referrer_id, referred_id, amount, payment_id) VALUES ($1, $2, $3, $4)")
+                // Используем реальную схему таблицы referral_bonuses
+                sqlx::query(
+                    "INSERT INTO referral_bonuses \
+                     (user_id, referred_user_id, bonus_type, bonus_value, status, applied_at) \
+                     VALUES ($1, $2, 'payment', $3, 'completed', CURRENT_TIMESTAMP)"
+                )
                     .bind(referrer_id)
                     .bind(user_id)
-                    .bind(bonus)
-                    .bind(payment_id)
+                    .bind(bonus as f64)
                     .execute(&mut **tx)
                     .await?;
 
