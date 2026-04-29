@@ -40,8 +40,7 @@
         <div class="space-y-3 mb-6">
             <div class="flex items-center justify-between text-sm">
                 <span class="text-slate-400">Balance</span>
-                <span class="text-white font-mono">{{ org.balance }} <span
-                        class="text-[10px] text-slate-500">RUB</span></span>
+                <span class="text-white font-mono">${{ org.balance }}</span>
             </div>
             <div class="flex items-center justify-between text-sm">
                 <span class="text-slate-400">Created</span>
@@ -50,11 +49,10 @@
         </div>
 
         <div class="flex items-center gap-2 pt-4 border-t border-white/5">
-            <a href="{{ admin_path }}/orgs/{{ org.id }}"
-                class="flex-1 text-center py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm font-medium transition-colors">
-                Manage
-            </a>
-            <button class="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors">
+            <button class="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors ml-auto"
+                hx-delete="{{ admin_path }}/orgs/{{ org.id }}"
+                hx-confirm="Удалить «{{ org.name }}» и всех её участников? Действие необратимо."
+                title="Delete organization">
                 <i data-lucide="trash-2" class="w-4 h-4"></i>
             </button>
         </div>

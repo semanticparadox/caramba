@@ -1816,6 +1816,13 @@ fn is_stable_semver_tag(tag: &str) -> bool {
         .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
 }
 
+/// Public re-export so other admin handlers (e.g. updates.rs) can re-check
+/// the latest release without duplicating the GitHub API call. Same logic
+/// as the internal `resolve_latest_release_version` used during settings render.
+pub async fn resolve_latest_release_version_pub() -> anyhow::Result<String> {
+    resolve_latest_release_version().await
+}
+
 async fn resolve_latest_release_version() -> anyhow::Result<String> {
     let client = reqwest::Client::new();
 

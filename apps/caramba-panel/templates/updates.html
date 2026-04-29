@@ -35,11 +35,18 @@
                     {% endif %}
                 </div>
                 {% if panel_update_available %}
-                <div class="pt-2">
-                    <button class="btn btn-primary w-full text-sm py-2">
-                        <i data-lucide="download"></i> Update Panel
+                <div class="pt-2 space-y-2">
+                    <div class="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] text-amber-200/90 leading-relaxed">
+                        <p class="font-semibold mb-1">How to update:</p>
+                        <p>Run <code class="font-mono bg-slate-900/60 px-1.5 py-0.5 rounded text-amber-100">caramba update</code> on the panel host (over SSH). The installer downloads the new release, verifies SHA256, and restarts the systemd service.</p>
+                    </div>
+                    <button class="btn btn-secondary w-full text-sm py-2"
+                            hx-post="{{ admin_path }}/updates/recheck"
+                            hx-swap="none"
+                            hx-on::after-request="setTimeout(() => location.reload(), 600)"
+                            title="Re-fetch latest release version from GitHub">
+                        <i data-lucide="refresh-cw"></i> Re-check version
                     </button>
-                    <p class="text-[10px] text-slate-500 text-center mt-2">Server restart required.</p>
                 </div>
                 {% endif %}
             </div>

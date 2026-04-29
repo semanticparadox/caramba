@@ -44,4 +44,12 @@ impl OrganizationService {
             .add_member(org_id, user_id, &OrgRole::Member.to_string())
             .await
     }
+
+    pub async fn get_all_organizations(&self) -> Result<Vec<Organization>> {
+        self.org_repo.get_all().await
+    }
+
+    pub async fn delete_organization(&self, org_id: i64) -> Result<()> {
+        self.org_repo.delete(org_id).await
+    }
 }

@@ -407,7 +407,18 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
 
     let bot_token = settings.get_or_default("bot_token", "").await;
     let pay_token = settings.get_or_default("payment_api_key", "").await;
-    let nowpayments_key = settings.get_or_default("nowpayments_key", "").await;
+    // Read both legacy `nowpayments_key` and canonical `nowpayments_api_key`,
+    // prefer whichever is non-empty. The Settings page (settings.rs) writes to
+    // `nowpayments_api_key`; the legacy Marketplace page wrote to
+    // `nowpayments_key`. Until the legacy path is fully migrated, accept both.
+    let nowpayments_key = {
+        let canonical = settings.get_or_default("nowpayments_api_key", "").await;
+        if !canonical.is_empty() {
+            canonical
+        } else {
+            settings.get_or_default("nowpayments_key", "").await
+        }
+    };
     let nowpayments_ipn_secret = settings.get_or_default("nowpayments_ipn_secret", "").await;
     let cryptobot_token = settings.get_or_default("cryptobot_token", "").await;
 
@@ -838,6 +849,10 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::post(handlers::admin::updates::trigger_update),
         )
         .route(
+            "/updates/recheck",
+            axum::routing::post(handlers::admin::updates::recheck_panel_version),
+        )
+        .route(
             "/nodes/{id}/activate",
             axum::routing::post(handlers::admin::activate_node),
         )
@@ -1142,6 +1157,10 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/orgs",
             axum::routing::get(handlers::admin_orgs::get_organizations)
                 .post(handlers::admin_orgs::create_organization),
+        )
+        .route(
+            "/orgs/{id}",
+            axum::routing::delete(handlers::admin_orgs::delete_organization),
         )
         // .route("/store/orders", axum::routing::get(handlers::admin_store::orders_page)) // Handled by analytics/dashboard now
         // Task Health API — состояние фоновых воркеров мониторинга

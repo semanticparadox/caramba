@@ -75,4 +75,25 @@ impl OrganizationRepository {
             .await?;
         Ok(())
     }
+
+    /// Returns every organization in the system. For the admin view —
+    /// regular users get filtered list via `get_user_organizations`.
+    pub async fn get_all(&self) -> Result<Vec<Organization>> {
+        sqlx::query_as::<_, Organization>(
+            "SELECT * FROM organizations ORDER BY created_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch all organizations")
+    }
+
+    pub async fn delete(&self, org_id: i64) -> Result<()> {
+        // organization_members cascades on org delete (FK ON DELETE CASCADE in init.sql)
+        sqlx::query("DELETE FROM organizations WHERE id = $1")
+            .bind(org_id)
+            .execute(&self.pool)
+            .await
+            .context("Failed to delete organization")?;
+        Ok(())
+    }
 }

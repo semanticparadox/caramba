@@ -40,7 +40,20 @@ pub async fn get_marketplace_page(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    let nowpayments_key = state.settings.get_or_default("nowpayments_key", "").await;
+    // Prefer canonical `nowpayments_api_key` (used by /settings page + test
+    // connection + provider runtime). Fall back to legacy `nowpayments_key`
+    // for installs that configured this here before the unification.
+    let nowpayments_key = {
+        let canonical = state
+            .settings
+            .get_or_default("nowpayments_api_key", "")
+            .await;
+        if !canonical.is_empty() {
+            canonical
+        } else {
+            state.settings.get_or_default("nowpayments_key", "").await
+        }
+    };
     let cryptobot_token = state.settings.get_or_default("cryptobot_token", "").await;
     let stars_enabled = state
         .settings
@@ -91,10 +104,11 @@ pub async fn save_marketplace_settings(
 ) -> impl IntoResponse {
     let admin_path = state.admin_path.clone();
 
-    let _ = state
-        .settings
-        .set("nowpayments_key", &form.nowpayments_key.unwrap_or_default())
-        .await;
+    // Save to canonical key so /settings page + test-connection see the same value.
+    // Also clear legacy `nowpayments_key` so it doesn't override a future canonical.
+    let np_value = form.nowpayments_key.unwrap_or_default();
+    let _ = state.settings.set("nowpayments_api_key", &np_value).await;
+    let _ = state.settings.set("nowpayments_key", "").await;
     let _ = state
         .settings
         .set("cryptobot_token", &form.cryptobot_token.unwrap_or_default())

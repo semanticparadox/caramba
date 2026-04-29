@@ -101,6 +101,43 @@ pub async fn get_updates_page(State(state): State<AppState>, jar: CookieJar) -> 
     Html(template.render().unwrap_or_default()).into_response()
 }
 
+/// POST /admin/updates/recheck
+/// Re-fetches latest panel release version from GitHub and updates the
+/// `panel_latest_version_cache` setting. The Updates page renders a
+/// stale cache by default — this lets the operator force a fresh check
+/// without restarting the panel.
+pub async fn recheck_panel_version(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
+    use super::auth::get_auth_user;
+    if get_auth_user(&state, &jar).await.is_none() {
+        return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    match super::settings::resolve_latest_release_version_pub().await {
+        Ok(version) => {
+            let _ = state
+                .settings
+                .set("panel_latest_version_cache", &version)
+                .await;
+            (
+                axum::http::StatusCode::OK,
+                format!("Re-checked. Latest stable release: {}", version),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            tracing::warn!("recheck_panel_version failed: {}", e);
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to fetch latest release: {}", e),
+            )
+                .into_response()
+        }
+    }
+}
+
 pub async fn trigger_update(
     State(state): State<AppState>,
     Form(form): Form<TriggerUpdateForm>,
