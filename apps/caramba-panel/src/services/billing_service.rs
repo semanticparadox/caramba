@@ -13,6 +13,9 @@ impl BillingService {
         Self { pool }
     }
 
+    /// Записывает платёж в таблицу payments.
+    /// Возвращает `true` если запись была создана (новый платёж),
+    /// `false` если запись уже существует — идемпотентный конфликт по (method, external_id).
     pub async fn log_payment(
         &self,
         user_id: i64,
@@ -20,19 +23,22 @@ impl BillingService {
         amount_cents: i64,
         external_id: Option<&str>,
         status: &str,
-    ) -> Result<()> {
-        sqlx::query(
-            "INSERT INTO payments (user_id, method, amount, external_id, status) VALUES ($1, $2, $3, $4, $5)"
+    ) -> Result<bool> {
+        let inserted: Option<i64> = sqlx::query_scalar(
+            "INSERT INTO payments (user_id, method, amount, external_id, status) \
+             VALUES ($1, $2, $3, $4, $5) \
+             ON CONFLICT (method, external_id) WHERE external_id IS NOT NULL \
+             DO NOTHING RETURNING id",
         )
         .bind(user_id)
         .bind(method)
         .bind(amount_cents)
         .bind(external_id)
         .bind(status)
-        .execute(&self.pool)
+        .fetch_optional(&self.pool)
         .await
         .context("Failed to log payment")?;
-        Ok(())
+        Ok(inserted.is_some())
     }
 
     pub async fn apply_referral_bonus(
