@@ -2,6 +2,7 @@
 pub mod analytics;
 pub mod api_keys;
 pub mod auth;
+pub mod backups;
 pub mod dashboard;
 pub mod frontends;
 pub mod marketplace;
@@ -48,6 +49,8 @@ pub use users::{
     reset_user_referral_rates, set_subscription_node, update_user, update_user_balance,
     update_user_referral_rates,
 };
+
+pub use backups::{create_backup_now, delete_backup_handler, download_backup, get_backups_page};
 
 pub use marketplace::{
     approve_manual_payment, get_marketplace_page, reject_manual_payment, save_marketplace_settings,
