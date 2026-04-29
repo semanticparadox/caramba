@@ -1,42 +1,12 @@
 {
   "common": {
     "appName": "CARAMBA",
-    "quickConnect": "Quick Connect",
     "magicOptimize": "Magic Optimize",
-    "howToConnect": "How to Connect",
-    "copySubscriptionLink": "Copy Subscription Link",
-    "openGuide": "Open Guide",
-    "download": "Download",
-    "guide": "Guide",
-    "recommended": "Recommended",
-    "platforms": {
-      "ios": "iOS",
-      "android": "Android",
-      "windows": "Windows",
-      "macos": "macOS",
-      "linux": "Linux",
-      "tv": "TV"
-    },
-    "setupSnippet": "Copy link -> Open App -> Import from Clipboard/URL -> Connect",
-    "payments": {
-      "title": "Payments",
-      "selectProvider": "Choose a payment method",
-      "balance": "Balance",
-      "buySubscription": "Buy Subscription"
-    },
-    "status": {
-      "connected": "Connected",
-      "optimizing": "Optimizing route",
-      "loading": "Loading..."
-    },
     "cancel": "Cancel",
     "close": "Close",
     "copy": "Copy",
     "copied": "Copied",
-    "refresh": "Refresh",
-    "loading": "Loading...",
-    "error": "Error",
-    "back": "Back"
+    "refresh": "Refresh"
   },
   "nav": {
     "center": "Home",
@@ -258,7 +228,6 @@
     "promoError": "Failed to activate code.",
     "networkPromoError": "Network error during code activation.",
     "referralTitle": "Referral program",
-    "referralDesc": "Invite friends and earn {{percent}}% of each payment they make to your balance.",
     "referralDescBefore": "Invite friends and earn",
     "referralDescAfter": "of every payment they make — credited to your balance.",
     "loadingReferrals": "Loading referral data...",
@@ -307,7 +276,6 @@
     "enterPin": "Enter your 4-digit PIN to continue.",
     "unlock": "Unlock",
     "unlockSubtitle": "For your privacy this app is protected with PIN.",
-    "clear": "Clear",
     "errorIncorrect": "Incorrect PIN. Try again.",
     "errorEnableFailed": "Failed to enable PIN. Try again.",
     "errorChangeFailed": "Failed to change PIN. Try again.",
@@ -359,7 +327,6 @@
     "copyVariant": "Copy selected variant",
     "linkCopiedManual": "Link copied — paste it into the app manually.",
     "extend": "Extend",
-    "extending": "Extending...",
     "extendSuccess": "Subscription extended until {{date}}",
     "selectDuration": "Select extension period",
     "insufficientBalance": "Insufficient balance"

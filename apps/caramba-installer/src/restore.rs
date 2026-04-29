@@ -125,6 +125,54 @@ pub fn run_restore(backup_path: &str) -> Result<()> {
                 try_stop_service(svc);
             }
 
+            // Take a pre-restore snapshot so a botched import is recoverable.
+            // Best-effort: if pg_dump is missing or the DB is empty/unreachable,
+            // we surface a warning and continue — operator has been informed.
+            let snapshot_path = std::env::temp_dir().join(format!(
+                "caramba-pre-restore-{}.sql",
+                chrono::Utc::now().format("%Y%m%dT%H%M%SZ")
+            ));
+            println!(
+                "\n{}",
+                style(format!(
+                    "Taking pre-restore snapshot to {}...",
+                    snapshot_path.display()
+                ))
+                .yellow()
+            );
+            let snapshot_file = std::fs::File::create(&snapshot_path)?;
+            let snap_status = Command::new("pg_dump")
+                .arg(&db_url)
+                .stdout(snapshot_file)
+                .status();
+            match snap_status {
+                Ok(s) if s.success() => println!(
+                    "  {}",
+                    style(format!(
+                        "Snapshot saved. To revert, run: psql \"{}\" < {}",
+                        db_url,
+                        snapshot_path.display()
+                    ))
+                    .green()
+                ),
+                Ok(s) => println!(
+                    "  {}",
+                    style(format!(
+                        "Warning: pg_dump exited with {} — proceeding without recoverable snapshot",
+                        s
+                    ))
+                    .red()
+                ),
+                Err(e) => println!(
+                    "  {}",
+                    style(format!(
+                        "Warning: could not run pg_dump ({}) — proceeding without recoverable snapshot",
+                        e
+                    ))
+                    .red()
+                ),
+            }
+
             println!("Restoring database...");
             // psql $DATABASE_URL < backup.sql — аргументы передаются напрямую, без shell-интерполяции
             let sql_content = std::fs::File::open(&sql_file)?;

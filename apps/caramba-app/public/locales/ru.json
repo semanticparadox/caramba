@@ -1,42 +1,12 @@
 {
   "common": {
     "appName": "CARAMBA",
-    "quickConnect": "Быстрое подключение",
     "magicOptimize": "Магическая оптимизация",
-    "howToConnect": "Как подключиться",
-    "copySubscriptionLink": "Скопировать ссылку подписки",
-    "openGuide": "Открыть гид",
-    "download": "Скачать",
-    "guide": "Гид",
-    "recommended": "Рекомендуем",
-    "platforms": {
-      "ios": "iOS",
-      "android": "Android",
-      "windows": "Windows",
-      "macos": "macOS",
-      "linux": "Linux",
-      "tv": "TV"
-    },
-    "setupSnippet": "Скопируйте ссылку -> откройте приложение -> Import from Clipboard/URL -> Connect",
-    "payments": {
-      "title": "Оплата",
-      "selectProvider": "Выберите способ оплаты",
-      "balance": "Баланс",
-      "buySubscription": "Купить подписку"
-    },
-    "status": {
-      "connected": "Подключено",
-      "optimizing": "Оптимизируем маршрут",
-      "loading": "Загрузка..."
-    },
     "cancel": "Отмена",
     "close": "Закрыть",
     "copy": "Скопировать",
     "copied": "Скопировано",
-    "refresh": "Обновить",
-    "loading": "Загрузка...",
-    "error": "Ошибка",
-    "back": "Назад"
+    "refresh": "Обновить"
   },
   "nav": {
     "center": "Центр",
@@ -258,7 +228,6 @@
     "promoError": "Не удалось активировать код.",
     "networkPromoError": "Сетевая ошибка при активации кода.",
     "referralTitle": "Реферальная программа",
-    "referralDesc": "Приглашайте друзей и получайте {{percent}}% от каждой их оплаты на ваш баланс.",
     "referralDescBefore": "Приглашайте друзей и получайте",
     "referralDescAfter": "от каждой их оплаты на ваш баланс.",
     "loadingReferrals": "Загружаем данные по рефералам...",
@@ -307,7 +276,6 @@
     "enterPin": "Введите ваш 4-значный PIN для продолжения.",
     "unlock": "Разблокировать",
     "unlockSubtitle": "Для вашей безопасности приложение защищено PIN-кодом.",
-    "clear": "Очистить",
     "errorIncorrect": "Неверный PIN. Попробуйте снова.",
     "errorEnableFailed": "Не удалось включить PIN. Попробуйте снова.",
     "errorChangeFailed": "Не удалось изменить PIN. Попробуйте снова.",
@@ -359,7 +327,6 @@
     "copyVariant": "Скопировать выбранный вариант",
     "linkCopiedManual": "Ссылка скопирована — вставьте в приложение вручную.",
     "extend": "Продлить",
-    "extending": "Продление...",
     "extendSuccess": "Подписка продлена до {{date}}",
     "selectDuration": "Выберите срок продления",
     "insufficientBalance": "Недостаточно средств"

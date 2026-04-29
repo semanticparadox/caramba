@@ -264,7 +264,10 @@ impl StoreService {
             .await?;
 
         tx.commit().await?;
-        self.sync_family_subscriptions(invite.parent_id).await?;
+        // Best-effort — sync failure should not roll back the invite acceptance.
+        if let Err(e) = self.sync_family_subscriptions(invite.parent_id).await {
+            tracing::warn!(parent_id = invite.parent_id, error = %e, "family sync after invite failed (children may be stale)");
+        }
         Ok(())
     }
 
@@ -280,6 +283,13 @@ impl StoreService {
         Ok(())
     }
 
+    /// Best-effort propagation of parent subscription to family children.
+    /// Always called AFTER the parent's transaction has committed, and is
+    /// invoked as `let _ = sync_family_subscriptions(..)` from non-critical
+    /// paths so a sync failure leaves children stale but never rolls the
+    /// parent's purchase back. Internal commits happen in this function's
+    /// own transaction; on failure children stay on their previous state
+    /// and will resync next time anything triggers this for that parent.
     pub async fn sync_family_subscriptions(&self, parent_id: i64) -> Result<()> {
         // Читаем данные до транзакции — эти запросы только на чтение
         let parent_sub = self.sub_repo.get_active_by_user(parent_id).await?;
