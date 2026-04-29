@@ -81,6 +81,10 @@ pub struct AppState {
     pub admin_path: String,
     pub system_stats: Arc<tokio::sync::Mutex<sysinfo::System>>,
     pub task_health: Arc<services::task_health::TaskHealthRegistry>,
+
+    // Система уведомлений и тикетов поддержки
+    pub notifications_svc: Arc<services::notifications_service::NotificationsService>,
+    pub tickets_svc: Arc<services::tickets_service::TicketsService>,
 }
 
 #[derive(Parser)]
@@ -564,6 +568,19 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     // Реестр здоровья фоновых задач — собирает статистику успехов/ошибок каждого воркера
     let task_health = Arc::new(services::task_health::TaskHealthRegistry::new());
 
+    // Сервис уведомлений (inbox пользователя + доставка через бот)
+    let notifications_svc = Arc::new(services::notifications_service::NotificationsService::new(
+        pool.clone(),
+        bot_manager.clone(),
+    ));
+
+    // Сервис тикетов поддержки
+    let tickets_svc = Arc::new(services::tickets_service::TicketsService::new(
+        pool.clone(),
+        bot_manager.clone(),
+        notifications_svc.clone(),
+    ));
+
     // App state
     let state = AppState {
         pool: pool.clone(),
@@ -599,6 +616,8 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         admin_path: admin_path_prefix.clone(),
         system_stats,
         task_health,
+        notifications_svc,
+        tickets_svc,
     };
 
     if let Err(e) = state.sni_repo.seed_default_global_pool_if_empty().await {
@@ -905,6 +924,27 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             post(handlers::admin::notify_preview),
         )
         .route("/users/notify/all", post(handlers::admin::notify_all_users))
+        // Support Tickets — admin web UI
+        .route(
+            "/tickets",
+            get(handlers::admin::tickets::list),
+        )
+        .route(
+            "/tickets/{id}",
+            get(handlers::admin::tickets::detail),
+        )
+        .route(
+            "/tickets/{id}/reply",
+            post(handlers::admin::tickets::reply),
+        )
+        .route(
+            "/tickets/{id}/assign",
+            post(handlers::admin::tickets::assign),
+        )
+        .route(
+            "/tickets/{id}/status",
+            post(handlers::admin::tickets::set_status),
+        )
         // Dedicated Notifications page
         .route(
             "/notifications",
