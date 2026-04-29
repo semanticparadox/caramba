@@ -288,25 +288,41 @@ impl MarketplaceService {
             .context("Product not found")?;
 
         tracing::info!(
-            "Fulfilling Product '{}' for user {} (amount={})",
+            "Fulfilling Product '{}' (type='{}') for user {} (amount={})",
             product.name,
+            product.product_type,
             session.user_id,
             session.amount,
         );
 
-        // Кредитуем баланс пользователю — списание уже произошло на стороне провайдера,
-        // здесь мы фиксируем покупку в БД через таблицу заказов.
-        // AMBIGUOUS: если продукт должен доставляться вне баланса (API-ключ, gift-code и т.д.),
-        // нужна отдельная логика доставки, зависящая от product.product_type.
-        sqlx::query(
-            "INSERT INTO orders (user_id, total_amount, status, paid_at) \
-             VALUES ($1, $2, 'paid', CURRENT_TIMESTAMP)",
-        )
-        .bind(session.user_id)
-        .bind(session.amount)
-        .execute(&self.pool)
-        .await
-        .context("Failed to create order record for fulfilled product session")?;
+        // TODO(product-type-dispatch): При появлении новых типов продуктов добавить ветки.
+        // Известные типы на 2026-04-28: "file", "text", "subscription".
+        // Неизвестные типы возвращают ошибку — безопаснее отказать, чем доставить неправильно.
+        match product.product_type.as_str() {
+            "file" | "text" => {
+                // Продукты типа file/text: доставка производится вручную администратором
+                // или через отдельный внешний механизм. Здесь фиксируем факт оплаты в orders.
+                sqlx::query(
+                    "INSERT INTO orders (user_id, total_amount, status, paid_at) \
+                     VALUES ($1, $2, 'paid', CURRENT_TIMESTAMP)",
+                )
+                .bind(session.user_id)
+                .bind(session.amount)
+                .execute(&self.pool)
+                .await
+                .context("Failed to create order record for fulfilled product session")?;
+            }
+            other => {
+                // TODO(product-type-dispatch): Тип '{}' не обрабатывается MarketplaceService.
+                // Реализуйте явную ветку перед добавлением такого продукта в каталог.
+                anyhow::bail!(
+                    "Unhandled product_type '{}' for product {} — fulfillment not implemented. \
+                     Add an explicit dispatch branch in fulfill_session_resource.",
+                    other,
+                    product.id
+                );
+            }
+        }
 
         Ok(())
     }
