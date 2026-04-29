@@ -268,9 +268,11 @@
                     class="nav-pill {% if active_page == "sni" %}active{% endif %}">SNI Pool</a>
                 {% endif %}
 
-                {% if active_page == "users" || active_page == "api_keys" || active_page == "promo" || active_page == "notifications" %}
+                {% if active_page == "users" || active_page == "api_keys" || active_page == "promo" || active_page == "notifications" || active_page == "tickets" %}
                 <a href="{{ admin_path }}/users"
                     class="nav-pill {% if active_page == "users" %}active{% endif %}">Users</a>
+                <a href="{{ admin_path }}/tickets"
+                    class="nav-pill {% if active_page == "tickets" %}active{% endif %}">Tickets</a>
                 <a href="{{ admin_path }}/api-keys"
                     class="nav-pill {% if active_page == "api_keys" %}active{% endif %}">Enrollment Keys</a>
                 <a href="{{ admin_path }}/promo"
@@ -330,6 +332,14 @@
                         title="Users">
                         <i data-lucide="users" class="dock-item-icon"></i>
                         <span class="dock-item-label">Users</span>
+                    </a>
+
+                    <!-- Tickets -->
+                    <a href="{{ admin_path }}/tickets"
+                        class="dock-item {% if active_page == "tickets" %}active{% endif %}"
+                        title="Tickets">
+                        <i data-lucide="message-circle" class="dock-item-icon"></i>
+                        <span class="dock-item-label">Tickets</span>
                     </a>
 
                     <!-- Commerce -->
