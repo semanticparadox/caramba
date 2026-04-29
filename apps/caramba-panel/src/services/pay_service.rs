@@ -241,7 +241,7 @@ impl PayService {
             .map_err(|_| anyhow!("Invalid timestamp in Stripe signature"))?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| anyhow!("System clock error: {}", e))?
             .as_secs();
         if now.saturating_sub(ts) > 300 {
             return Err(anyhow!("Stripe webhook timestamp too old"));
@@ -677,8 +677,11 @@ impl PayService {
 
         let tg_res: TgResponse = res.json().await?;
 
-        if tg_res.ok && tg_res.result.is_some() {
-            Ok(tg_res.result.unwrap())
+        if tg_res.ok {
+            tg_res.result.ok_or_else(|| anyhow!(
+                "Failed to create Stars invoice (ok=true but no result): {:?}",
+                tg_res.description
+            ))
         } else {
             Err(anyhow!(
                 "Failed to create Stars invoice: {:?}",
@@ -1006,10 +1009,20 @@ impl PayService {
             .await?;
         self.catalog_service.process_order_payment(order_id).await?;
 
-        let _ = self
-            .bot_manager
-            .send_notification(user_id, "✅ Your order has been paid successfully!")
-            .await;
+        // Получаем tg_id пользователя — bot_manager принимает tg_id, не DB id
+        let tg_id: Option<i64> =
+            sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(&self.pool)
+                .await
+                .unwrap_or(None);
+
+        if let Some(tg_id) = tg_id {
+            let _ = self
+                .bot_manager
+                .send_notification(tg_id, "✅ Your order has been paid successfully!")
+                .await;
+        }
 
         let _ = crate::services::analytics_service::AnalyticsService::track_revenue(
             &self.store_service.get_pool(),

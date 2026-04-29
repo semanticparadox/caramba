@@ -1709,8 +1709,8 @@ impl SubscriptionService {
         }
 
         // Expiry alerts (3 days before)
-        let expiring_subs = sqlx::query_as::<_, (i64, String)>(
-            "SELECT s.user_id, COALESCE(s.alerts_sent, '[]')
+        let expiring_subs = sqlx::query_as::<_, (i64, i64, String)>(
+            "SELECT s.id, s.user_id, COALESCE(s.alerts_sent, '[]')
              FROM subscriptions s
              WHERE s.status = 'active'
              AND s.expires_at BETWEEN CURRENT_TIMESTAMP + interval '2 days' AND CURRENT_TIMESTAMP + interval '3 days'"
@@ -1718,10 +1718,18 @@ impl SubscriptionService {
         .fetch_all(&self.pool)
         .await?;
 
-        for (user_id, alerts_json) in expiring_subs {
-            let alerts: Vec<String> = serde_json::from_str(&alerts_json).unwrap_or_default();
+        for (sub_id, user_id, alerts_json) in expiring_subs {
+            let mut alerts: Vec<String> = serde_json::from_str(&alerts_json).unwrap_or_default();
             if !alerts.contains(&"expiry_3d".to_string()) {
                 alerts_to_send.push((user_id, AlertType::Expiry3Days));
+                // Фиксируем метку чтобы не отправлять уведомление повторно при следующем прогоне
+                alerts.push("expiry_3d".to_string());
+                let updated_json = serde_json::to_string(&alerts)?;
+                let _ = sqlx::query("UPDATE subscriptions SET alerts_sent = $1 WHERE id = $2")
+                    .bind(&updated_json)
+                    .bind(sub_id)
+                    .execute(&self.pool)
+                    .await;
             }
         }
 

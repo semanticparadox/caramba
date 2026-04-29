@@ -18,8 +18,20 @@ impl PaymentProvider for StarsProvider {
         _user: &User,
         _client: &reqwest::Client,
     ) -> Result<String> {
-        // TODO: Generate standard Telegram Stars payload
-        Ok("Stars Payload Stub".to_string())
+        // AMBIGUOUS: Telegram Stars инвойсы создаются через Bot API (createInvoiceLink),
+        // который требует bot_token и tg_id пользователя. Эти данные недоступны через
+        // текущий интерфейс PaymentProvider.
+        //
+        // Реальный Stars-флоу (pay_service::create_stars_invoice) работает корректно —
+        // он реализован напрямую в PayService с доступом к bot_token.
+        //
+        // Этот провайдер используется в MarketplaceService и пока не имеет полной реализации.
+        // Для полноценной работы нужно либо передавать bot_token в StarsProvider,
+        // либо убрать StarsProvider из MarketplaceService и обрабатывать Stars отдельно.
+        anyhow::bail!(
+            "StarsProvider in MarketplaceService is not implemented. \
+             Use PayService::create_stars_invoice for Telegram Stars payments."
+        )
     }
 
     async fn verify_webhook(&self, _payload: &[u8], _signature: &str) -> Result<bool> {
