@@ -48,9 +48,25 @@ pub async fn apply_self_update(
     ));
 
     tokio::fs::write(&tmp_path, &bytes).await?;
-    std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755))?;
-    // rename() — атомарная операция на том же разделе ФС
-    std::fs::rename(&tmp_path, &exe_path)?;
+
+    // Устанавливаем права ПЕРЕД rename, чтобы новый бинарник сразу был исполняемым.
+    // Ошибка прав → удаляем tmp файл и прокидываем ошибку.
+    if let Err(e) = std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755)) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(anyhow::anyhow!("Failed to set permissions on update binary: {}", e));
+    }
+
+    // rename() — атомарная операция на том же разделе ФС.
+    // При ошибке rename удаляем tmp файл чтобы не оставлять мусор.
+    if let Err(e) = std::fs::rename(&tmp_path, &exe_path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(anyhow::anyhow!(
+            "Failed to atomically replace binary at {}: {}",
+            exe_path.display(),
+            e
+        ));
+    }
+
     Ok(())
 }
 

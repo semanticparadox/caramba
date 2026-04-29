@@ -89,7 +89,13 @@ impl GeoService {
 
         #[cfg(feature = "geo")]
         {
-            // 2. MaxMind DB
+            // 2. Ранний выход для локальных/незначащих адресов — до MaxMind и HTTP
+            if ip == "127.0.0.1" || ip == "::1" || ip == "0.0.0.0" || ip.is_empty() {
+                tracing::debug!("GeoIP: пропуск для локального IP {}", ip);
+                return None;
+            }
+
+            // 3. MaxMind DB
             if let Some(reader) = &self.reader {
                 if let Ok(ip_addr) = ip.parse::<std::net::IpAddr>() {
                     if let Ok(city) = reader.lookup::<geoip2::City>(ip_addr) {
@@ -115,12 +121,6 @@ impl GeoService {
                         return Some(data);
                     }
                 }
-            }
-
-            // 3. Пропускаем локальные адреса перед HTTP-запросами
-            if ip == "127.0.0.1" || ip == "::1" || ip == "0.0.0.0" {
-                tracing::debug!("GeoIP: пропуск API-запроса для локального IP {}", ip);
-                return None;
             }
 
             // 4. Основной: ip-api.com (бесплатно, 45 req/min)
