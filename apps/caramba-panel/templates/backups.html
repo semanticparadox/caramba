@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block title %}Database Backups{% endblock %}
+{% block header_title %}Database Backups{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+
+    <!-- Header row: title + status pill + create button -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+            <h2 class="text-2xl font-bold text-slate-900 dark:text-white">Database Backups</h2>
+            <p class="text-sm text-slate-500 mt-0.5">Local compressed PostgreSQL dumps · rotation: 14 newest kept</p>
+        </div>
+
+        <div class="flex items-center gap-3 flex-wrap">
+            <!-- Last backup status pill -->
+            <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold {{ status_class }}">
+                <span class="w-2 h-2 rounded-full bg-current"></span>
+                Last backup: {{ last_backup_ago }}
+                {% if backup_count > 0 %} &middot; {{ backup_count }} file{% if backup_count != 1 %}s{% endif %}{% endif %}
+            </span>
+
+            <!-- Manual trigger -->
+            <form method="POST" action="{{ admin_path }}/backups/create"
+                  hx-post="{{ admin_path }}/backups/create"
+                  hx-target="#backup-content"
+                  hx-swap="innerHTML"
+                  hx-indicator="#backup-spinner">
+                <button type="submit"
+                    class="btn btn-primary flex items-center gap-2 px-5 py-2 text-sm font-semibold">
+                    <span id="backup-spinner" class="htmx-indicator">
+                        <i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>
+                    </span>
+                    <i data-lucide="database-backup" class="w-4 h-4" id="backup-icon"></i>
+                    Create Backup Now
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Flash message (success / error from create/delete) -->
+    {% if let Some(msg) = flash %}
+    <div class="rounded-xl border px-5 py-3 text-sm font-medium
+        {% if msg.starts_with("Backup failed") || msg.starts_with("Delete failed") %}
+            bg-rose-500/10 border-rose-500/20 text-rose-300
+        {% else %}
+            bg-emerald-500/10 border-emerald-500/20 text-emerald-300
+        {% endif %}">
+        <i data-lucide="{% if msg.starts_with("Backup failed") || msg.starts_with("Delete failed") %}alert-circle{% else %}check-circle{% endif %}" class="w-4 h-4 inline-block mr-2 align-middle"></i>
+        {{ msg }}
+    </div>
+    {% endif %}
+
+    <!-- Backup file table -->
+    <div id="backup-content">
+        <div class="card-section">
+            <div class="p-6 border-b border-white/5 flex items-center justify-between">
+                <div>
+                    <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <i data-lucide="archive" class="w-5 h-5 text-brand"></i>
+                        Stored Backups
+                    </h3>
+                    <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">
+                        Stored in <code class="font-mono text-xs text-brand">$BACKUP_DIR</code> (default <code class="font-mono text-xs">/var/lib/caramba/backups</code>)
+                    </p>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="table-base">
+                    <thead>
+                        <tr>
+                            <th class="px-6 py-4 text-left">Filename</th>
+                            <th class="px-6 py-4 text-left">Created</th>
+                            <th class="px-6 py-4 text-right">Size</th>
+                            <th class="px-6 py-4 text-center">Age</th>
+                            <th class="px-6 py-4 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rows %}
+                        <tr class="hover:bg-white/5 transition-colors group">
+                            <td class="px-6 py-4">
+                                <span class="font-mono text-xs text-slate-300 group-hover:text-white transition-colors">
+                                    {{ row.filename }}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-slate-400 text-xs">
+                                {{ row.created_at }}
+                            </td>
+                            <td class="px-6 py-4 text-right">
+                                <span class="badge badge-proto font-mono">{{ row.size_human }}</span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                {% if row.age_hours < 26 %}
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                    Fresh
+                                </span>
+                                {% else if row.age_hours < 72 %}
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                                    Stale
+                                </span>
+                                {% else %}
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                                    Old
+                                </span>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="flex items-center justify-end gap-2">
+                                    <!-- Download -->
+                                    <a href="{{ admin_path }}/backups/{{ row.filename }}"
+                                       class="btn btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5"
+                                       title="Download">
+                                        <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                                        Download
+                                    </a>
+                                    <!-- Delete -->
+                                    <form method="POST"
+                                          action="{{ admin_path }}/backups/{{ row.filename }}/delete"
+                                          onsubmit="return confirm('Delete {{ row.filename }}?')">
+                                        <button type="submit"
+                                            class="btn py-1.5 px-3 text-xs flex items-center gap-1.5 bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 transition-colors"
+                                            title="Delete">
+                                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                            Delete
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="px-6 py-12 text-center">
+                                <div class="flex flex-col items-center gap-3 text-slate-500">
+                                    <i data-lucide="database" class="w-10 h-10 opacity-30"></i>
+                                    <p class="text-sm font-medium">No backups found</p>
+                                    <p class="text-xs">Click "Create Backup Now" to generate the first one,<br>or wait for the scheduled daily run.</p>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info card: rotation policy + env vars -->
+    <div class="card p-6">
+        <div class="flex items-start gap-4">
+            <div class="w-10 h-10 rounded-2xl bg-brand/10 flex items-center justify-center text-brand flex-shrink-0">
+                <i data-lucide="info" class="w-5 h-5"></i>
+            </div>
+            <div class="space-y-3 text-sm text-slate-400">
+                <p class="font-semibold text-slate-200">Backup configuration</p>
+                <ul class="space-y-1.5 text-xs list-none">
+                    <li><code class="font-mono text-brand">BACKUP_DIR</code> — storage path (default: <code class="font-mono">/var/lib/caramba/backups</code>)</li>
+                    <li><code class="font-mono text-brand">BACKUP_KEEP</code> — number of backups to retain (default: <code class="font-mono">14</code>)</li>
+                </ul>
+                <p class="text-xs">
+                    Daily backups run automatically at the 2880-tick mark (~24 h).
+                    Files are named <code class="font-mono text-xs">caramba-YYYYMMDDTHHMMSSZ.sql.gz</code> and stored with 0600 permissions.
+                    The panel process must have write access to <code class="font-mono">BACKUP_DIR</code>.
+                </p>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

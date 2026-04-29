@@ -292,11 +292,13 @@
                     class="nav-pill {% if active_page == "transactions" %}active{% endif %}">Transactions</a>
                 {% endif %}
 
-                {% if active_page == "settings" || active_page == "bot_logs" %}
+                {% if active_page == "settings" || active_page == "bot_logs" || active_page == "backups" %}
                 <a href="{{ admin_path }}/settings"
                     class="nav-pill {% if active_page == "settings" %}active{% endif %}">Settings</a>
                 <a href="{{ admin_path }}/bot"
                     class="nav-pill {% if active_page == "bot_logs" %}active{% endif %}">Telegram Bot</a>
+                <a href="{{ admin_path }}/backups"
+                    class="nav-pill {% if active_page == "backups" %}active{% endif %}">Backups</a>
                 {% endif %}
 
             </nav>
@@ -352,7 +354,7 @@
 
                     <!-- System -->
                     <a href="{{ admin_path }}/settings"
-                        class="dock-item {% if active_page == "settings" || active_page == "bot_logs" %}active{% endif %}"
+                        class="dock-item {% if active_page == "settings" || active_page == "bot_logs" || active_page == "backups" %}active{% endif %}"
                         title="System">
                         <i data-lucide="settings" class="dock-item-icon"></i>
                         <span class="dock-item-label">System</span>
