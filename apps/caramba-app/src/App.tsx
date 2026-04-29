@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, NavLink, Navigate, useLocation 
 import { useTranslation } from 'react-i18next'
 import { AuthProvider } from './context/AuthContext'
 import { AppLockProvider } from './context/AppLockContext'
+import { NotificationProvider } from './context/NotificationContext'
 import { lazy, Suspense } from 'react'
 import Home from './pages/Home'
 import Promo from './pages/Promo'
@@ -13,6 +14,11 @@ const Servers = lazy(() => import('./pages/Servers'))
 const Subscription = lazy(() => import('./pages/Subscription'))
 const Devices = lazy(() => import('./pages/Devices'))
 const Billing = lazy(() => import('./pages/Billing'))
+const Notifications = lazy(() => import('./pages/Notifications'))
+const NotificationPreferences = lazy(() => import('./pages/NotificationPreferences'))
+const Tickets = lazy(() => import('./pages/Tickets'))
+const TicketNew = lazy(() => import('./pages/TicketNew'))
+const TicketDetail = lazy(() => import('./pages/TicketDetail'))
 import './App.css'
 
 function BottomCommandNav() {
@@ -26,6 +32,8 @@ function BottomCommandNav() {
         || location.pathname.startsWith('/store')
         || location.pathname.startsWith('/billing')
         || location.pathname.startsWith('/statistics')
+        || location.pathname.startsWith('/notifications')
+        || location.pathname.startsWith('/tickets')
     const isPromo = location.pathname.startsWith('/promo')
     const isSupport = location.pathname.startsWith('/support')
 
@@ -61,6 +69,11 @@ function AppShell() {
                     <Route path="/promo" element={<Promo />} />
                     <Route path="/support" element={<Support />} />
                     <Route path="/support/connect" element={<ConnectGuide />} />
+                    <Route path="/notifications" element={<Notifications />} />
+                    <Route path="/notifications/preferences" element={<NotificationPreferences />} />
+                    <Route path="/tickets" element={<Tickets />} />
+                    <Route path="/tickets/new" element={<TicketNew />} />
+                    <Route path="/tickets/:id" element={<TicketDetail />} />
                 </Routes>
             </Suspense>
             <AppLockGate />
@@ -73,7 +86,9 @@ function App() {
         <AuthProvider>
             <AppLockProvider>
                 <Router basename="/app">
-                    <AppShell />
+                    <NotificationProvider>
+                        <AppShell />
+                    </NotificationProvider>
                 </Router>
             </AppLockProvider>
         </AuthProvider>
