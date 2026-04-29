@@ -6,6 +6,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import DrawerModal from '../components/DrawerModal'
 import { apiUrl } from '../config'
 import { useAuth, UserSubscription } from '../context/AuthContext'
+import { useNotifications } from '../context/NotificationContext'
 import { copyText } from '../lib/copyActions'
 import { mapProviderCards } from '../lib/paymentProviders'
 import { formatBytes, getUsageSnapshot, usageProgress } from '../lib/subscriptionMetrics'
@@ -46,6 +47,7 @@ export default function Home() {
     const { t } = useTranslation()
     const navigate = useNavigate()
     const { userStats: stats, isLoading, user, subscriptions, refreshData, token, error } = useAuth()
+    const { unreadCount } = useNotifications()
 
     // Форматирование длительности через i18n-ключи
     const formatDuration = (days: number): string => {
@@ -425,6 +427,18 @@ export default function Home() {
                     <p className="hero-kicker">{t('home.welcome')}</p>
                     <h1>{displayName}</h1>
                 </div>
+                {/* Колокольчик уведомлений */}
+                <button
+                    className="home-bell-btn"
+                    onClick={() => navigate('/notifications')}
+                    aria-label={t('home.notificationsBell')}
+                    title={t('home.notificationsBell')}
+                >
+                    BL
+                    {unreadCount > 0 && (
+                        <span className="home-bell-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+                    )}
+                </button>
             </section>
 
             {banner && (
@@ -773,6 +787,17 @@ export default function Home() {
                     </div>
                 </article>
 
+            </section>
+
+            {/* Карточка быстрого доступа к тикетам поддержки */}
+            <section className="home-support-card glass-card">
+                <div className="home-support-copy">
+                    <h3>{t('home.supportCardTitle')}</h3>
+                    <p>{t('home.supportCardDesc')}</p>
+                </div>
+                <button className="btn-secondary home-support-btn" onClick={() => navigate('/tickets')}>
+                    {t('home.supportCardBtn')}
+                </button>
             </section>
 
             <DrawerModal
