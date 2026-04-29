@@ -7,6 +7,7 @@ use axum::{
     response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 // Helper struct for bot verification (stub)
 #[derive(Deserialize)]
@@ -915,6 +916,218 @@ pub async fn get_sub_config_file(
                     (StatusCode::INTERNAL_SERVER_ERROR, "Config generation failed").into_response()
                 }
             }
+        }
+    }
+}
+
+// ============================================================================
+// Bot API — Тикеты поддержки
+// ============================================================================
+
+#[derive(Deserialize)]
+pub struct TicketListQuery {
+    pub status: Option<String>,
+    pub assignee_tg_id: Option<i64>,
+    #[serde(default = "default_ticket_limit")]
+    pub limit: i64,
+    #[serde(default)]
+    pub offset: i64,
+}
+
+fn default_ticket_limit() -> i64 {
+    20
+}
+
+/// GET /api/v2/bot/tickets  — список тикетов для бота
+pub async fn bot_list_tickets(
+    State(state): State<AppState>,
+    Query(q): Query<TicketListQuery>,
+) -> impl IntoResponse {
+    let limit = q.limit.clamp(1, 100);
+    let offset = q.offset.max(0);
+
+    match state
+        .tickets_svc
+        .list_admin_tickets(q.status.as_deref(), q.assignee_tg_id, limit, offset)
+        .await
+    {
+        Ok(tickets) => Json(tickets).into_response(),
+        Err(e) => {
+            tracing::error!("bot_list_tickets error: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// GET /api/v2/bot/tickets/{id}
+pub async fn bot_get_ticket(
+    State(state): State<AppState>,
+    Path(ticket_id): Path<i64>,
+) -> impl IntoResponse {
+    match state.tickets_svc.get_ticket(ticket_id, true, None).await {
+        Ok((ticket, messages)) => {
+            // Получаем данные пользователя для расширенного ответа
+            let user_row: Option<(Option<String>, Option<i64>)> = sqlx::query_as(
+                "SELECT username, tg_id FROM users WHERE id = $1",
+            )
+            .bind(ticket.user_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
+
+            let (username, tg_id) = user_row.unwrap_or((None, None));
+
+            Json(serde_json::json!({
+                "ticket": ticket,
+                "user": { "username": username, "tg_id": tg_id },
+                "messages": messages
+            }))
+            .into_response()
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("не найден") {
+                (StatusCode::NOT_FOUND, msg).into_response()
+            } else {
+                tracing::error!("bot_get_ticket error: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            }
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct BotAddMessageReq {
+    pub admin_tg_id: i64,
+    pub body: String,
+}
+
+/// POST /api/v2/bot/tickets/{id}/messages
+pub async fn bot_add_ticket_message(
+    State(state): State<AppState>,
+    Path(ticket_id): Path<i64>,
+    Json(body): Json<BotAddMessageReq>,
+) -> impl IntoResponse {
+    match state
+        .tickets_svc
+        .add_admin_message(ticket_id, body.admin_tg_id, &body.body, vec![])
+        .await
+    {
+        Ok(msg) => (StatusCode::CREATED, Json(msg)).into_response(),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("не найден") {
+                (StatusCode::NOT_FOUND, msg).into_response()
+            } else {
+                tracing::error!("bot_add_ticket_message error: {}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
+            }
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct BotAssignReq {
+    pub admin_tg_id: i64,
+}
+
+/// POST /api/v2/bot/tickets/{id}/assign
+pub async fn bot_assign_ticket(
+    State(state): State<AppState>,
+    Path(ticket_id): Path<i64>,
+    Json(body): Json<BotAssignReq>,
+) -> impl IntoResponse {
+    match state
+        .tickets_svc
+        .assign(ticket_id, body.admin_tg_id)
+        .await
+    {
+        Ok(ticket) => Json(ticket).into_response(),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("не найден") {
+                (StatusCode::NOT_FOUND, msg).into_response()
+            } else {
+                tracing::error!("bot_assign_ticket error: {}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
+            }
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct BotSetStatusReq {
+    pub admin_tg_id: i64,
+    pub status: String,
+}
+
+/// POST /api/v2/bot/tickets/{id}/status
+pub async fn bot_set_ticket_status(
+    State(state): State<AppState>,
+    Path(ticket_id): Path<i64>,
+    Json(body): Json<BotSetStatusReq>,
+) -> impl IntoResponse {
+    match state
+        .tickets_svc
+        .set_status(ticket_id, &body.status, body.admin_tg_id)
+        .await
+    {
+        Ok(ticket) => Json(ticket).into_response(),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("не найден") {
+                (StatusCode::NOT_FOUND, msg).into_response()
+            } else if msg.contains("Недопустимый статус") {
+                (StatusCode::UNPROCESSABLE_ENTITY, msg).into_response()
+            } else {
+                tracing::error!("bot_set_ticket_status error: {}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Bot API — Broadcast уведомлений
+// ============================================================================
+
+#[derive(Deserialize)]
+pub struct BroadcastReq {
+    pub category: String,
+    pub severity: String,
+    pub title: String,
+    pub body: String,
+    pub payload: Option<Value>,
+    #[serde(default = "default_segment")]
+    pub segment: String,
+}
+
+fn default_segment() -> String {
+    "all".to_string()
+}
+
+/// POST /api/v2/bot/notifications/broadcast
+/// Создаёт уведомления для всех пользователей выбранного сегмента.
+pub async fn bot_broadcast_notification(
+    State(state): State<AppState>,
+    Json(body): Json<BroadcastReq>,
+) -> impl IntoResponse {
+    match state
+        .notifications_svc
+        .broadcast(
+            &body.category,
+            &body.severity,
+            &body.title,
+            &body.body,
+            body.payload,
+            &body.segment,
+        )
+        .await
+    {
+        Ok(queued) => Json(serde_json::json!({ "queued": queued })).into_response(),
+        Err(e) => {
+            tracing::error!("bot_broadcast_notification error: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
         }
     }
 }

@@ -90,6 +90,32 @@ pub fn bot_routes(state: AppState) -> axum::Router<AppState> {
             "/subs/{id}/config-file",
             get(handlers::api::bot::get_sub_config_file),
         )
+        // Тикеты поддержки — управление из бота
+        .route(
+            "/tickets",
+            get(handlers::api::bot::bot_list_tickets),
+        )
+        .route(
+            "/tickets/{id}",
+            get(handlers::api::bot::bot_get_ticket),
+        )
+        .route(
+            "/tickets/{id}/messages",
+            post(handlers::api::bot::bot_add_ticket_message),
+        )
+        .route(
+            "/tickets/{id}/assign",
+            post(handlers::api::bot::bot_assign_ticket),
+        )
+        .route(
+            "/tickets/{id}/status",
+            post(handlers::api::bot::bot_set_ticket_status),
+        )
+        // Broadcast уведомлений для сегмента пользователей
+        .route(
+            "/notifications/broadcast",
+            post(handlers::api::bot::bot_broadcast_notification),
+        )
         // Применяем rate limiting — внутренний слой (выполняется после авторизации)
         .route_layer(axum::middleware::from_fn_with_state(
             state,
