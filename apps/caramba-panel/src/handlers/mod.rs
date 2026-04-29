@@ -9,3 +9,4 @@ pub mod assets;
 pub mod frontend;
 pub mod local_app;
 pub mod setup;
+pub mod status;

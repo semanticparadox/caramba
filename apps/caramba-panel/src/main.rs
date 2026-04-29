@@ -1320,6 +1320,12 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
                 }
             }),
         )
+        // Public status page — human-readable HTML at /status.
+        // No auth, no PII. Different from /api/health which is JSON for monitors.
+        .route(
+            "/status",
+            axum::routing::get(handlers::status::status_page),
+        )
         .route(
             "/assets/css/modern.css",
             axum::routing::get(handlers::assets::modern_css),

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ brand_name }} — Service Status</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         background: #0b0e13; color: #e6e8ee; -webkit-font-smoothing: antialiased; line-height: 1.5; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 56px 24px 80px; }
+  h1 { font-size: 1.5rem; font-weight: 600; margin: 0 0 4px; }
+  .brand { color: #94a3b8; font-size: 0.85rem; }
+  .panel { background: #131822; border: 1px solid #1f2733; border-radius: 14px; padding: 24px; margin-top: 24px; }
+  .panel h2 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.12em;
+              color: #94a3b8; font-weight: 700; margin: 0 0 16px; }
+  .indicator { display: flex; align-items: center; gap: 16px; padding: 24px;
+               border-radius: 14px; border: 1px solid; margin-top: 16px; }
+  .indicator-dot { width: 14px; height: 14px; border-radius: 999px; flex: none; }
+  .indicator-text { font-size: 1.15rem; font-weight: 600; }
+  .indicator-green  { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.3); color: #6ee7b7; }
+  .indicator-amber  { background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.3); color: #fcd34d; }
+  .indicator-red    { background: rgba(244,63,94,0.08);  border-color: rgba(244,63,94,0.3);  color: #fda4af; }
+  .indicator-green  .indicator-dot { background: #34d399; box-shadow: 0 0 8px #34d399; }
+  .indicator-amber  .indicator-dot { background: #fbbf24; box-shadow: 0 0 8px #fbbf24; }
+  .indicator-red    .indicator-dot { background: #fb7185; box-shadow: 0 0 8px #fb7185; }
+  .stats-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+  .stat { background: #0f141d; border: 1px solid #1f2733; border-radius: 10px; padding: 16px; }
+  .stat-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: #64748b; font-weight: 700; }
+  .stat-value { font-size: 1.5rem; font-weight: 700; margin-top: 6px; color: #e6e8ee; }
+  .stat-active   { color: #34d399; }
+  .stat-offline  { color: #fb7185; }
+  .regions { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+  .region { display: flex; align-items: center; gap: 10px; background: #0f141d; border: 1px solid #1f2733;
+            border-radius: 10px; padding: 12px 14px; }
+  .region-flag { font-size: 1.4rem; }
+  .region-meta { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+  .region-cc   { font-weight: 600; font-size: 0.85rem; }
+  .region-stat { font-size: 0.75rem; color: #94a3b8; margin-top: 2px; }
+  .region-dot  { width: 10px; height: 10px; border-radius: 999px; flex: none; }
+  .region-green .region-dot { background: #34d399; }
+  .region-amber .region-dot { background: #fbbf24; }
+  .region-red   .region-dot { background: #fb7185; }
+  .footer { color: #64748b; font-size: 0.78rem; text-align: center; margin-top: 28px; }
+  .footer a { color: #94a3b8; text-decoration: underline; }
+  .empty { color: #94a3b8; font-style: italic; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">{{ brand_name }}</div>
+    <h1>Service Status</h1>
+  </header>
+
+  <div class="indicator indicator-{{ overall_color }}" role="status" aria-live="polite">
+    <span class="indicator-dot"></span>
+    <span class="indicator-text">{{ overall_label }}</span>
+  </div>
+
+  <section class="panel">
+    <h2>Infrastructure</h2>
+    <div class="stats-grid">
+      <div class="stat">
+        <div class="stat-label">Total nodes</div>
+        <div class="stat-value">{{ nodes_total }}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Active</div>
+        <div class="stat-value stat-active">{{ nodes_active }}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Offline</div>
+        <div class="stat-value {% if nodes_offline > 0 %}stat-offline{% endif %}">{{ nodes_offline }}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Frontends</div>
+        <div class="stat-value stat-active">{{ frontends_active }}</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Regions</h2>
+    {% if regions.is_empty() %}
+    <p class="empty">No region data available.</p>
+    {% else %}
+    <div class="regions">
+      {% for r in regions %}
+      <div class="region region-{{ r.status_color }}">
+        <span class="region-flag">{{ r.country_flag }}</span>
+        <div class="region-meta">
+          <span class="region-cc">{{ r.country_code }}</span>
+          <span class="region-stat">{{ r.active }}/{{ r.total }} online</span>
+        </div>
+        <span class="region-dot" aria-hidden="true"></span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
+
+  <p class="footer">
+    Last checked: {{ last_checked }} · For machine-readable status see <a href="/api/health">/api/health</a>
+  </p>
+</div>
+</body>
+</html>
