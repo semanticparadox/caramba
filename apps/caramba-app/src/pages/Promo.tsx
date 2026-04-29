@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { copyText } from '../lib/copyActions'
@@ -40,7 +40,7 @@ export default function Promo() {
     const [banner, setBanner] = useState<Banner>(null)
     const [referralStats, setReferralStats] = useState<ReferralStats | null>(null)
 
-    const loadReferrals = async () => {
+    const loadReferrals = useCallback(async () => {
         if (!token) {
             setLoadingReferrals(false)
             return
@@ -61,7 +61,7 @@ export default function Promo() {
         } finally {
             setLoadingReferrals(false)
         }
-    }
+    }, [token])
 
     useEffect(() => {
         if (!token) {
@@ -74,7 +74,9 @@ export default function Promo() {
         }
 
         void loadReferrals()
-    }, [token, error])
+    // error/t не включены намеренно — banner для auth-ошибки нужен только при отсутствии token
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [token, loadReferrals])
 
     const redeemPromo = async () => {
         const code = promoCode.trim().toUpperCase()

@@ -160,35 +160,43 @@ export default function Servers() {
                     client,
                 }),
             })
-        } catch (error) {
-            console.error('Variant telemetry failed', error)
+        } catch {
+            // Телеметрия не критична — тихая ошибка не ломает UX
         }
     }
 
     useEffect(() => {
         if (!token) return;
+        const controller = new AbortController()
         const fetchData = async () => {
             try {
                 const query = activeSub ? `?sub_id=${activeSub.id}` : ''
                 const coords = estimateCoords()
                 const coordsParam = coords ? `&lat=${coords.lat}&lon=${coords.lon}` : ''
                 const res = await fetch(`/api/client/servers${query}${coordsParam}`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    signal: controller.signal,
                 });
                 if (res.ok) setServers(await res.json());
-            } catch (e) { console.error(e); }
-            finally { setLoading(false); }
+            } catch (e: unknown) {
+                if (e instanceof Error && e.name === 'AbortError') return;
+                // Тихая ошибка — пользователь увидит пустой список серверов
+            } finally {
+                setLoading(false);
+            }
         };
         const fetchRelays = async () => {
             try {
                 const res = await fetch('/api/client/relay-countries', {
                     headers: { Authorization: `Bearer ${token}` },
+                    signal: controller.signal,
                 })
                 if (res.ok) setRelayCountries(await res.json())
             } catch { /* ignore */ }
         };
-        fetchData();
-        fetchRelays();
+        void fetchData();
+        void fetchRelays();
+        return () => { controller.abort(); };
     }, [activeSub?.id, token]);
 
     const handlePinServer = async (nodeId: number | null) => {

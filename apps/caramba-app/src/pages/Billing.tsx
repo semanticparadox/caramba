@@ -36,16 +36,25 @@ export default function Billing() {
             setLoading(false)
             return
         }
+        const controller = new AbortController()
         const fetchPayments = async () => {
             try {
                 const res = await fetch('/api/client/user/payments', {
-                    headers: { 'Authorization': `Bearer ${token}` }
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    signal: controller.signal,
                 })
                 if (res.ok) setPayments(await res.json())
-            } catch (e) { console.error(e); }
-            finally { setLoading(false); }
+            } catch (e: unknown) {
+                // AbortError при размонтировании — игнорируем
+                if (e instanceof Error && e.name !== 'AbortError') {
+                    setLoading(false)
+                }
+                return
+            }
+            setLoading(false)
         }
-        fetchPayments()
+        void fetchPayments()
+        return () => { controller.abort() }
     }, [token])
 
     const goBack = () => {
