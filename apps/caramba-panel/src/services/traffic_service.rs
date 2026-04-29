@@ -1,6 +1,4 @@
 use crate::AppState;
-use crate::services::analytics_service::AnalyticsService;
-use chrono::Utc;
 use std::collections::HashSet;
 use tokio::time::{Duration, interval};
 use tracing::{error, info};
@@ -51,65 +49,12 @@ impl TrafficService {
         Ok(())
     }
 
-    #[allow(dead_code)]
-    async fn process_node_usage(
-        &self,
-        _node_id: i64,
-        usage: serde_json::Value,
-    ) -> anyhow::Result<()> {
-        if let Some(users_usage) = usage.get("users") {
-            if let Some(users_map) = users_usage.as_object() {
-                let mut tx = self.state.pool.begin().await?;
-                for (user_tag, bytes_val) in users_map {
-                    if let Some(bytes) = bytes_val.as_u64() {
-                        if user_tag.starts_with("user_") {
-                            if let Ok(sub_id) = user_tag[5..].parse::<i64>() {
-                                let sub_details = sqlx::query_as::<_, (i64, String, i64)>(
-                                    "UPDATE subscriptions SET used_traffic = used_traffic + $1, traffic_updated_at = $2 WHERE id = $3 RETURNING user_id, COALESCE(note, ''), plan_id"
-                                )
-                                .bind(bytes as i64)
-                                .bind(Utc::now())
-                                .bind(sub_id)
-                                .fetch_optional(&mut *tx)
-                                .await?;
-
-                                // Simple analytics
-                                let _ =
-                                    AnalyticsService::track_traffic(&self.state.pool, bytes as i64)
-                                        .await;
-
-                                // Family Plan Logic: Trickle up to parent
-                                if let Some((user_id, note, plan_id)) = sub_details {
-                                    if note == "Family" {
-                                        // Find parent
-                                        let parent_id: Option<i64> = sqlx::query_scalar(
-                                            "SELECT parent_id FROM users WHERE id = $1",
-                                        )
-                                        .bind(user_id)
-                                        .fetch_optional(&mut *tx)
-                                        .await?;
-
-                                        if let Some(pid) = parent_id {
-                                            // Update parent's active subscription of same plan
-                                            sqlx::query("UPDATE subscriptions SET used_traffic = used_traffic + $1 WHERE user_id = $2 AND plan_id = $3 AND status = 'active'")
-                                                .bind(bytes as i64)
-                                                .bind(pid)
-                                                .bind(plan_id)
-                                                .execute(&mut *tx)
-                                                .await?;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                tx.commit().await?;
-            }
-        }
-
-        Ok(())
-    }
+    // NOTE: `process_node_usage` was deleted in this commit. It interpreted
+    // `user_{N}` keys as subscription IDs, while the live heartbeat path in
+    // `api/v2/node.rs::heartbeat` correctly interprets them as Telegram IDs
+    // (with `unnest()` bulk-update resolving tg_id → user_id → subscription).
+    // Re-wiring the old function would silently write traffic to the wrong
+    // subscriptions.
 
     async fn enforce_quotas(&self) -> anyhow::Result<()> {
         // --- Платные планы: истекаем и уведомляем ноды ---
