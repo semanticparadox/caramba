@@ -5,9 +5,24 @@ import { normalizePinInput } from '../security/pin';
 import PinPad from './PinPad';
 import './AppLockGate.css';
 
+// Коды ошибок из AppLockContext / pin.ts → переводимые ключи
+const PIN_ERROR_KEYS: Record<string, string> = {
+    'pin.incorrect': 'applock.errorIncorrect',
+    'pin.incorrectCurrent': 'applock.errorIncorrect',
+    'pin.incorrectFormat': 'applock.errorIncorrect',
+    'pin.enableFailed': 'applock.errorEnableFailed',
+    'pin.changeFailed': 'applock.errorChangeFailed',
+    'pin.disableFailed': 'applock.errorDisableFailed',
+}
+
 export default function AppLockGate() {
     const { t } = useTranslation();
     const { ready, isPinEnabled, isLocked, isBusy, error, unlock, clearError } = useAppLock();
+
+    // Переводим код ошибки если это i18n-ключ, иначе показываем как есть
+    const translatedError = error
+        ? (PIN_ERROR_KEYS[error] ? t(PIN_ERROR_KEYS[error]) : error)
+        : null;
     const [pin, setPin] = useState('');
 
     useEffect(() => {
@@ -52,7 +67,7 @@ export default function AppLockGate() {
                 title={t('applock.unlock')}
                 subtitle={t('applock.unlockSubtitle')}
                 valueLength={pin.length}
-                error={error}
+                error={translatedError}
                 busy={isBusy}
                 onDigit={onDigit}
                 onBackspace={onBackspace}

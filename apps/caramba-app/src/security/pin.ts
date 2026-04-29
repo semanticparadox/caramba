@@ -89,7 +89,7 @@ export function validatePinFormat(pin: string): boolean {
 
 export async function setPin(pin: string): Promise<void> {
     if (!validatePinFormat(pin)) {
-        throw new Error('PIN must be exactly 4 digits.');
+        throw new Error('pin.incorrectFormat');
     }
     const salt = randomSaltHex(16);
     const hash = await sha256(`${salt}:${pin}`);
@@ -107,13 +107,13 @@ export async function verifyPin(pin: string): Promise<boolean> {
 
 export async function changePin(currentPin: string, newPin: string): Promise<void> {
     const ok = await verifyPin(currentPin);
-    if (!ok) throw new Error('Current PIN is incorrect.');
+    if (!ok) throw new Error('pin.incorrectCurrent');
     await setPin(newPin);
 }
 
 export async function disablePin(currentPin: string): Promise<void> {
     const ok = await verifyPin(currentPin);
-    if (!ok) throw new Error('Current PIN is incorrect.');
+    if (!ok) throw new Error('pin.incorrectCurrent');
     clearPin();
 }
 

@@ -134,7 +134,10 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 dispatch({ type: 'UNLOCK_SUCCESS' });
                 return true;
             }
-            dispatch({ type: 'UNLOCK_FAILED', message: 'Incorrect PIN. Try again.' });
+            // AMBIGUOUS: ошибка хранится в контексте и передаётся в AppLockGate как есть.
+            // Для полной i18n нужен переводимый ключ — сейчас AppLockGate.tsx
+            // передаёт error напрямую в PinPad без перевода.
+            dispatch({ type: 'UNLOCK_FAILED', message: 'pin.incorrect' });
             return false;
         };
 
@@ -152,7 +155,7 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
             } catch (e: any) {
                 dispatch({
                     type: 'UNLOCK_FAILED',
-                    message: e?.message || 'Failed to enable PIN.',
+                    message: e?.message || 'pin.enableFailed',
                 });
                 throw e;
             }
@@ -167,7 +170,7 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
             } catch (e: any) {
                 dispatch({
                     type: 'UNLOCK_FAILED',
-                    message: e?.message || 'Failed to change PIN.',
+                    message: e?.message || 'pin.changeFailed',
                 });
                 throw e;
             }
@@ -181,7 +184,7 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
             } catch (e: any) {
                 dispatch({
                     type: 'UNLOCK_FAILED',
-                    message: e?.message || 'Failed to disable PIN.',
+                    message: e?.message || 'pin.disableFailed',
                 });
                 throw e;
             }
