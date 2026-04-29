@@ -587,6 +587,56 @@ impl TicketsService {
         Ok(attachment)
     }
 
+    /// Возвращает метаданные вложения + содержимое файла. Авторизация
+    /// (ownership / admin) — ответственность вызывающего handler'а.
+    pub async fn read_attachment(
+        &self,
+        ticket_id: i64,
+        attachment_id: i64,
+    ) -> Result<(TicketAttachment, Vec<u8>)> {
+        let att: TicketAttachment = sqlx::query_as::<_, TicketAttachment>(
+            "SELECT id, ticket_id, message_id, filename, mime_type, size_bytes, storage_path, created_at
+             FROM ticket_attachments WHERE id = $1 AND ticket_id = $2",
+        )
+        .bind(attachment_id)
+        .bind(ticket_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Ошибка запроса вложения")?
+        .ok_or_else(|| anyhow::anyhow!("Вложение не найдено"))?;
+
+        // Защита от path traversal: гарантируем что storage_path лежит под upload_dir.
+        let canonical_root = fs::canonicalize(&self.upload_dir)
+            .await
+            .context("Не удалось разрешить TICKETS_UPLOAD_DIR")?;
+        let stored_path = std::path::PathBuf::from(&att.storage_path);
+        let canonical_file = fs::canonicalize(&stored_path)
+            .await
+            .context("Файл вложения не существует на диске")?;
+        if !canonical_file.starts_with(&canonical_root) {
+            bail!("Путь вложения вне TICKETS_UPLOAD_DIR — отказ из соображений безопасности");
+        }
+
+        let bytes = fs::read(&canonical_file)
+            .await
+            .context("Не удалось прочитать файл вложения")?;
+        Ok((att, bytes))
+    }
+
+    /// Проверяет принадлежность тикета пользователю — для предотвращения
+    /// перебора attachment_id чужих тикетов.
+    pub async fn verify_user_owns_ticket(&self, ticket_id: i64, user_id: i64) -> Result<bool> {
+        let owns: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM tickets WHERE id = $1 AND user_id = $2",
+        )
+        .bind(ticket_id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Ошибка проверки владельца тикета")?;
+        Ok(owns.is_some())
+    }
+
     /// Автоматически закрывает тикеты в статусе awaiting_user старше 7 дней.
     /// Добавляет системное сообщение и устанавливает статус closed.
     /// Возвращает количество закрытых тикетов.

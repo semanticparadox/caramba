@@ -1106,6 +1106,52 @@ fn default_segment() -> String {
     "all".to_string()
 }
 
+/// GET /api/v2/bot/tickets/{id}/attachments/{attachment_id}
+/// Streams the attachment back to the bot. Auth is X-Bot-Token + the bot
+/// itself must enforce its own admin gate before fetching — there's no
+/// per-admin tg_id check at this layer (any caller with the bot token
+/// is trusted).
+pub async fn bot_download_attachment(
+    State(state): State<AppState>,
+    axum::extract::Path((ticket_id, attachment_id)): axum::extract::Path<(i64, i64)>,
+) -> impl IntoResponse {
+    match state
+        .tickets_svc
+        .read_attachment(ticket_id, attachment_id)
+        .await
+    {
+        Ok((meta, bytes)) => {
+            let mime = meta
+                .mime_type
+                .clone()
+                .unwrap_or_else(|| "application/octet-stream".to_string());
+            let disposition = format!(
+                "inline; filename=\"{}\"; filename*=UTF-8''{}",
+                meta.filename.replace('"', ""),
+                urlencoding::encode(&meta.filename)
+            );
+            (
+                StatusCode::OK,
+                [
+                    (axum::http::header::CONTENT_TYPE, mime),
+                    (axum::http::header::CONTENT_DISPOSITION, disposition),
+                ],
+                bytes,
+            )
+                .into_response()
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("не найдено") || msg.contains("не существует") {
+                (StatusCode::NOT_FOUND, msg).into_response()
+            } else {
+                tracing::error!("bot_download_attachment error: {}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
+            }
+        }
+    }
+}
+
 /// POST /api/v2/bot/notifications/broadcast
 /// Создаёт уведомления для всех пользователей выбранного сегмента.
 pub async fn bot_broadcast_notification(

@@ -370,6 +370,13 @@ pub fn routes(state: AppState) -> Router<AppState> {
                 auth_middleware,
             )),
         )
+        .route(
+            "/tickets/{id}/attachments/{attachment_id}",
+            get(client_download_attachment).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
 }
 
 async fn auth_telegram(
@@ -3495,6 +3502,74 @@ async fn client_attach_file(
             } else {
                 tracing::error!("client_attach_file error: {}", e);
                 (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
+            }
+        }
+    }
+}
+
+/// GET /api/client/tickets/{id}/attachments/{attachment_id}
+/// Streams the file with original mime type and Content-Disposition. The
+/// service-layer canonicalises paths to prevent traversal — handler only
+/// enforces ownership.
+async fn client_download_attachment(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path((ticket_id, attachment_id)): Path<(i64, i64)>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id = match resolve_user_id(&state, tg_id).await {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    match state
+        .tickets_svc
+        .verify_user_owns_ticket(ticket_id, user_id)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => return (StatusCode::FORBIDDEN, "Access denied").into_response(),
+        Err(e) => {
+            tracing::error!("ownership check error: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    }
+
+    match state
+        .tickets_svc
+        .read_attachment(ticket_id, attachment_id)
+        .await
+    {
+        Ok((meta, bytes)) => {
+            let mime = meta
+                .mime_type
+                .clone()
+                .unwrap_or_else(|| "application/octet-stream".to_string());
+            // RFC 5987 fallback for non-ASCII filenames.
+            let safe_name = meta.filename.replace('"', "");
+            let disposition = format!(
+                "inline; filename=\"{}\"; filename*=UTF-8''{}",
+                safe_name,
+                urlencoding::encode(&meta.filename)
+            );
+            (
+                StatusCode::OK,
+                [
+                    (axum::http::header::CONTENT_TYPE, mime),
+                    (axum::http::header::CONTENT_DISPOSITION, disposition),
+                    (axum::http::header::CACHE_CONTROL, "private, max-age=300".to_string()),
+                ],
+                bytes,
+            )
+                .into_response()
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("не найдено") || msg.contains("не существует") {
+                (StatusCode::NOT_FOUND, msg).into_response()
+            } else {
+                tracing::error!("download_attachment error: {}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
             }
         }
     }

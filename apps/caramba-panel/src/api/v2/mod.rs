@@ -111,6 +111,10 @@ pub fn bot_routes(state: AppState) -> axum::Router<AppState> {
             "/tickets/{id}/status",
             post(handlers::api::bot::bot_set_ticket_status),
         )
+        .route(
+            "/tickets/{id}/attachments/{attachment_id}",
+            get(handlers::api::bot::bot_download_attachment),
+        )
         // Broadcast уведомлений для сегмента пользователей
         .route(
             "/notifications/broadcast",
