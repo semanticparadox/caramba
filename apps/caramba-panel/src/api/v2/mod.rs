@@ -1,4 +1,5 @@
 pub mod bot_auth;
+pub mod bot_rate_limit;
 pub mod client;
 pub mod node;
 
@@ -7,10 +8,20 @@ use crate::AppState;
 use axum::routing::{get, post};
 
 /// Защищённый роутер для всех /api/v2/bot/* маршрутов бота.
-/// Middleware require_bot_token проверяет X-Bot-Token на каждом запросе.
-/// Возвращает Router<AppState> без вызова with_state — состояние передаётся
-/// через родительский роутер при монтировании через .nest().
-pub fn bot_routes() -> axum::Router<AppState> {
+///
+/// Принимает `state` явно, чтобы передать его в `from_fn_with_state` для
+/// `bot_rate_limit` — middleware требует `AppState` для доступа к RedisService.
+///
+/// Стек middleware (в порядке выполнения при входящем запросе, снаружи внутрь):
+///   1. `require_bot_token` — проверяет X-Bot-Token; неавторизованные запросы
+///      отсекаются до проверки rate limit (экономим Redis RTT).
+///   2. `bot_rate_limit`   — ограничивает частоту через Redis:
+///        • per-endpoint лимиты для дорогих операций
+///        • глобальный лимит 50 req / 3 сек
+///
+/// В Axum 0.8: route_layer добавляет слои снаружи (LIFO), поэтому последний
+/// `.route_layer()` в коде — первый выполняется.
+pub fn bot_routes(state: AppState) -> axum::Router<AppState> {
     axum::Router::new()
         .route("/verify", post(handlers::api::bot::verify_user))
         .route("/users", post(handlers::api::bot::upsert_user))
@@ -60,6 +71,30 @@ pub fn bot_routes() -> axum::Router<AppState> {
             "/referral/signup-bonus",
             post(handlers::api::bot::referral_signup_bonus),
         )
-        // Применяем проверку токена ко всем маршрутам этого роутера
+        // Корзина: оплата и очистка
+        .route(
+            "/users/{id}/checkout-cart",
+            post(handlers::api::bot::checkout_cart),
+        )
+        .route(
+            "/users/{id}/cart",
+            axum::routing::delete(handlers::api::bot::clear_cart),
+        )
+        // Сессии подписки
+        .route(
+            "/subs/{id}/kill-sessions",
+            post(handlers::api::bot::kill_subscription_sessions),
+        )
+        // Конфиг-файл одной подписки (без утечки остальных)
+        .route(
+            "/subs/{id}/config-file",
+            get(handlers::api::bot::get_sub_config_file),
+        )
+        // Применяем rate limiting — внутренний слой (выполняется после авторизации)
+        .route_layer(axum::middleware::from_fn_with_state(
+            state,
+            bot_rate_limit::bot_rate_limit,
+        ))
+        // Применяем проверку токена — внешний слой (выполняется первым)
         .route_layer(axum::middleware::from_fn(bot_auth::require_bot_token))
 }

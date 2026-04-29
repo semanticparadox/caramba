@@ -1130,8 +1130,8 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/v2/node/register",
             axum::routing::post(api::v2::node::register),
         )
-        // Bot API — защищённый роутер с проверкой X-Bot-Token
-        .nest("/v2/bot", api::v2::bot_routes())
+        // Bot API — защищённый роутер с проверкой X-Bot-Token и rate limiting
+        .nest("/v2/bot", api::v2::bot_routes(state.clone()))
         // AI Routing — рекомендованные узлы для клиента
         .route(
             "/v2/client/recommended",
