@@ -578,9 +578,9 @@ impl StoreService {
 
             tx.commit().await?;
             let _ = crate::services::analytics_service::AnalyticsService::track_order(&self.pool).await;
-            let _ = ActivityService::log_tx(
+            // Логируем активность через pool после коммита транзакции
+            let _ = ActivityService::log(
                 &self.pool,
-                Some(user_id),
                 "Gift Purchase",
                 &format!("Purchased gift code for plan (Duration ID: {})", duration_id),
             )
@@ -1037,6 +1037,10 @@ impl StoreService {
         &self,
         user_id: i64,
         duration: &caramba_db::models::store::PlanDuration,
+        // NOTE: транзакция передаётся для контекста, но sub_repo не принимает &mut tx.
+        // Операции со схемой выполняются через pool внутри repo, но баланс уже снят в tx выше.
+        // AMBIGUOUS: sub_repo не имеет tx-aware методов — если нужна полная атомарность,
+        // потребуется добавить tx-версии в sub_repo (out-of-scope).
         _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> Result<Subscription> {
         let existing_sub = self.sub_repo.get_active_by_user(user_id).await?;
@@ -1441,10 +1445,14 @@ impl StoreService {
     }
 
     pub async fn delete_user_session(&self, _user_id: i64) -> Result<()> {
+        // AMBIGUOUS: в текущей архитектуре сессии хранятся в JWT/cookie без серверной таблицы.
+        // Если будет добавлена таблица user_sessions — реализовать DELETE WHERE user_id = $1 LIMIT 1.
         Ok(())
     }
 
     pub async fn delete_all_user_sessions(&self, _user_id: i64) -> Result<()> {
+        // AMBIGUOUS: аналогично delete_user_session — нет серверной таблицы сессий.
+        // При добавлении таблицы user_sessions — DELETE WHERE user_id = $1.
         Ok(())
     }
 
