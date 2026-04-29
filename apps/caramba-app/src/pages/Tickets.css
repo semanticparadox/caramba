@@ -1,0 +1,500 @@
+/* ======================================
+   Tickets Pages (list, new, detail)
+   ====================================== */
+
+/* ---- Tickets list ---- */
+.tickets-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    position: relative;
+    /* достаточно места для FAB */
+    padding-bottom: 80px;
+}
+
+.tickets-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+/* Карточка тикета в списке */
+.ticket-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-glass);
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    transition: background var(--ease-default), border-color var(--ease-default);
+    min-height: auto;
+}
+
+.ticket-row:hover,
+.ticket-row:focus-visible {
+    background: var(--bg-glass-hover);
+    border-color: var(--border-strong);
+}
+
+/* Непрочитанный тикет */
+.ticket-row.has-unread {
+    border-color: rgba(var(--accent-rgb), 0.25);
+    background: rgba(var(--accent-rgb), 0.05);
+}
+
+.ticket-row-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.ticket-subject {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ticket-preview {
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ticket-row-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.ticket-time {
+    font-size: 0.66rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+/* Статус-пилюля */
+.ticket-status-pill {
+    border-radius: var(--radius-round);
+    padding: 3px 8px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.ticket-status-pill.open          { background: rgba(79, 227, 181, 0.14); border: 1px solid rgba(79, 227, 181, 0.3);  color: var(--status-online); }
+.ticket-status-pill.in_progress   { background: rgba(255, 152, 56, 0.14); border: 1px solid rgba(255, 152, 56, 0.3);  color: var(--accent-primary); }
+.ticket-status-pill.awaiting_user { background: rgba(246, 194, 106, 0.14); border: 1px solid rgba(246, 194, 106, 0.3); color: var(--status-warning); }
+.ticket-status-pill.resolved      { background: rgba(255, 255, 255, 0.06); border: 1px solid var(--border-subtle);     color: var(--text-secondary); }
+.ticket-status-pill.closed        { background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-subtle);     color: var(--text-muted); }
+
+/* Плавающая кнопка «Новый тикет» */
+.fab-new-ticket {
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 72px); /* выше bottom-nav */
+    right: 20px;
+    z-index: 200;
+    border-radius: var(--radius-round);
+    padding: 12px 20px;
+    min-height: auto;
+    width: auto;
+    font-size: 0.82rem;
+    font-weight: 700;
+    background: var(--accent-gradient);
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+    color: #2d1200;
+    box-shadow: var(--shadow-glow);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.fab-new-ticket:hover {
+    transform: translateY(-1px);
+}
+
+/* ---- TicketNew (форма создания) ---- */
+.ticket-new-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.ticket-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.form-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.form-label {
+    font-size: 0.74rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-secondary);
+}
+
+.form-select {
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    outline: none;
+    font-size: 0.86rem;
+    font-family: inherit;
+    transition: border-color var(--ease-default), background var(--ease-default);
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(246,251,255,0.5)' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 36px;
+    cursor: pointer;
+}
+
+.form-select:focus {
+    border-color: rgba(var(--accent-rgb), 0.55);
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+.form-textarea {
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    outline: none;
+    font-size: 0.86rem;
+    font-family: inherit;
+    line-height: 1.55;
+    resize: vertical;
+    min-height: 120px;
+    transition: border-color var(--ease-default), background var(--ease-default);
+}
+
+.form-textarea:focus {
+    border-color: rgba(var(--accent-rgb), 0.55);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.form-hint {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+/* ---- TicketDetail (чат) ---- */
+.ticket-detail-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding-bottom: 120px; /* место под reply-форму */
+}
+
+/* Шапка тикета */
+.ticket-detail-header {
+    padding: var(--space-4);
+    display: grid;
+    gap: var(--space-2);
+}
+
+.ticket-detail-title {
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.ticket-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+/* Сообщения */
+.ticket-messages {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.ticket-msg {
+    max-width: 88%;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* Пользователь — справа */
+.ticket-msg.user-msg {
+    align-self: flex-end;
+    align-items: flex-end;
+}
+
+/* Агент/админ — слева */
+.ticket-msg.admin-msg {
+    align-self: flex-start;
+    align-items: flex-start;
+}
+
+/* Системное — по центру */
+.ticket-msg.system-msg {
+    align-self: center;
+    align-items: center;
+    max-width: 100%;
+}
+
+.ticket-msg-bubble {
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    font-size: 0.86rem;
+    line-height: 1.55;
+    word-break: break-word;
+}
+
+.user-msg .ticket-msg-bubble {
+    background: rgba(var(--accent-rgb), 0.16);
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+    color: var(--text-primary);
+    border-bottom-right-radius: 4px;
+}
+
+.admin-msg .ticket-msg-bubble {
+    background: var(--bg-glass);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    border-bottom-left-radius: 4px;
+}
+
+.system-msg .ticket-msg-bubble {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px dashed var(--border-subtle);
+    color: var(--text-secondary);
+    font-size: 0.76rem;
+    text-align: center;
+    border-radius: var(--radius-md);
+}
+
+.ticket-msg-time {
+    font-size: 0.64rem;
+    color: var(--text-muted);
+}
+
+/* Вложения */
+.ticket-msg-attachments {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+}
+
+.ticket-attach-img {
+    max-width: 220px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    display: block;
+}
+
+.ticket-attach-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.76rem;
+    color: var(--accent-primary);
+    text-decoration: none;
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+    border-radius: var(--radius-sm);
+    padding: 5px 10px;
+}
+
+.ticket-attach-link:hover {
+    background: rgba(var(--accent-rgb), 0.1);
+}
+
+/* Reply-форма внизу */
+.ticket-reply-wrap {
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 56px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(100%, 560px);
+    padding: var(--space-3) var(--space-4);
+    background: linear-gradient(0deg, rgba(9, 14, 25, 0.97) 0%, rgba(9, 14, 25, 0.88) 100%);
+    border-top: 1px solid var(--border-subtle);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.ticket-reply-row {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-2);
+}
+
+.ticket-reply-textarea {
+    flex: 1;
+    padding: var(--space-3) var(--space-3);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font-size: 0.86rem;
+    font-family: inherit;
+    line-height: 1.45;
+    resize: none;
+    min-height: 44px;
+    max-height: 120px;
+    overflow-y: auto;
+    outline: none;
+    transition: border-color var(--ease-default);
+}
+
+.ticket-reply-textarea:focus {
+    border-color: rgba(var(--accent-rgb), 0.5);
+}
+
+.ticket-reply-attach-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-glass);
+    color: var(--text-secondary);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    min-height: auto;
+    font-size: 1.1rem;
+    transition: background var(--ease-default), border-color var(--ease-default);
+}
+
+.ticket-reply-attach-btn:hover {
+    background: var(--bg-glass-hover);
+    border-color: var(--border-strong);
+}
+
+.ticket-reply-send-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-md);
+    background: var(--accent-gradient);
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+    color: #2d1200;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    min-height: auto;
+    font-size: 1rem;
+    box-shadow: var(--shadow-glow);
+}
+
+.ticket-reply-send-btn:disabled {
+    opacity: 0.45;
+}
+
+/* Превью прикреплённых файлов перед отправкой */
+.ticket-pending-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.ticket-pending-attach-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: var(--radius-round);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+.ticket-pending-attach-chip button {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    cursor: pointer;
+    min-height: auto;
+    width: auto;
+    padding: 0 2px;
+    display: inline;
+    line-height: 1;
+}
+
+/* Лоадер отправки */
+.ticket-sending-notice {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    text-align: right;
+}
+
+/* Ошибка в reply */
+.ticket-reply-error {
+    font-size: 0.74rem;
+    color: var(--status-error);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 110, 143, 0.08);
+    border: 1px solid rgba(255, 110, 143, 0.25);
+}
+
+/* Закрытый тикет — показываем предупреждение вместо формы */
+.ticket-closed-note {
+    text-align: center;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px dashed var(--border-subtle);
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 60px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(calc(100% - 2 * var(--space-4)), 528px);
+    background: rgba(9, 14, 25, 0.92);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 100;
+}
+
+@media (max-width: 420px) {
+    .ticket-reply-wrap {
+        padding: var(--space-2) var(--space-3);
+    }
+}
