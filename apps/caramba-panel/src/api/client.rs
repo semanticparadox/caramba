@@ -358,6 +358,35 @@ async fn auth_telegram(
         return (StatusCode::UNAUTHORIZED, "Invalid signature").into_response();
     }
 
+    // 2b. Validate auth_date — защита от replay-атак с перехваченными initData.
+    // Telegram допускает использование initData в течение 24 часов после выпуска.
+    // Токены старше этого порога отклоняем.
+    const MAX_AUTH_AGE_SECONDS: i64 = 86_400; // 24 hours
+    if let Some(auth_date_str) = params.get("auth_date") {
+        match auth_date_str.parse::<i64>() {
+            Ok(auth_date) => {
+                let now = chrono::Utc::now().timestamp();
+                let age = now - auth_date;
+                if age < 0 || age > MAX_AUTH_AGE_SECONDS {
+                    tracing::warn!(
+                        auth_date,
+                        age_seconds = age,
+                        "Auth failed: initData expired (auth_date too old or in future)"
+                    );
+                    return (StatusCode::UNAUTHORIZED, "InitData expired").into_response();
+                }
+            }
+            Err(_) => {
+                tracing::warn!("Auth failed: auth_date is not a valid integer");
+                return (StatusCode::BAD_REQUEST, "Invalid auth_date").into_response();
+            }
+        }
+    } else {
+        // auth_date отсутствует — Telegram всегда включает его в initData
+        tracing::warn!("Auth failed: missing auth_date field in initData");
+        return (StatusCode::BAD_REQUEST, "Missing auth_date").into_response();
+    }
+
     // 3. Extract User ID
     let user_json_str = match params.get("user") {
         Some(u) => u,
@@ -381,14 +410,16 @@ async fn auth_telegram(
         .await
         .unwrap_or(None);
 
-    if user_row.is_none() {
-        return (
-            StatusCode::FORBIDDEN,
-            "User not found. Start the bot first.",
-        )
-            .into_response();
-    }
-    let user_row = user_row.unwrap();
+    let user_row = match user_row {
+        Some(row) => row,
+        None => {
+            return (
+                StatusCode::FORBIDDEN,
+                "User not found. Start the bot first.",
+            )
+                .into_response();
+        }
+    };
     let user_id: i64 = user_row.get("id");
     let username: String = user_row.try_get("username").unwrap_or_default();
     let db_full_name: Option<String> = user_row.try_get("full_name").unwrap_or(None);
@@ -959,20 +990,24 @@ struct ServersQuery {
     lon: Option<f64>,
 }
 
-// Helper for flag
+// Helper for flag — безопасная версия без unwrap() на данных из БД
 fn get_flag(country: &str) -> String {
     let country = country.to_uppercase();
-    if country.len() != 2 {
+    // Ограничиваем ASCII-буквами, чтобы арифметика с кодовыми точками была предсказуемой
+    let chars: Vec<char> = country
+        .chars()
+        .filter(|c| c.is_ascii_alphabetic())
+        .collect();
+    if chars.len() != 2 {
         return "🌐".to_string();
     }
-    let offset = 127397;
-    let first = country.chars().next().unwrap() as u32 + offset;
-    let second = country.chars().nth(1).unwrap() as u32 + offset;
-    format!(
-        "{}{}",
-        char::from_u32(first).unwrap(),
-        char::from_u32(second).unwrap()
-    )
+    let offset = 127397u32;
+    let first = chars[0] as u32 + offset;
+    let second = chars[1] as u32 + offset;
+    match (char::from_u32(first), char::from_u32(second)) {
+        (Some(f), Some(s)) => format!("{}{}", f, s),
+        _ => "🌐".to_string(),
+    }
 }
 
 async fn get_active_servers(

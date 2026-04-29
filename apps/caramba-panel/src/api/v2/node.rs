@@ -23,17 +23,20 @@ struct IpApiResponse {
 
 fn country_code_to_flag(code: &str) -> String {
     let code = code.to_uppercase();
-    if code.len() != 2 {
+    let chars: Vec<char> = code
+        .chars()
+        .filter(|c| c.is_ascii_alphabetic())
+        .collect();
+    if chars.len() != 2 {
         return "🌐".to_string();
     }
     let offset = 127397u32;
-    let first = code.chars().next().unwrap() as u32 + offset;
-    let second = code.chars().nth(1).unwrap() as u32 + offset;
-    format!(
-        "{}{}",
-        char::from_u32(first).unwrap_or('🌐'),
-        char::from_u32(second).unwrap_or(' ')
-    )
+    let first = chars[0] as u32 + offset;
+    let second = chars[1] as u32 + offset;
+    match (char::from_u32(first), char::from_u32(second)) {
+        (Some(f), Some(s)) => format!("{}{}", f, s),
+        _ => "🌐".to_string(),
+    }
 }
 
 /// Agent Heartbeat
