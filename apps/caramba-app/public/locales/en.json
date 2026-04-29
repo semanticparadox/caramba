@@ -121,7 +121,9 @@
     "giftNeedsBalance": "Top up your balance to buy a gift.",
     "giftCodeCreated": "Gift code created.",
     "giftCodeTitle": "Your gift code",
-    "giftCodeInstructions": "Share this code with the recipient — they can activate it via the bot with /gift or in the Promo section."
+    "giftCodeInstructions": "Share this code with the recipient — they can activate it via the bot with /gift or in the Promo section.",
+    "noName": "Plan",
+    "defaultProviderDesc": "Available payment method for your subscription."
   },
   "servers": {
     "title": "Route configuration",
@@ -305,7 +307,11 @@
     "enterPin": "Enter your 4-digit PIN to continue.",
     "unlock": "Unlock",
     "unlockSubtitle": "For your privacy this app is protected with PIN.",
-    "clear": "Clear"
+    "clear": "Clear",
+    "errorIncorrect": "Incorrect PIN. Try again.",
+    "errorEnableFailed": "Failed to enable PIN. Try again.",
+    "errorChangeFailed": "Failed to change PIN. Try again.",
+    "errorDisableFailed": "Failed to disable PIN. Try again."
   },
   "subscription": {
     "loading": "Loading subscriptions...",
