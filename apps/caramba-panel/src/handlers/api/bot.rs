@@ -61,7 +61,7 @@ pub async fn upsert_user(
 ) -> impl IntoResponse {
     match state
         .store_service
-        .upsert_user(
+        .upsert_user_with_new_flag(
             payload.tg_id,
             payload.username.as_deref(),
             payload.full_name.as_deref(),
@@ -69,7 +69,51 @@ pub async fn upsert_user(
         )
         .await
     {
-        Ok(user) => (StatusCode::OK, Json(Some(user))).into_response(),
+        Ok((user, was_new)) => {
+            // First-touch onboarding: fire a welcome notification exactly once,
+            // when this user row is brand-new. Soft-fail — sign-up must not be
+            // blocked by a notification glitch.
+            if was_new {
+                let svc = state.notifications_svc.clone();
+                let display_name = user
+                    .full_name
+                    .clone()
+                    .or_else(|| user.username.clone())
+                    .unwrap_or_else(|| "there".to_string());
+                let user_id = user.id;
+                let lang = user.language_code.clone().unwrap_or_default();
+                let is_ru = lang.starts_with("ru");
+                let title = if is_ru {
+                    "Добро пожаловать в Caramba VPN!".to_string()
+                } else {
+                    "Welcome to Caramba VPN!".to_string()
+                };
+                let body = if is_ru {
+                    format!(
+                        "Здравствуйте, {}!\n\nВыберите тариф во вкладке «Подписка», подключите устройство в «Устройствах» — и трафик пойдёт. Если что-то не работает — откройте тикет в поддержке, мы быстро отвечаем.",
+                        display_name
+                    )
+                } else {
+                    format!(
+                        "Hi {}!\n\nPick a plan in Subscription, connect a device in Devices, and you're online. If anything's off, open a support ticket — we reply fast.",
+                        display_name
+                    )
+                };
+                tokio::spawn(async move {
+                    let _ = svc
+                        .create(
+                            user_id,
+                            "system_maintenance",
+                            "info",
+                            &title,
+                            &body,
+                            Some(serde_json::json!({"url": "/"})),
+                        )
+                        .await;
+                });
+            }
+            (StatusCode::OK, Json(Some(user))).into_response()
+        }
         Err(e) => {
             tracing::error!(
                 "bot upsert_user failed for tg_id {}: {:?}",

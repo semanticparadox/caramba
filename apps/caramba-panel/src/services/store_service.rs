@@ -156,13 +156,30 @@ impl StoreService {
         full_name: Option<&str>,
         referrer_id: Option<i64>,
     ) -> Result<User> {
+        let (user, _was_new) = self
+            .upsert_user_with_new_flag(tg_id, username, full_name, referrer_id)
+            .await?;
+        Ok(user)
+    }
+
+    /// Like `upsert_user` but returns whether the user row was newly created.
+    /// Use this when the caller wants to fire welcome-notification / first-touch
+    /// side effects exactly once per real signup.
+    pub async fn upsert_user_with_new_flag(
+        &self,
+        tg_id: i64,
+        username: Option<&str>,
+        full_name: Option<&str>,
+        referrer_id: Option<i64>,
+    ) -> Result<(User, bool)> {
         let existing = self.user_repo.get_by_tg_id(tg_id).await?;
         let user = self
             .user_repo
             .upsert(tg_id, username, full_name, referrer_id)
             .await?;
 
-        if existing.is_none() {
+        let was_new = existing.is_none();
+        if was_new {
             let _ =
                 crate::services::analytics_service::AnalyticsService::track_new_user(&self.pool)
                     .await;
@@ -172,7 +189,7 @@ impl StoreService {
         )
         .await;
 
-        Ok(user)
+        Ok((user, was_new))
     }
 
     pub async fn create_family_invite(
