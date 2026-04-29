@@ -1,6 +1,11 @@
 use anyhow::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
+
+/// Таймаут для всех запросов к панели.
+/// Без таймаута зависший панель блокирует tokio-воркер навсегда.
+const API_TIMEOUT_SECS: u64 = 15;
 
 #[derive(Clone)]
 pub struct ApiClient {
@@ -11,8 +16,12 @@ pub struct ApiClient {
 
 impl ApiClient {
     pub fn new(base_url: String, token: String) -> Self {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(API_TIMEOUT_SECS))
+            .build()
+            .expect("Failed to build reqwest client");
         Self {
-            client: Client::new(),
+            client,
             base_url,
             token,
         }
