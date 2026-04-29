@@ -102,6 +102,8 @@ pub struct GiftCode {
     pub redeemed_at: Option<DateTime<Utc>>,
 }
 
+/// Запись о платеже. `created_at` и `updated_at` хранятся в БД как BIGINT (Unix epoch),
+/// поэтому маппируются как `i64`, а не `DateTime<Utc>`.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 #[allow(dead_code)]
 pub struct Payment {
@@ -111,7 +113,10 @@ pub struct Payment {
     pub amount: i64,
     pub external_id: Option<String>,
     pub status: String,
-    pub created_at: DateTime<Utc>,
+    /// Unix epoch seconds (BIGINT в схеме, не TIMESTAMPTZ)
+    pub created_at: i64,
+    /// Unix epoch seconds (BIGINT в схеме, не TIMESTAMPTZ)
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -168,7 +173,10 @@ pub struct OrderItem {
     pub id: i64,
     pub order_id: i64,
     pub product_id: i64,
+    /// Маппируется на колонку `price` в таблице `order_items`.
+    #[sqlx(rename = "price")]
     pub price_at_purchase: i64,
+    pub quantity: i64,
     pub created_at: DateTime<Utc>,
 }
 
@@ -251,6 +259,21 @@ pub struct SubscriptionWithDetails {
     pub plan_name: String,
     pub plan_description: Option<String>,
     pub traffic_limit_gb: Option<i32>,
+}
+
+/// Индивидуальные реферальные ставки пользователя (таблица `user_referral_rates`,
+/// миграция 20260326100000_enhanced_referrals).
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct UserReferralRates {
+    pub user_id: i64,
+    /// Процент бонуса от платежей рефералов (переопределяет глобальную настройку)
+    pub bonus_percent: Option<i32>,
+    /// Бонус за регистрацию реферала (центы), начисляемый реферреру
+    pub referrer_signup_bonus_cents: Option<i32>,
+    /// Бонус за регистрацию (центы), начисляемый самому рефералу
+    pub referred_signup_bonus_cents: Option<i32>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(serde::Serialize, sqlx::FromRow)]

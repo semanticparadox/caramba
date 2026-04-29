@@ -176,19 +176,19 @@ impl SubscriptionRepository {
     }
 
     pub async fn toggle_auto_renew(&self, id: i64) -> Result<bool> {
-        let current: bool = sqlx::query_scalar::<_, Option<i32>>(
+        // auto_renew — тип BOOLEAN в PostgreSQL, читаем напрямую как Option<bool>
+        let current: bool = sqlx::query_scalar::<_, Option<bool>>(
             "SELECT auto_renew FROM subscriptions WHERE id = $1",
         )
         .bind(id)
         .fetch_one(&self.pool)
         .await?
-        .map(|v| v != 0)
         .unwrap_or(false);
 
         let new_value = !current;
 
         sqlx::query("UPDATE subscriptions SET auto_renew = $1 WHERE id = $2")
-            .bind(new_value as i32)
+            .bind(new_value)
             .bind(id)
             .execute(&self.pool)
             .await?;
@@ -210,12 +210,13 @@ impl SubscriptionRepository {
     }
 
     pub async fn get_expiring_auto_renewals(&self) -> Result<Vec<(i64, i64, i64, String, i64)>> {
+        // auto_renew — BOOLEAN: используем COALESCE(s.auto_renew, FALSE) = TRUE
         let subs = sqlx::query_as::<_, (i64, i64, i64, String, i64)>(
-            "SELECT s.id, s.user_id, s.plan_id, p.name, u.balance 
+            "SELECT s.id, s.user_id, s.plan_id, p.name, u.balance
              FROM subscriptions s
              JOIN users u ON s.user_id = u.id
              JOIN plans p ON s.plan_id = p.id
-             WHERE COALESCE(s.auto_renew, 0) = 1
+             WHERE COALESCE(s.auto_renew, FALSE) = TRUE
              AND s.status = 'active'
              AND s.expires_at BETWEEN CURRENT_TIMESTAMP AND CURRENT_TIMESTAMP + interval '1 day'",
         )
@@ -342,8 +343,9 @@ impl SubscriptionRepository {
         &self,
         sub_id: i64,
     ) -> Result<Vec<crate::models::store::SubscriptionIpTracking>> {
+        // Явно включаем user_agent — поле присутствует в SubscriptionIpTracking
         sqlx::query_as::<_, crate::models::store::SubscriptionIpTracking>(
-            "SELECT id, subscription_id, client_ip, last_seen_at FROM subscription_ip_tracking WHERE subscription_id = $1 ORDER BY last_seen_at DESC",
+            "SELECT id, subscription_id, client_ip, user_agent, last_seen_at FROM subscription_ip_tracking WHERE subscription_id = $1 ORDER BY last_seen_at DESC",
         )
         .bind(sub_id)
         .fetch_all(&self.pool)
