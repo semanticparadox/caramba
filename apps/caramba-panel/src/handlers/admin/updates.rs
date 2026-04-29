@@ -81,11 +81,8 @@ pub async fn get_updates_page(State(state): State<AppState>, jar: CookieJar) -> 
         .await
         .unwrap_or_default();
 
-    // Worker Inventory (Reuse logic from settings for now, ideally moved to a service)
-    // We need to implement `fetch_worker_inventory` here or make it public in settings/mod.
-    // For this refactor, let's duplicate the fetch logic or move it to `infrastructure_service`.
-    // We'll assume we can call the SQL query directly here for speed.
-    let worker_inventory = fetch_worker_inventory_shared(&state.pool).await;
+    let worker_inventory =
+        crate::handlers::admin::settings::fetch_worker_inventory(&state.pool).await;
 
     let template = UpdatesTemplate {
         is_auth: true,
@@ -201,65 +198,3 @@ pub async fn trigger_update(
     }
 }
 
-// Shared helper (duplicated from settings for now to avoid circular deps if settings isn't a lib)
-// In a real refactor, this moves to `infrastructure_service`
-async fn fetch_worker_inventory_shared(
-    pool: &sqlx::PgPool,
-) -> Vec<crate::handlers::admin::settings::WorkerInventoryView> {
-    // Reuse struct from settings module if public, else duplicate definition locally
-    use crate::handlers::admin::settings::WorkerInventoryView;
-
-    // We need to fetch rows manually since we can't easily import private row structs
-    #[derive(sqlx::FromRow)]
-    struct WorkerRow {
-        role: String,
-        worker_id: String,
-        current_version: Option<String>,
-        target_version: Option<String>,
-        last_state: String,
-        last_message: Option<String>,
-        last_seen: chrono::DateTime<chrono::Utc>,
-    }
-
-    let rows: Vec<WorkerRow> = sqlx::query_as(
-        r#"
-        SELECT role, worker_id, current_version, target_version, last_state, last_message, last_seen
-        FROM worker_runtime_status
-        ORDER BY role ASC, last_seen DESC
-        LIMIT 200
-        "#,
-    )
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
-
-    rows.into_iter()
-        .map(|row| {
-            let is_online = chrono::Utc::now().signed_duration_since(row.last_seen)
-                <= chrono::Duration::minutes(3);
-            let current_v = row.current_version.unwrap_or_default();
-            let target_v = row.target_version.unwrap_or_default();
-            let update_available =
-                crate::handlers::api::internal::should_offer_worker_update(&target_v, &current_v);
-            WorkerInventoryView {
-                role: row.role.to_ascii_uppercase(),
-                worker_id: row.worker_id,
-                current_version: if current_v.is_empty() { "-".into() } else { current_v },
-                target_version: if target_v.is_empty() { "-".into() } else { target_v },
-                last_state: row.last_state.to_ascii_uppercase(),
-                last_message: row.last_message.unwrap_or_default(),
-                is_online,
-                online_label: if is_online {
-                    "online".into()
-                } else {
-                    "offline".into()
-                },
-                last_seen: row.last_seen.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
-                last_seen_ago: crate::handlers::admin::settings::format_relative_time(
-                    row.last_seen,
-                ),
-                update_available,
-            }
-        })
-        .collect()
-}

@@ -241,7 +241,7 @@ pub(crate) fn format_relative_time(dt: DateTime<Utc>) -> String {
     }
 }
 
-async fn fetch_worker_inventory(pool: &sqlx::PgPool) -> Vec<WorkerInventoryView> {
+pub(crate) async fn fetch_worker_inventory(pool: &sqlx::PgPool) -> Vec<WorkerInventoryView> {
     let rows: Vec<WorkerRuntimeStatusRow> = sqlx::query_as(
         r#"
         SELECT role, worker_id, current_version, target_version, last_state, last_message, last_seen
