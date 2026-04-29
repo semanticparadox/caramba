@@ -1001,6 +1001,79 @@
             </div>
 
             <!-- ================================================================ -->
+            <!-- КАТЕГОРИЯ: Мировой рынок -->
+            <!-- ================================================================ -->
+            <div class="payment-category">
+                <div class="payment-category-header">
+                    <span class="payment-category-icon">🌍</span>
+                    <div>
+                        <h4 class="payment-category-title">Мировой рынок</h4>
+                        <p class="payment-category-subtitle">Карты для не-РФ аудитории — нужна верификация бизнеса</p>
+                    </div>
+                </div>
+                <div class="payment-cards-grid">
+
+                    <!-- Stripe -->
+                    <div class="payment-provider-card {% if masked_stripe_secret_key == "" %}payment-card-disabled{% endif %}" id="card-stripe">
+                        <div class="ppc-header">
+                            <div class="ppc-enable-toggle"></div>
+                            <div class="ppc-title-block">
+                                <span class="ppc-name">Stripe</span>
+                                <span class="ppc-desc">Карты Visa/MC по всему миру · от 2.9%+$0.30</span>
+                            </div>
+                            <span class="ppc-tag ppc-tag-world">Мировой</span>
+                        </div>
+                        <div class="ppc-body">
+                            <div class="ppc-webhook-row">
+                                <span class="ppc-webhook-label">Webhook URL</span>
+                                <div class="ppc-webhook-value-wrap">
+                                    <code class="ppc-webhook-url" id="wh-stripe">{{ panel_url }}/api/webhooks/payment/stripe</code>
+                                    <button type="button" class="ppc-copy-btn" onclick="copyWebhook('wh-stripe', this)" title="Скопировать">
+                                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="ppc-fields">
+                                <div>
+                                    <label class="ppc-label">Secret Key (sk_live_… или sk_test_…)</label>
+                                    <div class="relative">
+                                        <input id="stripe_secret_key" type="password" form="main-settings-form" name="stripe_secret_key"
+                                            value="{{ masked_stripe_secret_key }}" placeholder="sk_live_…" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'stripe_secret_key')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="ppc-label">Webhook Signing Secret (whsec_…)</label>
+                                    <div class="relative">
+                                        <input id="stripe_webhook_secret" type="password" form="main-settings-form" name="stripe_webhook_secret"
+                                            value="{{ masked_stripe_webhook_secret }}" placeholder="whsec_…" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'stripe_webhook_secret')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ppc-footer">
+                                <button type="button" class="ppc-test-btn" onclick="testProvider('stripe', this)">
+                                    <i data-lucide="plug-zap" class="w-3.5 h-3.5"></i> Проверить подключение
+                                </button>
+                                <span class="ppc-test-result" id="test-result-stripe"></span>
+                            </div>
+                        </div>
+                        <details class="ppc-docs">
+                            <summary class="ppc-docs-summary"><i data-lucide="book-open" class="w-3.5 h-3.5"></i> Инструкция по настройке</summary>
+                            <div class="ppc-docs-body">{% include "payment_docs/stripe.html" %}</div>
+                        </details>
+                    </div>
+
+                </div><!-- /payment-cards-grid Мировой -->
+            </div>
+
+            <!-- ================================================================ -->
             <!-- КАТЕГОРИЯ: Telegram-native -->
             <!-- ================================================================ -->
             <div class="payment-category">
