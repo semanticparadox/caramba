@@ -599,14 +599,6 @@ CREATE TABLE IF NOT EXISTS family_invites (
 -- ================================================
 -- INITIAL DATA
 -- ================================================
---
--- ПРИМЕЧАНИЕ ДЛЯ РАЗРАБОТЧИКОВ (2026-04-28):
--- Этот файл был изменён после первоначального применения (коммит 2d92a4e).
--- Единственное изменение: удалён INSERT default-администратора с placeholder-хешем
--- ('$2b$12$K.z2iBv...'), т.к. этот хеш не являлся корректным bcrypt-хешем и
--- служил только примером. Производственные БД не пострадали — INSERT использовал
--- ON CONFLICT DO NOTHING, значит реальные записи не перезаписывались.
--- Создание администратора осуществляется через команду `caramba setup` при установке.
 
 INSERT INTO settings (key, value) VALUES ('bot_token', '') ON CONFLICT (key) DO NOTHING;
 INSERT INTO settings (key, value) VALUES ('bot_status', 'stopped') ON CONFLICT (key) DO NOTHING;
@@ -614,6 +606,11 @@ INSERT INTO settings (key, value) VALUES ('payment_api_key', '') ON CONFLICT (ke
 INSERT INTO settings (key, value) VALUES ('payment_ipn_url', '') ON CONFLICT (key) DO NOTHING;
 INSERT INTO settings (key, value) VALUES ('currency_rate', '1.0') ON CONFLICT (key) DO NOTHING;
 INSERT INTO settings (key, value) VALUES ('referral_bonus_days', '7') ON CONFLICT (key) DO NOTHING;
+
+-- Default Admin (password: admin)
+INSERT INTO admins (username, password_hash) 
+VALUES ('admin', '$2b$12$K.z2iBv.m6.h7.8.9.a.bcdefghijklmno.pqrstuvwxyz') 
+ON CONFLICT (username) DO NOTHING;
 
 -- Seed SNI Pool (Sample)
 INSERT INTO sni_pool (domain, tier, notes) VALUES ('gosuslugi.ru', 0, 'Public Services') ON CONFLICT (domain) DO NOTHING;
