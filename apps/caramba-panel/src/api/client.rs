@@ -6,7 +6,7 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Json},
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
 };
 use hmac::{Hmac, Mac};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
@@ -279,6 +279,20 @@ pub fn routes(state: AppState) -> Router<AppState> {
         .route(
             "/subscription/{sub_id}/devices/{device_id}",
             delete(kick_subscription_device).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/subscription/{id}/devices/kill-all",
+            post(kill_all_subscription_devices).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/subscription/{sub_id}/devices/{device_id}/name",
+            put(rename_subscription_device).layer(middleware::from_fn_with_state(
                 state.clone(),
                 auth_middleware,
             )),
@@ -2616,8 +2630,12 @@ async fn get_subscription_devices(
     // here and the active_devices counter on /user/subscriptions agree.
     // Excludes infrastructure IPs (own nodes, frontend servers) which can
     // appear in leases when traffic transits relays.
+    // COALESCE(NULLIF(display_name,''), device_name) — возвращает пользовательское имя если задано,
+    // иначе авто-сгенерированное из User-Agent.
     let leases = sqlx::query_as::<_, DeviceLease>(
-        r#"SELECT id, device_name, last_ip, last_seen_at, first_seen_at
+        r#"SELECT id,
+                  COALESCE(NULLIF(display_name, ''), device_name) AS device_name,
+                  last_ip, last_seen_at, first_seen_at
            FROM subscription_device_leases
            WHERE subscription_id = $1
              AND last_seen_at > NOW() - INTERVAL '15 minutes'
@@ -2717,6 +2735,139 @@ async fn kick_subscription_device(
     .await;
 
     Json(serde_json::json!({ "ok": true, "message": "Device disconnected" })).into_response()
+}
+
+// POST /api/client/subscription/{id}/devices/kill-all
+// Отключает все активные устройства подписки одной командой.
+async fn kill_all_subscription_devices(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path(sub_id): Path<i64>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+
+    // Проверяем принадлежность подписки пользователю
+    let owner_tg_id = sqlx::query_scalar::<_, i64>(
+        "SELECT u.tg_id FROM subscriptions s JOIN users u ON s.user_id = u.id WHERE s.id = $1",
+    )
+    .bind(sub_id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+
+    if owner_tg_id != Some(tg_id) {
+        return (StatusCode::FORBIDDEN, "Not your subscription").into_response();
+    }
+
+    // Удаляем все lease-записи по подписке
+    let deleted = sqlx::query_scalar::<_, i64>(
+        "WITH del AS (DELETE FROM subscription_device_leases WHERE subscription_id = $1 RETURNING id) SELECT COUNT(*) FROM del",
+    )
+    .bind(sub_id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap_or(0);
+
+    // Чистим legacy IP tracking
+    let _ = sqlx::query(
+        "DELETE FROM subscription_ip_tracking WHERE subscription_id = $1",
+    )
+    .bind(sub_id)
+    .execute(&state.pool)
+    .await;
+
+    // Закрываем активные соединения через Clash API (неблокирующий spawn)
+    let conn_service = state.connection_service.clone();
+    tokio::spawn(async move {
+        if let Err(e) = conn_service.kill_subscription_connections(sub_id).await {
+            tracing::warn!(sub_id, error = %e, "kill_subscription_connections after kill-all failed");
+        }
+    });
+
+    let _ = crate::services::activity_service::ActivityService::log(
+        &state.pool,
+        "Device:KilledAll",
+        &format!("User killed all {} devices for sub #{}", deleted, sub_id),
+    )
+    .await;
+
+    Json(serde_json::json!({ "ok": true, "disconnected": deleted })).into_response()
+}
+
+// PUT /api/client/subscription/{sub_id}/devices/{device_id}/name
+// Устанавливает пользовательское имя устройства (display_name).
+// device_name (авто из User-Agent) остаётся нетронутым как fallback.
+async fn rename_subscription_device(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path((sub_id, device_id)): Path<(i64, i64)>,
+    Json(payload): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+
+    // Проверяем принадлежность подписки пользователю
+    let owner_tg_id = sqlx::query_scalar::<_, i64>(
+        "SELECT u.tg_id FROM subscriptions s JOIN users u ON s.user_id = u.id WHERE s.id = $1",
+    )
+    .bind(sub_id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+
+    if owner_tg_id != Some(tg_id) {
+        return (StatusCode::FORBIDDEN, "Not your subscription").into_response();
+    }
+
+    // Извлекаем и валидируем имя из тела запроса
+    let raw_name = match payload.get("name").and_then(|v| v.as_str()) {
+        Some(n) => n,
+        None => return (StatusCode::BAD_REQUEST, "Missing 'name' field").into_response(),
+    };
+
+    // Очищаем управляющие символы, обрезаем пробелы
+    let name: String = raw_name
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+        .trim()
+        .to_string();
+
+    if name.is_empty() {
+        // Пустое имя — сбрасываем display_name, вернётся авто-имя
+        let updated = sqlx::query_scalar::<_, i64>(
+            "WITH upd AS (UPDATE subscription_device_leases SET display_name = NULL WHERE id = $1 AND subscription_id = $2 RETURNING id) SELECT COUNT(*) FROM upd",
+        )
+        .bind(device_id)
+        .bind(sub_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(0);
+
+        if updated == 0 {
+            return (StatusCode::NOT_FOUND, "Device not found").into_response();
+        }
+        return Json(serde_json::json!({ "ok": true })).into_response();
+    }
+
+    if name.chars().count() > 32 {
+        return (StatusCode::BAD_REQUEST, "Name too long (max 32 chars)").into_response();
+    }
+
+    let updated = sqlx::query_scalar::<_, i64>(
+        "WITH upd AS (UPDATE subscription_device_leases SET display_name = $1 WHERE id = $2 AND subscription_id = $3 RETURNING id) SELECT COUNT(*) FROM upd",
+    )
+    .bind(&name)
+    .bind(device_id)
+    .bind(sub_id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap_or(0);
+
+    if updated == 0 {
+        return (StatusCode::NOT_FOUND, "Device not found").into_response();
+    }
+
+    Json(serde_json::json!({ "ok": true })).into_response()
 }
 
 // ============================================================================

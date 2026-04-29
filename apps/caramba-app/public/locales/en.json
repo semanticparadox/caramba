@@ -93,7 +93,10 @@
     "giftCodeTitle": "Your gift code",
     "giftCodeInstructions": "Share this code with the recipient — they can activate it via the bot with /gift or in the Promo section.",
     "noName": "Plan",
-    "defaultProviderDesc": "Available payment method for your subscription."
+    "defaultProviderDesc": "Available payment method for your subscription.",
+    "trafficRemaining": "{{remaining}} GB remaining",
+    "freeDailyToday": "Today: {{remaining}} MB left",
+    "freeDailyTomorrow": "Tomorrow: +{{topup}} MB"
   },
   "servers": {
     "title": "Route configuration",
@@ -147,7 +150,13 @@
     "kickError": "Failed to disconnect device.",
     "kickNetworkError": "Network error while disconnecting device.",
     "atLimitWarning": "Device limit reached ({{current}}/{{max}}). Remove a device to connect a new one.",
-    "overLimitWarning": "Over device limit ({{current}}/{{max}}). Remove unused devices."
+    "overLimitWarning": "Over device limit ({{current}}/{{max}}). Remove unused devices.",
+    "killAll": "Disconnect all devices",
+    "killAllConfirm": "Disconnect all devices? All your clients will reconnect.",
+    "killAllError": "Failed to disconnect all devices.",
+    "killAllNetworkError": "Network error while disconnecting all devices.",
+    "renamePlaceholder": "Device name",
+    "renameError": "Failed to save device name."
   },
   "billing": {
     "title": "Balance & Payments",

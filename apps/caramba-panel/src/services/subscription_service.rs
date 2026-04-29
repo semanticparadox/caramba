@@ -229,8 +229,16 @@ impl SubscriptionService {
                 .unwrap_or(0);
 
             if device_limit > 0 {
+                // Race-condition backstop. The primary device-limit gate runs in
+                // subscription_handler BEFORE this point; this check exists only to
+                // catch concurrent inserts that race past the outer gate. Use the
+                // same 15-min active window the outer gate uses (`get_active_ips`)
+                // so stale/expired leases don't ghost-block legitimate new devices.
                 let lease_count: i64 = sqlx::query_scalar(
-                    "SELECT COUNT(*) FROM subscription_device_leases WHERE subscription_id = $1",
+                    r#"SELECT COUNT(*) FROM subscription_device_leases
+                       WHERE subscription_id = $1
+                         AND last_seen_at > NOW() - INTERVAL '15 minutes'
+                         AND last_ip <> '0.0.0.0'"#,
                 )
                 .bind(subscription_id)
                 .fetch_one(&self.pool)
