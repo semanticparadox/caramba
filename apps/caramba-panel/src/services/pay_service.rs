@@ -949,7 +949,8 @@ impl PayService {
             if let Ok(user_id) = payload.parse::<i64>() {
                 return self
                     .process_balance_topup(user_id, amount_usd, method, external_id)
-                    .await;
+                    .await
+                    .map(|_| ());
             }
             return Err(anyhow::anyhow!("Invalid payload: {}", payload));
         }
@@ -964,8 +965,11 @@ impl PayService {
 
         match type_code {
             "bal" => {
+                // Для прямого пополнения баланса bool-результат не нужен — дедупликация
+                // уже произошла в process_any_payment по external_id.
                 self.process_balance_topup(user_id, amount_usd, method, external_id)
                     .await
+                    .map(|_| ())
             }
             "ord" => {
                 self.process_order_purchase(user_id, target_id, amount_usd, method, external_id)
@@ -1075,8 +1079,29 @@ impl PayService {
             user_id, plan_id
         );
 
-        self.process_balance_topup(user_id, amount_usd, method, external_id.clone())
+        // Идемпотентное зачисление баланса: возвращает false если этот external_id
+        // уже был обработан (повторная доставка вебхука).
+        // В этом случае пропускаем purchase_plan, чтобы не активировать подписку повторно.
+        let is_new = self
+            .process_balance_topup(user_id, amount_usd, method, external_id.clone())
             .await?;
+
+        if !is_new {
+            info!(
+                "Duplicate subscription webhook ignored: method={}, external_id={:?}, plan_id={}",
+                method, external_id, plan_id
+            );
+            let _ = crate::services::activity_service::ActivityService::log(
+                &self.pool,
+                "Payment:Duplicate",
+                &format!(
+                    "Ignored duplicate subscription payment {} / {:?} for plan {}",
+                    method, external_id, plan_id
+                ),
+            )
+            .await;
+            return Ok(());
+        }
 
         let durations = sqlx::query_as::<_, caramba_db::models::store::PlanDuration>(
             "SELECT * FROM plan_durations WHERE plan_id = $1 ORDER BY duration_days ASC LIMIT 1",
@@ -1115,13 +1140,17 @@ impl PayService {
         Ok(())
     }
 
+    /// Зачисляет баланс пользователю и записывает платёж.
+    /// Возвращает `true` если платёж новый, `false` если это дублирующий вебхук
+    /// (та же пара method+external_id уже присутствует в таблице payments).
+    /// Повторный вызов с тем же external_id безопасен и не изменяет баланс.
     async fn process_balance_topup(
         &self,
         user_id: i64,
         amount_usd: f64,
         method: &str,
         external_id: Option<String>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         info!(
             "Processing BALANCE top-up of ${} for user {} via {}",
             amount_usd, user_id, method
@@ -1143,7 +1172,8 @@ impl PayService {
             Err(sqlx::Error::Database(db_err)) if db_err.is_unique_violation() => {
                 info!("Duplicate payment insert caught by DB constraint: method={}, external_id={:?}", method, external_id);
                 tx.rollback().await?;
-                return Ok(());
+                // Возвращаем false — сигнал вызывающей стороне пропустить дальнейшую обработку
+                return Ok(false);
             }
             Err(e) => return Err(e.into()),
         };
@@ -1203,6 +1233,7 @@ impl PayService {
             )
             .await;
 
-        Ok(())
+        // Возвращаем true — платёж был новым и успешно обработан
+        Ok(true)
     }
 }
