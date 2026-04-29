@@ -349,8 +349,11 @@ pub async fn send_ticket_detail(
     let msgs: Vec<_> = detail.messages.iter().rev().take(5).collect();
     for m in msgs.into_iter().rev() {
         let who = if m.sender_role == "admin" { "Admin" } else { "User" };
-        let body_short = if m.body.len() > 200 {
-            format!("{}…", &m.body[..200])
+        // Char-count truncation, not byte-slice — Cyrillic/emoji bodies
+        // would panic on a non-char-boundary slice.
+        let body_short = if m.body.chars().count() > 200 {
+            let prefix: String = m.body.chars().take(200).collect();
+            format!("{}…", prefix)
         } else {
             m.body.clone()
         };
@@ -459,6 +462,21 @@ pub async fn handle_admin_text(
             category,
             severity,
         }) => {
+            // Category & severity are populated by inline-keyboard callbacks
+            // before the title step. If the admin types a message before
+            // pressing those buttons, those fields are still empty — accepting
+            // the text here would lead to a broadcast with blank category/
+            // severity that breaks Mini App filtering. Re-prompt instead.
+            if category.trim().is_empty() || severity.trim().is_empty() {
+                let _ = bot
+                    .send_message(
+                        msg.chat.id,
+                        t(None, "admin.broadcast.step_keyboard_required"),
+                    )
+                    .await;
+                return true;
+            }
+
             state
                 .admin_fsm
                 .set(

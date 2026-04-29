@@ -92,8 +92,11 @@ pub fn ticket_list_keyboard(
     // Строки тикетов
     for (id, cat, subject) in ticket_ids {
         let emoji = category_emoji(cat);
-        let short_subject = if subject.len() > 40 {
-            format!("{}…", &subject[..40])
+        // Char-count truncation, not byte-slice — Cyrillic/emoji subjects
+        // would panic on a non-char-boundary slice.
+        let short_subject = if subject.chars().count() > 40 {
+            let prefix: String = subject.chars().take(40).collect();
+            format!("{}…", prefix)
         } else {
             subject.to_string()
         };

@@ -57,6 +57,11 @@ export default function Devices() {
     const [renameError, setRenameError] = useState<string | null>(null)
     const renameInputRef = useRef<HTMLInputElement>(null)
 
+    // Holds the kill-all post-confirm refetch timer so we can cancel it on
+    // unmount. Without this, navigating away within 5s leaks a setState on
+    // an unmounted component.
+    const killAllRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
     // Форматирование времени через i18n-ключи вместо хардкодных строк
     const timeAgo = (iso: string): string => {
         const diff = Date.now() - new Date(iso).getTime()
@@ -91,7 +96,13 @@ export default function Devices() {
     useEffect(() => {
         fetchDevices()
         const interval = setInterval(fetchDevices, 30000)
-        return () => clearInterval(interval)
+        return () => {
+            clearInterval(interval)
+            if (killAllRefetchTimerRef.current !== null) {
+                clearTimeout(killAllRefetchTimerRef.current)
+                killAllRefetchTimerRef.current = null
+            }
+        }
     }, [fetchDevices])
 
     // Фокус на поле ввода при открытии редактирования имени
@@ -134,8 +145,15 @@ export default function Devices() {
             })
             if (res.ok) {
                 setDevices([])
-                // Отложенный рефетч через 5 секунд — подтверждаем что список пуст
-                setTimeout(() => { void fetchDevices() }, 5000)
+                // Отложенный рефетч через 5 секунд — подтверждаем что список пуст.
+                // Храним handle, чтобы отменить на unmount (см. cleanup в useEffect).
+                if (killAllRefetchTimerRef.current !== null) {
+                    clearTimeout(killAllRefetchTimerRef.current)
+                }
+                killAllRefetchTimerRef.current = setTimeout(() => {
+                    killAllRefetchTimerRef.current = null
+                    void fetchDevices()
+                }, 5000)
             } else {
                 setKillAllError(t('devices.killAllError'))
             }
@@ -155,11 +173,23 @@ export default function Devices() {
     const saveRename = async (deviceId: number) => {
         if (!token || !subId) return
         const name = sanitizeName(renameDraft)
+
+        // Empty input → treat as cancel. Sending {name: ""} would tell the
+        // server to clear the display_name override and fall back to the
+        // auto-generated User-Agent name, while the optimistic UI keeps
+        // showing the previous name — the two desync until the next 30s
+        // periodic refresh.
+        if (!name) {
+            setRenamingId(null)
+            setRenameDraft('')
+            return
+        }
+
         setRenamingId(null)
 
         // Оптимистичное обновление локального состояния
         setDevices(prev => prev.map(d =>
-            d.id === deviceId ? { ...d, device_name: name || d.device_name } : d
+            d.id === deviceId ? { ...d, device_name: name } : d
         ))
 
         try {

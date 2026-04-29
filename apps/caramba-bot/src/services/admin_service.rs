@@ -140,11 +140,18 @@ impl AdminService {
         let ids = self.fetch_admin_ids().await;
         let result = ids.contains(&tg_id);
 
-        let mut cache = self.cache.write().await;
-        *cache = Some(AdminCache {
-            ids,
-            fetched_at: Instant::now(),
-        });
+        // Don't cache an empty result. Both backend endpoints return empty on
+        // transient failure (panel restart, network blip), and a 60-second
+        // cache of "no admins" would lock every admin out of /admin commands
+        // for up to a minute even after the panel is back. Re-fetch on every
+        // call until we see a non-empty admin list.
+        if !ids.is_empty() {
+            let mut cache = self.cache.write().await;
+            *cache = Some(AdminCache {
+                ids,
+                fetched_at: Instant::now(),
+            });
+        }
 
         result
     }

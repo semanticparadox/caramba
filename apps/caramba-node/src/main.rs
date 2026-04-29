@@ -966,16 +966,23 @@ fn parse_openssl_enddate(stdout: &[u8]) -> i64 {
             "Sep" => 9, "Oct" => 10, "Nov" => 11, "Dec" => 12,
             _ => continue,
         };
-        // Простое приближение Unix timestamp (без chrono): точность ±1 день достаточна.
-        // (year - 1970) * 365.2425 * 86400 + month_days + day * 86400
+        // Days from Unix epoch (Jan 1 1970) to (year, month, day).
+        // Counts leap years strictly before `year` using the standard
+        // Gregorian formula: (y-1)/4 - (y-1)/100 + (y-1)/400, anchored at
+        // 1970. The previous shortcut `(y-1970)/4 - ...` undercounts by 1
+        // for years where (year-1970) % 4 == 3 (e.g. 2025, 2029) and made
+        // cert-expiry alerts fire ~1 day early.
+        const LEAP_BEFORE_1970: i64 = 1969 / 4 - 1969 / 100 + 1969 / 400; // 477
         let days_since_epoch: i64 = {
-            let y = year as i64 - 1970;
-            let leap_days = (y / 4) - (y / 100) + (y / 400);
+            let y_minus_1 = (year as i64) - 1;
+            let leap_total = y_minus_1 / 4 - y_minus_1 / 100 + y_minus_1 / 400;
+            let leap_days = leap_total - LEAP_BEFORE_1970;
+            let years_offset = (year as i64) - 1970;
             let month_days_cumul: [i64; 13] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365];
             let is_leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
             let mdays = month_days_cumul[month as usize - 1]
                 + if is_leap && month > 2 { 1 } else { 0 };
-            y * 365 + leap_days + mdays + (day as i64 - 1)
+            years_offset * 365 + leap_days + mdays + (day as i64 - 1)
         };
         return days_since_epoch * 86400;
     }

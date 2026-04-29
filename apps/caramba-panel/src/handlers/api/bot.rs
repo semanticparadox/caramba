@@ -777,22 +777,33 @@ pub async fn kill_subscription_sessions(
         _ => {}
     }
 
-    match state.store_service.kill_subscription_connections(sub_id).await {
-        Ok(()) => Json(serde_json::json!({
-            "ok": true,
-            "message": "Active sessions cleared. Clients must re-authenticate on next connect.",
-        }))
-        .into_response(),
-        Err(e) => {
-            tracing::error!(sub_id, "kill_subscription_sessions failed: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
-                "ok": false,
-                "error": "internal_error",
-                "message": e.to_string(),
-            })))
-                .into_response()
-        }
+    // 1. Drop legacy IP tracking rows so the next connection re-authenticates.
+    if let Err(e) = state.store_service.kill_subscription_connections(sub_id).await {
+        tracing::error!(sub_id, "kill_subscription_sessions (ip tracking) failed: {}", e);
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            "ok": false,
+            "error": "internal_error",
+            "message": e.to_string(),
+        })))
+            .into_response();
     }
+
+    // 2. Force-disconnect every active TCP session through the Clash API on
+    //    each node — without this the lost/hostile device the user is trying
+    //    to kick stays online with full traffic until its tunnel naturally
+    //    terminates. Mirrors the Mini App kill-all path in api/client.rs.
+    let conn_service = state.connection_service.clone();
+    tokio::spawn(async move {
+        if let Err(e) = conn_service.kill_subscription_connections(sub_id).await {
+            tracing::warn!(sub_id, error = %e, "kill_subscription_connections (clash api) failed");
+        }
+    });
+
+    Json(serde_json::json!({
+        "ok": true,
+        "message": "Active sessions cleared. Clients must re-authenticate on next connect.",
+    }))
+    .into_response()
 }
 
 // ============================================================================

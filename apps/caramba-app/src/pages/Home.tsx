@@ -509,11 +509,16 @@ export default function Home() {
                                 )
                             })()}
                         {sub.is_free && (() => {
-                            // Вычисляем остаток дневного лимита из used_traffic_bytes
-                            // Суточный лимит в байтах. Используем как приближение — точный дневной сброс на сервере.
+                            // Free-plan daily bucket: the panel's monitoring loop subtracts
+                            // daily_traffic_mb from used_traffic at the UTC day boundary
+                            // (apps/caramba-panel/src/services/monitoring.rs daily_traffic_topup).
+                            // Once the user hits the cap, throttling stops further growth, so
+                            // used_traffic is effectively bounded by the daily allowance.
+                            // Cap with Math.min to avoid producing nonsense if the counter
+                            // ever exceeds the cap (lowered limit, paused throttling, etc.).
                             const topupMb = sub.daily_traffic_mb ?? 50
                             const topupBytes = topupMb * 1024 * 1024
-                            const usedTodayBytes = sub.used_traffic_bytes % topupBytes
+                            const usedTodayBytes = Math.min(sub.used_traffic_bytes, topupBytes)
                             const remainingMb = Math.max(0, (topupBytes - usedTodayBytes) / (1024 * 1024))
                             return (
                                 <div className="free-plan-banner">

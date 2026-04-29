@@ -619,6 +619,9 @@ pub fn t(lang: Option<&str>, key: &str) -> &'static str {
         ("admin.broadcast.step_body", true) => "Шаг 5/5 — Введите текст уведомления:",
         ("admin.broadcast.step_body", false) => "Step 5/5 — Enter notification body:",
 
+        ("admin.broadcast.step_keyboard_required", true) => "Сначала выберите категорию и уровень важности кнопками выше.",
+        ("admin.broadcast.step_keyboard_required", false) => "Please pick a category and severity using the buttons above first.",
+
         ("admin.broadcast.confirm_prompt", true) => "Подтвердите отправку broadcast:",
         ("admin.broadcast.confirm_prompt", false) => "Confirm broadcast send:",
 
