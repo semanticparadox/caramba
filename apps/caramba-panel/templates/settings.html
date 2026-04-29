@@ -203,282 +203,883 @@
 
         <!-- 2. PAYMENTS TAB -->
         <div id="content-payments" class="tab-content hidden space-y-6 animate-fade-in">
-            <div class="card p-8">
-                <header class="flex items-center gap-4 mb-8">
-                    <div
-                        class="w-12 h-12 rounded-2xl bg-brand/10 flex items-center justify-center text-brand border border-brand/20">
-                        <i data-lucide="wallet" class="w-6 h-6"></i>
+
+            <!-- Глобальные настройки платежей -->
+            <div class="card p-6">
+                <header class="flex items-center gap-4 mb-6">
+                    <div class="w-10 h-10 rounded-2xl bg-brand/10 flex items-center justify-center text-brand border border-brand/20">
+                        <i data-lucide="wallet" class="w-5 h-5"></i>
                     </div>
                     <div>
-                        <h3 class="text-xl font-bold text-slate-900 dark:text-white">Payment Gateways</h3>
-                        <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Configure
-                            API keys for crypto payments</p>
+                        <h3 class="text-lg font-bold text-slate-900 dark:text-white">Payment Gateways</h3>
+                        <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Configure providers below — each card can be enabled independently</p>
                     </div>
                 </header>
-
-                <div class="mb-8 p-6 bg-brand/5 border border-brand/20 rounded-2xl">
-                    <h4 class="text-xs font-bold text-brand uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <i data-lucide="link" class="w-3.5 h-3.5"></i>
-                        Gateway Registration
-                    </h4>
-                    <div class="grid grid-cols-2 lg:grid-cols-3 gap-y-3 gap-x-6">
-                        <a href="http://t.me/CryptoBot" target="_blank"
-                            class="flex items-center gap-2 text-[11px] text-slate-400 hover:text-white transition-colors">
-                            <i data-lucide="external-link" class="w-3 h-3 text-slate-600"></i> CryptoBot
-                        </a>
-                        <a href="https://aaio.so/" target="_blank"
-                            class="flex items-center gap-2 text-[11px] text-slate-400 hover:text-white transition-colors">
-                            <i data-lucide="external-link" class="w-3 h-3 text-slate-600"></i> Aaio
-                        </a>
-                        <a href="https://cryptomus.com/" target="_blank"
-                            class="flex items-center gap-2 text-[11px] text-slate-400 hover:text-white transition-colors">
-                            <i data-lucide="external-link" class="w-3 h-3 text-slate-600"></i> Cryptomus
-                        </a>
-                        <a href="https://crystalpay.io/" target="_blank"
-                            class="flex items-center gap-2 text-[11px] text-slate-400 hover:text-white transition-colors">
-                            <i data-lucide="external-link" class="w-3 h-3 text-slate-600"></i> CrystalPay
-                        </a>
-                        <a href="https://nowpayments.io/" target="_blank"
-                            class="flex items-center gap-2 text-[11px] text-slate-400 hover:text-white transition-colors">
-                            <i data-lucide="external-link" class="w-3 h-3 text-slate-600"></i> NowPayments
-                        </a>
-                        <a href="https://lava.top/" target="_blank"
-                            class="flex items-center gap-2 text-[11px] text-slate-400 hover:text-white transition-colors">
-                            <i data-lucide="external-link" class="w-3 h-3 text-slate-600"></i> Lava.top
-                        </a>
-                    </div>
-                </div>
-
-                <!-- Quick Toggles -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-                    <div
-                        class="flex items-center justify-between p-5 bg-amber-500/5 border border-amber-500/15 rounded-2xl">
-                        <div class="flex items-center gap-4">
-                            <div
-                                class="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500">
-                                <i data-lucide="star" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h4 class="text-sm font-bold text-slate-900 dark:text-white">Telegram Stars</h4>
-                                <p class="text-[10px] text-slate-500 font-medium mt-0.5">Native Telegram currency
-                                    payments</p>
-                            </div>
-                        </div>
-                        <label class="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" form="main-settings-form" name="telegram_stars_enabled" value="true"
-                                class="sr-only peer" {% if telegram_stars_enabled %}checked{% endif %}>
-                            <div
-                                class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500">
-                            </div>
-                        </label>
-                    </div>
-
-                    <div class="flex items-center justify-between p-5 bg-brand/5 border border-brand/15 rounded-2xl">
-                        <div class="flex items-center gap-4">
-                            <div class="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center text-brand">
-                                <i data-lucide="credit-card" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h4 class="text-sm font-bold text-slate-900 dark:text-white">Manual Payment</h4>
-                                <p class="text-[10px] text-slate-500 font-medium mt-0.5">Card/Crypto direct transfers
-                                </p>
-                            </div>
-                        </div>
-                        <label class="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" form="main-settings-form" name="manual_enabled" value="true"
-                                class="sr-only peer" {% if manual_enabled %}checked{% endif %}>
-                            <div
-                                class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand">
-                            </div>
-                        </label>
-                    </div>
-                </div>
-
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- CryptoBot -->
                     <div>
-                        <label
-                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-2">
-                            <i data-lucide="bot" class="w-3 h-3"></i> CryptoBot API Token
-                        </label>
-                        <div class="relative">
-                            <input id="payment_api_key" type="password" form="main-settings-form" name="payment_api_key"
-                                value="{{ masked_payment_api_key }}" placeholder="1234:ABC..."
-                                class="input-field input-secret font-mono">
-                            <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
-                                onclick="toggleSecretVisibility(this, 'payment_api_key')" aria-label="Show secret">
-                                <i data-lucide="eye" class="w-4 h-4"></i>
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- NowPayments -->
-                    <div class="space-y-4">
-                        <div>
-                            <label
-                                class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-2">
-                                <i data-lucide="credit-card" class="w-3 h-3"></i> NowPayments API Key
-                            </label>
-                            <div class="relative">
-                                <input id="nowpayments_api_key" type="password" form="main-settings-form"
-                                    name="nowpayments_api_key" value="{{ masked_nowpayments_api_key }}"
-                                    placeholder="API Key" class="input-field input-secret font-mono">
-                                <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
-                                    onclick="toggleSecretVisibility(this, 'nowpayments_api_key')"
-                                    aria-label="Show secret">
-                                    <i data-lucide="eye" class="w-4 h-4"></i>
-                                </button>
-                            </div>
-                        </div>
-                        <div>
-                            <label
-                                class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-2">
-                                <i data-lucide="shield-check" class="w-3 h-3"></i> NowPayments IPN Secret
-                            </label>
-                            <div class="relative">
-                                <input id="nowpayments_ipn_secret" type="password" form="main-settings-form"
-                                    name="nowpayments_ipn_secret" value="{{ masked_nowpayments_ipn_secret }}"
-                                    placeholder="IPN Secret" class="input-field input-secret font-mono">
-                                <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
-                                    onclick="toggleSecretVisibility(this, 'nowpayments_ipn_secret')"
-                                    aria-label="Show secret">
-                                    <i data-lucide="eye" class="w-4 h-4"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Lava.top -->
-                <div
-                    class="p-4 bg-slate-50 dark:bg-slate-950/30 border border-slate-200 dark:border-white/5 rounded-xl space-y-4">
-                    <h4 class="text-sm font-medium text-slate-300 flex items-center gap-2">
-                        <i data-lucide="flame" class="w-4 h-4 text-orange-500"></i> Lava.top Configuration
-                    </h4>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label
-                                class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Project
-                                ID</label>
-                            <input type="text" form="main-settings-form" name="lava_project_id"
-                                value="{{ masked_lava_project_id }}" placeholder="Project ID" class="input-field">
-                        </div>
-                        <div>
-                            <label
-                                class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Secret
-                                Key</label>
-                            <div class="relative">
-                                <input id="lava_secret_key" type="password" form="main-settings-form"
-                                    name="lava_secret_key" value="{{ masked_lava_secret_key }}"
-                                    placeholder="Secret Key" class="input-field input-secret">
-                                <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
-                                    onclick="toggleSecretVisibility(this, 'lava_secret_key')" aria-label="Show secret">
-                                    <i data-lucide="eye" class="w-4 h-4"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- AAIO -->
-                <div class="p-4 bg-slate-950/30 border border-border-default rounded-xl space-y-4">
-                    <h4 class="text-sm font-medium text-slate-300 flex items-center gap-2">
-                        <i data-lucide="layers" class="w-4 h-4 text-pink-500"></i> Aaio Configuration
-                    </h4>
-                    <div>
-                        <label
-                            class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Merchant
-                            ID</label>
-                        <input type="text" form="main-settings-form" name="aaio_merchant_id"
-                            value="{{ masked_aaio_merchant_id }}" placeholder="Merchant ID" class="input-field">
-                    </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label
-                                class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Secret
-                                #1</label>
-                            <div class="relative">
-                                <input id="aaio_secret_1" type="password" form="main-settings-form"
-                                    name="aaio_secret_1" value="{{ masked_aaio_secret_1 }}" placeholder="Secret 1"
-                                    class="input-field input-secret">
-                                <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
-                                    onclick="toggleSecretVisibility(this, 'aaio_secret_1')" aria-label="Show secret">
-                                    <i data-lucide="eye" class="w-4 h-4"></i>
-                                </button>
-                            </div>
-                        </div>
-                        <div>
-                            <label
-                                class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Secret
-                                #2</label>
-                            <div class="relative">
-                                <input id="aaio_secret_2" type="password" form="main-settings-form"
-                                    name="aaio_secret_2" value="{{ masked_aaio_secret_2 }}" placeholder="Secret 2"
-                                    class="input-field input-secret">
-                                <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
-                                    onclick="toggleSecretVisibility(this, 'aaio_secret_2')" aria-label="Show secret">
-                                    <i data-lucide="eye" class="w-4 h-4"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Cryptomus -->
-                <div class="p-4 bg-slate-950/30 border border-border-default rounded-xl space-y-4">
-                    <h4 class="text-sm font-medium text-slate-300 flex items-center gap-2">
-                        <i data-lucide="shield-check" class="w-4 h-4 text-emerald-500"></i> Cryptomus Configuration
-                    </h4>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label
-                                class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Merchant
-                                ID</label>
-                            <input type="text" form="main-settings-form" name="cryptomus_merchant_id"
-                                value="{{ masked_cryptomus_merchant_id }}" placeholder="Merchant ID"
-                                class="input-field">
-                        </div>
-                        <div>
-                            <label
-                                class="block text-xs font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1.5">Payment
-                                API Key</label>
-                            <div class="relative">
-                                <input id="cryptomus_payment_api_key" type="password" form="main-settings-form"
-                                    name="cryptomus_payment_api_key" value="{{ masked_cryptomus_payment_api_key }}"
-                                    placeholder="API Key" class="input-field input-secret">
-                                <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
-                                    onclick="toggleSecretVisibility(this, 'cryptomus_payment_api_key')"
-                                    aria-label="Show secret">
-                                    <i data-lucide="eye" class="w-4 h-4"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-200 dark:border-white/5">
-                    <div>
-                        <label
-                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">IPN
-                            Callback URL</label>
+                        <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">IPN Callback URL (Legacy)</label>
                         <input type="url" form="main-settings-form" name="payment_ipn_url" value="{{ payment_ipn_url }}"
                             placeholder="https://..." class="input-field">
+                        <p class="text-[10px] text-slate-500 mt-1.5 ml-1">Used by legacy adapters. New providers use per-provider webhook URLs shown on each card.</p>
                     </div>
-
                     <div>
-                        <label
-                            class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Exchange
-                            Rate (Internal USD)</label>
+                        <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Exchange Rate (Internal USD)</label>
                         <div class="relative">
-                            <span class="absolute left-4 top-3 text-slate-500 dark:text-slate-500">$</span>
+                            <span class="absolute left-4 top-3 text-slate-500">$</span>
                             <input type="number" form="main-settings-form" name="currency_rate" step="0.01"
                                 value="{{ currency_rate }}" class="input-field pl-8 font-mono">
                         </div>
-                        <p class="text-[10px] text-slate-500 dark:text-slate-500 mt-1.5">Fixed conversion rate if
-                            required.</p>
+                        <p class="text-[10px] text-slate-500 mt-1.5 ml-1">Fixed conversion rate if required.</p>
                     </div>
                 </div>
             </div>
+
+            <!-- ================================================================ -->
+            <!-- КАТЕГОРИЯ: Для РФ без ИП -->
+            <!-- ================================================================ -->
+            <div class="payment-category">
+                <div class="payment-category-header">
+                    <span class="payment-category-icon">🇷🇺</span>
+                    <div>
+                        <h4 class="payment-category-title">Для РФ без ИП</h4>
+                        <p class="payment-category-subtitle">Карты и СБП российских банков, физлица OK</p>
+                    </div>
+                </div>
+                <div class="payment-cards-grid">
+
+                    <!-- WATA -->
+                    <div class="payment-provider-card {% if !wata_enabled %}payment-card-disabled{% endif %}" id="card-wata">
+                        <div class="ppc-header">
+                            <div class="ppc-enable-toggle">
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" form="main-settings-form" name="wata_enabled" value="true"
+                                        class="sr-only peer" {% if wata_enabled %}checked{% endif %}
+                                        onchange="toggleCardEnabled(this, 'card-wata')">
+                                    <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+                                </label>
+                            </div>
+                            <div class="ppc-title-block">
+                                <span class="ppc-name">WATA</span>
+                                <span class="ppc-desc">СБП · карты РФ · физлица, от 2%</span>
+                            </div>
+                            <span class="ppc-tag ppc-tag-ru">РФ</span>
+                        </div>
+                        <div class="ppc-body">
+                            <div class="ppc-webhook-row">
+                                <span class="ppc-webhook-label">Webhook URL</span>
+                                <div class="ppc-webhook-value-wrap">
+                                    <code class="ppc-webhook-url" id="wh-wata">{{ panel_url }}/api/webhooks/payment/wata</code>
+                                    <button type="button" class="ppc-copy-btn" onclick="copyWebhook('wh-wata', this)" title="Скопировать">
+                                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="ppc-fields">
+                                <div>
+                                    <label class="ppc-label">JWT Token</label>
+                                    <div class="relative">
+                                        <input id="wata_jwt_token" type="password" form="main-settings-form" name="wata_jwt_token"
+                                            value="{{ masked_wata_jwt_token }}" placeholder="eyJ..." class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'wata_jwt_token')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="ppc-label">Webhook Secret</label>
+                                    <div class="relative">
+                                        <input id="wata_webhook_secret" type="password" form="main-settings-form" name="wata_webhook_secret"
+                                            value="{{ masked_wata_webhook_secret }}" placeholder="Secret" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'wata_webhook_secret')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ppc-footer">
+                                <button type="button" class="ppc-test-btn" onclick="testProvider('wata', this)">
+                                    <i data-lucide="plug-zap" class="w-3.5 h-3.5"></i> Проверить подключение
+                                </button>
+                                <span class="ppc-test-result" id="test-result-wata"></span>
+                            </div>
+                        </div>
+                        <details class="ppc-docs">
+                            <summary class="ppc-docs-summary"><i data-lucide="book-open" class="w-3.5 h-3.5"></i> Инструкция по настройке</summary>
+                            <div class="ppc-docs-body">{% include "payment_docs/wata.html" %}</div>
+                        </details>
+                    </div>
+
+                    <!-- Lava -->
+                    <div class="payment-provider-card {% if masked_lava_project_id == "" && masked_lava_secret_key == "" %}payment-card-disabled{% endif %}" id="card-lava">
+                        <div class="ppc-header">
+                            <div class="ppc-enable-toggle ppc-enable-noop">
+                                <span class="ppc-always-on-badge">Включён при наличии ключей</span>
+                            </div>
+                            <div class="ppc-title-block">
+                                <span class="ppc-name">Lava.ru</span>
+                                <span class="ppc-desc">Карты РФ · СБП · до 600 000 ₽/мес</span>
+                            </div>
+                            <span class="ppc-tag ppc-tag-ru">РФ</span>
+                        </div>
+                        <div class="ppc-body">
+                            <div class="ppc-webhook-row">
+                                <span class="ppc-webhook-label">Webhook URL</span>
+                                <div class="ppc-webhook-value-wrap">
+                                    <code class="ppc-webhook-url" id="wh-lava">{{ panel_url }}/api/webhooks/payment/lava</code>
+                                    <button type="button" class="ppc-copy-btn" onclick="copyWebhook('wh-lava', this)" title="Скопировать">
+                                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="ppc-fields">
+                                <div>
+                                    <label class="ppc-label">Project ID</label>
+                                    <input type="text" form="main-settings-form" name="lava_project_id"
+                                        value="{{ masked_lava_project_id }}" placeholder="Project ID" class="input-field font-mono text-sm">
+                                </div>
+                                <div>
+                                    <label class="ppc-label">Secret Key</label>
+                                    <div class="relative">
+                                        <input id="lava_secret_key" type="password" form="main-settings-form" name="lava_secret_key"
+                                            value="{{ masked_lava_secret_key }}" placeholder="Secret Key" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'lava_secret_key')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ppc-footer">
+                                <button type="button" class="ppc-test-btn" onclick="testProvider('lava', this)">
+                                    <i data-lucide="plug-zap" class="w-3.5 h-3.5"></i> Проверить подключение
+                                </button>
+                                <span class="ppc-test-result" id="test-result-lava"></span>
+                            </div>
+                        </div>
+                        <details class="ppc-docs">
+                            <summary class="ppc-docs-summary"><i data-lucide="book-open" class="w-3.5 h-3.5"></i> Инструкция по настройке</summary>
+                            <div class="ppc-docs-body">{% include "payment_docs/lava.html" %}</div>
+                        </details>
+                    </div>
+
+                    <!-- AAIO -->
+                    <div class="payment-provider-card {% if masked_aaio_merchant_id == "" %}payment-card-disabled{% endif %}" id="card-aaio">
+                        <div class="ppc-header">
+                            <div class="ppc-enable-toggle ppc-enable-noop">
+                                <span class="ppc-always-on-badge">Включён при наличии ключей</span>
+                            </div>
+                            <div class="ppc-title-block">
+                                <span class="ppc-name">AAIO</span>
+                                <span class="ppc-desc">Карты РФ · СБП · комиссия от 6%</span>
+                            </div>
+                            <span class="ppc-tag ppc-tag-ru">РФ</span>
+                        </div>
+                        <div class="ppc-body">
+                            <div class="ppc-webhook-row">
+                                <span class="ppc-webhook-label">Webhook URL</span>
+                                <div class="ppc-webhook-value-wrap">
+                                    <code class="ppc-webhook-url" id="wh-aaio">{{ panel_url }}/api/webhooks/payment/aaio</code>
+                                    <button type="button" class="ppc-copy-btn" onclick="copyWebhook('wh-aaio', this)" title="Скопировать">
+                                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="ppc-fields">
+                                <div>
+                                    <label class="ppc-label">Merchant ID</label>
+                                    <input type="text" form="main-settings-form" name="aaio_merchant_id"
+                                        value="{{ masked_aaio_merchant_id }}" placeholder="Merchant ID" class="input-field font-mono text-sm">
+                                </div>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="ppc-label">Secret #1</label>
+                                        <div class="relative">
+                                            <input id="aaio_secret_1" type="password" form="main-settings-form" name="aaio_secret_1"
+                                                value="{{ masked_aaio_secret_1 }}" placeholder="Secret 1" class="input-field input-secret font-mono text-sm">
+                                            <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                                onclick="toggleSecretVisibility(this, 'aaio_secret_1')" aria-label="Show secret">
+                                                <i data-lucide="eye" class="w-4 h-4"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="ppc-label">Secret #2</label>
+                                        <div class="relative">
+                                            <input id="aaio_secret_2" type="password" form="main-settings-form" name="aaio_secret_2"
+                                                value="{{ masked_aaio_secret_2 }}" placeholder="Secret 2" class="input-field input-secret font-mono text-sm">
+                                            <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                                onclick="toggleSecretVisibility(this, 'aaio_secret_2')" aria-label="Show secret">
+                                                <i data-lucide="eye" class="w-4 h-4"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ppc-footer">
+                                <button type="button" class="ppc-test-btn" onclick="testProvider('aaio', this)">
+                                    <i data-lucide="plug-zap" class="w-3.5 h-3.5"></i> Проверить подключение
+                                </button>
+                                <span class="ppc-test-result" id="test-result-aaio"></span>
+                            </div>
+                        </div>
+                        <details class="ppc-docs">
+                            <summary class="ppc-docs-summary"><i data-lucide="book-open" class="w-3.5 h-3.5"></i> Инструкция по настройке</summary>
+                            <div class="ppc-docs-body">{% include "payment_docs/aaio.html" %}</div>
+                        </details>
+                    </div>
+
+                    <!-- CrystalPay -->
+                    <div class="payment-provider-card {% if !crystalpay_enabled %}payment-card-disabled{% endif %}" id="card-crystalpay">
+                        <div class="ppc-header">
+                            <div class="ppc-enable-toggle">
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" form="main-settings-form" name="crystalpay_enabled" value="true"
+                                        class="sr-only peer" {% if crystalpay_enabled %}checked{% endif %}
+                                        onchange="toggleCardEnabled(this, 'card-crystalpay')">
+                                    <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+                                </label>
+                            </div>
+                            <div class="ppc-title-block">
+                                <span class="ppc-name">CrystalPay</span>
+                                <span class="ppc-desc">СБП · карты РФ · крипта · 4–7%</span>
+                            </div>
+                            <span class="ppc-tag ppc-tag-ru">РФ</span>
+                        </div>
+                        <div class="ppc-body">
+                            <div class="ppc-webhook-row">
+                                <span class="ppc-webhook-label">Webhook URL</span>
+                                <div class="ppc-webhook-value-wrap">
+                                    <code class="ppc-webhook-url" id="wh-crystalpay">{{ panel_url }}/api/webhooks/payment/crystalpay</code>
+                                    <button type="button" class="ppc-copy-btn" onclick="copyWebhook('wh-crystalpay', this)" title="Скопировать">
+                                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="ppc-fields">
+                                <div>
+                                    <label class="ppc-label">Login</label>
+                                    <div class="relative">
+                                        <input id="crystalpay_login" type="password" form="main-settings-form" name="crystalpay_login"
+                                            value="{{ masked_crystalpay_login }}" placeholder="Login" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'crystalpay_login')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="ppc-label">Secret</label>
+                                        <div class="relative">
+                                            <input id="crystalpay_secret" type="password" form="main-settings-form" name="crystalpay_secret"
+                                                value="{{ masked_crystalpay_secret }}" placeholder="Secret" class="input-field input-secret font-mono text-sm">
+                                            <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                                onclick="toggleSecretVisibility(this, 'crystalpay_secret')" aria-label="Show secret">
+                                                <i data-lucide="eye" class="w-4 h-4"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="ppc-label">Salt</label>
+                                        <div class="relative">
+                                            <input id="crystalpay_salt" type="password" form="main-settings-form" name="crystalpay_salt"
+                                                value="{{ masked_crystalpay_salt }}" placeholder="Salt" class="input-field input-secret font-mono text-sm">
+                                            <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                                onclick="toggleSecretVisibility(this, 'crystalpay_salt')" aria-label="Show secret">
+                                                <i data-lucide="eye" class="w-4 h-4"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ppc-footer">
+                                <button type="button" class="ppc-test-btn" onclick="testProvider('crystalpay', this)">
+                                    <i data-lucide="plug-zap" class="w-3.5 h-3.5"></i> Проверить подключение
+                                </button>
+                                <span class="ppc-test-result" id="test-result-crystalpay"></span>
+                            </div>
+                        </div>
+                        <details class="ppc-docs">
+                            <summary class="ppc-docs-summary"><i data-lucide="book-open" class="w-3.5 h-3.5"></i> Инструкция по настройке</summary>
+                            <div class="ppc-docs-body">{% include "payment_docs/crystalpay.html" %}</div>
+                        </details>
+                    </div>
+
+                    <!-- Tribute -->
+                    <div class="payment-provider-card {% if !tribute_enabled %}payment-card-disabled{% endif %}" id="card-tribute">
+                        <div class="ppc-header">
+                            <div class="ppc-enable-toggle">
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" form="main-settings-form" name="tribute_enabled" value="true"
+                                        class="sr-only peer" {% if tribute_enabled %}checked{% endif %}
+                                        onchange="toggleCardEnabled(this, 'card-tribute')">
+                                    <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+                                </label>
+                            </div>
+                            <div class="ppc-title-block">
+                                <span class="ppc-name">Tribute</span>
+                                <span class="ppc-desc">Telegram-native · физлица · 5%</span>
+                            </div>
+                            <span class="ppc-tag ppc-tag-ru">РФ</span>
+                        </div>
+                        <div class="ppc-body">
+                            <div class="ppc-webhook-row">
+                                <span class="ppc-webhook-label">Webhook URL</span>
+                                <div class="ppc-webhook-value-wrap">
+                                    <code class="ppc-webhook-url" id="wh-tribute">{{ panel_url }}/api/webhooks/payment/tribute</code>
+                                    <button type="button" class="ppc-copy-btn" onclick="copyWebhook('wh-tribute', this)" title="Скопировать">
+                                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="ppc-fields">
+                                <div>
+                                    <label class="ppc-label">API Key</label>
+                                    <div class="relative">
+                                        <input id="tribute_api_key" type="password" form="main-settings-form" name="tribute_api_key"
+                                            value="{{ masked_tribute_api_key }}" placeholder="API Key" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'tribute_api_key')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="ppc-label">Webhook Secret</label>
+                                    <div class="relative">
+                                        <input id="tribute_webhook_secret" type="password" form="main-settings-form" name="tribute_webhook_secret"
+                                            value="{{ masked_tribute_webhook_secret }}" placeholder="Webhook Secret" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'tribute_webhook_secret')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ppc-footer">
+                                <button type="button" class="ppc-test-btn" onclick="testProvider('tribute', this)">
+                                    <i data-lucide="plug-zap" class="w-3.5 h-3.5"></i> Проверить подключение
+                                </button>
+                                <span class="ppc-test-result" id="test-result-tribute"></span>
+                            </div>
+                        </div>
+                        <details class="ppc-docs">
+                            <summary class="ppc-docs-summary"><i data-lucide="book-open" class="w-3.5 h-3.5"></i> Инструкция по настройке</summary>
+                            <div class="ppc-docs-body">{% include "payment_docs/tribute.html" %}</div>
+                        </details>
+                    </div>
+
+                </div><!-- /payment-cards-grid РФ -->
+            </div>
+
+            <!-- ================================================================ -->
+            <!-- КАТЕГОРИЯ: Крипта (no/low KYC) -->
+            <!-- ================================================================ -->
+            <div class="payment-category">
+                <div class="payment-category-header">
+                    <span class="payment-category-icon">💎</span>
+                    <div>
+                        <h4 class="payment-category-title">Крипта — без KYC / минимальный KYC</h4>
+                        <p class="payment-category-subtitle">Биткоин, стейблкоины, альткоины — без банков</p>
+                    </div>
+                </div>
+                <div class="payment-cards-grid">
+
+                    <!-- CryptoBot -->
+                    <div class="payment-provider-card {% if masked_payment_api_key == "" %}payment-card-disabled{% endif %}" id="card-cryptobot">
+                        <div class="ppc-header">
+                            <div class="ppc-enable-toggle ppc-enable-noop">
+                                <span class="ppc-always-on-badge">Включён при наличии токена</span>
+                            </div>
+                            <div class="ppc-title-block">
+                                <span class="ppc-name">CryptoBot</span>
+                                <span class="ppc-desc">Telegram-native · USDT TON BTC · 3%</span>
+                            </div>
+                            <span class="ppc-tag ppc-tag-telegram">TG</span>
+                        </div>
+                        <div class="ppc-body">
+                            <div class="ppc-webhook-row">
+                                <span class="ppc-webhook-label">Webhook URL</span>
+                                <div class="ppc-webhook-value-wrap">
+                                    <code class="ppc-webhook-url" id="wh-cryptobot">{{ panel_url }}/api/webhooks/payment/cryptobot</code>
+                                    <button type="button" class="ppc-copy-btn" onclick="copyWebhook('wh-cryptobot', this)" title="Скопировать">
+                                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="ppc-fields">
+                                <div>
+                                    <label class="ppc-label">API Token</label>
+                                    <div class="relative">
+                                        <input id="payment_api_key" type="password" form="main-settings-form" name="payment_api_key"
+                                            value="{{ masked_payment_api_key }}" placeholder="1234:ABC..." class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'payment_api_key')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ppc-footer">
+                                <button type="button" class="ppc-test-btn" onclick="testProvider('cryptobot', this)">
+                                    <i data-lucide="plug-zap" class="w-3.5 h-3.5"></i> Проверить подключение
+                                </button>
+                                <span class="ppc-test-result" id="test-result-cryptobot"></span>
+                            </div>
+                        </div>
+                        <details class="ppc-docs">
+                            <summary class="ppc-docs-summary"><i data-lucide="book-open" class="w-3.5 h-3.5"></i> Инструкция по настройке</summary>
+                            <div class="ppc-docs-body">{% include "payment_docs/cryptobot.html" %}</div>
+                        </details>
+                    </div>
+
+                    <!-- BTCPay Server -->
+                    <div class="payment-provider-card {% if !btcpay_enabled %}payment-card-disabled{% endif %}" id="card-btcpay">
+                        <div class="ppc-header">
+                            <div class="ppc-enable-toggle">
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" form="main-settings-form" name="btcpay_enabled" value="true"
+                                        class="sr-only peer" {% if btcpay_enabled %}checked{% endif %}
+                                        onchange="toggleCardEnabled(this, 'card-btcpay')">
+                                    <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+                                </label>
+                            </div>
+                            <div class="ppc-title-block">
+                                <span class="ppc-name">BTCPay Server</span>
+                                <span class="ppc-desc">Self-hosted · BTC и др. · 0% комиссии</span>
+                            </div>
+                            <span class="ppc-tag ppc-tag-crypto">Крипта</span>
+                        </div>
+                        <div class="ppc-body">
+                            <div class="ppc-webhook-row">
+                                <span class="ppc-webhook-label">Webhook URL</span>
+                                <div class="ppc-webhook-value-wrap">
+                                    <code class="ppc-webhook-url" id="wh-btcpay">{{ panel_url }}/api/webhooks/payment/btcpay</code>
+                                    <button type="button" class="ppc-copy-btn" onclick="copyWebhook('wh-btcpay', this)" title="Скопировать">
+                                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="ppc-fields">
+                                <div>
+                                    <label class="ppc-label">Server URL</label>
+                                    <input type="text" form="main-settings-form" name="btcpay_url"
+                                        value="{{ btcpay_url }}" placeholder="https://btcpay.yourdomain.com" class="input-field font-mono text-sm">
+                                </div>
+                                <div>
+                                    <label class="ppc-label">Store ID</label>
+                                    <div class="relative">
+                                        <input id="btcpay_store_id" type="password" form="main-settings-form" name="btcpay_store_id"
+                                            value="{{ masked_btcpay_store_id }}" placeholder="Store ID" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'btcpay_store_id')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="ppc-label">API Key</label>
+                                    <div class="relative">
+                                        <input id="btcpay_api_key" type="password" form="main-settings-form" name="btcpay_api_key"
+                                            value="{{ masked_btcpay_api_key }}" placeholder="API Key" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'btcpay_api_key')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="ppc-label">Webhook Secret</label>
+                                    <div class="relative">
+                                        <input id="btcpay_webhook_secret" type="password" form="main-settings-form" name="btcpay_webhook_secret"
+                                            value="{{ masked_btcpay_webhook_secret }}" placeholder="Webhook Secret" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'btcpay_webhook_secret')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ppc-footer">
+                                <button type="button" class="ppc-test-btn" onclick="testProvider('btcpay', this)">
+                                    <i data-lucide="plug-zap" class="w-3.5 h-3.5"></i> Проверить подключение
+                                </button>
+                                <span class="ppc-test-result" id="test-result-btcpay"></span>
+                            </div>
+                        </div>
+                        <details class="ppc-docs">
+                            <summary class="ppc-docs-summary"><i data-lucide="book-open" class="w-3.5 h-3.5"></i> Инструкция по настройке</summary>
+                            <div class="ppc-docs-body">{% include "payment_docs/btcpay.html" %}</div>
+                        </details>
+                    </div>
+
+                    <!-- OxaPay -->
+                    <div class="payment-provider-card {% if !oxapay_enabled %}payment-card-disabled{% endif %}" id="card-oxapay">
+                        <div class="ppc-header">
+                            <div class="ppc-enable-toggle">
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" form="main-settings-form" name="oxapay_enabled" value="true"
+                                        class="sr-only peer" {% if oxapay_enabled %}checked{% endif %}
+                                        onchange="toggleCardEnabled(this, 'card-oxapay')">
+                                    <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+                                </label>
+                            </div>
+                            <div class="ppc-title-block">
+                                <span class="ppc-name">OxaPay</span>
+                                <span class="ppc-desc">USDT · BTC · TON · 0.4% комиссии</span>
+                            </div>
+                            <span class="ppc-tag ppc-tag-crypto">Крипта</span>
+                        </div>
+                        <div class="ppc-body">
+                            <div class="ppc-webhook-row">
+                                <span class="ppc-webhook-label">Webhook URL</span>
+                                <div class="ppc-webhook-value-wrap">
+                                    <code class="ppc-webhook-url" id="wh-oxapay">{{ panel_url }}/api/webhooks/payment/oxapay</code>
+                                    <button type="button" class="ppc-copy-btn" onclick="copyWebhook('wh-oxapay', this)" title="Скопировать">
+                                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="ppc-fields">
+                                <div>
+                                    <label class="ppc-label">Merchant Key</label>
+                                    <div class="relative">
+                                        <input id="oxapay_merchant_key" type="password" form="main-settings-form" name="oxapay_merchant_key"
+                                            value="{{ masked_oxapay_merchant_key }}" placeholder="Merchant Key" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'oxapay_merchant_key')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ppc-footer">
+                                <button type="button" class="ppc-test-btn" onclick="testProvider('oxapay', this)">
+                                    <i data-lucide="plug-zap" class="w-3.5 h-3.5"></i> Проверить подключение
+                                </button>
+                                <span class="ppc-test-result" id="test-result-oxapay"></span>
+                            </div>
+                        </div>
+                        <details class="ppc-docs">
+                            <summary class="ppc-docs-summary"><i data-lucide="book-open" class="w-3.5 h-3.5"></i> Инструкция по настройке</summary>
+                            <div class="ppc-docs-body">{% include "payment_docs/oxapay.html" %}</div>
+                        </details>
+                    </div>
+
+                    <!-- NOWPayments -->
+                    <div class="payment-provider-card {% if masked_nowpayments_api_key == "" %}payment-card-disabled{% endif %}" id="card-nowpayments">
+                        <div class="ppc-header">
+                            <div class="ppc-enable-toggle ppc-enable-noop">
+                                <span class="ppc-always-on-badge">Включён при наличии ключа</span>
+                            </div>
+                            <div class="ppc-title-block">
+                                <span class="ppc-name">NOWPayments</span>
+                                <span class="ppc-desc">200+ валют · минимальный KYC · 0.5%</span>
+                            </div>
+                            <span class="ppc-tag ppc-tag-crypto">Крипта</span>
+                        </div>
+                        <div class="ppc-body">
+                            <div class="ppc-webhook-row">
+                                <span class="ppc-webhook-label">Webhook URL (IPN)</span>
+                                <div class="ppc-webhook-value-wrap">
+                                    <code class="ppc-webhook-url" id="wh-nowpayments">{{ panel_url }}/api/webhooks/payment/nowpayments</code>
+                                    <button type="button" class="ppc-copy-btn" onclick="copyWebhook('wh-nowpayments', this)" title="Скопировать">
+                                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="ppc-fields">
+                                <div>
+                                    <label class="ppc-label">API Key</label>
+                                    <div class="relative">
+                                        <input id="nowpayments_api_key" type="password" form="main-settings-form" name="nowpayments_api_key"
+                                            value="{{ masked_nowpayments_api_key }}" placeholder="API Key" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'nowpayments_api_key')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="ppc-label">IPN Secret</label>
+                                    <div class="relative">
+                                        <input id="nowpayments_ipn_secret" type="password" form="main-settings-form" name="nowpayments_ipn_secret"
+                                            value="{{ masked_nowpayments_ipn_secret }}" placeholder="IPN Secret" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'nowpayments_ipn_secret')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ppc-footer">
+                                <button type="button" class="ppc-test-btn" onclick="testProvider('nowpayments', this)">
+                                    <i data-lucide="plug-zap" class="w-3.5 h-3.5"></i> Проверить подключение
+                                </button>
+                                <span class="ppc-test-result" id="test-result-nowpayments"></span>
+                            </div>
+                        </div>
+                        <details class="ppc-docs">
+                            <summary class="ppc-docs-summary"><i data-lucide="book-open" class="w-3.5 h-3.5"></i> Инструкция по настройке</summary>
+                            <div class="ppc-docs-body">{% include "payment_docs/nowpayments.html" %}</div>
+                        </details>
+                    </div>
+
+                    <!-- Cryptomus -->
+                    <div class="payment-provider-card {% if masked_cryptomus_merchant_id == "" %}payment-card-disabled{% endif %}" id="card-cryptomus">
+                        <div class="ppc-header">
+                            <div class="ppc-enable-toggle ppc-enable-noop">
+                                <span class="ppc-always-on-badge">Включён при наличии ключей</span>
+                            </div>
+                            <div class="ppc-title-block">
+                                <span class="ppc-name">Cryptomus</span>
+                                <span class="ppc-desc">100+ валют · email + 2FA · 0.4–1%</span>
+                            </div>
+                            <span class="ppc-tag ppc-tag-crypto">Крипта</span>
+                        </div>
+                        <div class="ppc-body">
+                            <div class="ppc-webhook-row">
+                                <span class="ppc-webhook-label">Webhook URL</span>
+                                <div class="ppc-webhook-value-wrap">
+                                    <code class="ppc-webhook-url" id="wh-cryptomus">{{ panel_url }}/api/webhooks/payment/cryptomus</code>
+                                    <button type="button" class="ppc-copy-btn" onclick="copyWebhook('wh-cryptomus', this)" title="Скопировать">
+                                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="ppc-fields">
+                                <div>
+                                    <label class="ppc-label">Merchant ID</label>
+                                    <input type="text" form="main-settings-form" name="cryptomus_merchant_id"
+                                        value="{{ masked_cryptomus_merchant_id }}" placeholder="Merchant ID" class="input-field font-mono text-sm">
+                                </div>
+                                <div>
+                                    <label class="ppc-label">Payment API Key</label>
+                                    <div class="relative">
+                                        <input id="cryptomus_payment_api_key" type="password" form="main-settings-form" name="cryptomus_payment_api_key"
+                                            value="{{ masked_cryptomus_payment_api_key }}" placeholder="API Key" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'cryptomus_payment_api_key')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ppc-footer">
+                                <button type="button" class="ppc-test-btn" onclick="testProvider('cryptomus', this)">
+                                    <i data-lucide="plug-zap" class="w-3.5 h-3.5"></i> Проверить подключение
+                                </button>
+                                <span class="ppc-test-result" id="test-result-cryptomus"></span>
+                            </div>
+                        </div>
+                        <details class="ppc-docs">
+                            <summary class="ppc-docs-summary"><i data-lucide="book-open" class="w-3.5 h-3.5"></i> Инструкция по настройке</summary>
+                            <div class="ppc-docs-body">{% include "payment_docs/cryptomus.html" %}</div>
+                        </details>
+                    </div>
+
+                    <!-- Coinbase Commerce -->
+                    <div class="payment-provider-card {% if !coinbase_enabled %}payment-card-disabled{% endif %}" id="card-coinbase">
+                        <div class="ppc-header">
+                            <div class="ppc-enable-toggle">
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" form="main-settings-form" name="coinbase_enabled" value="true"
+                                        class="sr-only peer" {% if coinbase_enabled %}checked{% endif %}
+                                        onchange="toggleCardEnabled(this, 'card-coinbase')">
+                                    <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+                                </label>
+                            </div>
+                            <div class="ppc-title-block">
+                                <span class="ppc-name">Coinbase Commerce</span>
+                                <span class="ppc-desc">BTC · ETH · USDC · 1% комиссии</span>
+                            </div>
+                            <span class="ppc-tag ppc-tag-crypto">Крипта</span>
+                        </div>
+                        <div class="ppc-body">
+                            <div class="ppc-webhook-row">
+                                <span class="ppc-webhook-label">Webhook URL</span>
+                                <div class="ppc-webhook-value-wrap">
+                                    <code class="ppc-webhook-url" id="wh-coinbase">{{ panel_url }}/api/webhooks/payment/coinbase</code>
+                                    <button type="button" class="ppc-copy-btn" onclick="copyWebhook('wh-coinbase', this)" title="Скопировать">
+                                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="ppc-fields">
+                                <div>
+                                    <label class="ppc-label">API Key</label>
+                                    <div class="relative">
+                                        <input id="coinbase_api_key" type="password" form="main-settings-form" name="coinbase_api_key"
+                                            value="{{ masked_coinbase_api_key }}" placeholder="API Key" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'coinbase_api_key')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="ppc-label">Webhook Secret</label>
+                                    <div class="relative">
+                                        <input id="coinbase_webhook_secret" type="password" form="main-settings-form" name="coinbase_webhook_secret"
+                                            value="{{ masked_coinbase_webhook_secret }}" placeholder="Webhook Secret" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'coinbase_webhook_secret')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ppc-footer">
+                                <button type="button" class="ppc-test-btn" onclick="testProvider('coinbase', this)">
+                                    <i data-lucide="plug-zap" class="w-3.5 h-3.5"></i> Проверить подключение
+                                </button>
+                                <span class="ppc-test-result" id="test-result-coinbase"></span>
+                            </div>
+                        </div>
+                        <details class="ppc-docs">
+                            <summary class="ppc-docs-summary"><i data-lucide="book-open" class="w-3.5 h-3.5"></i> Инструкция по настройке</summary>
+                            <div class="ppc-docs-body">{% include "payment_docs/coinbase_commerce.html" %}</div>
+                        </details>
+                    </div>
+
+                    <!-- Plisio -->
+                    <div class="payment-provider-card {% if !plisio_enabled %}payment-card-disabled{% endif %}" id="card-plisio">
+                        <div class="ppc-header">
+                            <div class="ppc-enable-toggle">
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" form="main-settings-form" name="plisio_enabled" value="true"
+                                        class="sr-only peer" {% if plisio_enabled %}checked{% endif %}
+                                        onchange="toggleCardEnabled(this, 'card-plisio')">
+                                    <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+                                </label>
+                            </div>
+                            <div class="ppc-title-block">
+                                <span class="ppc-name">Plisio</span>
+                                <span class="ppc-desc">BTC · ETH · LTC · 0.5% комиссии</span>
+                            </div>
+                            <span class="ppc-tag ppc-tag-crypto">Крипта</span>
+                        </div>
+                        <div class="ppc-body">
+                            <div class="ppc-webhook-row">
+                                <span class="ppc-webhook-label">Webhook URL</span>
+                                <div class="ppc-webhook-value-wrap">
+                                    <code class="ppc-webhook-url" id="wh-plisio">{{ panel_url }}/api/webhooks/payment/plisio</code>
+                                    <button type="button" class="ppc-copy-btn" onclick="copyWebhook('wh-plisio', this)" title="Скопировать">
+                                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="ppc-fields">
+                                <div>
+                                    <label class="ppc-label">API Key</label>
+                                    <div class="relative">
+                                        <input id="plisio_api_key" type="password" form="main-settings-form" name="plisio_api_key"
+                                            value="{{ masked_plisio_api_key }}" placeholder="API Key" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'plisio_api_key')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ppc-footer">
+                                <button type="button" class="ppc-test-btn" onclick="testProvider('plisio', this)">
+                                    <i data-lucide="plug-zap" class="w-3.5 h-3.5"></i> Проверить подключение
+                                </button>
+                                <span class="ppc-test-result" id="test-result-plisio"></span>
+                            </div>
+                        </div>
+                        <details class="ppc-docs">
+                            <summary class="ppc-docs-summary"><i data-lucide="book-open" class="w-3.5 h-3.5"></i> Инструкция по настройке</summary>
+                            <div class="ppc-docs-body">{% include "payment_docs/plisio.html" %}</div>
+                        </details>
+                    </div>
+
+                </div><!-- /payment-cards-grid Крипта -->
+            </div>
+
+            <!-- ================================================================ -->
+            <!-- КАТЕГОРИЯ: Telegram-native -->
+            <!-- ================================================================ -->
+            <div class="payment-category">
+                <div class="payment-category-header">
+                    <span class="payment-category-icon">✨</span>
+                    <div>
+                        <h4 class="payment-category-title">Telegram-native</h4>
+                        <p class="payment-category-subtitle">Оплата внутри Telegram — без выхода в браузер</p>
+                    </div>
+                </div>
+                <div class="payment-cards-grid">
+
+                    <!-- Telegram Stars -->
+                    <div class="payment-provider-card {% if !telegram_stars_enabled %}payment-card-disabled{% endif %}" id="card-stars">
+                        <div class="ppc-header">
+                            <div class="ppc-enable-toggle">
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" form="main-settings-form" name="telegram_stars_enabled" value="true"
+                                        class="sr-only peer" {% if telegram_stars_enabled %}checked{% endif %}
+                                        onchange="toggleCardEnabled(this, 'card-stars')">
+                                    <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                                </label>
+                            </div>
+                            <div class="ppc-title-block">
+                                <span class="ppc-name">Telegram Stars</span>
+                                <span class="ppc-desc">Нативная валюта TG · ~$0.013 / Star</span>
+                            </div>
+                            <span class="ppc-tag ppc-tag-telegram">TG</span>
+                        </div>
+                        <div class="ppc-body">
+                            <div class="ppc-note">
+                                Не требует API-ключей. Stars обрабатываются через Bot API (бот должен быть запущен). Webhook не используется.
+                            </div>
+                            <div class="ppc-footer">
+                                <button type="button" class="ppc-test-btn" onclick="testProvider('stars', this)">
+                                    <i data-lucide="plug-zap" class="w-3.5 h-3.5"></i> Проверить подключение
+                                </button>
+                                <span class="ppc-test-result" id="test-result-stars"></span>
+                            </div>
+                        </div>
+                        <details class="ppc-docs">
+                            <summary class="ppc-docs-summary"><i data-lucide="book-open" class="w-3.5 h-3.5"></i> Инструкция по настройке</summary>
+                            <div class="ppc-docs-body">{% include "payment_docs/telegram_stars.html" %}</div>
+                        </details>
+                    </div>
+
+                    <!-- Manual Payment -->
+                    <div class="payment-provider-card {% if !manual_enabled %}payment-card-disabled{% endif %}" id="card-manual">
+                        <div class="ppc-header">
+                            <div class="ppc-enable-toggle">
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" form="main-settings-form" name="manual_enabled" value="true"
+                                        class="sr-only peer" {% if manual_enabled %}checked{% endif %}
+                                        onchange="toggleCardEnabled(this, 'card-manual')">
+                                    <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+                                </label>
+                            </div>
+                            <div class="ppc-title-block">
+                                <span class="ppc-name">Manual Payment</span>
+                                <span class="ppc-desc">Прямые переводы карта/крипта — одобрение вручную</span>
+                            </div>
+                            <span class="ppc-tag">Manual</span>
+                        </div>
+                        <div class="ppc-body">
+                            <div class="ppc-note">
+                                Пользователь указывает реквизиты вручную. Платёж одобряется администратором в разделе <a href="{{ admin_path }}/marketplace" class="text-brand hover:underline">Marketplace</a>.
+                            </div>
+                            <div class="ppc-footer">
+                                <button type="button" class="ppc-test-btn" onclick="testProvider('manual', this)">
+                                    <i data-lucide="plug-zap" class="w-3.5 h-3.5"></i> Проверить подключение
+                                </button>
+                                <span class="ppc-test-result" id="test-result-manual"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                </div><!-- /payment-cards-grid TG-native -->
+            </div>
+
         </div>
 
         <!-- 3. SYSTEM TAB -->
@@ -998,22 +1599,344 @@
         padding-right: 2.75rem !important;
     }
 
-    /* Redundant styles removed */
-
     .animate-fade-in {
         animation: fadeIn 0.3s ease-in-out;
     }
 
     @keyframes fadeIn {
-        from {
-            opacity: 0;
-            transform: translateY(10px);
-        }
+        from { opacity: 0; transform: translateY(10px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
 
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
+    /* ================================================================
+       Payment provider cards
+       ================================================================ */
+
+    .payment-category {
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 1.25rem;
+        overflow: hidden;
+    }
+
+    .payment-category-header {
+        display: flex;
+        align-items: center;
+        gap: 0.875rem;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        background: rgba(255,255,255,0.03);
+    }
+
+    .payment-category-icon {
+        font-size: 1.375rem;
+        line-height: 1;
+        flex-shrink: 0;
+    }
+
+    .payment-category-title {
+        font-size: 0.8125rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-primary, #e2e8f0);
+        margin: 0;
+    }
+
+    .payment-category-subtitle {
+        font-size: 0.7rem;
+        color: var(--text-muted, #94a3b8);
+        margin: 0.1rem 0 0;
+    }
+
+    /* Grid: 1 col on mobile, 2 on md, 3 on xl */
+    .payment-cards-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+        padding: 0.75rem;
+    }
+
+    @media (min-width: 768px) {
+        .payment-cards-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (min-width: 1280px) {
+        .payment-cards-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    /* Individual card */
+    .payment-provider-card {
+        background: rgba(255,255,255,0.025);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 1rem;
+        overflow: hidden;
+        transition: border-color 0.2s, opacity 0.2s;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .payment-provider-card:hover {
+        border-color: rgba(255,255,255,0.15);
+    }
+
+    .payment-card-disabled {
+        opacity: 0.55;
+    }
+
+    /* Card header row */
+    .ppc-header {
+        display: flex;
+        align-items: center;
+        gap: 0.625rem;
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        background: rgba(255,255,255,0.02);
+    }
+
+    .ppc-enable-toggle {
+        flex-shrink: 0;
+    }
+
+    .ppc-enable-noop {
+        display: flex;
+        align-items: center;
+    }
+
+    .ppc-always-on-badge {
+        font-size: 0.6rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #6ee7b7;
+        background: rgba(52,211,153,0.1);
+        border: 1px solid rgba(52,211,153,0.2);
+        border-radius: 0.375rem;
+        padding: 0.15rem 0.45rem;
+        white-space: nowrap;
+    }
+
+    .ppc-title-block {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .ppc-name {
+        display: block;
+        font-size: 0.875rem;
+        font-weight: 700;
+        color: var(--text-primary, #e2e8f0);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .ppc-desc {
+        display: block;
+        font-size: 0.65rem;
+        color: var(--text-muted, #94a3b8);
+        margin-top: 0.1rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .ppc-tag {
+        flex-shrink: 0;
+        font-size: 0.6rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 0.15rem 0.5rem;
+        border-radius: 0.375rem;
+        border: 1px solid rgba(255,255,255,0.1);
+        background: rgba(255,255,255,0.05);
+        color: var(--text-muted, #94a3b8);
+    }
+
+    .ppc-tag-ru       { border-color: rgba(59,130,246,0.3);  background: rgba(59,130,246,0.08); color: #93c5fd; }
+    .ppc-tag-crypto   { border-color: rgba(245,158,11,0.3);  background: rgba(245,158,11,0.08); color: #fcd34d; }
+    .ppc-tag-world    { border-color: rgba(16,185,129,0.3);  background: rgba(16,185,129,0.08); color: #6ee7b7; }
+    .ppc-tag-telegram { border-color: rgba(56,189,248,0.3);  background: rgba(56,189,248,0.08); color: #7dd3fc; }
+
+    /* Card body */
+    .ppc-body {
+        padding: 0.75rem 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        flex: 1;
+    }
+
+    /* Webhook row */
+    .ppc-webhook-row {
+        background: rgba(0,0,0,0.2);
+        border: 1px solid rgba(255,255,255,0.07);
+        border-radius: 0.625rem;
+        padding: 0.5rem 0.75rem;
+    }
+
+    .ppc-webhook-label {
+        display: block;
+        font-size: 0.6rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-muted, #94a3b8);
+        margin-bottom: 0.25rem;
+    }
+
+    .ppc-webhook-value-wrap {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+
+    .ppc-webhook-url {
+        flex: 1;
+        font-family: 'JetBrains Mono', 'Fira Code', monospace;
+        font-size: 0.65rem;
+        color: #7dd3fc;
+        word-break: break-all;
+        line-height: 1.4;
+        min-width: 0;
+    }
+
+    .ppc-copy-btn {
+        flex-shrink: 0;
+        padding: 0.25rem;
+        border-radius: 0.375rem;
+        color: var(--text-muted, #94a3b8);
+        transition: color 0.15s, background 0.15s;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+    }
+
+    .ppc-copy-btn:hover {
+        color: #e2e8f0;
+        background: rgba(255,255,255,0.08);
+    }
+
+    /* Field labels inside cards */
+    .ppc-label {
+        display: block;
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted, #94a3b8);
+        margin-bottom: 0.3rem;
+    }
+
+    .ppc-fields {
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+    }
+
+    /* Informational note inside card (no credentials needed) */
+    .ppc-note {
+        font-size: 0.75rem;
+        color: var(--text-muted, #94a3b8);
+        line-height: 1.55;
+        padding: 0.5rem 0.75rem;
+        background: rgba(255,255,255,0.03);
+        border-radius: 0.5rem;
+        border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .ppc-note a { color: inherit; }
+
+    /* Test button row */
+    .ppc-footer {
+        display: flex;
+        align-items: center;
+        gap: 0.625rem;
+        flex-wrap: wrap;
+        padding-top: 0.25rem;
+        border-top: 1px solid rgba(255,255,255,0.05);
+        margin-top: auto;
+    }
+
+    .ppc-test-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        font-size: 0.7rem;
+        font-weight: 600;
+        padding: 0.35rem 0.75rem;
+        border-radius: 0.5rem;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        color: var(--text-secondary, #cbd5e1);
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+
+    .ppc-test-btn:hover {
+        background: rgba(255,255,255,0.09);
+        border-color: rgba(255,255,255,0.2);
+        color: #f1f5f9;
+    }
+
+    .ppc-test-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .ppc-test-result {
+        font-size: 0.7rem;
+        font-weight: 600;
+        border-radius: 0.375rem;
+        padding: 0.2rem 0.55rem;
+        display: none;
+    }
+
+    .ppc-test-result.ok {
+        display: inline-block;
+        color: #6ee7b7;
+        background: rgba(52,211,153,0.1);
+        border: 1px solid rgba(52,211,153,0.25);
+    }
+
+    .ppc-test-result.err {
+        display: inline-block;
+        color: #fca5a5;
+        background: rgba(239,68,68,0.1);
+        border: 1px solid rgba(239,68,68,0.25);
+    }
+
+    /* Per-provider docs section at bottom of each card */
+    .ppc-docs {
+        border-top: 1px solid rgba(255,255,255,0.06);
+        background: rgba(0,0,0,0.15);
+    }
+
+    .ppc-docs-summary {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.625rem 1rem;
+        cursor: pointer;
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted, #94a3b8);
+        list-style: none;
+        user-select: none;
+        transition: color 0.15s;
+    }
+
+    .ppc-docs-summary::-webkit-details-marker { display: none; }
+
+    .ppc-docs-summary:hover {
+        color: var(--text-primary, #e2e8f0);
+    }
+
+    .ppc-docs-body {
+        padding: 0 1rem 0.75rem;
     }
 </style>
 
@@ -1058,6 +1981,87 @@
             selection.addRange(range);
         });
     }
+
+    /* ---- Payment card helpers ---- */
+
+    /** Копирует webhook URL по id элемента кода. */
+    function copyWebhook(elementId, btn) {
+        const el = document.getElementById(elementId);
+        if (!el) return;
+        const text = el.innerText.trim();
+        if (!text) return;
+        navigator.clipboard.writeText(text).then(() => {
+            const icon = btn.querySelector('i');
+            if (icon) {
+                icon.setAttribute('data-lucide', 'check');
+                if (window.lucide) lucide.createIcons({ root: btn });
+            }
+            setTimeout(() => {
+                if (icon) {
+                    icon.setAttribute('data-lucide', 'copy');
+                    if (window.lucide) lucide.createIcons({ root: btn });
+                }
+            }, 1200);
+        }).catch(() => {
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+    }
+
+    /** Визуально затемняет/светляет карточку при переключении enabled-тогла. */
+    function toggleCardEnabled(checkbox, cardId) {
+        const card = document.getElementById(cardId);
+        if (!card) return;
+        if (checkbox.checked) {
+            card.classList.remove('payment-card-disabled');
+        } else {
+            card.classList.add('payment-card-disabled');
+        }
+    }
+
+    /**
+     * Вызывает POST /admin/payments/{provider}/test и показывает результат в чипе.
+     * adminPath берётся из глобального window.ADMIN_PATH, который мы inline-скриптом
+     * задаём ниже из шаблонной переменной.
+     */
+    function testProvider(provider, btn) {
+        const resultEl = document.getElementById('test-result-' + provider);
+        if (!resultEl) return;
+
+        btn.disabled = true;
+        resultEl.className = 'ppc-test-result';
+        resultEl.style.display = 'none';
+        resultEl.textContent = '';
+
+        const adminPath = window.ADMIN_PATH || '/admin';
+
+        fetch(adminPath + '/payments/' + provider + '/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        })
+        .then(r => r.json())
+        .then(data => {
+            btn.disabled = false;
+            if (data.ok) {
+                resultEl.textContent = '✓ ' + (data.message || 'OK');
+                resultEl.className = 'ppc-test-result ok';
+            } else {
+                resultEl.textContent = '✗ ' + (data.error || 'Error');
+                resultEl.className = 'ppc-test-result err';
+            }
+        })
+        .catch(err => {
+            btn.disabled = false;
+            resultEl.textContent = '✗ ' + err.message;
+            resultEl.className = 'ppc-test-result err';
+        });
+    }
+
+    /* Инициализировать ADMIN_PATH из шаблона */
+    window.ADMIN_PATH = '{{ admin_path }}';
 
     function switchTab(tabId) {
         // Build tab IDs
