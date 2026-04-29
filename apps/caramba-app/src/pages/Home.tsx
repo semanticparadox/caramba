@@ -92,7 +92,7 @@ export default function Home() {
     const [extendTargetSub, setExtendTargetSub] = useState<UserSubscription | null>(null)
     const [extendingDurationId, setExtendingDurationId] = useState<number | null>(null)
 
-    const providerCards = mapProviderCards(providers)
+    const providerCards = mapProviderCards(providers, t('home.defaultProviderDesc'))
 
     const radius = 44
     const circumference = 2 * Math.PI * radius
@@ -140,7 +140,7 @@ export default function Home() {
         if (!sub.subscription_url) return
         const url = getSubUrl(sub)
         const deepLink = `hiddify://import/${encodeURIComponent(url)}`
-        const w = window.open(deepLink, '_blank')
+        const w = window.open(deepLink, '_blank', 'noopener,noreferrer')
         if (!w) {
             void copyImportLink(sub)
             setBanner({ type: 'success', text: t('home.hiddifyManualCopy') })
@@ -151,7 +151,7 @@ export default function Home() {
         if (!sub.subscription_url) return
         const url = getSubUrl(sub)
         const deepLink = `happ://import/${encodeURIComponent(url)}`
-        const w = window.open(deepLink, '_blank')
+        const w = window.open(deepLink, '_blank', 'noopener,noreferrer')
         if (!w) {
             void copyImportLink(sub)
             setBanner({ type: 'success', text: t('home.happManualCopy') })

@@ -173,7 +173,14 @@ export default function Support() {
                         return;
                 }
             } catch (e: any) {
-                const msg = e?.message || t('support.operationFailed')
+                // Коды ошибок из pin.ts → человекочитаемые строки через i18n
+                const PIN_ERROR_I18N: Record<string, string> = {
+                    'pin.incorrectCurrent': t('support.pinMismatch'),
+                    'pin.incorrectFormat': t('support.operationFailed'),
+                    'pin.incorrect': t('support.pinMismatch'),
+                }
+                const raw = e?.message || ''
+                const msg = PIN_ERROR_I18N[raw] ?? (raw || t('support.operationFailed'))
                 dispatch({ type: 'SET_ERROR', error: msg });
                 setNotice({ type: 'error', text: msg });
             }
@@ -213,7 +220,7 @@ export default function Support() {
                 </div>
             )}
 
-            <button className="contact-hero glass-card" onClick={() => window.open(supportUrl, '_blank')}>
+            <button className="contact-hero glass-card" onClick={() => window.open(supportUrl, '_blank', 'noopener,noreferrer')}>
                 <span className="contact-icon">TG</span>
                 <div>
                     <span className="contact-title">{t('support.contactTitle')}</span>

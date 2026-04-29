@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
+import WebApp from '@twa-dev/sdk'
 import DrawerModal from '../components/DrawerModal'
 import { apiUrl } from '../config'
 import { useAuth, UserSubscription } from '../context/AuthContext'
@@ -108,10 +109,13 @@ export default function Subscription() {
 
     const openExternal = (url: string) => {
         if (url.startsWith('http://') || url.startsWith('https://')) {
-            try { (window as any).Telegram?.WebApp?.openLink?.(url) } catch { window.open(url, '_blank') }
+            // Используем WebApp SDK напрямую — открывает внешний браузер внутри Telegram
+            try { WebApp.openLink(url) } catch { window.open(url, '_blank', 'noopener,noreferrer') }
         } else {
-            const w = window.open(url, '_blank')
+            // Deep-link (hiddify://, happ://, singbox://) — открываем как обычную ссылку
+            const w = window.open(url, '_blank', 'noopener,noreferrer')
             if (!w) {
+                // Браузер заблокировал popup — копируем URL из deep-link в буфер обмена
                 const subUrl = url.match(/import\/(.+)/)?.[1]
                 if (subUrl) {
                     const decoded = decodeURIComponent(subUrl)
