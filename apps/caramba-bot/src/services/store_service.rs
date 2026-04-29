@@ -67,6 +67,40 @@ impl StoreService {
             .await
     }
 
+    /// POST /users/{id}/checkout-cart — finalize cart through user balance.
+    /// Returns whatever the panel returns (typically `{ ok: true, order_id: ... }`).
+    pub async fn checkout_cart(&self, user_id: i64) -> Result<serde_json::Value> {
+        self.api
+            .post::<serde_json::Value, _>(
+                &format!("/users/{}/checkout-cart", user_id),
+                &serde_json::json!({}),
+            )
+            .await
+    }
+
+    /// DELETE /users/{id}/cart — empty user's cart. Idempotent.
+    pub async fn clear_cart(&self, user_id: i64) -> Result<()> {
+        self.api
+            .delete(&format!("/users/{}/cart", user_id))
+            .await
+    }
+
+    /// POST /subs/{id}/kill-sessions — kicks all active devices for the
+    /// subscription, freeing device-limit slots. Body carries user_id for
+    /// ownership verification on the panel side.
+    pub async fn kill_subscription_sessions(
+        &self,
+        sub_id: i64,
+        user_id: i64,
+    ) -> Result<serde_json::Value> {
+        self.api
+            .post::<serde_json::Value, _>(
+                &format!("/subs/{}/kill-sessions", sub_id),
+                &serde_json::json!({ "user_id": user_id }),
+            )
+            .await
+    }
+
     pub async fn get_referral_count(&self, user_id: i64) -> Result<i64> {
         self.api
             .get::<i64>(&format!("/users/{}/referrals/count", user_id))
@@ -267,40 +301,19 @@ impl StoreService {
         Ok(())
     }
 
-    /// Генерирует профиль для всех подписок пользователя (используется из команд).
-    #[allow(dead_code)]
-    pub async fn generate_subscription_file(&self, user_id: i64) -> Result<String> {
-        let resp: serde_json::Value = self
-            .api
-            .get(&format!("/users/{}/config-file", user_id))
-            .await?;
-        Ok(resp.to_string())
-    }
-
-    /// Генерирует профиль для конкретной подписки (используется из callback get_config_).
-    /// Пробует per-subscription endpoint; если панель возвращает ошибку — fallback на
-    /// общий endpoint пользователя.
-    /// AMBIGUOUS: когда панель реализует /subs/{id}/config-file — убрать fallback.
+    /// Генерирует профиль для конкретной подписки. Панель реализует
+    /// `GET /api/v2/bot/subs/{id}/config-file?user_id={uid}` (см. handlers/api/bot.rs);
+    /// этот метод — тонкая обёртка над ним.
     pub async fn generate_subscription_file_for_sub(
         &self,
         user_id: i64,
         sub_id: i64,
     ) -> Result<String> {
-        match self
+        let resp: serde_json::Value = self
             .api
-            .get::<serde_json::Value>(&format!("/subs/{}/config-file?user_id={}", sub_id, user_id))
-            .await
-        {
-            Ok(resp) => Ok(resp.to_string()),
-            Err(_) => {
-                // Панель не реализовала per-sub endpoint — используем общий профиль пользователя
-                let resp: serde_json::Value = self
-                    .api
-                    .get(&format!("/users/{}/config-file", user_id))
-                    .await?;
-                Ok(resp.to_string())
-            }
-        }
+            .get(&format!("/subs/{}/config-file?user_id={}", sub_id, user_id))
+            .await?;
+        Ok(resp.to_string())
     }
 
     pub async fn activate_subscription(&self, sub_id: i64, user_id: i64) -> Result<Subscription> {

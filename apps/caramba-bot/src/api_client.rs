@@ -64,6 +64,23 @@ impl ApiClient {
         Ok(resp.json().await?)
     }
 
+    /// DELETE on /api/v2/bot{path}. Used for idempotent removals (cart clear,
+    /// session kill, etc.). Returns Ok on any 2xx; body intentionally ignored.
+    pub async fn delete(&self, path: &str) -> Result<()> {
+        let url = format!("{}/api/v2/bot{}", self.base_url, path);
+        let resp = self
+            .client
+            .delete(&url)
+            .header("X-Bot-Token", &self.token)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(anyhow::anyhow!("Request failed: {}", resp.status()));
+        }
+        Ok(())
+    }
+
     pub fn has_token(&self) -> bool {
         !self.token.trim().is_empty()
     }

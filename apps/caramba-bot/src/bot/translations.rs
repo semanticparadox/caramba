@@ -181,6 +181,12 @@ pub fn t(lang: Option<&str>, key: &str) -> &'static str {
         ("msg.payment_error", true) => "❌ Ошибка оплаты. Обратитесь в поддержку.",
         ("msg.payment_error", false) => "❌ Error processing payment. Please contact support.",
 
+        ("msg.cart_cleared", true) => "🗑️ Корзина очищена.",
+        ("msg.cart_cleared", false) => "🗑️ Cart cleared.",
+
+        ("msg.sessions_killed", true) => "🔌 Все устройства отключены от этой подписки.",
+        ("msg.sessions_killed", false) => "🔌 All devices disconnected from this subscription.",
+
         ("msg.topup_menu", true) => "💳 *Выберите способ пополнения:*",
         ("msg.topup_menu", false) => "💳 *Choose Top-up Method:*",
 

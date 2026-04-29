@@ -1545,37 +1545,64 @@ pub async fn callback_handler(
             }
 
             // ------------------------------------------------------------------
-            // cart_checkout — оформление заказа (через баланс).
-            // AMBIGUOUS: панель должна иметь POST /users/{id}/checkout-cart;
-            // пока отвечаем пользователю что функция в разработке.
+            // cart_checkout — finalize cart through user balance via panel.
             // ------------------------------------------------------------------
             "cart_checkout" => {
                 let user_res: AnyhowResult<Option<User>> =
                     state.store_service.get_user_by_tg_id(tg_id).await;
-                let lang = user_res.ok().flatten().and_then(|u| u.language_code.clone());
-                // AMBIGUOUS: checkout logic delegated to panel; show error for now
-                let _ = bot
-                    .answer_callback_query(callback_id)
-                    .text(t(lang.as_deref(), "msg.payment_error"))
-                    .show_alert(true)
-                    .await;
+                let user = user_res.ok().flatten();
+                let lang = user.as_ref().and_then(|u| u.language_code.clone());
+                if let Some(u) = user {
+                    match state.store_service.checkout_cart(u.id).await {
+                        Ok(_) => {
+                            let _ = bot
+                                .answer_callback_query(callback_id)
+                                .text(t(lang.as_deref(), "msg.payment_success"))
+                                .show_alert(true)
+                                .await;
+                        }
+                        Err(e) => {
+                            tracing::warn!(user_id = u.id, error = %e, "checkout_cart failed");
+                            let _ = bot
+                                .answer_callback_query(callback_id)
+                                .text(t(lang.as_deref(), "msg.payment_error"))
+                                .show_alert(true)
+                                .await;
+                        }
+                    }
+                } else {
+                    let _ = bot.answer_callback_query(callback_id).await;
+                }
             }
 
             // ------------------------------------------------------------------
-            // cart_clear — очистка корзины.
-            // AMBIGUOUS: панель должна иметь DELETE /users/{id}/cart;
-            // пока отвечаем пользователю об ошибке.
+            // cart_clear — empty user's cart via panel.
             // ------------------------------------------------------------------
             "cart_clear" => {
                 let user_res: AnyhowResult<Option<User>> =
                     state.store_service.get_user_by_tg_id(tg_id).await;
-                let lang = user_res.ok().flatten().and_then(|u| u.language_code.clone());
-                // AMBIGUOUS: clear-cart API endpoint not yet implemented on panel side
-                let _ = bot
-                    .answer_callback_query(callback_id)
-                    .text(t(lang.as_deref(), "msg.payment_error"))
-                    .show_alert(true)
-                    .await;
+                let user = user_res.ok().flatten();
+                let lang = user.as_ref().and_then(|u| u.language_code.clone());
+                if let Some(u) = user {
+                    match state.store_service.clear_cart(u.id).await {
+                        Ok(_) => {
+                            let _ = bot
+                                .answer_callback_query(callback_id)
+                                .text(t(lang.as_deref(), "msg.cart_cleared"))
+                                .await;
+                        }
+                        Err(e) => {
+                            tracing::warn!(user_id = u.id, error = %e, "clear_cart failed");
+                            let _ = bot
+                                .answer_callback_query(callback_id)
+                                .text(t(lang.as_deref(), "msg.payment_error"))
+                                .show_alert(true)
+                                .await;
+                        }
+                    }
+                } else {
+                    let _ = bot.answer_callback_query(callback_id).await;
+                }
             }
 
             // ------------------------------------------------------------------
@@ -1609,20 +1636,41 @@ pub async fn callback_handler(
             }
 
             // ------------------------------------------------------------------
-            // kill_sessions_{sub_id} — сбрасываем активные IP-сессии подписки
-            // AMBIGUOUS: панель должна иметь POST /subs/{id}/kill-sessions;
-            // пока показываем ошибку.
+            // kill_sessions_{sub_id} — disconnect all active devices on this subscription.
             // ------------------------------------------------------------------
             kill_sessions if kill_sessions.starts_with("kill_sessions_") => {
-                let _sub_id = kill_sessions.strip_prefix("kill_sessions_").unwrap_or("0");
-                let ks_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
-                // AMBIGUOUS: kill-sessions API endpoint not yet implemented on panel side
-                let _ = bot
-                    .answer_callback_query(callback_id)
-                    .text(t(ks_lang.as_deref(), "msg.payment_error"))
-                    .show_alert(true)
-                    .await;
+                let sub_id: i64 = kill_sessions
+                    .strip_prefix("kill_sessions_")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
+                let user_res: AnyhowResult<Option<User>> =
+                    state.store_service.get_user_by_tg_id(tg_id).await;
+                let user = user_res.ok().flatten();
+                let ks_lang = user.as_ref().and_then(|u| u.language_code.clone());
+                match (user, sub_id > 0) {
+                    (Some(u), true) => {
+                        match state.store_service.kill_subscription_sessions(sub_id, u.id).await {
+                            Ok(_) => {
+                                let _ = bot
+                                    .answer_callback_query(callback_id)
+                                    .text(t(ks_lang.as_deref(), "msg.sessions_killed"))
+                                    .show_alert(true)
+                                    .await;
+                            }
+                            Err(e) => {
+                                tracing::warn!(user_id = u.id, sub_id, error = %e, "kill_subscription_sessions failed");
+                                let _ = bot
+                                    .answer_callback_query(callback_id)
+                                    .text(t(ks_lang.as_deref(), "msg.payment_error"))
+                                    .show_alert(true)
+                                    .await;
+                            }
+                        }
+                    }
+                    _ => {
+                        let _ = bot.answer_callback_query(callback_id).await;
+                    }
+                }
             }
 
             _ => {

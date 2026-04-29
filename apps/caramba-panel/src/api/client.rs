@@ -2612,12 +2612,18 @@ async fn get_subscription_devices(
         first_seen_at: chrono::DateTime<chrono::Utc>,
     }
 
+    // Same filter as SubscriptionService::get_active_ips so the device list
+    // here and the active_devices counter on /user/subscriptions agree.
+    // Excludes infrastructure IPs (own nodes, frontend servers) which can
+    // appear in leases when traffic transits relays.
     let leases = sqlx::query_as::<_, DeviceLease>(
         r#"SELECT id, device_name, last_ip, last_seen_at, first_seen_at
            FROM subscription_device_leases
            WHERE subscription_id = $1
              AND last_seen_at > NOW() - INTERVAL '15 minutes'
              AND last_ip <> '0.0.0.0'
+             AND last_ip NOT IN (SELECT ip FROM nodes WHERE ip IS NOT NULL)
+             AND last_ip NOT IN (SELECT ip_address FROM frontend_servers WHERE ip_address IS NOT NULL)
            ORDER BY last_seen_at DESC"#,
     )
     .bind(sub_id)
@@ -2691,9 +2697,17 @@ async fn kick_subscription_device(
     .execute(&state.pool)
     .await;
 
-    // Best-effort: kill active connections on nodes via Clash API
-    // The connection_service handles this in background — we just clean the DB records
-    // and the device will be blocked on next config request (15-min window expired)
+    // Actively close all subscription connections via Clash API so the kicked
+    // device's TCP session is terminated immediately, not on the next 5-min poll.
+    // Other devices will transparently re-establish; this is the cost of
+    // sing-box not exposing per-IP-targeted connection close in our setup.
+    // Spawned so the HTTP response returns fast.
+    let conn_service = state.connection_service.clone();
+    tokio::spawn(async move {
+        if let Err(e) = conn_service.kill_subscription_connections(sub_id).await {
+            tracing::warn!(sub_id, error = %e, "kill_subscription_connections after kick failed");
+        }
+    });
 
     let _ = crate::services::activity_service::ActivityService::log(
         &state.pool,
