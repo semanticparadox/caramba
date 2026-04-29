@@ -40,7 +40,7 @@
         <div class="space-y-3 mb-6">
             <div class="flex items-center justify-between text-sm">
                 <span class="text-slate-400">Balance</span>
-                <span class="text-white font-mono">${{ org.balance }}</span>
+                <span class="text-white font-mono">${{ org.balance / 100 }}.{{ "{:02}"|format(org.balance % 100) }}</span>
             </div>
             <div class="flex items-center justify-between text-sm">
                 <span class="text-slate-400">Created</span>

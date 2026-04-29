@@ -58,7 +58,11 @@ pub async fn get_updates_page(State(state): State<AppState>, jar: CookieJar) -> 
         .settings
         .get_or_default("panel_latest_version_cache", &panel_current)
         .await;
-    let panel_update_available = panel_latest != panel_current; // Simplified semver check
+    // Compare versions ignoring an optional `v` prefix on either side
+    // ("v0.9.47" == "0.9.47"), so a GitHub-tagged release doesn't appear
+    // perpetually different from the local crate version.
+    let normalize = |v: &str| v.trim().trim_start_matches('v').to_string();
+    let panel_update_available = normalize(&panel_latest) != normalize(&panel_current);
 
     // Agent Config
     let agent_latest_version = state
