@@ -111,11 +111,45 @@
     color: var(--text-secondary);
 }
 
+.sub-card-traffic-col {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+
 .sub-card-traffic {
     font-size: 0.78rem;
     color: var(--text-secondary);
     font-weight: 600;
     white-space: nowrap;
+}
+
+/* Остаток трафика под основным счётчиком */
+.sub-card-traffic-remaining {
+    font-size: 0.68rem;
+    color: var(--color-success, #43a047);
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+/* Строка с информацией по дневному лимиту для бесплатного плана */
+.free-plan-daily-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    flex-wrap: wrap;
+}
+
+.free-plan-daily-item {
+    white-space: nowrap;
+}
+
+.free-plan-daily-sep {
+    color: var(--text-tertiary, var(--text-secondary));
+    opacity: 0.5;
 }
 
 .progress-bar-mini {

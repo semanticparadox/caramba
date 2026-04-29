@@ -394,7 +394,19 @@ export default function Subscription() {
                             <div className="sub-traffic">
                                 <div className="traffic-bar-row">
                                     <span>{t('subscription.traffic')}</span>
-                                    <span>{sub.used_traffic_gb} GB / {sub.traffic_limit_gb > 0 ? formatTraffic(sub.traffic_limit_gb) : '∞'}</span>
+                                    <div className="traffic-bar-right">
+                                        <span>{sub.used_traffic_gb} GB / {sub.traffic_limit_gb > 0 ? formatTraffic(sub.traffic_limit_gb) : '∞'}</span>
+                                        {/* Остаток трафика — только для тарифов с лимитом */}
+                                        {sub.traffic_limit_gb > 0 && (() => {
+                                            const usedGb = parseFloat(sub.used_traffic_gb) || 0
+                                            const remaining = Math.max(0, sub.traffic_limit_gb - usedGb)
+                                            return (
+                                                <span className="traffic-remaining-hint">
+                                                    {t('home.trafficRemaining', { remaining: remaining.toFixed(1) })}
+                                                </span>
+                                            )
+                                        })()}
+                                    </div>
                                 </div>
                                 {sub.traffic_limit_gb > 0 && (
                                     <div className="progress-bar-mini">

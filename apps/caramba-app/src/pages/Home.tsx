@@ -463,9 +463,21 @@ export default function Home() {
                                         : t('home.expiringSoon')}
                                 </span>
                             </div>
-                            <span className="sub-card-traffic">
-                                {sub.used_traffic_gb} / {sub.traffic_limit_gb > 0 ? `${sub.traffic_limit_gb} GB` : '∞'}
-                            </span>
+                            <div className="sub-card-traffic-col">
+                                <span className="sub-card-traffic">
+                                    {sub.used_traffic_gb} / {sub.traffic_limit_gb > 0 ? `${sub.traffic_limit_gb} GB` : '∞'}
+                                </span>
+                                {/* Остаток трафика — только для тарифов с лимитом */}
+                                {sub.traffic_limit_gb > 0 && (() => {
+                                    const usedGb = parseFloat(sub.used_traffic_gb) || 0
+                                    const remaining = Math.max(0, sub.traffic_limit_gb - usedGb)
+                                    return (
+                                        <span className="sub-card-traffic-remaining">
+                                            {t('home.trafficRemaining', { remaining: remaining.toFixed(1) })}
+                                        </span>
+                                    )
+                                })()}
+                            </div>
                         </div>
                         {sub.traffic_limit_gb > 0 && (() => {
                                 const pct = usageProgress(sub)
@@ -482,19 +494,33 @@ export default function Home() {
                                     </div>
                                 )
                             })()}
-                        {sub.is_free && (
-                            <div className="free-plan-banner">
-                                <span className="free-plan-topup-badge">
-                                    +{sub.daily_traffic_mb ?? 50} {t('home.freePlanTopupLabel')}
-                                </span>
-                                <button
-                                    className="btn-primary btn-upgrade-cta"
-                                    onClick={focusPurchase}
-                                >
-                                    {t('home.upgradeToPremium')}
-                                </button>
-                            </div>
-                        )}
+                        {sub.is_free && (() => {
+                            // Вычисляем остаток дневного лимита из used_traffic_bytes
+                            // Суточный лимит в байтах. Используем как приближение — точный дневной сброс на сервере.
+                            const topupMb = sub.daily_traffic_mb ?? 50
+                            const topupBytes = topupMb * 1024 * 1024
+                            const usedTodayBytes = sub.used_traffic_bytes % topupBytes
+                            const remainingMb = Math.max(0, (topupBytes - usedTodayBytes) / (1024 * 1024))
+                            return (
+                                <div className="free-plan-banner">
+                                    <div className="free-plan-daily-info">
+                                        <span className="free-plan-daily-item">
+                                            {t('home.freeDailyToday', { remaining: remainingMb.toFixed(0) })}
+                                        </span>
+                                        <span className="free-plan-daily-sep">·</span>
+                                        <span className="free-plan-daily-item">
+                                            {t('home.freeDailyTomorrow', { topup: topupMb })}
+                                        </span>
+                                    </div>
+                                    <button
+                                        className="btn-primary btn-upgrade-cta"
+                                        onClick={focusPurchase}
+                                    >
+                                        {t('home.upgradeToPremium')}
+                                    </button>
+                                </div>
+                            )
+                        })()}
                         <div className="sub-card-stats">
                             <span>↓ {formatBytes(totalDownload)}</span>
                             <span>↑ {formatBytes(totalUpload)}</span>
