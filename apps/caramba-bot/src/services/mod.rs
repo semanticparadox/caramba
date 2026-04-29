@@ -1,3 +1,4 @@
+pub mod admin_service;
 pub mod logging_service;
 pub mod pay_service;
 pub mod promo_service;
