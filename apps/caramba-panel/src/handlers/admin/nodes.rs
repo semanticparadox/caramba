@@ -1829,3 +1829,81 @@ pub async fn update_sni_interval(
     resp_headers.insert("HX-Trigger", "refresh_nodes".parse().unwrap());
     (axum::http::StatusCode::OK, resp_headers, "OK").into_response()
 }
+
+/// POST /admin/nodes/reload-all
+/// Ask every active node to pull a fresh config. Useful after panel-wide
+/// changes (e.g. enabling experimental.clash_api in the generator) so the
+/// operator does not need to ssh-and-restart each node by hand.
+///
+/// Per-node failures are tolerated — the response body summarises which
+/// nodes were notified successfully and which failed.
+pub async fn admin_reload_all_nodes(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
+    if get_auth_user(&state, &jar).await.is_none() {
+        return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    let node_repo = caramba_db::repositories::node_repo::NodeRepository::new(state.pool.clone());
+    let active_ids = match node_repo.get_active_node_ids().await {
+        Ok(ids) => ids,
+        Err(e) => {
+            error!("Failed to fetch active node IDs for reload-all: {}", e);
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Не удалось получить список нод",
+            )
+                .into_response();
+        }
+    };
+
+    if active_ids.is_empty() {
+        return (axum::http::StatusCode::OK, "Активных нод нет").into_response();
+    }
+
+    let mut ok = 0usize;
+    let mut failures: Vec<(i64, String)> = Vec::new();
+    for node_id in &active_ids {
+        // Best-effort: regenerate JSON, then push update signal.
+        // Regen failure does NOT block the notify — node will refetch and
+        // panel will regenerate again on next pull, but we log it.
+        if let Err(e) = state
+            .orchestration_service
+            .generate_node_config_json(*node_id)
+            .await
+        {
+            warn!("Config regen failed for node {} during reload-all: {}", node_id, e);
+        }
+        match state.orchestration_service.notify_node_update(*node_id).await {
+            Ok(_) => ok += 1,
+            Err(e) => failures.push((*node_id, e.to_string())),
+        }
+    }
+
+    let body = if failures.is_empty() {
+        format!("✅ Уведомление разослано всем активным нодам ({}/{})", ok, active_ids.len())
+    } else {
+        let fail_list = failures
+            .iter()
+            .map(|(id, msg)| format!("#{} — {}", id, msg))
+            .collect::<Vec<_>>()
+            .join("; ");
+        format!(
+            "Уведомлено {}/{}; ошибки: {}",
+            ok,
+            active_ids.len(),
+            fail_list
+        )
+    };
+
+    info!(
+        "admin_reload_all_nodes: notified {}/{} active nodes",
+        ok,
+        active_ids.len()
+    );
+
+    let mut resp_headers = axum::http::HeaderMap::new();
+    resp_headers.insert("HX-Trigger", "refresh_nodes".parse().unwrap());
+    (axum::http::StatusCode::OK, resp_headers, body).into_response()
+}

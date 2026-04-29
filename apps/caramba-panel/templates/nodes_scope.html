@@ -26,8 +26,21 @@
             >
                 <i data-lucide="refresh-cw" class="w-4 h-4"></i>
             </button>
+            <button
+                hx-post="{{ admin_path }}/nodes/reload-all"
+                hx-confirm="Разослать всем активным нодам сигнал перечитать конфиг? Используется после изменений генератора (например включения Clash API)."
+                hx-target="#reload-all-status"
+                hx-swap="innerHTML"
+                class="btn btn-secondary px-4"
+                title="Перегенерить конфиг и уведомить все активные ноды"
+            >
+                <i data-lucide="cloud-cog" class="w-4 h-4"></i>
+                <span class="hidden md:inline">Reload all</span>
+            </button>
         </div>
     </div>
+
+    <div id="reload-all-status" class="text-sm text-slate-400" aria-live="polite"></div>
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div class="card-stat relative overflow-hidden group">

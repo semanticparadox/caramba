@@ -790,6 +790,10 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::post(handlers::admin::nodes::admin_rotate_node_sni),
         )
         .route(
+            "/nodes/reload-all",
+            axum::routing::post(handlers::admin::nodes::admin_reload_all_nodes),
+        )
+        .route(
             "/nodes/{id}/sni-interval",
             axum::routing::post(handlers::admin::nodes::update_sni_interval),
         )
