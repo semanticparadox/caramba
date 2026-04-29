@@ -5,12 +5,13 @@ use askama::Template;
 use askama_web::WebTemplate;
 use axum::{
     extract::{Form, State},
+    http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse},
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar};
 use serde::Deserialize;
 use time::Duration;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::AppState;
 
@@ -96,11 +97,49 @@ pub async fn get_login(State(state): State<AppState>) -> impl IntoResponse {
     )
 }
 
+/// Извлекаем IP клиента из заголовков обратного прокси (Cloudflare / Caddy / Nginx)
+fn extract_login_ip(headers: &HeaderMap) -> String {
+    headers
+        .get("cf-connecting-ip")
+        .or_else(|| headers.get("x-real-ip"))
+        .or_else(|| headers.get("x-forwarded-for"))
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 /// POST /admin/login - Process login
 pub async fn login(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Form(form): Form<LoginForm>,
 ) -> impl IntoResponse {
+    // Защита от брутфорса: не более 5 попыток с одного IP за 5 минут
+    let client_ip = extract_login_ip(&headers);
+    let rate_key = format!("rate:admin_login:{}", client_ip);
+    match state.redis.check_rate_limit(&rate_key, 5, 300).await {
+        Ok(allowed) => {
+            if !allowed {
+                warn!(
+                    ip = %client_ip,
+                    username = %form.username,
+                    "Admin login rate limit exceeded",
+                );
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    Html("<div class='text-red-500 text-sm mt-2'>Too many login attempts. Please try again later.</div>"),
+                )
+                    .into_response();
+            }
+        }
+        Err(e) => {
+            // При ошибке Redis пропускаем — не блокируем легитимных пользователей,
+            // но пишем в лог чтобы это не осталось незамеченным
+            tracing::error!(err = %e, "Redis rate-limit check failed for admin login");
+        }
+    }
+
     // Check Database for user
     let admin_opts: Option<(String,)> =
         sqlx::query_as("SELECT password_hash FROM admins WHERE username = $1")
@@ -110,8 +149,14 @@ pub async fn login(
             .unwrap_or(None);
 
     // Verify password against DB hash (NO fallback for security)
+    // bcrypt::verify — дорогая операция (~100ms), выносим в blocking-пул
+    // чтобы не блокировать Tokio executor во время логина
     let is_valid = if let Some((hash,)) = admin_opts {
-        bcrypt::verify(&form.password, &hash).unwrap_or(false)
+        let password_clone = form.password.clone();
+        tokio::task::spawn_blocking(move || bcrypt::verify(&password_clone, &hash))
+            .await
+            .unwrap_or(Ok(false))
+            .unwrap_or(false)
     } else {
         false
     };
@@ -146,6 +191,8 @@ pub async fn login(
         let cookie = Cookie::build(("admin_session", token))
             .path("/")
             .http_only(true)
+            .secure(true)
+            .same_site(axum_extra::extract::cookie::SameSite::Lax)
             .build();
 
         (
@@ -162,11 +209,20 @@ pub async fn login(
 }
 
 /// POST /admin/logout - Logout user
-pub async fn logout(jar: CookieJar) -> impl IntoResponse {
+pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {
+    // Удаляем сессию из Redis до истечения 24-часового TTL,
+    // чтобы токен нельзя было переиспользовать после выхода
+    if let Some(session_cookie) = jar.get("admin_session") {
+        let token = session_cookie.value();
+        let _ = state.redis.del(&format!("session:{}", token)).await;
+    }
+
     let mut cookie = Cookie::from("admin_session");
     cookie.set_value("");
     cookie.set_path("/");
     cookie.set_max_age(Duration::seconds(0)); // Expire immediately
+    cookie.set_secure(true);
+    cookie.set_same_site(axum_extra::extract::cookie::SameSite::Lax);
 
     let admin_path = std::env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".to_string());
     let admin_path = if admin_path.starts_with('/') {

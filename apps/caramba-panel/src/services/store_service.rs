@@ -12,6 +12,13 @@ use caramba_db::repositories::node_repo::NodeRepository;
 use caramba_db::repositories::subscription_repo::SubscriptionRepository;
 use caramba_db::repositories::user_repo::UserRepository;
 
+/// Результат покупки тарифа: подписка создана активной, либо создан подарочный код.
+#[derive(Debug)]
+pub enum PurchaseResult {
+    Subscription(Subscription),
+    GiftCode(String),
+}
+
 #[derive(Debug, Clone)]
 pub struct StoreService {
     pool: PgPool,
@@ -274,43 +281,66 @@ impl StoreService {
     }
 
     pub async fn sync_family_subscriptions(&self, parent_id: i64) -> Result<()> {
+        // Читаем данные до транзакции — эти запросы только на чтение
         let parent_sub = self.sub_repo.get_active_by_user(parent_id).await?;
         let children = self.get_family_members(parent_id).await?;
         if children.is_empty() {
             return Ok(());
         }
 
-        let tx = self.pool.begin().await?;
+        let mut tx = self.pool.begin().await?;
 
         if let Some(psub) = parent_sub {
             for child in children {
-                let child_sub = self.sub_repo.get_active_by_user(child.id).await?;
+                // Читаем дочернюю подписку внутри транзакции для согласованности
+                let child_sub = sqlx::query_as::<_, Subscription>(
+                    "SELECT * FROM subscriptions WHERE user_id = $1 AND status = 'active' ORDER BY expires_at DESC LIMIT 1"
+                )
+                .bind(child.id)
+                .fetch_optional(&mut *tx)
+                .await?;
 
                 if let Some(csub) = child_sub {
                     if csub.note.as_deref() == Some("Family") || csub.plan_id == psub.plan_id {
-                        self.sub_repo
-                            .update_family_sub(csub.id, psub.expires_at, psub.plan_id, psub.node_id)
-                            .await?;
+                        // Обновляем семейную подписку в рамках транзакции
+                        sqlx::query(
+                            "UPDATE subscriptions SET expires_at = $1, plan_id = $2, node_id = $3, status = 'active', note = 'Family' WHERE id = $4"
+                        )
+                        .bind(psub.expires_at)
+                        .bind(psub.plan_id)
+                        .bind(psub.node_id)
+                        .bind(csub.id)
+                        .execute(&mut *tx)
+                        .await?;
                     }
                 } else {
                     let vless_uuid = Uuid::new_v4().to_string();
                     let sub_uuid = Uuid::new_v4().to_string();
-                    self.sub_repo
-                        .create(
-                            child.id,
-                            psub.plan_id,
-                            &vless_uuid,
-                            &sub_uuid,
-                            psub.expires_at,
-                            "active",
-                            Some("Family"),
-                        )
-                        .await?;
+                    // Создаём семейную подписку в рамках транзакции
+                    sqlx::query(
+                        r#"INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, expires_at, status, note, created_at, is_trial)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, FALSE)"#
+                    )
+                    .bind(child.id)
+                    .bind(psub.plan_id)
+                    .bind(&vless_uuid)
+                    .bind(&sub_uuid)
+                    .bind(psub.expires_at)
+                    .bind("active")
+                    .bind("Family")
+                    .execute(&mut *tx)
+                    .await?;
                 }
             }
         } else {
             for child in children {
-                self.sub_repo.expire_family_subs(child.id).await?;
+                // Истекаем семейные подписки в рамках транзакции
+                sqlx::query(
+                    "UPDATE subscriptions SET status = 'expired' WHERE user_id = $1 AND note = 'Family' AND status = 'active'"
+                )
+                .bind(child.id)
+                .execute(&mut *tx)
+                .await?;
             }
         }
 
@@ -418,10 +448,17 @@ impl StoreService {
         Ok(())
     }
 
-    pub async fn purchase_plan(&self, user_id: i64, duration_id: i64) -> Result<Subscription> {
+    pub async fn purchase_plan(
+        &self,
+        user_id: i64,
+        duration_id: i64,
+        as_gift: bool,
+    ) -> Result<PurchaseResult> {
         let mut tx = self.pool.begin().await?;
 
-        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        // FOR UPDATE блокирует строку пользователя на время транзакции,
+        // предотвращая гонку при параллельных покупках (баланс не уйдёт в минус)
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1 FOR UPDATE")
             .bind(user_id)
             .fetch_one(&mut *tx)
             .await?;
@@ -437,6 +474,23 @@ impl StoreService {
             return Err(anyhow::anyhow!("Insufficient balance"));
         }
 
+        // Проверяем, является ли выбранный план пробным (is_trial).
+        // Если да — пользователь может воспользоваться пробным периодом только один раз.
+        let plan_is_trial: Option<bool> =
+            sqlx::query_scalar("SELECT is_trial FROM plans WHERE id = $1")
+                .bind(duration.plan_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten();
+
+        if plan_is_trial.unwrap_or(false) {
+            if user.trial_used.unwrap_or(false) {
+                return Err(anyhow::anyhow!(
+                    "Trial already used. You can only activate the trial period once."
+                ));
+            }
+        }
+
         sqlx::query("UPDATE users SET balance = balance - $1 WHERE id = $2")
             .bind(duration.price)
             .bind(user_id)
@@ -447,20 +501,92 @@ impl StoreService {
         let vless_uuid = Uuid::new_v4().to_string();
         let sub_uuid = Uuid::new_v4().to_string();
 
-        let sub = sqlx::query_as::<_, Subscription>(
-            r#"
-            INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, expires_at, status)
-            VALUES ($1, $2, $3, $4, $5, 'pending')
-            RETURNING *
-            "#
-        )
-        .bind(user_id)
-        .bind(duration.plan_id)
-        .bind(vless_uuid)
-        .bind(sub_uuid)
-        .bind(expires_at)
-        .fetch_one(&mut *tx)
-        .await?;
+        // as_gift=true → подписка pending (будет конвертирована в код),
+        // as_gift=false → подписка сразу active с activated_at = NOW()
+        let sub = if as_gift {
+            sqlx::query_as::<_, Subscription>(
+                r#"
+                INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, expires_at, status, is_trial)
+                VALUES ($1, $2, $3, $4, $5, 'pending', $6)
+                RETURNING *
+                "#
+            )
+            .bind(user_id)
+            .bind(duration.plan_id)
+            .bind(&vless_uuid)
+            .bind(&sub_uuid)
+            .bind(expires_at)
+            .bind(plan_is_trial.unwrap_or(false))
+            .fetch_one(&mut *tx)
+            .await?
+        } else {
+            sqlx::query_as::<_, Subscription>(
+                r#"
+                INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, expires_at, status, is_trial, activated_at)
+                VALUES ($1, $2, $3, $4, $5, 'active', $6, NOW())
+                RETURNING *
+                "#
+            )
+            .bind(user_id)
+            .bind(duration.plan_id)
+            .bind(&vless_uuid)
+            .bind(&sub_uuid)
+            .bind(expires_at)
+            .bind(plan_is_trial.unwrap_or(false))
+            .fetch_one(&mut *tx)
+            .await?
+        };
+
+        // Фиксируем использование пробного периода сразу после создания подписки,
+        // ещё внутри транзакции — чтобы при откате флаг не остался установленным.
+        if plan_is_trial.unwrap_or(false) {
+            sqlx::query(
+                "UPDATE users SET trial_used = TRUE, trial_used_at = NOW() WHERE id = $1",
+            )
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        // Если покупка как подарок — сразу конвертируем pending-подписку в gift code внутри той же транзакции.
+        // Подписка удаляется, создаётся запись в gift_codes, транзакция фиксируется с кодом.
+        if as_gift {
+            sqlx::query("DELETE FROM subscriptions WHERE id = $1")
+                .bind(sub.id)
+                .execute(&mut *tx)
+                .await?;
+
+            let gift_code = format!(
+                "CARAMBA-GIFT-{}",
+                Uuid::new_v4()
+                    .to_string()
+                    .split('-')
+                    .next()
+                    .unwrap_or("CODE")
+                    .to_uppercase()
+            );
+
+            sqlx::query(
+                "INSERT INTO gift_codes (code, plan_id, duration_days, created_by_user_id) VALUES ($1, $2, $3, $4)"
+            )
+            .bind(&gift_code)
+            .bind(sub.plan_id)
+            .bind(duration.duration_days)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+
+            tx.commit().await?;
+            let _ = crate::services::analytics_service::AnalyticsService::track_order(&self.pool).await;
+            let _ = ActivityService::log_tx(
+                &self.pool,
+                Some(user_id),
+                "Gift Purchase",
+                &format!("Purchased gift code for plan (Duration ID: {})", duration_id),
+            )
+            .await;
+            return Ok(PurchaseResult::GiftCode(gift_code));
+        }
 
         tx.commit().await?;
         let _ = crate::services::analytics_service::AnalyticsService::track_order(&self.pool).await;
@@ -487,7 +613,7 @@ impl StoreService {
             }
         }
 
-        Ok(sub)
+        Ok(PurchaseResult::Subscription(sub))
     }
 
     pub async fn purchase_product_with_balance(
@@ -529,9 +655,17 @@ impl StoreService {
     }
 
     pub async fn activate_subscription(&self, sub_id: i64, user_id: i64) -> Result<Subscription> {
-        let _tx = self.pool.begin().await?;
+        let mut tx = self.pool.begin().await?;
 
-        let sub = self.get_subscription(sub_id, user_id).await?;
+        // Читаем подписку внутри транзакции — статус-чек и запись обновления атомарны
+        let sub = sqlx::query_as::<_, Subscription>(
+            "SELECT * FROM subscriptions WHERE id = $1 AND user_id = $2",
+        )
+        .bind(sub_id)
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Subscription not found"))?;
 
         if sub.status != "pending" {
             return Err(anyhow::anyhow!("Subscription is not pending"));
@@ -540,17 +674,32 @@ impl StoreService {
         let duration = sub.expires_at - sub.created_at;
         let new_expires_at = Utc::now() + duration;
 
-        self.sub_repo
-            .update_status_and_expiry(sub_id, "active", new_expires_at)
-            .await?;
-        let updated_sub = self.sub_repo.get_by_id(sub_id).await?.unwrap();
+        // Обновляем статус и дату истечения внутри той же транзакции
+        sqlx::query(
+            "UPDATE subscriptions SET status = $1, expires_at = $2, used_traffic = 0 WHERE id = $3",
+        )
+        .bind("active")
+        .bind(new_expires_at)
+        .bind(sub_id)
+        .execute(&mut *tx)
+        .await?;
 
-        let _ = ActivityService::log(
-            &self.pool,
+        // Перечитываем обновлённую запись внутри транзакции до коммита
+        let updated_sub =
+            sqlx::query_as::<_, Subscription>("SELECT * FROM subscriptions WHERE id = $1")
+                .bind(sub_id)
+                .fetch_one(&mut *tx)
+                .await?;
+
+        let _ = ActivityService::log_tx(
+            &mut *tx,
+            Some(user_id),
             "Subscription",
             &format!("User {} activated sub {}", user_id, sub_id),
         )
         .await;
+
+        tx.commit().await?;
 
         let orch_opt = {
             if let Ok(lock) = self.orchestration_service.read() {
@@ -754,12 +903,24 @@ impl StoreService {
 
     pub async fn admin_refund_subscription(&self, sub_id: i64, amount: i64) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        let sub = self
-            .sub_repo
-            .get_by_id(sub_id)
-            .await?
-            .context("Subscription not found")?;
-        self.sub_repo.delete(sub_id).await?;
+
+        // Получаем подписку внутри транзакции с блокировкой строки
+        let sub = sqlx::query_as::<_, Subscription>(
+            "SELECT * FROM subscriptions WHERE id = $1 FOR UPDATE",
+        )
+        .bind(sub_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .context("Subscription not found")?;
+
+        // Удаляем подписку внутри транзакции — атомарно с возвратом баланса.
+        // Ранее sub_repo.delete() использовал pool (не tx), поэтому при откате
+        // транзакции подписка уже была удалена, а баланс не возвращён.
+        sqlx::query("DELETE FROM subscriptions WHERE id = $1")
+            .bind(sub_id)
+            .execute(&mut *tx)
+            .await?;
+
         sqlx::query("UPDATE users SET balance = balance + $1 WHERE id = $2")
             .bind(amount)
             .bind(sub.user_id)
@@ -897,7 +1058,10 @@ impl StoreService {
                         None,
                     )
                     .await?;
-                self.sub_repo.get_by_id(id).await?.unwrap()
+                self.sub_repo
+                    .get_by_id(id)
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("Subscription {} not found after insert", id))?
             } else {
                 let new_expires_at = if active_sub.expires_at > Utc::now() {
                     active_sub.expires_at + Duration::days(duration.duration_days as i64)
@@ -907,7 +1071,15 @@ impl StoreService {
                 self.sub_repo
                     .update_expiry(active_sub.id, new_expires_at)
                     .await?;
-                self.sub_repo.get_by_id(active_sub.id).await?.unwrap()
+                self.sub_repo
+                    .get_by_id(active_sub.id)
+                    .await?
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Subscription {} not found after expiry update",
+                            active_sub.id
+                        )
+                    })?
             }
         } else {
             let expires_at = Utc::now() + Duration::days(duration.duration_days as i64);
@@ -925,7 +1097,10 @@ impl StoreService {
                     None,
                 )
                 .await?;
-            self.sub_repo.get_by_id(id).await?.unwrap()
+            self.sub_repo
+                .get_by_id(id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("Subscription {} not found after insert", id))?
         };
 
         let _ = self.sync_family_subscriptions(user_id).await;

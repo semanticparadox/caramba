@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import './Billing.css'
@@ -11,18 +12,24 @@ interface Payment {
     created_at: number;
 }
 
-const statusLabels: Record<string, string> = {
-    completed: 'Завершен',
-    pending: 'Ожидает',
-    failed: 'Ошибка',
-    refunded: 'Возврат',
-}
-
 export default function Billing() {
+    const { t } = useTranslation()
     const { user, userStats: stats, token, error } = useAuth()
     const navigate = useNavigate()
     const [payments, setPayments] = useState<Payment[]>([])
     const [loading, setLoading] = useState(true)
+
+    // Метки статусов платежей через i18n
+    const statusLabel = (status: string): string => {
+        const key = status.toLowerCase()
+        const map: Record<string, string> = {
+            completed: t('billing.statusCompleted'),
+            pending: t('billing.statusPending'),
+            failed: t('billing.statusFailed'),
+            refunded: t('billing.statusRefunded'),
+        }
+        return map[key] || status
+    }
 
     useEffect(() => {
         if (!token) {
@@ -59,28 +66,28 @@ export default function Billing() {
         <div className="page billing-page">
             <header className="page-header">
                 <button className="back-button" onClick={goBack}>←</button>
-                <h2>Баланс и платежи</h2>
+                <h2>{t('billing.title')}</h2>
             </header>
 
             {!token && (
                 <div className="empty-state">
                     <div className="empty-icon">AU</div>
-                    <h3>Требуется авторизация</h3>
-                    <p>{error || 'Откройте Mini App из Telegram-бота.'}</p>
+                    <h3>{t('billing.authRequired')}</h3>
+                    <p>{error || t('billing.authNote')}</p>
                 </div>
             )}
 
             {token && <div className="balance-hero glass-card">
-                <span className="balance-label">Текущий баланс</span>
+                <span className="balance-label">{t('billing.currentBalance')}</span>
                 <span className="balance-amount gradient-text">
                     {formatCurrency(balance)}
                 </span>
             </div>}
 
             {token && <div className="transactions-section">
-                <h3>История платежей</h3>
+                <h3>{t('billing.historyTitle')}</h3>
                 {loading ? (
-                    <div className="loading">Загрузка истории...</div>
+                    <div className="loading">{t('billing.loading')}</div>
                 ) : payments.length > 0 ? (
                     <div className="transactions-list">
                         {payments.map(p => (
@@ -94,7 +101,7 @@ export default function Billing() {
                                         {p.amount > 0 ? '+' : ''}{formatCurrency(p.amount)}
                                     </span>
                                     <span className={`badge badge-${p.status.toLowerCase() === 'completed' ? 'success' : p.status.toLowerCase() === 'pending' ? 'warning' : 'error'}`}>
-                                        {statusLabels[p.status.toLowerCase()] || p.status}
+                                        {statusLabel(p.status)}
                                     </span>
                                 </div>
                             </div>
@@ -103,7 +110,7 @@ export default function Billing() {
                 ) : (
                     <div className="empty-state">
                         <div className="empty-icon">TX</div>
-                        <p>Платежей пока нет</p>
+                        <p>{t('billing.noPayments')}</p>
                     </div>
                 )}
             </div>}

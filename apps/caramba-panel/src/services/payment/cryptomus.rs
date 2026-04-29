@@ -34,18 +34,27 @@ struct CryptomusInvoiceDetail {
 pub struct CryptomusProvider {
     pub merchant_id: String,
     pub api_key: String,
+    pub api_domain: String,
+    pub bot_username: String,
 }
 
 pub struct CryptomusAdapter {
     merchant_id: String,
     api_key: String,
+    // Переиспользуемый HTTP-клиент — не создаётся на каждый запрос
+    http_client: reqwest::Client,
 }
 
 impl CryptomusAdapter {
     pub fn new(merchant_id: String, api_key: String) -> Self {
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("Failed to create HTTP client for CryptomusAdapter");
         Self {
             merchant_id,
             api_key,
+            http_client,
         }
     }
 
@@ -81,8 +90,7 @@ impl crate::services::payment::PaymentAdapter for CryptomusAdapter {
         let body_str = serde_json::to_string(&body_json)?;
         let sign = self.generate_signature(&body_str);
 
-        let client = reqwest::Client::new();
-        let resp = client
+        let resp = self.http_client
             .post("https://api.cryptomus.com/v1/payment")
             .header("merchant", &self.merchant_id)
             .header("sign", sign)
@@ -142,8 +150,11 @@ impl PaymentProvider for CryptomusProvider {
             amount: format!("{:.2}", (session.amount as f64) / 100.0),
             currency: "USD".to_string(),
             order_id: session.id.to_string(),
-            url_callback: "https://your-api-domain.com/api/webhooks/payment/cryptomus".to_string(),
-            url_return: "https://t.me/your_bot".to_string(),
+            url_callback: format!(
+                "https://{}/api/webhooks/payment/cryptomus",
+                self.api_domain
+            ),
+            url_return: format!("https://t.me/{}", self.bot_username),
             additional_data: String::new(),
         };
 

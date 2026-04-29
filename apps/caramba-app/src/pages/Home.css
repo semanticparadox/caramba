@@ -315,6 +315,21 @@
     color: #fb7185;
 }
 
+/* Баннер ошибки с встроенной кнопкой повтора */
+.home-banner-retry {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm, 8px);
+    flex-wrap: wrap;
+}
+
+.btn-retry-inline {
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    padding: 4px 12px;
+}
+
 /* Center module */
 .center-module {
     padding: var(--space-4);

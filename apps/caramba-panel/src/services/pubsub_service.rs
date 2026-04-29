@@ -76,7 +76,7 @@ impl PubSubService {
     }
 
     fn notify_waiters(&self, channel: &str, payload: String) {
-        let mut map = self.waiters.lock().unwrap();
+        let mut map = self.waiters.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(waiters) = map.remove(channel) {
             // tracing::info!("Notify {} waiters on {}", waiters.len(), channel);
             for sender in waiters {
@@ -89,7 +89,7 @@ impl PubSubService {
     /// Returns a Receiver. The caller must await it.
     pub fn wait_for(&self, channel: &str) -> oneshot::Receiver<String> {
         let (tx, rx) = oneshot::channel();
-        let mut map = self.waiters.lock().unwrap();
+        let mut map = self.waiters.lock().unwrap_or_else(|e| e.into_inner());
         map.entry(channel.to_string()).or_default().push(tx);
         rx
     }

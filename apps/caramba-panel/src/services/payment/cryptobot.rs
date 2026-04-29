@@ -33,6 +33,7 @@ struct CryptoBotInvoiceDetail {
 
 pub struct CryptoBotProvider {
     pub token: String,
+    pub bot_username: String,
 }
 
 #[async_trait]
@@ -56,7 +57,7 @@ impl PaymentProvider for CryptoBotProvider {
             description: format!("VPN Subscription (Product: {})", session.product_id),
             hidden_message: "Thank you for your purchase!".to_string(),
             paid_btn_name: "callback".to_string(),
-            paid_btn_url: "https://t.me/your_bot".to_string(),
+            paid_btn_url: format!("https://t.me/{}", self.bot_username),
             payload: session.id.to_string(), // Internal reference
         };
 

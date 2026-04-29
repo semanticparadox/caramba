@@ -31,6 +31,10 @@ pub struct Plan {
     pub traffic_limit_gb: i32,
     pub device_limit: i32,
     pub is_trial: Option<bool>,
+    #[serde(default)]
+    pub daily_traffic_mb: i32,
+    #[serde(default)]
+    pub is_free: bool,
     pub created_at: DateTime<Utc>,
     #[serde(default)]
     pub durations: Vec<PlanDuration>,
@@ -194,6 +198,8 @@ pub enum RenewalResult {
 pub enum AlertType {
     Traffic80,
     Traffic90,
+    /// Трафик исчерпан — доступ приостановлен или подписка истекла
+    TrafficExceeded,
     Expiry3Days,
 }
 

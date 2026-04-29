@@ -1,3 +1,9 @@
+pub mod geo_service;
+pub use geo_service::{GeoData, GeoService};
+
+#[cfg(feature = "self-update")]
+pub mod self_update;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

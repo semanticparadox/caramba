@@ -116,6 +116,27 @@ pub async fn message_handler(
                         )
                         .await;
 
+                    // Если пользователь зарегистрировался по реферальной ссылке —
+                    // запрашиваем начисление signup-бонусов.
+                    // Метод идемпотентен: повторный вызов не дублирует начисление.
+                    if let Some(r_id) = referrer_id {
+                        if state.api_client.has_token() {
+                            let referred_id = u.id;
+                            let api = state.api_client.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = api
+                                    .apply_referral_signup_bonus(r_id, referred_id)
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to apply referral signup bonus (referrer={} referred={}): {}",
+                                        r_id, referred_id, e
+                                    );
+                                }
+                            });
+                        }
+                    }
+
                     Some(u)
                 }
                 Ok(None) => None, // Should not happen on upsert unless error
@@ -161,7 +182,10 @@ pub async fn message_handler(
             if user.terms_accepted_at.is_none() {
                 if !text.starts_with("/start") {
                     let _ = state.store_service.increment_warning_count(user.id).await;
-                    if user.warning_count >= 5 {
+                    // warning_count — значение до инкремента; после него становится +1
+                    const MAX_WARNINGS: i32 = 5;
+                    let current_warning = user.warning_count + 1;
+                    if user.warning_count >= MAX_WARNINGS {
                         let _ = state.store_service.ban_user(user.id).await;
                         let lang = user.language_code.as_deref();
                         let _ = bot
@@ -173,6 +197,19 @@ pub async fn message_handler(
                             .await;
                         return Ok(());
                     }
+                    // Уведомляем пользователя о предупреждении, чтобы он понимал что происходит
+                    let lang = user.language_code.as_deref();
+                    let _ = bot
+                        .send_message(
+                            msg.chat.id,
+                            tf(lang, "msg.tos_warning", &[
+                                &current_warning.to_string(),
+                                &MAX_WARNINGS.to_string(),
+                            ]),
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .await
+                        .map_err(|e| error!("Failed to send TOS warning: {}", e));
                 }
                 let lang = user.language_code.as_deref();
                 let terms_text: String = state
@@ -303,7 +340,10 @@ pub async fn message_handler(
                 } else {
                     match state.store_service.ban_user_by_username(username).await {
                         Ok(_) => { let _ = bot.send_message(msg.chat.id, format!("Banned @{}", username)).await; }
-                        Err(e) => { let _ = bot.send_message(msg.chat.id, format!("Error: {}", e)).await; }
+                        Err(e) => {
+                            error!(username, error = %e, "Admin /ban failed");
+                            let _ = bot.send_message(msg.chat.id, format!("Failed to ban @{}. Check logs.", username)).await;
+                        }
                     }
                 }
                 return Ok(());
@@ -316,7 +356,10 @@ pub async fn message_handler(
                 } else {
                     match state.store_service.unban_user_by_username(username).await {
                         Ok(_) => { let _ = bot.send_message(msg.chat.id, format!("Unbanned @{}", username)).await; }
-                        Err(e) => { let _ = bot.send_message(msg.chat.id, format!("Error: {}", e)).await; }
+                        Err(e) => {
+                            error!(username, error = %e, "Admin /unban failed");
+                            let _ = bot.send_message(msg.chat.id, format!("Failed to unban @{}. Check logs.", username)).await;
+                        }
                     }
                 }
                 return Ok(());
@@ -1152,7 +1195,8 @@ async fn handle_admin_stats(
             let _ = bot.send_message(msg.chat.id, text).parse_mode(ParseMode::Html).await;
         }
         Err(e) => {
-            let _ = bot.send_message(msg.chat.id, format!("Error: {}", e)).await;
+            error!(error = %e, "Admin /stats failed");
+            let _ = bot.send_message(msg.chat.id, "Failed to fetch stats. Check logs.").await;
         }
     }
     Ok(())
@@ -1186,7 +1230,8 @@ async fn handle_admin_gift(
             let _ = bot.send_message(msg.chat.id, format!("Gift sub #{} created for @{} ({} days)", sub_id, username, days)).await;
         }
         Err(e) => {
-            let _ = bot.send_message(msg.chat.id, format!("Error: {}", e)).await;
+            error!(username, error = %e, "Admin /gift failed");
+            let _ = bot.send_message(msg.chat.id, format!("Failed to gift sub to @{}. Check logs.", username)).await;
         }
     }
     Ok(())
@@ -1213,7 +1258,10 @@ async fn handle_admin_promo(
                         .parse_mode(ParseMode::Html).await;
                 }
             }
-            Err(e) => { let _ = bot.send_message(msg.chat.id, format!("Error: {}", e)).await; }
+            Err(e) => {
+                error!(error = %e, "Admin /promo list failed");
+                let _ = bot.send_message(msg.chat.id, "Failed to list promos. Check logs.").await;
+            }
         }
         return Ok(());
     }
@@ -1228,7 +1276,10 @@ async fn handle_admin_promo(
         }
         match state.promo_service.create_promo(code, promo_type, value).await {
             Ok(_) => { let _ = bot.send_message(msg.chat.id, format!("Promo {} created ({} = {})", code, promo_type, value)).await; }
-            Err(e) => { let _ = bot.send_message(msg.chat.id, format!("Error: {}", e)).await; }
+            Err(e) => {
+                error!(code, promo_type, value, error = %e, "Admin /promo create failed");
+                let _ = bot.send_message(msg.chat.id, format!("Failed to create promo {}. Check logs.", code)).await;
+            }
         }
         return Ok(());
     }

@@ -1,8 +1,5 @@
 use dotenvy::dotenv;
-use sha2::{Digest, Sha256};
 use std::env;
-use std::os::unix::fs::PermissionsExt;
-use std::process::Command;
 use std::time::Duration;
 use teloxide::prelude::*;
 
@@ -14,6 +11,7 @@ mod state;
 
 use crate::api_client::ApiClient;
 use crate::state::AppState;
+use caramba_shared::self_update::{apply_self_update, restart_service};
 
 fn local_bot_version() -> String {
     format!("v{}", env!("CARGO_PKG_VERSION"))
@@ -22,69 +20,6 @@ fn local_bot_version() -> String {
 fn local_bot_worker_id() -> String {
     let hostname = env::var("HOSTNAME").unwrap_or_else(|_| "unknown-host".to_string());
     format!("bot:{}", hostname)
-}
-
-fn verify_sha256(bytes: &[u8], expected_hex: &str) -> bool {
-    let expected = expected_hex.trim().to_ascii_lowercase();
-    if expected.len() != 64 || !expected.chars().all(|c| c.is_ascii_hexdigit()) {
-        return false;
-    }
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    let actual = format!("{:x}", hasher.finalize());
-    actual == expected
-}
-
-async fn apply_self_update(asset_url: &str, expected_sha256: Option<&str>) -> anyhow::Result<()> {
-    let response = reqwest::Client::new()
-        .get(asset_url)
-        .send()
-        .await?
-        .error_for_status()?;
-    let bytes = response.bytes().await?;
-
-    if let Some(hash) = expected_sha256 {
-        if !hash.trim().is_empty() && !verify_sha256(&bytes, hash) {
-            return Err(anyhow::anyhow!("SHA256 mismatch for downloaded binary"));
-        }
-    }
-
-    let exe_path = std::env::current_exe()?;
-    let exe_parent = exe_path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("Failed to detect executable parent directory"))?;
-    let tmp_path = exe_parent.join(format!(
-        ".caramba-bot.update.{}.tmp",
-        uuid::Uuid::new_v4().to_string().replace('-', "")
-    ));
-
-    tokio::fs::write(&tmp_path, &bytes).await?;
-    std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755))?;
-    std::fs::rename(&tmp_path, &exe_path)?;
-    Ok(())
-}
-
-fn restart_bot_service() {
-    match Command::new("systemctl")
-        .args(["restart", "caramba-bot.service"])
-        .status()
-    {
-        Ok(status) if status.success() => {
-            log::info!("caramba-bot.service restart requested after self-update.");
-        }
-        Ok(status) => {
-            log::error!(
-                "Failed to restart caramba-bot.service (status: {}). Manual restart required.",
-                status
-            );
-        }
-        Err(e) => {
-            log::error!(
-                "Failed to execute systemctl restart for caramba-bot.service: {}",
-                e
-            );
-        }
-    }
 }
 
 fn start_worker_update_loop(api_client: ApiClient) {
@@ -102,7 +37,7 @@ fn start_worker_update_loop(api_client: ApiClient) {
             {
                 Ok(v) => v,
                 Err(e) => {
-                    log::debug!("Bot worker update poll failed: {}", e);
+                    tracing::debug!("Bot worker update poll failed: {}", e);
                     continue;
                 }
             };
@@ -114,7 +49,7 @@ fn start_worker_update_loop(api_client: ApiClient) {
             let target_version = payload.target_version.unwrap_or_default();
             let asset_url = payload.asset_url.unwrap_or_default();
             if target_version.trim().is_empty() || asset_url.trim().is_empty() {
-                log::warn!("Worker update payload is incomplete; skipping.");
+                tracing::warn!("Worker update payload is incomplete; skipping.");
                 continue;
             }
 
@@ -131,7 +66,7 @@ fn start_worker_update_loop(api_client: ApiClient) {
                 )
                 .await;
 
-            match apply_self_update(&asset_url, payload.sha256.as_deref()).await {
+            match apply_self_update(&asset_url, payload.sha256.as_deref(), "caramba-bot").await {
                 Ok(_) => {
                     let _ = api_client
                         .report_worker_update(
@@ -147,11 +82,11 @@ fn start_worker_update_loop(api_client: ApiClient) {
                             },
                         )
                         .await;
-                    restart_bot_service();
+                    restart_service("caramba-bot.service");
                     return;
                 }
                 Err(e) => {
-                    log::error!("Bot worker self-update failed: {}", e);
+                    tracing::error!("Bot worker self-update failed: {}", e);
                     let _ = api_client
                         .report_worker_update(
                             "bot",
@@ -173,9 +108,14 @@ fn start_worker_update_loop(api_client: ApiClient) {
 #[tokio::main]
 async fn main() {
     dotenv().ok();
-    env_logger::init();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "caramba_bot=info".into()),
+        )
+        .init();
 
-    log::info!("Starting Caramba Bot...");
+    tracing::info!("Starting Caramba Bot...");
 
     let token = env::var("BOT_TOKEN").expect("BOT_TOKEN is not set");
     let panel_url = env::var("PANEL_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
@@ -187,7 +127,7 @@ async fn main() {
     if api_client.has_token() {
         start_worker_update_loop(api_client.clone());
     } else {
-        log::info!("PANEL_TOKEN not set. Bot worker rollout polling is disabled.");
+        tracing::info!("PANEL_TOKEN not set. Bot worker rollout polling is disabled.");
     }
 
     let settings = crate::services::settings_service::SettingsService::new(api_client.clone());
@@ -203,6 +143,7 @@ async fn main() {
         promo_service,
         pay_service,
         logging_service,
+        api_client: api_client.clone(),
     };
 
     let bot = Bot::new(token);

@@ -64,6 +64,8 @@ pub struct ConnectionService {
     orchestration: Arc<OrchestrationService>,
     store: Arc<StoreService>,
     subscription: Arc<SubscriptionService>,
+    // Единственный HTTP-клиент — переиспользуется для всех запросов к Clash API
+    http_client: reqwest::Client,
 }
 
 impl ConnectionService {
@@ -72,10 +74,15 @@ impl ConnectionService {
         store: Arc<StoreService>,
         subscription: Arc<SubscriptionService>,
     ) -> Self {
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .expect("Failed to create HTTP client for ConnectionService");
         Self {
             orchestration,
             store,
             subscription,
+            http_client,
         }
     }
 
@@ -216,7 +223,9 @@ impl ConnectionService {
     async fn fetch_node_connections(&self, node_host: &str) -> Result<Vec<ClashConnection>> {
         let url = format!("http://{}:9090/connections", node_host);
 
-        let response = reqwest::get(&url)
+        let response = self.http_client
+            .get(&url)
+            .send()
             .await
             .with_context(|| format!("Failed to fetch connections from {}", node_host))?;
 
@@ -445,9 +454,8 @@ impl ConnectionService {
     /// Close a specific connection on a node via Clash API
     async fn close_connection(&self, node_host: &str, connection_id: &str) -> Result<()> {
         let url = format!("http://{}:9090/connections/{}", node_host, connection_id);
-        let client = reqwest::Client::new();
 
-        let response = client
+        let response = self.http_client
             .delete(&url)
             .send()
             .await

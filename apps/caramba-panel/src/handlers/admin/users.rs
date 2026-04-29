@@ -71,6 +71,37 @@ struct NotificationCampaignRow {
     message_text: String,
 }
 
+/// Индивидуальные реферальные ставки пользователя (None = используются глобальные настройки)
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct UserReferralRates {
+    pub bonus_percent: Option<i32>,
+    pub referrer_signup_bonus_cents: Option<i32>,
+    pub referred_signup_bonus_cents: Option<i32>,
+}
+
+impl UserReferralRates {
+    /// Возвращает bonus_percent как строку (пусто = не задано)
+    pub fn bonus_percent_str(&self) -> String {
+        self.bonus_percent
+            .map(|v| v.to_string())
+            .unwrap_or_default()
+    }
+
+    /// Возвращает referrer_signup_bonus_cents как строку
+    pub fn referrer_signup_str(&self) -> String {
+        self.referrer_signup_bonus_cents
+            .map(|v| v.to_string())
+            .unwrap_or_default()
+    }
+
+    /// Возвращает referred_signup_bonus_cents как строку
+    pub fn referred_signup_str(&self) -> String {
+        self.referred_signup_bonus_cents
+            .map(|v| v.to_string())
+            .unwrap_or_default()
+    }
+}
+
 #[derive(Template, WebTemplate)]
 #[template(path = "user_details.html")]
 pub struct UserDetailsTemplate {
@@ -82,6 +113,8 @@ pub struct UserDetailsTemplate {
     pub available_plans: Vec<Plan>,
     /// Все активные exit-ноды для дропдауна назначения
     pub available_nodes: Vec<NodeOption>,
+    /// Индивидуальные реферальные ставки (None = не заданы, используются глобальные)
+    pub referral_rates: Option<UserReferralRates>,
     pub is_auth: bool,
     pub username: String,
     pub admin_path: String,
@@ -164,6 +197,14 @@ pub struct ExtendForm {
 #[derive(Deserialize)]
 pub struct SetNodeForm {
     pub node_id: Option<i64>,
+}
+
+/// Форма обновления индивидуальных реферальных ставок пользователя
+#[derive(Deserialize)]
+pub struct UpdateReferralRatesForm {
+    pub bonus_percent: Option<String>,
+    pub referrer_signup_bonus_cents: Option<String>,
+    pub referred_signup_bonus_cents: Option<String>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -975,6 +1016,15 @@ pub async fn get_user_details(
     .map(|(id, name, flag)| NodeOption { id, name, flag })
     .collect();
 
+    // Загружаем индивидуальные реферальные ставки пользователя (если заданы)
+    let referral_rates: Option<UserReferralRates> = sqlx::query_as::<_, UserReferralRates>(
+        "SELECT bonus_percent, referrer_signup_bonus_cents, referred_signup_bonus_cents FROM user_referral_rates WHERE user_id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+
     let template = UserDetailsTemplate {
         user,
         subscriptions,
@@ -983,6 +1033,7 @@ pub async fn get_user_details(
         total_referral_earnings: format!("{:.2}", earnings_cents as f64 / 100.0),
         available_plans,
         available_nodes,
+        referral_rates,
         is_auth: true,
         username: get_auth_user(&state, &jar)
             .await
@@ -1613,4 +1664,112 @@ pub async fn set_subscription_node(
         "",
     )
         .into_response()
+}
+
+/// POST /users/{id}/referral-rates — сохранить индивидуальные реферальные ставки
+pub async fn update_user_referral_rates(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Form(form): Form<UpdateReferralRatesForm>,
+) -> impl IntoResponse {
+    if !is_authenticated(&state, &jar).await {
+        return axum::http::StatusCode::UNAUTHORIZED.into_response();
+    }
+
+    let bonus_percent: Option<i32> = form
+        .bonus_percent
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .and_then(|s| s.parse().ok());
+    let referrer_signup: Option<i32> = form
+        .referrer_signup_bonus_cents
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .and_then(|s| s.parse().ok());
+    let referred_signup: Option<i32> = form
+        .referred_signup_bonus_cents
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .and_then(|s| s.parse().ok());
+
+    let result = sqlx::query(
+        r#"
+        INSERT INTO user_referral_rates (user_id, bonus_percent, referrer_signup_bonus_cents, referred_signup_bonus_cents, updated_at)
+        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+        ON CONFLICT (user_id) DO UPDATE SET
+            bonus_percent = EXCLUDED.bonus_percent,
+            referrer_signup_bonus_cents = EXCLUDED.referrer_signup_bonus_cents,
+            referred_signup_bonus_cents = EXCLUDED.referred_signup_bonus_cents,
+            updated_at = CURRENT_TIMESTAMP
+        "#,
+    )
+    .bind(id)
+    .bind(bonus_percent)
+    .bind(referrer_signup)
+    .bind(referred_signup)
+    .execute(&state.pool)
+    .await;
+
+    let admin_path = state.admin_path.clone();
+    match result {
+        Ok(_) => {
+            info!(user_id = id, "Admin updated referral rates for user");
+            (
+                [(
+                    axum::http::header::HeaderName::from_static("hx-redirect"),
+                    format!("{}/users/{}", admin_path, id),
+                )],
+                "Updated",
+            )
+                .into_response()
+        }
+        Err(e) => {
+            error!("Failed to update referral rates for user {}: {}", id, e);
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to update referral rates",
+            )
+                .into_response()
+        }
+    }
+}
+
+/// DELETE /users/{id}/referral-rates — сбросить индивидуальные ставки (вернуться к глобальным)
+pub async fn reset_user_referral_rates(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
+    if !is_authenticated(&state, &jar).await {
+        return axum::http::StatusCode::UNAUTHORIZED.into_response();
+    }
+
+    let result = sqlx::query("DELETE FROM user_referral_rates WHERE user_id = $1")
+        .bind(id)
+        .execute(&state.pool)
+        .await;
+
+    let admin_path = state.admin_path.clone();
+    match result {
+        Ok(_) => {
+            info!(user_id = id, "Admin reset referral rates to global defaults");
+            (
+                [(
+                    axum::http::header::HeaderName::from_static("hx-redirect"),
+                    format!("{}/users/{}", admin_path, id),
+                )],
+                "Reset",
+            )
+                .into_response()
+        }
+        Err(e) => {
+            error!("Failed to reset referral rates for user {}: {}", id, e);
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to reset referral rates",
+            )
+                .into_response()
+        }
+    }
 }

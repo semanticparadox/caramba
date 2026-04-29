@@ -1,10 +1,27 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
+import DrawerModal from '../components/DrawerModal'
+import { apiUrl } from '../config'
 import { useAuth, UserSubscription } from '../context/AuthContext'
 import { copyText } from '../lib/copyActions'
 import { usageProgress } from '../lib/subscriptionMetrics'
 import './Subscription.css'
+
+// Типы для каталога планов (нужны для выбора длительности при продлении)
+interface PlanDuration {
+    id: number
+    duration_days: number
+    price: number
+    price_cents: number
+}
+
+interface Plan {
+    id: number
+    name: string
+    durations?: PlanDuration[]
+}
 
 function formatTraffic(gb: number): string {
     if (gb >= 1024) return `${(gb / 1024).toFixed(1)} TB`
@@ -29,7 +46,15 @@ function withVariant(url: string, client: string, variant?: string) {
     return `${base}&variant=${encodeURIComponent(variant)}`
 }
 
+// Форматирует цену из центов в строку "$X.XX"
+function formatPrice(priceCents: number): string {
+    const major = Math.floor(priceCents / 100)
+    const minor = priceCents % 100
+    return `$${major}.${minor.toString().padStart(2, '0')}`
+}
+
 export default function Subscription() {
+    const { t } = useTranslation()
     const { subscriptions, isLoading, refreshData, token, error } = useAuth()
     const navigate = useNavigate()
     const [expandedId, setExpandedId] = useState<number | null>(null)
@@ -40,6 +65,11 @@ export default function Subscription() {
     const [giftingId, setGiftingId] = useState<number | null>(null)
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
     const [selectedVariants, setSelectedVariants] = useState<Record<number, string>>({})
+
+    // Состояние для продления подписки
+    const [plans, setPlans] = useState<Plan[]>([])
+    const [extendTargetSub, setExtendTargetSub] = useState<UserSubscription | null>(null)
+    const [extendingDurationId, setExtendingDurationId] = useState<number | null>(null)
 
     const sorted = [...subscriptions].sort((a, b) => {
         const order: Record<string, number> = { active: 0, pending: 1, expired: 2 }
@@ -80,16 +110,13 @@ export default function Subscription() {
         if (url.startsWith('http://') || url.startsWith('https://')) {
             try { (window as any).Telegram?.WebApp?.openLink?.(url) } catch { window.open(url, '_blank') }
         } else {
-            // Custom URL schemes (hiddify://, happ://) — use window.open to avoid
-            // navigating the Telegram WebView away. Falls back to location.href.
             const w = window.open(url, '_blank')
             if (!w) {
-                // Deep link blocked by WebView — copy the subscription URL as fallback
                 const subUrl = url.match(/import\/(.+)/)?.[1]
                 if (subUrl) {
                     const decoded = decodeURIComponent(subUrl)
                     void copyText(decoded)
-                    setMessage({ type: 'success', text: 'Ссылка скопирована — вставьте в приложение вручную.' })
+                    setMessage({ type: 'success', text: t('subscription.linkCopiedManual') })
                 } else {
                     window.location.href = url
                 }
@@ -105,25 +132,23 @@ export default function Subscription() {
         try {
             const res = await fetch(`/api/client/subscription/${subId}/activate`, {
                 method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
+                headers: { Authorization: `Bearer ${token}` },
             })
 
             if (res.ok) {
                 const data = await res.json()
                 setMessage({
                     type: 'success',
-                    text: data?.message || 'Подписка успешно активирована.',
+                    text: data?.message || t('subscription.activatedSuccess'),
                 })
                 await refreshData()
                 setExpandedId(subId)
             } else {
                 const err = await res.text()
-                setMessage({ type: 'error', text: err || 'Не удалось активировать подписку.' })
+                setMessage({ type: 'error', text: err || t('subscription.activationError') })
             }
         } catch {
-            setMessage({ type: 'error', text: 'Сетевая ошибка при активации подписки.' })
+            setMessage({ type: 'error', text: t('subscription.networkActivationError') })
         } finally {
             setActivatingId(null)
         }
@@ -137,9 +162,7 @@ export default function Subscription() {
         try {
             const res = await fetch(`/api/client/subscription/${subId}/gift`, {
                 method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
+                headers: { Authorization: `Bearer ${token}` },
             })
 
             if (res.ok) {
@@ -150,15 +173,15 @@ export default function Subscription() {
                 }
                 setMessage({
                     type: 'success',
-                    text: `Подарочный код создан.${code ? ` Скопировано: ${code}` : ''}`,
+                    text: t('subscription.giftCreated', { code: code.trim() }),
                 })
                 await refreshData()
             } else {
                 const err = await res.text()
-                setMessage({ type: 'error', text: err || 'Не удалось создать подарочный код.' })
+                setMessage({ type: 'error', text: err || t('subscription.giftError') })
             }
         } catch {
-            setMessage({ type: 'error', text: 'Сетевая ошибка при создании подарочного кода.' })
+            setMessage({ type: 'error', text: t('subscription.networkGiftError') })
         } finally {
             setGiftingId(null)
         }
@@ -178,19 +201,123 @@ export default function Subscription() {
         })
     }, [activeById])
 
-    if (isLoading) return <div className="page"><div className="loading">Загрузка подписок...</div></div>
+    // Ленивая загрузка каталога планов — только когда открывается модал продления
+    const loadPlansIfNeeded = async () => {
+        if (plans.length > 0 || !token) return
+        try {
+            const res = await fetch(apiUrl('/api/client/plans'), {
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            if (res.ok) {
+                const data = await res.json()
+                const loaded: Plan[] = Array.isArray(data)
+                    ? data.map((p: any) => ({
+                          id: Number(p?.id || 0),
+                          name: String(p?.name || ''),
+                          durations: Array.isArray(p?.durations)
+                              ? p.durations.map((d: any) => ({
+                                    id: Number(d?.id || 0),
+                                    duration_days: Number(d?.duration_days || 0),
+                                    price: Number(d?.price || 0),
+                                    price_cents: Number(d?.price_cents ?? d?.price ?? 0),
+                                }))
+                              : [],
+                      }))
+                    : []
+                setPlans(loaded)
+            }
+        } catch {
+            // Тихая ошибка — модал покажет пустой список
+        }
+    }
+
+    const handleOpenExtend = (sub: UserSubscription) => {
+        setExtendTargetSub(sub)
+        void loadPlansIfNeeded()
+    }
+
+    const handleExtend = async (durationId: number) => {
+        if (!extendTargetSub || !token) return
+        const subId = extendTargetSub.id
+        setExtendingDurationId(durationId)
+        setMessage(null)
+        try {
+            const res = await fetch(apiUrl(`/api/client/subscription/${subId}/extend`), {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ duration_id: durationId }),
+            })
+
+            if (res.ok) {
+                const data = await res.json()
+                const expiresAt = data?.expires_at
+                    ? new Date(data.expires_at).toLocaleDateString()
+                    : ''
+                setMessage({
+                    type: 'success',
+                    text: t('subscription.extendSuccess', { date: expiresAt }),
+                })
+                setExtendTargetSub(null)
+                await refreshData()
+            } else {
+                const errText = await res.text()
+                // Специальное сообщение для нехватки баланса
+                const isBalance =
+                    errText.toLowerCase().includes('balance') ||
+                    errText.toLowerCase().includes('insufficient')
+                setMessage({
+                    type: 'error',
+                    text: isBalance ? t('subscription.insufficientBalance') : errText,
+                })
+                setExtendTargetSub(null)
+            }
+        } catch {
+            setMessage({ type: 'error', text: t('subscription.networkActivationError') })
+            setExtendTargetSub(null)
+        } finally {
+            setExtendingDurationId(null)
+        }
+    }
+
+    // Форматирование длительности (аналогично Home.tsx)
+    const formatDuration = (days: number): string => {
+        if (days === 0) return t('home.trafficOnly')
+        if (days === 30) return t('home.month1')
+        if (days === 60) return t('home.months2')
+        if (days === 90) return t('home.months3')
+        if (days === 180) return t('home.months6')
+        if (days === 365) return t('home.year1')
+        return t('home.days', { count: days })
+    }
+
+    // Дюрации для текущей подписки в модале продления
+    const extendDurations: PlanDuration[] = extendTargetSub
+        ? (plans.find((p) => p.id === extendTargetSub.plan_id)?.durations ?? [])
+        : []
+
+    // Метка статуса подписки
+    const statusBadgeLabel = (status: string): string => {
+        if (status === 'active') return t('subscription.statusActive')
+        if (status === 'pending') return t('subscription.statusPending')
+        return t('subscription.statusExpired')
+    }
+
+    if (isLoading) return <div className="page"><div className="loading">{t('subscription.loading')}</div></div>
 
     if (!token) {
         return (
             <div className="page sub-page">
                 <header className="page-header">
                     <button className="back-button" onClick={() => navigate('/')}>{'<'}</button>
-                    <h2>Подписки</h2>
+                    <h2>{t('subscription.title')}</h2>
                 </header>
                 <div className="empty-state">
                     <div className="empty-icon">AU</div>
-                    <h3>Требуется авторизация</h3>
-                    <p>{error || 'Откройте Mini App из Telegram-бота, чтобы загрузить подписки.'}</p>
+                    <h3>{t('subscription.authRequired')}</h3>
+                    <p>{error || t('subscription.authNote')}</p>
                 </div>
             </div>
         )
@@ -200,14 +327,16 @@ export default function Subscription() {
         <div className="page sub-page">
             <header className="page-header">
                 <button className="back-button" onClick={() => navigate('/')}>{'<'}</button>
-                <h2>Мои сервисы</h2>
+                <h2>{t('subscription.myServices')}</h2>
                 {subscriptions.length > 0 && (
-                    <span className="badge badge-success">{subscriptions.filter((s) => s.status === 'active').length} активных</span>
+                    <span className="badge badge-success">
+                        {t('subscription.activeCount', { count: subscriptions.filter((s) => s.status === 'active').length })}
+                    </span>
                 )}
             </header>
 
             <button className="btn-ghost sub-guide-link" onClick={() => navigate('/support/connect')}>
-                Как подключиться: каталог приложений
+                {t('subscription.guideLink')}
             </button>
 
             {message && (
@@ -218,16 +347,16 @@ export default function Subscription() {
 
             {sorted.length > 0 && (
                 <section className="sub-connect-focus glass-card">
-                    <p className="sub-connect-kicker">Основной путь подключения</p>
-                    <h3>Импортируйте ссылку подписки в VPN-клиент</h3>
-                    <p>
-                        Это самый быстрый путь: после импорта клиент сам подгрузит рабочие маршруты. Варианты и ручные настройки оставлены ниже как дополнительная опция.
-                    </p>
+                    <p className="sub-connect-kicker">{t('subscription.primaryPathLabel')}</p>
+                    <h3>{t('subscription.primaryPathTitle')}</h3>
+                    <p>{t('subscription.primaryPathDesc')}</p>
                     <button
                         className="btn-primary"
                         onClick={() => setExpandedId((primaryImportSub ?? sorted[0]).id)}
                     >
-                        {expandedId === (primaryImportSub ?? sorted[0]).id ? 'Импорт уже открыт ниже' : 'Открыть импорт подписки'}
+                        {expandedId === (primaryImportSub ?? sorted[0]).id
+                            ? t('subscription.importAlreadyOpen')
+                            : t('subscription.openImport')}
                     </button>
                 </section>
             )}
@@ -235,10 +364,10 @@ export default function Subscription() {
             {sorted.length === 0 ? (
                 <div className="empty-state">
                     <div className="empty-icon">SV</div>
-                    <h3>Подписок пока нет</h3>
-                    <p>Активируйте тариф, чтобы получить доступ к VPN-серверам.</p>
+                    <h3>{t('subscription.noSubscriptions')}</h3>
+                    <p>{t('subscription.noSubscriptionsDesc')}</p>
                     <button className="btn-primary" onClick={() => navigate('/')}>
-                        Открыть тарифы
+                        {t('subscription.openPlans')}
                     </button>
                 </div>
             ) : (
@@ -251,7 +380,7 @@ export default function Subscription() {
                                     <div className="sub-plan-info">
                                         <span className="sub-plan-name">{sub.plan_name}</span>
                                         <span className={`badge badge-${sub.status === 'active' ? 'success' : sub.status === 'pending' ? 'warning' : 'error'}`}>
-                                            {sub.status === 'active' ? 'Активна' : sub.status === 'pending' ? 'Ожидает' : 'Истекла'}
+                                            {statusBadgeLabel(sub.status)}
                                         </span>
                                     </div>
                                 </div>
@@ -260,7 +389,7 @@ export default function Subscription() {
 
                             <div className="sub-traffic">
                                 <div className="traffic-bar-row">
-                                    <span>Трафик</span>
+                                    <span>{t('subscription.traffic')}</span>
                                     <span>{sub.used_traffic_gb} GB / {sub.traffic_limit_gb > 0 ? formatTraffic(sub.traffic_limit_gb) : '∞'}</span>
                                 </div>
                                 {sub.traffic_limit_gb > 0 && (
@@ -276,13 +405,27 @@ export default function Subscription() {
                             <div className="sub-meta-row">
                                 {sub.status === 'active' ? (
                                     <>
-                                        <span>{sub.days_left > 0 ? `${sub.days_left} дн. осталось` : sub.duration_days === 0 ? 'Без срока действия' : 'Скоро истечет'}</span>
-                                        <span className="sub-date">{sub.duration_days > 0 ? new Date(sub.expires_at).toLocaleDateString() : 'Трафик-план'}</span>
+                                        <span>
+                                            {sub.days_left > 0
+                                                ? t('home.daysLeft', { count: sub.days_left })
+                                                : sub.duration_days === 0
+                                                    ? t('subscription.noExpiry')
+                                                    : t('home.expiringSoon')}
+                                        </span>
+                                        <span className="sub-date">
+                                            {sub.duration_days > 0
+                                                ? new Date(sub.expires_at).toLocaleDateString()
+                                                : t('subscription.trafficPlan')}
+                                        </span>
                                     </>
                                 ) : sub.status === 'pending' ? (
-                                    <span>{sub.duration_days > 0 ? `${sub.duration_days} дней (запуск после активации)` : 'Трафик-план'}</span>
+                                    <span>
+                                        {sub.duration_days > 0
+                                            ? t('subscription.pendingDays', { count: sub.duration_days })
+                                            : t('subscription.trafficPlan')}
+                                    </span>
                                 ) : (
-                                    <span>Истекла</span>
+                                    <span>{t('subscription.statusExpired')}</span>
                                 )}
                             </div>
 
@@ -293,7 +436,7 @@ export default function Subscription() {
                             )}
 
                             <div className="sub-extra-row">
-                                <span>Последнее обновление конфига: {formatDateTime(sub.last_sub_access)}</span>
+                                <span>{t('subscription.lastConfigUpdate')}: {formatDateTime(sub.last_sub_access)}</span>
                             </div>
 
                             {sub.status === 'active' && (
@@ -302,14 +445,23 @@ export default function Subscription() {
                                         className="btn-text"
                                         onClick={(e) => { e.stopPropagation(); navigate(`/servers/${sub.id}`) }}
                                     >
-                                        Оптимизация узла
+                                        {t('subscription.nodeOptimization')}
                                     </button>
                                     <button
                                         className="btn-text"
                                         onClick={(e) => { e.stopPropagation(); navigate(`/servers/${sub.id}?magic=1`) }}
                                     >
-                                        Магическая оптимизация
+                                        {t('common.magicOptimize')}
                                     </button>
+                                    {/* Кнопка продления — только для платных активных подписок со сроком */}
+                                    {sub.duration_days > 0 && (
+                                        <button
+                                            className="btn-text"
+                                            onClick={(e) => { e.stopPropagation(); handleOpenExtend(sub) }}
+                                        >
+                                            {t('subscription.extend')}
+                                        </button>
+                                    )}
                                 </div>
                             )}
                             {sub.status === 'pending' && (
@@ -322,7 +474,7 @@ export default function Subscription() {
                                         }}
                                         disabled={activatingId !== null || giftingId !== null}
                                     >
-                                        {activatingId === sub.id ? 'Активация...' : 'Активировать'}
+                                        {activatingId === sub.id ? t('home.activating') : t('home.activate')}
                                     </button>
                                     <button
                                         className="btn-text"
@@ -332,7 +484,7 @@ export default function Subscription() {
                                         }}
                                         disabled={activatingId !== null || giftingId !== null}
                                     >
-                                        {giftingId === sub.id ? 'Создание кода...' : 'Сделать подарочный код'}
+                                        {giftingId === sub.id ? t('subscription.creatingGift') : t('subscription.makeGift')}
                                     </button>
                                 </div>
                             )}
@@ -340,7 +492,6 @@ export default function Subscription() {
                             {expandedId === sub.id && sub.status === 'active' && (
                                 <div className="sub-expanded">
                                     <div className="qr-wrapper">
-                                        {/* QR — чистая ссылка без ?client=, Hiddify определяет формат по UA */}
                                         <QRCodeSVG
                                             value={sub.subscription_url}
                                             size={160}
@@ -350,7 +501,7 @@ export default function Subscription() {
                                             includeMargin
                                         />
                                     </div>
-                                    <p className="qr-hint">Сканируйте QR или используйте кнопку импорта ниже.</p>
+                                    <p className="qr-hint">{t('subscription.qrHint')}</p>
 
                                     <div className="link-row">
                                         <input type="text" readOnly value={sub.subscription_url} onClick={(e) => e.currentTarget.select()} />
@@ -358,7 +509,7 @@ export default function Subscription() {
                                             className={`btn-secondary copy-btn ${copied === sub.id ? 'copied' : ''}`}
                                             onClick={() => handleCopy(sub)}
                                         >
-                                            {copied === sub.id ? 'Готово' : 'Копировать'}
+                                            {copied === sub.id ? t('common.copied') : t('common.copy')}
                                         </button>
                                     </div>
 
@@ -369,28 +520,28 @@ export default function Subscription() {
                                                 className={`btn-secondary copy-btn ${copiedVless === sub.id ? 'copied' : ''}`}
                                                 onClick={() => handleCopyVless(sub)}
                                             >
-                                            {copiedVless === sub.id ? 'Готово' : 'VLESS'}
+                                                {copiedVless === sub.id ? t('common.copied') : 'VLESS'}
                                             </button>
                                         </div>
                                     )}
 
                                     <div className="import-path-block">
                                         <div className="import-path-head">
-                                            <h4>Импорт в приложение</h4>
-                                            <span>После импорта маршруты подгружаются автоматически</span>
+                                            <h4>{t('subscription.importTitle')}</h4>
+                                            <span>{t('subscription.importDesc')}</span>
                                         </div>
                                         <div className="app-links-grid app-links-primary-grid">
                                             <button
                                                 className="btn-primary btn-app"
                                                 onClick={() => openExternal(`hiddify://import/${encodeURIComponent(sub.subscription_url)}`)}
                                             >
-                                                Открыть в Hiddify
+                                                {t('subscription.openHiddify')}
                                             </button>
                                             <button
                                                 className="btn-secondary btn-app"
                                                 onClick={() => openExternal(withVariant(sub.subscription_url, 'singbox', selectedVariants[sub.id]))}
                                             >
-                                                Открыть в Sing-box
+                                                {t('subscription.openSingbox')}
                                             </button>
                                         </div>
                                     </div>
@@ -406,17 +557,17 @@ export default function Subscription() {
                                             className="btn-text btn-app"
                                             onClick={() => navigate(`/servers/${sub.id}`)}
                                         >
-                                            Все варианты
+                                            {t('subscription.allVariants')}
                                         </button>
                                     </div>
 
                                     {!!sub.singbox_variants?.length && (
                                         <details className="advanced-variants">
-                                            <summary>Продвинутые варианты Sing-box</summary>
+                                            <summary>{t('subscription.advancedVariants')}</summary>
                                             <div className="variant-picker-block">
                                                 <div className="variant-picker-head">
-                                                    <h4>Ручной выбор профиля</h4>
-                                                    <span>Нужно только если хотите выбрать конкретный транспорт или маршрут через relay</span>
+                                                    <h4>{t('subscription.manualProfileSelect')}</h4>
+                                                    <span>{t('subscription.manualProfileDesc')}</span>
                                                 </div>
                                                 <div className="variant-picker-list">
                                                     {sub.singbox_variants.map((variant) => (
@@ -426,24 +577,63 @@ export default function Subscription() {
                                                             onClick={() => setSelectedVariants((current) => ({ ...current, [sub.id]: variant.id }))}
                                                         >
                                                             <span className="variant-inline-title">{variant.label}</span>
-                                                            <span className="variant-inline-meta">{variant.transport} · {variant.relay ? 'через relay' : 'прямой маршрут'}</span>
+                                                            <span className="variant-inline-meta">
+                                                                {variant.transport} · {variant.relay ? t('servers.viaRelay') : t('servers.directRoute')}
+                                                            </span>
                                                         </button>
                                                     ))}
                                                 </div>
                                                 <button className="btn-secondary variant-copy-btn" onClick={() => handleCopyVariant(sub)}>
-                                                    {copiedVariant === `${sub.id}:${selectedVariants[sub.id]}` ? 'Вариант скопирован' : 'Скопировать выбранный вариант'}
+                                                    {copiedVariant === `${sub.id}:${selectedVariants[sub.id]}`
+                                                        ? t('subscription.variantCopied')
+                                                        : t('subscription.copyVariant')}
                                                 </button>
                                             </div>
                                         </details>
                                     )}
-
-
                                 </div>
                             )}
                         </div>
                     ))}
                 </div>
             )}
+
+            {/* Модал выбора длительности для продления подписки */}
+            <DrawerModal
+                open={extendTargetSub !== null}
+                onClose={() => setExtendTargetSub(null)}
+                title={t('subscription.selectDuration')}
+                subtitle={extendTargetSub?.plan_name}
+                footer={
+                    <button className="btn-ghost" onClick={() => setExtendTargetSub(null)}>
+                        {t('common.cancel')}
+                    </button>
+                }
+            >
+                {extendDurations.length === 0 ? (
+                    <div className="empty-state drawer-empty">
+                        <div className="empty-icon">PL</div>
+                        <p>{t('home.noDurations')}</p>
+                    </div>
+                ) : (
+                    <div className="duration-grid">
+                        {extendDurations.map((dur) => (
+                            <button
+                                key={dur.id}
+                                className="duration-btn"
+                                onClick={() => void handleExtend(dur.id)}
+                                disabled={extendingDurationId !== null}
+                            >
+                                <span className="dur-label">{formatDuration(dur.duration_days)}</span>
+                                <span className="dur-price">{formatPrice(dur.price_cents)}</span>
+                                {extendingDurationId === dur.id && (
+                                    <span className="dur-spinner">...</span>
+                                )}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </DrawerModal>
         </div>
     )
 }

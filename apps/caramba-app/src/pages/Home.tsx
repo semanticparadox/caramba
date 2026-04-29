@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import WebApp from '@twa-dev/sdk'
 import { useNavigate } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
@@ -24,6 +25,8 @@ interface Plan {
     traffic_limit_gb: number
     device_limit: number
     durations?: PlanDuration[]
+    is_free?: boolean
+    daily_traffic_mb?: number
 }
 
 interface PaymentProvider {
@@ -39,20 +42,21 @@ function formatPrice(priceCents: number): string {
     return `$${major}.${minor.toString().padStart(2, '0')}`
 }
 
-function formatDuration(days: number): string {
-    if (days === 0) return 'Только трафик'
-    if (days === 30) return '1 месяц'
-    if (days === 60) return '2 месяца'
-    if (days === 90) return '3 месяца'
-    if (days === 180) return '6 месяцев'
-    if (days === 365) return '1 год'
-    return `${days} дней`
-}
-
 export default function Home() {
+    const { t } = useTranslation()
     const navigate = useNavigate()
     const { userStats: stats, isLoading, user, subscriptions, refreshData, token, error } = useAuth()
 
+    // Форматирование длительности через i18n-ключи
+    const formatDuration = (days: number): string => {
+        if (days === 0) return t('home.trafficOnly')
+        if (days === 30) return t('home.month1')
+        if (days === 60) return t('home.months2')
+        if (days === 90) return t('home.months3')
+        if (days === 180) return t('home.months6')
+        if (days === 365) return t('home.year1')
+        return t('home.days', { count: days })
+    }
 
     const usage = getUsageSnapshot(stats, subscriptions)
 
@@ -78,8 +82,15 @@ export default function Home() {
     const [selectedDuration, setSelectedDuration] = useState<PlanDuration | null>(null)
     const [purchasingDurationId, setPurchasingDurationId] = useState<number | null>(null)
     const [banner, setBanner] = useState<CenterBanner>(null)
+    const [buyAsGift, setBuyAsGift] = useState(false)
+    const [giftCode, setGiftCode] = useState<string | null>(null)
+    const [copiedGiftCode, setCopiedGiftCode] = useState(false)
 
     const [qrSubId, setQrSubId] = useState<number | null>(null)
+
+    // Состояние для продления подписки с главной страницы
+    const [extendTargetSub, setExtendTargetSub] = useState<UserSubscription | null>(null)
+    const [extendingDurationId, setExtendingDurationId] = useState<number | null>(null)
 
     const providerCards = mapProviderCards(providers)
 
@@ -87,19 +98,23 @@ export default function Home() {
     const circumference = 2 * Math.PI * radius
     const strokeOffset = circumference - (usage.percent / 100) * circumference
 
+    // Цвет кольца трафика: зелёный → жёлтый (80%) → красный (90%+)
+    const trafficRingColor =
+        usage.percent >= 90 ? 'var(--color-danger, #e53935)'
+        : usage.percent >= 80 ? 'var(--color-warning, #f57c00)'
+        : 'var(--color-accent, #1976d2)'
+
     const focusPurchase = () => {
         const block = document.getElementById('center-purchase')
         if (!block) return
         block.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
 
-    // Server selection is now done on the dedicated Servers page
-
     const getSubUrl = (sub: UserSubscription): string => {
         const base = sub.subscription_url
         try {
             let relay = localStorage.getItem(`relay_${sub.id}`)
-            // Auto-detect relay for new users based on timezone
+            // Авто-определение relay по таймзоне для новых пользователей
             if (!relay) {
                 const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
                 const russianTimezones = [
@@ -121,7 +136,6 @@ export default function Home() {
 
     // Hiddify определяет тип конфига сам через User-Agent.
     // Передаём ЧИСТУЮ ссылку подписки без ?client= — иначе Hiddify отклоняет импорт.
-    // nodeId safe to include — the subscription endpoint handles it.
     const openHiddify = (sub: UserSubscription) => {
         if (!sub.subscription_url) return
         const url = getSubUrl(sub)
@@ -129,7 +143,7 @@ export default function Home() {
         const w = window.open(deepLink, '_blank')
         if (!w) {
             void copyImportLink(sub)
-            setBanner({ type: 'success', text: 'Ссылка скопирована — вставьте в Hiddify вручную (Новый профиль → Добавить из буфера).' })
+            setBanner({ type: 'success', text: t('home.hiddifyManualCopy') })
         }
     }
 
@@ -140,7 +154,7 @@ export default function Home() {
         const w = window.open(deepLink, '_blank')
         if (!w) {
             void copyImportLink(sub)
-            setBanner({ type: 'success', text: 'Ссылка скопирована — вставьте в Happ вручную.' })
+            setBanner({ type: 'success', text: t('home.happManualCopy') })
         }
     }
 
@@ -167,17 +181,63 @@ export default function Home() {
                 const data = await res.json()
                 setBanner({
                     type: 'success',
-                    text: data?.message || 'Подписка активирована. Можно подключаться в Hiddify.',
+                    text: data?.message || t('home.subscriptionActivated'),
                 })
                 await refreshData()
             } else {
                 const errText = await res.text()
-                setBanner({ type: 'error', text: errText || 'Не удалось активировать подписку.' })
+                setBanner({ type: 'error', text: errText || t('home.activationError') })
             }
         } catch {
-            setBanner({ type: 'error', text: 'Сетевая ошибка при активации подписки.' })
+            setBanner({ type: 'error', text: t('home.networkActivationError') })
         } finally {
             setActivatingSubId(null)
+        }
+    }
+
+    // Продление подписки: списывает баланс и сдвигает expires_at
+    const handleExtend = async (durationId: number) => {
+        if (!extendTargetSub || !token) return
+        const subId = extendTargetSub.id
+        setExtendingDurationId(durationId)
+        setBanner(null)
+        try {
+            const res = await fetch(apiUrl(`/api/client/subscription/${subId}/extend`), {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ duration_id: durationId }),
+            })
+
+            if (res.ok) {
+                const data = await res.json()
+                const expiresAt = data?.expires_at
+                    ? new Date(data.expires_at).toLocaleDateString()
+                    : ''
+                setBanner({
+                    type: 'success',
+                    text: t('subscription.extendSuccess', { date: expiresAt }),
+                })
+                setExtendTargetSub(null)
+                await refreshData()
+            } else {
+                const errText = await res.text()
+                const isBalance =
+                    errText.toLowerCase().includes('balance') ||
+                    errText.toLowerCase().includes('insufficient')
+                setBanner({
+                    type: 'error',
+                    text: isBalance ? t('subscription.insufficientBalance') : errText,
+                })
+                setExtendTargetSub(null)
+            }
+        } catch {
+            setBanner({ type: 'error', text: t('home.networkInvoiceError') })
+            setExtendTargetSub(null)
+        } finally {
+            setExtendingDurationId(null)
         }
     }
 
@@ -204,7 +264,7 @@ export default function Home() {
                     loadedPlans = Array.isArray(plansData)
                         ? plansData.map((plan: any) => ({
                             id: Number(plan?.id || 0),
-                            name: String(plan?.name || 'Без названия'),
+                            name: String(plan?.name || t('home.noName')),
                             description: typeof plan?.description === 'string' ? plan.description : null,
                             traffic_limit_gb: Number(plan?.traffic_limit_gb || 0),
                             device_limit: Number(plan?.device_limit || 0),
@@ -235,7 +295,7 @@ export default function Home() {
                 setCatalogLoaded(true)
             } catch (e: any) {
                 if (!cancelled && e?.name !== 'AbortError') {
-                    setBanner({ type: 'error', text: e?.message || 'Не удалось загрузить тарифы.' })
+                    setBanner({ type: 'error', text: e?.message || t('home.catalogError') })
                 }
             } finally {
                 clearTimeout(timeout)
@@ -254,6 +314,9 @@ export default function Home() {
 
     const handleSelectDuration = (duration: PlanDuration) => {
         setSelectedDuration(duration)
+        setBuyAsGift(false)
+        setGiftCode(null)
+        setCopiedGiftCode(false)
         setShowPayModal(true)
     }
 
@@ -261,11 +324,40 @@ export default function Home() {
         if (!selectedDuration || !token) return
 
         const pickedDuration = selectedDuration
+        const isGift = buyAsGift
         setPurchasingDurationId(pickedDuration.id)
         setBanner(null)
         setShowPayModal(false)
 
         try {
+            // Покупка подарочного кода — всегда через balance (баланс списывается напрямую)
+            if (isGift && providerId === 'balance') {
+                const res = await fetch(apiUrl('/api/client/plans/purchase'), {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        duration_id: pickedDuration.id,
+                        as_gift: true,
+                    }),
+                })
+
+                if (res.ok) {
+                    const data = await res.json()
+                    if (data.type === 'gift' && data.gift_code) {
+                        setGiftCode(data.gift_code)
+                        setBanner({ type: 'success', text: t('home.giftCodeCreated') })
+                    }
+                    await refreshData()
+                } else {
+                    const errText = await res.text()
+                    setBanner({ type: 'error', text: errText || t('home.invoiceError') })
+                }
+                return
+            }
+
             const res = await fetch(apiUrl('/api/client/payment/invoice'), {
                 method: 'POST',
                 headers: {
@@ -281,13 +373,13 @@ export default function Home() {
             if (res.ok) {
                 const data = await res.json()
                 if (!data.invoice_url) {
-                    setBanner({ type: 'success', text: 'Оплата прошла успешно. Подписка создана.' })
+                    setBanner({ type: 'success', text: t('home.paymentSuccess') })
                     await refreshData()
                 } else if (data.invoice_url) {
                     if (providerId === 'manual') {
                         setBanner({
                             type: 'success',
-                            text: `Платеж создан. Загрузите чек: ${data.invoice_url}`,
+                            text: t('home.paymentCreated', { url: data.invoice_url }),
                         })
                     } else if (providerId === 'telegram_stars' || providerId === 'stars' || data.invoice_url.includes('t.me/invoice')) {
                         WebApp.openInvoice(data.invoice_url, () => {
@@ -302,26 +394,36 @@ export default function Home() {
                 await refreshData()
             } else {
                 const errText = await res.text()
-                setBanner({ type: 'error', text: errText || 'Не удалось создать счет.' })
+                setBanner({ type: 'error', text: errText || t('home.invoiceError') })
             }
         } catch {
-            setBanner({ type: 'error', text: 'Сетевая ошибка при создании счета.' })
+            setBanner({ type: 'error', text: t('home.networkInvoiceError') })
         } finally {
             setPurchasingDurationId(null)
             setSelectedDuration(null)
         }
     }
 
+    const handleCopyGiftCode = async () => {
+        if (!giftCode) return
+        await copyText(giftCode)
+        setCopiedGiftCode(true)
+        setTimeout(() => setCopiedGiftCode(false), 1600)
+    }
+
     const totalDownload = stats?.total_download || 0
     const totalUpload = stats?.total_upload || 0
+
+    // Имя пользователя — используем полное имя или username из Telegram, никогда технический плейсхолдер
+    const displayName = user?.full_name || user?.username || t('common.appName')
 
     return (
         <div className="page home-page">
             <section className="compact-hero glass-card">
                 <span className={`state-dot ${hasActiveAccess ? 'is-online' : hasPending ? 'is-waiting' : 'is-idle'}`} />
                 <div className="compact-hero-copy">
-                    <p className="hero-kicker">Добро пожаловать</p>
-                    <h1>{user?.full_name || user?.username || 'EXA ROBOT'}</h1>
+                    <p className="hero-kicker">{t('home.welcome')}</p>
+                    <h1>{displayName}</h1>
                 </div>
             </section>
 
@@ -333,7 +435,17 @@ export default function Home() {
 
             {!token && (
                 <div className="home-banner error">
-                    {error || 'Требуется авторизация. Откройте Mini App из бота заново.'}
+                    {error || t('home.authError')}
+                </div>
+            )}
+
+            {/* Ошибка загрузки данных при наличии токена — показываем с кнопкой повтора */}
+            {token && error && !isLoading && (
+                <div className="home-banner error home-banner-retry">
+                    <span>{error}</span>
+                    <button className="btn-secondary btn-retry-inline" onClick={() => void refreshData()}>
+                        {t('home.retryLoad')}
+                    </button>
                 </div>
             )}
 
@@ -343,15 +455,44 @@ export default function Home() {
                         <div className="sub-card-head">
                             <div className="sub-card-info">
                                 <span className="sub-card-name">{sub.plan_name}</span>
-                                <span className="sub-card-days">{sub.days_left > 0 ? `${sub.days_left} дн. осталось` : 'Скоро истечет'}</span>
+                                <span className="sub-card-days">
+                                    {sub.is_free
+                                        ? t('home.freePlanLabel')
+                                        : sub.days_left > 0
+                                        ? t('home.daysLeft', { count: sub.days_left })
+                                        : t('home.expiringSoon')}
+                                </span>
                             </div>
                             <span className="sub-card-traffic">
                                 {sub.used_traffic_gb} / {sub.traffic_limit_gb > 0 ? `${sub.traffic_limit_gb} GB` : '∞'}
                             </span>
                         </div>
-                        {sub.traffic_limit_gb > 0 && (
-                            <div className="progress-bar-mini">
-                                <div className="progress-fill-mini" style={{ width: `${usageProgress(sub)}%` }} />
+                        {sub.traffic_limit_gb > 0 && (() => {
+                                const pct = usageProgress(sub)
+                                const barColor = pct >= 100 ? 'var(--color-danger, #e53935)'
+                                    : pct >= 90 ? 'var(--color-danger, #e53935)'
+                                    : pct >= 80 ? 'var(--color-warning, #f57c00)'
+                                    : 'var(--color-success, #43a047)'
+                                return (
+                                    <div className="progress-bar-mini">
+                                        <div
+                                            className="progress-fill-mini"
+                                            style={{ width: `${pct}%`, background: barColor }}
+                                        />
+                                    </div>
+                                )
+                            })()}
+                        {sub.is_free && (
+                            <div className="free-plan-banner">
+                                <span className="free-plan-topup-badge">
+                                    +{sub.daily_traffic_mb ?? 50} {t('home.freePlanTopupLabel')}
+                                </span>
+                                <button
+                                    className="btn-primary btn-upgrade-cta"
+                                    onClick={focusPurchase}
+                                >
+                                    {t('home.upgradeToPremium')}
+                                </button>
                             </div>
                         )}
                         <div className="sub-card-stats">
@@ -361,28 +502,49 @@ export default function Home() {
 
                         <div className="sub-card-connect">
                             <button className="btn-primary" onClick={() => openHiddify(sub)}>
-                                Подключить в Hiddify
+                                {t('home.connectHiddify')}
                             </button>
                             <button className="btn-primary btn-secondary" onClick={() => openHapp(sub)}>
-                                Подключить в Happ
+                                {t('home.connectHapp')}
                             </button>
                         </div>
                         <div className="sub-card-actions">
                             <button className="btn-ghost" onClick={() => setQrSubId(qrSubId === sub.id ? null : sub.id)}>
-                                Показать QR
+                                {t('home.showQr')}
                             </button>
                             <button className="btn-ghost" onClick={() => void copyImportLink(sub)}>
-                                {copiedSubId === sub.id ? 'Скопировано' : 'Скопировать ссылку'}
+                                {copiedSubId === sub.id ? t('common.copied') : t('home.copyLink')}
                             </button>
                         </div>
                         <div className="sub-card-actions">
                             <button className="btn-ghost" onClick={() => navigate(`/servers/${sub.id}`)}>
-                                Выбрать сервер
+                                {t('home.selectServer')}
                             </button>
                             <button className="btn-ghost" onClick={() => navigate(`/devices?sub=${sub.id}`)}>
-                                Устройства {sub.active_devices ?? 0}/{(sub.device_limit ?? 0) > 0 ? sub.device_limit : '∞'}
+                                {t('home.devices')}{' '}
+                                {(() => {
+                                    const used = sub.active_devices ?? 0
+                                    const limit = (sub.device_limit ?? 0) > 0 ? sub.device_limit! : null
+                                    const atLimit = limit != null && used >= limit
+                                    return (
+                                        <span style={atLimit ? { color: 'var(--color-warning, #f57c00)', fontWeight: 600 } : undefined}>
+                                            {used}/{limit ?? '∞'}
+                                        </span>
+                                    )
+                                })()}
                             </button>
                         </div>
+                        {/* Кнопка продления — только для платных подписок со сроком */}
+                        {!sub.is_free && sub.duration_days > 0 && (
+                            <div className="sub-card-actions">
+                                <button
+                                    className="btn-ghost"
+                                    onClick={() => setExtendTargetSub(sub)}
+                                >
+                                    {t('subscription.extend')}
+                                </button>
+                            </div>
+                        )}
 
                         {qrSubId === sub.id && (
                             <div className="sub-qr-panel">
@@ -396,7 +558,7 @@ export default function Home() {
                         )}
 
                         <div className="app-download-section">
-                            <p className="app-download-label">Скачать приложение</p>
+                            <p className="app-download-label">{t('home.downloadApp')}</p>
                             <div className="app-download-grid">
                                 <a href="https://play.google.com/store/apps/details?id=app.hiddify.com" target="_blank" rel="noopener" className="app-download-btn">
                                     <span className="app-icon">📱</span>
@@ -418,12 +580,12 @@ export default function Home() {
 
             {!hasActiveAccess && !hasPending && (
                 <section className="no-sub-cta glass-card">
-                    <p>У вас нет активных подписок</p>
+                    <p>{t('home.noSubscription')}</p>
                     <button className="btn-primary" onClick={focusPurchase}>
-                        Выбрать и купить тариф
+                        {t('home.choosePlan')}
                     </button>
                     <button className="btn-ghost" onClick={() => navigate('/promo')}>
-                        Промокод / реферал
+                        {t('home.promoCode')}
                     </button>
                 </section>
             )}
@@ -431,8 +593,8 @@ export default function Home() {
             {hasPending && (
                 <section className="center-module glass-card">
                     <div className="panel-header">
-                        <h3>Ожидают активации</h3>
-                        <span>Запустите купленные подписки перед подключением</span>
+                        <h3>{t('home.pendingTitle')}</h3>
+                        <span>{t('home.pendingSubtitle')}</span>
                     </div>
 
                     <div className="pending-grid">
@@ -440,14 +602,17 @@ export default function Home() {
                             <article key={sub.id} className="pending-row">
                                 <div>
                                     <h4>{sub.plan_name}</h4>
-                                    <p>{sub.duration_days > 0 ? `${sub.duration_days} дней` : 'Трафик-план без срока'}</p>
+                                    <p>{sub.duration_days > 0
+                                        ? t('home.durationDays', { count: sub.duration_days })
+                                        : t('home.trafficOnlyPlan')}
+                                    </p>
                                 </div>
                                 <button
                                     className="btn-primary"
                                     onClick={() => handleActivate(sub.id)}
                                     disabled={activatingSubId !== null}
                                 >
-                                    {activatingSubId === sub.id ? 'Активация...' : 'Активировать'}
+                                    {activatingSubId === sub.id ? t('home.activating') : t('home.activate')}
                                 </button>
                             </article>
                         ))}
@@ -457,28 +622,28 @@ export default function Home() {
 
             <section id="center-purchase" className="center-module glass-card">
                 <div className="panel-header">
-                    <h3>{hasActiveAccess ? 'Продлить или купить ещё' : 'Покупка доступа'}</h3>
-                    <span>{hasActiveAccess ? 'Добавьте новую подписку или продлите существующую' : 'Сначала купите подписку, затем подключитесь через Hiddify'}</span>
+                    <h3>{hasActiveAccess ? t('home.renewTitle') : t('home.purchaseTitle')}</h3>
+                    <span>{hasActiveAccess ? t('home.renewSubtitle') : t('home.purchaseSubtitle')}</span>
                 </div>
 
                     <div className="balance-inline">
-                        <span>Баланс</span>
+                        <span>{t('home.balance')}</span>
                         <strong>${((user?.balance || stats?.balance || 0)).toFixed(2)}</strong>
                     </div>
 
                     {catalogLoading ? (
                         <div className="empty-state control-empty">
                             <div className="empty-icon">PL</div>
-                            <h3>Загружаем тарифы</h3>
-                            <p>Подождите, собираем доступные варианты оплаты.</p>
+                            <h3>{t('home.loadingPlans')}</h3>
+                            <p>{t('home.loadingPlansDesc')}</p>
                         </div>
                     ) : plans.length === 0 ? (
                         <div className="empty-state control-empty">
                             <div className="empty-icon">PL</div>
-                            <h3>Тарифы недоступны</h3>
-                            <p>Попробуйте обновить данные или обратитесь в поддержку.</p>
+                            <h3>{t('home.noPlans')}</h3>
+                            <p>{t('home.noPlansDesc')}</p>
                             <button className="btn-secondary" style={{ marginTop: 12 }} onClick={() => { setCatalogLoaded(false); setCatalogLoading(false) }}>
-                                Повторить загрузку
+                                {t('home.retryLoad')}
                             </button>
                         </div>
                     ) : (
@@ -487,11 +652,11 @@ export default function Home() {
                                 <article key={plan.id} className="plan-card-home">
                                     <div className="plan-card-head">
                                         <h4>{plan.name}</h4>
-                                        <p>{plan.description || 'Подписка для защищенного подключения.'}</p>
+                                        <p>{plan.description || t('home.defaultPlanDesc')}</p>
                                     </div>
                                     <div className="plan-card-meta">
-                                        <span>{plan.traffic_limit_gb > 0 ? `${plan.traffic_limit_gb} GB` : 'Безлимит'}</span>
-                                        <span>{plan.device_limit > 0 ? `${plan.device_limit} устройств` : 'Без лимита'}</span>
+                                        <span>{plan.traffic_limit_gb > 0 ? `${plan.traffic_limit_gb} GB` : t('home.unlimited')}</span>
+                                        <span>{plan.device_limit > 0 ? t('home.deviceLimit', { count: plan.device_limit }) : t('home.noDeviceLimit')}</span>
                                     </div>
                                     <div className="duration-grid">
                                         {(plan.durations || []).map((dur) => (
@@ -507,7 +672,7 @@ export default function Home() {
                                             </button>
                                         ))}
                                         {(plan.durations || []).length === 0 && (
-                                            <div className="plan-empty-note">Варианты длительности пока не настроены для этого тарифа.</div>
+                                            <div className="plan-empty-note">{t('home.noDurations')}</div>
                                         )}
                                     </div>
                                 </article>
@@ -519,7 +684,7 @@ export default function Home() {
             <section className="home-bento-grid">
                 <article className="bento-card bento-traffic glass-card">
                     <div className="bento-head">
-                        <h3>Трафик</h3>
+                        <h3>{t('home.trafficTitle')}</h3>
                         <span>{usage.percent}%</span>
                     </div>
                     <div className="traffic-ring-wrap">
@@ -532,11 +697,14 @@ export default function Home() {
                                 r={radius}
                                 strokeDasharray={circumference}
                                 strokeDashoffset={strokeOffset}
+                                stroke={trafficRingColor}
                             />
                         </svg>
                         <div className="ring-text-wrap">
-                            <span className="ring-percent">{isLoading ? '...' : `${usage.percent}%`}</span>
-                            <span className="ring-text">использовано</span>
+                            <span className="ring-percent" style={{ color: trafficRingColor }}>
+                                {isLoading ? '...' : `${usage.percent}%`}
+                            </span>
+                            <span className="ring-text">{t('home.usedPercent')}</span>
                         </div>
                     </div>
                     <div className="traffic-values">
@@ -547,16 +715,16 @@ export default function Home() {
 
                 <article className="bento-card glass-card">
                     <div className="bento-head">
-                        <h3>Срок доступа</h3>
-                        <span>{activeSubscriptions.length} активных</span>
+                        <h3>{t('home.accessTitle')}</h3>
+                        <span>{t('home.activeCount', { count: activeSubscriptions.length })}</span>
                     </div>
                     <div className="metric-grid">
                         <div>
-                            <p>Дней осталось</p>
-                            <strong>{isLoading ? '...' : (usage.daysLeft ?? 'Н/Д')}</strong>
+                            <p>{t('home.daysLeftMetric')}</p>
+                            <strong>{isLoading ? '...' : (usage.daysLeft ?? 'N/A')}</strong>
                         </div>
                         <div>
-                            <p>Подписок</p>
+                            <p>{t('home.subscriptionsMetric')}</p>
                             <strong>{subscriptions.length}</strong>
                         </div>
                     </div>
@@ -564,16 +732,16 @@ export default function Home() {
 
                 <article className="bento-card glass-card">
                     <div className="bento-head">
-                        <h3>Передача</h3>
-                        <span>За все время</span>
+                        <h3>{t('home.transferTitle')}</h3>
+                        <span>{t('home.allTime')}</span>
                     </div>
                     <div className="metric-grid">
                         <div>
-                            <p>Входящий</p>
+                            <p>{t('home.incoming')}</p>
                             <strong>{formatBytes(totalDownload)}</strong>
                         </div>
                         <div>
-                            <p>Исходящий</p>
+                            <p>{t('home.outgoing')}</p>
                             <strong>{formatBytes(totalUpload)}</strong>
                         </div>
                     </div>
@@ -583,20 +751,37 @@ export default function Home() {
 
             <DrawerModal
                 open={showPayModal}
-                onClose={() => setShowPayModal(false)}
-                title="Выберите способ оплаты"
+                onClose={() => { setShowPayModal(false); setBuyAsGift(false) }}
+                title={t('home.selectPayment')}
                 subtitle={selectedDuration ? `${formatDuration(selectedDuration.duration_days)} • ${formatPrice(selectedDuration.price_cents)}` : undefined}
-                footer={<button className="btn-ghost" onClick={() => setShowPayModal(false)}>Отмена</button>}
+                footer={<button className="btn-ghost" onClick={() => { setShowPayModal(false); setBuyAsGift(false) }}>{t('common.cancel')}</button>}
             >
+                {/* Переключатель «Купить в подарок» */}
+                <label className="gift-toggle-row">
+                    <span className="gift-toggle-label">{t('home.buyAsGift')}</span>
+                    <input
+                        type="checkbox"
+                        className="gift-toggle-checkbox"
+                        checked={buyAsGift}
+                        onChange={(e) => setBuyAsGift(e.target.checked)}
+                    />
+                </label>
+                {buyAsGift && (
+                    <p className="gift-toggle-hint">{t('home.buyAsGiftHint')}</p>
+                )}
+
                 {providers.length === 0 ? (
                     <div className="empty-state drawer-empty">
                         <div className="empty-icon">PM</div>
-                        <h3>Способы оплаты недоступны</h3>
-                        <p>Попробуйте позже или обратитесь в поддержку.</p>
+                        <h3>{t('home.noProviders')}</h3>
+                        <p>{t('home.noProvidersDesc')}</p>
                     </div>
                 ) : (
                     <div className="provider-list provider-card-list">
-                        {providerCards.map((provider) => (
+                        {providerCards
+                            // При покупке как подарок доступна только оплата балансом
+                            .filter((p) => !buyAsGift || p.id === 'balance')
+                            .map((provider) => (
                             <button
                                 key={provider.id}
                                 className={`provider-btn provider-card ${provider.accent}`}
@@ -604,7 +789,7 @@ export default function Home() {
                             >
                                 <span className="provider-card-copy">
                                     <strong>{provider.title}</strong>
-                                    <small>{provider.description}</small>
+                                    <small>{buyAsGift ? t('home.giftBalanceNote') : provider.description}</small>
                                 </span>
                                 <span className="provider-card-meta">
                                     {provider.badge && <span className="provider-pill">{provider.badge}</span>}
@@ -612,8 +797,74 @@ export default function Home() {
                                 </span>
                             </button>
                         ))}
+                        {buyAsGift && !providerCards.some((p) => p.id === 'balance') && (
+                            <p className="gift-toggle-hint">{t('home.giftNeedsBalance')}</p>
+                        )}
                     </div>
                 )}
+            </DrawerModal>
+
+            {/* Показываем подарочный код после покупки */}
+            {giftCode && (
+                <section className="gift-code-result glass-card">
+                    <h3>{t('home.giftCodeTitle')}</h3>
+                    <p>{t('home.giftCodeInstructions')}</p>
+                    <div className="gift-code-box">
+                        <code className="gift-code-text">{giftCode}</code>
+                        <button className="btn-primary" onClick={() => void handleCopyGiftCode()}>
+                            {copiedGiftCode ? t('common.copied') : t('common.copy')}
+                        </button>
+                    </div>
+                    <button className="btn-ghost" onClick={() => setGiftCode(null)}>
+                        {t('common.close')}
+                    </button>
+                </section>
+            )}
+
+            {/* Модал выбора длительности продления (открывается с карточки активной подписки) */}
+            <DrawerModal
+                open={extendTargetSub !== null}
+                onClose={() => setExtendTargetSub(null)}
+                title={t('subscription.selectDuration')}
+                subtitle={extendTargetSub?.plan_name}
+                footer={
+                    <button className="btn-ghost" onClick={() => setExtendTargetSub(null)}>
+                        {t('common.cancel')}
+                    </button>
+                }
+            >
+                {(() => {
+                    const durations =
+                        extendTargetSub
+                            ? (plans.find((p) => p.id === extendTargetSub.plan_id)?.durations ?? [])
+                            : []
+                    if (durations.length === 0) {
+                        return (
+                            <div className="empty-state drawer-empty">
+                                <div className="empty-icon">PL</div>
+                                <p>{t('home.noDurations')}</p>
+                            </div>
+                        )
+                    }
+                    return (
+                        <div className="duration-grid">
+                            {durations.map((dur) => (
+                                <button
+                                    key={dur.id}
+                                    className="duration-btn"
+                                    onClick={() => void handleExtend(dur.id)}
+                                    disabled={extendingDurationId !== null}
+                                >
+                                    <span className="dur-label">{formatDuration(dur.duration_days)}</span>
+                                    <span className="dur-price">{formatPrice(dur.price_cents)}</span>
+                                    {extendingDurationId === dur.id && (
+                                        <span className="dur-spinner">...</span>
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+                    )
+                })()}
             </DrawerModal>
         </div>
     )

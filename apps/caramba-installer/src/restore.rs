@@ -75,10 +75,11 @@ pub fn run_restore(backup_path: &str) -> Result<()> {
                 .interact_text()?;
 
             println!("Restoring database...");
-            // psql $DATABASE_URL < backup.sql
-            let status = Command::new("bash")
-                .arg("-c")
-                .arg(format!("psql '{}' < '{}'", db_url, sql_file.display()))
+            // psql $DATABASE_URL < backup.sql — передаём аргументы напрямую, без shell-интерполяции
+            let sql_content = std::fs::File::open(&sql_file)?;
+            let status = Command::new("psql")
+                .arg(&db_url)
+                .stdin(sql_content)
                 .status()?;
 
             if status.success() {

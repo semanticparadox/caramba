@@ -18,20 +18,24 @@ impl CatalogService {
 
     pub async fn get_active_plans(&self) -> Result<Vec<Plan>> {
         let mut plans = match sqlx::query_as::<_, Plan>(
-            "SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans WHERE is_active = TRUE",
+            "SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial,
+             COALESCE(daily_traffic_mb, 0) AS daily_traffic_mb, COALESCE(is_free, FALSE) AS is_free
+             FROM plans WHERE is_active = TRUE",
         )
         .fetch_all(&self.pool)
         .await
         {
             Ok(plans) => plans,
             Err(primary_err) => {
-                // Legacy fallback: older schemas may not have plans.is_trial.
+                // Legacy fallback: older schemas may not have plans.is_trial / is_free / daily_traffic_mb.
                 warn!(
                     "Primary active plans query failed (trying legacy fallback): {}",
                     primary_err
                 );
                 sqlx::query_as::<_, Plan>(
-                    "SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, FALSE as is_trial FROM plans WHERE is_active = TRUE",
+                    "SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb,
+                     FALSE as is_trial, 0 as daily_traffic_mb, FALSE as is_free
+                     FROM plans WHERE is_active = TRUE",
                 )
                 .fetch_all(&self.pool)
                 .await
@@ -158,7 +162,11 @@ impl CatalogService {
     }
 
     pub async fn get_plans_admin(&self) -> Result<Vec<Plan>> {
-        let mut plans = sqlx::query_as::<_, Plan>("SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans WHERE is_active = TRUE").fetch_all(&self.pool).await?;
+        let mut plans = sqlx::query_as::<_, Plan>(
+            "SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial,
+             COALESCE(daily_traffic_mb, 0) AS daily_traffic_mb, COALESCE(is_free, FALSE) AS is_free
+             FROM plans WHERE is_active = TRUE"
+        ).fetch_all(&self.pool).await?;
         for plan in &mut plans {
             plan.durations = sqlx::query_as::<_, PlanDuration>(
                 "SELECT * FROM plan_durations WHERE plan_id = $1 ORDER BY duration_days ASC",
@@ -172,7 +180,11 @@ impl CatalogService {
     }
 
     pub async fn get_plan_by_id(&self, id: i64) -> Result<Option<Plan>> {
-        let plan_opt = sqlx::query_as::<_, Plan>("SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial FROM plans WHERE id = $1").bind(id).fetch_optional(&self.pool).await?;
+        let plan_opt = sqlx::query_as::<_, Plan>(
+            "SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial,
+             COALESCE(daily_traffic_mb, 0) AS daily_traffic_mb, COALESCE(is_free, FALSE) AS is_free
+             FROM plans WHERE id = $1"
+        ).bind(id).fetch_optional(&self.pool).await?;
         if let Some(mut plan) = plan_opt {
             plan.durations = sqlx::query_as::<_, PlanDuration>(
                 "SELECT * FROM plan_durations WHERE plan_id = $1 ORDER BY duration_days ASC",
@@ -206,11 +218,31 @@ impl CatalogService {
         prices: Vec<i64>,
         group_ids: Vec<i64>,
     ) -> Result<i64> {
+        self.create_plan_full(name, description, device_limit, traffic_limit_gb, 0, false, duration_days, prices, group_ids).await
+    }
+
+    pub async fn create_plan_full(
+        &self,
+        name: &str,
+        description: &str,
+        device_limit: i32,
+        traffic_limit_gb: i32,
+        daily_traffic_mb: i32,
+        is_free: bool,
+        duration_days: Vec<i32>,
+        prices: Vec<i64>,
+        group_ids: Vec<i64>,
+    ) -> Result<i64> {
         let mut tx = self.pool.begin().await?;
         // Keep legacy plans.price in sync with the cheapest active duration.
         let base_price = prices.iter().copied().min().unwrap_or(0);
-        let plan_id: i64 = sqlx::query_scalar("INSERT INTO plans (name, description, is_active, traffic_limit_gb, device_limit, price) VALUES ($1, $2, TRUE, $3, $4, $5) RETURNING id")
-            .bind(name).bind(description).bind(traffic_limit_gb).bind(device_limit).bind(base_price).fetch_one(&mut *tx).await?;
+        let plan_id: i64 = sqlx::query_scalar(
+            "INSERT INTO plans (name, description, is_active, traffic_limit_gb, device_limit, price, daily_traffic_mb, is_free)
+             VALUES ($1, $2, TRUE, $3, $4, $5, $6, $7) RETURNING id"
+        )
+            .bind(name).bind(description).bind(traffic_limit_gb).bind(device_limit)
+            .bind(base_price).bind(daily_traffic_mb).bind(is_free)
+            .fetch_one(&mut *tx).await?;
 
         for i in 0..duration_days.len().min(prices.len()) {
             sqlx::query(
@@ -250,14 +282,35 @@ impl CatalogService {
         prices: Vec<i64>,
         group_ids: Vec<i64>,
     ) -> Result<()> {
+        self.update_plan_full(id, name, description, device_limit, traffic_limit_gb, 0, false, duration_days, prices, group_ids).await
+    }
+
+    pub async fn update_plan_full(
+        &self,
+        id: i64,
+        name: &str,
+        description: &str,
+        device_limit: i32,
+        traffic_limit_gb: i32,
+        daily_traffic_mb: i32,
+        is_free: bool,
+        duration_days: Vec<i32>,
+        prices: Vec<i64>,
+        group_ids: Vec<i64>,
+    ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
         let base_price = prices.iter().copied().min().unwrap_or(0);
-        sqlx::query("UPDATE plans SET name = $1, description = $2, device_limit = $3, traffic_limit_gb = $4, price = $5 WHERE id = $6")
+        sqlx::query(
+            "UPDATE plans SET name = $1, description = $2, device_limit = $3, traffic_limit_gb = $4,
+             price = $5, daily_traffic_mb = $6, is_free = $7 WHERE id = $8"
+        )
             .bind(name)
             .bind(description)
             .bind(device_limit)
             .bind(traffic_limit_gb)
             .bind(base_price)
+            .bind(daily_traffic_mb)
+            .bind(is_free)
             .bind(id)
             .execute(&mut *tx)
             .await?;

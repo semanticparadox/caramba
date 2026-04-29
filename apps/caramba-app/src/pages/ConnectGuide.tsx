@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { PLATFORM_DIRECTORY, PlatformKey } from '../data/appDirectory'
@@ -8,13 +9,8 @@ import './ConnectGuide.css'
 
 const PLATFORM_ORDER: PlatformKey[] = ['android', 'ios', 'windows', 'macos', 'linux', 'tv']
 
-const CONFIDENCE_LABEL: Record<'high' | 'medium-high' | 'medium', string> = {
-    high: 'Проверено',
-    'medium-high': 'Проверено с оговорками',
-    medium: 'Нужна дополнительная проверка',
-}
-
 export default function ConnectGuide() {
+    const { t } = useTranslation()
     const navigate = useNavigate()
     const { subscriptions } = useAuth()
     const [activePlatform, setActivePlatform] = useState<PlatformKey>('android')
@@ -26,6 +22,13 @@ export default function ConnectGuide() {
         () => PLATFORM_DIRECTORY.find((platform) => platform.id === activePlatform) || PLATFORM_DIRECTORY[0],
         [activePlatform],
     )
+
+    // Метки уровня проверенности клиента
+    const confidenceLabel: Record<'high' | 'medium-high' | 'medium', string> = {
+        high: t('connectGuide.confidenceHigh'),
+        'medium-high': t('connectGuide.confidenceMediumHigh'),
+        medium: t('connectGuide.confidenceMedium'),
+    }
 
     const copySubscriptionLink = async () => {
         if (!activeSubscription?.subscription_url) return
@@ -44,15 +47,13 @@ export default function ConnectGuide() {
         <div className="page connect-guide-page">
             <header className="page-header">
                 <button className="back-button" onClick={() => navigate('/support')}>{'<'}</button>
-                <h2>Подключение</h2>
+                <h2>{t('connectGuide.title')}</h2>
             </header>
 
             <section className="connect-hero glass-card">
                 <div className="connect-hero-copy">
-                    <h3>Подключение к VPN</h3>
-                    <p>
-                        Скопируйте ссылку подписки, откройте любой совместимый клиент и выполните импорт. Рекомендуем Hiddify — после импорта маршруты подтянутся автоматически.
-                    </p>
+                    <h3>{t('connectGuide.heroTitle')}</h3>
+                    <p>{t('connectGuide.heroDesc')}</p>
                 </div>
 
                 <div className="connect-hero-actions">
@@ -61,30 +62,30 @@ export default function ConnectGuide() {
                         onClick={() => void copySubscriptionLink()}
                         disabled={!activeSubscription?.subscription_url}
                     >
-                        {copiedLink ? 'Ссылка скопирована' : 'Скопировать ссылку для импорта'}
+                        {copiedLink ? t('connectGuide.linkCopied') : t('connectGuide.copyLink')}
                     </button>
                     <button className="btn-secondary" onClick={() => navigate('/')}>
-                        Открыть центр
+                        {t('connectGuide.openCenter')}
                     </button>
                 </div>
 
                 {activeSubscription?.subscription_url && (
                     <p className="connect-auto-note">
-                        Если у вас уже есть активная подписка, достаточно одного импорта - ручной выбор маршрутов обычно не нужен.
+                        {t('connectGuide.alreadyActiveNote')}
                     </p>
                 )}
 
                 {!activeSubscription?.subscription_url && (
                     <p className="connect-warning">
-                        Пока нет активной подписки. Откройте тарифы, активируйте доступ и вернитесь сюда для быстрого импорта.
+                        {t('connectGuide.noActiveWarning')}
                     </p>
                 )}
             </section>
 
             <section className="platform-select glass-card">
                 <div className="platform-select-head">
-                    <h3>Выберите устройство</h3>
-                    <span>Доступные клиенты</span>
+                    <h3>{t('connectGuide.chooseDevice')}</h3>
+                    <span>{t('connectGuide.availableClients')}</span>
                 </div>
 
                 <div className="platform-chip-grid">
@@ -109,7 +110,7 @@ export default function ConnectGuide() {
                 <div className="setup-strip">
                     <p>{directory.quickSetup}</p>
                     <button className="btn-ghost" onClick={() => void copySetupSnippet()}>
-                        {copiedSetup ? 'Скопировано' : 'Скопировать памятку'}
+                        {copiedSetup ? t('connectGuide.setupCopied') : t('connectGuide.copySetup')}
                     </button>
                 </div>
             </section>
@@ -124,20 +125,20 @@ export default function ConnectGuide() {
                             </div>
                             <div className="app-meta">
                                 {entry.badge && <span className="app-badge">{entry.badge}</span>}
-                                <span className="confidence-tag">{CONFIDENCE_LABEL[entry.confidence]}</span>
+                                <span className="confidence-tag">{confidenceLabel[entry.confidence]}</span>
                             </div>
                         </div>
 
                         <div className="app-card-actions">
                             <button className="btn-secondary" onClick={() => window.open(entry.officialUrl, '_blank', 'noopener,noreferrer')}>
-                                Скачать {entry.name}
+                                {t('connectGuide.downloadApp', { name: entry.name })}
                             </button>
                             {entry.fallbackUrl && (
                                 <button
                                     className="btn-ghost"
                                     onClick={() => window.open(entry.fallbackUrl, '_blank', 'noopener,noreferrer')}
                                 >
-                                    Релизы
+                                    {t('connectGuide.releases')}
                                 </button>
                             )}
                         </div>

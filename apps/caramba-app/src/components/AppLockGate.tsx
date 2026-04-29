@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAppLock } from '../context/AppLockContext';
 import { normalizePinInput } from '../security/pin';
 import PinPad from './PinPad';
 import './AppLockGate.css';
 
 export default function AppLockGate() {
+    const { t } = useTranslation();
     const { ready, isPinEnabled, isLocked, isBusy, error, unlock, clearError } = useAppLock();
     const [pin, setPin] = useState('');
 
@@ -40,15 +42,15 @@ export default function AppLockGate() {
     if (!ready || !isPinEnabled || !isLocked) return null;
 
     return (
-        <div className="applock-overlay" role="dialog" aria-modal="true" aria-label="Mini App lock">
+        <div className="applock-overlay" role="dialog" aria-modal="true" aria-label={t('applock.locked')}>
             <div className="applock-brand">
                 <span className="applock-logo">PIN</span>
-                <h1>Mini App Locked</h1>
-                <p>Enter your 4-digit PIN to continue.</p>
+                <h1>{t('applock.locked')}</h1>
+                <p>{t('applock.enterPin')}</p>
             </div>
             <PinPad
-                title="Unlock"
-                subtitle="For your privacy this app is protected with PIN."
+                title={t('applock.unlock')}
+                subtitle={t('applock.unlockSubtitle')}
                 valueLength={pin.length}
                 error={error}
                 busy={isBusy}

@@ -11,6 +11,18 @@ use caramba_db::repositories::node_repo::NodeRepository;
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
+use subtle::ConstantTimeEq;
+
+// DDL выполняется один раз при старте процесса, а не на каждый HTTP-запрос
+static TABLES_INITIALIZED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+// Сравнение токенов за постоянное время для предотвращения атак по времени
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.as_bytes().ct_eq(b.as_bytes()).into()
+}
 
 #[derive(sqlx::FromRow)]
 struct FrontendTokenRow {
@@ -43,7 +55,17 @@ async fn is_valid_frontend_token(state: &AppState, token: &str) -> bool {
         }
 
         if let Some(hash) = row.auth_token_hash {
-            if bcrypt::verify(token, &hash).unwrap_or(false) {
+            // bcrypt::verify — дорогая операция (~100ms), выносим в blocking-пул
+            // чтобы не блокировать Tokio executor
+            let token_clone = token.to_owned();
+            let hash_clone = hash.clone();
+            let verified = tokio::task::spawn_blocking(move || {
+                bcrypt::verify(&token_clone, &hash_clone)
+            })
+            .await
+            .unwrap_or(Ok(false))
+            .unwrap_or(false);
+            if verified {
                 return true;
             }
         }
@@ -66,7 +88,7 @@ async fn authorize_internal_request(
         .unwrap_or_default()
         .trim()
         .to_string();
-    if !env_internal_token.is_empty() && env_internal_token == token {
+    if !env_internal_token.is_empty() && constant_time_eq(&env_internal_token, token) {
         return Ok(());
     }
 
@@ -78,7 +100,7 @@ async fn authorize_internal_request(
             .await
             .trim()
             .to_string();
-        if !settings_token.is_empty() && settings_token == token {
+        if !settings_token.is_empty() && constant_time_eq(&settings_token, token) {
             return Ok(());
         }
     }
@@ -392,9 +414,12 @@ pub async fn poll_worker_update(
         None => return (StatusCode::BAD_REQUEST, "Invalid worker role").into_response(),
     };
 
-    if let Err(e) = ensure_worker_update_tables(&state.pool).await {
-        tracing::error!("Failed to ensure worker update tables: {}", e);
-        return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+    if TABLES_INITIALIZED.get().is_none() {
+        if let Err(e) = ensure_worker_update_tables(&state.pool).await {
+            tracing::error!("Failed to ensure worker update tables: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+        let _ = TABLES_INITIALIZED.set(());
     }
 
     let target_version_key = format!("worker_{}_target_version", role);
@@ -484,9 +509,12 @@ pub async fn report_worker_update(
         None => return (StatusCode::BAD_REQUEST, "Invalid worker role").into_response(),
     };
 
-    if let Err(e) = ensure_worker_update_tables(&state.pool).await {
-        tracing::error!("Failed to ensure worker update tables: {}", e);
-        return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+    if TABLES_INITIALIZED.get().is_none() {
+        if let Err(e) = ensure_worker_update_tables(&state.pool).await {
+            tracing::error!("Failed to ensure worker update tables: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+        let _ = TABLES_INITIALIZED.set(());
     }
 
     let status = payload.status.trim().to_ascii_lowercase();

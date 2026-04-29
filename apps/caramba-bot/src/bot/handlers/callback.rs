@@ -62,6 +62,25 @@ pub async fn callback_handler(
                     let _ = state.store_service.update_user_terms(u.id).await;
                     let lang = u.language_code.as_deref();
 
+                    // Автоматически выдаём бесплатную подписку при первом принятии условий.
+                    // Если бесплатного плана нет в системе — просто пропускаем без ошибки.
+                    match state.store_service.create_free_subscription(u.id).await {
+                        Ok((sub_id, false)) => {
+                            info!(
+                                user_id = u.id,
+                                subscription_id = sub_id,
+                                "Бесплатная подписка создана для нового пользователя"
+                            );
+                        }
+                        Ok((_, true)) => {
+                            // У пользователя уже была бесплатная подписка — ничего не делаем
+                        }
+                        Err(e) => {
+                            // Бесплатного плана нет или ошибка API — не блокируем регистрацию
+                            error!("Не удалось создать бесплатную подписку для user {}: {}", u.id, e);
+                        }
+                    }
+
                     if let Some(msg) = q.message {
                         let _ = bot.delete_message(msg.chat().id, msg.id()).await;
 
@@ -288,26 +307,39 @@ pub async fn callback_handler(
                         .await
                     {
                         Ok(url) => {
-                            let buttons = vec![vec![InlineKeyboardButton::url(
-                                t(lang, "msg.pay_cryptobot"),
-                                url.parse::<Url>().unwrap(),
-                            )]];
-                            let _ = bot.answer_callback_query(callback_id).await;
-                            if let Some(msg) = q.message {
-                                let _ = bot
-                                    .send_message(
-                                        msg.chat().id,
-                                        tf(lang, "msg.invoice_created", &[&format!("{:.2}", amount)]),
-                                    )
-                                    .parse_mode(ParseMode::MarkdownV2)
-                                    .reply_markup(InlineKeyboardMarkup::new(buttons))
-                                    .await;
+                            match url.parse::<Url>() {
+                                Ok(parsed_url) => {
+                                    let buttons = vec![vec![InlineKeyboardButton::url(
+                                        t(lang, "msg.pay_cryptobot"),
+                                        parsed_url,
+                                    )]];
+                                    let _ = bot.answer_callback_query(callback_id).await;
+                                    if let Some(msg) = q.message {
+                                        let _ = bot
+                                            .send_message(
+                                                msg.chat().id,
+                                                tf(lang, "msg.invoice_created", &[&format!("{:.2}", amount)]),
+                                            )
+                                            .parse_mode(ParseMode::MarkdownV2)
+                                            .reply_markup(InlineKeyboardMarkup::new(buttons))
+                                            .await;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!(url = %url, error = %e, "Cryptobot вернул невалидный URL для оплаты");
+                                    let _ = bot
+                                        .answer_callback_query(callback_id)
+                                        .text(t(lang, "msg.payment_error"))
+                                        .show_alert(true)
+                                        .await;
+                                }
                             }
                         }
                         Err(e) => {
+                            error!(tg_id, error = %e, "Ошибка создания инвойса CryptoBot");
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("Error: {}", e))
+                                .text(t(lang, "msg.payment_error"))
                                 .show_alert(true)
                                 .await;
                         }
@@ -330,26 +362,39 @@ pub async fn callback_handler(
                         .await
                     {
                         Ok(url) => {
-                            let buttons = vec![vec![InlineKeyboardButton::url(
-                                t(lang, "msg.pay_nowpayments"),
-                                url.parse::<Url>().unwrap(),
-                            )]];
-                            let _ = bot.answer_callback_query(callback_id).await;
-                            if let Some(msg) = q.message {
-                                let _ = bot
-                                    .send_message(
-                                        msg.chat().id,
-                                        tf(lang, "msg.invoice_created", &[&format!("{:.2}", amount)]),
-                                    )
-                                    .parse_mode(ParseMode::MarkdownV2)
-                                    .reply_markup(InlineKeyboardMarkup::new(buttons))
-                                    .await;
+                            match url.parse::<Url>() {
+                                Ok(parsed_url) => {
+                                    let buttons = vec![vec![InlineKeyboardButton::url(
+                                        t(lang, "msg.pay_nowpayments"),
+                                        parsed_url,
+                                    )]];
+                                    let _ = bot.answer_callback_query(callback_id).await;
+                                    if let Some(msg) = q.message {
+                                        let _ = bot
+                                            .send_message(
+                                                msg.chat().id,
+                                                tf(lang, "msg.invoice_created", &[&format!("{:.2}", amount)]),
+                                            )
+                                            .parse_mode(ParseMode::MarkdownV2)
+                                            .reply_markup(InlineKeyboardMarkup::new(buttons))
+                                            .await;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!(url = %url, error = %e, "NOWPayments вернул невалидный URL для оплаты");
+                                    let _ = bot
+                                        .answer_callback_query(callback_id)
+                                        .text(t(lang, "msg.payment_error"))
+                                        .show_alert(true)
+                                        .await;
+                                }
                             }
                         }
                         Err(e) => {
+                            error!(tg_id, error = %e, "Ошибка создания инвойса NOWPayments");
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("Error: {}", e))
+                                .text(t(lang, "msg.payment_error"))
                                 .show_alert(true)
                                 .await;
                         }
@@ -372,26 +417,39 @@ pub async fn callback_handler(
                         .await
                     {
                         Ok(url) => {
-                            let buttons = vec![vec![InlineKeyboardButton::url(
-                                t(lang, "msg.pay_crystal"),
-                                url.parse::<Url>().unwrap(),
-                            )]];
-                            let _ = bot.answer_callback_query(callback_id).await;
-                            if let Some(msg) = q.message {
-                                let _ = bot
-                                    .send_message(
-                                        msg.chat().id,
-                                        tf(lang, "msg.invoice_created", &[&format!("{:.2}", amount)]),
-                                    )
-                                    .parse_mode(ParseMode::MarkdownV2)
-                                    .reply_markup(InlineKeyboardMarkup::new(buttons))
-                                    .await;
+                            match url.parse::<Url>() {
+                                Ok(parsed_url) => {
+                                    let buttons = vec![vec![InlineKeyboardButton::url(
+                                        t(lang, "msg.pay_crystal"),
+                                        parsed_url,
+                                    )]];
+                                    let _ = bot.answer_callback_query(callback_id).await;
+                                    if let Some(msg) = q.message {
+                                        let _ = bot
+                                            .send_message(
+                                                msg.chat().id,
+                                                tf(lang, "msg.invoice_created", &[&format!("{:.2}", amount)]),
+                                            )
+                                            .parse_mode(ParseMode::MarkdownV2)
+                                            .reply_markup(InlineKeyboardMarkup::new(buttons))
+                                            .await;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!(url = %url, error = %e, "CrystalPay вернул невалидный URL для оплаты");
+                                    let _ = bot
+                                        .answer_callback_query(callback_id)
+                                        .text(t(lang, "msg.payment_error"))
+                                        .show_alert(true)
+                                        .await;
+                                }
                             }
                         }
                         Err(e) => {
+                            error!(tg_id, error = %e, "Ошибка создания инвойса CrystalPay");
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("Error: {}", e))
+                                .text(t(lang, "msg.payment_error"))
                                 .show_alert(true)
                                 .await;
                         }
@@ -414,26 +472,39 @@ pub async fn callback_handler(
                         .await
                     {
                         Ok(url) => {
-                            let buttons = vec![vec![InlineKeyboardButton::url(
-                                t(lang, "msg.pay_stripe"),
-                                url.parse::<Url>().unwrap(),
-                            )]];
-                            let _ = bot.answer_callback_query(callback_id).await;
-                            if let Some(msg) = q.message {
-                                let _ = bot
-                                    .send_message(
-                                        msg.chat().id,
-                                        tf(lang, "msg.invoice_created", &[&format!("{:.2}", amount)]),
-                                    )
-                                    .parse_mode(ParseMode::MarkdownV2)
-                                    .reply_markup(InlineKeyboardMarkup::new(buttons))
-                                    .await;
+                            match url.parse::<Url>() {
+                                Ok(parsed_url) => {
+                                    let buttons = vec![vec![InlineKeyboardButton::url(
+                                        t(lang, "msg.pay_stripe"),
+                                        parsed_url,
+                                    )]];
+                                    let _ = bot.answer_callback_query(callback_id).await;
+                                    if let Some(msg) = q.message {
+                                        let _ = bot
+                                            .send_message(
+                                                msg.chat().id,
+                                                tf(lang, "msg.invoice_created", &[&format!("{:.2}", amount)]),
+                                            )
+                                            .parse_mode(ParseMode::MarkdownV2)
+                                            .reply_markup(InlineKeyboardMarkup::new(buttons))
+                                            .await;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!(url = %url, error = %e, "Stripe вернул невалидный URL для оплаты");
+                                    let _ = bot
+                                        .answer_callback_query(callback_id)
+                                        .text(t(lang, "msg.payment_error"))
+                                        .show_alert(true)
+                                        .await;
+                                }
                             }
                         }
                         Err(e) => {
+                            error!(tg_id, error = %e, "Ошибка создания сессии Stripe");
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("Error: {}", e))
+                                .text(t(lang, "msg.payment_error"))
                                 .show_alert(true)
                                 .await;
                         }
@@ -585,9 +656,10 @@ pub async fn callback_handler(
                             }
                         }
                         Err(e) => {
+                            error!(tg_id, error = %e, "Ошибка активации подписки");
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("❌ Error: {}", e))
+                                .text(t(lang, "msg.payment_error"))
                                 .show_alert(true)
                                 .await;
                         }
@@ -662,7 +734,7 @@ pub async fn callback_handler(
             devices if devices.starts_with("devices_") => {
                 let sub_id = devices
                     .strip_prefix("devices_")
-                    .unwrap()
+                    .unwrap_or("0")
                     .parse::<i64>()
                     .unwrap_or(0);
                 let dev_lang = state.store_service.get_user_by_tg_id(tg_id).await
@@ -1008,9 +1080,10 @@ pub async fn callback_handler(
                                 .await;
                         }
                         Err(e) => {
+                            error!(tg_id, error = %e, "Ошибка конвертации подписки в подарок");
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("Error: {}", e))
+                                .text(t(lang, "msg.payment_error"))
                                 .show_alert(true)
                                 .await;
                         }
@@ -1029,17 +1102,50 @@ pub async fn callback_handler(
             }
 
             buy_dur if buy_dur.starts_with("buy_dur_") => {
+                // Показываем выбор: для себя или как подарок
                 let id = buy_dur
                     .strip_prefix("buy_dur_")
-                    .unwrap()
+                    .unwrap_or("0")
                     .parse::<i64>()
                     .unwrap_or(0);
                 let user_res: AnyhowResult<Option<User>> =
                     state.store_service.get_user_by_tg_id(tg_id).await;
                 if let Ok(Some(u)) = user_res {
                     let lang = u.language_code.as_deref();
-                    match state.store_service.purchase_plan(u.id, id).await {
-                        Ok(_) => {
+                    let _ = bot.answer_callback_query(callback_id).await;
+                    if let Some(msg) = q.message {
+                        let buttons = vec![vec![
+                            InlineKeyboardButton::callback(
+                                t(lang, "btn.buy_for_myself"),
+                                format!("buy_self_{}", id),
+                            ),
+                            InlineKeyboardButton::callback(
+                                t(lang, "btn.buy_as_gift"),
+                                format!("buy_gift_{}", id),
+                            ),
+                        ]];
+                        let _ = bot
+                            .send_message(msg.chat().id, t(lang, "msg.buy_for_whom"))
+                            .parse_mode(ParseMode::MarkdownV2)
+                            .reply_markup(InlineKeyboardMarkup::new(buttons))
+                            .await;
+                    }
+                }
+            }
+
+            buy_self if buy_self.starts_with("buy_self_") => {
+                // Покупка для себя — подписка сразу активна
+                let id = buy_self
+                    .strip_prefix("buy_self_")
+                    .unwrap_or("0")
+                    .parse::<i64>()
+                    .unwrap_or(0);
+                let user_res: AnyhowResult<Option<User>> =
+                    state.store_service.get_user_by_tg_id(tg_id).await;
+                if let Ok(Some(u)) = user_res {
+                    let lang = u.language_code.as_deref();
+                    match state.store_service.purchase_plan(u.id, id, false).await {
+                        Ok(resp) => {
                             let _ = bot
                                 .answer_callback_query(callback_id)
                                 .text(t(lang, "msg.purchase_success_short"))
@@ -1050,11 +1156,57 @@ pub async fn callback_handler(
                                     .parse_mode(ParseMode::MarkdownV2)
                                     .await;
                             }
+                            let _ = resp; // serde_json::Value, уже обработан панелью
                         }
                         Err(e) => {
+                            error!(tg_id, error = %e, "Ошибка покупки тарифа для себя");
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("Error: {}", e))
+                                .text(t(lang, "msg.payment_error"))
+                                .show_alert(true)
+                                .await;
+                        }
+                    }
+                }
+            }
+
+            buy_gift if buy_gift.starts_with("buy_gift_") => {
+                // Покупка как подарок — возвращается gift code
+                let id = buy_gift
+                    .strip_prefix("buy_gift_")
+                    .unwrap_or("0")
+                    .parse::<i64>()
+                    .unwrap_or(0);
+                let user_res: AnyhowResult<Option<User>> =
+                    state.store_service.get_user_by_tg_id(tg_id).await;
+                if let Ok(Some(u)) = user_res {
+                    let lang = u.language_code.as_deref();
+                    match state.store_service.purchase_plan(u.id, id, true).await {
+                        Ok(resp) => {
+                            let _ = bot
+                                .answer_callback_query(callback_id)
+                                .text(t(lang, "msg.code_generated"))
+                                .await;
+                            if let Some(msg) = q.message {
+                                let code = resp
+                                    .get("gift_code")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("—")
+                                    .to_string();
+                                let _ = bot
+                                    .send_message(
+                                        msg.chat().id,
+                                        tf(lang, "msg.gift_created", &[&code]),
+                                    )
+                                    .parse_mode(ParseMode::MarkdownV2)
+                                    .await;
+                            }
+                        }
+                        Err(e) => {
+                            error!(tg_id, error = %e, "Ошибка покупки подарочного кода");
+                            let _ = bot
+                                .answer_callback_query(callback_id)
+                                .text(t(lang, "msg.payment_error"))
                                 .show_alert(true)
                                 .await;
                         }
@@ -1065,7 +1217,7 @@ pub async fn callback_handler(
             ext_dur if ext_dur.starts_with("ext_dur_") => {
                 let id = ext_dur
                     .strip_prefix("ext_dur_")
-                    .unwrap()
+                    .unwrap_or("0")
                     .parse::<i64>()
                     .unwrap_or(0);
                 let user_res: AnyhowResult<Option<User>> =
@@ -1086,9 +1238,10 @@ pub async fn callback_handler(
                             }
                         }
                         Err(e) => {
+                            error!(tg_id, error = %e, "Ошибка продления подписки");
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("Error: {}", e))
+                                .text(t(lang, "msg.payment_error"))
                                 .show_alert(true)
                                 .await;
                         }
@@ -1099,7 +1252,7 @@ pub async fn callback_handler(
             scat if scat.starts_with("store_cat_") => {
                 let cat_id = scat
                     .strip_prefix("store_cat_")
-                    .unwrap()
+                    .unwrap_or("0")
                     .parse::<i64>()
                     .unwrap_or(0);
                 let scat_lang = state.store_service.get_user_by_tg_id(tg_id).await
@@ -1144,8 +1297,9 @@ pub async fn callback_handler(
                         }
                     }
                     Err(e) => {
+                        error!(tg_id, error = %e, "Ошибка загрузки товаров категории");
                         let _ = bot
-                            .send_message(ChatId(tg_id), format!("Error: {}", e))
+                            .send_message(ChatId(tg_id), t(scat_lang.as_deref(), "msg.payment_error"))
                             .await;
                     }
                 }
@@ -1154,7 +1308,7 @@ pub async fn callback_handler(
             vprod if vprod.starts_with("view_prod_") => {
                 let prod_id = vprod
                     .strip_prefix("view_prod_")
-                    .unwrap()
+                    .unwrap_or("0")
                     .parse::<i64>()
                     .unwrap_or(0);
                 let vp_lang = state.store_service.get_user_by_tg_id(tg_id).await
@@ -1181,7 +1335,7 @@ pub async fn callback_handler(
             bprod if bprod.starts_with("buy_prod_") => {
                 let prod_id = bprod
                     .strip_prefix("buy_prod_")
-                    .unwrap()
+                    .unwrap_or("0")
                     .parse::<i64>()
                     .unwrap_or(0);
                 let user_res: AnyhowResult<Option<User>> =
@@ -1214,9 +1368,10 @@ pub async fn callback_handler(
                             }
                         }
                         Err(e) => {
+                            error!(tg_id, error = %e, "Ошибка покупки цифрового товара");
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("Error: {}", e))
+                                .text(t(lang, "msg.payment_error"))
                                 .show_alert(true)
                                 .await;
                         }

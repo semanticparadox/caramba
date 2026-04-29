@@ -97,21 +97,23 @@ impl RedisService {
     ) -> Result<bool> {
         let mut manager = self.manager.clone();
 
-        // Simple Fixed Window: INCR key. If 1, set expiration.
-        let count: usize = redis::cmd("INCR")
-            .arg(key)
-            .query_async(&mut manager)
+        // Атомарный Fixed Window через Lua: INCR + EXPIRE за одну транзакцию.
+        // Без Lua между INCR и EXPIRE возможен краш — ключ зависнет навсегда (TOCTOU).
+        let script = redis::Script::new(
+            r#"
+            local count = redis.call('INCR', KEYS[1])
+            if count == 1 then
+                redis.call('EXPIRE', KEYS[1], ARGV[1])
+            end
+            return count
+        "#,
+        );
+        let count: usize = script
+            .key(key)
+            .arg(window_secs)
+            .invoke_async(&mut manager)
             .await
-            .context("Redis INCR failed")?;
-
-        if count == 1 {
-            let _: () = redis::cmd("EXPIRE")
-                .arg(key)
-                .arg(window_secs)
-                .query_async(&mut manager)
-                .await
-                .context("Redis EXPIRE failed")?;
-        }
+            .context("Redis rate limit script failed")?;
 
         Ok(count <= limit)
     }

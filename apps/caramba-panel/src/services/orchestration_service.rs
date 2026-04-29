@@ -631,7 +631,11 @@ impl OrchestrationService {
                 self.node_repo.update_node(&updated_node).await?;
             }
 
-            let node_updated = self.node_repo.get_node_by_id(node.id).await?.unwrap();
+            let node_updated = self
+                .node_repo
+                .get_node_by_id(node.id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("Node {} not found after Reality key update", node.id))?;
             let pkey = node_updated.reality_priv.unwrap_or_default();
             let pubkey = node_updated.reality_pub.unwrap_or_default();
             let sid = node_updated.short_id.unwrap_or_default();
@@ -648,7 +652,11 @@ impl OrchestrationService {
             }
         } else if template.protocol == "naive" {
             // Inject Reality Keys for Naive
-            let node_updated = self.node_repo.get_node_by_id(node.id).await?.unwrap();
+            let node_updated = self
+                .node_repo
+                .get_node_by_id(node.id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("Node {} not found when injecting Naive Reality keys", node.id))?;
             if let (Some(pkey), Some(pubkey), Some(sid)) = (
                 node_updated.reality_priv,
                 node_updated.reality_pub,

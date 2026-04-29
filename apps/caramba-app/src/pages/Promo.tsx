@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { copyText } from '../lib/copyActions'
 import './Promo.css'
@@ -20,10 +21,13 @@ interface ReferralStats {
     total_earned_cents: number
     total_earned_usd: number
     bonus_percent: number
+    referrer_signup_bonus_cents: number
+    referred_signup_bonus_cents: number
     referrals: ReferralEntry[]
 }
 
 export default function Promo() {
+    const { t } = useTranslation()
     const { token, refreshData, error } = useAuth()
 
     const [promoCode, setPromoCode] = useState('')
@@ -63,7 +67,7 @@ export default function Promo() {
         if (!token) {
             setBanner({
                 type: 'error',
-                text: error || 'Требуется авторизация. Откройте Mini App из бота.',
+                text: error || t('promo.authError'),
             })
             setLoadingReferrals(false)
             return
@@ -92,17 +96,17 @@ export default function Promo() {
                 const data = await res.json()
                 setBanner({
                     type: 'success',
-                    text: data?.message || 'Код успешно активирован.',
+                    text: data?.message || t('promo.promoActivated'),
                 })
                 setPromoCode('')
                 await refreshData()
                 await loadReferrals()
             } else {
                 const errText = await res.text()
-                setBanner({ type: 'error', text: errText || 'Не удалось активировать код.' })
+                setBanner({ type: 'error', text: errText || t('promo.promoError') })
             }
         } catch {
-            setBanner({ type: 'error', text: 'Сетевая ошибка при активации кода.' })
+            setBanner({ type: 'error', text: t('promo.networkPromoError') })
         } finally {
             setRedeeming(false)
         }
@@ -128,16 +132,16 @@ export default function Promo() {
                 const data = await res.json()
                 setBanner({
                     type: 'success',
-                    text: data?.message || 'Реферер успешно привязан.',
+                    text: data?.message || t('promo.referrerLinked'),
                 })
                 setReferrerCode('')
                 await loadReferrals()
             } else {
                 const errText = await res.text()
-                setBanner({ type: 'error', text: errText || 'Не удалось привязать реферера.' })
+                setBanner({ type: 'error', text: errText || t('promo.referrerError') })
             }
         } catch {
-            setBanner({ type: 'error', text: 'Сетевая ошибка при привязке реферера.' })
+            setBanner({ type: 'error', text: t('promo.networkReferrerError') })
         } finally {
             setLinking(false)
         }
@@ -160,21 +164,21 @@ export default function Promo() {
     return (
         <div className="page promo-page">
             <header className="page-header promo-header">
-                <h2>Промо и рефералы</h2>
+                <h2>{t('promo.title')}</h2>
                 <button className="btn-ghost promo-refresh" onClick={() => void loadReferrals()}>
-                    Обновить
+                    {t('common.refresh')}
                 </button>
             </header>
 
             {banner && <div className={`promo-banner ${banner.type}`}>{banner.text}</div>}
 
             <section className="promo-card glass-card">
-                <h3>Промокод</h3>
-                <p>Введите код, чтобы активировать бонус или подписку.</p>
+                <h3>{t('promo.promoTitle')}</h3>
+                <p>{t('promo.promoDesc')}</p>
                 <div className="promo-input-row">
                     <input
                         type="text"
-                        placeholder="Введите код"
+                        placeholder={t('promo.promoPlaceholder')}
                         value={promoCode}
                         onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
                         onKeyDown={(e) => { if (e.key === 'Enter' && promoCode.trim()) redeemPromo() }}
@@ -184,62 +188,82 @@ export default function Promo() {
                         onClick={redeemPromo}
                         disabled={redeeming || promoCode.trim().length === 0}
                     >
-                        {redeeming ? 'Активация...' : 'Активировать'}
+                        {redeeming ? t('promo.activating') : t('promo.activate')}
                     </button>
                 </div>
             </section>
 
             <section className="promo-card glass-card">
-                <h3>Реферальная программа</h3>
-                <p>Приглашайте друзей и получайте <strong>{referralStats?.bonus_percent ?? 10}%</strong> от каждой их оплаты на ваш баланс.</p>
+                <h3>{t('promo.referralTitle')}</h3>
+                <p>
+                    {t('promo.referralDescBefore')}{' '}
+                    <strong>{referralStats?.bonus_percent ?? 10}%</strong>
+                    {' '}{t('promo.referralDescAfter')}
+                </p>
+
+                {/* Блок с бонусами за регистрацию — показываем только если заданы */}
+                {referralStats && referralStats.referred_signup_bonus_cents > 0 && (
+                    <div className="promo-signup-bonus-hint">
+                        {t('promo.friendSignupBonus', {
+                            amount: (referralStats.referred_signup_bonus_cents / 100).toFixed(2),
+                        })}
+                    </div>
+                )}
+                {referralStats && referralStats.referrer_signup_bonus_cents > 0 && (
+                    <div className="promo-signup-bonus-hint">
+                        {t('promo.referrerSignupBonus', {
+                            amount: (referralStats.referrer_signup_bonus_cents / 100).toFixed(2),
+                        })}
+                    </div>
+                )}
 
                 {loadingReferrals ? (
-                    <div className="promo-empty">Загружаем данные по рефералам...</div>
+                    <div className="promo-empty">{t('promo.loadingReferrals')}</div>
                 ) : referralStats ? (
                     <>
                         <div className="referral-stats-grid">
                             <div className="ref-stat-box">
-                                <span>Приглашено</span>
+                                <span>{t('promo.invited')}</span>
                                 <strong>{referralStats.referred_count}</strong>
                             </div>
                             <div className="ref-stat-box">
-                                <span>Заработано</span>
+                                <span>{t('promo.earned')}</span>
                                 <strong>${(referralStats.total_earned_usd || 0).toFixed(2)}</strong>
                             </div>
                         </div>
 
                         <div className="promo-field-block">
-                            <label>Ваш код</label>
+                            <label>{t('promo.yourCode')}</label>
                             <div className="promo-input-row">
                                 <input type="text" value={referralStats.referral_code || '—'} readOnly />
                                 <button className="btn-secondary" onClick={handleCopyCode}>
-                                    {copiedCode ? 'Скопировано' : 'Копировать'}
+                                    {copiedCode ? t('common.copied') : t('promo.copy')}
                                 </button>
                             </div>
                         </div>
 
                         <div className="promo-field-block">
-                            <label>Ваша ссылка</label>
+                            <label>{t('promo.yourLink')}</label>
                             <div className="promo-input-row">
                                 <input type="text" value={referralStats.referral_link || '—'} readOnly />
                                 <button className="btn-secondary" onClick={handleCopyLink}>
-                                    {copiedLink ? 'Скопировано' : 'Копировать'}
+                                    {copiedLink ? t('common.copied') : t('promo.copy')}
                                 </button>
                             </div>
                         </div>
                     </>
                 ) : (
-                    <div className="promo-empty">Не удалось загрузить реферальную статистику.</div>
+                    <div className="promo-empty">{t('promo.referralLoadError')}</div>
                 )}
             </section>
 
             <section className="promo-card glass-card">
-                <h3>Привязать реферера</h3>
-                <p>Введите код пригласившего пользователя один раз.</p>
+                <h3>{t('promo.referrerTitle')}</h3>
+                <p>{t('promo.referrerDesc')}</p>
                 <div className="promo-input-row">
                     <input
                         type="text"
-                        placeholder="Реферальный код"
+                        placeholder={t('promo.referrerPlaceholder')}
                         value={referrerCode}
                         onChange={(e) => setReferrerCode(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter' && referrerCode.trim()) linkReferrer() }}
@@ -249,23 +273,23 @@ export default function Promo() {
                         onClick={linkReferrer}
                         disabled={linking || referrerCode.trim().length === 0}
                     >
-                        {linking ? 'Сохранение...' : 'Привязать'}
+                        {linking ? t('promo.saving') : t('promo.link')}
                     </button>
                 </div>
             </section>
 
             {referralStats && referralStats.referrals.length > 0 && (
                 <section className="promo-card glass-card">
-                    <h3>Ваши приглашенные</h3>
+                    <h3>{t('promo.invitedTitle')}</h3>
                     <div className="promo-list">
                         {referralStats.referrals.map((item) => (
                             <div key={item.id} className="promo-list-item">
                                 <div>
                                     <div className="promo-list-title">
-                                        {item.full_name || item.username || `Пользователь #${item.id}`}
+                                        {item.full_name || item.username || t('promo.user', { id: item.id })}
                                     </div>
                                     <div className="promo-list-meta">
-                                        Присоединился {new Date(item.joined_at).toLocaleDateString()}
+                                        {t('promo.joinedAt', { date: new Date(item.joined_at).toLocaleDateString() })}
                                     </div>
                                 </div>
                                 <div className="promo-list-title">

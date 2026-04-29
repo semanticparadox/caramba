@@ -196,6 +196,15 @@ pub async fn create_product(
     let product_type = form.product_type;
     let content = form.content.unwrap_or_default();
 
+    // Подписки продаются только через Plans — Store поддерживает только file и text
+    if !matches!(product_type.as_str(), "file" | "text") {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            "Invalid product type. Only 'file' and 'text' are allowed in Store.",
+        )
+            .into_response();
+    }
+
     let admin_path = state.admin_path.clone();
 
     match state

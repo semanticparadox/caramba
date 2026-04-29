@@ -29,6 +29,7 @@ struct LavaInvoiceRes {
 pub struct LavaProvider {
     pub project_id: String,
     pub secret_key: String,
+    pub api_domain: String,
 }
 
 #[async_trait]
@@ -48,7 +49,7 @@ impl PaymentProvider for LavaProvider {
             amount: (session.amount as f64) / 100.0,
             order_id: session.id.to_string(),
             comment: format!("VPN Subscription (Product: {})", session.product_id),
-            hook_url: "https://your-api-domain.com/api/webhooks/payment/lava".to_string(),
+            hook_url: format!("https://{}/api/webhooks/payment/lava", self.api_domain),
         };
 
         let res = client

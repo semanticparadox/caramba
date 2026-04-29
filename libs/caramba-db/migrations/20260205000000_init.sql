@@ -607,11 +607,6 @@ INSERT INTO settings (key, value) VALUES ('payment_ipn_url', '') ON CONFLICT (ke
 INSERT INTO settings (key, value) VALUES ('currency_rate', '1.0') ON CONFLICT (key) DO NOTHING;
 INSERT INTO settings (key, value) VALUES ('referral_bonus_days', '7') ON CONFLICT (key) DO NOTHING;
 
--- Default Admin (password: admin)
-INSERT INTO admins (username, password_hash) 
-VALUES ('admin', '$2b$12$K.z2iBv.m6.h7.8.9.a.bcdefghijklmno.pqrstuvwxyz') 
-ON CONFLICT (username) DO NOTHING;
-
 -- Seed SNI Pool (Sample)
 INSERT INTO sni_pool (domain, tier, notes) VALUES ('gosuslugi.ru', 0, 'Public Services') ON CONFLICT (domain) DO NOTHING;
 INSERT INTO node_groups (id, name, slug, description) VALUES (1, 'Default', 'default', 'Default Node Group') ON CONFLICT (id) DO NOTHING;

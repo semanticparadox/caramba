@@ -43,11 +43,16 @@ impl MarketplaceService {
         aaio_merchant_id: String,
         aaio_secret_1: String,
         aaio_secret_2: String,
+        api_domain: String,
+        bot_username: String,
         store_service: StoreService,
         sub_service: SubscriptionService,
     ) -> Self {
         let session_repo = PaymentSessionRepository::new(pool.clone());
-        let http_client = reqwest::Client::new();
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("Failed to create HTTP client for MarketplaceService");
         let mut providers: HashMap<String, Box<dyn PaymentProvider>> = HashMap::new();
 
         providers.insert("stars".to_string(), Box::new(StarsProvider));
@@ -59,6 +64,8 @@ impl MarketplaceService {
                 Box::new(NowPaymentsProvider {
                     api_key: nowpayments_key,
                     ipn_secret: nowpayments_ipn_secret,
+                    api_domain: api_domain.clone(),
+                    bot_username: bot_username.clone(),
                 }),
             );
         }
@@ -68,6 +75,7 @@ impl MarketplaceService {
                 "cryptobot".to_string(),
                 Box::new(CryptoBotProvider {
                     token: cryptobot_token,
+                    bot_username: bot_username.clone(),
                 }),
             );
         }
@@ -78,6 +86,8 @@ impl MarketplaceService {
                 Box::new(CryptomusProvider {
                     merchant_id: cryptomus_merchant_id,
                     api_key: cryptomus_api_key,
+                    api_domain: api_domain.clone(),
+                    bot_username: bot_username.clone(),
                 }),
             );
         }
@@ -88,6 +98,7 @@ impl MarketplaceService {
                 Box::new(LavaProvider {
                     project_id: lava_project_id,
                     secret_key: lava_secret_key,
+                    api_domain: api_domain.clone(),
                 }),
             );
         }

@@ -9,6 +9,7 @@ use axum::{
 use axum_extra::extract::cookie::{Cookie, CookieJar};
 use serde::Deserialize;
 use tracing::{error, info};
+use uuid::Uuid;
 
 #[derive(Template, WebTemplate)]
 #[template(path = "setup.html")]
@@ -79,11 +80,32 @@ pub async fn create_admin(
             }
             info!("Setup: Admin {} created successfully.", form.username);
 
-            // Auto-login
+            // Auto-login: создаём UUID-токен сессии и сохраняем в Redis,
+            // как это делает login() — никогда не кладём session_secret в cookie
             let admin_path = state.admin_path.clone();
-            let cookie = Cookie::build(("admin_session", state.session_secret.clone()))
+            let token = Uuid::new_v4().to_string();
+            let clean_username = form.username.trim().to_string();
+
+            info!(
+                "Setup: creating session for user '{}' (token: {}...)",
+                clean_username,
+                &token[..6]
+            );
+
+            let _ = state
+                .redis
+                .set(
+                    &format!("session:{}", token),
+                    &clean_username,
+                    24 * 60 * 60, // 24 часа
+                )
+                .await;
+
+            let cookie = Cookie::build(("admin_session", token))
                 .path("/")
                 .http_only(true)
+                .secure(true)
+                .same_site(axum_extra::extract::cookie::SameSite::Lax)
                 .build();
 
             let mut headers = axum::http::HeaderMap::new();

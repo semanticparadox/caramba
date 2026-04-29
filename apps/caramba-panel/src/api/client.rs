@@ -220,6 +220,13 @@ pub fn routes(state: AppState) -> Router<AppState> {
             )),
         )
         .route(
+            "/subscription/{id}/extend",
+            post(extend_subscription).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
             "/promo/redeem",
             post(redeem_promo_code).layer(middleware::from_fn_with_state(
                 state.clone(),
@@ -529,9 +536,9 @@ async fn get_user_stats(
         balance: i64,
         total_download: i64,
         total_upload: i64,
-        simple_mode_enabled: bool,
-        simple_mode_plan_id: i64,
         brand_name: String,
+        // URL поддержки — берётся из настроек, чтобы Mini App не хардкодил его
+        support_url: String,
     }
 
     let balance_opt: Option<i64> = sqlx::query_scalar("SELECT balance FROM users WHERE tg_id = $1")
@@ -613,20 +620,13 @@ async fn get_user_stats(
         balance,
         total_download: usage.traffic_used,
         total_upload: 0,
-        simple_mode_enabled: state
-            .settings
-            .get_or_default("simple_mode_enabled", "false")
-            .await
-            == "true",
-        simple_mode_plan_id: state
-            .settings
-            .get_or_default("simple_mode_plan_id", "0")
-            .await
-            .parse()
-            .unwrap_or(0),
         brand_name: state
             .settings
             .get_or_default("brand_name", "CARAMBA")
+            .await,
+        support_url: state
+            .settings
+            .get_or_default("support_url", "https://t.me/")
             .await,
     })
     .into_response()
@@ -673,17 +673,24 @@ async fn get_user_subscriptions(
 
     let plan_ids: Vec<i64> = subs.iter().map(|s| s.sub.plan_id).collect();
     let mut device_limits_by_plan: HashMap<i64, i64> = HashMap::new();
+    // Мета-данные плана: is_free и daily_traffic_mb для UX бесплатного плана
+    let mut is_free_by_plan: HashMap<i64, bool> = HashMap::new();
+    let mut daily_traffic_mb_by_plan: HashMap<i64, i32> = HashMap::new();
     if !plan_ids.is_empty() {
-        let rows = sqlx::query_as::<_, (i64, i64)>(
-            "SELECT id, COALESCE(device_limit, 0)::BIGINT FROM plans WHERE id = ANY($1)",
+        let rows = sqlx::query_as::<_, (i64, i64, bool, i32)>(
+            "SELECT id, COALESCE(device_limit, 0)::BIGINT,
+             COALESCE(is_free, FALSE), COALESCE(daily_traffic_mb, 0)
+             FROM plans WHERE id = ANY($1)",
         )
         .bind(&plan_ids)
         .fetch_all(&state.pool)
         .await
         .unwrap_or_default();
 
-        for (plan_id, device_limit) in rows {
+        for (plan_id, device_limit, is_free, daily_mb) in rows {
             device_limits_by_plan.insert(plan_id, device_limit);
+            is_free_by_plan.insert(plan_id, is_free);
+            daily_traffic_mb_by_plan.insert(plan_id, daily_mb);
         }
     }
 
@@ -740,6 +747,8 @@ async fn get_user_subscriptions(
             .get(&s.sub.plan_id)
             .copied()
             .unwrap_or(0);
+        let is_free = is_free_by_plan.get(&s.sub.plan_id).copied().unwrap_or(false);
+        let daily_traffic_mb = daily_traffic_mb_by_plan.get(&s.sub.plan_id).copied().unwrap_or(0);
         let (last_node_name, last_node_flag) = s
             .sub
             .node_id
@@ -749,6 +758,7 @@ async fn get_user_subscriptions(
 
         result.push(serde_json::json!({
             "id": s.sub.id,
+            "plan_id": s.sub.plan_id,
             "plan_name": s.plan_name,
             "plan_description": s.plan_description,
             "status": s.sub.status,
@@ -772,6 +782,8 @@ async fn get_user_subscriptions(
             "vless_links": vless_links,
             "primary_vless_link": primary_vless_link,
             "singbox_variants": singbox_variants.clone(),
+            "is_free": is_free,
+            "daily_traffic_mb": daily_traffic_mb,
         }));
     }
 
@@ -857,8 +869,6 @@ async fn get_user_profile(
             "referral_code": referral_code,
             "active_subscriptions": active_subs,
             "pending_subscriptions": pending_subs,
-            "simple_mode_enabled": state.settings.get_or_default("simple_mode_enabled", "false").await == "true",
-            "simple_mode_plan_id": state.settings.get_or_default("simple_mode_plan_id", "0").await.parse::<i64>().unwrap_or(0),
         }))
         .into_response()
     } else {
@@ -1190,6 +1200,10 @@ async fn get_user_referrals(
         total_earned_cents: i64,
         total_earned_usd: f64,
         bonus_percent: i64,
+        /// Сколько получит реферрер при каждой регистрации по его ссылке (центы)
+        referrer_signup_bonus_cents: i64,
+        /// Сколько получит новый пользователь при регистрации по реферальной ссылке (центы)
+        referred_signup_bonus_cents: i64,
         referrals: Vec<ReferralEntry>,
     }
 
@@ -1247,6 +1261,37 @@ async fn get_user_referrals(
             .parse()
             .unwrap_or(10);
 
+        // Индивидуальные ставки реферрера имеют приоритет над глобальными
+        let custom_rates: Option<(Option<i32>, Option<i32>, Option<i32>)> = sqlx::query_as(
+            "SELECT bonus_percent, referrer_signup_bonus_cents, referred_signup_bonus_cents FROM user_referral_rates WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+        let global_referrer_signup: i64 = state
+            .settings
+            .get_or_default("referral_referrer_signup_bonus_cents", "0")
+            .await
+            .parse()
+            .unwrap_or(0);
+        let global_referred_signup: i64 = state
+            .settings
+            .get_or_default("referral_referred_signup_bonus_cents", "0")
+            .await
+            .parse()
+            .unwrap_or(0);
+
+        let referrer_signup_bonus_cents: i64 = custom_rates
+            .as_ref()
+            .and_then(|(_, r, _)| r.map(|v| v as i64))
+            .unwrap_or(global_referrer_signup);
+        let referred_signup_bonus_cents: i64 = custom_rates
+            .as_ref()
+            .and_then(|(_, _, r)| r.map(|v| v as i64))
+            .unwrap_or(global_referred_signup);
+
         Json(ReferralStats {
             referral_code: code,
             referred_count: count,
@@ -1254,6 +1299,8 @@ async fn get_user_referrals(
             total_earned_cents,
             total_earned_usd: total_earned_cents as f64 / 100.0,
             bonus_percent,
+            referrer_signup_bonus_cents,
+            referred_signup_bonus_cents,
             referrals,
         })
         .into_response()
@@ -1449,6 +1496,9 @@ async fn checkout_cart(
 #[derive(Deserialize)]
 struct PurchaseReq {
     duration_id: i64,
+    /// Если true — списываем баланс и создаём подарочный код вместо активной подписки
+    #[serde(default)]
+    as_gift: bool,
 }
 
 async fn purchase_plan(
@@ -1470,16 +1520,28 @@ async fn purchase_plan(
 
     match state
         .store_service
-        .purchase_plan(user_id, body.duration_id)
+        .purchase_plan(user_id, body.duration_id, body.as_gift)
         .await
     {
-        Ok(sub) => Json(serde_json::json!({
-            "ok": true,
-            "subscription_id": sub.id,
-            "status": sub.status,
-            "message": "Purchase successful! Your subscription is now pending."
-        }))
-        .into_response(),
+        Ok(crate::services::store_service::PurchaseResult::Subscription(sub)) => {
+            Json(serde_json::json!({
+                "ok": true,
+                "type": "subscription",
+                "subscription_id": sub.id,
+                "status": sub.status,
+                "message": "Purchase successful! Your subscription is now active."
+            }))
+            .into_response()
+        }
+        Ok(crate::services::store_service::PurchaseResult::GiftCode(code)) => {
+            Json(serde_json::json!({
+                "ok": true,
+                "type": "gift",
+                "gift_code": code,
+                "message": "Gift code created! Share this code with someone."
+            }))
+            .into_response()
+        }
         Err(e) => {
             tracing::error!("Purchase failed for user {}: {}", user_id, e);
             (StatusCode::BAD_REQUEST, format!("{}", e)).into_response()
@@ -2684,4 +2746,82 @@ async fn update_notification_preferences(
     .await;
 
     Json(serde_json::json!({ "ok": true })).into_response()
+}
+
+// ============================================================================
+// Extend Subscription Endpoint
+// POST /api/client/subscription/{id}/extend
+// Тело: { "duration_id": i64 }
+// Списывает средства с баланса и продлевает активную подписку пользователя.
+// ============================================================================
+
+#[derive(Deserialize)]
+struct ExtendSubscriptionReq {
+    duration_id: i64,
+}
+
+async fn extend_subscription(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path(sub_id): Path<i64>,
+    Json(body): Json<ExtendSubscriptionReq>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+
+    // Получаем внутренний user_id по tg_id
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    // Проверяем, что подписка принадлежит этому пользователю
+    let owner_check: Option<i64> =
+        sqlx::query_scalar("SELECT user_id FROM subscriptions WHERE id = $1")
+            .bind(sub_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
+
+    match owner_check {
+        None => return (StatusCode::NOT_FOUND, "Subscription not found").into_response(),
+        Some(owner_id) if owner_id != user_id => {
+            return (StatusCode::FORBIDDEN, "Subscription does not belong to you")
+                .into_response()
+        }
+        _ => {}
+    }
+
+    // Вызываем сервисный метод — он проверяет баланс, списывает и продлевает
+    match state
+        .store_service
+        .extend_subscription(user_id, body.duration_id)
+        .await
+    {
+        Ok(sub) => {
+            let expires_at = sub.expires_at.to_rfc3339();
+            tracing::info!(
+                user_id,
+                sub_id,
+                duration_id = body.duration_id,
+                expires_at = %expires_at,
+                "Subscription extended"
+            );
+            Json(serde_json::json!({
+                "ok": true,
+                "subscription_id": sub.id,
+                "expires_at": expires_at,
+            }))
+            .into_response()
+        }
+        Err(e) => {
+            tracing::warn!(user_id, sub_id, error = %e, "extend_subscription failed");
+            (StatusCode::BAD_REQUEST, e.to_string()).into_response()
+        }
+    }
 }

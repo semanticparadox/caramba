@@ -144,7 +144,7 @@ impl ReferralService {
         amount_cents: i64,
         _payment_id: Option<i64>,
     ) -> Result<Option<(i64, i64)>> {
-        // 10% bonus for the referrer
+        // Бонус реферреру за оплату реферала
         let user = sqlx::query_as::<_, (Option<i64>, Option<i64>)>(
             "SELECT referrer_id, referred_by FROM users WHERE id = $1",
         )
@@ -155,13 +155,26 @@ impl ReferralService {
         let referrer_id = user.0.or(user.1);
 
         if let Some(r_id) = referrer_id {
-            let bonus_pct: i64 = sqlx::query_scalar::<_, String>(
-                "SELECT value FROM settings WHERE key = 'referral_bonus_percent'"
+            // Приоритет: индивидуальная ставка из user_referral_rates, иначе глобальная
+            let custom_pct: Option<i64> = sqlx::query_scalar::<_, i32>(
+                "SELECT bonus_percent FROM user_referral_rates WHERE user_id = $1",
             )
+            .bind(r_id)
             .fetch_optional(&mut **pool)
             .await?
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(10);
+            .map(|v| v as i64);
+
+            let bonus_pct: i64 = if let Some(pct) = custom_pct {
+                pct
+            } else {
+                sqlx::query_scalar::<_, String>(
+                    "SELECT value FROM settings WHERE key = 'referral_bonus_percent'",
+                )
+                .fetch_optional(&mut **pool)
+                .await?
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(10)
+            };
             let bonus = amount_cents * bonus_pct / 100;
             if bonus > 0 {
                 // 1. Update balance
@@ -199,6 +212,122 @@ impl ReferralService {
             }
         }
         Ok(None)
+    }
+
+    /// Начисляет бонусы за регистрацию по реферальной ссылке.
+    /// Вызывается при создании нового пользователя с referrer_id.
+    /// Идемпотентен: повторный вызов с теми же аргументами пропускается.
+    pub async fn apply_signup_bonus(
+        pool: &sqlx::PgPool,
+        referrer_id: i64,
+        referred_user_id: i64,
+    ) -> Result<(i64, i64)> {
+        // Проверяем идемпотентность — не начисляем дважды
+        let already: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM referral_bonuses WHERE user_id = $1 AND referred_user_id = $2 AND bonus_type = 'signup' LIMIT 1",
+        )
+        .bind(referrer_id)
+        .bind(referred_user_id)
+        .fetch_optional(pool)
+        .await?;
+
+        if already.is_some() {
+            return Ok((0, 0));
+        }
+
+        // Загружаем индивидуальные настройки реферрера (приоритет над глобальными)
+        let custom: Option<(Option<i32>, Option<i32>)> = sqlx::query_as(
+            "SELECT referrer_signup_bonus_cents, referred_signup_bonus_cents FROM user_referral_rates WHERE user_id = $1",
+        )
+        .bind(referrer_id)
+        .fetch_optional(pool)
+        .await?;
+
+        // Глобальные настройки — фолбэк
+        let global_referrer: i64 = sqlx::query_scalar::<_, String>(
+            "SELECT value FROM settings WHERE key = 'referral_referrer_signup_bonus_cents'",
+        )
+        .fetch_optional(pool)
+        .await?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+
+        let global_referred: i64 = sqlx::query_scalar::<_, String>(
+            "SELECT value FROM settings WHERE key = 'referral_referred_signup_bonus_cents'",
+        )
+        .fetch_optional(pool)
+        .await?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+
+        let referrer_bonus: i64 = custom
+            .as_ref()
+            .and_then(|(r, _)| r.map(|v| v as i64))
+            .unwrap_or(global_referrer);
+
+        let referred_bonus: i64 = custom
+            .as_ref()
+            .and_then(|(_, r)| r.map(|v| v as i64))
+            .unwrap_or(global_referred);
+
+        // Если оба нулевые — ничего не делаем, не засоряем таблицу
+        if referrer_bonus == 0 && referred_bonus == 0 {
+            return Ok((0, 0));
+        }
+
+        let mut tx = pool.begin().await?;
+
+        // Бонус рефереру
+        if referrer_bonus > 0 {
+            sqlx::query("UPDATE users SET balance = balance + $1 WHERE id = $2")
+                .bind(referrer_bonus)
+                .bind(referrer_id)
+                .execute(&mut *tx)
+                .await?;
+
+            sqlx::query(
+                "INSERT INTO referral_bonuses (user_id, referred_user_id, bonus_type, bonus_value, status, applied_at) \
+                 VALUES ($1, $2, 'signup', $3, 'completed', CURRENT_TIMESTAMP)",
+            )
+            .bind(referrer_id)
+            .bind(referred_user_id)
+            .bind(referrer_bonus as f64)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        // Бонус новому пользователю
+        if referred_bonus > 0 {
+            sqlx::query("UPDATE users SET balance = balance + $1 WHERE id = $2")
+                .bind(referred_bonus)
+                .bind(referred_user_id)
+                .execute(&mut *tx)
+                .await?;
+
+            // Записываем от имени referred_user_id (user_id = referred) с bonus_type = 'signup_welcome'
+            // чтобы не конфликтовать с идемпотентностью referrer-записи
+            sqlx::query(
+                "INSERT INTO referral_bonuses (user_id, referred_user_id, bonus_type, bonus_value, status, applied_at) \
+                 VALUES ($1, $2, 'signup_welcome', $3, 'completed', CURRENT_TIMESTAMP)",
+            )
+            .bind(referred_user_id)
+            .bind(referred_user_id)
+            .bind(referred_bonus as f64)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+
+        tracing::info!(
+            referrer_id,
+            referred_user_id,
+            referrer_bonus,
+            referred_bonus,
+            "Signup bonuses applied"
+        );
+
+        Ok((referrer_bonus, referred_bonus))
     }
 
     fn mask_username(username: &str) -> String {

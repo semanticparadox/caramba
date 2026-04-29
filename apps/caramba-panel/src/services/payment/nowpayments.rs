@@ -29,6 +29,8 @@ struct NowPaymentsInvoiceRes {
 pub struct NowPaymentsProvider {
     pub api_key: String,
     pub ipn_secret: String,
+    pub api_domain: String,
+    pub bot_username: String,
 }
 
 #[async_trait]
@@ -49,10 +51,12 @@ impl PaymentProvider for NowPaymentsProvider {
             pay_currency: "USDTTRC20".to_string(), // Or could be empty for full selection
             order_id: session.id.to_string(),
             order_description: format!("VPN Subscription (Product: {})", session.product_id),
-            ipn_callback_url: "https://your-api-domain.com/api/webhooks/payment/nowpayments"
-                .to_string(), // Need env config ideally
-            success_url: "https://t.me/your_bot".to_string(),
-            cancel_url: "https://t.me/your_bot".to_string(),
+            ipn_callback_url: format!(
+                "https://{}/api/webhooks/payment/nowpayments",
+                self.api_domain
+            ),
+            success_url: format!("https://t.me/{}", self.bot_username),
+            cancel_url: format!("https://t.me/{}", self.bot_username),
         };
 
         let mut headers = HeaderMap::new();

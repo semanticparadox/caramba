@@ -7,7 +7,10 @@ use anyhow::{Context, Result};
 pub use sqlx;
 
 pub async fn connect(url: &str) -> Result<sqlx::PgPool> {
-    let pool = sqlx::PgPool::connect(url)
+    // Явно задаём размер пула вместо дефолтных 10 соединений
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(20)
+        .connect(url)
         .await
         .context("Failed to connect to PostgreSQL")?;
 

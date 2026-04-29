@@ -211,6 +211,42 @@ impl SubscriptionService {
         let fingerprint =
             Self::device_fingerprint(subscription_id, normalized_ip, normalized_ua.as_deref());
 
+        // Проверяем лимит устройств только для новых fingerprint-ов.
+        // Обновление существующего устройства всегда разрешено.
+        let is_existing: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM subscription_device_leases WHERE subscription_id = $1 AND device_fingerprint = $2)"
+        )
+        .bind(subscription_id)
+        .bind(&fingerprint)
+        .fetch_one(&self.pool)
+        .await
+        .context("Failed to check existing device fingerprint")?;
+
+        if !is_existing {
+            let device_limit = self
+                .get_subscription_device_limit(subscription_id)
+                .await
+                .unwrap_or(0);
+
+            if device_limit > 0 {
+                let lease_count: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM subscription_device_leases WHERE subscription_id = $1",
+                )
+                .bind(subscription_id)
+                .fetch_one(&self.pool)
+                .await
+                .context("Failed to count active device leases")?;
+
+                if lease_count >= device_limit as i64 {
+                    return Err(anyhow::anyhow!(
+                        "Device limit reached ({}/{})",
+                        lease_count,
+                        device_limit
+                    ));
+                }
+            }
+        }
+
         sqlx::query(
             r#"
             INSERT INTO subscription_device_leases
@@ -602,7 +638,8 @@ impl SubscriptionService {
                 last_access_ip,
                 last_access_ua,
                 organization_id,
-                relay_country
+                relay_country,
+                last_daily_topup_at
             FROM subscriptions
             WHERE user_id = $1
             ORDER BY COALESCE(created_at, CURRENT_TIMESTAMP) DESC
@@ -693,8 +730,8 @@ impl SubscriptionService {
 
         let mut results = vec![];
         for (sub_id, user_id, plan_id, plan_name, balance) in subs {
-            let price = sqlx::query_scalar::<_, i64>(
-                "SELECT price FROM plan_durations WHERE plan_id = $1 ORDER BY duration_days LIMIT 1"
+            let (price, duration_days) = sqlx::query_as::<_, (i64, i32)>(
+                "SELECT price, duration_days FROM plan_durations WHERE plan_id = $1 ORDER BY duration_days LIMIT 1"
             )
             .bind(plan_id)
             .fetch_one(&self.pool)
@@ -704,7 +741,9 @@ impl SubscriptionService {
                 // Wrap extend + balance deduction in a transaction for atomicity
                 let mut tx = self.pool.begin().await?;
 
-                sqlx::query("UPDATE subscriptions SET expires_at = expires_at + interval '30 days', used_traffic = 0 WHERE id = $1")
+                // Используем фактический duration_days из plan_durations вместо захардкоженных 30 дней
+                sqlx::query("UPDATE subscriptions SET expires_at = expires_at + ($1 * interval '1 day'), used_traffic = 0 WHERE id = $2")
+                    .bind(duration_days)
                     .bind(sub_id)
                     .execute(&mut *tx)
                     .await?;
@@ -1084,6 +1123,9 @@ impl SubscriptionService {
     }
 
     pub async fn expire_over_quota_subscriptions(&self) -> Result<Vec<ExpiredQuotaSubscription>> {
+        // Бесплатные планы (is_free = TRUE) не переводятся в 'expired' при исчерпании трафика.
+        // Для них просто убиваем соединения — daily_traffic_topup восстановит трафик на следующий день.
+        // Остальные планы переводятся в 'expired' как обычно.
         let rows = sqlx::query_as::<_, ExpiredQuotaSubscription>(
             r#"
             UPDATE subscriptions s
@@ -1091,6 +1133,7 @@ impl SubscriptionService {
             FROM plans p
             WHERE s.plan_id = p.id
               AND s.status = 'active'
+              AND COALESCE(p.is_free, FALSE) = FALSE
               AND COALESCE(p.traffic_limit_gb, 0) > 0
               AND COALESCE(s.used_traffic, 0) >= (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)
             RETURNING s.id AS subscription_id, s.user_id, s.node_id
@@ -1103,6 +1146,27 @@ impl SubscriptionService {
         Ok(rows)
     }
 
+    /// Возвращает подписки бесплатных планов, исчерпавших трафик, без смены статуса.
+    /// Используется для принудительного обрыва соединений без истечения подписки.
+    pub async fn throttled_free_quota_subscriptions(&self) -> Result<Vec<ExpiredQuotaSubscription>> {
+        let rows = sqlx::query_as::<_, ExpiredQuotaSubscription>(
+            r#"
+            SELECT s.id AS subscription_id, s.user_id, s.node_id
+            FROM subscriptions s
+            JOIN plans p ON s.plan_id = p.id
+            WHERE s.status = 'active'
+              AND COALESCE(p.is_free, FALSE) = TRUE
+              AND COALESCE(p.traffic_limit_gb, 0) > 0
+              AND COALESCE(s.used_traffic, 0) >= (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to query throttled free subscriptions")?;
+
+        Ok(rows)
+    }
+
     pub async fn expire_over_quota_candidates(
         &self,
         subscription_ids: &[i64],
@@ -1111,6 +1175,7 @@ impl SubscriptionService {
             return Ok(Vec::new());
         }
 
+        // Бесплатные планы не истекают по трафику — пропускаем через is_free = FALSE
         let rows = sqlx::query_as::<_, ExpiredQuotaSubscription>(
             r#"
             UPDATE subscriptions s
@@ -1119,6 +1184,7 @@ impl SubscriptionService {
             WHERE s.plan_id = p.id
               AND s.id = ANY($1)
               AND s.status = 'active'
+              AND COALESCE(p.is_free, FALSE) = FALSE
               AND COALESCE(p.traffic_limit_gb, 0) > 0
               AND COALESCE(s.used_traffic, 0) >= (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)
             RETURNING s.id AS subscription_id, s.user_id, s.node_id
@@ -1591,9 +1657,10 @@ impl SubscriptionService {
         use caramba_db::models::store::AlertType;
         let mut alerts_to_send = vec![];
 
-        // Traffic alerts (80%, 90%)
-        let subs = sqlx::query_as::<_, (i64, i64, i64, String)>(
-            "SELECT s.id, s.user_id, s.used_traffic, COALESCE(s.alerts_sent, '[]') 
+        // Traffic alerts (80%, 90%, 100%)
+        // Сразу включаем traffic_limit_gb в запрос чтобы не делать N+1 запросов
+        let subs = sqlx::query_as::<_, (i64, i64, i64, i32, String)>(
+            "SELECT s.id, s.user_id, s.used_traffic, p.traffic_limit_gb, COALESCE(s.alerts_sent, '[]')
              FROM subscriptions s
              JOIN plans p ON s.plan_id = p.id
              WHERE s.status = 'active' AND p.traffic_limit_gb > 0",
@@ -1601,17 +1668,7 @@ impl SubscriptionService {
         .fetch_all(&self.pool)
         .await?;
 
-        for (sub_id, user_id, used_traffic_bytes, alerts_json) in subs {
-            // Get traffic limit from plan
-            let traffic_limit_gb: i32 = sqlx::query_scalar(
-                "SELECT p.traffic_limit_gb FROM plans p
-                 JOIN subscriptions s ON s.plan_id = p.id
-                 WHERE s.id = $1 LIMIT 1",
-            )
-            .bind(sub_id)
-            .fetch_one(&self.pool)
-            .await?;
-
+        for (sub_id, user_id, used_traffic_bytes, traffic_limit_gb, alerts_json) in subs {
             if traffic_limit_gb == 0 {
                 continue;
             }
@@ -1620,6 +1677,7 @@ impl SubscriptionService {
             let percentage = (used_traffic_bytes as f64 / total_traffic_bytes as f64) * 100.0;
 
             let mut alerts: Vec<String> = serde_json::from_str(&alerts_json).unwrap_or_default();
+            let prev_len = alerts.len();
 
             // Check 80% threshold
             if percentage >= 80.0 && !alerts.contains(&"80_percent".to_string()) {
@@ -1633,8 +1691,14 @@ impl SubscriptionService {
                 alerts.push("90_percent".to_string());
             }
 
-            // Update alerts_sent
-            if !alerts.is_empty() {
+            // Check 100% threshold — трафик исчерпан, доступ будет приостановлен
+            if percentage >= 100.0 && !alerts.contains(&"100_percent".to_string()) {
+                alerts_to_send.push((user_id, AlertType::TrafficExceeded));
+                alerts.push("100_percent".to_string());
+            }
+
+            // Обновляем alerts_sent только если добавились новые метки — избегаем лишних записей в БД
+            if alerts.len() > prev_len {
                 let alerts_json = serde_json::to_string(&alerts)?;
                 sqlx::query("UPDATE subscriptions SET alerts_sent = $1 WHERE id = $2")
                     .bind(&alerts_json)

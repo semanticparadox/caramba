@@ -116,5 +116,6 @@ GEMINI.md
 .codex/
 .gemini/
 .taskwing/
-.beads/.beads-credential-key
-.beads/push-state.json
+.beads/
+CLAUDE.md
+docs/superpowers/

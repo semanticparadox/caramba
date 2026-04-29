@@ -1,0 +1,82 @@
+use sha2::{Digest, Sha256};
+use std::os::unix::fs::PermissionsExt;
+use std::process::Command;
+
+/// Проверяет SHA-256 хеш загруженных байт.
+/// Возвращает false если expected_hex невалиден или хеши не совпадают.
+pub fn verify_sha256(bytes: &[u8], expected_hex: &str) -> bool {
+    let expected = expected_hex.trim().to_ascii_lowercase();
+    if expected.len() != 64 || !expected.chars().all(|c| c.is_ascii_hexdigit()) {
+        return false;
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let actual = format!("{:x}", hasher.finalize());
+    actual == expected
+}
+
+/// Скачивает бинарник по URL, проверяет SHA-256 (если задан), атомарно заменяет
+/// текущий исполняемый файл. После возврата Ok(()) нужно перезапустить процесс.
+pub async fn apply_self_update(
+    asset_url: &str,
+    expected_sha256: Option<&str>,
+    tmp_prefix: &str,
+) -> anyhow::Result<()> {
+    let response = reqwest::Client::new()
+        .get(asset_url)
+        .send()
+        .await?
+        .error_for_status()?;
+    let bytes = response.bytes().await?;
+
+    if let Some(hash) = expected_sha256 {
+        if !hash.trim().is_empty() && !verify_sha256(&bytes, hash) {
+            return Err(anyhow::anyhow!("SHA256 mismatch for downloaded binary"));
+        }
+    }
+
+    let exe_path = std::env::current_exe()?;
+    let exe_parent = exe_path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Failed to detect executable parent directory"))?;
+
+    // Уникальный временный файл чтобы избежать конкурентных обновлений
+    let tmp_path = exe_parent.join(format!(
+        ".{}.update.{}.tmp",
+        tmp_prefix,
+        uuid::Uuid::new_v4().to_string().replace('-', "")
+    ));
+
+    tokio::fs::write(&tmp_path, &bytes).await?;
+    std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755))?;
+    // rename() — атомарная операция на том же разделе ФС
+    std::fs::rename(&tmp_path, &exe_path)?;
+    Ok(())
+}
+
+/// Перезапускает systemd-сервис через `systemctl restart <service_name>`.
+/// Логирует результат через tracing; не паникует при ошибке.
+pub fn restart_service(service_name: &str) {
+    match Command::new("systemctl")
+        .args(["restart", service_name])
+        .status()
+    {
+        Ok(status) if status.success() => {
+            tracing::info!("{} restart requested after self-update.", service_name);
+        }
+        Ok(status) => {
+            tracing::error!(
+                "Failed to restart {} (exit status: {}). Manual restart required.",
+                service_name,
+                status
+            );
+        }
+        Err(e) => {
+            tracing::error!(
+                "Failed to execute systemctl restart for {}: {}",
+                service_name,
+                e
+            );
+        }
+    }
+}

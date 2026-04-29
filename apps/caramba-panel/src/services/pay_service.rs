@@ -61,6 +61,8 @@ pub struct PayService {
     store_service: Arc<StoreService>,
     catalog_service: Arc<crate::services::catalog_service::CatalogService>,
     bot_manager: Arc<BotManager>,
+    // Единственный HTTP-клиент на весь сервис — переиспользует connection pool
+    http_client: reqwest::Client,
     bot_token: String,
     cryptobot_token: String,
     nowpayments_key: String,
@@ -111,11 +113,18 @@ impl PayService {
             );
         }
 
+        // Создаём один клиент для всего сервиса с разумными таймаутами
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("Failed to create HTTP client for PayService");
+
         Self {
             pool,
             store_service,
             catalog_service,
             bot_manager,
+            http_client,
             bot_token,
             cryptobot_token,
             nowpayments_key,
@@ -136,11 +145,19 @@ impl PayService {
     fn verify_cryptobot_signature(&self, payload: &str, signature: Option<&str>) -> Result<()> {
         let sig = signature.ok_or_else(|| anyhow!("Missing signature header"))?;
 
+        // Правильная схема: HMAC-SHA256(payload, key=SHA256(token))
+        use hmac::{Hmac, Mac};
         use sha2::{Digest, Sha256};
+
         let mut hasher = Sha256::new();
         hasher.update(self.cryptobot_token.as_bytes());
-        hasher.update(payload.as_bytes());
-        let expected = hex::encode(hasher.finalize());
+        let secret_hash = hasher.finalize();
+
+        type HmacSha256 = Hmac<Sha256>;
+        let mut mac = HmacSha256::new_from_slice(&secret_hash)
+            .map_err(|e| anyhow!("Invalid HMAC key: {}", e))?;
+        mac.update(payload.as_bytes());
+        let expected = hex::encode(mac.finalize().into_bytes());
 
         if sig == expected {
             Ok(())
@@ -215,6 +232,19 @@ impl PayService {
         }
         if sig_v1.is_empty() {
             return Err(anyhow!("Missing v1 signature"));
+        }
+
+        // Защита от replay-атак: отклоняем вебхуки старше 5 минут
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let ts: u64 = timestamp
+            .parse()
+            .map_err(|_| anyhow!("Invalid timestamp in Stripe signature"))?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        if now.saturating_sub(ts) > 300 {
+            return Err(anyhow!("Stripe webhook timestamp too old"));
         }
 
         use hmac::{Hmac, Mac};
@@ -298,7 +328,7 @@ impl PayService {
              "allow_comments": false
         });
 
-        let client = reqwest::Client::new();
+        let client = self.http_client.clone();
         let resp = client
             .post(format!("{}/createInvoice", self.get_cryptobot_url()))
             .header("Crypto-Pay-API-Token", &self.cryptobot_token)
@@ -344,7 +374,7 @@ impl PayService {
             "cancel_url": format!("https://t.me/{}", self.get_bot_username().await)
         });
 
-        let client = reqwest::Client::new();
+        let client = self.http_client.clone();
         let resp = client
             .post("https://api.nowpayments.io/v1/invoice")
             .header("x-api-key", &self.nowpayments_key)
@@ -388,7 +418,7 @@ impl PayService {
             "extra": payload
         });
 
-        let client = reqwest::Client::new();
+        let client = self.http_client.clone();
         let resp = client
             .post("https://api.crystalpay.io/v2/invoice/create/")
             .json(&body_json)
@@ -418,7 +448,7 @@ impl PayService {
         let payload = payment_type.to_payload_string(user_id);
         let amount_cents = (amount_usd * 100.0) as i64;
 
-        let client = reqwest::Client::new();
+        let client = self.http_client.clone();
         let params = [
             ("mode", "payment"),
             (
@@ -510,7 +540,7 @@ impl PayService {
         hasher.update(sign_data.as_bytes());
         let sign = hex::encode(hasher.finalize());
 
-        let client = reqwest::Client::new();
+        let client = self.http_client.clone();
         let params = [
             ("merchant_id", self.aaio_merchant_id.as_str()),
             ("amount", amount_str.as_str()),
@@ -569,7 +599,7 @@ impl PayService {
         mac.update(body_str.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
 
-        let client = reqwest::Client::new();
+        let client = self.http_client.clone();
         let res = client
             .post("https://api.lava.ru/business/invoice/create")
             .header("Signature", signature)
@@ -616,7 +646,7 @@ impl PayService {
         let stars_amount = (amount_usd * 50.0).ceil() as i64;
         let payload = payment_type.to_payload_string(user_id);
 
-        let client = reqwest::Client::new();
+        let client = self.http_client.clone();
         let bot_token = self.bot_token.clone();
         if bot_token.is_empty() {
             return Err(anyhow!("Bot token required for Stars"));
@@ -675,7 +705,8 @@ impl PayService {
                 if let Some(update_type) = body["update_type"].as_str() {
                     if update_type == "invoice_paid" {
                         let invoice = &body["update_payload"];
-                        if invoice["status"].as_str().unwrap_or("") == "paid" {
+                        let status = invoice["status"].as_str().unwrap_or("");
+                        if status == "paid" {
                             let amount: f64 = invoice["amount"]
                                 .as_str()
                                 .unwrap_or("0")
@@ -685,6 +716,15 @@ impl PayService {
                             let id = invoice["invoice_id"].to_string();
                             self.process_any_payment(amount, "cryptobot", Some(id), payload_str)
                                 .await?;
+                        } else if status == "expired" || status == "cancelled" {
+                            // CryptoBot invoice expired or was cancelled — уведомляем пользователя
+                            let amount: f64 = invoice["amount"]
+                                .as_str()
+                                .unwrap_or("0")
+                                .parse()
+                                .unwrap_or(0.0);
+                            let payload_str = invoice["payload"].as_str().unwrap_or("");
+                            self.notify_payment_declined(payload_str, amount, "CryptoBot").await;
                         }
                     }
                 }
@@ -700,20 +740,32 @@ impl PayService {
                         let id = body["payment_id"].to_string();
                         self.process_any_payment(amount, "nowpayments", Some(id), payload_str)
                             .await?;
+                    } else if status == "failed" || status == "expired" || status == "refunded" {
+                        // NOWPayments terminal failure — уведомляем пользователя
+                        let amount: f64 = body["pay_amount"].as_f64().unwrap_or(0.0);
+                        let order_id = body["order_id"].as_str().unwrap_or("");
+                        let payload_str = order_id.split('_').next().unwrap_or("");
+                        self.notify_payment_declined(payload_str, amount, "NOWPayments").await;
                     }
                 }
             }
             "crystalpay" => {
                 self.verify_crystalpay_signature(&body)?;
 
-                if body["type"].as_str().unwrap_or("") == "payment"
-                    && body["state"].as_str().unwrap_or("") == "payed"
-                {
-                    let amount: f64 = body["amount"].as_f64().unwrap_or(0.0);
-                    let extra = body["extra"].as_str().unwrap_or("");
-                    let id = body["id"].to_string();
-                    self.process_any_payment(amount, "crystalpay", Some(id), extra)
-                        .await?;
+                if body["type"].as_str().unwrap_or("") == "payment" {
+                    let state = body["state"].as_str().unwrap_or("");
+                    if state == "payed" {
+                        let amount: f64 = body["amount"].as_f64().unwrap_or(0.0);
+                        let extra = body["extra"].as_str().unwrap_or("");
+                        let id = body["id"].to_string();
+                        self.process_any_payment(amount, "crystalpay", Some(id), extra)
+                            .await?;
+                    } else if state == "cancelled" || state == "expired" || state == "fail" {
+                        // CrystalPay payment failed — уведомляем пользователя
+                        let amount: f64 = body["amount"].as_f64().unwrap_or(0.0);
+                        let extra = body["extra"].as_str().unwrap_or("");
+                        self.notify_payment_declined(extra, amount, "CrystalPay").await;
+                    }
                 }
             }
             "stripe" => {
@@ -721,7 +773,8 @@ impl PayService {
 
                 self.verify_stripe_signature(payload, stripe_sig, &webhook_secret)?;
 
-                if body["type"].as_str().unwrap_or("") == "checkout.session.completed" {
+                let event_type = body["type"].as_str().unwrap_or("");
+                if event_type == "checkout.session.completed" {
                     let session = &body["data"]["object"];
                     let amount_subtokens = session["amount_total"].as_i64().unwrap_or(0);
                     let amount_usd = amount_subtokens as f64 / 100.0;
@@ -729,6 +782,15 @@ impl PayService {
                     let id = session["id"].to_string();
                     self.process_any_payment(amount_usd, "stripe", Some(id), payload_str)
                         .await?;
+                } else if event_type == "checkout.session.expired"
+                    || event_type == "payment_intent.payment_failed"
+                {
+                    // Stripe: сессия истекла или платёж отклонён — уведомляем пользователя
+                    let session = &body["data"]["object"];
+                    let amount_subtokens = session["amount_total"].as_i64().unwrap_or(0);
+                    let amount_usd = amount_subtokens as f64 / 100.0;
+                    let payload_str = session["client_reference_id"].as_str().unwrap_or("");
+                    self.notify_payment_declined(payload_str, amount_usd, "Stripe").await;
                 }
             }
 
@@ -751,6 +813,15 @@ impl PayService {
 
                     self.process_any_payment(amount, "cryptomus", Some(id), payload_str)
                         .await?;
+                } else if status == "cancel" || status == "fail" || status == "system_fail" || status == "wrong_amount_waiting" {
+                    // Cryptomus terminal failure — уведомляем пользователя
+                    let amount: f64 = body["amount"]
+                        .as_str()
+                        .unwrap_or("0")
+                        .parse()
+                        .unwrap_or(0.0);
+                    let payload_str = body["additional_data"].as_str().unwrap_or("");
+                    self.notify_payment_declined(payload_str, amount, "Cryptomus").await;
                 }
             }
             "aaio" => {
@@ -783,6 +854,59 @@ impl PayService {
         }
 
         Ok(())
+    }
+
+    /// Уведомляет пользователя об отклонённом платеже.
+    ///
+    /// `payload_str` — строка вида `user_id:type:target_id` или просто `user_id`.
+    /// `amount_usd`  — сумма в долларах.
+    /// `provider`    — человекочитаемое название провайдера (например, "Stripe").
+    ///
+    /// Метод не возвращает ошибку: сбой уведомления не должен влиять на обработку вебхука.
+    async fn notify_payment_declined(&self, payload_str: &str, amount_usd: f64, provider: &str) {
+        // Извлекаем user_id из строки payload — он всегда идёт первым числом
+        let user_db_id: i64 = payload_str
+            .split(':')
+            .next()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+
+        if user_db_id == 0 {
+            return;
+        }
+
+        let row = sqlx::query_as::<_, (i64, Option<String>)>(
+            "SELECT tg_id, language_code FROM users WHERE id = $1",
+        )
+        .bind(user_db_id)
+        .fetch_optional(&self.pool)
+        .await;
+
+        if let Ok(Some((tg_id, lang))) = row {
+            let is_ru = lang.as_deref().map_or(true, |l| l.starts_with("ru"));
+            let amount_str = format!("{:.2}", amount_usd);
+
+            let msg = if is_ru {
+                format!(
+                    "❌ *Платёж отклонён*\n\n\
+                     Платёж на сумму *${amount_str}* через *{provider}* не прошёл\\.\n\n\
+                     Попробуйте другой способ оплаты или обратитесь в поддержку\\."
+                )
+            } else {
+                format!(
+                    "❌ *Payment Declined*\n\n\
+                     Your payment of *${amount_str}* via *{provider}* was declined\\.\n\n\
+                     Please try a different payment method or contact support\\."
+                )
+            };
+
+            let _ = self.bot_manager.send_notification(tg_id, &msg).await;
+
+            info!(
+                "Sent payment declined notification to user {} (tg_id={}) for ${:.2} via {}",
+                user_db_id, tg_id, amount_usd, provider
+            );
+        }
     }
 
     pub async fn process_any_payment(
@@ -927,12 +1051,15 @@ impl PayService {
         .await?;
 
         if let Some(duration) = durations {
-            match self.store_service.purchase_plan(user_id, duration.id).await {
-                Ok(_) => {
+            match self.store_service.purchase_plan(user_id, duration.id, false).await {
+                Ok(crate::services::store_service::PurchaseResult::Subscription(_)) => {
                     let _ = self
                         .bot_manager
                         .send_notification(user_id, "✅ Subscription activated successfully!")
                         .await;
+                }
+                Ok(crate::services::store_service::PurchaseResult::GiftCode(_)) => {
+                    // Не должно случаться при as_gift=false, игнорируем
                 }
                 Err(e) => {
                     error!("Failed to auto-purchase subscription after payment: {}", e);

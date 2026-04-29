@@ -32,6 +32,10 @@ pub struct Plan {
     pub traffic_limit_gb: i32,
     pub device_limit: i32,
     pub is_trial: Option<bool>,
+    /// МБ ежедневного пополнения трафика (0 = не применяется)
+    pub daily_traffic_mb: i32,
+    /// Бесплатный план — выдаётся автоматически без оплаты
+    pub is_free: bool,
     pub created_at: DateTime<Utc>,
     #[sqlx(skip)]
     pub durations: Vec<PlanDuration>,
@@ -71,6 +75,8 @@ pub struct Subscription {
     pub last_access_ua: Option<String>,
     pub organization_id: Option<i64>,
     pub relay_country: Option<String>,
+    /// Дата последнего суточного пополнения трафика (для планов с daily_traffic_mb > 0)
+    pub last_daily_topup_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -217,6 +223,8 @@ pub enum RenewalResult {
 pub enum AlertType {
     Traffic80,
     Traffic90,
+    /// Трафик исчерпан полностью — доступ приостановлен или подписка истекла
+    TrafficExceeded,
     Expiry3Days,
 }
 

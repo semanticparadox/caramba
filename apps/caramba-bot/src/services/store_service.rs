@@ -305,15 +305,22 @@ impl StoreService {
         Ok(resp.code)
     }
 
-    pub async fn purchase_plan(&self, user_id: i64, duration_id: i64) -> Result<Subscription> {
+    /// Покупает тарифный план. Если `as_gift=true` — возвращает подарочный код вместо подписки.
+    pub async fn purchase_plan(
+        &self,
+        user_id: i64,
+        duration_id: i64,
+        as_gift: bool,
+    ) -> Result<serde_json::Value> {
         #[derive(serde::Serialize)]
         struct BuyReq {
             duration_id: i64,
+            as_gift: bool,
         }
         self.api
-            .post::<Subscription, _>(
+            .post::<serde_json::Value, _>(
                 &format!("/users/{}/purchase-plan", user_id),
-                &BuyReq { duration_id },
+                &BuyReq { duration_id, as_gift },
             )
             .await
     }
@@ -383,5 +390,16 @@ impl StoreService {
         struct Req { username: String }
         let _: serde_json::Value = self.api.post("/admin/unban", &Req { username: username.to_string() }).await?;
         Ok(())
+    }
+
+    /// Создаёт бесплатную подписку для пользователя при первом входе.
+    /// Возвращает (subscription_id, already_had_free).
+    pub async fn create_free_subscription(&self, user_id: i64) -> Result<(i64, bool)> {
+        #[derive(serde::Serialize)]
+        struct Req { user_id: i64 }
+        #[derive(serde::Deserialize)]
+        struct Resp { subscription_id: i64, already_had_free: bool }
+        let resp: Resp = self.api.post("/users/create-free-subscription", &Req { user_id }).await?;
+        Ok((resp.subscription_id, resp.already_had_free))
     }
 }

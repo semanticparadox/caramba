@@ -168,6 +168,10 @@ pub fn t(lang: Option<&str>, key: &str) -> &'static str {
         ("msg.must_accept_terms", true) => "Необходимо принять условия.",
         ("msg.must_accept_terms", false) => "You must accept terms to proceed.",
 
+        // Предупреждение о непринятых условиях использования (шаблон: {0}=текущее, {1}=макс)
+        ("msg.tos_warning", true) => "⚠️ Пожалуйста, примите условия использования. Предупреждение {0}/{1}. После {1} предупреждений доступ будет заблокирован.",
+        ("msg.tos_warning", false) => "⚠️ Please accept the Terms of Service. Warning {0}/{1}. After {1} warnings your access will be blocked.",
+
         // =====================================================================
         // Payments
         // =====================================================================
@@ -216,11 +220,21 @@ pub fn t(lang: Option<&str>, key: &str) -> &'static str {
         ("msg.choose_plan_extend", true) => "💎 *Выберите тариф для продления:*\n\n",
         ("msg.choose_plan_extend", false) => "💎 *Choose Plan to Extend:*\n\n",
 
-        ("msg.purchase_success", true) => "✅ *Покупка успешна!*",
-        ("msg.purchase_success", false) => "✅ *Purchase Successful!*",
+        ("msg.purchase_success", true) => "✅ *Покупка успешна\\! Подписка уже активна\\.*",
+        ("msg.purchase_success", false) => "✅ *Purchase Successful\\! Your subscription is now active\\.*",
 
         ("msg.purchase_success_short", true) => "✅ Успех!",
         ("msg.purchase_success_short", false) => "✅ Success!",
+
+        // Кнопки выбора при покупке тарифа
+        ("btn.buy_for_myself", true) => "🛒 Купить для себя",
+        ("btn.buy_for_myself", false) => "🛒 Buy for myself",
+
+        ("btn.buy_as_gift", true) => "🎁 Купить в подарок",
+        ("btn.buy_as_gift", false) => "🎁 Buy as gift",
+
+        ("msg.buy_for_whom", true) => "🛒 *Для кого покупаем?*\n\nВыберите: для себя \\(подписка сразу активна\\) или как подарок \\(получите код для передачи\\)\\.",
+        ("msg.buy_for_whom", false) => "🛒 *Who is this for?*\n\nChoose: for yourself \\(subscription activates immediately\\) or as a gift \\(you'll receive a code to share\\)\\.",
 
         // =====================================================================
         // Digital Store
@@ -494,6 +508,26 @@ pub fn t(lang: Option<&str>, key: &str) -> &'static str {
         // =====================================================================
         ("msg.view_product", true) => "Подробнее: {0}",
         ("msg.view_product", false) => "View: {0}",
+
+        // =====================================================================
+        // Balance & billing notifications
+        // =====================================================================
+
+        // Предупреждение о низком балансе (шаблон: {0}=текущий баланс в долларах, {1}=имя плана)
+        ("msg.balance_low_warning", true) => "⚠️ *Баланс заканчивается*\n\nВаш текущий баланс: *${0}*\n\nДля автопродления подписки «{1}» необходимо пополнить счёт\\. Пополните баланс заранее, чтобы не потерять доступ\\.",
+        ("msg.balance_low_warning", false) => "⚠️ *Balance Running Low*\n\nYour current balance: *${0}*\n\nTop up to ensure auto\\-renewal of your «{1}» subscription and avoid losing access\\.",
+
+        // Успешное автопродление (шаблон: {0}=имя плана, {1}=дата истечения, {2}=сумма)
+        ("msg.auto_renewal_success", true) => "✅ *Подписка автоматически продлена*\n\n💎 Тариф: *{0}*\n📅 Действует до: *{1}*\n💳 Списано: *${2}*",
+        ("msg.auto_renewal_success", false) => "✅ *Subscription Auto\\-Renewed*\n\n💎 Plan: *{0}*\n📅 Valid until: *{1}*\n💳 Charged: *${2}*",
+
+        // Ошибка автопродления — недостаточно средств (шаблон: {0}=имя плана, {1}=баланс, {2}=нужная сумма)
+        ("msg.auto_renewal_failed", true) => "⚠️ *Автопродление не выполнено*\n\n💎 Тариф: *{0}*\n💰 Баланс: *${1}*\n💳 Требуется: *${2}*\n\nПополните баланс, чтобы продолжить пользоваться VPN\\.",
+        ("msg.auto_renewal_failed", false) => "⚠️ *Auto\\-Renewal Failed*\n\n💎 Plan: *{0}*\n💰 Balance: *${1}*\n💳 Required: *${2}*\n\nPlease top up your account to keep your VPN access\\.",
+
+        // Платёж отклонён провайдером (шаблон: {0}=сумма, {1}=провайдер)
+        ("msg.payment_declined", true) => "❌ *Платёж отклонён*\n\nПлатёж на сумму *${0}* через *{1}* не прошёл\\.\n\nПопробуйте другой способ оплаты или обратитесь в поддержку\\.",
+        ("msg.payment_declined", false) => "❌ *Payment Declined*\n\nYour payment of *${0}* via *{1}* was declined\\.\n\nPlease try a different payment method or contact support\\.",
 
         // Fallback - unknown key
         (_, _) => "???",

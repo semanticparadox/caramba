@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import './Devices.css'
@@ -12,17 +13,6 @@ interface DeviceEntry {
     is_current: boolean
 }
 
-function timeAgo(iso: string): string {
-    const diff = Date.now() - new Date(iso).getTime()
-    const mins = Math.floor(diff / 60000)
-    if (mins < 1) return 'только что'
-    if (mins < 60) return `${mins} мин. назад`
-    const hours = Math.floor(mins / 60)
-    if (hours < 24) return `${hours} ч. назад`
-    const days = Math.floor(hours / 24)
-    return `${days} дн. назад`
-}
-
 function deviceIcon(name: string): string {
     const lower = name.toLowerCase()
     if (lower.includes('mobile') || lower.includes('android') || lower.includes('ios') || lower.includes('iphone')) return '📱'
@@ -33,6 +23,7 @@ function deviceIcon(name: string): string {
 }
 
 export default function Devices() {
+    const { t } = useTranslation()
     const navigate = useNavigate()
     const [searchParams] = useSearchParams()
     const { token, subscriptions } = useAuth()
@@ -41,19 +32,40 @@ export default function Devices() {
 
     const [devices, setDevices] = useState<DeviceEntry[]>([])
     const [loading, setLoading] = useState(true)
+    const [fetchError, setFetchError] = useState<string | null>(null)
     const [kickingId, setKickingId] = useState<number | null>(null)
+    const [kickError, setKickError] = useState<{ id: number; msg: string } | null>(null)
+
+    // Форматирование времени через i18n-ключи вместо хардкодных строк
+    const timeAgo = (iso: string): string => {
+        const diff = Date.now() - new Date(iso).getTime()
+        const mins = Math.floor(diff / 60000)
+        if (mins < 1) return t('devices.timeJustNow')
+        if (mins < 60) return t('devices.timeMinutes', { count: mins })
+        const hours = Math.floor(mins / 60)
+        if (hours < 24) return t('devices.timeHours', { count: hours })
+        const days = Math.floor(hours / 24)
+        return t('devices.timeDays', { count: days })
+    }
 
     const fetchDevices = useCallback(async () => {
         if (!token || !subId) return
+        setFetchError(null)
         try {
             const res = await fetch(`/api/client/subscription/${subId}/devices`, {
                 headers: { Authorization: `Bearer ${token}` },
             })
-            if (res.ok) setDevices(await res.json())
-            else setDevices([])
-        } catch { setDevices([]) }
-        finally { setLoading(false) }
-    }, [token, subId])
+            if (res.ok) {
+                setDevices(await res.json())
+            } else {
+                setFetchError(t('devices.fetchError'))
+                setDevices([])
+            }
+        } catch {
+            setFetchError(t('devices.fetchNetworkError'))
+            setDevices([])
+        } finally { setLoading(false) }
+    }, [token, subId, t])
 
     useEffect(() => {
         fetchDevices()
@@ -64,6 +76,7 @@ export default function Devices() {
     const kickDevice = async (deviceId: number) => {
         if (!token || !subId) return
         setKickingId(deviceId)
+        setKickError(null)
         try {
             const res = await fetch(`/api/client/subscription/${subId}/devices/${deviceId}`, {
                 method: 'DELETE',
@@ -71,24 +84,34 @@ export default function Devices() {
             })
             if (res.ok) {
                 setDevices(prev => prev.filter(d => d.id !== deviceId))
+            } else {
+                setKickError({ id: deviceId, msg: t('devices.kickError') })
             }
-        } catch { /* ignore */ }
-        finally { setKickingId(null) }
+        } catch {
+            setKickError({ id: deviceId, msg: t('devices.kickNetworkError') })
+        } finally { setKickingId(null) }
     }
 
     const deviceLimit = (sub?.device_limit ?? 0) > 0 ? sub!.device_limit : null
-    const planName = sub?.plan_name || 'Подписка'
+    const planName = sub?.plan_name || t('home.noSubscription')
+
+    // Цвет счётчика и баннер зависят от заполненности лимита
+    const deviceLimitStatus: 'ok' | 'at-limit' | 'over-limit' =
+        deviceLimit == null ? 'ok'
+        : devices.length > deviceLimit ? 'over-limit'
+        : devices.length >= deviceLimit ? 'at-limit'
+        : 'ok'
 
     if (!token || !subId) {
         return (
             <div className="page devices-page">
                 <header className="page-header">
                     <button className="back-button" onClick={() => navigate('/')}>{'<'}</button>
-                    <h2>Устройства</h2>
+                    <h2>{t('devices.title')}</h2>
                 </header>
                 <div className="devices-empty">
                     <div className="empty-icon">🔌</div>
-                    <p>Подписка не найдена</p>
+                    <p>{t('devices.noSubscription')}</p>
                 </div>
             </div>
         )
@@ -98,23 +121,55 @@ export default function Devices() {
         <div className="page devices-page">
             <header className="page-header">
                 <button className="back-button" onClick={() => navigate('/')}>{'<'}</button>
-                <h2>Устройства</h2>
+                <h2>{t('devices.title')}</h2>
                 <span className="badge badge-success">{planName}</span>
             </header>
 
             <div className="devices-summary">
-                <span>Активные устройства</span>
-                <span className="count">
+                <span>{t('devices.activeDevices')}</span>
+                <span className={`count count--${deviceLimitStatus}`}>
                     {devices.length} / {deviceLimit ?? '∞'}
                 </span>
             </div>
 
+            {/* Баннер лимита устройств — показываем только когда лимит задан и достигнут */}
+            {deviceLimit != null && deviceLimitStatus !== 'ok' && (
+                <div className={`devices-limit-banner devices-limit-banner--${deviceLimitStatus}`}>
+                    {deviceLimitStatus === 'over-limit'
+                        ? t('devices.overLimitWarning', { current: devices.length, max: deviceLimit })
+                        : t('devices.atLimitWarning', { current: devices.length, max: deviceLimit })}
+                </div>
+            )}
+
+            {/* Ошибка загрузки устройств — показываем с кнопкой повтора */}
+            {fetchError && (
+                <div className="devices-error">
+                    <p>{fetchError}</p>
+                    <button className="btn-secondary" onClick={() => { setLoading(true); void fetchDevices() }}>
+                        {t('devices.retry')}
+                    </button>
+                </div>
+            )}
+
+            {/* Ошибка при отключении устройства — показываем с кнопкой повтора */}
+            {kickError && (
+                <div className="devices-error">
+                    <p>{kickError.msg}</p>
+                    <button className="btn-secondary" onClick={() => { void kickDevice(kickError.id); setKickError(null) }}>
+                        {t('devices.retry')}
+                    </button>
+                    <button className="btn-ghost" style={{ marginTop: 4 }} onClick={() => setKickError(null)}>
+                        {t('common.close')}
+                    </button>
+                </div>
+            )}
+
             {loading ? (
-                <div className="loading">Загрузка...</div>
-            ) : devices.length === 0 ? (
+                <div className="loading">{t('devices.loading')}</div>
+            ) : !fetchError && devices.length === 0 ? (
                 <div className="devices-empty">
                     <div className="empty-icon">🔌</div>
-                    <p>Нет активных устройств</p>
+                    <p>{t('devices.noDevices')}</p>
                 </div>
             ) : (
                 <div className="devices-list">
@@ -122,7 +177,7 @@ export default function Devices() {
                         <div key={device.id} className={`device-card${device.is_current ? ' current' : ''}`}>
                             <div className="device-icon">{deviceIcon(device.device_name)}</div>
                             <div className="device-info">
-                                <div className="device-name">{device.device_name || 'Неизвестное устройство'}</div>
+                                <div className="device-name">{device.device_name || t('devices.unknown')}</div>
                                 <div className="device-meta">
                                     <span>IP: {device.last_ip}</span>
                                     <span>{timeAgo(device.last_seen_at)}</span>
@@ -130,14 +185,14 @@ export default function Devices() {
                             </div>
                             <div className="device-actions">
                                 {device.is_current ? (
-                                    <span className="badge-current">текущее</span>
+                                    <span className="badge-current">{t('devices.current')}</span>
                                 ) : (
                                     <button
                                         className="btn-kick"
                                         onClick={() => kickDevice(device.id)}
                                         disabled={kickingId === device.id}
                                     >
-                                        {kickingId === device.id ? '...' : 'Отключить'}
+                                        {kickingId === device.id ? '...' : t('devices.kick')}
                                     </button>
                                 )}
                             </div>
@@ -147,7 +202,7 @@ export default function Devices() {
             )}
 
             <p className="devices-note">
-                Показаны устройства, активные за последние 15 минут. Обновление каждые 30 сек.
+                {t('devices.note')}
             </p>
         </div>
     )

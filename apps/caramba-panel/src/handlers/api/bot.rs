@@ -1,3 +1,4 @@
+use crate::services::store_service::PurchaseResult;
 use crate::AppState;
 use axum::{
     Json,
@@ -145,6 +146,9 @@ pub async fn get_products_by_category(
 #[derive(Deserialize)]
 pub struct PurchasePlanRequest {
     pub duration_id: i64,
+    /// Если true — создаётся подарочный код вместо активной подписки
+    #[serde(default)]
+    pub as_gift: bool,
 }
 
 pub async fn purchase_plan(
@@ -154,10 +158,22 @@ pub async fn purchase_plan(
 ) -> impl IntoResponse {
     match state
         .store_service
-        .purchase_plan(user_id, payload.duration_id)
+        .purchase_plan(user_id, payload.duration_id, payload.as_gift)
         .await
     {
-        Ok(sub) => Json(sub).into_response(),
+        Ok(PurchaseResult::Subscription(sub)) => Json(serde_json::json!({
+            "ok": true,
+            "type": "subscription",
+            "subscription_id": sub.id,
+            "status": sub.status,
+        }))
+        .into_response(),
+        Ok(PurchaseResult::GiftCode(code)) => Json(serde_json::json!({
+            "ok": true,
+            "type": "gift",
+            "gift_code": code,
+        }))
+        .into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     }
 }
@@ -217,6 +233,103 @@ pub async fn activate_sub(
     {
         Ok(sub) => Json(sub).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    }
+}
+
+// ============================================================================
+// Бесплатная подписка
+// ============================================================================
+
+#[derive(Deserialize)]
+pub struct CreateFreeSubscriptionRequest {
+    pub user_id: i64,
+}
+
+#[derive(Serialize)]
+pub struct CreateFreeSubscriptionResponse {
+    pub subscription_id: i64,
+    pub already_had_free: bool,
+}
+
+/// Автоматически выдаёт бесплатную подписку новому пользователю.
+/// Идемпотентен: если активная бесплатная подписка уже существует — возвращает её ID.
+pub async fn create_free_subscription(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateFreeSubscriptionRequest>,
+) -> impl IntoResponse {
+    let user_id = payload.user_id;
+
+    // Находим план с is_free = TRUE
+    let free_plan: Option<(i64, i32)> = sqlx::query_as(
+        "SELECT id, COALESCE(traffic_limit_gb, 2) FROM plans WHERE is_free = TRUE AND is_active = TRUE LIMIT 1",
+    )
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+
+    let (plan_id, traffic_limit_gb) = match free_plan {
+        Some(row) => row,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                "No active free plan configured",
+            )
+                .into_response()
+        }
+    };
+
+    // Проверяем: уже есть активная подписка на этот план?
+    let existing_id: Option<i64> = sqlx::query_scalar(
+        "SELECT id FROM subscriptions WHERE user_id = $1 AND plan_id = $2 AND status = 'active' LIMIT 1",
+    )
+    .bind(user_id)
+    .bind(plan_id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+
+    if let Some(id) = existing_id {
+        return Json(CreateFreeSubscriptionResponse {
+            subscription_id: id,
+            already_had_free: true,
+        })
+        .into_response();
+    }
+
+    // Создаём бесплатную подписку без даты истечения:
+    // expires_at = далёкое будущее (year 9999 — никогда не истечёт через check_expirations).
+    // Трафик ограничен traffic_limit_gb плана; ежедневное пополнение восстанавливает его.
+    let sub_id: Result<i64, _> = sqlx::query_scalar(
+        "INSERT INTO subscriptions
+         (user_id, plan_id, status, expires_at, subscription_uuid, used_traffic, activated_at)
+         VALUES ($1, $2, 'active', '9999-12-31 23:59:59+00', gen_random_uuid()::TEXT, 0, CURRENT_TIMESTAMP)
+         RETURNING id",
+    )
+    .bind(user_id)
+    .bind(plan_id)
+    .fetch_one(&state.pool)
+    .await;
+
+    match sub_id {
+        Ok(id) => {
+            tracing::info!(
+                user_id,
+                plan_id,
+                traffic_limit_gb,
+                subscription_id = id,
+                "Бесплатная подписка создана"
+            );
+            Json(CreateFreeSubscriptionResponse {
+                subscription_id: id,
+                already_had_free: false,
+            })
+            .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create free subscription: {}", e),
+        )
+            .into_response(),
     }
 }
 
@@ -372,5 +485,74 @@ pub async fn admin_create_promo(
     match result {
         Ok(_) => Json(serde_json::json!({ "ok": true })).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    }
+}
+
+/// POST /api/v2/bot/referral/signup-bonus
+/// Начисляет бонусы за регистрацию по реферальной ссылке.
+/// Вызывается ботом после успешной привязки реферрера к новому пользователю.
+pub async fn referral_signup_bonus(
+    State(state): State<AppState>,
+    Json(payload): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let referrer_id = match payload.get("referrer_id").and_then(|v| v.as_i64()) {
+        Some(id) => id,
+        None => return (StatusCode::BAD_REQUEST, "Missing referrer_id").into_response(),
+    };
+    let referred_user_id = match payload.get("referred_user_id").and_then(|v| v.as_i64()) {
+        Some(id) => id,
+        None => return (StatusCode::BAD_REQUEST, "Missing referred_user_id").into_response(),
+    };
+
+    use crate::services::referral_service::ReferralService;
+    match ReferralService::apply_signup_bonus(&state.pool, referrer_id, referred_user_id).await {
+        Ok((referrer_bonus, referred_bonus)) => {
+            // Уведомляем реферрера о бонусе
+            if referrer_bonus > 0 {
+                let tg_id: Option<i64> =
+                    sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
+                        .bind(referrer_id)
+                        .fetch_optional(&state.pool)
+                        .await
+                        .unwrap_or(None);
+                if let Some(tid) = tg_id {
+                    let amount = format!("{:.2}", referrer_bonus as f64 / 100.0);
+                    let msg = format!(
+                        "🎉 *Referral Bonus*\n\nYour friend joined via your referral link\\! \\+*${}* added to your balance\\.",
+                        amount
+                    );
+                    let _ = state.bot_manager.send_notification(tid, &msg).await;
+                }
+            }
+
+            // Уведомляем нового пользователя о welcome-бонусе
+            if referred_bonus > 0 {
+                let tg_id: Option<i64> =
+                    sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
+                        .bind(referred_user_id)
+                        .fetch_optional(&state.pool)
+                        .await
+                        .unwrap_or(None);
+                if let Some(tid) = tg_id {
+                    let amount = format!("{:.2}", referred_bonus as f64 / 100.0);
+                    let msg = format!(
+                        "🎁 *Welcome Bonus*\n\n\\+*${}* has been added to your balance as a referral welcome gift\\!",
+                        amount
+                    );
+                    let _ = state.bot_manager.send_notification(tid, &msg).await;
+                }
+            }
+
+            Json(serde_json::json!({
+                "ok": true,
+                "referrer_bonus_cents": referrer_bonus,
+                "referred_bonus_cents": referred_bonus,
+            }))
+            .into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to apply signup bonus: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to apply signup bonus").into_response()
+        }
     }
 }

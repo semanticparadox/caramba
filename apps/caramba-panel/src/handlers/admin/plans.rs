@@ -109,6 +109,8 @@ pub async fn add_plan(
     let mut price: Vec<i64> = Vec::new();
     let mut traffic_limit_gb: i32 = 0;
     let mut group_ids: Vec<i64> = Vec::new();
+    let mut daily_traffic_mb: i32 = 0;
+    let mut is_free = false;
 
     for (key, value) in raw_form {
         match key.as_str() {
@@ -139,6 +141,14 @@ pub async fn add_plan(
                     group_ids.push(v);
                 }
             }
+            "daily_traffic_mb" => {
+                if let Ok(v) = value.parse() {
+                    daily_traffic_mb = v;
+                }
+            }
+            "is_free" => {
+                is_free = value == "true" || value == "1" || value == "on";
+            }
             _ => {}
         }
     }
@@ -147,7 +157,8 @@ pub async fn add_plan(
     if name.is_empty() {
         return (axum::http::StatusCode::BAD_REQUEST, "Plan name is required").into_response();
     }
-    if duration_days.is_empty() || price.is_empty() {
+    // Бесплатный план не требует настройки длительностей и цен
+    if !is_free && (duration_days.is_empty() || price.is_empty()) {
         return (
             axum::http::StatusCode::BAD_REQUEST,
             "At least one duration/price pair is required",
@@ -157,11 +168,13 @@ pub async fn add_plan(
 
     match state
         .catalog_service
-        .create_plan(
+        .create_plan_full(
             &name,
             &description,
             device_limit,
             traffic_limit_gb,
+            daily_traffic_mb,
+            is_free,
             duration_days,
             price,
             group_ids,
@@ -282,6 +295,8 @@ pub async fn update_plan(
     let mut price: Vec<i64> = Vec::new();
     let mut traffic_limit_gb: i32 = 0;
     let mut group_ids: Vec<i64> = Vec::new();
+    let mut daily_traffic_mb: i32 = 0;
+    let mut is_free = false;
 
     for (key, value) in raw_form {
         match key.as_str() {
@@ -312,6 +327,14 @@ pub async fn update_plan(
                     group_ids.push(v);
                 }
             }
+            "daily_traffic_mb" => {
+                if let Ok(v) = value.parse() {
+                    daily_traffic_mb = v;
+                }
+            }
+            "is_free" => {
+                is_free = value == "true" || value == "1" || value == "on";
+            }
             _ => {}
         }
     }
@@ -319,7 +342,7 @@ pub async fn update_plan(
     if name.is_empty() {
         return (axum::http::StatusCode::BAD_REQUEST, "Plan name is required").into_response();
     }
-    if duration_days.is_empty() || price.is_empty() {
+    if !is_free && (duration_days.is_empty() || price.is_empty()) {
         return (
             axum::http::StatusCode::BAD_REQUEST,
             "At least one duration/price pair is required",
@@ -329,12 +352,14 @@ pub async fn update_plan(
 
     if let Err(e) = state
         .catalog_service
-        .update_plan(
+        .update_plan_full(
             id,
             &name,
             &description,
             device_limit,
             traffic_limit_gb,
+            daily_traffic_mb,
+            is_free,
             duration_days,
             price,
             group_ids,

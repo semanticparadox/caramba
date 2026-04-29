@@ -296,9 +296,6 @@ pub struct SettingsTemplate {
     pub current_version: String,
     pub active_nodes_count: usize,
     pub telegram_stars_enabled: bool,
-    pub simple_mode_enabled: bool,
-    pub simple_mode_plan_id: i64,
-    pub all_plans: Vec<super::plans::PlanInfo>,
     pub manual_enabled: bool,
     pub nowpayments_api_key: String,
     pub masked_nowpayments_api_key: String,
@@ -325,6 +322,8 @@ pub struct SettingsTemplate {
     pub bot_username: String,
     pub brand_name: String,
     pub referral_bonus_percent: String,
+    pub referral_referrer_signup_bonus_cents: String,
+    pub referral_referred_signup_bonus_cents: String,
     pub admin_notification_tg_ids: String,
     pub terms_of_service: String,
     pub bot_buttons_mode: String,
@@ -459,8 +458,6 @@ pub struct SaveSettingsForm {
     pub lava_secret_key: Option<String>,
     pub manual_enabled: Option<String>,
     pub telegram_stars_enabled: Option<String>,
-    pub simple_mode_enabled: Option<String>,
-    pub simple_mode_plan_id: Option<i64>,
     pub payment_ipn_url: Option<String>,
     pub currency_rate: Option<String>,
     pub support_url: Option<String>,
@@ -468,6 +465,8 @@ pub struct SaveSettingsForm {
     pub bot_username: Option<String>,
     pub brand_name: Option<String>,
     pub referral_bonus_percent: Option<String>,
+    pub referral_referrer_signup_bonus_cents: Option<String>,
+    pub referral_referred_signup_bonus_cents: Option<String>,
     pub admin_notification_tg_ids: Option<String>,
     pub terms_of_service: Option<String>,
     pub bot_buttons_mode: Option<String>,
@@ -524,30 +523,6 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .get_or_default("manual_enabled", "false")
         .await
         == "true";
-    let simple_mode_enabled = state
-        .settings
-        .get_or_default("simple_mode_enabled", "false")
-        .await
-        == "true";
-    let simple_mode_plan_id: i64 = state
-        .settings
-        .get_or_default("simple_mode_plan_id", "0")
-        .await
-        .parse()
-        .unwrap_or(0);
-
-    let all_plans = state
-        .catalog_service
-        .get_plans_admin()
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .map(|p| super::plans::PlanInfo {
-            id: p.id,
-            name: p.name,
-        })
-        .collect::<Vec<_>>();
-
     let current_nowpayments_ipn = state
         .settings
         .get_or_default("nowpayments_ipn_secret", "")
@@ -581,6 +556,14 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     let bot_username = state.settings.get_or_default("bot_username", "").await;
     let brand_name = state.settings.get_or_default("brand_name", "CARAMBA").await;
     let referral_bonus_percent = state.settings.get_or_default("referral_bonus_percent", "10").await;
+    let referral_referrer_signup_bonus_cents = state
+        .settings
+        .get_or_default("referral_referrer_signup_bonus_cents", "0")
+        .await;
+    let referral_referred_signup_bonus_cents = state
+        .settings
+        .get_or_default("referral_referred_signup_bonus_cents", "0")
+        .await;
     let admin_notification_tg_ids = state.settings.get_or_default("admin_notification_tg_ids", "").await;
     let terms_of_service = state
         .settings
@@ -866,9 +849,6 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
             .unwrap_or("Admin".to_string()),
         masked_bot_token,
         telegram_stars_enabled,
-        simple_mode_enabled,
-        simple_mode_plan_id,
-        all_plans,
         manual_enabled,
         nowpayments_api_key,
         masked_nowpayments_api_key,
@@ -893,6 +873,8 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         bot_username,
         brand_name,
         referral_bonus_percent,
+        referral_referrer_signup_bonus_cents,
+        referral_referred_signup_bonus_cents,
         admin_notification_tg_ids,
         terms_of_service,
         bot_buttons_mode,
@@ -1160,6 +1142,12 @@ pub async fn save_settings(
     if let Some(v) = form.referral_bonus_percent {
         settings.insert("referral_bonus_percent".to_string(), v);
     }
+    if let Some(v) = form.referral_referrer_signup_bonus_cents {
+        settings.insert("referral_referrer_signup_bonus_cents".to_string(), v);
+    }
+    if let Some(v) = form.referral_referred_signup_bonus_cents {
+        settings.insert("referral_referred_signup_bonus_cents".to_string(), v);
+    }
     if let Some(v) = form.admin_notification_tg_ids {
         settings.insert("admin_notification_tg_ids".to_string(), v);
     }
@@ -1228,19 +1216,6 @@ pub async fn save_settings(
             "false".to_string()
         },
     );
-    settings.insert(
-        "simple_mode_enabled".to_string(),
-        if is_checkbox_enabled(form.simple_mode_enabled.as_deref()) {
-            "true".to_string()
-        } else {
-            "false".to_string()
-        },
-    );
-
-    if let Some(v) = form.simple_mode_plan_id {
-        settings.insert("simple_mode_plan_id".to_string(), v.to_string());
-    }
-
     if let Some(v) = form.expiry_hours_threshold {
         let val: i64 = v.trim().parse().unwrap_or(72);
         settings.insert("expiry_hours_threshold".to_string(), val.to_string());

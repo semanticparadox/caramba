@@ -8,5 +8,4 @@ pub mod api;
 pub mod assets;
 pub mod frontend;
 pub mod local_app;
-pub mod node_control;
 pub mod setup;

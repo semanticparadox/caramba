@@ -228,6 +228,25 @@ pub async fn subscription_handler(
                 device_limit,
                 active_ips.len()
             );
+
+            // Уведомляем пользователя в Telegram, что новое устройство отклонено.
+            // Отправляем не чаще одного раза — Bot API справляется с дублями на стороне клиента.
+            let tg_id: Option<i64> = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
+                .bind(sub.user_id)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap_or(None);
+
+            if let Some(tg_id) = tg_id {
+                let msg = format!(
+                    "📵 *Device Limit Reached*\n\n\
+                     A new device tried to connect to your subscription but was rejected\\.\n\
+                     Limit: *{device_limit}* devices\\.\n\n\
+                     Remove an existing device in the Mini App to connect a new one\\."
+                );
+                let _ = state.bot_manager.send_notification(tg_id, &msg).await;
+            }
+
             return (StatusCode::FORBIDDEN, "Device limit reached").into_response();
         }
     }

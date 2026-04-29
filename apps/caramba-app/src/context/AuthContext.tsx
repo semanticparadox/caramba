@@ -11,13 +11,14 @@ export interface UserStats {
     total_download: number;
     total_upload: number;
     traffic_limit: number;
-    simple_mode_enabled?: boolean;
-    simple_mode_plan_id?: number;
     brand_name?: string;
+    // URL поддержки из настроек сервера (устанавливается в панели администратора)
+    support_url?: string;
 }
 
 export interface UserSubscription {
     id: number;
+    plan_id: number;
     plan_name: string;
     plan_description: string | null;
     status: string;
@@ -41,6 +42,10 @@ export interface UserSubscription {
     primary_vless_link?: string | null;
     vless_links?: string[];
     singbox_variants?: SingboxConnectionVariant[];
+    /** Бесплатный план — показываем особый UX с ежедневным пополнением */
+    is_free?: boolean;
+    /** МБ ежедневного пополнения трафика */
+    daily_traffic_mb?: number;
 }
 
 export interface SingboxConnectionVariant {

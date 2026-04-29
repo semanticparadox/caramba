@@ -112,42 +112,71 @@ impl TrafficService {
     }
 
     async fn enforce_quotas(&self) -> anyhow::Result<()> {
+        // --- Платные планы: истекаем и уведомляем ноды ---
         let expired = self
             .state
             .subscription_service
             .expire_over_quota_subscriptions()
             .await?;
 
-        if expired.is_empty() {
-            return Ok(());
-        }
-
-        info!(
-            "Found {} subscriptions exceeding quota. Suspending...",
-            expired.len()
-        );
-
         let mut nodes_to_notify = HashSet::new();
-        for row in expired {
-            if let Some(node_id) = row.node_id {
-                nodes_to_notify.insert(node_id);
-            }
 
+        if !expired.is_empty() {
             info!(
-                "Subscription {} for user {} suspended (traffic quota reached)",
-                row.subscription_id, row.user_id
+                "Found {} paid subscriptions exceeding quota. Suspending...",
+                expired.len()
             );
 
-            if let Err(e) = self
-                .state
-                .connection_service
-                .kill_subscription_connections(row.subscription_id)
-                .await
-            {
-                error!(
-                    "Failed to reset active sessions for expired subscription {}: {}",
-                    row.subscription_id, e
+            for row in expired {
+                if let Some(node_id) = row.node_id {
+                    nodes_to_notify.insert(node_id);
+                }
+
+                info!(
+                    "Subscription {} for user {} expired (traffic quota reached)",
+                    row.subscription_id, row.user_id
                 );
+
+                if let Err(e) = self
+                    .state
+                    .connection_service
+                    .kill_subscription_connections(row.subscription_id)
+                    .await
+                {
+                    error!(
+                        "Failed to reset active sessions for expired subscription {}: {}",
+                        row.subscription_id, e
+                    );
+                }
+            }
+        }
+
+        // --- Бесплатные планы: статус не меняем, но обрываем соединения ---
+        // Трафик восстановится при суточном пополнении (daily_traffic_topup).
+        let throttled = self
+            .state
+            .subscription_service
+            .throttled_free_quota_subscriptions()
+            .await?;
+
+        if !throttled.is_empty() {
+            info!(
+                "Found {} free-plan subscriptions exceeding daily quota. Throttling connections...",
+                throttled.len()
+            );
+
+            for row in throttled {
+                if let Err(e) = self
+                    .state
+                    .connection_service
+                    .kill_subscription_connections(row.subscription_id)
+                    .await
+                {
+                    error!(
+                        "Failed to kill connections for throttled free subscription {}: {}",
+                        row.subscription_id, e
+                    );
+                }
             }
         }
 

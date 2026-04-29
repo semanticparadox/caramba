@@ -59,6 +59,28 @@ impl ApiClient {
         !self.token.trim().is_empty()
     }
 
+    /// Начисляет signup-бонусы после регистрации пользователя по реферальной ссылке.
+    /// Возвращает (referrer_bonus_cents, referred_bonus_cents).
+    pub async fn apply_referral_signup_bonus(
+        &self,
+        referrer_id: i64,
+        referred_user_id: i64,
+    ) -> Result<(i64, i64)> {
+        #[derive(Deserialize)]
+        struct SignupBonusResponse {
+            referrer_bonus_cents: i64,
+            referred_bonus_cents: i64,
+        }
+
+        let body = serde_json::json!({
+            "referrer_id": referrer_id,
+            "referred_user_id": referred_user_id,
+        });
+
+        let resp: SignupBonusResponse = self.post("/referral/signup-bonus", &body).await?;
+        Ok((resp.referrer_bonus_cents, resp.referred_bonus_cents))
+    }
+
     pub async fn poll_worker_update(
         &self,
         role: &str,

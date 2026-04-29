@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import type { SingboxConnectionVariant } from '../context/AuthContext'
@@ -22,7 +23,7 @@ interface ServerInfo {
     is_full?: boolean
 }
 
-// Estimate user location from timezone (rough but works without permissions)
+// Оценка координат пользователя по таймзоне (без запроса разрешений)
 function estimateCoords(): { lat: number; lon: number } | null {
     try {
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -102,6 +103,7 @@ function estimateCoords(): { lat: number; lon: number } | null {
 }
 
 export default function Servers() {
+    const { t } = useTranslation()
     const navigate = useNavigate()
     const { subId: subIdParam } = useParams<{ subId?: string }>()
     const { token, subscriptions } = useAuth()
@@ -201,11 +203,11 @@ export default function Servers() {
             })
             if (res.ok) {
                 setPinnedNodeId(nodeId)
-                setPinMessage(nodeId ? 'Сервер выбран. Обновите конфиг в клиенте.' : 'Автовыбор включён.')
+                setPinMessage(nodeId ? t('servers.serverSelected') : t('servers.autoEnabled'))
             } else {
-                setPinMessage('Не удалось переключить сервер.')
+                setPinMessage(t('servers.switchError'))
             }
-        } catch { setPinMessage('Ошибка сети.') }
+        } catch { setPinMessage(t('servers.networkError')) }
         finally { setPinningNodeId(null) }
     }
 
@@ -262,25 +264,29 @@ export default function Servers() {
         }
     }
 
-    if (loading) return <div className="page"><div className="loading">Загружаем серверы...</div></div>
+    if (loading) return <div className="page"><div className="loading">{t('servers.loadingServers')}</div></div>
 
     return (
         <div className="page servers-page">
             <header className="page-header">
                 <button className="back-button" onClick={() => navigate(-1)}>←</button>
-                <h2>Настройка маршрута</h2>
-                <span className="badge badge-success">{servers.filter(s => s.status === 'online').length} онлайн</span>
+                <h2>{t('servers.title')}</h2>
+                <span className="badge badge-success">
+                    {t('servers.onlineCount', { count: servers.filter(s => s.status === 'online').length })}
+                </span>
             </header>
 
             <p className="servers-context-note">
-                Обычный импорт остается основным путем. Этот экран нужен только для дополнительной настройки, если хотите улучшить совместимость или проверить другой маршрут.
+                {t('servers.contextNote')}
             </p>
 
             {(() => {
                 const countries = [...new Set(servers.map(s => s.country_code))];
                 return countries.length > 1 ? (
                     <div className="country-quick-picker">
-                        <button className={`country-chip ${!countryFilter ? 'active' : ''}`} onClick={() => setCountryFilter(null)}>Все</button>
+                        <button className={`country-chip ${!countryFilter ? 'active' : ''}`} onClick={() => setCountryFilter(null)}>
+                            {t('servers.filterAll')}
+                        </button>
                         {countries.map(cc => {
                             const s = servers.find(sv => sv.country_code === cc);
                             return (
@@ -296,11 +302,11 @@ export default function Servers() {
             {relayCountries.length > 0 && (
                 <div className="relay-picker glass-card" style={{ padding: 'var(--space-sm) var(--space-md)' }}>
                     <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                        Обход блокировок через Relay
+                        {t('servers.relayTitle')}
                     </p>
                     <div className="country-quick-picker">
                         <button className={`country-chip ${selectedRelay === 'none' ? 'active' : ''}`} onClick={() => handleRelayChange('none')}>
-                            Не нужно
+                            {t('servers.relayNone')}
                         </button>
                         {relayCountries.map(rc => (
                             <button key={rc.code} className={`country-chip ${selectedRelay === rc.code ? 'active' : ''}`} onClick={() => handleRelayChange(rc.code)}>
@@ -315,7 +321,7 @@ export default function Servers() {
 
             {pinnedNodeId && (
                 <button className="btn-ghost" style={{ width: '100%', marginBottom: 8 }} onClick={() => handlePinServer(null)}>
-                    Автоподбор
+                    {t('servers.autoSelect')}
                 </button>
             )}
 
@@ -345,10 +351,12 @@ export default function Servers() {
                             <div className="server-right">
                                 <span className={`badge badge-${loadColor}`}>{capacity}</span>
                                 {!!server.available_variant_ids?.length && (
-                                    <span className="badge badge-success">{server.available_variant_ids.length} вар.</span>
+                                    <span className="badge badge-success">
+                                        {t('servers.variants', { count: server.available_variant_ids.length })}
+                                    </span>
                                 )}
-                                {i === 0 && !countryFilter && <span className="badge badge-warning">Лучший</span>}
-                                {server.is_full && <span className="badge badge-error">Заполнен</span>}
+                                {i === 0 && !countryFilter && <span className="badge badge-warning">{t('servers.best')}</span>}
+                                {server.is_full && <span className="badge badge-error">{t('servers.full')}</span>}
                             </div>
                         </div>
                         <div className="server-actions">
@@ -357,14 +365,20 @@ export default function Servers() {
                                 onClick={() => handlePinServer(server.id)}
                                 disabled={server.is_full || pinningNodeId !== null}
                             >
-                                {pinningNodeId === server.id ? '...' : pinnedNodeId === server.id ? '✓ Выбран' : server.is_full ? 'Заполнен' : 'Подключить'}
+                                {pinningNodeId === server.id
+                                    ? '...'
+                                    : pinnedNodeId === server.id
+                                        ? t('servers.selected')
+                                        : server.is_full
+                                            ? t('servers.full')
+                                            : t('servers.connect')}
                             </button>
                             <button
                                 className="btn-secondary"
                                 onClick={() => handleGetConfig(server)}
                                 disabled={server.is_full}
                             >
-                                Настроить
+                                {t('servers.configure')}
                             </button>
                         </div>
                     </div>
@@ -377,7 +391,7 @@ export default function Servers() {
                     <div className="modal-content" onClick={e => e.stopPropagation()}>
                         <h3>{selectedServer.flag} {selectedServer.name}</h3>
                         <p className="connection-modal-note">
-                            По умолчанию достаточно импорта с рекомендованными настройками. Блок ниже нужен только для ручной подстройки.
+                            {t('servers.modalNote')}
                         </p>
                         <div className="client-tabs">
                             {['singbox', 'v2ray', 'clash'].map(type => (
@@ -393,8 +407,8 @@ export default function Servers() {
                         {clientType === 'singbox' && prioritizedVariants.length > 0 && (
                             <>
                                 <div className="variant-section-intro">
-                                    <strong>Дополнительная настройка маршрута</strong>
-                                    <span>Выбирайте другой вариант только если хотите повысить совместимость или скорость на конкретной сети.</span>
+                                    <strong>{t('servers.variantSectionTitle')}</strong>
+                                    <span>{t('servers.variantSectionDesc')}</span>
                                 </div>
                                 <div className="variant-list">
                                 {prioritizedVariants.map(variant => (
@@ -407,7 +421,7 @@ export default function Servers() {
                                             <span className="variant-title">{variant.label}</span>
                                             <span className="variant-badges">
                                                 {variant.id === selectedServer.recommended_variant_id && (
-                                                    <span className="variant-chip recommended">Рекомендуем</span>
+                                                    <span className="variant-chip recommended">{t('servers.recommended')}</span>
                                                 )}
                                                 <span className={`variant-chip ${variant.family}`}>
                                                     {variant.family === 'grpc'
@@ -419,12 +433,12 @@ export default function Servers() {
                                             </span>
                                         </span>
                                         <span className="variant-meta-row">
-                                            <span>{variant.transport || 'стандартный транспорт'}</span>
-                                            <span>{variant.relay ? 'через relay' : 'прямой маршрут'}</span>
+                                            <span>{variant.transport || t('servers.standardTransport')}</span>
+                                            <span>{variant.relay ? t('servers.viaRelay') : t('servers.directRoute')}</span>
                                         </span>
                                         <span className="variant-summary">{variant.summary}</span>
                                         {variant.id === selectedServer.recommended_variant_id && (
-                                            <span className="variant-recommendation-note">Лучший стартовый вариант для большинства пользователей на этом сервере.</span>
+                                            <span className="variant-recommendation-note">{t('servers.bestVariantNote')}</span>
                                         )}
                                     </button>
                                 ))}
@@ -433,17 +447,17 @@ export default function Servers() {
                         )}
                         {clientType === 'singbox' && prioritizedVariants.length === 0 && (
                             <div className="variant-empty-state">
-                                Для этого сервера сейчас нет дополнительных вариантов настройки.
+                                {t('servers.noVariants')}
                             </div>
                         )}
                         <div className="qr-wrapper">
                             <QRCodeSVG value={configUrl} size={160} bgColor="#fff" fgColor="#0D0D1A" />
                         </div>
-                        <div className="config-url-label">Ссылка для импорта</div>
+                        <div className="config-url-label">{t('servers.importUrlLabel')}</div>
                         <div className="config-url-row">
                             <input type="text" readOnly value={configUrl} onClick={e => e.currentTarget.select()} />
                             <button className="btn-secondary" onClick={handleCopy}>
-                                {copied ? 'Скопировано' : 'Скопировать'}
+                                {copied ? t('common.copied') : t('common.copy')}
                             </button>
                         </div>
                         {clientType === 'singbox' && selectedVariant && (
@@ -452,18 +466,18 @@ export default function Servers() {
                                     className="btn-secondary variant-feedback success"
                                     onClick={() => handleConnectionFeedback('connection_succeeded')}
                                 >
-                                    Работает хорошо
+                                    {t('servers.working')}
                                 </button>
                                 <button
                                     className="btn-secondary variant-feedback danger"
                                     onClick={() => handleConnectionFeedback('connection_failed')}
                                 >
-                                    Попробовать другой
+                                    {t('servers.tryOther')}
                                 </button>
                             </div>
                         )}
                         <button className="btn-secondary close-btn" onClick={() => setSelectedServer(null)}>
-                            Закрыть
+                            {t('common.close')}
                         </button>
                     </div>
                 </div>

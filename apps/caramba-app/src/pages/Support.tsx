@@ -1,28 +1,14 @@
 import { useEffect, useReducer, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { useAppLock } from '../context/AppLockContext'
+import { useAuth } from '../context/AuthContext'
 import { normalizePinInput } from '../security/pin'
 import PinPad from '../components/PinPad'
 import './Support.css'
 
-const FAQS = [
-    {
-        q: 'Как подключиться?',
-        a: 'Откройте вкладку "Центр", скопируйте ссылку и импортируйте ее в Hiddify. После импорта маршруты подгружаются автоматически.',
-    },
-    {
-        q: 'Какой сервер самый быстрый?',
-        a: 'Для текущего этапа используйте базовый импорт в Hiddify: приложение само подгрузит рабочие маршруты для подписки.',
-    },
-    {
-        q: 'Как продлить подписку?',
-        a: 'Покупка и продление находятся во вкладке "Центр". Если доступа еще нет, выберите тариф и оплатите его там же.',
-    },
-    {
-        q: 'Какие приложения поддерживаются?',
-        a: 'Сейчас в Mini App поддерживается только Hiddify. Актуальные ссылки и шаги импорта есть в инструкции Hiddify.',
-    },
-]
+// Фолбэк на случай, если support_url не задан в настройках панели
+const DEFAULT_SUPPORT_URL = 'https://t.me/'
 
 type PinStep =
     | 'closed'
@@ -103,7 +89,11 @@ function flowReducer(state: PinFlowState, action: PinFlowAction): PinFlowState {
 }
 
 export default function Support() {
+    const { t } = useTranslation()
     const navigate = useNavigate()
+    const { userStats } = useAuth()
+    // URL поддержки: берётся из ответа /api/client/user/stats (поле support_url)
+    const supportUrl = userStats?.support_url?.trim() || DEFAULT_SUPPORT_URL
     const { isPinEnabled, lockNow, enablePin, changePin, disablePin, pinUpdatedAt } = useAppLock()
     const [flow, dispatch] = useReducer(flowReducer, flowInitialState)
     const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -113,6 +103,9 @@ export default function Support() {
     const handleDigit = (digit: string) => dispatch({ type: 'DIGIT', digit });
     const handleBackspace = () => dispatch({ type: 'BACKSPACE' });
     const handleClear = () => dispatch({ type: 'CLEAR' });
+
+    // FAQ-список с переводами через i18n
+    const FAQS: Array<{ q: string; a: string }> = t('support.faqItems', { returnObjects: true }) as Array<{ q: string; a: string }>
 
     useEffect(() => {
         if (flow.step === 'closed' || flow.input.length !== 4 || flow.busy) return;
@@ -127,12 +120,12 @@ export default function Support() {
                     case 'setup_confirm': {
                         if (flow.input !== flow.firstPin) {
                             dispatch({ type: 'SET_STEP', step: 'setup_new' });
-                            dispatch({ type: 'SET_ERROR', error: 'PIN не совпадает. Введите новый PIN заново.' });
+                            dispatch({ type: 'SET_ERROR', error: t('support.pinMismatch') });
                             return;
                         }
                         dispatch({ type: 'SET_BUSY', busy: true });
                         await enablePin(flow.input);
-                        setNotice({ type: 'success', text: 'PIN-защита включена.' });
+                        setNotice({ type: 'success', text: t('support.pinEnabledSuccess') });
                         closeModal();
                         return;
                     }
@@ -160,19 +153,19 @@ export default function Support() {
                                 step: 'change_new',
                                 currentPin: flow.currentPin,
                             });
-                            dispatch({ type: 'SET_ERROR', error: 'PIN не совпадает. Введите новый PIN еще раз.' });
+                            dispatch({ type: 'SET_ERROR', error: t('support.pinMismatchChange') });
                             return;
                         }
                         dispatch({ type: 'SET_BUSY', busy: true });
                         await changePin(flow.currentPin, flow.input);
-                        setNotice({ type: 'success', text: 'PIN успешно изменен.' });
+                        setNotice({ type: 'success', text: t('support.pinChangedSuccess') });
                         closeModal();
                         return;
                     }
                     case 'disable_verify': {
                         dispatch({ type: 'SET_BUSY', busy: true });
                         await disablePin(flow.input);
-                        setNotice({ type: 'success', text: 'PIN-защита отключена.' });
+                        setNotice({ type: 'success', text: t('support.pinDisabledSuccess') });
                         closeModal();
                         return;
                     }
@@ -180,42 +173,38 @@ export default function Support() {
                         return;
                 }
             } catch (e: any) {
-                dispatch({
-                    type: 'SET_ERROR',
-                    error: e?.message || 'Операция не выполнена. Попробуйте снова.',
-                });
-                setNotice({
-                    type: 'error',
-                    text: e?.message || 'Операция не выполнена. Попробуйте снова.',
-                });
+                const msg = e?.message || t('support.operationFailed')
+                dispatch({ type: 'SET_ERROR', error: msg });
+                setNotice({ type: 'error', text: msg });
             }
         };
 
         void run();
     }, [flow, enablePin, changePin, disablePin]);
 
+    // Заголовки и подзаголовки шагов PIN-ввода
     const pinStepTitle: Record<Exclude<PinStep, 'closed'>, string> = {
-        setup_new: 'Новый PIN',
-        setup_confirm: 'Подтвердите PIN',
-        change_current: 'Текущий PIN',
-        change_new: 'Новый PIN',
-        change_confirm: 'Подтвердите PIN',
-        disable_verify: 'Отключение PIN',
+        setup_new: t('support.pinStepSetupNew'),
+        setup_confirm: t('support.pinStepSetupConfirm'),
+        change_current: t('support.pinStepChangeCurrent'),
+        change_new: t('support.pinStepChangeNew'),
+        change_confirm: t('support.pinStepChangeConfirm'),
+        disable_verify: t('support.pinStepDisableVerify'),
     };
 
     const pinStepSubtitle: Record<Exclude<PinStep, 'closed'>, string> = {
-        setup_new: 'Выберите 4 цифры для защиты Mini App.',
-        setup_confirm: 'Повторите те же 4 цифры.',
-        change_current: 'Сначала подтвердите текущий PIN.',
-        change_new: 'Введите новый 4-значный код.',
-        change_confirm: 'Повторите новый код.',
-        disable_verify: 'Введите текущий PIN для отключения.',
+        setup_new: t('support.pinSubSetupNew'),
+        setup_confirm: t('support.pinSubSetupConfirm'),
+        change_current: t('support.pinSubChangeCurrent'),
+        change_new: t('support.pinSubChangeNew'),
+        change_confirm: t('support.pinSubChangeConfirm'),
+        disable_verify: t('support.pinSubDisableVerify'),
     };
 
     return (
         <div className="page support-page">
             <header className="page-header">
-                <h2>Поддержка</h2>
+                <h2>{t('support.title')}</h2>
             </header>
 
             {notice && (
@@ -224,32 +213,32 @@ export default function Support() {
                 </div>
             )}
 
-            <button className="contact-hero glass-card" onClick={() => window.open('https://t.me/SupportBot', '_blank')}>
+            <button className="contact-hero glass-card" onClick={() => window.open(supportUrl, '_blank')}>
                 <span className="contact-icon">TG</span>
                 <div>
-                    <span className="contact-title">Написать в поддержку</span>
-                    <span className="contact-desc">Ответ команды и разбор проблем</span>
+                    <span className="contact-title">{t('support.contactTitle')}</span>
+                    <span className="contact-desc">{t('support.contactDesc')}</span>
                 </div>
                 <span className="contact-arrow">{'>'}</span>
             </button>
 
             <section className="support-connect-card glass-card">
                 <div>
-                    <h3>Проблема с подключением?</h3>
-                    <p>Для стабильного старта используйте инструкцию Hiddify и подключение из вкладки «Центр».</p>
+                    <h3>{t('support.connectionIssueTitle')}</h3>
+                    <p>{t('support.connectionIssueDesc')}</p>
                 </div>
                 <div className="support-connect-actions">
                     <button className="btn-primary" onClick={() => navigate('/')}>
-                        Открыть центр
+                        {t('support.openCenter')}
                     </button>
                     <button className="btn-secondary" onClick={() => navigate('/support/connect')}>
-                        Инструкция Hiddify
+                        {t('support.hiddifyGuide')}
                     </button>
                 </div>
             </section>
 
             <div className="faq-section">
-                <h3>FAQ</h3>
+                <h3>{t('support.faqTitle')}</h3>
                 <div className="faq-list">
                     {FAQS.map((faq, i) => (
                         <details key={i} className="faq-item glass-card">
@@ -263,19 +252,17 @@ export default function Support() {
             <div className="security-card security-card-muted glass-card">
                 <div className="security-card-head">
                     <div>
-                        <h3>PIN-защита Mini App</h3>
-                        <p>
-                            Дополнительный уровень безопасности, если устройством пользуются несколько человек.
-                        </p>
+                        <h3>{t('support.pinTitle')}</h3>
+                        <p>{t('support.pinDesc')}</p>
                     </div>
                     <span className={`security-badge ${isPinEnabled ? 'enabled' : 'disabled'}`}>
-                        {isPinEnabled ? 'Включена' : 'Отключена'}
+                        {isPinEnabled ? t('support.pinEnabled') : t('support.pinDisabled')}
                     </span>
                 </div>
 
                 {pinUpdatedAt && (
                     <div className="security-meta">
-                        Обновлено: {new Date(pinUpdatedAt).toLocaleString()}
+                        {t('support.pinUpdatedAt', { date: new Date(pinUpdatedAt).toLocaleString() })}
                     </div>
                 )}
 
@@ -285,7 +272,7 @@ export default function Support() {
                             className="btn-secondary"
                             onClick={() => dispatch({ type: 'OPEN', step: 'setup_new' })}
                         >
-                            Включить PIN (4 цифры)
+                            {t('support.enablePin')}
                         </button>
                     )}
                     {isPinEnabled && (
@@ -294,19 +281,19 @@ export default function Support() {
                                 className="btn-secondary"
                                 onClick={lockNow}
                             >
-                                Заблокировать сейчас
+                                {t('support.lockNow')}
                             </button>
                             <button
                                 className="btn-secondary"
                                 onClick={() => dispatch({ type: 'OPEN', step: 'change_current' })}
                             >
-                                Изменить PIN
+                                {t('support.changePin')}
                             </button>
                             <button
                                 className="btn-secondary btn-danger-outline"
                                 onClick={() => dispatch({ type: 'OPEN', step: 'disable_verify' })}
                             >
-                                Отключить PIN-защиту
+                                {t('support.disablePin')}
                             </button>
                         </>
                     )}
@@ -331,7 +318,7 @@ export default function Support() {
                                 onClick={closeModal}
                                 disabled={flow.busy}
                             >
-                                Отмена
+                                {t('common.cancel')}
                             </button>
                         )}
                     />
