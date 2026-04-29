@@ -1149,6 +1149,23 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/api/health/tasks",
             axum::routing::get(handlers::admin::get_task_health),
         )
+        // Управление резервными копиями БД
+        .route(
+            "/backups",
+            axum::routing::get(handlers::admin::get_backups_page),
+        )
+        .route(
+            "/backups/create",
+            axum::routing::post(handlers::admin::create_backup_now),
+        )
+        .route(
+            "/backups/{filename}",
+            axum::routing::get(handlers::admin::download_backup),
+        )
+        .route(
+            "/backups/{filename}/delete",
+            axum::routing::post(handlers::admin::delete_backup_handler),
+        )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
