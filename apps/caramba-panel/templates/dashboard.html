@@ -381,6 +381,61 @@
                 </div>
             </div>
 
+            <!-- Payment Providers Health -->
+            <div class="card p-6 mt-8">
+                <header class="flex items-center justify-between mb-6">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+                            <i data-lucide="credit-card" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-slate-900 dark:text-white">Payment Providers Health</h3>
+                            <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-0.5">last 30 days</p>
+                        </div>
+                    </div>
+                </header>
+
+                {% if payment_providers.is_empty() %}
+                <p class="text-sm text-slate-400 italic">Платежей пока нет. Когда первая транзакция пройдёт через любого провайдера — появится здесь.</p>
+                {% else %}
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="text-[11px] text-slate-500 uppercase tracking-widest border-b border-slate-200/40 dark:border-slate-700/40">
+                                <th class="px-5 py-3 text-left font-bold">Provider</th>
+                                <th class="px-5 py-3 text-left font-bold">Last successful</th>
+                                <th class="px-5 py-3 text-right font-bold">Completed (30d)</th>
+                                <th class="px-5 py-3 text-right font-bold">Failed (30d)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for p in payment_providers %}
+                            <tr class="border-b border-slate-200/20 dark:border-slate-700/20 hover:bg-slate-100/30 dark:hover:bg-slate-800/30 transition-colors">
+                                <td class="px-5 py-3 font-mono text-slate-200">{{ p.method }}</td>
+                                <td class="px-5 py-3">
+                                    {% if p.last_success_color == "green" %}
+                                    <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                                    {% else if p.last_success_color == "amber" %}
+                                    <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                                    {% else if p.last_success_color == "red" %}
+                                    <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-300 border border-rose-500/20">
+                                    {% else %}
+                                    <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/20">
+                                    {% endif %}
+                                        <span class="w-1.5 h-1.5 rounded-full bg-current"></span>
+                                        {{ p.last_success_ago }}
+                                    </span>
+                                </td>
+                                <td class="px-5 py-3 text-right font-semibold text-emerald-300">{{ p.completed_30d }}</td>
+                                <td class="px-5 py-3 text-right font-semibold {% if p.failed_30d > 0 %}text-rose-300{% else %}text-slate-500{% endif %}">{{ p.failed_30d }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+            </div>
+
         </div>
     </div>
 

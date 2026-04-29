@@ -46,6 +46,17 @@ pub struct DashboardTemplate {
     pub nodes_active: i64,
     pub nodes_offline: i64,
     pub nodes_provisioning: i64,
+    // Здоровье платёжных провайдеров — last successful payment per method
+    pub payment_providers: Vec<PaymentProviderHealth>,
+}
+
+#[derive(Clone)]
+pub struct PaymentProviderHealth {
+    pub method: String,
+    pub last_success_ago: String, // "5m ago", "2h ago", "3d ago", "Never" — pre-rendered for template
+    pub last_success_color: &'static str, // "green", "amber", "red", "slate"
+    pub completed_30d: i64,
+    pub failed_30d: i64,
 }
 
 /// Шаблон HTMX-партиала для строк таблицы фоновых задач.
@@ -218,6 +229,71 @@ pub async fn get_dashboard(State(state): State<AppState>, jar: CookieJar) -> imp
     // Сортируем по имени для стабильного порядка в таблице
     task_health_items.sort_by(|a, b| a.name.cmp(&b.name));
 
+    // Payment provider health — за 30 дней группируем по method,
+    // показываем последний успех + счётчики completed/failed.
+    // Метод 'balance' исключаем — это внутренняя транзакция, не провайдер.
+    #[derive(sqlx::FromRow)]
+    struct ProviderRow {
+        method: String,
+        last_success: Option<i64>,
+        completed_30d: i64,
+        failed_30d: i64,
+    }
+    let provider_rows = sqlx::query_as::<_, ProviderRow>(
+        r#"
+        SELECT
+            method,
+            MAX(CASE WHEN status = 'completed' THEN created_at END) AS last_success,
+            COUNT(*) FILTER (WHERE status = 'completed' AND created_at > EXTRACT(EPOCH FROM NOW() - INTERVAL '30 days')::BIGINT) AS completed_30d,
+            COUNT(*) FILTER (WHERE status = 'failed'    AND created_at > EXTRACT(EPOCH FROM NOW() - INTERVAL '30 days')::BIGINT) AS failed_30d
+        FROM payments
+        WHERE method != 'balance' AND method != ''
+        GROUP BY method
+        ORDER BY last_success DESC NULLS LAST, method
+        LIMIT 20
+        "#,
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    let now_secs = chrono::Utc::now().timestamp();
+    let payment_providers: Vec<PaymentProviderHealth> = provider_rows
+        .into_iter()
+        .map(|r| {
+            let (ago, color) = match r.last_success {
+                Some(ts) => {
+                    let delta = (now_secs - ts).max(0);
+                    let label = if delta < 60 {
+                        "just now".to_string()
+                    } else if delta < 3600 {
+                        format!("{}m ago", delta / 60)
+                    } else if delta < 86400 {
+                        format!("{}h ago", delta / 3600)
+                    } else {
+                        format!("{}d ago", delta / 86400)
+                    };
+                    let color = if delta < 86400 {
+                        "green"
+                    } else if delta < 7 * 86400 {
+                        "amber"
+                    } else {
+                        "red"
+                    };
+                    (label, color)
+                }
+                None => ("Never".to_string(), "slate"),
+            };
+            PaymentProviderHealth {
+                method: r.method,
+                last_success_ago: ago,
+                last_success_color: color,
+                completed_30d: r.completed_30d,
+                failed_30d: r.failed_30d,
+            }
+        })
+        .collect();
+
     let template = DashboardTemplate {
         active_nodes,
         total_users,
@@ -242,6 +318,7 @@ pub async fn get_dashboard(State(state): State<AppState>, jar: CookieJar) -> imp
         nodes_active,
         nodes_offline,
         nodes_provisioning,
+        payment_providers,
     };
     Html(template.render().unwrap_or_default())
 }
