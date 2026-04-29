@@ -1254,17 +1254,27 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::get(handlers::local_app::serve_app_assets),
         )
         .nest(&admin_path, admin_routes)
+        // install.sh is a public, read-only shell script with no secrets — safe to serve unauthenticated
         .route(
             "/install.sh",
             axum::routing::get(handlers::admin::get_install_sh),
         )
-        .route(
-            "/nodes/{id}/script",
-            axum::routing::get(handlers::admin::get_node_install_script),
-        )
-        .route(
-            "/nodes/{id}/raw-install",
-            axum::routing::get(handlers::admin::get_node_raw_install_script),
+        // Node install scripts expose per-node join tokens — must be behind admin auth middleware
+        .nest(
+            &admin_path,
+            axum::Router::new()
+                .route(
+                    "/nodes/{id}/script",
+                    axum::routing::get(handlers::admin::get_node_install_script),
+                )
+                .route(
+                    "/nodes/{id}/raw-install",
+                    axum::routing::get(handlers::admin::get_node_raw_install_script),
+                )
+                .layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    auth_middleware,
+                )),
         )
         .with_state(state)
         .layer(tower_http::compression::CompressionLayer::new())
