@@ -26,12 +26,19 @@ pub trait PaymentAdapter: Send + Sync {
 }
 
 pub mod balance;
+pub mod btcpay;
+pub mod coinbase_commerce;
+pub mod crystalpay;
 pub mod cryptobot;
 pub mod manual;
 pub mod nowpayments;
+pub mod oxapay;
+pub mod plisio;
 pub mod provider;
 pub mod stripe;
 pub mod telegram_stars;
+pub mod tribute;
+pub mod wata;
 
 #[allow(unused_imports)]
 pub use provider::{PaymentProvider, PaymentWebhookAction};

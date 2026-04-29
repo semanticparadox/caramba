@@ -423,6 +423,22 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     let lava_project_id = settings.get_or_default("lava_project_id", "").await;
     let lava_secret_key = settings.get_or_default("lava_secret_key", "").await;
 
+    // Новые провайдеры (7 штук)
+    // Примечание: crystalpay_login/crystalpay_secret уже считаны выше для pay_service.
+    let wata_jwt_token = settings.get_or_default("wata_jwt_token", "").await;
+    let wata_webhook_secret = settings.get_or_default("wata_webhook_secret", "").await;
+    let crystalpay_salt = settings.get_or_default("crystalpay_salt", "").await;
+    let tribute_api_key = settings.get_or_default("tribute_api_key", "").await;
+    let tribute_webhook_secret = settings.get_or_default("tribute_webhook_secret", "").await;
+    let btcpay_url = settings.get_or_default("btcpay_url", "").await;
+    let btcpay_api_key = settings.get_or_default("btcpay_api_key", "").await;
+    let btcpay_store_id = settings.get_or_default("btcpay_store_id", "").await;
+    let btcpay_webhook_secret = settings.get_or_default("btcpay_webhook_secret", "").await;
+    let oxapay_merchant_key = settings.get_or_default("oxapay_merchant_key", "").await;
+    let coinbase_api_key = settings.get_or_default("coinbase_api_key", "").await;
+    let coinbase_webhook_secret = settings.get_or_default("coinbase_webhook_secret", "").await;
+    let plisio_api_key = settings.get_or_default("plisio_api_key", "").await;
+
     let is_testnet: String = settings.get_or_default("payment_testnet", "true").await;
     let panel_url = settings.get_or_default("panel_url", "").await;
     let api_domain = settings
@@ -447,8 +463,8 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         bot_token,
         pay_token,
         nowpayments_key.clone(),
-        crystalpay_login,
-        crystalpay_secret,
+        crystalpay_login.clone(),
+        crystalpay_secret.clone(),
         stripe_secret_key.clone(),
         cryptomus_merchant_id.clone(),
         cryptomus_payment_api_key.clone(),
@@ -477,6 +493,22 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         aaio_secret_2.clone(),
         stripe_secret_key,
         stripe_webhook_secret,
+        // Новые провайдеры
+        wata_jwt_token,
+        wata_webhook_secret,
+        crystalpay_login.clone(),
+        crystalpay_secret.clone(),
+        crystalpay_salt,
+        tribute_api_key,
+        tribute_webhook_secret,
+        btcpay_url,
+        btcpay_api_key,
+        btcpay_store_id,
+        btcpay_webhook_secret,
+        oxapay_merchant_key,
+        coinbase_api_key,
+        coinbase_webhook_secret,
+        plisio_api_key,
         marketplace_api_domain,
         marketplace_bot_username,
         (*store_service).clone(),

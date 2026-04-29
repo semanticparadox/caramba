@@ -10,13 +10,20 @@ use uuid::Uuid;
 
 use super::payment::aaio::AaioProvider;
 use super::payment::balance::BalanceProvider;
+use super::payment::btcpay::BtcPayProvider;
+use super::payment::coinbase_commerce::CoinbaseCommerceProvider;
+use super::payment::crystalpay::CrystalPayProvider;
 use super::payment::cryptobot::CryptoBotProvider;
 use super::payment::cryptomus::CryptomusProvider;
 use super::payment::lava::LavaProvider;
 use super::payment::manual::ManualProvider;
 use super::payment::nowpayments::NowPaymentsProvider;
+use super::payment::oxapay::OxaPayProvider;
+use super::payment::plisio::PlisioProvider;
 use super::payment::provider::{PaymentProvider, PaymentWebhookAction};
 use super::payment::stripe::StripeProvider;
+use super::payment::tribute::TributeProvider;
+use super::payment::wata::WataProvider;
 // StarsProvider намеренно исключён из MarketplaceService: интерфейс PaymentProvider
 // не имеет доступа к bot_token и tg_id, которые требуются Bot API для createInvoiceLink.
 // Рабочий путь для Stars — PayService::create_stars_invoice (вызывается из бота).
@@ -48,6 +55,28 @@ impl MarketplaceService {
         aaio_secret_2: String,
         stripe_secret_key: String,
         stripe_webhook_secret: String,
+        // WATA (RU СБП/карты)
+        wata_jwt_token: String,
+        wata_webhook_secret: String,
+        // CrystalPay (RU СБП + крипта)
+        crystalpay_login: String,
+        crystalpay_secret: String,
+        crystalpay_salt: String,
+        // Tribute (Telegram-native)
+        tribute_api_key: String,
+        tribute_webhook_secret: String,
+        // BTCPay Server (самохостинг, без KYC)
+        btcpay_url: String,
+        btcpay_api_key: String,
+        btcpay_store_id: String,
+        btcpay_webhook_secret: String,
+        // OxaPay (крипта, RU-friendly)
+        oxapay_merchant_key: String,
+        // Coinbase Commerce (мировая крипта)
+        coinbase_api_key: String,
+        coinbase_webhook_secret: String,
+        // Plisio (мировая крипта)
+        plisio_api_key: String,
         api_domain: String,
         bot_username: String,
         store_service: StoreService,
@@ -127,6 +156,95 @@ impl MarketplaceService {
                 Box::new(StripeProvider {
                     secret_key: stripe_secret_key,
                     webhook_secret: stripe_webhook_secret,
+                    bot_username: bot_username.clone(),
+                }),
+            );
+        }
+
+        // WATA: достаточно JWT-токена; webhook_secret может быть пустым (с предупреждением).
+        if !wata_jwt_token.is_empty() {
+            providers.insert(
+                "wata".to_string(),
+                Box::new(WataProvider {
+                    jwt_token: wata_jwt_token,
+                    webhook_secret: wata_webhook_secret,
+                    api_domain: api_domain.clone(),
+                    bot_username: bot_username.clone(),
+                }),
+            );
+        }
+
+        // CrystalPay: нужны login + secret; salt опционален (предупреждение).
+        if !crystalpay_login.is_empty() && !crystalpay_secret.is_empty() {
+            providers.insert(
+                "crystalpay".to_string(),
+                Box::new(CrystalPayProvider {
+                    login: crystalpay_login,
+                    secret: crystalpay_secret,
+                    salt: crystalpay_salt,
+                    api_domain: api_domain.clone(),
+                    bot_username: bot_username.clone(),
+                }),
+            );
+        }
+
+        // Tribute: нужен API-ключ; webhook_secret обязателен для верификации подписи.
+        if !tribute_api_key.is_empty() {
+            providers.insert(
+                "tribute".to_string(),
+                Box::new(TributeProvider {
+                    api_key: tribute_api_key,
+                    webhook_secret: tribute_webhook_secret,
+                    bot_username: bot_username.clone(),
+                }),
+            );
+        }
+
+        // BTCPay Server: нужны url + api_key + store_id.
+        if !btcpay_url.is_empty() && !btcpay_api_key.is_empty() && !btcpay_store_id.is_empty() {
+            providers.insert(
+                "btcpay".to_string(),
+                Box::new(BtcPayProvider {
+                    btcpay_url,
+                    api_key: btcpay_api_key,
+                    store_id: btcpay_store_id,
+                    webhook_secret: btcpay_webhook_secret,
+                    bot_username: bot_username.clone(),
+                }),
+            );
+        }
+
+        // OxaPay: нужен только merchant_key.
+        if !oxapay_merchant_key.is_empty() {
+            providers.insert(
+                "oxapay".to_string(),
+                Box::new(OxaPayProvider {
+                    merchant_key: oxapay_merchant_key,
+                    api_domain: api_domain.clone(),
+                    bot_username: bot_username.clone(),
+                }),
+            );
+        }
+
+        // Coinbase Commerce: нужны api_key + webhook_secret.
+        if !coinbase_api_key.is_empty() {
+            providers.insert(
+                "coinbase_commerce".to_string(),
+                Box::new(CoinbaseCommerceProvider {
+                    api_key: coinbase_api_key,
+                    webhook_secret: coinbase_webhook_secret,
+                    bot_username: bot_username.clone(),
+                }),
+            );
+        }
+
+        // Plisio: нужен только api_key.
+        if !plisio_api_key.is_empty() {
+            providers.insert(
+                "plisio".to_string(),
+                Box::new(PlisioProvider {
+                    api_key: plisio_api_key,
+                    api_domain: api_domain.clone(),
                     bot_username: bot_username.clone(),
                 }),
             );
