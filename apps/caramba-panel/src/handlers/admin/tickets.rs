@@ -522,46 +522,23 @@ pub async fn reply(
         .unwrap_or_else(|| "Admin".to_string());
     let admin_tg_id = get_admin_tg_id(&state, &session_username).await;
 
-    // Вставляем сообщение
-    let insert_result = sqlx::query(
-        r#"
-        INSERT INTO ticket_messages
-            (ticket_id, body, sender_role, sender_tg_id, attachments_json)
-        VALUES
-            ($1, $2, 'admin', $3, '[]'::jsonb)
-        "#,
-    )
-    .bind(id)
-    .bind(&body)
-    .bind(admin_tg_id)
-    .execute(&state.pool)
-    .await;
-
-    if let Err(e) = insert_result {
-        error!(ticket_id = id, admin = %session_username, "Failed to insert admin reply: {e}");
+    // Delegate to TicketsService so business logic stays in one place:
+    // service handles message insert + status transition (awaiting_user) +
+    // user notification (Mini App inbox + bot DM per user prefs).
+    // This previously was a raw SQL INSERT that flipped status the WRONG
+    // way (awaiting_user -> in_progress) and never notified the user.
+    if let Err(e) = state
+        .tickets_svc
+        .add_admin_message(id, admin_tg_id, &body, Vec::new())
+        .await
+    {
+        error!(ticket_id = id, admin = %session_username, "Failed to add admin reply: {e}");
         return (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             "Failed to save reply",
         )
             .into_response();
     }
-
-    // Обновляем updated_at тикета и переводим статус в "in_progress"
-    // если тикет был в ожидании пользователя
-    let _ = sqlx::query(
-        r#"
-        UPDATE tickets
-        SET updated_at = NOW(),
-            status = CASE
-                WHEN status = 'awaiting_user' THEN 'in_progress'
-                ELSE status
-            END
-        WHERE id = $1
-        "#,
-    )
-    .bind(id)
-    .execute(&state.pool)
-    .await;
 
     // HTMX: перезагрузить страницу полностью (проще, чем частичный рендер)
     (
@@ -590,15 +567,7 @@ pub async fn assign(
         .unwrap_or_else(|| "Admin".to_string());
     let admin_tg_id = get_admin_tg_id(&state, &session_username).await;
 
-    let result = sqlx::query(
-        "UPDATE tickets SET assignee_tg_id = $1, updated_at = NOW() WHERE id = $2",
-    )
-    .bind(admin_tg_id)
-    .bind(id)
-    .execute(&state.pool)
-    .await;
-
-    match result {
+    match state.tickets_svc.assign(id, admin_tg_id).await {
         Ok(_) => (
             axum::http::StatusCode::OK,
             [(
@@ -630,22 +599,18 @@ pub async fn set_status(
         return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
 
-    // Только допустимые статусы
-    let allowed = ["open", "in_progress", "awaiting_user", "resolved", "closed"];
     let new_status = form.status.trim().to_string();
-    if !allowed.contains(&new_status.as_str()) {
-        return (axum::http::StatusCode::BAD_REQUEST, "Invalid status value").into_response();
-    }
+    let session_username = get_auth_user(&state, &jar)
+        .await
+        .unwrap_or_else(|| "Admin".to_string());
+    let admin_tg_id = get_admin_tg_id(&state, &session_username).await;
 
-    let result = sqlx::query(
-        "UPDATE tickets SET status = $1, updated_at = NOW() WHERE id = $2",
-    )
-    .bind(&new_status)
-    .bind(id)
-    .execute(&state.pool)
-    .await;
-
-    match result {
+    // tickets_service validates allowed values + sets closed_at on 'closed'.
+    match state
+        .tickets_svc
+        .set_status(id, &new_status, admin_tg_id)
+        .await
+    {
         Ok(_) => (
             axum::http::StatusCode::OK,
             [(
@@ -656,12 +621,14 @@ pub async fn set_status(
         )
             .into_response(),
         Err(e) => {
+            let msg = e.to_string();
+            let code = if msg.contains("Недопустимый") {
+                axum::http::StatusCode::BAD_REQUEST
+            } else {
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR
+            };
             error!(ticket_id = id, new_status = %new_status, "Failed to set ticket status: {e}");
-            (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to update status",
-            )
-                .into_response()
+            (code, "Failed to update status").into_response()
         }
     }
 }

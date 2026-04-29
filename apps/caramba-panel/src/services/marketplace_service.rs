@@ -366,6 +366,35 @@ impl MarketplaceService {
         Ok(())
     }
 
+    /// Marks payment_sessions older than `max_age_hours` and still in 'pending'
+    /// state as 'expired'. Returns the count of rows updated.
+    ///
+    /// Used by a daily background task — without it, abandoned checkouts (user
+    /// closed browser before paying, provider never sent a webhook, etc.)
+    /// stay 'pending' forever, polluting the dashboard's pending count and
+    /// making real stuck payments harder to spot.
+    pub async fn expire_stale_sessions(&self, max_age_hours: i64) -> Result<u64> {
+        let res = sqlx::query(
+            "UPDATE payment_sessions
+             SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+             WHERE status = 'pending'
+               AND created_at < CURRENT_TIMESTAMP - ($1 || ' hours')::INTERVAL",
+        )
+        .bind(max_age_hours.to_string())
+        .execute(&self.pool)
+        .await
+        .context("Failed to expire stale payment sessions")?;
+        let count = res.rows_affected();
+        if count > 0 {
+            tracing::info!(
+                "Expired {} stale payment sessions older than {}h",
+                count,
+                max_age_hours
+            );
+        }
+        Ok(count)
+    }
+
     pub async fn fulfill_payment(&self, session_id: Uuid) -> Result<()> {
         // 1. Fetch session
         let session = self

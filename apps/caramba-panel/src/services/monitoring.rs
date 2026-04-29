@@ -128,6 +128,23 @@ impl MonitoringService {
                         self.record_error("auto_close_stale_tickets", &e.to_string()).await;
                     }
                 }
+
+                // Same daily slot: cancel payment_sessions that have been pending
+                // for more than 24h. Without this, abandoned checkouts pile up
+                // forever (no active poll, no webhook would fix them).
+                match self.state.marketplace_service.expire_stale_sessions(24).await {
+                    Ok(_) => {
+                        self.state
+                            .task_health
+                            .record_success("expire_stale_payment_sessions")
+                            .await;
+                    }
+                    Err(e) => {
+                        error!("expire_stale_payment_sessions error: {}", e);
+                        self.record_error("expire_stale_payment_sessions", &e.to_string())
+                            .await;
+                    }
+                }
             }
 
             if minute_counter % 60 == 0 {
