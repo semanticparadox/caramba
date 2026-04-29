@@ -4,7 +4,7 @@ use serde_json::json;
 use sqlx::PgPool;
 use std::path::PathBuf;
 use tokio::fs;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::bot_manager::BotManager;
 use crate::services::notifications_service::NotificationsService;
