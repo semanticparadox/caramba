@@ -1,3 +1,4 @@
+use crate::bot::handlers::admin::handle_admin_text;
 use crate::bot::keyboards::{language_keyboard, main_menu, terms_keyboard};
 use crate::bot::translations::{t, tf};
 use crate::bot::utils::{escape_md, register_bot_message};
@@ -304,26 +305,32 @@ pub async fn message_handler(
             return Ok(());
         }
 
+        // --- Admin FSM: обрабатываем текстовые вводы в FSM-состояниях администратора ---
+        // Проверяем ДО стандартной обработки команд, чтобы не мешать нормальному флоу.
+        if state.admin_service.is_admin(tg_id).await {
+            if handle_admin_text(&bot, &msg, tg_id, text, &state).await {
+                return Ok(());
+            }
+        }
+
         // --- Admin Commands ---
         if text.starts_with("/admin") || text.starts_with("/stats") || text.starts_with("/gift ")
             || text.starts_with("/promo ") || text.starts_with("/ban ") || text.starts_with("/unban ")
         {
             let is_admin = is_admin_tg_id(&state, tg_id).await;
             if !is_admin {
+                // /admin — тихий отказ (не раскрываем команду).
+                // Другие admin-команды — явный отказ.
+                if text.starts_with("/admin") {
+                    return Ok(());
+                }
                 let _ = bot.send_message(msg.chat.id, "Access denied.").await;
                 return Ok(());
             }
 
             if text == "/admin" || text == "/admin@" || text.starts_with("/admin ") {
-                let _ = bot.send_message(msg.chat.id,
-                    "🔧 <b>Admin Commands</b>\n\n\
-                    /stats — System overview\n\
-                    /gift @username 30d — Gift subscription\n\
-                    /promo create CODE balance 500 — Create promo\n\
-                    /promo list — Active promos\n\
-                    /ban @username — Ban user\n\
-                    /unban @username — Unban user"
-                ).parse_mode(ParseMode::Html).await;
+                // Делегируем новому обработчику с inline-клавиатурой
+                let _ = crate::bot::handlers::admin::handle_admin_command(bot.clone(), msg.clone(), state.clone()).await;
                 return Ok(());
             }
 
