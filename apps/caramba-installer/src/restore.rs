@@ -89,6 +89,19 @@ pub fn run_restore(backup_path: &str) -> Result<()> {
     let sql_file = extract_dir.join("backup.sql");
     if sql_file.exists() {
         println!("\nFound database dump: {:?}", sql_file.file_name().unwrap());
+
+        // Sanity-check the dump format BEFORE we offer to restore it. A bad upload
+        // (truncated, wrong file, gzipped twice, etc.) silently piped into psql can
+        // partially corrupt the live DB. Cheap header sniff catches obvious garbage.
+        if let Err(e) = validate_pg_dump(&sql_file) {
+            return Err(anyhow!(
+                "Refusing to restore: backup.sql does not look like a PostgreSQL dump ({}). \
+                 If you generated this with `pg_dump --format=plain` and the file is intact, \
+                 please report this as a bug.",
+                e
+            ));
+        }
+
         if Confirm::new()
             .with_prompt("Do you want to try and restore this to PostgreSQL? (Requires psql)")
             .interact()?
@@ -142,5 +155,41 @@ pub fn run_restore(backup_path: &str) -> Result<()> {
     }
 
     println!("\n{}", style("Restore process completed.").green());
+    Ok(())
+}
+
+/// Sniffs the first few KB of `path` to verify it looks like a `pg_dump --format=plain`
+/// output. Rejects empty files, custom-format dumps (which need pg_restore, not psql),
+/// and obvious garbage.
+fn validate_pg_dump(path: &Path) -> Result<()> {
+    let mut file = File::open(path)?;
+    let mut head = [0u8; 4096];
+    let n = file.read(&mut head)?;
+    if n == 0 {
+        return Err(anyhow!("file is empty"));
+    }
+
+    // Custom-format pg_dump starts with "PGDMP". psql can't ingest it.
+    if head.starts_with(b"PGDMP") {
+        return Err(anyhow!(
+            "file is a pg_dump custom-format archive, not plain SQL. Use `pg_restore` instead"
+        ));
+    }
+
+    let head_str = std::str::from_utf8(&head[..n])
+        .map_err(|_| anyhow!("file is not valid UTF-8 (binary or wrong format)"))?;
+
+    let looks_like_dump = head_str.contains("PostgreSQL database dump")
+        || (head_str.trim_start().starts_with("--")
+            && (head_str.contains("CREATE ")
+                || head_str.contains("COPY ")
+                || head_str.contains("INSERT ")
+                || head_str.contains("SET ")));
+
+    if !looks_like_dump {
+        return Err(anyhow!(
+            "no recognisable pg_dump header in first 4KB"
+        ));
+    }
     Ok(())
 }

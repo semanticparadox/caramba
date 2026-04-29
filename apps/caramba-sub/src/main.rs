@@ -94,9 +94,30 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Frontend listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
+    tracing::info!("Frontend shut down cleanly");
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("install SIGINT handler");
+    };
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("install SIGTERM handler")
+            .recv()
+            .await;
+    };
+    tokio::select! {
+        _ = ctrl_c => tracing::info!("SIGINT received — initiating graceful shutdown"),
+        _ = terminate => tracing::info!("SIGTERM received — initiating graceful shutdown"),
+    }
 }
 
 #[derive(Clone)]

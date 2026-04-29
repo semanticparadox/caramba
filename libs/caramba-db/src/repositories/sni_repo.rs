@@ -119,29 +119,7 @@ impl SniRepository {
         .context("Failed to fetch blacklisted SNIs")
     }
 
-    pub async fn ensure_blocklist_table(&self) -> Result<()> {
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS sni_blacklist (
-                domain TEXT PRIMARY KEY,
-                reason TEXT,
-                blocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )",
-        )
-        .execute(&self.pool)
-        .await
-        .context("Failed to ensure sni_blacklist table")?;
-
-        // Ensure reason column exists (for backward compatibility if table existed without it)
-        let _ = sqlx::query("ALTER TABLE sni_blacklist ADD COLUMN IF NOT EXISTS reason TEXT")
-            .execute(&self.pool)
-            .await;
-
-        Ok(())
-    }
-
     pub async fn add_to_blocklist(&self, domain: &str, reason: &str) -> Result<()> {
-        self.ensure_blocklist_table().await?;
-
         sqlx::query(
             "INSERT INTO sni_blacklist (domain, reason, blocked_at)
              VALUES ($1, $2, CURRENT_TIMESTAMP)

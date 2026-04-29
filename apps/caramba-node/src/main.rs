@@ -123,8 +123,15 @@ async fn main() -> anyhow::Result<()> {
         open_firewall_ports: HashSet::new(),
     };
 
-    // Initialize HTTP Client
-    let client = reqwest::Client::new();
+    // Initialize HTTP Client with timeouts so a hung panel doesn't stall the heartbeat loop.
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|e| {
+            warn!("Failed to build configured reqwest client ({e}), falling back to default");
+            reqwest::Client::new()
+        });
 
     // 4. Fetch initial config
     info!("🔄 Fetching initial configuration from Panel...");
@@ -170,7 +177,24 @@ async fn main() -> anyhow::Result<()> {
 
     let start_time = std::time::Instant::now();
 
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .expect("install SIGTERM handler");
+    let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+        .expect("install SIGINT handler");
+
     loop {
+        tokio::select! {
+            _ = sigterm.recv() => {
+                info!("📴 SIGTERM received — shutting down node agent");
+                break;
+            }
+            _ = sigint.recv() => {
+                info!("📴 SIGINT received — shutting down node agent");
+                break;
+            }
+            _ = async {} => {}
+        }
+
         let uptime = start_time.elapsed().as_secs();
 
         // Send Heartbeat
@@ -455,6 +479,9 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     }
+
+    info!("👋 Node agent shut down cleanly");
+    Ok(())
 }
 
 #[derive(Debug)]
