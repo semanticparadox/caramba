@@ -267,12 +267,40 @@ impl StoreService {
         Ok(())
     }
 
+    /// Генерирует профиль для всех подписок пользователя (используется из команд).
+    #[allow(dead_code)]
     pub async fn generate_subscription_file(&self, user_id: i64) -> Result<String> {
         let resp: serde_json::Value = self
             .api
             .get(&format!("/users/{}/config-file", user_id))
             .await?;
         Ok(resp.to_string())
+    }
+
+    /// Генерирует профиль для конкретной подписки (используется из callback get_config_).
+    /// Пробует per-subscription endpoint; если панель возвращает ошибку — fallback на
+    /// общий endpoint пользователя.
+    /// AMBIGUOUS: когда панель реализует /subs/{id}/config-file — убрать fallback.
+    pub async fn generate_subscription_file_for_sub(
+        &self,
+        user_id: i64,
+        sub_id: i64,
+    ) -> Result<String> {
+        match self
+            .api
+            .get::<serde_json::Value>(&format!("/subs/{}/config-file?user_id={}", sub_id, user_id))
+            .await
+        {
+            Ok(resp) => Ok(resp.to_string()),
+            Err(_) => {
+                // Панель не реализовала per-sub endpoint — используем общий профиль пользователя
+                let resp: serde_json::Value = self
+                    .api
+                    .get(&format!("/users/{}/config-file", user_id))
+                    .await?;
+                Ok(resp.to_string())
+            }
+        }
     }
 
     pub async fn activate_subscription(&self, sub_id: i64, user_id: i64) -> Result<Subscription> {
