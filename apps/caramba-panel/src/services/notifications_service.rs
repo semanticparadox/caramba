@@ -93,6 +93,37 @@ impl NotificationsService {
         Ok(id)
     }
 
+    /// Saves notification to inbox WITHOUT touching bot DM. Use when the
+    /// caller already sends a richly-formatted Telegram message via
+    /// `bot_manager.send_notification` and just wants the row to appear in
+    /// the Mini App inbox.
+    pub async fn create_inbox_only(
+        &self,
+        user_id: i64,
+        category: &str,
+        severity: &str,
+        title: &str,
+        body: &str,
+        payload: Option<Value>,
+    ) -> Result<i64> {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO user_notifications
+                (user_id, category, severity, title, body, payload_json, delivered_via_bot)
+             VALUES ($1, $2, $3, $4, $5, $6, FALSE)
+             RETURNING id",
+        )
+        .bind(user_id)
+        .bind(category)
+        .bind(severity)
+        .bind(title)
+        .bind(body)
+        .bind(&payload)
+        .fetch_one(&self.pool)
+        .await
+        .context("Не удалось вставить уведомление в inbox")?;
+        Ok(id)
+    }
+
     /// Возвращает уведомления пользователя.
     ///
     /// `status_filter` может быть "unread", "read", "archived" или None (все).

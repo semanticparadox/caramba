@@ -250,6 +250,18 @@ impl MonitoringService {
                     tg_id,
                     &format!("⏰ Your subscription \"{}\" has expired. Renew to keep your VPN access.", plan_name),
                 ).await;
+                let _ = self
+                    .state
+                    .notifications_svc
+                    .create_inbox_only(
+                        *user_id,
+                        "subscription",
+                        "warning",
+                        "Subscription expired",
+                        &format!("Your \"{}\" subscription has expired. Renew to keep your VPN access.", plan_name),
+                        Some(serde_json::json!({"sub_id": sub_id, "url": "/billing"})),
+                    )
+                    .await;
             }
 
             info!(
@@ -339,6 +351,24 @@ impl MonitoringService {
                         };
 
                         let _ = self.state.bot_manager.send_notification(tg_id, &msg).await;
+                        let _ = self
+                            .state
+                            .notifications_svc
+                            .create_inbox_only(
+                                user_id,
+                                "subscription",
+                                "info",
+                                if is_ru { "Подписка автопродлена" } else { "Subscription auto-renewed" },
+                                &format!(
+                                    "{} \"{}\" — ${} · до {}",
+                                    if is_ru { "Тариф" } else { "Plan" },
+                                    plan_name,
+                                    amount_str,
+                                    expires_str
+                                ),
+                                Some(serde_json::json!({"sub_id": sub_id, "url": "/subscription"})),
+                            )
+                            .await;
 
                         info!(
                             "Auto-renewed subscription {} for user {}, charged ${:.2}, expires {}",
@@ -399,6 +429,26 @@ impl MonitoringService {
                         };
 
                         let _ = self.state.bot_manager.send_notification(tg_id, &msg).await;
+                        let _ = self
+                            .state
+                            .notifications_svc
+                            .create_inbox_only(
+                                user_id,
+                                "subscription",
+                                "error",
+                                if is_ru { "Автопродление не выполнено" } else { "Auto-renewal failed" },
+                                &format!(
+                                    "{} \"{}\" — {} ${} / {} ${}",
+                                    if is_ru { "Тариф" } else { "Plan" },
+                                    plan_name,
+                                    if is_ru { "баланс" } else { "balance" },
+                                    avail_str,
+                                    if is_ru { "требуется" } else { "required" },
+                                    req_str,
+                                ),
+                                Some(serde_json::json!({"sub_id": sub_id, "url": "/billing"})),
+                            )
+                            .await;
 
                         warn!(
                             "Auto-renewal failed for sub {} (user {}): balance={} required={}",
@@ -487,6 +537,24 @@ impl MonitoringService {
             };
 
             let _ = self.state.bot_manager.send_notification(tg_id, &msg).await;
+            let _ = self
+                .state
+                .notifications_svc
+                .create_inbox_only(
+                    user_db_id,
+                    "payment",
+                    "warning",
+                    if is_ru { "Баланс заканчивается" } else { "Balance running low" },
+                    &format!(
+                        "{} ${} · {} «{}»",
+                        if is_ru { "Текущий баланс" } else { "Current balance" },
+                        balance_str,
+                        if is_ru { "автопродление" } else { "auto-renewal of" },
+                        plan_name,
+                    ),
+                    Some(serde_json::json!({"url": "/billing"})),
+                )
+                .await;
 
             // Ставим флаг в Redis на 24 часа — не беспокоим снова до следующих суток
             if let Err(e) = self.state.redis.set(&redis_key, "1", 86400).await {
@@ -526,30 +594,58 @@ impl MonitoringService {
                     .fetch_optional(&self.state.pool)
                     .await
             {
-                let msg = match alert_type {
-                    AlertType::Traffic80 => {
+                let (msg, inbox_title, inbox_body, severity, category) = match alert_type {
+                    AlertType::Traffic80 => (
                         "⚠️ *Traffic Warning*\n\n\
                          You've used *80%* of your monthly traffic\\.\n\
-                         Consider upgrading your plan to avoid interruption\\."
-                    }
-                    AlertType::Traffic90 => {
+                         Consider upgrading your plan to avoid interruption\\.",
+                        "Traffic warning",
+                        "You've used 80% of your monthly traffic. Consider upgrading your plan.",
+                        "warning",
+                        "subscription",
+                    ),
+                    AlertType::Traffic90 => (
                         "🔶 *Traffic Critical*\n\n\
                          You've used *90%* of your traffic\\.\n\
-                         _Access will be paused when the limit is reached\\._"
-                    }
-                    AlertType::TrafficExceeded => {
+                         _Access will be paused when the limit is reached\\._",
+                        "Traffic critical",
+                        "You've used 90% of your traffic. Access will be paused at 100%.",
+                        "warning",
+                        "subscription",
+                    ),
+                    AlertType::TrafficExceeded => (
                         "🔴 *Traffic Limit Reached*\n\n\
                          Your traffic quota is exhausted\\.\n\
-                         Access has been paused\\. Upgrade or wait for the daily top\\-up to resume\\."
-                    }
-                    AlertType::Expiry3Days => {
+                         Access has been paused\\. Upgrade or wait for the daily top\\-up to resume\\.",
+                        "Traffic limit reached",
+                        "Your traffic quota is exhausted and access has been paused. Upgrade or wait for the daily top-up.",
+                        "error",
+                        "subscription",
+                    ),
+                    AlertType::Expiry3Days => (
                         "⏰ *Expiry Alert*\n\n\
                          Your subscription expires in *3 days*\\.\n\
-                         Renew now to avoid interruption\\."
-                    }
+                         Renew now to avoid interruption\\.",
+                        "Subscription expires in 3 days",
+                        "Renew now to avoid interruption.",
+                        "warning",
+                        "subscription",
+                    ),
                 };
 
                 let _ = self.state.bot_manager.send_notification(user.0, msg).await;
+                let _ = self
+                    .state
+                    .notifications_svc
+                    .create_inbox_only(
+                        user_id,
+                        category,
+                        severity,
+                        inbox_title,
+                        inbox_body,
+                        Some(serde_json::json!({"url": "/subscription"})),
+                    )
+                    .await;
             }
         }
 
