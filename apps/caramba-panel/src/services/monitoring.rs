@@ -145,6 +145,10 @@ impl MonitoringService {
                             .await;
                     }
                 }
+
+                // Ежесуточная резервная копия БД + ротация по последним 14 копиям.
+                // Число хранимых копий можно переопределить через env BACKUP_KEEP (default 14).
+                self.run_daily_backup().await;
             }
 
             if minute_counter % 60 == 0 {
@@ -667,6 +671,62 @@ impl MonitoringService {
         }
 
         Ok(())
+    }
+
+    /// Создаёт ежесуточную резервную копию базы данных и ротирует старые файлы.
+    ///
+    /// Количество хранимых копий задаётся через env BACKUP_KEEP (по умолчанию 14).
+    /// Результат записывается в task_health registry как "daily_db_backup".
+    /// При ошибке уведомляет администраторов через bot_manager.
+    async fn run_daily_backup(&self) {
+        use crate::services::backup_service;
+
+        info!("Starting daily DB backup...");
+        match backup_service::create_backup().await {
+            Ok(info) => {
+                self.state
+                    .task_health
+                    .record_success("daily_db_backup")
+                    .await;
+                info!(
+                    filename = %info.filename,
+                    size_bytes = info.size_bytes,
+                    duration_ms = info.duration_ms,
+                    "Daily DB backup completed"
+                );
+
+                // Ротация — удаляем файлы сверх лимита
+                let keep: usize = std::env::var("BACKUP_KEEP")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(14);
+
+                match backup_service::rotate(keep).await {
+                    Ok(deleted) if deleted > 0 => {
+                        info!("Backup rotation: удалено {} старых файлов", deleted);
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        error!("Backup rotation error: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Daily DB backup failed: {}", e);
+                let alert = format!(
+                    "⚠️ *Daily DB backup failed*\n\nError: `{}`\n\nCheck BACKUP_DIR permissions and pg_dump availability.",
+                    e
+                );
+                if let Some(count) = self.state.task_health.record_error("daily_db_backup", &e.to_string()).await {
+                    // Уведомляем только когда счётчик пересёк порог (не при каждой ошибке)
+                    let _ = count;
+                    self.state
+                        .bot_manager
+                        .notify_admins(&self.state.pool, &alert)
+                        .await;
+                }
+            }
+        }
     }
 
     async fn check_and_rotate_snis(&self) -> anyhow::Result<()> {
