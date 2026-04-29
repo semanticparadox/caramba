@@ -998,7 +998,11 @@ impl PayService {
             order_id, user_id
         );
         let amount_units = (amount_usd * 100.0) as i64;
-        self.store_service
+
+        // Идемпотентная запись: возвращает false если этот external_id уже был обработан.
+        // Повторный вебхук не должен повторно активировать заказ.
+        let is_new = self
+            .store_service
             .log_payment(
                 user_id,
                 method,
@@ -1007,6 +1011,24 @@ impl PayService {
                 "paid",
             )
             .await?;
+
+        if !is_new {
+            info!(
+                "Duplicate order payment ignored: method={}, external_id={:?}, order_id={}",
+                method, external_id, order_id
+            );
+            let _ = ActivityService::log(
+                &self.pool,
+                "Payment:Duplicate",
+                &format!(
+                    "Ignored duplicate order payment {} / {:?} for order #{}",
+                    method, external_id, order_id
+                ),
+            )
+            .await;
+            return Ok(());
+        }
+
         self.catalog_service.process_order_payment(order_id).await?;
 
         // Получаем tg_id пользователя — bot_manager принимает tg_id, не DB id
