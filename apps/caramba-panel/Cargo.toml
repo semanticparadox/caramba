@@ -46,6 +46,7 @@ jsonwebtoken = { version = "10.3", default-features = false, features = ["rust_c
 redis = { version = "1.0.3", features = ["tokio-comp", "tokio-rustls-comp", "connection-manager"] }
 # removal of bb8-redis and bb8
 sha2 = "0.10"
+sha1 = "0.10"
 hmac = "0.12"
 subtle = "2.6"
 md5 = "0.8"
