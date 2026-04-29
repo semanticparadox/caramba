@@ -198,12 +198,37 @@ pub async fn purchase_product(
     }
 }
 
+/// Разрешённые ключи настроек, доступные боту через API.
+/// Ключи с секретами (токены, API-ключи, пароли) здесь намеренно отсутствуют,
+/// чтобы утечка PANEL_TOKEN не давала доступ ко всем секретам.
+const BOT_SETTINGS_ALLOWLIST: &[&str] = &[
+    "brand_name",
+    "support_url",
+    "referral_enabled",
+    "referral_bonus_percent",
+    "referral_signup_bonus_cents",
+    "referred_signup_bonus_cents",
+    "free_plan_enabled",
+    "payment_testnet",
+    "bot_status",
+    "bot_username",
+    "panel_url",
+    "subscription_domain",
+];
+
 pub async fn get_settings(
     State(state): State<AppState>,
     Path(key): Path<String>,
 ) -> impl IntoResponse {
+    // Защита: разрешаем боту читать только безопасные ключи настроек.
+    // Произвольный доступ к settings по ключу позволил бы читать
+    // stripe_secret_key, bot_token и другие секреты.
+    if !BOT_SETTINGS_ALLOWLIST.contains(&key.as_str()) {
+        tracing::warn!(key = %key, "Bot API: settings key not in allowlist — rejected");
+        return (StatusCode::FORBIDDEN, "Settings key not accessible via bot API").into_response();
+    }
     let val = state.settings.get_or_default(&key, "").await;
-    Json(Some(val))
+    Json(Some(val)).into_response()
 }
 
 pub async fn get_sub_links(
@@ -258,6 +283,19 @@ pub async fn create_free_subscription(
     Json(payload): Json<CreateFreeSubscriptionRequest>,
 ) -> impl IntoResponse {
     let user_id = payload.user_id;
+
+    // Проверяем, что пользователь с таким ID реально существует в БД,
+    // чтобы не создавать подписки-сироты для несуществующих user_id
+    let user_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)")
+            .bind(user_id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or(false);
+
+    if !user_exists {
+        return (StatusCode::NOT_FOUND, "User not found").into_response();
+    }
 
     // Находим план с is_free = TRUE
     let free_plan: Option<(i64, i32)> = sqlx::query_as(
@@ -370,8 +408,9 @@ pub async fn admin_gift(
     let username = payload.get("username").and_then(|v| v.as_str()).unwrap_or("");
     let days = payload.get("days").and_then(|v| v.as_i64()).unwrap_or(0);
 
-    if username.is_empty() || days <= 0 {
-        return (StatusCode::BAD_REQUEST, "Invalid username or days").into_response();
+    // Ограничиваем days разумным диапазоном: 1..3650 (10 лет макс.)
+    if username.is_empty() || days <= 0 || days > 3650 {
+        return (StatusCode::BAD_REQUEST, "Invalid username or days (1-3650)").into_response();
     }
 
     // Find user by username
