@@ -12,6 +12,7 @@ pub mod plans;
 pub mod promo;
 pub mod settings;
 pub mod store;
+pub mod tickets;
 pub mod updates;
 pub mod users;
 
