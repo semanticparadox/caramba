@@ -2,7 +2,7 @@ use crate::AppState;
 use crate::singbox::connection_variants::available_connection_variants_for_node;
 use axum::{
     Router,
-    extract::{Path, Query, Request, State},
+    extract::{Multipart, Path, Query, Request, State},
     http::{HeaderMap, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Json},
@@ -302,6 +302,73 @@ pub fn routes(state: AppState) -> Router<AppState> {
             get(get_notification_preferences)
                 .put(update_notification_preferences)
                 .layer(middleware::from_fn_with_state(state.clone(), auth_middleware)),
+        )
+        // ----------------------------------------------------------------
+        // Система уведомлений (inbox пользователя)
+        // ----------------------------------------------------------------
+        .route(
+            "/notifications",
+            get(client_list_notifications).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/notifications/unread-count",
+            get(client_notifications_unread_count).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/notifications/read-all",
+            post(client_notifications_read_all).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/notifications/{id}/read",
+            post(client_notification_mark_read).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/notification-preferences",
+            get(client_get_notif_prefs)
+                .put(client_set_notif_prefs)
+                .layer(middleware::from_fn_with_state(state.clone(), auth_middleware)),
+        )
+        // ----------------------------------------------------------------
+        // Тикеты поддержки
+        // ----------------------------------------------------------------
+        .route(
+            "/tickets",
+            get(client_list_tickets)
+                .post(client_create_ticket)
+                .layer(middleware::from_fn_with_state(state.clone(), auth_middleware)),
+        )
+        .route(
+            "/tickets/{id}",
+            get(client_get_ticket).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/tickets/{id}/messages",
+            post(client_add_ticket_message).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/tickets/{id}/attach",
+            post(client_attach_file).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
         )
 }
 
@@ -3022,6 +3089,413 @@ async fn extend_subscription(
         Err(e) => {
             tracing::warn!(user_id, sub_id, error = %e, "extend_subscription failed");
             (StatusCode::BAD_REQUEST, e.to_string()).into_response()
+        }
+    }
+}
+
+// ============================================================================
+// Helpers — получить user_id из JWT-токена
+// ============================================================================
+
+async fn resolve_user_id(state: &AppState, tg_id: i64) -> Option<i64> {
+    sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None)
+}
+
+// ============================================================================
+// Уведомления пользователя (inbox Mini App)
+// ============================================================================
+
+#[derive(Deserialize)]
+struct NotifListQuery {
+    status: Option<String>,
+    #[serde(default = "default_limit")]
+    limit: i64,
+    #[serde(default)]
+    offset: i64,
+}
+
+fn default_limit() -> i64 {
+    50
+}
+
+/// GET /api/client/notifications
+async fn client_list_notifications(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Query(q): Query<NotifListQuery>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id = match resolve_user_id(&state, tg_id).await {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    let limit = q.limit.clamp(1, 200);
+    let offset = q.offset.max(0);
+    let status_ref = q.status.as_deref();
+
+    match state
+        .notifications_svc
+        .list(user_id, status_ref, limit, offset)
+        .await
+    {
+        Ok(items) => Json(items).into_response(),
+        Err(e) => {
+            tracing::error!("client_list_notifications error: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// GET /api/client/notifications/unread-count
+async fn client_notifications_unread_count(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id = match resolve_user_id(&state, tg_id).await {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    match state.notifications_svc.unread_count(user_id).await {
+        Ok(count) => Json(serde_json::json!({ "count": count })).into_response(),
+        Err(e) => {
+            tracing::error!("client_notifications_unread_count error: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// POST /api/client/notifications/read-all
+async fn client_notifications_read_all(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id = match resolve_user_id(&state, tg_id).await {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    match state.notifications_svc.mark_all_read(user_id).await {
+        Ok(count) => Json(serde_json::json!({ "count": count })).into_response(),
+        Err(e) => {
+            tracing::error!("client_notifications_read_all error: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// POST /api/client/notifications/{id}/read
+async fn client_notification_mark_read(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path(notif_id): Path<i64>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id = match resolve_user_id(&state, tg_id).await {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    match state
+        .notifications_svc
+        .mark_read(user_id, notif_id)
+        .await
+    {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!("client_notification_mark_read error: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+// ============================================================================
+// Настройки каналов уведомлений
+// ============================================================================
+
+#[derive(Deserialize, Serialize)]
+struct NotifPrefItem {
+    category: String,
+    channel: String,
+    enabled: bool,
+}
+
+/// GET /api/client/notification-preferences
+async fn client_get_notif_prefs(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id = match resolve_user_id(&state, tg_id).await {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    match state.notifications_svc.get_preferences(user_id).await {
+        Ok(prefs) => Json(prefs).into_response(),
+        Err(e) => {
+            tracing::error!("client_get_notif_prefs error: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// PUT /api/client/notification-preferences
+async fn client_set_notif_prefs(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Json(body): Json<Vec<NotifPrefItem>>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id = match resolve_user_id(&state, tg_id).await {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    let prefs = body
+        .into_iter()
+        .map(|p| caramba_db::models::notifications::NotificationChannelPref {
+            user_id,
+            category: p.category,
+            channel: p.channel,
+            enabled: p.enabled,
+        })
+        .collect();
+
+    match state
+        .notifications_svc
+        .set_preferences(user_id, prefs)
+        .await
+    {
+        Ok(_) => Json(serde_json::json!({ "ok": true })).into_response(),
+        Err(e) => {
+            tracing::error!("client_set_notif_prefs error: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+// ============================================================================
+// Тикеты поддержки — клиентские эндпоинты
+// ============================================================================
+
+#[derive(Deserialize)]
+struct CreateTicketReq {
+    category: String,
+    subject: String,
+    body: String,
+    related_payment_id: Option<i64>,
+    related_subscription_id: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct AddTicketMessageReq {
+    body: String,
+    #[serde(default)]
+    attachment_ids: Vec<i64>,
+}
+
+/// GET /api/client/tickets
+async fn client_list_tickets(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id = match resolve_user_id(&state, tg_id).await {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    match state.tickets_svc.list_user_tickets(user_id).await {
+        Ok(tickets) => Json(tickets).into_response(),
+        Err(e) => {
+            tracing::error!("client_list_tickets error: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// GET /api/client/tickets/{id}
+async fn client_get_ticket(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path(ticket_id): Path<i64>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id = match resolve_user_id(&state, tg_id).await {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    match state
+        .tickets_svc
+        .get_ticket(ticket_id, false, Some(user_id))
+        .await
+    {
+        Ok((ticket, messages)) => {
+            Json(serde_json::json!({ "ticket": ticket, "messages": messages })).into_response()
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("не найден") {
+                (StatusCode::NOT_FOUND, msg).into_response()
+            } else if msg.contains("запрещён") {
+                (StatusCode::FORBIDDEN, msg).into_response()
+            } else {
+                tracing::error!("client_get_ticket error: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            }
+        }
+    }
+}
+
+/// POST /api/client/tickets
+async fn client_create_ticket(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Json(body): Json<CreateTicketReq>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id = match resolve_user_id(&state, tg_id).await {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    match state
+        .tickets_svc
+        .create_ticket(
+            user_id,
+            &body.category,
+            &body.subject,
+            &body.body,
+            body.related_payment_id,
+            body.related_subscription_id,
+        )
+        .await
+    {
+        Ok(ticket) => (StatusCode::CREATED, Json(ticket)).into_response(),
+        Err(e) => {
+            tracing::error!("client_create_ticket error: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+/// POST /api/client/tickets/{id}/messages
+async fn client_add_ticket_message(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path(ticket_id): Path<i64>,
+    Json(body): Json<AddTicketMessageReq>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id = match resolve_user_id(&state, tg_id).await {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    match state
+        .tickets_svc
+        .add_user_message(ticket_id, user_id, &body.body, body.attachment_ids)
+        .await
+    {
+        Ok(msg) => (StatusCode::CREATED, Json(msg)).into_response(),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("запрещён") {
+                (StatusCode::FORBIDDEN, msg).into_response()
+            } else if msg.contains("не найден") {
+                (StatusCode::NOT_FOUND, msg).into_response()
+            } else if msg.contains("закрыт") {
+                (StatusCode::UNPROCESSABLE_ENTITY, msg).into_response()
+            } else {
+                tracing::error!("client_add_ticket_message error: {}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
+            }
+        }
+    }
+}
+
+/// POST /api/client/tickets/{id}/attach  — multipart upload
+/// Возвращает 201 + {"attachment_id": N}
+async fn client_attach_file(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path(ticket_id): Path<i64>,
+    mut multipart: Multipart,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+    let user_id = match resolve_user_id(&state, tg_id).await {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+
+    // Проверяем права доступа к тикету
+    let owner_id: Option<i64> =
+        sqlx::query_scalar("SELECT user_id FROM tickets WHERE id = $1")
+            .bind(ticket_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
+
+    match owner_id {
+        None => return (StatusCode::NOT_FOUND, "Ticket not found").into_response(),
+        Some(oid) if oid != user_id => {
+            return (StatusCode::FORBIDDEN, "Access denied").into_response()
+        }
+        _ => {}
+    }
+
+    // Читаем первое поле multipart (файл)
+    let field = match multipart.next_field().await {
+        Ok(Some(f)) => f,
+        Ok(None) => return (StatusCode::BAD_REQUEST, "No file provided").into_response(),
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+
+    let filename = field
+        .file_name()
+        .unwrap_or("upload")
+        .to_string();
+
+    let content_type = field.content_type().map(|s| s.to_string());
+
+    let data = match field.bytes().await {
+        Ok(b) => b,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+
+    match state
+        .tickets_svc
+        .attach_file(
+            ticket_id,
+            None,
+            &filename,
+            content_type.as_deref(),
+            &data,
+        )
+        .await
+    {
+        Ok(att) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({ "attachment_id": att.id })),
+        )
+            .into_response(),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("слишком большой") || msg.contains("Недопустимый тип") {
+                (StatusCode::UNPROCESSABLE_ENTITY, msg).into_response()
+            } else {
+                tracing::error!("client_attach_file error: {}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
+            }
         }
     }
 }
