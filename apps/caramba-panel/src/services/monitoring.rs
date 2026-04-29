@@ -113,6 +113,23 @@ impl MonitoringService {
                 }
             }
 
+            // Каждые 2880 тиков (24 часа при тике 30 сек): автоматическое закрытие
+            // тикетов, ожидающих ответа пользователя больше 7 дней.
+            if minute_counter % 2880 == 0 {
+                match self.state.tickets_svc.auto_close_stale().await {
+                    Ok(n) => {
+                        self.state.task_health.record_success("auto_close_stale_tickets").await;
+                        if n > 0 {
+                            info!("auto_close_stale_tickets: закрыто {} тикетов", n);
+                        }
+                    }
+                    Err(e) => {
+                        error!("auto_close_stale_tickets error: {}", e);
+                        self.record_error("auto_close_stale_tickets", &e.to_string()).await;
+                    }
+                }
+            }
+
             if minute_counter % 60 == 0 {
                 match self.check_and_rotate_snis().await {
                     Ok(_) => self.state.task_health.record_success("check_and_rotate_snis").await,
@@ -634,6 +651,11 @@ impl MonitoringService {
         }
         Ok(())
     }
+}
+
+/// Публичная обёртка над escape_md — используется другими сервисами.
+pub fn escape_md_pub(s: &str) -> String {
+    escape_md(s)
 }
 
 /// Экранирует специальные символы MarkdownV2 для Telegram.
