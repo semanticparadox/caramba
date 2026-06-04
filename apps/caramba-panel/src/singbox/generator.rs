@@ -23,6 +23,31 @@ fn derive_relay_password(join_token: &str, target_node_id: i64) -> String {
     hex::encode(digest)
 }
 
+/// Deterministic base64 PSK (16 bytes) for the loopback Shadowsocks data
+/// backend that pairs with a ShadowTLS inbound. `2022-blake3-aes-128-gcm`
+/// requires a key of exactly 16 bytes, base64-encoded.
+fn derive_stls_backend_password(node_id: i64, tag: &str) -> String {
+    use base64::Engine;
+    let mut hasher = Sha256::new();
+    hasher.update(node_id.to_string().as_bytes());
+    hasher.update(b":shadowtls-backend:");
+    hasher.update(tag.as_bytes());
+    let digest = hasher.finalize();
+    base64::engine::general_purpose::STANDARD.encode(&digest[..16])
+}
+
+/// Stable loopback port for a ShadowTLS data backend, derived from the inbound
+/// tag and kept in the 20000-39999 range to avoid colliding with public
+/// inbounds (which bind real ports on 0.0.0.0).
+fn derive_stls_backend_port(tag: &str) -> u16 {
+    let mut hasher = Sha256::new();
+    hasher.update(b"shadowtls-backend-port:");
+    hasher.update(tag.as_bytes());
+    let digest = hasher.finalize();
+    let raw = u16::from_be_bytes([digest[0], digest[1]]);
+    20000 + (raw % 20000)
+}
+
 impl ConfigGenerator {
     /// Generates a complete Sing-box configuration from a list of database
     /// Inbounds using the default (no-op) [`ConfigPolicy`]. The output is
@@ -450,8 +475,9 @@ impl ConfigGenerator {
                     // (jc/jmin/jmax/s1/s2/h1..h4). Emitting such an inbound makes
                     // `sing-box check` FAIL, which brings down the ENTIRE node config
                     // (every other protocol included). Skip it so the rest of the node
-                    // keeps serving. Proper resolution (ship an AmneziaWG fork or drop
-                    // the protocol from the UI) tracked in bd: caramba-5p2.
+                    // keeps serving. The protocol is hidden by default behind the
+                    // CARAMBA_ENABLE_AMNEZIAWG flag (see crate::utils); emitting a
+                    // real inbound requires shipping an AmneziaWG sing-box fork.
                     error!(
                         "🚫 AmneziaWG inbound '{}' SKIPPED: official sing-box cannot run a `wireguard` inbound with AmneziaWG fields. Other inbounds on this node are unaffected.",
                         inbound.tag
@@ -833,7 +859,9 @@ impl ConfigGenerator {
                         tag: inbound.tag,
                         listen: inbound.listen_ip,
                         listen_port: inbound.listen_port as u16,
+                        network: None,
                         method: ss.method,
+                        password: None,
                         users,
                         multiplex: None,
                     }));
@@ -856,8 +884,18 @@ impl ConfigGenerator {
                         continue;
                     }
 
+                    // ShadowTLS only camouflages the TLS handshake; it carries no
+                    // user data on its own. It MUST `detour` decrypted connections
+                    // into a backing data inbound, otherwise the handshake succeeds
+                    // but the tunnel is dead (caramba-jbu). We pair it with a
+                    // loopback-only Shadowsocks inbound (the real encrypted tunnel).
+                    let stls_tag = inbound.tag;
+                    let backend_tag = format!("{stls_tag}-st-backend");
+                    let backend_password = derive_stls_backend_password(node.id, &stls_tag);
+                    let backend_port = derive_stls_backend_port(&stls_tag);
+
                     generated_inbounds.push(Inbound::Shadowtls(ShadowtlsInbound {
-                        tag: inbound.tag,
+                        tag: stls_tag,
                         listen: inbound.listen_ip,
                         listen_port: inbound.listen_port as u16,
                         version: Some(3),
@@ -867,7 +905,22 @@ impl ConfigGenerator {
                             server_port: stls.handshake.server_port,
                         },
                         strict_mode: Some(stls.strict_mode),
-                        detour: None,
+                        detour: Some(backend_tag.clone()),
+                    }));
+
+                    // Hidden data inbound: bound to 127.0.0.1 so it is never
+                    // reachable directly; only the ShadowTLS detour injects
+                    // connections. Single-password 2022 cipher (ShadowTLS handles
+                    // per-user auth at the outer layer).
+                    generated_inbounds.push(Inbound::Shadowsocks(ShadowsocksInbound {
+                        tag: backend_tag,
+                        listen: "127.0.0.1".to_string(),
+                        listen_port: backend_port,
+                        network: Some("tcp".to_string()),
+                        method: "2022-blake3-aes-128-gcm".to_string(),
+                        password: Some(backend_password),
+                        users: Vec::new(),
+                        multiplex: None,
                     }));
                 }
             }
@@ -1191,11 +1244,18 @@ impl ConfigGenerator {
                     Some(rule_sets)
                 },
             }),
-            // Enable Clash API for device monitoring and limit enforcement
+            // Enable Clash API for device monitoring and limit enforcement.
+            // The secret (provisioned per-node by orchestration) makes the
+            // external controller require a Bearer token (caramba-4cs).
             experimental: Some(ExperimentalConfig {
                 clash_api: ClashApiConfig {
                     external_controller: "0.0.0.0:9090".to_string(),
-                    secret: None,
+                    secret: node
+                        .clash_api_secret
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string()),
                     external_ui: None,
                     access_control_allow_origin: Some(vec!["*".to_string()]),
                     access_control_allow_private_network: Some(true),

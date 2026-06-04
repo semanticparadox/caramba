@@ -20,6 +20,25 @@ pub fn format_bytes(s: &i64) -> Result<String> {
     Ok(format_bytes_str(*s as u64))
 }
 
+/// Feature flag: AmneziaWG support.
+///
+/// Disabled by default. Official sing-box (installed from deb.sagernet.org) has
+/// NO `wireguard` INBOUND type and does not understand AmneziaWG obfuscation
+/// fields, so an AmneziaWG inbound makes `sing-box check` FAIL and takes down the
+/// whole node config. Until nodes ship an AmneziaWG-capable sing-box fork, the
+/// protocol is hidden: creation is rejected and it is omitted from subscriptions.
+///
+/// Set `CARAMBA_ENABLE_AMNEZIAWG=1` (or `true`/`yes`/`on`) to re-enable.
+pub fn amneziawg_enabled() -> bool {
+    matches!(
+        std::env::var("CARAMBA_ENABLE_AMNEZIAWG")
+            .ok()
+            .map(|v| v.trim().to_ascii_lowercase())
+            .as_deref(),
+        Some("1") | Some("true") | Some("yes") | Some("on")
+    )
+}
+
 // Askama filters are functions.
 // I can define `format_bytes_i64` or just expect i64 since DB uses i64.
 

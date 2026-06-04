@@ -215,6 +215,10 @@ fn build_singbox_outbound(
     if matches!(si.network.as_str(), "xhttp" | "splithttp") {
         return None;
     }
+    // AmneziaWG is hidden unless explicitly enabled (no client/server support yet).
+    if inbound.protocol.eq_ignore_ascii_case("amneziawg") && !crate::utils::amneziawg_enabled() {
+        return None;
+    }
 
     let mut ob = json!({ "tag": tag });
 
@@ -826,6 +830,11 @@ pub fn generate_v2ray_config(
                 if !inbound.enable {
                     continue;
                 }
+                if inbound.protocol.eq_ignore_ascii_case("amneziawg")
+                    && !crate::utils::amneziawg_enabled()
+                {
+                    continue;
+                }
                 let si = parse_stream_settings(&inbound.stream_settings, node);
 
                 // XHTTP / SplitHTTP IS valid in V2Ray base64 links because those
@@ -1158,6 +1167,12 @@ pub fn generate_clash_config(
                 let is_relay_path = node.relay_info.is_some();
                 let relay_suffix = if is_relay_path { " ↪" } else { "" };
                 let name = format!("{} {}{}", node_label, proto_label, relay_suffix);
+
+                if inbound.protocol.eq_ignore_ascii_case("amneziawg")
+                    && !crate::utils::amneziawg_enabled()
+                {
+                    continue;
+                }
 
                 // XHTTP / SplitHTTP is a proprietary Xray-core transport that
                 // Clash Meta does not support.  Skip it here; it still appears

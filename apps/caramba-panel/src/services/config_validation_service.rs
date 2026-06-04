@@ -1,6 +1,6 @@
 use caramba_db::models::network::{
-    AmneziaWgSettings, Hysteria2Settings, NaiveSettings, ShadowsocksSettings, StreamSettings,
-    TrojanSettings, TuicSettings, VlessSettings,
+    AmneziaWgSettings, Hysteria2Settings, NaiveSettings, ShadowsocksSettings, ShadowtlsSettings,
+    StreamSettings, TrojanSettings, TuicSettings, VlessSettings,
 };
 use jsonschema::{Validator, draft7};
 use serde_json::{Value, json};
@@ -156,6 +156,26 @@ static SHADOWSOCKS_SETTINGS_VALIDATOR: LazyLock<Validator> = LazyLock::new(|| {
     .expect("shadowsocks schema must compile")
 });
 
+static SHADOWTLS_SETTINGS_VALIDATOR: LazyLock<Validator> = LazyLock::new(|| {
+    draft7::new(&json!({
+        "type": "object",
+        "properties": {
+            "users": { "type": "array", "minItems": 1 },
+            "handshake": {
+                "type": "object",
+                "properties": {
+                    "server": { "type": "string" },
+                    "server_port": { "type": "integer" }
+                },
+                "required": ["server", "server_port"]
+            },
+            "strict_mode": { "type": "boolean" }
+        },
+        "required": ["users", "handshake"]
+    }))
+    .expect("shadowtls schema must compile")
+});
+
 static NAIVE_SETTINGS_VALIDATOR: LazyLock<Validator> = LazyLock::new(|| {
     draft7::new(&json!({
         "type": "object",
@@ -189,6 +209,18 @@ impl ConfigValidationService {
         settings_json: &str,
         stream_settings_json: &str,
     ) -> Result<(), String> {
+        if protocol.trim().eq_ignore_ascii_case("amneziawg")
+            && !crate::utils::amneziawg_enabled()
+        {
+            return Err(
+                "AmneziaWG is currently disabled: official sing-box cannot run a WireGuard \
+                 inbound with AmneziaWG obfuscation fields, so it would break the node config. \
+                 Set CARAMBA_ENABLE_AMNEZIAWG=1 only when your nodes run an AmneziaWG-capable \
+                 sing-box fork."
+                    .to_string(),
+            );
+        }
+
         let settings = parse_object_json(settings_json, "settings")?;
         let stream_settings = parse_object_json(stream_settings_json, "stream settings")?;
 
@@ -261,6 +293,11 @@ fn validate_domain_settings(protocol: &str, raw: &str, value: &Value) -> Result<
             serde_json::from_str::<ShadowsocksSettings>(raw)
                 .map_err(|error| format!("Invalid Shadowsocks settings payload: {error}"))?;
         }
+        "shadowtls" => {
+            validate_schema(value, &SHADOWTLS_SETTINGS_VALIDATOR, "ShadowTLS settings")?;
+            serde_json::from_str::<ShadowtlsSettings>(raw)
+                .map_err(|error| format!("Invalid ShadowTLS settings payload: {error}"))?;
+        }
         "naive" => {
             validate_schema(value, &NAIVE_SETTINGS_VALIDATOR, "Naive settings")?;
             serde_json::from_str::<NaiveSettings>(raw)
@@ -318,5 +355,44 @@ mod tests {
         );
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn rejects_amneziawg_when_flag_disabled() {
+        // CARAMBA_ENABLE_AMNEZIAWG is unset by default → creation must be refused
+        // regardless of payload validity, before any schema checks run.
+        let result = ConfigValidationService::validate_inbound_json(
+            "amneziawg",
+            r#"{}"#,
+            r#"{}"#,
+        );
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("AmneziaWG is currently disabled"));
+    }
+
+    #[test]
+    fn accepts_valid_shadowtls_payload() {
+        let result = ConfigValidationService::validate_inbound_json(
+            "shadowtls",
+            r#"{"users":[{"password":"secret"}],"handshake":{"server":"www.microsoft.com","server_port":443},"strict_mode":true}"#,
+            r#"{"network":"tcp"}"#,
+        );
+
+        assert!(result.is_ok(), "valid shadowtls rejected: {result:?}");
+    }
+
+    #[test]
+    fn rejects_shadowtls_without_handshake() {
+        // A ShadowTLS inbound with no handshake target would pass through the
+        // generator but fail at `sing-box check`; reject it before persisting.
+        let result = ConfigValidationService::validate_inbound_json(
+            "shadowtls",
+            r#"{"users":[{"password":"secret"}]}"#,
+            r#"{"network":"tcp"}"#,
+        );
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("ShadowTLS settings"));
     }
 }

@@ -141,7 +141,12 @@ pub struct ShadowsocksInbound {
     pub tag: String,
     pub listen: String,
     pub listen_port: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network: Option<String>,
     pub method: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub users: Vec<ShadowsocksUser>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub multiplex: Option<MultiplexConfig>,

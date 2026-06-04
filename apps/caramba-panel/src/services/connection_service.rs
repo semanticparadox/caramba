@@ -57,6 +57,7 @@ pub struct ClashConnectionsResponse {
 struct NodeConnectionRef {
     node_host: String,
     connection_id: String,
+    secret: Option<String>,
 }
 
 /// Connection monitoring and device limit enforcement service
@@ -133,7 +134,7 @@ impl ConnectionService {
             if node.status != "active" {
                 continue;
             }
-            match self.fetch_node_connections(&node.ip).await {
+            match self.fetch_node_connections(&node.ip, node.clash_api_secret.as_deref()).await {
                 Ok(connections) => {
                     info!(
                         "Fetched {} connections from node {}",
@@ -190,6 +191,7 @@ impl ConnectionService {
                                 .push(NodeConnectionRef {
                                     node_host: node.ip.clone(),
                                     connection_id: conn.id.clone(),
+                                    secret: node.clash_api_secret.clone(),
                                 });
                         }
                     }
@@ -220,11 +222,18 @@ impl ConnectionService {
     }
 
     /// Fetch active connections from a node's Clash API
-    async fn fetch_node_connections(&self, node_host: &str) -> Result<Vec<ClashConnection>> {
+    async fn fetch_node_connections(
+        &self,
+        node_host: &str,
+        secret: Option<&str>,
+    ) -> Result<Vec<ClashConnection>> {
         let url = format!("http://{}:9090/connections", node_host);
 
-        let response = self.http_client
-            .get(&url)
+        let mut request = self.http_client.get(&url);
+        if let Some(token) = secret.filter(|s| !s.is_empty()) {
+            request = request.bearer_auth(token);
+        }
+        let response = request
             .send()
             .await
             .with_context(|| format!("Failed to fetch connections from {}", node_host))?;
@@ -376,7 +385,7 @@ impl ConnectionService {
                 if let Some(connections) = by_ip.get(ip) {
                     for conn in connections {
                         match self
-                            .close_connection(&conn.node_host, &conn.connection_id)
+                            .close_connection(&conn.node_host, &conn.connection_id, conn.secret.as_deref())
                             .await
                         {
                             Ok(_) => killed += 1,
@@ -417,7 +426,7 @@ impl ConnectionService {
         let target_user = format!("user_{}", sub_id);
 
         for node in nodes {
-            match self.fetch_node_connections(&node.ip).await {
+            match self.fetch_node_connections(&node.ip, node.clash_api_secret.as_deref()).await {
                 Ok(connections) => {
                     for conn in connections {
                         // Check metadata.user
@@ -433,7 +442,7 @@ impl ConnectionService {
                                 "Killing connection {} on node {} for {}",
                                 conn.id, node.name, target_user
                             );
-                            if let Err(e) = self.close_connection(&node.ip, &conn.id).await {
+                            if let Err(e) = self.close_connection(&node.ip, &conn.id, node.clash_api_secret.as_deref()).await {
                                 error!(
                                     "Failed to close connection {} on {}: {}",
                                     conn.id, node.name, e
@@ -452,11 +461,19 @@ impl ConnectionService {
     }
 
     /// Close a specific connection on a node via Clash API
-    async fn close_connection(&self, node_host: &str, connection_id: &str) -> Result<()> {
+    async fn close_connection(
+        &self,
+        node_host: &str,
+        connection_id: &str,
+        secret: Option<&str>,
+    ) -> Result<()> {
         let url = format!("http://{}:9090/connections/{}", node_host, connection_id);
 
-        let response = self.http_client
-            .delete(&url)
+        let mut request = self.http_client.delete(&url);
+        if let Some(token) = secret.filter(|s| !s.is_empty()) {
+            request = request.bearer_auth(token);
+        }
+        let response = request
             .send()
             .await
             .with_context(|| format!("Failed to delete connection on {}", node_host))?;

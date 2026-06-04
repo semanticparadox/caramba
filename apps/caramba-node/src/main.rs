@@ -18,6 +18,43 @@ const SNI_ROTATION_COOLDOWN_SECS: u64 = 1800; // 30 минут
 /// Максимум ротаций SNI за один час работы агента.
 const SNI_MAX_ROTATIONS_PER_HOUR: u32 = 3;
 
+/// Current Clash API secret, parsed from the active sing-box config.
+/// The panel now emits `experimental.clash_api.secret`, so all local Clash
+/// queries (:9090) must send it as a Bearer token (caramba-4cs).
+static CLASH_SECRET: std::sync::OnceLock<std::sync::RwLock<Option<String>>> =
+    std::sync::OnceLock::new();
+
+fn clash_secret_cell() -> &'static std::sync::RwLock<Option<String>> {
+    CLASH_SECRET.get_or_init(|| std::sync::RwLock::new(None))
+}
+
+/// Extract `experimental.clash_api.secret` from a sing-box config value and
+/// cache it for subsequent Clash API calls.
+fn refresh_clash_secret(config: &serde_json::Value) {
+    let secret = config
+        .get("experimental")
+        .and_then(|e| e.get("clash_api"))
+        .and_then(|c| c.get("secret"))
+        .and_then(|s| s.as_str())
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty());
+    if let Ok(mut guard) = clash_secret_cell().write() {
+        *guard = secret;
+    }
+}
+
+fn clash_secret() -> Option<String> {
+    clash_secret_cell().read().ok().and_then(|g| g.clone())
+}
+
+/// Attach the Clash API Bearer token to a request when one is configured.
+fn with_clash_auth(req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+    match clash_secret() {
+        Some(s) if !s.is_empty() => req.header("Authorization", format!("Bearer {}", s)),
+        _ => req,
+    }
+}
+
 fn init_rustls_provider() {
     // rustls 0.23 requires explicit process-wide provider in some feature combinations.
     if tokio_rustls::rustls::crypto::CryptoProvider::get_default().is_none() {
@@ -666,8 +703,7 @@ fn extract_counter_field(obj: &serde_json::Value, keys: &[&str]) -> Option<u64> 
 }
 
 async fn fetch_clash_connections(client: &reqwest::Client) -> Option<Vec<serde_json::Value>> {
-    let resp = client
-        .get("http://127.0.0.1:9090/connections")
+    let resp = with_clash_auth(client.get("http://127.0.0.1:9090/connections"))
         .timeout(Duration::from_secs(2))
         .send()
         .await
@@ -682,8 +718,7 @@ async fn fetch_clash_connections(client: &reqwest::Client) -> Option<Vec<serde_j
 }
 
 async fn collect_total_traffic(client: &reqwest::Client) -> Option<(u64, u64)> {
-    if let Ok(resp) = client
-        .get("http://127.0.0.1:9090/traffic")
+    if let Ok(resp) = with_clash_auth(client.get("http://127.0.0.1:9090/traffic"))
         .timeout(Duration::from_secs(2))
         .send()
         .await
@@ -859,6 +894,8 @@ async fn check_and_update_config(
         // Save new config
         save_config(config_path, &config_resp.content).await?;
         state.current_hash = Some(config_resp.hash);
+        // Pick up a (possibly rotated) Clash API secret before restart.
+        refresh_clash_secret(&config_resp.content);
 
         // Sync firewall ports before restarting
         sync_firewall(&config_resp.content, state);
@@ -869,6 +906,11 @@ async fn check_and_update_config(
         info!("✅ Config updated and service restarted");
     } else {
         info!("✓ Config up to date");
+        // Ensure the cached Clash secret is populated even when the config
+        // did not change across an agent restart.
+        if clash_secret().is_none() {
+            refresh_clash_secret(&config_resp.content);
+        }
     }
 
     Ok(())
@@ -1534,8 +1576,7 @@ async fn count_active_connections(client: &reqwest::Client) -> Option<u32> {
     // Count unique authenticated identities only (user tags / UUID chains),
     // so scanner/background sockets do not inflate user counts.
 
-    if let Ok(resp) = client
-        .get("http://127.0.0.1:9090/connections")
+    if let Ok(resp) = with_clash_auth(client.get("http://127.0.0.1:9090/connections"))
         .timeout(Duration::from_secs(2))
         .send()
         .await

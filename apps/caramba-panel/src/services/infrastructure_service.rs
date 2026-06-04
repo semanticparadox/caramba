@@ -145,6 +145,7 @@ impl InfrastructureService {
             last_sni_rotation: None,
             sni_renew_interval_hours: None,
             config_profile_id: None,
+            clash_api_secret: None,
         };
 
         let id = self.node_repo.create_node(&node).await?;

@@ -109,6 +109,7 @@ mod tests {
             last_sni_rotation: None,
             sni_renew_interval_hours: None,
             config_profile_id: None,
+            clash_api_secret: None,
         }
     }
 
@@ -867,6 +868,7 @@ mod tests {
             last_sni_rotation: None,
             sni_renew_interval_hours: None,
             config_profile_id: None,
+            clash_api_secret: None,
         };
 
         // 2. Create Mock Inbound
@@ -1046,6 +1048,82 @@ mod tests {
             .expect("tuic inbound present");
         assert_eq!(tuic2["auth_timeout"], "3s");
         assert_eq!(tuic2["heartbeat"], "10s");
+    }
+
+    #[test]
+    fn test_shadowtls_inbound_detours_to_loopback_backend() {
+        // Regression (caramba-jbu): ShadowTLS only camouflages the TLS
+        // handshake; it carries no user data by itself. Without a `detour` to a
+        // backing data inbound the handshake succeeds but the tunnel is dead.
+        // The generator must emit the ShadowTLS inbound WITH a detour plus a
+        // loopback-only Shadowsocks data backend.
+        use crate::singbox::{ConfigGenerator, RelayAuthMode};
+
+        let node = create_base_enterprise_node(42, "Stls-Node", "203.0.113.20");
+        let inbound = Inbound {
+            id: 1,
+            node_id: 42,
+            tag: "stls-443".to_string(),
+            protocol: "shadowtls".to_string(),
+            listen_port: 443,
+            listen_ip: "0.0.0.0".to_string(),
+            settings: json!({
+                "protocol": "shadowtls",
+                "users": [{ "password": "secret-pw" }],
+                "handshake": { "server": "www.microsoft.com", "server_port": 443 },
+                "strict_mode": true
+            })
+            .to_string(),
+            stream_settings: "{}".to_string(),
+            remark: None,
+            enable: true,
+            renew_interval_mins: 0,
+            port_range_start: 0,
+            port_range_end: 0,
+            last_rotated_at: None,
+            created_at: None,
+        };
+
+        let cfg = ConfigGenerator::generate_config(
+            &node,
+            vec![inbound],
+            None,
+            None,
+            vec![],
+            RelayAuthMode::V1,
+        );
+        let v = serde_json::to_value(&cfg).unwrap();
+        let inbounds = v["inbounds"].as_array().unwrap();
+
+        let stls = inbounds
+            .iter()
+            .find(|i| i["type"] == "shadowtls")
+            .expect("shadowtls inbound present");
+        let detour = stls["detour"]
+            .as_str()
+            .expect("shadowtls inbound must carry a detour");
+        assert_eq!(detour, "stls-443-st-backend");
+
+        let backend = inbounds
+            .iter()
+            .find(|i| i["type"] == "shadowsocks" && i["tag"] == detour)
+            .expect("loopback shadowsocks backend present");
+        assert_eq!(
+            backend["listen"], "127.0.0.1",
+            "backend must be loopback-only, got: {backend:?}"
+        );
+        assert_eq!(backend["method"], "2022-blake3-aes-128-gcm");
+        assert!(
+            backend["password"].is_string(),
+            "backend must carry a single password, got: {backend:?}"
+        );
+        assert_eq!(backend["network"], "tcp");
+        assert!(
+            backend.get("users").is_none(),
+            "backend must not expose a multi-user array, got: {backend:?}"
+        );
+        // The data backend must never share the public ShadowTLS port.
+        assert_ne!(backend["listen_port"], stls["listen_port"]);
     }
 
     #[test]

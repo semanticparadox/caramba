@@ -105,6 +105,11 @@ pub struct Node {
     /// precedence: beats any group profile and the global default.
     #[sqlx(default)]
     pub config_profile_id: Option<i64>,
+    /// Secret for the node's Clash API (external_controller :9090). Emitted as
+    /// clash_api.secret and sent as a Bearer token by the panel. NULL until the
+    /// panel lazily provisions one on the next config build (caramba-4cs).
+    #[sqlx(default)]
+    pub clash_api_secret: Option<String>,
 }
 
 impl Node {

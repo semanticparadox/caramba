@@ -936,6 +936,20 @@ impl OrchestrationService {
             }
         }
 
+        // Lazily provision a Clash API secret so the external controller (:9090)
+        // is not reachable without a Bearer token (caramba-4cs). Persisted via the
+        // same needs_node_update path; the panel sends it on every Clash request.
+        if node
+            .clash_api_secret
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        {
+            node.clash_api_secret = Some(uuid::Uuid::new_v4().simple().to_string());
+            needs_node_update = true;
+        }
+
         if needs_node_update {
             self.node_repo.update_node(&node).await?;
         }

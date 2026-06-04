@@ -196,6 +196,10 @@ impl NodeRepository {
                 .try_get::<Option<i64>, _>("config_profile_id")
                 .ok()
                 .flatten(),
+            clash_api_secret: row
+                .try_get::<Option<String>, _>("clash_api_secret")
+                .ok()
+                .flatten(),
         }
     }
 
@@ -530,8 +534,8 @@ impl NodeRepository {
             SET name=$1, ip=$2, domain=$3, country=$4, city=$5, flag=$6, status=$7, load_stats=$8, check_stats_json=$9, sort_order=$10,
                 join_token=$11, vpn_port=$12, auto_configure=$13, is_enabled=$14, 
                 reality_pub=$15, reality_priv=$16, short_id=$17, reality_sni=$18, 
-                relay_id=$19, node_type=$20, is_relay=$21, doomsday_password=$22
-            WHERE id=$23
+                relay_id=$19, node_type=$20, is_relay=$21, doomsday_password=$22, clash_api_secret=$23
+            WHERE id=$24
             "#
         )
         .bind(&node.name)
@@ -556,6 +560,7 @@ impl NodeRepository {
         .bind(node.normalized_node_type())
         .bind(node.is_relay_node())
         .bind(&node.doomsday_password)
+        .bind(&node.clash_api_secret)
         .bind(node.id)
         .execute(&self.pool)
         .await;
