@@ -449,6 +449,10 @@ pub struct RouteRule {
 pub struct DnsConfig {
     pub servers: Vec<DnsServer>,
     pub rules: Vec<DnsRule>,
+    /// Global answer strategy (prefer_ipv4 | prefer_ipv6 | ipv4_only | ipv6_only).
+    /// Omitted by default so the legacy output stays byte-identical.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -456,6 +460,10 @@ pub struct DnsConfig {
 pub enum DnsServer {
     Udp(UdpDnsServer),
     Local(LocalDnsServer),
+    /// DNS-over-HTTPS (sing-box 1.13 `type: "https"`).
+    Https(HttpsDnsServer),
+    /// DNS-over-TLS (sing-box 1.13 `type: "tls"`).
+    Tls(TlsDnsServer),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -471,6 +479,35 @@ pub struct LocalDnsServer {
     pub tag: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detour: Option<String>,
+}
+
+/// DNS-over-HTTPS server (sing-box 1.13 schema, `dns/server/https`).
+/// `server` should be an IP literal to avoid a bootstrap resolution loop.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct HttpsDnsServer {
+    pub tag: String,
+    pub server: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detour: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain_resolver: Option<String>,
+}
+
+/// DNS-over-TLS server (sing-box 1.13 schema, `dns/server/tls`).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TlsDnsServer {
+    pub tag: String,
+    pub server: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detour: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain_resolver: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

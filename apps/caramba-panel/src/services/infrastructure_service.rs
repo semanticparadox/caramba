@@ -144,6 +144,7 @@ impl InfrastructureService {
             pending_log_collection: false,
             last_sni_rotation: None,
             sni_renew_interval_hours: None,
+            config_profile_id: None,
         };
 
         let id = self.node_repo.create_node(&node).await?;

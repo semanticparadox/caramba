@@ -24,7 +24,11 @@ fn derive_relay_password(join_token: &str, target_node_id: i64) -> String {
 }
 
 impl ConfigGenerator {
-    /// Generates a complete Sing-box configuration from a list of database Inbounds
+    /// Generates a complete Sing-box configuration from a list of database
+    /// Inbounds using the default (no-op) [`ConfigPolicy`]. The output is
+    /// byte-for-byte identical to the historical hard-coded behaviour, so nodes
+    /// without an assigned profile are never disrupted.
+    #[allow(dead_code)] // retained for tests + API back-compat
     pub fn generate_config(
         node: &caramba_db::models::node::Node,
         inbounds: Vec<caramba_db::models::network::Inbound>,
@@ -32,6 +36,29 @@ impl ConfigGenerator {
         relay_target_inbound: Option<caramba_db::models::network::Inbound>,
         relay_clients: Vec<caramba_db::models::node::Node>,
         relay_auth_mode: RelayAuthMode,
+    ) -> SingBoxConfig {
+        Self::generate_config_with_policy(
+            node,
+            inbounds,
+            target_node,
+            relay_target_inbound,
+            relay_clients,
+            relay_auth_mode,
+            &crate::singbox::policy::ConfigPolicy::default(),
+        )
+    }
+
+    /// Generates a complete Sing-box configuration applying the resolved
+    /// per-node [`ConfigPolicy`] (DNS mode, answer strategy, RU-direct and log
+    /// level). A `ConfigPolicy::default()` produces the legacy output verbatim.
+    pub fn generate_config_with_policy(
+        node: &caramba_db::models::node::Node,
+        inbounds: Vec<caramba_db::models::network::Inbound>,
+        target_node: Option<caramba_db::models::node::Node>,
+        relay_target_inbound: Option<caramba_db::models::network::Inbound>,
+        relay_clients: Vec<caramba_db::models::node::Node>,
+        relay_auth_mode: RelayAuthMode,
+        policy: &crate::singbox::policy::ConfigPolicy,
     ) -> SingBoxConfig {
         let mut generated_inbounds = Vec::new();
 
@@ -1018,13 +1045,109 @@ impl ConfigGenerator {
             });
         }
 
-        SingBoxConfig {
-            log: LogConfig {
-                level: "info".to_string(),
-                timestamp: true,
-            },
-            dns: Some(DnsConfig {
-                servers: vec![
+        // ----------------------------------------------------------------
+        // Policy-driven DNS + logging.
+        //
+        // No `policy.dns` reproduces the historical hard-coded DNS block
+        // byte-for-byte. Doh/Dot swap the client upstream for an encrypted
+        // server (IP literal recommended) while keeping a `local` server for
+        // bootstrap, `default_domain_resolver` and RU-direct lookups.
+        // ----------------------------------------------------------------
+        use crate::singbox::policy::DnsMode;
+
+        let log_level = policy.log_level.as_deref().unwrap_or("info").to_string();
+
+        let dns_servers: Vec<DnsServer>;
+        let dns_strategy: Option<String>;
+        let default_domain_resolver: String;
+
+        // RU-direct shares the same geosite ruleset + DNS rule across modes.
+        let push_ru_direct = |rule_sets: &mut Vec<RuleSet>, dns_rules: &mut Vec<DnsRule>| {
+            rule_sets.push(RuleSet::Remote(RemoteRuleSet {
+                tag: "geosite-ru".to_string(),
+                format: "binary".to_string(),
+                url: "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-ru.srs".to_string(),
+                download_detour: Some("direct".to_string()),
+                update_interval: Some("24h".to_string()),
+            }));
+            dns_rules.push(DnsRule {
+                action: Some("route".to_string()),
+                method: None,
+                domain_resolver: None,
+                server: Some("local".to_string()),
+                clash_mode: None,
+                rule_set: Some(vec!["geosite-ru".to_string()]),
+            });
+        };
+
+        match policy.dns.as_ref() {
+            Some(dns) if matches!(dns.mode, DnsMode::Doh | DnsMode::Dot) => {
+                dns_strategy = dns.strategy.clone();
+                if dns.ru_direct {
+                    push_ru_direct(&mut rule_sets, &mut dns_rules);
+                }
+
+                let remote = if matches!(dns.mode, DnsMode::Doh) {
+                    DnsServer::Https(HttpsDnsServer {
+                        tag: "remote".to_string(),
+                        server: dns.server_host(),
+                        server_port: dns.explicit_port(),
+                        path: Some(dns.doh_path()),
+                        detour: Some("direct".to_string()),
+                        domain_resolver: None,
+                    })
+                } else {
+                    DnsServer::Tls(TlsDnsServer {
+                        tag: "remote".to_string(),
+                        server: dns.server_host(),
+                        server_port: dns.explicit_port(),
+                        detour: Some("direct".to_string()),
+                        domain_resolver: None,
+                    })
+                };
+
+                dns_servers = vec![
+                    remote,
+                    DnsServer::Local(LocalDnsServer {
+                        tag: "local".to_string(),
+                        detour: Some("direct".to_string()),
+                    }),
+                ];
+                // Catch-all: everything else through the encrypted upstream.
+                dns_rules.push(DnsRule {
+                    action: Some("route".to_string()),
+                    method: None,
+                    domain_resolver: None,
+                    server: Some("remote".to_string()),
+                    clash_mode: None,
+                    rule_set: None,
+                });
+                default_domain_resolver = "local".to_string();
+            }
+            Some(dns) => {
+                // DnsMode::System — local resolver only.
+                dns_strategy = dns.strategy.clone();
+                if dns.ru_direct {
+                    push_ru_direct(&mut rule_sets, &mut dns_rules);
+                }
+                dns_servers = vec![DnsServer::Local(LocalDnsServer {
+                    tag: "local".to_string(),
+                    detour: Some("direct".to_string()),
+                })];
+                dns_rules.push(DnsRule {
+                    action: Some("route".to_string()),
+                    method: None,
+                    domain_resolver: None,
+                    server: Some("local".to_string()),
+                    clash_mode: None,
+                    rule_set: None,
+                });
+                default_domain_resolver = "local".to_string();
+            }
+            None => {
+                // Legacy: byte-identical to the historical hard-coded output.
+                dns_strategy = None;
+                dns_servers = vec![
                     DnsServer::Udp(UdpDnsServer {
                         tag: "google".to_string(),
                         server: "8.8.8.8".to_string(),
@@ -1034,24 +1157,33 @@ impl ConfigGenerator {
                         tag: "local".to_string(),
                         detour: Some("direct".to_string()),
                     }),
-                ],
-                rules: {
-                    let mut final_dns_rules = dns_rules;
-                    final_dns_rules.push(DnsRule {
-                        action: Some("route".to_string()),
-                        method: None,
-                        domain_resolver: None,
-                        server: Some("local".to_string()),
-                        clash_mode: None,
-                        rule_set: None,
-                    });
-                    final_dns_rules
-                },
+                ];
+                dns_rules.push(DnsRule {
+                    action: Some("route".to_string()),
+                    method: None,
+                    domain_resolver: None,
+                    server: Some("local".to_string()),
+                    clash_mode: None,
+                    rule_set: None,
+                });
+                default_domain_resolver = "google".to_string();
+            }
+        }
+
+        SingBoxConfig {
+            log: LogConfig {
+                level: log_level,
+                timestamp: true,
+            },
+            dns: Some(DnsConfig {
+                servers: dns_servers,
+                rules: dns_rules,
+                strategy: dns_strategy,
             }),
             inbounds: generated_inbounds,
             outbounds,
             route: Some(RouteConfig {
-                default_domain_resolver: Some("google".to_string()),
+                default_domain_resolver: Some(default_domain_resolver),
                 rules: router_rules,
                 rule_set: if rule_sets.is_empty() {
                     None

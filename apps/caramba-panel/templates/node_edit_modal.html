@@ -65,6 +65,20 @@
                     Kazakhstan</option>
             </select>
         </div>
+        <!-- Config Profile Override -->
+        <div>
+            <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Config Profile
+                (override)</label>
+            <select name="config_profile_id" class="input-field">
+                <option value="" {% if node.config_profile_id.is_none() %}selected{% endif %}>— Inherit from group /
+                    default —</option>
+                {% for p in profiles %}
+                <option value="{{ p.id }}" {% if node.config_profile_id.unwrap_or(0) == p.id %}selected{% endif %}>{{
+                    p.name }}</option>
+                {% endfor %}
+            </select>
+            <p class="text-[10px] text-slate-500 mt-2">Overrides any group profile for this node only.</p>
+        </div>
         <!-- Auto-SNI Badge -->
         <div class="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 flex items-center gap-3">
             <div class="p-2 bg-emerald-500/10 rounded-lg text-emerald-400">

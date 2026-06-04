@@ -7,6 +7,7 @@ use axum::{
     response::{Html, IntoResponse},
 };
 use axum_extra::extract::cookie::CookieJar;
+use caramba_db::models::config_profile::ConfigProfile;
 use caramba_db::models::groups::{InboundTemplate, NodeGroup};
 use caramba_db::models::node::Node;
 use caramba_db::repositories::node_repo::NodeRepository;
@@ -135,6 +136,7 @@ pub struct AdminGroupEditTemplate {
     pub members: Vec<Node>,
     pub available_nodes: Vec<Node>,
     pub inbounds: Vec<InboundTemplate>,
+    pub profiles: Vec<ConfigProfile>,
     pub is_auth: bool,
     pub admin_path: String,
     pub active_page: String,
@@ -213,11 +215,18 @@ pub async fn get_group_edit(
     .await
     .unwrap_or_default();
 
+    let profiles: Vec<ConfigProfile> =
+        sqlx::query_as::<_, ConfigProfile>("SELECT * FROM config_profiles ORDER BY name ASC")
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default();
+
     let template = AdminGroupEditTemplate {
         group,
         members,
         available_nodes,
         inbounds,
+        profiles,
         is_auth: true,
         admin_path: state.admin_path.clone(),
         active_page: "groups".to_string(),

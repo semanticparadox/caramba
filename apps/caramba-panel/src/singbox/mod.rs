@@ -2,6 +2,7 @@ pub mod config;
 pub mod connection_variants;
 pub mod generator;
 pub mod inbound_factory;
+pub mod policy;
 pub mod reality;
 pub mod subscription_generator;
 

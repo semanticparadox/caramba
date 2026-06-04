@@ -597,13 +597,16 @@ pub async fn preview_node_config(
         .get_or_default("relay_auth_mode", "dual")
         .await;
     let relay_auth_mode = RelayAuthMode::from_setting(Some(relay_auth_mode_raw.as_str()));
-    let config = crate::singbox::ConfigGenerator::generate_config(
+    // Preview reflects the node's effective config policy (override -> group -> default).
+    let policy = crate::services::profile_service::resolve_policy(&state.pool, &node).await;
+    let config = crate::singbox::ConfigGenerator::generate_config_with_policy(
         &node,
         inbounds,
         None,
         None,
         vec![],
         relay_auth_mode,
+        &policy,
     );
     let json = serde_json::to_string_pretty(&config).unwrap_or_default();
 

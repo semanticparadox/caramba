@@ -1317,13 +1317,17 @@ impl OrchestrationService {
 
         info!("Step 4: generating final sing-box config JSON");
         // 4. Generate Config
-        let config = ConfigGenerator::generate_config(
+        // Resolve the effective config policy (node override -> group -> default
+        // -> legacy no-op) and feed it into the generator.
+        let policy = crate::services::profile_service::resolve_policy(&self.pool, &node).await;
+        let config = ConfigGenerator::generate_config_with_policy(
             &node,
             inbounds,
             relay_target_node,
             relay_target_inbound,
             relay_clients,
             relay_auth_mode,
+            &policy,
         );
 
         // Validate Config

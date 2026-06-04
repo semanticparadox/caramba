@@ -108,6 +108,7 @@ mod tests {
             pending_log_collection: false,
             last_sni_rotation: None,
             sni_renew_interval_hours: None,
+            config_profile_id: None,
         }
     }
 
@@ -865,6 +866,7 @@ mod tests {
             pending_log_collection: false,
             last_sni_rotation: None,
             sni_renew_interval_hours: None,
+            config_profile_id: None,
         };
 
         // 2. Create Mock Inbound
@@ -1111,5 +1113,166 @@ mod tests {
             outbound["tls"]["insecure"], true,
             "plain-TLS Trojan must set tls.insecure=true, got: {outbound:?}"
         );
+    }
+
+    // ---- Centralized DNS policy / config profiles -----------------------
+
+    fn gen_with_policy(policy: &crate::singbox::policy::ConfigPolicy) -> serde_json::Value {
+        let node = create_base_enterprise_node(1, "DNS-Node", "10.0.0.1");
+        let config = ConfigGenerator::generate_config_with_policy(
+            &node,
+            vec![],
+            None,
+            None,
+            vec![],
+            RelayAuthMode::V1,
+            policy,
+        );
+        serde_json::to_value(&config).expect("config serializes")
+    }
+
+    #[test]
+    fn test_dns_policy_default_matches_legacy() {
+        use crate::singbox::policy::ConfigPolicy;
+        let v = gen_with_policy(&ConfigPolicy::default());
+        let servers = v["dns"]["servers"].as_array().unwrap();
+        assert!(servers.iter().any(
+            |s| s["type"] == "udp" && s["server"] == "8.8.8.8" && s["tag"] == "google"
+        ));
+        assert!(servers.iter().any(|s| s["type"] == "local" && s["tag"] == "local"));
+        assert_eq!(v["route"]["default_domain_resolver"], "google");
+        // strategy must be omitted for byte-identical legacy output.
+        assert!(v["dns"].get("strategy").map(|s| s.is_null()).unwrap_or(true));
+    }
+
+    #[test]
+    fn test_dns_policy_default_is_byte_identical_to_wrapper() {
+        use crate::singbox::policy::ConfigPolicy;
+        let node = create_base_enterprise_node(7, "Node-7", "10.9.9.9");
+        let legacy = ConfigGenerator::generate_config(
+            &node,
+            vec![],
+            None,
+            None,
+            vec![],
+            RelayAuthMode::V1,
+        );
+        let policied = ConfigGenerator::generate_config_with_policy(
+            &node,
+            vec![],
+            None,
+            None,
+            vec![],
+            RelayAuthMode::V1,
+            &ConfigPolicy::default(),
+        );
+        assert_eq!(
+            serde_json::to_string(&legacy).unwrap(),
+            serde_json::to_string(&policied).unwrap(),
+        );
+    }
+
+    #[test]
+    fn test_dns_policy_doh_emits_https_server() {
+        use crate::singbox::policy::{ConfigPolicy, DnsMode, DnsPolicy};
+        let policy = ConfigPolicy {
+            dns: Some(DnsPolicy {
+                mode: DnsMode::Doh,
+                upstream: "https://1.1.1.1/dns-query".to_string(),
+                ..Default::default()
+            }),
+            log_level: None,
+        };
+        let v = gen_with_policy(&policy);
+        let servers = v["dns"]["servers"].as_array().unwrap();
+        let https = servers
+            .iter()
+            .find(|s| s["type"] == "https")
+            .expect("https server present");
+        assert_eq!(https["server"], "1.1.1.1");
+        assert_eq!(https["path"], "/dns-query");
+        assert_eq!(https["detour"], "direct");
+        assert_eq!(https["tag"], "remote");
+        assert!(servers.iter().any(|s| s["type"] == "local"));
+        assert!(!servers.iter().any(|s| s["type"] == "udp"));
+        assert_eq!(v["route"]["default_domain_resolver"], "local");
+        let rules = v["dns"]["rules"].as_array().unwrap();
+        assert!(rules.iter().any(|r| r["server"] == "remote"));
+    }
+
+    #[test]
+    fn test_dns_policy_dot_emits_tls_server() {
+        use crate::singbox::policy::{ConfigPolicy, DnsMode, DnsPolicy};
+        let policy = ConfigPolicy {
+            dns: Some(DnsPolicy {
+                mode: DnsMode::Dot,
+                upstream: "tls://9.9.9.9".to_string(),
+                ..Default::default()
+            }),
+            log_level: None,
+        };
+        let v = gen_with_policy(&policy);
+        let servers = v["dns"]["servers"].as_array().unwrap();
+        let tls = servers
+            .iter()
+            .find(|s| s["type"] == "tls")
+            .expect("tls server present");
+        assert_eq!(tls["server"], "9.9.9.9");
+        assert_eq!(tls["detour"], "direct");
+        assert!(tls.get("path").map(|p| p.is_null()).unwrap_or(true));
+    }
+
+    #[test]
+    fn test_dns_policy_strategy_emitted() {
+        use crate::singbox::policy::{ConfigPolicy, DnsMode, DnsPolicy};
+        let policy = ConfigPolicy {
+            dns: Some(DnsPolicy {
+                mode: DnsMode::Doh,
+                upstream: "1.1.1.1".to_string(),
+                strategy: Some("prefer_ipv4".to_string()),
+                ..Default::default()
+            }),
+            log_level: None,
+        };
+        let v = gen_with_policy(&policy);
+        assert_eq!(v["dns"]["strategy"], "prefer_ipv4");
+    }
+
+    #[test]
+    fn test_ru_direct_adds_geosite_rule() {
+        use crate::singbox::policy::{ConfigPolicy, DnsMode, DnsPolicy};
+        let policy = ConfigPolicy {
+            dns: Some(DnsPolicy {
+                mode: DnsMode::Doh,
+                upstream: "1.1.1.1".to_string(),
+                ru_direct: true,
+                ..Default::default()
+            }),
+            log_level: None,
+        };
+        let v = gen_with_policy(&policy);
+        let rule_sets = v["route"]["rule_set"]
+            .as_array()
+            .expect("rule_set registered");
+        assert!(rule_sets.iter().any(|rs| rs["tag"] == "geosite-ru"));
+        let rules = v["dns"]["rules"].as_array().unwrap();
+        assert!(rules.iter().any(|r| {
+            r.get("rule_set")
+                .and_then(|x| x.as_array())
+                .map(|a| a.contains(&json!("geosite-ru")))
+                .unwrap_or(false)
+                && r["server"] == "local"
+        }));
+    }
+
+    #[test]
+    fn test_log_level_override() {
+        use crate::singbox::policy::ConfigPolicy;
+        let policy = ConfigPolicy {
+            dns: None,
+            log_level: Some("debug".to_string()),
+        };
+        let v = gen_with_policy(&policy);
+        assert_eq!(v["log"]["level"], "debug");
     }
 }

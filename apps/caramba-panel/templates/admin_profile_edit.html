@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+
+{% block title %}{% if is_new %}New Profile{% else %}Edit Profile{% endif %} - CARAMBA{% endblock %}
+{% block header_title %}Config Profile{% endblock %}
+
+{% block content %}
+<div class="space-y-6 max-w-4xl">
+    <!-- Header -->
+    <div class="flex items-center gap-4">
+        <a href="{{ admin_path }}/profiles"
+            class="p-2 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-lg transition-colors">
+            <i data-lucide="arrow-left" class="w-5 h-5"></i>
+        </a>
+        <div>
+            <h2 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
+                {% if is_new %}New Config Profile{% else %}{{ name }}{% endif %}
+            </h2>
+            <p class="text-slate-500 dark:text-slate-400 text-sm mt-0.5">DNS policy &amp; sing-box core options applied to
+                assigned groups / nodes.</p>
+        </div>
+    </div>
+
+    {% if is_new %}
+    <form action="{{ admin_path }}/profiles" method="POST" class="space-y-6">
+    {% else %}
+    <form action="{{ admin_path }}/profiles/{{ id }}" method="POST" class="space-y-6">
+    {% endif %}
+
+        <!-- Identity -->
+        <div
+            class="bg-white/80 dark:bg-slate-900/50 backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-6 space-y-5">
+            <div class="flex items-center gap-2 mb-1">
+                <i data-lucide="tag" class="w-4 h-4 text-indigo-500 dark:text-indigo-400"></i>
+                <span class="text-sm font-semibold text-slate-900 dark:text-white">Identity</span>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Name</label>
+                    <input type="text" name="name" required value="{{ name }}" placeholder="e.g. Cloudflare DoH"
+                        class="input-field">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Slug</label>
+                    <input type="text" name="slug" required value="{{ slug }}" placeholder="e.g. cf-doh"
+                        class="input-field font-mono text-xs">
+                    <p class="text-[10px] text-slate-500 mt-2 font-medium italic">Unique identifier.</p>
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Description</label>
+                <textarea name="description" rows="2" placeholder="Optional notes about this profile..."
+                    class="input-field resize-none">{{ description }}</textarea>
+            </div>
+            <label class="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" name="is_default" value="on" {% if is_default %}checked{% endif %}
+                    class="w-4 h-4 rounded border-slate-300 dark:border-white/10 text-indigo-600 focus:ring-indigo-500">
+                <span class="text-sm text-slate-700 dark:text-slate-300">Use as default profile
+                    <span class="text-slate-500">(applied to any node/group without an explicit assignment)</span>
+                </span>
+            </label>
+        </div>
+
+        <!-- DNS Policy -->
+        <div
+            class="bg-white/80 dark:bg-slate-900/50 backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-6 space-y-5">
+            <div class="flex items-center gap-2 mb-1">
+                <i data-lucide="globe" class="w-4 h-4 text-sky-500 dark:text-sky-400"></i>
+                <span class="text-sm font-semibold text-slate-900 dark:text-white">DNS Policy</span>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">DNS Mode</label>
+                    <select name="dns_mode" id="dns_mode" onchange="updateDnsHelp()" class="input-field">
+                        <option value="none" {% if dns_mode == "none" %}selected{% endif %}>Legacy (8.8.8.8 UDP) —
+                            current default</option>
+                        <option value="system" {% if dns_mode == "system" %}selected{% endif %}>System / local resolver
+                        </option>
+                        <option value="doh" {% if dns_mode == "doh" %}selected{% endif %}>DNS over HTTPS (DoH)</option>
+                        <option value="dot" {% if dns_mode == "dot" %}selected{% endif %}>DNS over TLS (DoT)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Resolve
+                        Strategy</label>
+                    <select name="dns_strategy" class="input-field">
+                        <option value="" {% if dns_strategy == "" %}selected{% endif %}>Default (engine decides)</option>
+                        <option value="prefer_ipv4" {% if dns_strategy == "prefer_ipv4" %}selected{% endif %}>prefer_ipv4
+                        </option>
+                        <option value="prefer_ipv6" {% if dns_strategy == "prefer_ipv6" %}selected{% endif %}>prefer_ipv6
+                        </option>
+                        <option value="ipv4_only" {% if dns_strategy == "ipv4_only" %}selected{% endif %}>ipv4_only
+                        </option>
+                        <option value="ipv6_only" {% if dns_strategy == "ipv6_only" %}selected{% endif %}>ipv6_only
+                        </option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Upstream
+                        (IP literal recommended)</label>
+                    <input type="text" name="dns_upstream" value="{{ dns_upstream }}" placeholder="1.1.1.1"
+                        class="input-field font-mono text-xs">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Server
+                        Port</label>
+                    <input type="number" name="dns_server_port" value="{{ dns_server_port }}" placeholder="443 / 853"
+                        class="input-field font-mono text-xs">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">DoH Path</label>
+                <input type="text" name="dns_path" value="{{ dns_path }}" placeholder="/dns-query"
+                    class="input-field font-mono text-xs">
+                <p class="text-[10px] text-slate-500 mt-2 font-medium italic">Only used by DoH. Defaults to
+                    <code>/dns-query</code>.</p>
+            </div>
+
+            <label class="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" name="dns_ru_direct" value="on" {% if dns_ru_direct %}checked{% endif %}
+                    class="w-4 h-4 rounded border-slate-300 dark:border-white/10 text-indigo-600 focus:ring-indigo-500">
+                <span class="text-sm text-slate-700 dark:text-slate-300">RU-direct
+                    <span class="text-slate-500">(resolve <code>geosite:category-ru</code> via local DNS for lower
+                        latency)</span>
+                </span>
+            </label>
+
+            <!-- Inline documentation -->
+            <div id="dns-help"
+                class="text-xs leading-relaxed text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 rounded-xl p-4 space-y-1">
+                <!-- filled by updateDnsHelp() -->
+            </div>
+        </div>
+
+        <!-- Logging -->
+        <div
+            class="bg-white/80 dark:bg-slate-900/50 backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl p-6 space-y-5">
+            <div class="flex items-center gap-2 mb-1">
+                <i data-lucide="scroll-text" class="w-4 h-4 text-amber-500 dark:text-amber-400"></i>
+                <span class="text-sm font-semibold text-slate-900 dark:text-white">Logging</span>
+            </div>
+            <div class="md:w-1/2">
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Log Level</label>
+                <select name="log_level" class="input-field">
+                    <option value="" {% if log_level == "" %}selected{% endif %}>Default (info)</option>
+                    <option value="trace" {% if log_level == "trace" %}selected{% endif %}>trace</option>
+                    <option value="debug" {% if log_level == "debug" %}selected{% endif %}>debug</option>
+                    <option value="info" {% if log_level == "info" %}selected{% endif %}>info</option>
+                    <option value="warn" {% if log_level == "warn" %}selected{% endif %}>warn</option>
+                    <option value="error" {% if log_level == "error" %}selected{% endif %}>error</option>
+                    <option value="fatal" {% if log_level == "fatal" %}selected{% endif %}>fatal</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Validation result -->
+        <div id="validate-result"></div>
+
+        <!-- Actions -->
+        <div class="flex items-center justify-between gap-3">
+            <button type="button" hx-post="{{ admin_path }}/profiles/validate" hx-include="closest form"
+                hx-target="#validate-result" hx-swap="innerHTML"
+                class="flex items-center gap-2 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-200 font-medium py-2.5 px-5 rounded-xl transition-all border border-slate-200 dark:border-white/10">
+                <i data-lucide="shield-check" class="w-4 h-4"></i>
+                <span>Validate (sing-box check)</span>
+            </button>
+            <div class="flex items-center gap-3">
+                <a href="{{ admin_path }}/profiles" class="btn-secondary">Cancel</a>
+                <button type="submit" class="btn-primary">
+                    <i data-lucide="save" class="w-4 h-4"></i>
+                    {% if is_new %}Create Profile{% else %}Save Changes{% endif %}
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<script>
+    function updateDnsHelp() {
+        const mode = document.getElementById('dns_mode').value;
+        const help = document.getElementById('dns-help');
+        const docs = {
+            none: '<b>Legacy</b>: keeps the exact current behaviour — Google DNS <code>8.8.8.8</code> over UDP plus a <code>local</code> resolver. No change to live nodes. Upstream / port / path are ignored.',
+            system: '<b>System / local</b>: the node resolves names via its own system resolver (<code>local</code>). Upstream / port / path are ignored. Good when the host already runs a trusted resolver.',
+            doh: '<b>DNS over HTTPS</b>: encrypted DNS. Set <b>Upstream</b> to an <u>IP literal</u> (e.g. <code>1.1.1.1</code>, <code>8.8.8.8</code>, <code>9.9.9.9</code>) to avoid a bootstrap loop. <b>Port</b> defaults to 443. <b>Path</b> defaults to <code>/dns-query</code>. A <code>local</code> server is still emitted for route resolution.',
+            dot: '<b>DNS over TLS</b>: encrypted DNS on port 853. Set <b>Upstream</b> to an <u>IP literal</u> (e.g. <code>1.1.1.1</code>). <b>Path</b> is ignored. A <code>local</code> server is still emitted for route resolution.'
+        };
+        help.innerHTML = docs[mode] || '';
+    }
+    updateDnsHelp();
+    document.body.addEventListener('htmx:afterSwap', () => lucide.createIcons());
+</script>
+{% endblock %}

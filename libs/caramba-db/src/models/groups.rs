@@ -9,6 +9,12 @@ pub struct NodeGroup {
     pub slug: Option<String>,
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
+    /// Config profile applied to members of this group (migration 20260604000000).
+    #[sqlx(default)]
+    pub config_profile_id: Option<i64>,
+    /// Deterministic tie-break for nodes in multiple groups (lower = higher precedence).
+    #[sqlx(default)]
+    pub config_priority: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

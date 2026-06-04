@@ -192,6 +192,10 @@ impl NodeRepository {
                 .try_get::<Option<i32>, _>("sni_renew_interval_hours")
                 .ok()
                 .flatten(),
+            config_profile_id: row
+                .try_get::<Option<i64>, _>("config_profile_id")
+                .ok()
+                .flatten(),
         }
     }
 

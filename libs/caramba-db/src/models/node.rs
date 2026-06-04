@@ -100,6 +100,11 @@ pub struct Node {
     /// None = использовать глобальную настройку; Some(0) = никогда; Some(n) = раз в n часов
     #[sqlx(default)]
     pub sni_renew_interval_hours: Option<i32>,
+
+    /// Per-node config-profile override (migration 20260604000000). Highest
+    /// precedence: beats any group profile and the global default.
+    #[sqlx(default)]
+    pub config_profile_id: Option<i64>,
 }
 
 impl Node {

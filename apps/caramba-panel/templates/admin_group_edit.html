@@ -146,6 +146,40 @@
         </div>
     </div>
 
+    <!-- Config Profile Assignment -->
+    <div class="bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-6 space-y-5">
+        <div class="flex items-center gap-2">
+            <i data-lucide="shield" class="w-4 h-4 text-sky-400"></i>
+            <span class="text-sm font-semibold text-white">Config Profile (DNS policy)</span>
+        </div>
+        <p class="text-xs text-slate-400 -mt-2">Applied to every node in this group, unless the node has its own
+            override. Lower priority wins when a node belongs to several groups.</p>
+        <form action="{{ admin_path }}/groups/{{ group.id }}/profile" method="POST"
+            class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <div class="md:col-span-2">
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Profile</label>
+                <select name="config_profile_id" class="input-field">
+                    <option value="" {% if group.config_profile_id.is_none() %}selected{% endif %}>— None (default /
+                        legacy DNS) —</option>
+                    {% for p in profiles %}
+                    <option value="{{ p.id }}" {% if group.config_profile_id.unwrap_or(0) == p.id %}selected{% endif %}>
+                        {{ p.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Priority</label>
+                <input type="number" name="config_priority" value="{{ group.config_priority }}"
+                    class="input-field font-mono text-xs">
+            </div>
+            <div class="md:col-span-3 flex justify-end">
+                <button type="submit" class="btn-primary">
+                    <i data-lucide="save" class="w-4 h-4"></i> Save Profile
+                </button>
+            </div>
+        </form>
+    </div>
+
     <!-- Add Node Modal -->
     <dialog id="addMemberModal">
         <div class="modal-container max-w-md" onclick="event.stopPropagation()">

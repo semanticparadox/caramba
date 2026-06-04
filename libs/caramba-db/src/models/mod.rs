@@ -1,5 +1,6 @@
 pub mod activity;
 pub mod api_key;
+pub mod config_profile;
 pub mod frontend;
 pub mod groups;
 pub mod network;

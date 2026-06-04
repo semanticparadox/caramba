@@ -12,6 +12,7 @@ pub mod task_health;
 pub mod notification_service;
 pub mod orchestration_service;
 pub mod pay_service;
+pub mod profile_service; // NEW: config-profile / DNS-policy resolver
 pub mod pubsub_service; // NEW
 pub mod redis_service; // NEW
 pub mod referral_service; // NEW

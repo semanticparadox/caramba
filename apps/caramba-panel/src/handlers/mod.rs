@@ -2,6 +2,7 @@ pub mod admin;
 pub mod admin_groups;
 pub mod admin_network;
 pub mod admin_orgs;
+pub mod admin_profiles;
 pub mod admin_sni;
 pub mod admin_templates;
 pub mod api;

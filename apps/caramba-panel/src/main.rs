@@ -1146,6 +1146,30 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/groups/{id}/rotate",
             axum::routing::post(handlers::admin_groups::rotate_group_inbounds),
         )
+        // Config Profiles (centralized DNS policy)
+        .route(
+            "/profiles",
+            axum::routing::get(handlers::admin_profiles::get_profiles_page)
+                .post(handlers::admin_profiles::create_profile),
+        )
+        .route(
+            "/profiles/new",
+            axum::routing::get(handlers::admin_profiles::get_profile_new),
+        )
+        .route(
+            "/profiles/validate",
+            axum::routing::post(handlers::admin_profiles::validate_profile),
+        )
+        .route(
+            "/profiles/{id}",
+            axum::routing::get(handlers::admin_profiles::get_profile_edit)
+                .post(handlers::admin_profiles::update_profile)
+                .delete(handlers::admin_profiles::delete_profile),
+        )
+        .route(
+            "/groups/{id}/profile",
+            axum::routing::post(handlers::admin_profiles::assign_group_profile),
+        )
         // Templates Management
         .route(
             "/templates",

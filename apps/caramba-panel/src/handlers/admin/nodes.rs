@@ -16,6 +16,7 @@ use std::collections::HashMap;
 
 use super::auth::get_auth_user;
 use crate::AppState;
+use caramba_db::models::config_profile::ConfigProfile;
 use caramba_db::models::node::Node;
 use chrono::Utc;
 use uuid::Uuid;
@@ -222,6 +223,7 @@ fn normalized_admin_path(raw: &str) -> String {
 pub struct NodeEditModalTemplate {
     pub node: Node,
     pub relay_nodes: Vec<Node>, // Relay-only selection for exit nodes
+    pub profiles: Vec<ConfigProfile>,
     pub admin_path: String,
 }
 
@@ -304,6 +306,8 @@ pub struct UpdateNodeForm {
     pub config_block_porn: Option<String>,
     pub config_qos_enabled: Option<String>,
     pub country: Option<String>,
+    #[serde(default)]
+    pub config_profile_id: Option<String>,
 }
 
 fn normalize_node_type(node_type: Option<&str>, legacy_is_relay: bool) -> &'static str {
@@ -605,9 +609,16 @@ pub async fn get_node_edit(
         .filter(|relay| relay.id != node.id)
         .collect();
 
+    let profiles: Vec<ConfigProfile> =
+        sqlx::query_as::<_, ConfigProfile>("SELECT * FROM config_profiles ORDER BY name ASC")
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default();
+
     let template = NodeEditModalTemplate {
         node,
         relay_nodes: all_nodes,
+        profiles,
         admin_path,
     };
     match template.render() {
@@ -669,6 +680,16 @@ pub async fn update_node(
         .bind(id)
         .execute(&state.pool)
         .await;
+
+    // 2b. Config profile override (only present on full modal submit, not targeted toggles)
+    if let Some(raw) = form.config_profile_id.as_ref() {
+        let profile_id: Option<i64> = raw.trim().parse::<i64>().ok().filter(|v| *v > 0);
+        let _ = sqlx::query("UPDATE nodes SET config_profile_id = $1 WHERE id = $2")
+            .bind(profile_id)
+            .bind(id)
+            .execute(&state.pool)
+            .await;
+    }
 
     // 3. Trigger sync if policies changed (Policy changes need config regent)
     let _ = state.orchestration_service.reset_inbounds(id).await;
