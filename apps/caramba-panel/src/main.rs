@@ -765,6 +765,23 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/payments/{provider}/test",
             axum::routing::post(handlers::admin::test_provider_connection),
         )
+        // Способы оплаты: вкл/выкл методов + цены по способам оплаты
+        .route(
+            "/payment-pricing",
+            axum::routing::get(handlers::admin::payment_pricing::payment_pricing_page),
+        )
+        .route(
+            "/payment-pricing/data",
+            axum::routing::get(handlers::admin::payment_pricing::payment_pricing_data),
+        )
+        .route(
+            "/payment-pricing/toggle",
+            axum::routing::post(handlers::admin::payment_pricing::payment_pricing_toggle),
+        )
+        .route(
+            "/payment-pricing/override",
+            axum::routing::post(handlers::admin::payment_pricing::payment_pricing_override),
+        )
         // New Bot Page
         .route("/bot", axum::routing::get(handlers::admin::bot_logs_page))
         // Tools Logic (Page removed, actions preserved)

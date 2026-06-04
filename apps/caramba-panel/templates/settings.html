@@ -210,10 +210,14 @@
                     <div class="w-10 h-10 rounded-2xl bg-brand/10 flex items-center justify-center text-brand border border-brand/20">
                         <i data-lucide="wallet" class="w-5 h-5"></i>
                     </div>
-                    <div>
+                    <div class="flex-1">
                         <h3 class="text-lg font-bold text-slate-900 dark:text-white">Payment Gateways</h3>
                         <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Configure providers below — each card can be enabled independently</p>
                     </div>
+                    <a href="{{ admin_path }}/payment-pricing"
+                        class="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand/10 text-brand border border-brand/20 text-xs font-bold uppercase tracking-widest hover:bg-brand/20 transition">
+                        <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> Цены по способам
+                    </a>
                 </header>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>

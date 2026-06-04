@@ -26,7 +26,13 @@ impl PaymentProvider for AaioProvider {
         _client: &reqwest::Client,
     ) -> Result<String> {
         let amount = (session.amount as f64) / 100.0;
-        let currency = "USD";
+        // Use the session currency (per-method override resolved at checkout). AAIO requires
+        // that this currency be enabled on the merchant account (e.g. RUB/USD/EUR).
+        let currency = if session.currency.trim().is_empty() {
+            "USD"
+        } else {
+            session.currency.as_str()
+        };
         let order_id = session.id.to_string();
 
         // AAIO signature for invoice creation: merchant_id:amount:currency:secret_1:order_id

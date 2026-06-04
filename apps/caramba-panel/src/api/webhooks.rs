@@ -46,7 +46,7 @@ async fn handle_payment_webhook(
         "stripe" => header(&["stripe-signature", "Stripe-Signature"]),
         // New providers (7 added in this audit pass):
         "wata" => header(&["X-Signature", "x-signature"]),
-        "tribute" => header(&["X-Tribute-Signature", "x-tribute-signature"]),
+        "tribute" => header(&["trbt-signature", "X-Tribute-Signature", "x-tribute-signature"]),
         "btcpay" => header(&["BTCPay-Sig", "btcpay-sig"]),
         "oxapay" => header(&["HMAC", "hmac"]),
         "coinbase_commerce" => header(&["X-CC-Webhook-Signature", "x-cc-webhook-signature"]),

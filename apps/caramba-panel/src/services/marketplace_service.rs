@@ -40,6 +40,27 @@ pub struct MarketplaceService {
     pub sub_service: SubscriptionService,
 }
 
+/// Returns the settings key controlling whether a payment provider is offered in
+/// the Mini App, plus its default state when the key has never been set.
+///
+/// This is the single source of truth shared between the admin toggle UI and the
+/// `/payments/providers` endpoint, so flipping a switch in the panel takes effect
+/// immediately. Opt-in RU providers default **off** (the operator must enable them
+/// explicitly); legacy global providers default **on** once credentials exist.
+/// `coinbase_commerce` maps to the historical `coinbase_enabled` key already used
+/// by the settings form.
+pub fn provider_enable_setting(name: &str) -> (String, bool) {
+    match name {
+        "coinbase_commerce" => ("coinbase_enabled".to_string(), false),
+        "wata" | "crystalpay" | "tribute" | "btcpay" | "oxapay" | "plisio" | "manual" => {
+            (format!("{name}_enabled"), false)
+        }
+        // nowpayments / cryptobot / cryptomus / lava / aaio / stripe: shown when
+        // configured unless the admin explicitly turns them off.
+        _ => (format!("{name}_enabled"), true),
+    }
+}
+
 impl MarketplaceService {
     pub fn new(
         pool: PgPool,
@@ -266,6 +287,15 @@ impl MarketplaceService {
         self.providers.get(name)
     }
 
+    /// Returns the names of all registered (configured) payment providers, sorted
+    /// for stable ordering. A provider is registered only when its credentials were
+    /// present at startup, so this is the source of truth for "which methods exist".
+    pub fn provider_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.providers.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
     pub async fn create_session(
         &self,
         user: &User,
@@ -395,6 +425,12 @@ impl MarketplaceService {
         Ok(count)
     }
 
+    /// Mark a payment session as failed (used when the charge step fails before
+    /// fulfillment, e.g. an insufficient-balance wallet payment).
+    pub async fn mark_session_failed(&self, session_id: Uuid) -> Result<()> {
+        self.session_repo.update_status(session_id, "failed").await
+    }
+
     pub async fn fulfill_payment(&self, session_id: Uuid) -> Result<()> {
         // 1. Fetch session
         let session = self
@@ -453,6 +489,31 @@ impl MarketplaceService {
                     .admin_gift_subscription(session.user_id, session.product_id, days_to_add)
                     .await?;
             }
+
+            return Ok(());
+        }
+
+        if resource_type == "order" {
+            // For store orders, `product_id` carries the order id. Mark it paid so the
+            // user's purchase is recorded; physical/digital delivery (file, gift code,
+            // etc.) is handled by the admin or an out-of-band mechanism. The guard on
+            // status keeps webhook retries idempotent.
+            let order_id = session.product_id;
+            let updated = sqlx::query(
+                "UPDATE orders SET status = 'paid', paid_at = CURRENT_TIMESTAMP \
+                 WHERE id = $1 AND status <> 'paid'",
+            )
+            .bind(order_id)
+            .execute(&self.pool)
+            .await
+            .context("Failed to mark order as paid")?;
+
+            tracing::info!(
+                "Fulfilled store order {} for user {} (rows_affected={})",
+                order_id,
+                session.user_id,
+                updated.rows_affected()
+            );
 
             return Ok(());
         }
@@ -543,6 +604,17 @@ impl MarketplaceService {
                     anyhow::bail!("Plan {} does not exist", product_id);
                 }
             }
+            "order" => {
+                // For store orders, `product_id` carries the order id.
+                let exists: bool =
+                    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM orders WHERE id = $1)")
+                        .bind(product_id)
+                        .fetch_one(&self.pool)
+                        .await?;
+                if !exists {
+                    anyhow::bail!("Order {} does not exist", product_id);
+                }
+            }
             _ => {
                 let exists: bool =
                     sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE id = $1)")
@@ -569,7 +641,7 @@ fn normalize_payment_metadata(metadata: Option<Value>) -> Result<Option<Value>> 
     }
 
     let resource_type = payment_resource_type(Some(&metadata));
-    if resource_type != "plan" && resource_type != "product" {
+    if resource_type != "plan" && resource_type != "product" && resource_type != "order" {
         anyhow::bail!("Unsupported payment resource type: {}", resource_type);
     }
 

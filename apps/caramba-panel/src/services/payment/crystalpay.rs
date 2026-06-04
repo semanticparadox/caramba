@@ -108,13 +108,15 @@ impl PaymentProvider for CrystalPayProvider {
         // CrystalPay верифицирует вебхуки через поле `signature` в теле запроса.
         // Алгоритм: HMAC-SHA1(id + ":" + type + ":" + hash, key=salt),
         // где hash = SHA1(amount + ":" + crystalpay_salt).
-        // Упрощённая проверка: если соль не задана — принимаем.
+        // Без соли подпись проверить невозможно — отклоняем вебхук, иначе любой мог бы
+        // отправить поддельное событие оплаты и получить бесплатную выдачу. Задайте
+        // crystalpay_salt в настройках админки, чтобы включить CrystalPay.
         if self.salt.is_empty() {
-            tracing::warn!(
-                "CrystalPay webhook salt not configured — signature verification skipped. \
-                 Set crystalpay_salt in admin settings."
+            tracing::error!(
+                "CrystalPay webhook salt not configured — rejecting unsigned webhook. \
+                 Set crystalpay_salt in admin settings to enable CrystalPay."
             );
-            return Ok(true);
+            return Ok(false);
         }
 
         let body_str = std::str::from_utf8(payload).unwrap_or("");

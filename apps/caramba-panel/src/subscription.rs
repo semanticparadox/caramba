@@ -9,6 +9,33 @@ use tracing::{error, warn};
 
 use crate::AppState;
 
+/// Rate-limits the "device limit reached" Telegram notification so a client that keeps
+/// retrying a rejected connection does not spam the user. Returns true at most once per
+/// 10 minutes per subscription.
+fn should_notify_device_block(sub_id: i64) -> bool {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+
+    static LAST: OnceLock<Mutex<HashMap<i64, Instant>>> = OnceLock::new();
+    let map = LAST.get_or_init(|| Mutex::new(HashMap::new()));
+    let now = Instant::now();
+    let Ok(mut guard) = map.lock() else {
+        // Poisoned lock: fail open (allow the notification) rather than panic.
+        return true;
+    };
+    if guard.len() > 10_000 {
+        guard.retain(|_, t| now.duration_since(*t) < Duration::from_secs(3600));
+    }
+    match guard.get(&sub_id) {
+        Some(t) if now.duration_since(*t) < Duration::from_secs(600) => false,
+        _ => {
+            guard.insert(sub_id, now);
+            true
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct SubParams {
     pub client: Option<String>, // "clash" | "v2ray" | "singbox"
@@ -229,22 +256,26 @@ pub async fn subscription_handler(
                 active_ips.len()
             );
 
-            // Уведомляем пользователя в Telegram, что новое устройство отклонено.
-            // Отправляем не чаще одного раза — Bot API справляется с дублями на стороне клиента.
-            let tg_id: Option<i64> = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
-                .bind(sub.user_id)
-                .fetch_optional(&state.pool)
-                .await
-                .unwrap_or(None);
+            // Notify the user in Telegram that a new device was rejected, throttled to at
+            // most once per 10 minutes per subscription so retries don't spam the chat.
+            if should_notify_device_block(sub.id) {
+                let tg_id: Option<i64> =
+                    sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
+                        .bind(sub.user_id)
+                        .fetch_optional(&state.pool)
+                        .await
+                        .unwrap_or(None);
 
-            if let Some(tg_id) = tg_id {
-                let msg = format!(
-                    "📵 *Device Limit Reached*\n\n\
-                     A new device tried to connect to your subscription but was rejected\\.\n\
-                     Limit: *{device_limit}* devices\\.\n\n\
-                     Remove an existing device in the Mini App to connect a new one\\."
-                );
-                let _ = state.bot_manager.send_notification(tg_id, &msg).await;
+                if let Some(tg_id) = tg_id {
+                    let msg = format!(
+                        "📵 *Device Limit Reached*\n\n\
+                         A new device \\(`{current_ip}`\\) tried to connect to your \
+                         subscription but was blocked\\.\n\
+                         Limit: *{device_limit}* device\\(s\\)\\.\n\n\
+                         Remove an existing device in the Mini App to connect a new one\\."
+                    );
+                    let _ = state.bot_manager.send_notification(tg_id, &msg).await;
+                }
             }
 
             return (StatusCode::FORBIDDEN, "Device limit reached").into_response();

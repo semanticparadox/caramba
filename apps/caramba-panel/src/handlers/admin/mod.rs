@@ -8,6 +8,7 @@ pub mod frontends;
 pub mod marketplace;
 pub mod nodes;
 pub mod notifications;
+pub mod payment_pricing;
 pub mod payments;
 pub mod plans;
 pub mod promo;

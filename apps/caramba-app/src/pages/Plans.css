@@ -224,6 +224,13 @@
     gap: 8px;
 }
 
+.provider-price {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
 .provider-pill {
     border-radius: var(--radius-round);
     padding: 5px 8px;

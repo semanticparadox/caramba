@@ -3,6 +3,10 @@ import { PAYMENT_PROVIDER_META } from '../data/paymentProviders'
 export type PaymentProviderApiItem = {
   id: string
   label: string
+  /** Effective price in minor units (cents/kopecks) for the selected target, if known. */
+  amount?: number
+  /** ISO currency (or "USD" fallback) for `amount`, if known. */
+  currency?: string
 }
 
 export type PaymentProviderCard = PaymentProviderApiItem & {

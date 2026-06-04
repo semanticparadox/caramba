@@ -16,6 +16,199 @@ impl CatalogService {
         Self { pool }
     }
 
+    // ============================================================
+    // Per-payment-method price/currency overrides
+    // ------------------------------------------------------------
+    // When an override row exists for (target, provider) the checkout charges that
+    // amount+currency; otherwise it falls back to the base price in USD. Amounts are
+    // integer minor units (cents/kopecks), matching plan_durations.price / products.price.
+    // ============================================================
+
+    /// Resolve the effective `(plan_id, duration_days, amount, currency)` for a plan
+    /// duration under a given provider. `duration_days` is carried through so the
+    /// payment session metadata records exactly how long to extend the subscription,
+    /// independent of the (possibly overridden) charged amount. `None` if missing.
+    pub async fn resolve_duration_price(
+        &self,
+        duration_id: i64,
+        provider: &str,
+    ) -> Result<Option<(i64, i32, i64, String)>> {
+        let base = sqlx::query_as::<_, (i64, i32, i64)>(
+            "SELECT plan_id, duration_days, price FROM plan_durations WHERE id = $1",
+        )
+        .bind(duration_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to fetch plan duration base price")?;
+
+        let (plan_id, duration_days, base_price) = match base {
+            Some(v) => v,
+            None => return Ok(None),
+        };
+
+        let ov = sqlx::query_as::<_, (i64, String)>(
+            "SELECT amount, currency FROM plan_duration_provider_prices WHERE duration_id = $1 AND provider = $2",
+        )
+        .bind(duration_id)
+        .bind(provider)
+        .fetch_optional(&self.pool)
+        .await
+        .unwrap_or(None);
+
+        match ov {
+            Some((amount, currency)) => Ok(Some((plan_id, duration_days, amount, currency))),
+            None => Ok(Some((plan_id, duration_days, base_price, "USD".to_string()))),
+        }
+    }
+
+    /// Resolve the effective amount+currency for a store order under a given provider.
+    /// If the order has exactly one product line and an override exists for that
+    /// product+provider, charges `override.amount * quantity` in the override currency.
+    /// Otherwise falls back to the base `total_amount` in USD. `None` if order missing.
+    pub async fn resolve_order_price(
+        &self,
+        order_id: i64,
+        provider: &str,
+    ) -> Result<Option<(i64, String)>> {
+        let base = sqlx::query_as::<_, (i64,)>("SELECT total_amount FROM orders WHERE id = $1")
+            .bind(order_id)
+            .fetch_optional(&self.pool)
+            .await
+            .context("Failed to fetch order total")?;
+        let base_total = match base {
+            Some((t,)) => t,
+            None => return Ok(None),
+        };
+
+        let items = sqlx::query_as::<_, (i64, i64)>(
+            "SELECT product_id, quantity FROM order_items WHERE order_id = $1",
+        )
+        .bind(order_id)
+        .fetch_all(&self.pool)
+        .await
+        .unwrap_or_default();
+
+        if items.len() == 1 {
+            let (product_id, quantity) = items[0];
+            let ov = sqlx::query_as::<_, (i64, String)>(
+                "SELECT amount, currency FROM product_provider_prices WHERE product_id = $1 AND provider = $2",
+            )
+            .bind(product_id)
+            .bind(provider)
+            .fetch_optional(&self.pool)
+            .await
+            .unwrap_or(None);
+            if let Some((amount, currency)) = ov {
+                return Ok(Some((amount * quantity.max(1), currency)));
+            }
+        }
+
+        Ok(Some((base_total, "USD".to_string())))
+    }
+
+    /// All provider overrides for a plan duration, keyed by provider name.
+    pub async fn list_duration_overrides(
+        &self,
+        duration_id: i64,
+    ) -> HashMap<String, (i64, String)> {
+        sqlx::query_as::<_, (String, i64, String)>(
+            "SELECT provider, amount, currency FROM plan_duration_provider_prices WHERE duration_id = $1",
+        )
+        .bind(duration_id)
+        .fetch_all(&self.pool)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(p, a, c)| (p, (a, c)))
+        .collect()
+    }
+
+    /// All provider overrides for a product, keyed by provider name.
+    pub async fn list_product_overrides(&self, product_id: i64) -> HashMap<String, (i64, String)> {
+        sqlx::query_as::<_, (String, i64, String)>(
+            "SELECT provider, amount, currency FROM product_provider_prices WHERE product_id = $1",
+        )
+        .bind(product_id)
+        .fetch_all(&self.pool)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(p, a, c)| (p, (a, c)))
+        .collect()
+    }
+
+    /// Insert or update a plan-duration override. `currency` is upper-cased.
+    pub async fn upsert_duration_override(
+        &self,
+        duration_id: i64,
+        provider: &str,
+        amount: i64,
+        currency: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO plan_duration_provider_prices (duration_id, provider, amount, currency, updated_at)
+             VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+             ON CONFLICT (duration_id, provider)
+             DO UPDATE SET amount = EXCLUDED.amount, currency = EXCLUDED.currency, updated_at = CURRENT_TIMESTAMP",
+        )
+        .bind(duration_id)
+        .bind(provider)
+        .bind(amount)
+        .bind(currency.trim().to_uppercase())
+        .execute(&self.pool)
+        .await
+        .context("Failed to upsert plan duration override")?;
+        Ok(())
+    }
+
+    /// Remove a plan-duration override (reverts to base USD price).
+    pub async fn delete_duration_override(&self, duration_id: i64, provider: &str) -> Result<()> {
+        sqlx::query(
+            "DELETE FROM plan_duration_provider_prices WHERE duration_id = $1 AND provider = $2",
+        )
+        .bind(duration_id)
+        .bind(provider)
+        .execute(&self.pool)
+        .await
+        .context("Failed to delete plan duration override")?;
+        Ok(())
+    }
+
+    /// Insert or update a product override. `currency` is upper-cased.
+    pub async fn upsert_product_override(
+        &self,
+        product_id: i64,
+        provider: &str,
+        amount: i64,
+        currency: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO product_provider_prices (product_id, provider, amount, currency, updated_at)
+             VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+             ON CONFLICT (product_id, provider)
+             DO UPDATE SET amount = EXCLUDED.amount, currency = EXCLUDED.currency, updated_at = CURRENT_TIMESTAMP",
+        )
+        .bind(product_id)
+        .bind(provider)
+        .bind(amount)
+        .bind(currency.trim().to_uppercase())
+        .execute(&self.pool)
+        .await
+        .context("Failed to upsert product override")?;
+        Ok(())
+    }
+
+    /// Remove a product override (reverts to base USD price).
+    pub async fn delete_product_override(&self, product_id: i64, provider: &str) -> Result<()> {
+        sqlx::query("DELETE FROM product_provider_prices WHERE product_id = $1 AND provider = $2")
+            .bind(product_id)
+            .bind(provider)
+            .execute(&self.pool)
+            .await
+            .context("Failed to delete product override")?;
+        Ok(())
+    }
+
     pub async fn get_active_plans(&self) -> Result<Vec<Plan>> {
         let mut plans = match sqlx::query_as::<_, Plan>(
             "SELECT id, name, description, is_active, created_at, device_limit, traffic_limit_gb, is_trial,
@@ -506,39 +699,28 @@ impl CatalogService {
         let total_price: i64 = cart.iter().map(|item| item.price * item.quantity).sum();
         let mut tx = self.pool.begin().await?;
 
-        let balance: i64 = sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_one(&mut *tx)
-            .await?;
-
-        if balance < total_price {
-            return Err(anyhow::anyhow!(
-                "Insufficient balance. Need {}, have {}",
-                total_price,
-                balance
-            ));
-        }
-
-        sqlx::query("UPDATE users SET balance = balance - $1 WHERE id = $2")
-            .bind(total_price)
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
-
-        let order_id: i64 = sqlx::query_scalar("INSERT INTO orders (user_id, total_amount, status, paid_at) VALUES ($1, $2, 'paid', $3) RETURNING id")
-            .bind(user_id)
-            .bind(total_price)
-            .bind(Utc::now())
-            .fetch_one(&mut *tx)
-            .await?;
+        // Create a PENDING order and snapshot its line items. Payment is collected
+        // afterwards through the provider-selection step (POST /payment/invoice).
+        // Balance is intentionally NOT deducted here — the chosen provider (including
+        // the "balance" wallet provider) performs the charge and fulfillment flips the
+        // order to 'paid'. This removes the previous double-charge where checkout
+        // deducted balance and the Mini App then billed the user again via a provider.
+        let order_id: i64 = sqlx::query_scalar(
+            "INSERT INTO orders (user_id, total_amount, status) VALUES ($1, $2, 'pending') RETURNING id",
+        )
+        .bind(user_id)
+        .bind(total_price)
+        .fetch_one(&mut *tx)
+        .await?;
 
         for item in cart {
             sqlx::query(
-                "INSERT INTO order_items (order_id, product_id, price) VALUES ($1, $2, $3)",
+                "INSERT INTO order_items (order_id, product_id, price, quantity) VALUES ($1, $2, $3, $4)",
             )
             .bind(order_id)
             .bind(item.product_id)
             .bind(item.price)
+            .bind(item.quantity)
             .execute(&mut *tx)
             .await?;
         }
@@ -552,7 +734,7 @@ impl CatalogService {
             &mut *tx,
             Some(user_id),
             "Checkout",
-            &format!("Checkout complete. Total: {}", total_price),
+            &format!("Order #{} created (pending). Total: {}", order_id, total_price),
         )
         .await;
         tx.commit().await?;

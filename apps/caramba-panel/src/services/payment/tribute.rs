@@ -1,7 +1,9 @@
 // Tribute — нативная монетизация для Telegram-каналов.
 // API: https://tribute.tg/api/v1/
-// Аутентификация: Bearer token из личного кабинета Tribute.
-// Подпись вебхука: HMAC-SHA256 над raw body, заголовок X-Tribute-Signature.
+// Аутентификация: Bearer token (API-ключ) из личного кабинета Tribute.
+// Подпись вебхука: HMAC-SHA256 над raw body, заголовок `trbt-signature`.
+// Ключ подписи = API-ключ (по докам Tribute). Если задан отдельный
+// tribute_webhook_secret — используется он, иначе откатываемся на API-ключ.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -81,16 +83,22 @@ impl PaymentProvider for TributeProvider {
     }
 
     async fn verify_webhook(&self, payload: &[u8], signature: &str) -> Result<bool> {
-        if self.webhook_secret.is_empty() {
-            anyhow::bail!("tribute_webhook_secret не задан — вебхук отклонён");
-        }
+        // Tribute signs the webhook body with the account API key. Allow an explicit
+        // override secret, but fall back to the API key (documented behavior).
+        let key = if !self.webhook_secret.is_empty() {
+            self.webhook_secret.as_str()
+        } else if !self.api_key.is_empty() {
+            self.api_key.as_str()
+        } else {
+            anyhow::bail!("ни tribute_webhook_secret, ни tribute_api_key не заданы — вебхук отклонён");
+        };
 
         type HmacSha256 = Hmac<Sha256>;
-        let mut mac = HmacSha256::new_from_slice(self.webhook_secret.as_bytes())
-            .context("Неверный HMAC-ключ Tribute")?;
+        let mut mac =
+            HmacSha256::new_from_slice(key.as_bytes()).context("Неверный HMAC-ключ Tribute")?;
         mac.update(payload);
         let expected = hex::encode(mac.finalize().into_bytes());
-        Ok(signature == expected)
+        Ok(signature.eq_ignore_ascii_case(&expected))
     }
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {

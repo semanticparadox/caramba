@@ -26,6 +26,8 @@ interface Plan {
 interface PaymentProvider {
     id: string
     label: string
+    amount?: number
+    currency?: string
 }
 
 export default function Plans() {
@@ -112,6 +114,24 @@ export default function Plans() {
     const handleSelectDuration = (duration: PlanDuration) => {
         setSelectedDuration(duration)
         setShowPayModal(true)
+        // Re-fetch providers scoped to this duration so each method advertises its
+        // effective per-method price/currency (override-aware).
+        if (token) {
+            void (async () => {
+                try {
+                    const res = await fetch(
+                        apiUrl(`/api/client/payment/providers?duration_id=${duration.id}`),
+                        { headers },
+                    )
+                    if (res.ok) {
+                        const data = await res.json()
+                        setProviders(data.providers || [])
+                    }
+                } catch (e) {
+                    console.error('provider price fetch failed', e)
+                }
+            })()
+        }
     }
 
     const handlePurchase = async (providerId: string) => {
@@ -172,6 +192,16 @@ export default function Plans() {
         const major = Math.floor(priceCents / 100)
         const minor = priceCents % 100
         return `$${major}.${minor.toString().padStart(2, '0')}`
+    }
+
+    const formatProviderPrice = (amount?: number, currency?: string): string | null => {
+        if (amount == null || !currency) return null
+        const major = amount / 100
+        const c = currency.toUpperCase()
+        if (c === 'USD') return `$${major.toFixed(2)}`
+        if (c === 'RUB') return `${major.toFixed(2)} ₽`
+        if (c === 'EUR') return `€${major.toFixed(2)}`
+        return `${major.toFixed(2)} ${c}`
     }
 
     const formatDuration = (days: number) => {
@@ -275,6 +305,10 @@ export default function Plans() {
                                     <small>{p.description}</small>
                                 </span>
                                 <span className="provider-card-meta">
+                                    {(() => {
+                                        const price = formatProviderPrice(p.amount, p.currency)
+                                        return price ? <span className="provider-price">{price}</span> : null
+                                    })()}
                                     {p.badge && <span className="provider-pill">{p.badge}</span>}
                                     <span className="provider-arrow">{'>'}</span>
                                 </span>

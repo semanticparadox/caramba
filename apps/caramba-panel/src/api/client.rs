@@ -1680,46 +1680,111 @@ async fn purchase_plan(
 struct PaymentProviderInfo {
     id: String,
     label: String,
+    /// Effective price in minor units for the requested target (duration/order), if known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    amount: Option<i64>,
+    /// ISO currency (or "USD" fallback) for `amount`, if known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    currency: Option<String>,
 }
 
-fn has_value(value: &str) -> bool {
-    !value.trim().is_empty()
+/// Human-friendly label (with emoji) for a registered payment provider id.
+pub fn provider_label(name: &str) -> String {
+    match name {
+        "manual" => "💳 Card / Manual transfer",
+        "cryptobot" => "🪙 CryptoBot",
+        "nowpayments" => "🪙 NOWPayments",
+        "cryptomus" => "🪙 Cryptomus",
+        "lava" => "💎 Lava.top",
+        "aaio" => "🇷🇺 AAIO",
+        "stripe" => "💳 Stripe",
+        "wata" => "🇷🇺 WATA",
+        "crystalpay" => "🇷🇺 CrystalPay",
+        "tribute" => "🇷🇺 Tribute (RUB → crypto)",
+        "btcpay" => "₿ BTCPay Server",
+        "oxapay" => "🪙 OxaPay",
+        "coinbase_commerce" => "🪙 Coinbase Commerce",
+        "plisio" => "🪙 Plisio",
+        other => other,
+    }
+    .to_string()
+}
+
+#[derive(Deserialize)]
+struct ProviderListQuery {
+    duration_id: Option<i64>,
+    order_id: Option<i64>,
 }
 
 async fn get_payment_providers(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<Claims>,
+    axum::extract::Query(q): axum::extract::Query<ProviderListQuery>,
 ) -> impl IntoResponse {
     let tg_id: i64 = claims.sub.parse().unwrap_or(0);
     let mut providers = Vec::new();
 
-    // Check balance
+    // Resolve the base price (USD, minor units) for the requested target once, so each
+    // provider entry can advertise its effective amount/currency (override or base).
+    let base_amount: Option<i64> = if let Some(did) = q.duration_id {
+        sqlx::query_scalar("SELECT price FROM plan_durations WHERE id = $1")
+            .bind(did)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None)
+    } else if let Some(oid) = q.order_id {
+        sqlx::query_scalar("SELECT total_amount FROM orders WHERE id = $1")
+            .bind(oid)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None)
+    } else {
+        None
+    };
+
+    // Per-provider overrides for the target (empty when no target supplied).
+    let overrides: std::collections::HashMap<String, (i64, String)> =
+        if let Some(did) = q.duration_id {
+            state.catalog_service.list_duration_overrides(did).await
+        } else if let Some(oid) = q.order_id {
+            // For orders the override is per single product line; resolve lazily below.
+            // We still pre-fetch nothing here and compute per provider via resolver.
+            let _ = oid;
+            std::collections::HashMap::new()
+        } else {
+            std::collections::HashMap::new()
+        };
+
+    // Effective (amount, currency) for a provider given the resolved base + overrides.
+    let price_for = |name: &str| -> (Option<i64>, Option<String>) {
+        if let Some((a, c)) = overrides.get(name) {
+            (Some(*a), Some(c.clone()))
+        } else if let Some(b) = base_amount {
+            (Some(b), Some("USD".to_string()))
+        } else {
+            (None, None)
+        }
+    };
+
+    // ---- Special-case methods (not part of the MarketplaceService registry) ----
+
+    // Balance: only offered when the user actually has a positive balance.
     let balance: i64 = sqlx::query_scalar("SELECT balance FROM users WHERE tg_id = $1")
         .bind(tg_id)
         .fetch_optional(&state.pool)
         .await
         .unwrap_or(None)
         .unwrap_or(0);
-
     if balance > 0 {
         providers.push(PaymentProviderInfo {
             id: "balance".to_string(),
             label: format!("💰 Pay with Balance (${:.2})", balance as f64 / 100.0),
+            amount: base_amount,
+            currency: base_amount.map(|_| "USD".to_string()),
         });
     }
 
-    if state
-        .settings
-        .get_or_default("manual_enabled", "false")
-        .await
-        == "true"
-    {
-        providers.push(PaymentProviderInfo {
-            id: "manual".to_string(),
-            label: "💳 Pay with Card/Manual".to_string(),
-        });
-    }
-
+    // Telegram Stars: handled by PayService, not registered in MarketplaceService.
     if state
         .settings
         .get_or_default("telegram_stars_enabled", "false")
@@ -1729,65 +1794,45 @@ async fn get_payment_providers(
         providers.push(PaymentProviderInfo {
             id: "stars".to_string(),
             label: "⭐️ Pay with Telegram Stars".to_string(),
+            amount: None,
+            currency: None,
         });
     }
 
-    if has_value(&state.settings.get_or_default("payment_api_key", "").await) {
-        providers.push(PaymentProviderInfo {
-            id: "cryptobot".to_string(),
-            label: "🪙 Pay with CryptoBot".to_string(),
-        });
-    }
+    // ---- Registered providers (source of truth = MarketplaceService) ----
+    for name in state.marketplace_service.provider_names() {
+        // "balance" is handled above with its dynamic label; never list it twice.
+        if name == "balance" {
+            continue;
+        }
+        // Honor the per-provider enable toggle the admin panel writes. Opt-in
+        // providers (wata/tribute/…) default off; legacy providers default on once
+        // configured. `provider_enable_setting` is the shared source of truth.
+        let (enable_key, default_on) =
+            crate::services::marketplace_service::provider_enable_setting(&name);
+        let default = if default_on { "true" } else { "false" };
+        if state.settings.get_or_default(&enable_key, default).await != "true" {
+            continue;
+        }
 
-    if has_value(
-        &state
-            .settings
-            .get_or_default("nowpayments_api_key", "")
-            .await,
-    ) && has_value(
-        &state
-            .settings
-            .get_or_default("nowpayments_ipn_secret", "")
-            .await,
-    ) {
-        providers.push(PaymentProviderInfo {
-            id: "nowpayments".to_string(),
-            label: "🪙 Pay with NowPayments".to_string(),
-        });
-    }
+        let (amount, currency) = if q.order_id.is_some() {
+            match state
+                .catalog_service
+                .resolve_order_price(q.order_id.unwrap_or(0), &name)
+                .await
+            {
+                Ok(Some((a, c))) => (Some(a), Some(c)),
+                _ => (base_amount, base_amount.map(|_| "USD".to_string())),
+            }
+        } else {
+            price_for(&name)
+        };
 
-    if has_value(
-        &state
-            .settings
-            .get_or_default("cryptomus_payment_merchant_id", "")
-            .await,
-    ) && has_value(
-        &state
-            .settings
-            .get_or_default("cryptomus_payment_api_key", "")
-            .await,
-    ) {
         providers.push(PaymentProviderInfo {
-            id: "cryptomus".to_string(),
-            label: "🪙 Pay with Cryptomus".to_string(),
-        });
-    }
-
-    if has_value(&state.settings.get_or_default("lava_project_id", "").await)
-        && has_value(&state.settings.get_or_default("lava_secret_key", "").await)
-    {
-        providers.push(PaymentProviderInfo {
-            id: "lava".to_string(),
-            label: "🪙 Pay with Lava.top".to_string(),
-        });
-    }
-
-    if has_value(&state.settings.get_or_default("aaio_merchant_id", "").await)
-        && has_value(&state.settings.get_or_default("aaio_secret_1", "").await)
-    {
-        providers.push(PaymentProviderInfo {
-            id: "aaio".to_string(),
-            label: "🪙 Pay with AAIO".to_string(),
+            id: name.clone(),
+            label: provider_label(&name),
+            amount,
+            currency,
         });
     }
 
@@ -1819,46 +1864,63 @@ async fn create_payment_invoice(
         None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
     };
 
-    let (product_id, amount) = if let Some(duration_id) = body.duration_id {
-        // Handle Plan Duration
-        let duration_row: Option<(i64, i64)> = sqlx::query_as::<_, (i64, i64)>(
-            "SELECT plan_id, price FROM plan_durations WHERE id = $1",
-        )
-        .bind(duration_id)
-        .fetch_optional(&state.pool)
-        .await
-        .unwrap_or(None);
+    // Resolve the effective amount + currency for this provider (per-method override
+    // when configured, otherwise the base price in USD). For plan durations we also
+    // carry `duration_days` so fulfillment extends the subscription by the purchased
+    // term regardless of the (possibly overridden) charged amount.
+    let (product_id, duration_days, amount, currency): (i64, Option<i32>, i64, String) =
+        if let Some(duration_id) = body.duration_id {
+            match state
+                .catalog_service
+                .resolve_duration_price(duration_id, &body.provider)
+                .await
+            {
+                Ok(Some((plan_id, days, amt, cur))) => (plan_id, Some(days), amt, cur),
+                Ok(None) => return (StatusCode::BAD_REQUEST, "Invalid duration ID").into_response(),
+                Err(e) => {
+                    tracing::error!("resolve_duration_price failed: {}", e);
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "Price resolution failed")
+                        .into_response();
+                }
+            }
+        } else if let Some(order_id) = body.order_id {
+            // Verify the order belongs to the requesting user before pricing it.
+            let owns: Option<i64> =
+                sqlx::query_scalar("SELECT id FROM orders WHERE id = $1 AND user_id = $2")
+                    .bind(order_id)
+                    .bind(u.id)
+                    .fetch_optional(&state.pool)
+                    .await
+                    .unwrap_or(None);
+            if owns.is_none() {
+                return (StatusCode::BAD_REQUEST, "Invalid order ID").into_response();
+            }
+            match state
+                .catalog_service
+                .resolve_order_price(order_id, &body.provider)
+                .await
+            {
+                Ok(Some((amt, cur))) => (order_id, None, amt, cur),
+                Ok(None) => return (StatusCode::BAD_REQUEST, "Invalid order ID").into_response(),
+                Err(e) => {
+                    tracing::error!("resolve_order_price failed: {}", e);
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "Price resolution failed")
+                        .into_response();
+                }
+            }
+        } else {
+            return (StatusCode::BAD_REQUEST, "Missing duration_id or order_id").into_response();
+        };
 
-        match duration_row {
-            Some(row) => row, // (plan_id, price)
-            None => return (StatusCode::BAD_REQUEST, "Invalid duration ID").into_response(),
-        }
-    } else if let Some(order_id) = body.order_id {
-        // Handle Store Order
-        let order_row: Option<(i64, i64)> = sqlx::query_as::<_, (i64, i64)>(
-            "SELECT id, total_amount FROM orders WHERE id = $1 AND user_id = $2",
-        )
-        .bind(order_id)
-        .bind(u.id)
-        .fetch_optional(&state.pool)
-        .await
-        .unwrap_or(None);
-
-        match order_row {
-            Some(row) => row, // (order_id as product_id conceptually, total_amount)
-            None => return (StatusCode::BAD_REQUEST, "Invalid order ID").into_response(),
-        }
-    } else {
-        return (StatusCode::BAD_REQUEST, "Missing duration_id or order_id").into_response();
-    };
-
-    let currency = "USD";
     let mut metadata = HashMap::new();
     if body.duration_id.is_some() {
         metadata.insert(
             "type".to_string(),
             serde_json::Value::String("plan".to_string()),
         );
+        if let Some(days) = duration_days {
+            metadata.insert("duration_days".to_string(), serde_json::Value::from(days));
+        }
     } else if body.order_id.is_some() {
         metadata.insert(
             "type".to_string(),
@@ -1873,29 +1935,59 @@ async fn create_payment_invoice(
             product_id,
             &body.provider,
             amount,
-            currency,
+            &currency,
             Some(serde_json::to_value(metadata).unwrap_or_default()),
         )
         .await
     {
         Ok((session, invoice_payload)) => {
             if body.provider == "balance" {
-                // Synchronous fulfillment for balance
+                // Charge the wallet FIRST with an atomic, conditional deduction so a
+                // user can never spend more than they hold (the `balance >= $1` guard
+                // makes the row update a no-op when funds are insufficient). Only after
+                // a successful charge do we fulfill; if fulfillment fails we refund.
+                let charged = sqlx::query(
+                    "UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1",
+                )
+                .bind(amount)
+                .bind(u.id)
+                .execute(&state.pool)
+                .await;
+
+                match charged {
+                    Ok(res) if res.rows_affected() == 1 => {}
+                    Ok(_) => {
+                        let _ = state
+                            .marketplace_service
+                            .mark_session_failed(session.id)
+                            .await;
+                        return (StatusCode::BAD_REQUEST, "Insufficient balance").into_response();
+                    }
+                    Err(e) => {
+                        tracing::error!("Balance charge failed for user {}: {}", u.id, e);
+                        let _ = state
+                            .marketplace_service
+                            .mark_session_failed(session.id)
+                            .await;
+                        return (StatusCode::INTERNAL_SERVER_ERROR, "Balance charge failed")
+                            .into_response();
+                    }
+                }
+
                 if let Err(e) = state.marketplace_service.fulfill_payment(session.id).await {
                     tracing::error!("Immediate balance fulfillment failed: {}", e);
+                    // Refund the charge we just made so the user isn't billed for nothing.
+                    let _ = sqlx::query("UPDATE users SET balance = balance + $1 WHERE id = $2")
+                        .bind(amount)
+                        .bind(u.id)
+                        .execute(&state.pool)
+                        .await;
                     return (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         format!("Fulfillment failed: {}", e),
                     )
                         .into_response();
                 }
-
-                // Deduct balance manually if BalanceProvider didn't do it (it doesn't in our implementation to keep MarketplaceService pure)
-                let _ = sqlx::query("UPDATE users SET balance = balance - $1 WHERE id = $2")
-                    .bind(amount)
-                    .bind(u.id)
-                    .execute(&state.pool)
-                    .await;
 
                 return Json(serde_json::json!({
                     "ok": true,

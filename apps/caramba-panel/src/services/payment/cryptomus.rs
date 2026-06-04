@@ -82,6 +82,10 @@ impl crate::services::payment::PaymentAdapter for CryptomusAdapter {
             "amount": amount_usd.to_string(),
             "currency": "USD",
             "order_id": order_id,
+            // NOTE: legacy PayService path. The production Mini App flow uses
+            // MarketplaceService → POST /api/webhooks/payment/cryptomus (session-based).
+            // This `/caramba-api/payments/cryptomus` callback belongs to the older
+            // bot-initiated flow; confirmation there relies on check_status/polling.
             "url_callback": format!("https://{}/caramba-api/payments/cryptomus", api_domain),
             "url_return": format!("https://t.me/{}", bot_username),
             "additional_data": payload_str
@@ -148,7 +152,7 @@ impl PaymentProvider for CryptomusProvider {
     ) -> Result<String> {
         let req = CryptomusInvoiceReq {
             amount: format!("{:.2}", (session.amount as f64) / 100.0),
-            currency: "USD".to_string(),
+            currency: session.currency.to_uppercase(),
             order_id: session.id.to_string(),
             url_callback: format!(
                 "https://{}/api/webhooks/payment/cryptomus",

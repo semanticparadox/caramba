@@ -99,12 +99,16 @@ impl PaymentProvider for WataProvider {
 
     async fn verify_webhook(&self, payload: &[u8], signature: &str) -> Result<bool> {
         if self.webhook_secret.is_empty() {
-            // TODO: настройте wata_webhook_secret для верификации подписи вебхука.
-            tracing::warn!(
-                "WATA webhook secret not configured — accepting unsigned webhook (INSECURE). \
-                 Set wata_webhook_secret in admin settings."
+            // Without a configured secret we cannot authenticate the callback, so we
+            // reject it rather than trust an unsigned payload. Accepting unsigned
+            // webhooks would let anyone POST a forged "Paid" event for a known session
+            // and obtain free fulfillment. Configure wata_webhook_secret in admin
+            // settings to enable WATA payments.
+            tracing::error!(
+                "WATA webhook secret not configured — rejecting unsigned webhook. \
+                 Set wata_webhook_secret in admin settings to enable WATA."
             );
-            return Ok(true);
+            return Ok(false);
         }
 
         type HmacSha256 = Hmac<Sha256>;

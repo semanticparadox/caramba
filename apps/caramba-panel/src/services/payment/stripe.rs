@@ -38,13 +38,23 @@ impl PaymentProvider for StripeProvider {
         let success_url = format!("https://t.me/{}", self.bot_username);
         let cancel_url = success_url.clone();
 
+        // Stripe expects a lowercase ISO currency. Honor the per-method override; default usd.
+        let currency = {
+            let c = session.currency.trim().to_lowercase();
+            if c.is_empty() {
+                "usd".to_string()
+            } else {
+                c
+            }
+        };
+
         // Stripe принимает form-encoded для checkout.sessions
         let params = [
             ("mode", "payment".to_string()),
             ("success_url", success_url),
             ("cancel_url", cancel_url),
             ("client_reference_id", session.id.to_string()),
-            ("line_items[0][price_data][currency]", "usd".to_string()),
+            ("line_items[0][price_data][currency]", currency),
             (
                 "line_items[0][price_data][product_data][name]",
                 "VPN Subscription".to_string(),

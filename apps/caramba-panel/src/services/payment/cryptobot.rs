@@ -51,8 +51,21 @@ impl PaymentProvider for CryptoBotProvider {
         // Amount must be formatted as a string for CryptoBot
         let amount_str = format!("{:.2}", (session.amount as f64) / 100.0);
 
+        // CryptoBot settles in crypto assets. Honor a per-method currency override when it
+        // names a supported asset; otherwise default to USDT.
+        let asset = {
+            let c = session.currency.trim().to_uppercase();
+            const SUPPORTED: [&str; 9] =
+                ["USDT", "TON", "BTC", "ETH", "LTC", "BNB", "TRX", "USDC", "JET"];
+            if SUPPORTED.contains(&c.as_str()) {
+                c
+            } else {
+                "USDT".to_string()
+            }
+        };
+
         let req_body = CryptoBotInvoiceReq {
-            asset: "USDT".to_string(), // Or get from session
+            asset,
             amount: amount_str,
             description: format!("VPN Subscription (Product: {})", session.product_id),
             hidden_message: "Thank you for your purchase!".to_string(),
