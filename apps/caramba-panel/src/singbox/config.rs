@@ -41,6 +41,18 @@ pub struct LocalRuleSet {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ExperimentalConfig {
     pub clash_api: ClashApiConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_file: Option<CacheFileConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CacheFileConfig {
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Persist address-filter / rejected DNS-rule results across restarts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub store_rdrc: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -459,8 +471,14 @@ pub struct LocalDnsServer {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DnsRule {
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub outbound: Option<String>, // Deprecated in 1.12, removed to fix warning
+    /// DNS rule action (sing-box 1.11+). "route" forwards to `server`,
+    /// "reject" sinkholes the query. Required form for forward-compat
+    /// (the bare `server` field is deprecated and removed in 1.14).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    /// Reject method: "default" (REFUSED) or "drop". Only with action="reject".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub domain_resolver: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

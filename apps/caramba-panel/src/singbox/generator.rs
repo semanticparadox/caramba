@@ -397,44 +397,39 @@ impl ConfigGenerator {
                             ttype: o.ttype,
                             password: o.password,
                         }),
-                        masquerade: hy2.masquerade.clone().map(|s: String| {
-                            if !s.contains("://") && s.starts_with('/') {
-                                format!("file://{}", s)
-                            } else {
-                                s
-                            }
-                        }),
+                        masquerade: Some(
+                            hy2.masquerade
+                                .clone()
+                                .map(|s: String| {
+                                    if !s.contains("://") && s.starts_with('/') {
+                                        format!("file://{}", s)
+                                    } else {
+                                        s
+                                    }
+                                })
+                                // Default masquerade so unauthenticated probes get a
+                                // believable site instead of a bare reject — improves
+                                // resistance to active probing (hysteria2.md). Real
+                                // clients authenticate and bypass this.
+                                .unwrap_or_else(|| "https://www.bing.com".to_string()),
+                        ),
                         tls: tls_config,
                     }));
                 }
-                InboundType::AmneziaWg(awg) => {
-                    let peers = awg
-                        .users
-                        .iter()
-                        .map(|u| AmneziaWgUser {
-                            name: u.name.clone(),
-                            public_key: u.public_key.clone(),
-                            preshared_key: u.preshared_key.clone(),
-                            allowed_ips: vec![u.client_ip.clone()],
-                        })
-                        .collect();
-
-                    generated_inbounds.push(Inbound::AmneziaWg(AmneziaWgInbound {
-                        tag: inbound.tag,
-                        listen: inbound.listen_ip,
-                        listen_port: inbound.listen_port as u16,
-                        peers,
-                        private_key: awg.private_key,
-                        jc: Some(awg.jc),
-                        jmin: Some(awg.jmin),
-                        jmax: Some(awg.jmax),
-                        s1: Some(awg.s1),
-                        s2: Some(awg.s2),
-                        h1: Some(awg.h1),
-                        h2: Some(awg.h2),
-                        h3: Some(awg.h3),
-                        h4: Some(awg.h4),
-                    }));
+                InboundType::AmneziaWg(_awg) => {
+                    // Official sing-box (installed from deb.sagernet.org) has NO
+                    // `wireguard` INBOUND type — WireGuard became an `endpoint` in
+                    // 1.11 — and it does not understand AmneziaWG obfuscation fields
+                    // (jc/jmin/jmax/s1/s2/h1..h4). Emitting such an inbound makes
+                    // `sing-box check` FAIL, which brings down the ENTIRE node config
+                    // (every other protocol included). Skip it so the rest of the node
+                    // keeps serving. Proper resolution (ship an AmneziaWG fork or drop
+                    // the protocol from the UI) tracked in bd: caramba-5p2.
+                    error!(
+                        "🚫 AmneziaWG inbound '{}' SKIPPED: official sing-box cannot run a `wireguard` inbound with AmneziaWG fields. Other inbounds on this node are unaffected.",
+                        inbound.tag
+                    );
+                    continue;
                 }
                 InboundType::Tuic(tuic) => {
                     let mut tls_config = TuicTlsConfig {
@@ -487,7 +482,13 @@ impl ConfigGenerator {
                         listen: inbound.listen_ip,
                         listen_port: inbound.listen_port as u16,
                         users,
-                        congestion_control: tuic.congestion_control,
+                        // Default to BBR for best throughput on lossy/long-RTT RU links.
+                        // Valid sing-box values: cubic | new_reno | bbr (tuic.md).
+                        congestion_control: if tuic.congestion_control.trim().is_empty() {
+                            "bbr".to_string()
+                        } else {
+                            tuic.congestion_control
+                        },
                         auth_timeout: tuic.auth_timeout,
                         zero_rtt_handshake: tuic.zero_rtt_handshake,
                         heartbeat: tuic.heartbeat,
@@ -935,21 +936,16 @@ impl ConfigGenerator {
                 update_interval: Some("24h".to_string()),
             }));
 
-            // Block in DNS
+            // Sinkhole the lookup itself with a DNS reject action (REFUSED).
+            // This is the documented 1.11+ way (dns/rule_action.md) and replaces
+            // the old broken "127.0.0.1 block server" hack.
             dns_rules.push(DnsRule {
                 rule_set: Some(vec!["geosite-ads".to_string()]),
-                server: Some("block".to_string()), // "block" isn't a server, usually "reject" or 127.0.0.1. Sing-box DNS rules don't have "action": "reject".
-                // Wait, DNS rules map to a server. We need a "block" server or just use "reject" action in 1.10+?
-                // Sing-box 1.9+ DNS rule doesn't have action. It has `server` or `interrupt`.
-                // We'll define a fake "block" server or use the route rule to reject.
-                // Actually, best practice for DNS AdBlock in sing-box:
-                // Define a "block" DNS server (e.g. 0.0.0.0) or use `action: reject` in Route (which handles traffic).
-                // But to stop DNS resolution itself:
-                // We can't easily do it in `dns.rules` without a sinkhole server.
-                // Let's use 127.0.0.1 as a sinkhole server.
+                action: Some("reject".to_string()),
+                method: Some("default".to_string()),
+                server: None,
                 domain_resolver: None,
                 clash_mode: None,
-                // outbound: None, // Verified removed
             });
 
             // Block in Route
@@ -978,7 +974,9 @@ impl ConfigGenerator {
 
             dns_rules.push(DnsRule {
                 rule_set: Some(vec!["geosite-porn".to_string()]),
-                server: Some("block".to_string()),
+                action: Some("reject".to_string()),
+                method: Some("default".to_string()),
+                server: None,
                 domain_resolver: None,
                 clash_mode: None,
             });
@@ -1027,16 +1025,12 @@ impl ConfigGenerator {
                         tag: "local".to_string(),
                         detour: Some("direct".to_string()),
                     }),
-                    // Sinkhole for AdBlock
-                    DnsServer::Udp(UdpDnsServer {
-                        tag: "block".to_string(),
-                        server: "127.0.0.1".to_string(),
-                        detour: None,
-                    }),
                 ],
                 rules: {
                     let mut final_dns_rules = dns_rules;
                     final_dns_rules.push(DnsRule {
+                        action: Some("route".to_string()),
+                        method: None,
                         domain_resolver: None,
                         server: Some("local".to_string()),
                         clash_mode: None,
@@ -1065,6 +1059,14 @@ impl ConfigGenerator {
                     access_control_allow_origin: Some(vec!["*".to_string()]),
                     access_control_allow_private_network: Some(true),
                 },
+                // Persist remote rule-sets, selected outbound and rejected-DNS
+                // results across restarts: faster startup and resilience to
+                // GitHub/rule-set source outages (experimental/cache-file.md).
+                cache_file: Some(CacheFileConfig {
+                    enabled: true,
+                    path: Some("/etc/sing-box/cache.db".to_string()),
+                    store_rdrc: Some(true),
+                }),
             }),
         }
     }

@@ -941,19 +941,25 @@ mod tests {
         // Check DNS Sinkhole
         let dns = config.dns.as_ref().unwrap();
 
-        // Should have sinkhole server
-        assert!(dns.servers.iter().any(|s| match s {
-            crate::singbox::config::DnsServer::Udp(u) =>
-                u.server == "127.0.0.1" && u.tag == "block",
+        // The broken "127.0.0.1 block" sinkhole server must be gone.
+        assert!(!dns.servers.iter().any(|s| match s {
+            crate::singbox::config::DnsServer::Udp(u) => u.tag == "block",
             _ => false,
         }));
 
-        // Should have DNS blocking rules
+        // Ad/porn lookups are sinkholed with the documented DNS reject action
+        // (dns/rule_action.md), not routed to a fake server.
         assert!(
             dns.rules
                 .iter()
                 .any(|r| r.rule_set == Some(vec!["geosite-ads".to_string()])
-                    && r.server == Some("block".to_string()))
+                    && r.action == Some("reject".to_string()))
+        );
+        assert!(
+            dns.rules
+                .iter()
+                .any(|r| r.rule_set == Some(vec!["geosite-porn".to_string()])
+                    && r.action == Some("reject".to_string()))
         );
     }
 }
