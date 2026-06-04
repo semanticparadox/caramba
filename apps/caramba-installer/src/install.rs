@@ -612,6 +612,20 @@ pub fn install_singbox() -> Result<()> {
     );
     run_command("sh", &["-c", &tee_cmd], "Adding sing-box repository")?;
 
+    // Pin sing-box to the 1.13.x series. The caramba config generator targets
+    // sing-box 1.13 schema semantics (inbound/outbound layout, `store_rdrc`,
+    // `download_detour`, `independent_cache`). sing-box 1.14 deprecates several of
+    // these fields, so an unpinned `apt install`/`apt upgrade` could silently jump
+    // to 1.14+ and break generated node configs. Priority 1000 keeps apt on the
+    // highest available 1.13.* and blocks automatic upgrades past it. The 1.14
+    // field migration is tracked in beads and the pin must be bumped alongside it.
+    let pin_pref = "Package: sing-box\nPin: version 1.13.*\nPin-Priority: 1000\n";
+    let pin_cmd = format!(
+        "echo '{}' | tee /etc/apt/preferences.d/sing-box.pref",
+        pin_pref
+    );
+    run_command("sh", &["-c", &pin_cmd], "Pinning sing-box to the 1.13.* series")?;
+
     run_command("apt-get", &["update"], "Updating package lists")?;
     run_command_optional(
         "sh",

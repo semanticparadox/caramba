@@ -1,6 +1,16 @@
 # sing-box Configuration Reference
 
-Local copy of [sing-box docs](https://sing-box.sagernet.org/configuration/) from the `testing` branch.
+**Targets sing-box 1.13.x** — the engine version pinned on nodes (see
+`apps/caramba-installer/src/install.rs`, apt pin `1.13.*`). The Caramba config
+generator emits the 1.13 schema (`store_rdrc`, `download_detour`,
+`independent_cache`). These vendored docs already include the 1.13.0 reference
+content (e.g. `rule-set/headless-rule.md`, `rule-set/source-format.md`,
+`dns/server/local.md`, `service/ocm.md`). They do **not** yet reflect the 1.14
+field migrations (`download_detour` → `http_clients`, `store_rdrc` →
+`store_dns`, removal of `independent_cache`); that migration is tracked in beads
+and must land together with the engine bump past 1.13.
+
+Local copy of [sing-box docs](https://sing-box.sagernet.org/configuration/).
 Source: https://github.com/SagerNet/sing-box/tree/testing/docs/configuration
 
 ## Quick Reference for Caramba
