@@ -303,9 +303,12 @@ fn build_singbox_outbound(
             ob["security"] = json!("auto");
             ob["alter_id"] = json!(0);
             if si.security == "tls" {
+                // Server uses a self-signed certificate for plain-TLS inbounds, so
+                // the client must skip verification or the handshake is rejected.
                 ob["tls"] = json!({
                     "enabled": true,
                     "server_name": si.sni,
+                    "insecure": true,
                     "utls": { "enabled": true, "fingerprint": si.fingerprint }
                 });
             }
@@ -333,6 +336,9 @@ fn build_singbox_outbound(
                 });
                 tls["utls"] = json!({ "enabled": true, "fingerprint": si.fingerprint });
             } else {
+                // Plain TLS: server presents a self-signed certificate, so the
+                // client must skip verification (Reality does its own auth above).
+                tls["insecure"] = json!(true);
                 tls["utls"] = json!({ "enabled": true, "fingerprint": si.fingerprint });
             }
             ob["tls"] = tls;
@@ -628,7 +634,11 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
     let explicit_flow = v.get("flow").and_then(|f| f.as_str()).unwrap_or("");
     let flow = if !explicit_flow.is_empty() {
         explicit_flow.to_string()
-    } else if (security == "reality" || security == "tls") && network == "tcp" {
+    } else if security == "reality" && network == "tcp" {
+        // xtls-rprx-vision is only emitted by the server for Reality+TCP. Inferring
+        // it for plain TLS (server sets no flow there) makes the client send a flow
+        // the server doesn't expect -> auth mismatch / connection refused, and it
+        // also leaks into the vless:// URI and Clash proxy outputs.
         "xtls-rprx-vision".to_string()
     } else {
         String::new()

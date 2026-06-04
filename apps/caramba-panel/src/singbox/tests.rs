@@ -962,4 +962,154 @@ mod tests {
                     && r.action == Some("reject".to_string()))
         );
     }
+
+    #[test]
+    fn test_tuic_empty_durations_are_omitted() {
+        // Regression: empty auth_timeout/heartbeat must be OMITTED, never serialized
+        // as "". sing-box parses them as Go durations and an empty string makes
+        // `sing-box check` FATAL, which takes down the whole node config.
+        use crate::singbox::{ConfigGenerator, RelayAuthMode};
+
+        let node = create_base_enterprise_node(1, "Tuic-Node", "203.0.113.10");
+        let make_tuic = |port: i64, auth: &str, hb: &str| Inbound {
+            id: 1,
+            node_id: 1,
+            tag: format!("tuic-{port}"),
+            protocol: "tuic".to_string(),
+            listen_port: port,
+            listen_ip: "0.0.0.0".to_string(),
+            settings: json!({
+                "protocol": "tuic",
+                "users": [{
+                    "name": "u1",
+                    "uuid": "11111111-1111-1111-1111-111111111111",
+                    "password": "pw"
+                }],
+                "congestion_control": "bbr",
+                "auth_timeout": auth,
+                "zero_rtt_handshake": false,
+                "heartbeat": hb
+            })
+            .to_string(),
+            stream_settings: "{}".to_string(),
+            remark: None,
+            enable: true,
+            renew_interval_mins: 0,
+            port_range_start: 0,
+            port_range_end: 0,
+            last_rotated_at: None,
+            created_at: None,
+        };
+
+        // Empty / whitespace durations -> fields omitted entirely.
+        let empty_cfg = ConfigGenerator::generate_config(
+            &node,
+            vec![make_tuic(443, "", "  ")],
+            None,
+            None,
+            vec![],
+            RelayAuthMode::V1,
+        );
+        let v = serde_json::to_value(&empty_cfg).unwrap();
+        let tuic = v["inbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["type"] == "tuic")
+            .expect("tuic inbound present");
+        assert!(
+            tuic.get("auth_timeout").is_none(),
+            "empty auth_timeout must be omitted, got: {tuic:?}"
+        );
+        assert!(
+            tuic.get("heartbeat").is_none(),
+            "empty heartbeat must be omitted, got: {tuic:?}"
+        );
+
+        // Valid durations -> passed through unchanged.
+        let set_cfg = ConfigGenerator::generate_config(
+            &node,
+            vec![make_tuic(8443, "3s", "10s")],
+            None,
+            None,
+            vec![],
+            RelayAuthMode::V1,
+        );
+        let v2 = serde_json::to_value(&set_cfg).unwrap();
+        let tuic2 = v2["inbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["type"] == "tuic")
+            .expect("tuic inbound present");
+        assert_eq!(tuic2["auth_timeout"], "3s");
+        assert_eq!(tuic2["heartbeat"], "10s");
+    }
+
+    #[test]
+    fn test_vless_plain_tls_uri_has_no_vision_flow() {
+        // Regression: xtls-rprx-vision is only emitted by the server for Reality+TCP.
+        // Inferring it for plain TLS leaked flow=... into the vless:// URI and Clash
+        // output, causing the client to send a flow the server rejects.
+        let user_keys = UserKeys {
+            user_uuid: "uuid-flow".to_string(),
+            hy2_password: "pass".to_string(),
+            _awg_private_key: None,
+        };
+        let stream_settings = json!({
+            "network": "tcp",
+            "security": "tls",
+            "tlsSettings": { "serverName": "example.org" }
+        });
+        let node = create_mock_node("vless", stream_settings);
+
+        let links_base64 =
+            generate_v2ray_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
+        use base64::Engine;
+        let links_str = String::from_utf8(
+            base64::engine::general_purpose::STANDARD
+                .decode(links_base64)
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            links_str.contains("vless://"),
+            "expected a vless link, got: {links_str}"
+        );
+        assert!(
+            !links_str.contains("flow="),
+            "plain-TLS VLESS must not carry a flow param, got: {links_str}"
+        );
+    }
+
+    #[test]
+    fn test_trojan_plain_tls_outbound_sets_insecure() {
+        // Server presents a self-signed certificate for plain-TLS Trojan; the client
+        // outbound must set tls.insecure=true or the handshake is rejected.
+        let user_keys = UserKeys {
+            user_uuid: "uuid-trojan".to_string(),
+            hy2_password: "pass".to_string(),
+            _awg_private_key: None,
+        };
+        let stream_settings = json!({
+            "network": "tcp",
+            "security": "tls",
+            "tlsSettings": { "serverName": "example.org" }
+        });
+        let node = create_mock_node("trojan", stream_settings);
+
+        let json_config =
+            generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
+        let outbound = parsed["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["type"] == "trojan")
+            .expect("trojan outbound present");
+        assert_eq!(
+            outbound["tls"]["insecure"], true,
+            "plain-TLS Trojan must set tls.insecure=true, got: {outbound:?}"
+        );
+    }
 }

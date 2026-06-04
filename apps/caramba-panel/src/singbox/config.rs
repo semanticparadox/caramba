@@ -385,9 +385,13 @@ pub struct TuicInbound {
     pub listen_port: u16,
     pub users: Vec<TuicUser>,
     pub congestion_control: String,
-    pub auth_timeout: String,
+    // sing-box parses these as Go durations; an empty/invalid string is FATAL on
+    // `sing-box check`. Emit the field only when a non-empty value is present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_timeout: Option<String>,
     pub zero_rtt_handshake: bool,
-    pub heartbeat: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heartbeat: Option<String>,
     pub tls: TuicTlsConfig,
 }
 

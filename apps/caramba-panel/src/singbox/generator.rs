@@ -336,7 +336,7 @@ impl ConfigGenerator {
                         server_name: node
                             .reality_sni
                             .clone()
-                            .unwrap_or_else(|| "drive.google.com".to_string()),
+                            .unwrap_or_else(|| "www.google.com".to_string()),
                         key_path: Some("/etc/sing-box/certs/key.pem".to_string()),
                         certificate_path: Some("/etc/sing-box/certs/cert.pem".to_string()),
                         alpn: Some(vec!["h3".to_string()]),
@@ -489,9 +489,18 @@ impl ConfigGenerator {
                         } else {
                             tuic.congestion_control
                         },
-                        auth_timeout: tuic.auth_timeout,
+                        // Omit empty durations so sing-box applies its own valid
+                        // defaults (auth_timeout 3s, heartbeat 10s) instead of
+                        // receiving "" which fails Go duration parsing -> FATAL.
+                        auth_timeout: {
+                            let s = tuic.auth_timeout.trim();
+                            if s.is_empty() { None } else { Some(s.to_string()) }
+                        },
                         zero_rtt_handshake: tuic.zero_rtt_handshake,
-                        heartbeat: tuic.heartbeat,
+                        heartbeat: {
+                            let s = tuic.heartbeat.trim();
+                            if s.is_empty() { None } else { Some(s.to_string()) }
+                        },
                         tls: tls_config,
                     }));
                 }
