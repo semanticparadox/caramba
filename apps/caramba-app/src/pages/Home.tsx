@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import WebApp from '@twa-dev/sdk'
 import { useNavigate } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import DrawerModal from '../components/DrawerModal'
+import ProviderPicker from '../components/ProviderPicker'
 import { apiUrl } from '../config'
 import { useAuth, UserSubscription } from '../context/AuthContext'
 import { useNotifications } from '../context/NotificationContext'
 import { copyText } from '../lib/copyActions'
 import { mapProviderCards } from '../lib/paymentProviders'
+import { usePurchase } from '../lib/usePurchase'
 import { formatBytes, getUsageSnapshot, usageProgress } from '../lib/subscriptionMetrics'
 import './Home.css'
 
@@ -82,13 +83,23 @@ export default function Home() {
     const [catalogLoaded, setCatalogLoaded] = useState(false)
     const [showPayModal, setShowPayModal] = useState(false)
     const [selectedDuration, setSelectedDuration] = useState<PlanDuration | null>(null)
-    const [purchasingDurationId, setPurchasingDurationId] = useState<number | null>(null)
+    // Локальный busy-флаг для gift-покупки (через /plans/purchase, не через hook).
+    const [giftPurchasingDurationId, setGiftPurchasingDurationId] = useState<number | null>(null)
     const [banner, setBanner] = useState<CenterBanner>(null)
     const [buyAsGift, setBuyAsGift] = useState(false)
     const [giftCode, setGiftCode] = useState<string | null>(null)
     const [copiedGiftCode, setCopiedGiftCode] = useState(false)
 
     const [qrSubId, setQrSubId] = useState<number | null>(null)
+
+    // Централизованная логика покупки счёта — общая с Plans (lib/usePurchase).
+    const { purchasing: invoicePurchasingId, purchasingProvider, purchase } = usePurchase({
+        token,
+        onRefresh: refreshData,
+    })
+
+    // Кнопки выбора срока блокируются, пока идёт любая покупка (счёт или подарок).
+    const purchasingDurationId = invoicePurchasingId ?? giftPurchasingDurationId
 
     // Состояние для продления подписки с главной страницы
     const [extendTargetSub, setExtendTargetSub] = useState<UserSubscription | null>(null)
@@ -322,76 +333,31 @@ export default function Home() {
         setShowPayModal(true)
     }
 
-    const handlePurchase = async (providerId: string) => {
-        if (!selectedDuration || !token) return
-
-        const pickedDuration = selectedDuration
-        const isGift = buyAsGift
-        setPurchasingDurationId(pickedDuration.id)
+    // Покупка подарочного кода — всегда через balance (баланс списывается напрямую,
+    // отдельный эндпоинт /plans/purchase). Не проходит через usePurchase.
+    const handleGiftPurchase = async (durationId: number) => {
+        if (!token) return
+        setGiftPurchasingDurationId(durationId)
         setBanner(null)
         setShowPayModal(false)
-
         try {
-            // Покупка подарочного кода — всегда через balance (баланс списывается напрямую)
-            if (isGift && providerId === 'balance') {
-                const res = await fetch(apiUrl('/api/client/plans/purchase'), {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        duration_id: pickedDuration.id,
-                        as_gift: true,
-                    }),
-                })
-
-                if (res.ok) {
-                    const data = await res.json()
-                    if (data.type === 'gift' && data.gift_code) {
-                        setGiftCode(data.gift_code)
-                        setBanner({ type: 'success', text: t('home.giftCodeCreated') })
-                    }
-                    await refreshData()
-                } else {
-                    const errText = await res.text()
-                    setBanner({ type: 'error', text: errText || t('home.invoiceError') })
-                }
-                return
-            }
-
-            const res = await fetch(apiUrl('/api/client/payment/invoice'), {
+            const res = await fetch(apiUrl('/api/client/plans/purchase'), {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${token}`,
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    duration_id: pickedDuration.id,
-                    provider: providerId,
+                    duration_id: durationId,
+                    as_gift: true,
                 }),
             })
 
             if (res.ok) {
                 const data = await res.json()
-                if (!data.invoice_url) {
-                    setBanner({ type: 'success', text: t('home.paymentSuccess') })
-                    await refreshData()
-                } else if (data.invoice_url) {
-                    if (providerId === 'manual') {
-                        setBanner({
-                            type: 'success',
-                            text: t('home.paymentCreated', { url: data.invoice_url }),
-                        })
-                    } else if (providerId === 'telegram_stars' || providerId === 'stars' || data.invoice_url.includes('t.me/invoice')) {
-                        WebApp.openInvoice(data.invoice_url, () => {
-                            void refreshData()
-                        })
-                        return
-                    } else {
-                        window.location.href = data.invoice_url
-                        return
-                    }
+                if (data.type === 'gift' && data.gift_code) {
+                    setGiftCode(data.gift_code)
+                    setBanner({ type: 'success', text: t('home.giftCodeCreated') })
                 }
                 await refreshData()
             } else {
@@ -401,8 +367,51 @@ export default function Home() {
         } catch {
             setBanner({ type: 'error', text: t('home.networkInvoiceError') })
         } finally {
-            setPurchasingDurationId(null)
+            setGiftPurchasingDurationId(null)
             setSelectedDuration(null)
+        }
+    }
+
+    const handlePurchase = async (providerId: string) => {
+        if (!selectedDuration) return
+
+        const pickedDuration = selectedDuration
+
+        // Подарок: оплата только балансом — отдельный поток.
+        if (buyAsGift && providerId === 'balance') {
+            await handleGiftPurchase(pickedDuration.id)
+            return
+        }
+
+        setBanner(null)
+        const result = await purchase({ durationId: pickedDuration.id, provider: providerId })
+
+        switch (result.outcome) {
+            case 'success':
+                setBanner({ type: 'success', text: t(result.messageKey, result.messageParams) })
+                setShowPayModal(false)
+                setSelectedDuration(null)
+                break
+            case 'manual':
+                setBanner({
+                    type: 'success',
+                    text: t('home.paymentCreated', { url: result.invoiceUrl }),
+                })
+                setShowPayModal(false)
+                setSelectedDuration(null)
+                break
+            case 'error':
+                setBanner({
+                    type: 'error',
+                    text: result.message || (result.messageKey ? t(result.messageKey) : t('home.invoiceError')),
+                })
+                // Модал остаётся открытым — пользователь может выбрать другой способ.
+                break
+            case 'redirect':
+                // UI передан Stars SDK / внешнему checkout.
+                setShowPayModal(false)
+                setSelectedDuration(null)
+                break
         }
     }
 
@@ -810,6 +819,7 @@ export default function Home() {
                 onClose={() => { setShowPayModal(false); setBuyAsGift(false) }}
                 title={t('home.selectPayment')}
                 subtitle={selectedDuration ? `${formatDuration(selectedDuration.duration_days)} • ${formatPrice(selectedDuration.price_cents)}` : undefined}
+                closeLabel={t('common.close')}
                 footer={<button className="btn-ghost" onClick={() => { setShowPayModal(false); setBuyAsGift(false) }}>{t('common.cancel')}</button>}
             >
                 {/* Переключатель «Купить в подарок» */}
@@ -826,38 +836,32 @@ export default function Home() {
                     <p className="gift-toggle-hint">{t('home.buyAsGiftHint')}</p>
                 )}
 
-                {providers.length === 0 ? (
-                    <div className="empty-state drawer-empty">
-                        <div className="empty-icon">PM</div>
-                        <h3>{t('home.noProviders')}</h3>
-                        <p>{t('home.noProvidersDesc')}</p>
-                    </div>
-                ) : (
-                    <div className="provider-list provider-card-list">
-                        {providerCards
-                            // При покупке как подарок доступна только оплата балансом
-                            .filter((p) => !buyAsGift || p.id === 'balance')
-                            .map((provider) => (
-                            <button
-                                key={provider.id}
-                                className={`provider-btn provider-card ${provider.accent}`}
-                                onClick={() => handlePurchase(provider.id)}
-                            >
-                                <span className="provider-card-copy">
-                                    <strong>{provider.title}</strong>
-                                    <small>{buyAsGift ? t('home.giftBalanceNote') : provider.description}</small>
-                                </span>
-                                <span className="provider-card-meta">
-                                    {provider.badge && <span className="provider-pill">{provider.badge}</span>}
-                                    <span className="provider-arrow">{'>'}</span>
-                                </span>
-                            </button>
-                        ))}
-                        {buyAsGift && !providerCards.some((p) => p.id === 'balance') && (
-                            <p className="gift-toggle-hint">{t('home.giftNeedsBalance')}</p>
-                        )}
-                    </div>
-                )}
+                {(() => {
+                    if (providers.length === 0) {
+                        return (
+                            <div className="empty-state drawer-empty">
+                                <div className="empty-icon">PM</div>
+                                <h3>{t('home.noProviders')}</h3>
+                                <p>{t('home.noProvidersDesc')}</p>
+                            </div>
+                        )
+                    }
+                    // При покупке как подарок доступна только оплата балансом.
+                    const visibleCards = buyAsGift
+                        ? providerCards.filter((p) => p.id === 'balance')
+                        : providerCards
+                    if (buyAsGift && visibleCards.length === 0) {
+                        return <p className="gift-toggle-hint">{t('home.giftNeedsBalance')}</p>
+                    }
+                    return (
+                        <ProviderPicker
+                            cards={visibleCards}
+                            onSelect={handlePurchase}
+                            busyProviderId={purchasingProvider}
+                            descriptionOverride={buyAsGift ? t('home.giftBalanceNote') : undefined}
+                        />
+                    )
+                })()}
             </DrawerModal>
 
             {/* Показываем подарочный код после покупки */}

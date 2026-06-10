@@ -114,17 +114,28 @@ impl PaymentProvider for BtcPayProvider {
         }
 
         // Заголовок: BTCPay-Sig: sha256=<hex>
+        // Подпись = HMAC-SHA256(webhook_secret, raw_body), значение в hex.
         let sig_hex = signature
             .strip_prefix("sha256=")
-            .unwrap_or(signature);
+            .unwrap_or(signature)
+            .trim();
+
+        // Декодируем присланную подпись из hex. hex-разбор нечувствителен к
+        // регистру, что устраняет ложные отказы из-за регистра символов.
+        let provided = match hex::decode(sig_hex) {
+            Ok(bytes) => bytes,
+            // Невалидный hex не может совпасть с корректной подписью.
+            Err(_) => return Ok(false),
+        };
 
         type HmacSha256 = Hmac<Sha256>;
         let mut mac = HmacSha256::new_from_slice(self.webhook_secret.as_bytes())
             .context("Неверный HMAC-ключ BTCPay")?;
         mac.update(payload);
-        let expected = hex::encode(mac.finalize().into_bytes());
 
-        Ok(sig_hex == expected)
+        // verify_slice выполняет сравнение в постоянном времени (constant-time),
+        // защищая от timing-атак на восстановление подписи.
+        Ok(mac.verify_slice(&provided).is_ok())
     }
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {

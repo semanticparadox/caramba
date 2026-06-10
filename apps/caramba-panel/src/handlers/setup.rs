@@ -42,7 +42,7 @@ pub async fn create_admin(
     jar: CookieJar,
     Form(form): Form<CreateAdminForm>,
 ) -> impl IntoResponse {
-    let hash = match bcrypt::hash(&form.password, bcrypt::DEFAULT_COST) {
+    let hash = match bcrypt::hash(&form.password, 12) {
         Ok(h) => h,
         Err(_) => {
             return (StatusCode::INTERNAL_SERVER_ERROR, "Password hashing failed").into_response();

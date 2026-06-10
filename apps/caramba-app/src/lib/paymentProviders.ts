@@ -1,4 +1,11 @@
-import { PAYMENT_PROVIDER_META } from '../data/paymentProviders'
+import {
+  PAYMENT_PROVIDER_META,
+  PAYMENT_GROUP_ORDER,
+  inferProviderGroup,
+  type PaymentProviderGroup,
+} from '../data/paymentProviders'
+
+export type { PaymentProviderGroup } from '../data/paymentProviders'
 
 export type PaymentProviderApiItem = {
   id: string
@@ -14,6 +21,15 @@ export type PaymentProviderCard = PaymentProviderApiItem & {
   description: string
   badge?: string
   accent: 'violet' | 'lime' | 'cyan' | 'amber' | 'rose'
+  /** Секция для группировки в drawer выбора оплаты. */
+  group: PaymentProviderGroup
+  /** RU-safe способ (Stars / крипта) — помечается бейджем «Рекомендуем». */
+  recommended?: boolean
+}
+
+export type PaymentProviderGroupCards = {
+  group: PaymentProviderGroup
+  cards: PaymentProviderCard[]
 }
 
 // fallbackDescription передаётся снаружи чтобы избежать hardcoded строк в lib-слое
@@ -25,11 +41,14 @@ export const mapProviderCards = (
     const meta = PAYMENT_PROVIDER_META[provider.id]
 
     if (!meta) {
+      // Неизвестный провайдер (добавлен на бэкенде раньше, чем в метаданные):
+      // подбираем группу эвристикой по id, оставляем нейтральный accent.
       return {
         ...provider,
         title: provider.label,
         description: fallbackDescription || provider.label,
         accent: 'violet' as const,
+        group: inferProviderGroup(provider.id),
       }
     }
 
@@ -39,5 +58,27 @@ export const mapProviderCards = (
       description: meta.description,
       badge: meta.badge,
       accent: meta.accent,
+      group: meta.group,
+      recommended: meta.recommended,
     }
   })
+
+/**
+ * Группирует карточки провайдеров по секциям (Stars / Crypto / Cards / Other),
+ * сохраняя относительный порядок внутри секции и общий порядок секций
+ * (PAYMENT_GROUP_ORDER). Пустые секции отбрасываются.
+ */
+export const groupProviderCards = (
+  cards: PaymentProviderCard[],
+): PaymentProviderGroupCards[] => {
+  const buckets = new Map<PaymentProviderGroup, PaymentProviderCard[]>()
+  for (const card of cards) {
+    const list = buckets.get(card.group)
+    if (list) list.push(card)
+    else buckets.set(card.group, [card])
+  }
+
+  return PAYMENT_GROUP_ORDER
+    .map((group) => ({ group, cards: buckets.get(group) ?? [] }))
+    .filter((section) => section.cards.length > 0)
+}

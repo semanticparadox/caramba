@@ -746,19 +746,35 @@ impl SubscriptionService {
             .await?;
 
             if balance >= price {
-                // Wrap extend + balance deduction in a transaction for atomicity
+                // Charge atomically with a conditional deduction: the `balance` read
+                // above can be stale if the user spent elsewhere, so re-check at charge
+                // time. rows_affected()==0 means insufficient funds -> abort the renewal
+                // without extending. Charge + extend share one transaction.
                 let mut tx = self.pool.begin().await?;
+
+                let charged = sqlx::query(
+                    "UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1",
+                )
+                .bind(price)
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await?;
+
+                if charged.rows_affected() != 1 {
+                    tx.rollback().await?;
+                    results.push(RenewalResult::InsufficientFunds {
+                        user_id,
+                        sub_id,
+                        required: price,
+                        available: balance,
+                    });
+                    continue;
+                }
 
                 // Используем фактический duration_days из plan_durations вместо захардкоженных 30 дней
                 sqlx::query("UPDATE subscriptions SET expires_at = expires_at + ($1 * interval '1 day'), used_traffic = 0 WHERE id = $2")
                     .bind(duration_days)
                     .bind(sub_id)
-                    .execute(&mut *tx)
-                    .await?;
-
-                sqlx::query("UPDATE users SET balance = balance - $1 WHERE id = $2")
-                    .bind(price)
-                    .bind(user_id)
                     .execute(&mut *tx)
                     .await?;
 

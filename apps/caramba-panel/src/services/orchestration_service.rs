@@ -426,13 +426,23 @@ impl OrchestrationService {
         // Relay-compatible transports
         let vless_ws_stream = r#"{"network":"ws","security":"tls","tlsSettings":{"serverName":"{{SNI}}"},"wsSettings":{"path":"/ws","headers":{"Host":"{{SNI}}"}}}"#;
         let vless_httpupgrade_stream = r#"{"network":"httpupgrade","security":"tls","tlsSettings":{"serverName":"{{SNI}}"},"httpUpgradeSettings":{"path":"/hu","host":"{{SNI}}"}}"#;
-        let vless_tcp_tls_stream =
+        // NOTE (U31/DPI): raw VLESS over TCP+TLS *without* Reality was nationally
+        // blocked in RU (Feb 2026), while Reality / gRPC / WS / HTTPUpgrade survived.
+        // We therefore no longer seed this template by default for NEW node groups.
+        // The stream literal is kept (prefixed `_`) so admins/operators can still
+        // create the inbound manually if a specific deployment needs it, and so the
+        // intent stays documented. Existing inbounds/templates in the DB are NOT
+        // touched — this only changes what fresh provisioning generates.
+        let _vless_tcp_tls_stream =
             r#"{"network":"tcp","security":"tls","tlsSettings":{"serverName":"{{SNI}}"}}"#;
         let naive_stream = r#"{"network":"tcp","security":"tls","tlsSettings":{"serverName":"{{SNI}}"}}"#;
         let tuic_stream = r#"{"network":"udp","security":"tls","tlsSettings":{"serverName":"{{SNI}}"},"tuicSettings":{"congestion":"bbr"}}"#;
 
-        // 9-path readiness baseline: 6 protocol templates, which become 9 client routes
-        // when an exit node is paired with a relay node.
+        // DPI-resistant baseline: only transports that survived the RU Feb-2026
+        // blocking are seeded by default. Raw VLESS+TCP+TLS (no Reality) is
+        // intentionally excluded — see the `_vless_tcp_tls_stream` note above.
+        // These templates become multiple client routes when an exit node is
+        // paired with a relay node.
         self.create_template(
             "VLESS Reality",
             "vless",
@@ -483,16 +493,10 @@ impl OrchestrationService {
             13499,
         )
         .await?;
-        self.create_template(
-            "VLESS TCP TLS",
-            "vless",
-            vless_settings,
-            vless_tcp_tls_stream,
-            group_id,
-            14400,
-            14499,
-        )
-        .await?;
+        // NOTE (U31/DPI): "VLESS TCP TLS" (raw VLESS+TCP+TLS, no Reality) is
+        // deliberately NOT seeded — it was nationally blocked in RU (Feb 2026).
+        // The port band 14400-14499 stays reserved/free for an admin who chooses
+        // to add it manually. Existing seeded copies remain untouched.
         self.create_template(
             "NaiveProxy",
             "naive",

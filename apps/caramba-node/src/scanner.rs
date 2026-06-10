@@ -428,6 +428,117 @@ impl NeighborScanner {
     }
 }
 
+/// U23 — RU-side block detection canary.
+///
+/// Outcome of probing an SNI for early-RST / handshake-terminated-early symptoms.
+/// These are the symptoms of the Feb 2026 RU failure mode where DPI reset/closed
+/// TLS sessions *very early* (during or right after the ClientHello) instead of
+/// failing DNS or the TCP connect.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BlockProbeOutcome {
+    /// TLS handshake completed normally — no block symptoms.
+    Ok,
+    /// TCP connection was reset very early (RST during/right after handshake start).
+    EarlyRst,
+    /// TLS handshake terminated early: peer closed / EOF before the handshake
+    /// completed (classic DPI RST-injection / active-probe symptom).
+    HandshakeTerminatedEarly,
+    /// Could not even establish TCP — ordinary unreachability, NOT a DPI-block
+    /// signature. Reported separately so the panel does not over-react.
+    Unreachable(String),
+}
+
+/// Probe an SNI for early-RST / handshake-terminated-early symptoms.
+///
+/// Strategy:
+///   1. TCP connect to `<sni>:443`. If that itself fails it is ordinary
+///      unreachability (DNS / no route / firewall), not the DPI signature.
+///   2. Attempt a TLS handshake with certificate verification DISABLED — we do
+///      not care whether the cert is valid, only whether the byte stream is cut.
+///      A mid-handshake RST/EOF is the DPI fingerprint we are hunting.
+///
+/// Errors are classified by inspecting the OS/rustls error text for the
+/// reset/EOF markers. This is deliberately conservative: anything ambiguous is
+/// treated as `Ok` (no block) so we never trigger a needless fast rotation.
+pub async fn probe_block_symptoms(sni: &str) -> BlockProbeOutcome {
+    let target = format!("{}:443", sni);
+    let connect_timeout = Duration::from_secs(4);
+    let handshake_timeout = Duration::from_secs(4);
+
+    // 1. TCP connect.
+    let stream = match tokio::time::timeout(connect_timeout, TcpStream::connect(&target)).await {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) => {
+            // Some kernels surface a SYN/ACK-then-RST as a connect-time
+            // ConnectionReset — treat that as the early-RST DPI signature.
+            if e.kind() == std::io::ErrorKind::ConnectionReset {
+                return BlockProbeOutcome::EarlyRst;
+            }
+            return BlockProbeOutcome::Unreachable(format!("tcp connect: {}", e));
+        }
+        Err(_) => return BlockProbeOutcome::Unreachable("tcp connect timeout".to_string()),
+    };
+
+    // 2. Blind TLS handshake (cert verification disabled — we only watch the wire).
+    let root_store = RootCertStore::empty();
+    let mut config = ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+    config
+        .dangerous()
+        .set_certificate_verifier(Arc::new(NoCertificateVerification));
+    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+
+    let connector = TlsConnector::from(Arc::new(config));
+    let server_name = match ServerName::try_from(sni.to_string()) {
+        Ok(n) => n.to_owned(),
+        // A malformed SNI is a config problem, not a block — do not over-react.
+        Err(_) => return BlockProbeOutcome::Ok,
+    };
+
+    match tokio::time::timeout(handshake_timeout, connector.connect(server_name, stream)).await {
+        Ok(Ok(_)) => BlockProbeOutcome::Ok,
+        Ok(Err(e)) => classify_handshake_error(&e.to_string()),
+        // A handshake timeout *after* a successful TCP connect is itself a
+        // common DPI symptom (silent drop after ClientHello), so treat it as an
+        // early termination rather than plain unreachability.
+        Err(_) => BlockProbeOutcome::HandshakeTerminatedEarly,
+    }
+}
+
+/// Map a TLS/IO error string to a block-probe outcome.
+///
+/// We look for connection-reset and premature-EOF markers. Certificate / name
+/// validation errors are explicitly NOT block symptoms (we disabled verification
+/// anyway, but be defensive) and map to `Ok`.
+fn classify_handshake_error(err: &str) -> BlockProbeOutcome {
+    let e = err.to_ascii_lowercase();
+
+    // Reset markers → early RST.
+    if e.contains("reset")
+        || e.contains("connreset")
+        || e.contains("connection reset")
+        || e.contains("broken pipe")
+    {
+        return BlockProbeOutcome::EarlyRst;
+    }
+
+    // Premature close / EOF mid-handshake markers → handshake terminated early.
+    if e.contains("unexpected eof")
+        || e.contains("peer closed")
+        || e.contains("closed connection")
+        || e.contains("close_notify")
+        || e.contains("received fatal alert")
+        || e.contains("early eof")
+        || e.contains("connection closed")
+    {
+        return BlockProbeOutcome::HandshakeTerminatedEarly;
+    }
+
+    // Cert/name/protocol mismatches are not DPI block signatures.
+    BlockProbeOutcome::Ok
+}
+
 fn looks_high_entropy_label(label: &str) -> bool {
     if label.len() < 14 {
         return false;
@@ -484,5 +595,33 @@ mod tests {
         assert!(!sc.is_valid_public_domain(
             "9549ca1c6e517b1f5f8db4e7624e0916.f7021182bba21dbfeaa0c9111f25c92d.traefik.default"
         ));
+    }
+
+    #[test]
+    fn classify_handshake_error_detects_rst_and_eof() {
+        use super::{classify_handshake_error, BlockProbeOutcome};
+        // RST markers
+        assert_eq!(
+            classify_handshake_error("Connection reset by peer (os error 104)"),
+            BlockProbeOutcome::EarlyRst
+        );
+        assert_eq!(
+            classify_handshake_error("broken pipe"),
+            BlockProbeOutcome::EarlyRst
+        );
+        // EOF / early-termination markers
+        assert_eq!(
+            classify_handshake_error("tls handshake eof: unexpected eof"),
+            BlockProbeOutcome::HandshakeTerminatedEarly
+        );
+        assert_eq!(
+            classify_handshake_error("peer closed connection without sending close_notify"),
+            BlockProbeOutcome::HandshakeTerminatedEarly
+        );
+        // Cert/name mismatches are NOT block symptoms.
+        assert_eq!(
+            classify_handshake_error("invalid certificate: UnknownIssuer"),
+            BlockProbeOutcome::Ok
+        );
     }
 }

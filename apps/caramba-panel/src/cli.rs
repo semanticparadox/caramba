@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 
 pub async fn reset_password(pool: &PgPool, username: &str, new_pass: &str) -> Result<()> {
-    let hash = bcrypt::hash(new_pass, bcrypt::DEFAULT_COST).context("Failed to hash password")?;
+    let hash = bcrypt::hash(new_pass, 12).context("Failed to hash password")?;
 
     // Try update first
     let result = sqlx::query("UPDATE admins SET password_hash = $1 WHERE username = $2")

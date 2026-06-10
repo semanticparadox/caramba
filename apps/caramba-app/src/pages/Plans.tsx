@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
-import WebApp from '@twa-dev/sdk'
+import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { apiUrl } from '../config'
 import { useAuth } from '../context/AuthContext'
 import DrawerModal from '../components/DrawerModal'
+import ProviderPicker from '../components/ProviderPicker'
 import { mapProviderCards } from '../lib/paymentProviders'
+import { usePurchase } from '../lib/usePurchase'
 import './Plans.css'
 
 interface PlanDuration {
@@ -31,6 +33,7 @@ interface PaymentProvider {
 }
 
 export default function Plans() {
+    const { t } = useTranslation()
     const navigate = useNavigate()
     const { token, refreshData, user, error } = useAuth()
 
@@ -45,21 +48,23 @@ export default function Plans() {
     const [plans, setPlans] = useState<Plan[]>([])
     const [providers, setProviders] = useState<PaymentProvider[]>([])
     const [loading, setLoading] = useState(true)
-    const [purchasing, setPurchasing] = useState<number | null>(null)
     const [selectedDuration, setSelectedDuration] = useState<PlanDuration | null>(null)
     const [showPayModal, setShowPayModal] = useState(false)
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-    const providerCards = mapProviderCards(providers)
+    const providerCards = mapProviderCards(providers, t('home.defaultProviderDesc'))
 
     const headers = { Authorization: `Bearer ${token}` }
+
+    // Централизованная логика покупки — общая с Home (lib/usePurchase).
+    const { purchasing, purchasingProvider, purchase } = usePurchase({ token, onRefresh: refreshData })
 
     useEffect(() => {
         if (!token) {
             setLoading(false)
             setMessage({
                 type: 'error',
-                text: error || 'Требуется авторизация. Откройте Mini App повторно из бота.',
+                text: error || t('home.authError'),
             })
             return
         }
@@ -96,7 +101,7 @@ export default function Plans() {
                 console.error(e)
                 setMessage({
                     type: 'error',
-                    text: e?.name === 'AbortError' ? 'Время загрузки истекло. Попробуйте снова.' : (e?.message || 'Не удалось загрузить тарифы.'),
+                    text: e?.name === 'AbortError' ? t('home.catalogError') : (e?.message || t('home.catalogError')),
                 })
             } finally {
                 clearTimeout(timeout)
@@ -137,54 +142,37 @@ export default function Plans() {
     const handlePurchase = async (providerId: string) => {
         if (!selectedDuration) return
 
-        setPurchasing(selectedDuration.id)
+        const durationId = selectedDuration.id
         setMessage(null)
-        setShowPayModal(false)
 
-        try {
-            const res = await fetch(apiUrl('/api/client/payment/invoice'), {
-                method: 'POST',
-                headers: { ...headers, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    duration_id: selectedDuration.id,
-                    provider: providerId,
-                }),
-            })
+        const result = await purchase({ durationId, provider: providerId })
 
-            if (res.ok) {
-                const data = await res.json()
-                if (data.invoice_url) {
-                    if (providerId === 'manual') {
-                        setMessage({ type: 'success', text: `Платеж создан. Загрузите чек сюда: ${data.invoice_url}` })
-                        setPurchasing(null)
-                        setSelectedDuration(null)
-                    } else if (providerId === 'telegram_stars' || providerId === 'stars' || data.invoice_url.includes('t.me/invoice')) {
-                        WebApp.openInvoice(data.invoice_url, (status) => {
-                            if (status) {
-                                void refreshData()
-                            }
-                            setPurchasing(null)
-                            setSelectedDuration(null)
-                        })
-                        return
-                    } else {
-                        window.location.href = data.invoice_url
-                        return
-                    }
-                }
-                await refreshData()
-            } else {
-                const err = await res.text()
-                setMessage({ type: 'error', text: err || 'Не удалось создать счет' })
-            }
-        } catch (e) {
-            console.error('Purchase error:', e)
-            setMessage({ type: 'error', text: 'Сетевая ошибка при создании счета.' })
-        } finally {
-            if (providerId === 'manual' || !selectedDuration) {
-                setPurchasing(null)
+        switch (result.outcome) {
+            case 'success':
+                setMessage({ type: 'success', text: t(result.messageKey, result.messageParams) })
+                setShowPayModal(false)
                 setSelectedDuration(null)
-            }
+                break
+            case 'manual':
+                setMessage({
+                    type: 'success',
+                    text: t('home.paymentCreated', { url: result.invoiceUrl }),
+                })
+                setShowPayModal(false)
+                setSelectedDuration(null)
+                break
+            case 'error':
+                setMessage({
+                    type: 'error',
+                    text: result.message || (result.messageKey ? t(result.messageKey) : t('home.invoiceError')),
+                })
+                // Оставляем модал открытым, чтобы пользователь мог выбрать другой способ.
+                break
+            case 'redirect':
+                // UI передан Stars SDK / внешнему checkout — закрываем модал.
+                setShowPayModal(false)
+                setSelectedDuration(null)
+                break
         }
     }
 
@@ -194,45 +182,35 @@ export default function Plans() {
         return `$${major}.${minor.toString().padStart(2, '0')}`
     }
 
-    const formatProviderPrice = (amount?: number, currency?: string): string | null => {
-        if (amount == null || !currency) return null
-        const major = amount / 100
-        const c = currency.toUpperCase()
-        if (c === 'USD') return `$${major.toFixed(2)}`
-        if (c === 'RUB') return `${major.toFixed(2)} ₽`
-        if (c === 'EUR') return `€${major.toFixed(2)}`
-        return `${major.toFixed(2)} ${c}`
-    }
-
     const formatDuration = (days: number) => {
-        if (days === 0) return 'Только трафик'
-        if (days === 30) return '1 месяц'
-        if (days === 60) return '2 месяца'
-        if (days === 90) return '3 месяца'
-        if (days === 180) return '6 месяцев'
-        if (days === 365) return '1 год'
-        return `${days} дней`
+        if (days === 0) return t('home.trafficOnly')
+        if (days === 30) return t('home.month1')
+        if (days === 60) return t('home.months2')
+        if (days === 90) return t('home.months3')
+        if (days === 180) return t('home.months6')
+        if (days === 365) return t('home.year1')
+        return t('home.days', { count: days })
     }
 
-    if (loading) return <div className="page"><div className="loading">Загрузка тарифов...</div></div>
+    if (loading) return <div className="page"><div className="loading">{t('home.loadingPlans')}</div></div>
 
     return (
         <div className="page plans-page">
             <header className="page-header">
-                <button className="back-button" onClick={() => navigate('/')}>{'<'}</button>
-                <h2>Тарифы подписки</h2>
+                <button className="back-button" onClick={() => navigate('/')} aria-label={t('common.close')}>{'<'}</button>
+                <h2>{t('home.purchaseTitle')}</h2>
             </header>
 
             <div className="balance-strip glass-card">
                 <div>
-                    <p className="strip-label">Баланс кошелька</p>
-                    <p className="strip-note">Доступен для продлений и апгрейдов</p>
+                    <p className="strip-label">{t('home.balance')}</p>
+                    <p className="strip-note">{t('home.renewSubtitle')}</p>
                 </div>
                 <span className="balance-val">${((user?.balance || 0)).toFixed(2)}</span>
             </div>
 
             {message && (
-                <div className={`purchase-msg ${message.type}`}>
+                <div className={`purchase-msg ${message.type}`} role="status" aria-live="polite">
                     {message.text}
                 </div>
             )}
@@ -240,8 +218,8 @@ export default function Plans() {
             {plans.length === 0 ? (
                 <div className="empty-state">
                     <div className="empty-icon">PL</div>
-                    <h3>Тарифы пока недоступны</h3>
-                    <p>Проверьте позже или обратитесь в поддержку.</p>
+                    <h3>{t('home.noPlans')}</h3>
+                    <p>{t('home.noPlansDesc')}</p>
                 </div>
             ) : (
                 <div className="plans-list">
@@ -253,8 +231,8 @@ export default function Plans() {
                                     {plan.description && <p className="plan-desc">{plan.description}</p>}
                                 </div>
                                 <div className="plan-badges">
-                                    <span className="plan-badge">{plan.traffic_limit_gb > 0 ? `${plan.traffic_limit_gb} GB` : 'Безлимит'}</span>
-                                    <span className="plan-badge">{plan.device_limit > 0 ? `${plan.device_limit} устройств` : 'Без лимита'}</span>
+                                    <span className="plan-badge">{plan.traffic_limit_gb > 0 ? `${plan.traffic_limit_gb} GB` : t('home.unlimited')}</span>
+                                    <span className="plan-badge">{plan.device_limit > 0 ? t('home.deviceLimit', { count: plan.device_limit }) : t('home.noDeviceLimit')}</span>
                                 </div>
                             </div>
 
@@ -282,39 +260,24 @@ export default function Plans() {
             <DrawerModal
                 open={showPayModal}
                 onClose={() => setShowPayModal(false)}
-                title="Способ оплаты"
+                title={t('home.selectPayment')}
                 subtitle={selectedDuration ? `${formatDuration(selectedDuration.duration_days)} - ${formatPrice(selectedDuration.price_cents)}` : undefined}
-                footer={<button className="btn-ghost" onClick={() => setShowPayModal(false)}>Отмена</button>}
+                closeLabel={t('common.close')}
+                footer={<button className="btn-ghost" onClick={() => setShowPayModal(false)}>{t('common.cancel')}</button>}
             >
                 {providers.length === 0 ? (
                     <div className="empty-state drawer-empty">
                         <div className="empty-icon">PM</div>
-                        <h3>Провайдеры оплаты недоступны</h3>
-                        <p>Попробуйте позже или обратитесь в поддержку.</p>
+                        <h3>{t('home.noProviders')}</h3>
+                        <p>{t('home.noProvidersDesc')}</p>
                     </div>
                 ) : (
-                    <div className="provider-list provider-card-list">
-                        {providerCards.map((p) => (
-                            <button
-                                key={p.id}
-                                className={`provider-btn provider-card ${p.accent}`}
-                                onClick={() => handlePurchase(p.id)}
-                            >
-                                <span className="provider-card-copy">
-                                    <strong>{p.title}</strong>
-                                    <small>{p.description}</small>
-                                </span>
-                                <span className="provider-card-meta">
-                                    {(() => {
-                                        const price = formatProviderPrice(p.amount, p.currency)
-                                        return price ? <span className="provider-price">{price}</span> : null
-                                    })()}
-                                    {p.badge && <span className="provider-pill">{p.badge}</span>}
-                                    <span className="provider-arrow">{'>'}</span>
-                                </span>
-                            </button>
-                        ))}
-                    </div>
+                    <ProviderPicker
+                        cards={providerCards}
+                        onSelect={handlePurchase}
+                        busyProviderId={purchasingProvider}
+                        showPrice
+                    />
                 )}
             </DrawerModal>
         </div>

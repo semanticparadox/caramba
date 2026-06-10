@@ -372,6 +372,54 @@ pub async fn heartbeat(
         }
     });
 
+    // U22 (config versioning/ACK): record the hash the node has actually applied
+    // + restarted with, so rollout state is observable and SNI-rotation logic can
+    // avoid races. Stored in Redis (no schema change needed; backward compatible —
+    // older nodes simply omit the field and we skip the write). TTL 3 days so it
+    // survives normal operation but self-cleans for dead nodes.
+    if let Some(applied) = req.last_applied_config_hash.as_deref() {
+        if !applied.is_empty() {
+            let _ = state
+                .redis
+                .set(
+                    &format!("node_applied_config_hash:{}", node_id),
+                    applied,
+                    3 * 24 * 3600,
+                )
+                .await;
+        }
+    }
+
+    // U23 (RU-side block detection canary): the node reports early-RST /
+    // handshake-terminated-early symptoms against its current SNI. Persist the
+    // latest signal (short TTL) for the panel's SNI monitor / dashboards, and log
+    // loudly so an active block is visible. Rotation itself is still driven by the
+    // node (which already requests a faster rotation under block); here we make the
+    // event observable and durable for cross-node correlation.
+    if let Some(ref signals) = req.block_signals {
+        if signals.early_rst || signals.handshake_terminated_early {
+            warn!(
+                "🚨 [U23] Node {} reports RU-block symptoms on SNI '{}': early_rst={}, handshake_terminated_early={}, streak={}",
+                node_id,
+                signals.sni,
+                signals.early_rst,
+                signals.handshake_terminated_early,
+                signals.consecutive_failures
+            );
+            if let Ok(payload) = serde_json::to_string(signals) {
+                // Per-node latest signal (short TTL — block state is transient).
+                let _ = state
+                    .redis
+                    .set(
+                        &format!("node_block_signal:{}", node_id),
+                        &payload,
+                        900, // 15 min
+                    )
+                    .await;
+            }
+        }
+    }
+
     // 5. Agent Update Logic (Phase 67)
     let auto_update_agents: bool = state
         .settings

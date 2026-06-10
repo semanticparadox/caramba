@@ -53,6 +53,35 @@ impl MonitoringService {
                 }
             }
 
+            // Payment polling fallback (U20/U13): every 4 ticks (~2 min) poll
+            // recent still-pending sessions and fulfill any the provider now
+            // reports as paid — recovers payments whose webhook was lost.
+            if minute_counter % 4 == 0 {
+                // Window: poll sessions created in the last 24h (matches the
+                // stale-expiry horizon); cap the batch so one tick stays cheap.
+                match self
+                    .state
+                    .marketplace_service
+                    .poll_pending_sessions(24, 200)
+                    .await
+                {
+                    Ok(n) => {
+                        self.state
+                            .task_health
+                            .record_success("poll_pending_payments")
+                            .await;
+                        if n > 0 {
+                            info!("poll_pending_payments: fulfilled {} session(s) via polling fallback", n);
+                        }
+                    }
+                    Err(e) => {
+                        error!("poll_pending_payments error: {}", e);
+                        self.record_error("poll_pending_payments", &e.to_string())
+                            .await;
+                    }
+                }
+            }
+
             if minute_counter % 5 == 0 {
                 match self.check_expirations().await {
                     Ok(_) => self.state.task_health.record_success("check_expirations").await,
@@ -142,6 +171,44 @@ impl MonitoringService {
                     Err(e) => {
                         error!("expire_stale_payment_sessions error: {}", e);
                         self.record_error("expire_stale_payment_sessions", &e.to_string())
+                            .await;
+                    }
+                }
+
+                // Same daily slot: payment reconciliation audit (U21). Read-only —
+                // scans the last 24h of sessions for divergence and pages admins
+                // with any findings. No auto-mutation: a human decides remediation.
+                match self
+                    .state
+                    .marketplace_service
+                    .reconcile_recent(24)
+                    .await
+                {
+                    Ok(findings) => {
+                        self.state
+                            .task_health
+                            .record_success("reconcile_payments")
+                            .await;
+                        if !findings.is_empty() {
+                            let body = findings
+                                .iter()
+                                .map(|f| format!("• {}", f))
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            let alert = format!(
+                                "🧾 *Payment reconciliation found {} issue(s)*\n\n{}\n\nReview in the panel — no automatic changes were made.",
+                                findings.len(),
+                                body
+                            );
+                            self.state
+                                .bot_manager
+                                .notify_admins(&self.state.pool, &alert)
+                                .await;
+                        }
+                    }
+                    Err(e) => {
+                        error!("reconcile_payments error: {}", e);
+                        self.record_error("reconcile_payments", &e.to_string())
                             .await;
                     }
                 }

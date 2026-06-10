@@ -107,7 +107,10 @@ impl PaymentProvider for AaioProvider {
         hasher.update(sign_str.as_bytes());
         let expected = hex::encode(hasher.finalize());
 
-        Ok(sign_from_body == expected)
+        // Constant-time comparison of the hex signatures to avoid timing leaks.
+        // Both strings are deterministic SHA-256 hex (64 chars); compare bytes
+        // without short-circuiting. No external crate is used to keep deps unchanged.
+        Ok(constant_time_eq(sign_from_body.as_bytes(), expected.as_bytes()))
     }
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {
@@ -134,8 +137,12 @@ impl PaymentProvider for AaioProvider {
             return Ok(PaymentWebhookAction::Ignored);
         }
 
+        // Per official AAIO docs (wiki.aaio.so), the webhook `status` is one of:
+        //   `success` — оплачен;
+        //   `hold`    — оплачен, но средства в холде.
+        // Both statuses mean the order was successfully paid, so both must fulfill.
         match status {
-            "success" => Ok(PaymentWebhookAction::Completed {
+            "success" | "hold" => Ok(PaymentWebhookAction::Completed {
                 external_id: order_id.to_string(),
             }),
             _ => Ok(PaymentWebhookAction::Pending),
@@ -149,4 +156,20 @@ impl PaymentProvider for AaioProvider {
     ) -> Result<String> {
         Ok("pending".to_string())
     }
+}
+
+/// Length-independent, short-circuit-free byte comparison used for webhook
+/// signature verification. Returns false immediately on length mismatch (which
+/// only leaks length, not content) and otherwise folds every byte difference
+/// into a single accumulator so the loop runtime does not depend on where the
+/// first mismatching byte is.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff: u8 = 0;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }

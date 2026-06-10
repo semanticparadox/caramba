@@ -455,6 +455,25 @@ export default function Subscription() {
                                 <span>{t('subscription.lastConfigUpdate')}: {formatDateTime(sub.last_sub_access)}</span>
                             </div>
 
+                            {/* Автопродление: read-only индикатор. Бэкенд отдаёт auto_renew,
+                                но client-эндпоинта для переключения нет — управление в боте.
+                                Показываем только для платных подписок со сроком. */}
+                            {sub.status === 'active' && sub.duration_days > 0 && !sub.is_free && (
+                                <div className="auto-renew-row" onClick={(e) => e.stopPropagation()}>
+                                    <div className="auto-renew-copy">
+                                        <span className="auto-renew-label">{t('subscription.autoRenew')}</span>
+                                        <span className="auto-renew-hint">{t('subscription.autoRenewManageBot')}</span>
+                                    </div>
+                                    <span
+                                        className={`auto-renew-state ${sub.auto_renew ? 'is-on' : 'is-off'}`}
+                                        role="status"
+                                        aria-label={`${t('subscription.autoRenew')}: ${sub.auto_renew ? t('subscription.autoRenewOn') : t('subscription.autoRenewOff')}`}
+                                    >
+                                        {sub.auto_renew ? t('subscription.autoRenewOn') : t('subscription.autoRenewOff')}
+                                    </span>
+                                </div>
+                            )}
+
                             {sub.status === 'active' && (
                                 <div className="sub-actions">
                                     <button

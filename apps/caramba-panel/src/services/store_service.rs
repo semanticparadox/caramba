@@ -183,6 +183,35 @@ impl StoreService {
             let _ =
                 crate::services::analytics_service::AnalyticsService::track_new_user(&self.pool)
                     .await;
+
+            // U26: auto-trigger the referral SIGNUP bonus exactly once, on the
+            // first creation of a user that has a referrer. Previously this only
+            // fired via the external /api/v2/bot/referral/signup-bonus endpoint,
+            // so signup bonuses never happened in practice for bot /start or any
+            // other path that goes through this central creation function.
+            //
+            // We rely on the persisted `user.referrer_id` (set by the upsert) and
+            // fall back to the caller-supplied `referrer_id` for safety. The
+            // crediting itself is idempotent (referral_bonuses table guards
+            // duplicates), so this is also safe if anything races. We only credit
+            // on genuine first creation — repeat /start (upsert) hits the
+            // `existing.is_some()` branch and skips this entirely, so no
+            // double-crediting.
+            if let Some(r_id) = user.referrer_id.or(referrer_id) {
+                // Never credit a self-referral.
+                if r_id != user.id {
+                    if let Err(e) =
+                        ReferralService::apply_signup_bonus(&self.pool, r_id, user.id).await
+                    {
+                        tracing::warn!(
+                            referrer_id = r_id,
+                            referred_user_id = user.id,
+                            error = %e,
+                            "failed to apply referral signup bonus on user creation"
+                        );
+                    }
+                }
+            }
         }
         let _ = crate::services::analytics_service::AnalyticsService::track_active_user(
             &self.pool, user.id,

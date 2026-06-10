@@ -1461,6 +1461,17 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         .layer(tower_http::set_header::SetResponseHeaderLayer::overriding(
             axum::http::header::X_XSS_PROTECTION,
             axum::http::HeaderValue::from_static("1; mode=block"),
+        ))
+        // Force HTTPS for one year (browsers only; the panel is served over TLS).
+        // No includeSubDomains/preload to avoid affecting sibling subdomains
+        // (sub/api/node) that may not all be HTTPS-only yet.
+        .layer(tower_http::set_header::SetResponseHeaderLayer::overriding(
+            axum::http::header::STRICT_TRANSPORT_SECURITY,
+            axum::http::HeaderValue::from_static("max-age=31536000"),
+        ))
+        .layer(tower_http::set_header::SetResponseHeaderLayer::overriding(
+            axum::http::header::REFERRER_POLICY,
+            axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"),
         ));
 
     // Start server

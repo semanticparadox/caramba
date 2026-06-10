@@ -8,6 +8,16 @@
     "copied": "Copied",
     "refresh": "Refresh"
   },
+  "payment": {
+    "groupStars": "Telegram Stars",
+    "groupCrypto": "Cryptocurrency",
+    "groupCards": "Cards & banking",
+    "groupOther": "Other methods",
+    "recommended": "Recommended",
+    "recommendedHint": "Works reliably for users in Russia — no card or acquiring blocks.",
+    "creatingInvoice": "Creating invoice...",
+    "redirecting": "Opening payment page..."
+  },
   "nav": {
     "center": "Home",
     "promo": "Promo",
@@ -415,6 +425,11 @@
     "extend": "Extend",
     "extendSuccess": "Subscription extended until {{date}}",
     "selectDuration": "Select extension period",
-    "insufficientBalance": "Insufficient balance"
+    "insufficientBalance": "Insufficient balance",
+    "autoRenew": "Auto-renew",
+    "autoRenewOn": "On",
+    "autoRenewOff": "Off",
+    "autoRenewHint": "When enabled, the subscription renews automatically from your balance before it expires.",
+    "autoRenewManageBot": "Manage auto-renew in the bot for now."
   }
 }

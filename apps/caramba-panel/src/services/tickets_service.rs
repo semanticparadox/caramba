@@ -513,10 +513,47 @@ impl TicketsService {
             .await
             .context("Ошибка обновления статуса тикета")?;
 
-        match ticket {
-            Some(t) => Ok(t),
+        let ticket = match ticket {
+            Some(t) => t,
             None => bail!("Тикет #{} не найден", ticket_id),
+        };
+
+        // Уведомляем пользователя о закрытии/решении тикета.
+        // notifications.create сам проверяет настройки канала bot_dm и
+        // доставляет DM через бот (либо тихо кладёт в inbox Mini App).
+        if new_status == "closed" || new_status == "resolved" {
+            let (title, body) = if new_status == "resolved" {
+                (
+                    format!("Тикет #{} решён", ticket_id),
+                    "Ваш тикет помечен как решённый. Если вопрос остался — создайте новый тикет."
+                        .to_string(),
+                )
+            } else {
+                (
+                    format!("Тикет #{} закрыт", ticket_id),
+                    "Ваш тикет был закрыт. Если вопрос остался — создайте новый тикет."
+                        .to_string(),
+                )
+            };
+
+            let payload = json!({
+                "ticket_id": ticket_id,
+                "url": format!("/support/{}", ticket_id)
+            });
+
+            if let Err(e) = self
+                .notifications
+                .create(ticket.user_id, "support_ticket", "info", &title, &body, Some(payload))
+                .await
+            {
+                error!(
+                    "Ошибка создания уведомления о смене статуса для user {} (тикет #{}): {}",
+                    ticket.user_id, ticket_id, e
+                );
+            }
         }
+
+        Ok(ticket)
     }
 
     /// Загружает файл-вложение и сохраняет запись в БД.
@@ -641,9 +678,10 @@ impl TicketsService {
     /// Добавляет системное сообщение и устанавливает статус closed.
     /// Возвращает количество закрытых тикетов.
     pub async fn auto_close_stale(&self) -> Result<i64> {
-        // Находим просроченные тикеты
-        let stale_ids: Vec<i64> = sqlx::query_scalar(
-            "SELECT id FROM tickets
+        // Находим просроченные тикеты (вместе с владельцами — нужны для
+        // последующего уведомления пользователя об автозакрытии).
+        let stale_rows: Vec<(i64, i64)> = sqlx::query_as(
+            "SELECT id, user_id FROM tickets
              WHERE status = 'awaiting_user'
                AND updated_at < NOW() - INTERVAL '7 days'",
         )
@@ -651,9 +689,11 @@ impl TicketsService {
         .await
         .context("Ошибка поиска просроченных тикетов")?;
 
-        if stale_ids.is_empty() {
+        if stale_rows.is_empty() {
             return Ok(0);
         }
+
+        let stale_ids: Vec<i64> = stale_rows.iter().map(|(id, _)| *id).collect();
 
         let mut tx = self.pool.begin().await?;
 
@@ -681,6 +721,35 @@ impl TicketsService {
         .rows_affected();
 
         tx.commit().await?;
+
+        // Уведомляем владельцев автозакрытых тикетов. notifications.create
+        // сам учитывает настройки канала bot_dm и доставляет DM через бот
+        // (либо тихо сохраняет уведомление в inbox Mini App). Ошибка по
+        // отдельному тикету не должна срывать весь батч автозакрытия.
+        for (tid, uid) in &stale_rows {
+            let payload = json!({
+                "ticket_id": tid,
+                "url": format!("/support/{}", tid)
+            });
+
+            if let Err(e) = self
+                .notifications
+                .create(
+                    *uid,
+                    "support_ticket",
+                    "info",
+                    &format!("Тикет #{} закрыт автоматически", tid),
+                    "Тикет был закрыт автоматически из-за отсутствия ответа в течение 7 дней. Если вопрос остался — создайте новый тикет.",
+                    Some(payload),
+                )
+                .await
+            {
+                error!(
+                    "Ошибка создания уведомления об автозакрытии для user {} (тикет #{}): {}",
+                    uid, tid, e
+                );
+            }
+        }
 
         info!("Автозакрытие: {} просроченных тикетов закрыто", affected);
         Ok(affected as i64)

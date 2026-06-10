@@ -108,12 +108,25 @@ impl PaymentProvider for CoinbaseCommerceProvider {
             anyhow::bail!("coinbase_webhook_secret не задан — вебхук отклонён");
         }
 
+        // Coinbase Commerce: заголовок X-CC-Webhook-Signature содержит
+        // HMAC-SHA256(shared_secret, raw_body) в hex (подтверждено исходниками
+        // официального SDK coinbase-commerce-node: crypto.createHmac('sha256', secret)
+        //  .update(payload, 'utf8').digest('hex'), сравнение — constant-time secure-compare).
+        // Декодируем присланную подпись из hex (разбор нечувствителен к регистру),
+        // чтобы выполнить сравнение в постоянном времени и избежать timing-атак.
+        let provided = match hex::decode(signature.trim()) {
+            Ok(bytes) => bytes,
+            // Невалидный hex не может совпасть с корректной подписью.
+            Err(_) => return Ok(false),
+        };
+
         type HmacSha256 = Hmac<Sha256>;
         let mut mac = HmacSha256::new_from_slice(self.webhook_secret.as_bytes())
             .context("Неверный HMAC-ключ Coinbase Commerce")?;
         mac.update(payload);
-        let expected = hex::encode(mac.finalize().into_bytes());
-        Ok(signature == expected)
+
+        // verify_slice выполняет constant-time сравнение, как и официальный SDK.
+        Ok(mac.verify_slice(&provided).is_ok())
     }
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {
@@ -142,9 +155,17 @@ impl PaymentProvider for CoinbaseCommerceProvider {
                     external_id: order_id.to_string(),
                 })
             }
-            "charge:failed" | "charge:delayed" => Ok(PaymentWebhookAction::Failed {
+            // charge:failed — терминальный отказ (charge истёк/отменён без оплаты).
+            "charge:failed" => Ok(PaymentWebhookAction::Failed {
                 reason: event_type.to_string(),
             }),
+            // charge:delayed — НЕ отказ: оплата поступила с задержкой / после
+            // истечения charge (UNRESOLVED, reason=delayed). Согласно официальной
+            // документации Coinbase Commerce такой charge может быть позже
+            // подтверждён мерчантом и придёт как charge:resolved (обрабатывается
+            // выше как Completed). Поэтому здесь — Ignored, без ложного отказа
+            // и без преждевременного исполнения заказа.
+            "charge:delayed" => Ok(PaymentWebhookAction::Ignored),
             _ => Ok(PaymentWebhookAction::Ignored),
         }
     }

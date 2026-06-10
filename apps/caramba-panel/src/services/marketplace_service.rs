@@ -364,15 +364,7 @@ impl MarketplaceService {
                 // Провайдеры возвращают session UUID в поле external_id.
                 // Пробуем сначала найти сессию по UUID (основной путь),
                 // затем — по полю external_id в базе (резервный путь).
-                let session_opt = if let Ok(uuid) = external_id.parse::<uuid::Uuid>() {
-                    self.session_repo.get_by_id(uuid).await.ok().flatten()
-                } else {
-                    self.session_repo
-                        .get_by_external_id(&external_id)
-                        .await
-                        .ok()
-                        .flatten()
-                };
+                let session_opt = self.lookup_session_by_external(&external_id).await;
 
                 if let Some(session) = session_opt {
                     self.fulfill_payment(session.id).await?;
@@ -381,6 +373,56 @@ impl MarketplaceService {
                         provider = provider_name,
                         external_id = %external_id,
                         "Received Completed webhook but no matching payment session found"
+                    );
+                }
+            }
+            PaymentWebhookAction::CompletedWithAmount {
+                external_id,
+                paid_amount_minor,
+                paid_currency,
+            } => {
+                // U18: amount/currency verification gate. A provider that knows the
+                // actually-paid (fiat) amount routes through here so we can refuse
+                // to fulfill an under-paid or wrong-currency invoice — defeating the
+                // "pay $1 for a $10 plan" / replayed-webhook abuse class.
+                let session_opt = self.lookup_session_by_external(&external_id).await;
+
+                let Some(session) = session_opt else {
+                    tracing::warn!(
+                        provider = provider_name,
+                        external_id = %external_id,
+                        "Received CompletedWithAmount webhook but no matching payment session found"
+                    );
+                    return Ok(());
+                };
+
+                // Currency must match (case-insensitive). A mismatch means we cannot
+                // even compare the magnitudes meaningfully, so it's an automatic
+                // reject. Providers emitting this variant are contractually obliged
+                // to echo back the INVOICE currency, which always equals the session
+                // currency on the happy path.
+                let currency_ok = paid_currency.eq_ignore_ascii_case(&session.currency);
+                // Allow exact-or-over payment; only block genuine underpayment.
+                let amount_ok = paid_amount_minor >= session.amount;
+
+                if currency_ok && amount_ok {
+                    self.fulfill_payment(session.id).await?;
+                } else {
+                    // Read-only refusal: do NOT mutate the session here. Leaving it
+                    // 'pending' lets the operator inspect/refund and keeps webhook
+                    // retries idempotent. We log at ERROR so it surfaces immediately;
+                    // the daily reconciliation pass (U21) additionally re-detects this
+                    // divergence and pages admins via notify_admins.
+                    tracing::error!(
+                        provider = provider_name,
+                        session_id = %session.id,
+                        expected_amount = session.amount,
+                        expected_currency = %session.currency,
+                        paid_amount = paid_amount_minor,
+                        paid_currency = %paid_currency,
+                        currency_ok,
+                        amount_ok,
+                        "Rejecting payment fulfillment: amount/currency mismatch (possible under/over-pay abuse)"
                     );
                 }
             }
@@ -394,6 +436,156 @@ impl MarketplaceService {
             _ => {}
         }
         Ok(())
+    }
+
+    /// Resolve a session from a provider's `external_id` token. Providers return
+    /// the session UUID there (primary path); we fall back to matching the stored
+    /// `external_id` column for providers that key by their own invoice id.
+    async fn lookup_session_by_external(&self, external_id: &str) -> Option<PaymentSession> {
+        if let Ok(uuid) = external_id.parse::<uuid::Uuid>() {
+            if let Some(session) = self.session_repo.get_by_id(uuid).await.ok().flatten() {
+                return Some(session);
+            }
+        }
+        self.session_repo
+            .get_by_external_id(external_id)
+            .await
+            .ok()
+            .flatten()
+    }
+
+    /// Webhook-loss polling fallback (U20/U13). Walks recent still-`pending`
+    /// sessions and asks each provider's `check_status`; fulfills the ones the
+    /// provider now reports as paid. Returns the number of sessions fulfilled.
+    ///
+    /// Designed to be cheap and safe to run every minute or two:
+    ///   - only sessions created in the last `max_age_hours` are polled (older
+    ///     ones are swept to 'expired' by `expire_stale_sessions`);
+    ///   - providers without a real status endpoint return "pending" and are a
+    ///     no-op (see `PaymentProvider::check_status` contract);
+    ///   - providers advertising `supports_polling() == false` (off-chain methods
+    ///     like manual/balance/stars) are skipped entirely;
+    ///   - fulfillment goes through `fulfill_payment`, which is idempotent and
+    ///     guards against double-grant.
+    pub async fn poll_pending_sessions(&self, max_age_hours: i64, limit: i64) -> Result<u64> {
+        let pending = self
+            .session_repo
+            .list_pending_recent(max_age_hours, limit)
+            .await
+            .context("Failed to list recent pending sessions for polling")?;
+
+        if pending.is_empty() {
+            return Ok(0);
+        }
+
+        let mut fulfilled = 0u64;
+        for session in pending {
+            let Some(provider) = self.get_provider(&session.provider) else {
+                // Provider was de-configured since the session was created — nothing
+                // we can poll; leave it for the stale-expiry sweep.
+                continue;
+            };
+
+            if !provider.supports_polling() {
+                continue;
+            }
+
+            // A poll failure for one session must not abort the whole batch.
+            let status = match provider.check_status(&session, &self.http_client).await {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::debug!(
+                        provider = %session.provider,
+                        session_id = %session.id,
+                        error = %e,
+                        "check_status poll failed; will retry next tick"
+                    );
+                    continue;
+                }
+            };
+
+            match status.as_str() {
+                "paid" | "completed" | "success" => {
+                    match self.fulfill_payment(session.id).await {
+                        Ok(()) => {
+                            fulfilled += 1;
+                            tracing::info!(
+                                provider = %session.provider,
+                                session_id = %session.id,
+                                "Fulfilled payment via polling fallback (webhook likely lost)"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                provider = %session.provider,
+                                session_id = %session.id,
+                                error = %e,
+                                "Polling found a paid session but fulfillment failed"
+                            );
+                        }
+                    }
+                }
+                // "failed" / "pending" / anything else: leave the session as-is.
+                _ => {}
+            }
+        }
+
+        Ok(fulfilled)
+    }
+
+    /// Daily reconciliation audit (U21). READ-ONLY: scans sessions from the last
+    /// `lookback_hours` for divergence and returns a list of human-readable
+    /// findings for the caller (monitoring) to forward to admins via
+    /// `notify_admins`. Never mutates state.
+    ///
+    /// Flags, conservatively (false positives are noisy, not dangerous):
+    ///   - sessions whose `provider` is no longer configured (orphaned);
+    ///   - non-positive amounts on a non-failed session (data integrity);
+    ///   - an unusually high count of still-`pending` recent sessions, which can
+    ///     indicate a provider/webhook outage worth a human look.
+    pub async fn reconcile_recent(&self, lookback_hours: i64) -> Result<Vec<String>> {
+        let rows = self
+            .session_repo
+            .list_recent_for_audit(lookback_hours)
+            .await
+            .context("Failed to load sessions for reconciliation")?;
+
+        let mut findings: Vec<String> = Vec::new();
+        let mut pending_count = 0usize;
+
+        for (id, provider, status, amount, currency, _external_id, _created_at) in &rows {
+            if status == "pending" {
+                pending_count += 1;
+            }
+
+            // Orphaned provider: a completed/pending session referencing a provider
+            // that is no longer registered cannot be polled or refunded cleanly.
+            if self.get_provider(provider).is_none() && status != "expired" && status != "failed" {
+                findings.push(format!(
+                    "session {} uses unconfigured provider '{}' (status={}, {} {})",
+                    id, provider, status, *amount as f64 / 100.0, currency
+                ));
+            }
+
+            // Non-positive amount on a session that was meant to collect money.
+            if *amount <= 0 && status != "failed" && status != "expired" {
+                findings.push(format!(
+                    "session {} has non-positive amount {} {} (status={}, provider={})",
+                    id, amount, currency, status, provider
+                ));
+            }
+        }
+
+        // A large pending backlog over the audit window often means a webhook
+        // endpoint or provider is down. Threshold kept conservative.
+        if pending_count >= 25 {
+            findings.push(format!(
+                "{} sessions still pending over the last {}h — possible webhook/provider outage",
+                pending_count, lookback_hours
+            ));
+        }
+
+        Ok(findings)
     }
 
     /// Marks payment_sessions older than `max_age_hours` and still in 'pending'

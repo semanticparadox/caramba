@@ -1,0 +1,52 @@
+/* Группировка способов оплаты в drawer выбора оплаты.
+   Карточки (.provider-card / .provider-btn и т.п.) стилизуются в Plans.css/Home.css —
+   здесь только секции и бейдж «Рекомендуем». */
+.provider-groups {
+    display: grid;
+    gap: var(--space-4);
+}
+
+.provider-group {
+    display: grid;
+    gap: var(--space-2);
+}
+
+.provider-group-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted, var(--text-secondary));
+    margin: 0;
+    padding-left: 2px;
+}
+
+/* Кнопка-карточка способа оплаты: на всю ширину, текст слева.
+   Дублируем минимально, т.к. ProviderPicker используется на двух страницах
+   с немного разными базовыми стилями .provider-btn. */
+.provider-groups .provider-btn {
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+}
+
+.provider-groups .provider-btn:disabled {
+    opacity: 0.55;
+    cursor: progress;
+}
+
+.provider-groups .provider-btn[aria-busy='true'] {
+    cursor: progress;
+}
+
+.provider-groups .provider-arrow {
+    display: inline-flex;
+    align-items: center;
+}
+
+/* Бейдж «Рекомендуем» — акцентный, выделяет RU-safe методы (Stars + крипта). */
+.provider-pill-recommended {
+    border-color: rgba(132, 204, 22, 0.5);
+    color: var(--color-success, #84cc16);
+    background: rgba(132, 204, 22, 0.12);
+}

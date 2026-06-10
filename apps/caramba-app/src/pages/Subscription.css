@@ -492,3 +492,52 @@
     min-height: auto !important;
     padding: 4px 8px !important;
 }
+
+/* Автопродление — read-only индикатор статуса (управление пока в боте). */
+.auto-renew-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.auto-renew-copy {
+    display: grid;
+    gap: 2px;
+}
+
+.auto-renew-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.auto-renew-hint {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+}
+
+.auto-renew-state {
+    flex-shrink: 0;
+    border-radius: var(--radius-round);
+    padding: 4px 10px;
+    font-size: 0.66rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border: 1px solid var(--border-subtle);
+}
+
+.auto-renew-state.is-on {
+    color: var(--color-success, #43a047);
+    border-color: rgba(67, 160, 71, 0.5);
+    background: rgba(67, 160, 71, 0.12);
+}
+
+.auto-renew-state.is-off {
+    color: var(--text-secondary);
+}

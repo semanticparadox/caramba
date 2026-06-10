@@ -46,7 +46,9 @@ impl PaymentProvider for LavaProvider {
             "shopId": self.project_id,
             "comment": format!("VPN Subscription (Product: {})", session.product_id),
             "hookUrl": format!("https://{}/api/webhooks/payment/lava", self.api_domain),
-            "expire": 3600
+            // `expire` is invoice lifetime in MINUTES (max 5 days) per
+            // dev.lava.ru/api-invoice-create. 60 = 1 hour.
+            "expire": 60
         });
 
         let body_str = serde_json::to_string(&json_body)?;
@@ -85,24 +87,45 @@ impl PaymentProvider for LavaProvider {
     }
 
     async fn verify_webhook(&self, payload: &[u8], signature: &str) -> Result<bool> {
-        // Lava подписывает вебхуки HMAC-SHA256(body, key=secret_key)
-        // Подпись передаётся в заголовке `Signature`.
+        // Lava.ru Business API: вебхук подписывается так же, как исходящие
+        // запросы — HMAC-SHA256(raw JSON body, key=secret_key), результат в
+        // нижнем регистре hex. Подпись приходит в заголовке `Authorization`
+        // (см. dev.lava.ru/business-webhook). Само значение заголовка
+        // прокидывается сюда роутером вебхуков как `signature`.
+        //
+        // Сверка через `Mac::verify_slice` — это constant-time сравнение,
+        // что защищает от тайминговых атак на подпись.
+        let signature = signature.trim();
+        if signature.is_empty() {
+            return Ok(false);
+        }
+
+        // Провайдер отдаёт hex в нижнем регистре; нормализуем на случай,
+        // если отправитель использует верхний регистр.
+        let provided = match hex::decode(signature.to_ascii_lowercase()) {
+            Ok(bytes) => bytes,
+            // Невалидный hex => подпись заведомо неверна, не паникуем.
+            Err(_) => return Ok(false),
+        };
+
         type HmacSha256 = Hmac<Sha256>;
         let mut mac = HmacSha256::new_from_slice(self.secret_key.as_bytes())
             .context("Invalid HMAC key length")?;
         mac.update(payload);
-        let expected = hex::encode(mac.finalize().into_bytes());
-        Ok(signature == expected)
+
+        Ok(mac.verify_slice(&provided).is_ok())
     }
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {
         let data: Value = serde_json::from_slice(payload).context("Invalid Lava webhook JSON")?;
 
         let status = data.get("status").and_then(|v| v.as_str()).unwrap_or("");
-        // Lava.ru возвращает orderId (camelCase) в вебхуке
+        // Вебхук Lava.ru Business API использует snake_case `order_id`
+        // (dev.lava.ru/business-webhook). camelCase оставлен как запасной
+        // вариант на случай различий в версиях API.
         let order_id = data
-            .get("orderId")
-            .or_else(|| data.get("order_id"))
+            .get("order_id")
+            .or_else(|| data.get("orderId"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
 

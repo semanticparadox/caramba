@@ -160,8 +160,28 @@ impl SniMonitor {
                     || msg.contains("unknown issuer")
                     || msg.contains("self signed");
 
+                // U23: strengthen RU-side block detection. The Feb 2026 RU failure
+                // mode terminated TLS sessions very early — connection reset during
+                // /right after the handshake, or a premature EOF before the response
+                // — instead of failing cleanly. These early-RST / handshake-
+                // terminated-early symptoms are a strong active-block signal, so
+                // we blacklist rather than merely nudging the health score.
+                let is_early_termination = msg.contains("connection reset")
+                    || msg.contains("reset by peer")
+                    || msg.contains("connreset")
+                    || msg.contains("broken pipe")
+                    || msg.contains("unexpected eof")
+                    || msg.contains("incomplete message")
+                    || msg.contains("connection closed before message completed")
+                    || msg.contains("closed connection")
+                    || msg.contains("early eof");
+
                 if is_tls {
                     DomainHealth::Blacklist("TLS/certificate validation failed".to_string())
+                } else if is_early_termination {
+                    DomainHealth::Blacklist(
+                        "early-RST / handshake terminated early (RU-block symptom)".to_string(),
+                    )
                 } else {
                     DomainHealth::Unhealthy(format!("request error: {}", e))
                 }

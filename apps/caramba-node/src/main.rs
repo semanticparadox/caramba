@@ -15,8 +15,26 @@ mod sni_check; // NEW
 /// Предотвращает цепные ротации когда весь пул невалиден.
 const SNI_ROTATION_COOLDOWN_SECS: u64 = 1800; // 30 минут
 
+/// U23: адаптивный (укороченный) cooldown, применяется когда зафиксированы
+/// симптомы RU-блокировки (early-RST / handshake-terminated-early) И счётчик
+/// последовательных провалов превысил порог. В этом режиме над скоростью ротации
+/// важнее реакция на активную блокировку, поэтому 30-минутный cooldown слишком
+/// консервативен. 5 минут — всё ещё защищает от шторма ротаций, но позволяет
+/// быстро уйти с заблокированного SNI.
+const SNI_ROTATION_COOLDOWN_ADAPTIVE_SECS: u64 = 300; // 5 минут
+
+/// U23: сколько подряд провалов с block-симптомами нужно увидеть, прежде чем
+/// переключиться на адаптивный (быстрый) cooldown. Защищает от единичных
+/// сетевых флуктуаций.
+const SNI_BLOCK_FAILURE_THRESHOLD: u32 = 2;
+
 /// Максимум ротаций SNI за один час работы агента.
 const SNI_MAX_ROTATIONS_PER_HOUR: u32 = 3;
+
+/// U23: расширенный лимит ротаций в час, когда зафиксирована активная
+/// RU-блокировка. Под активной атакой имеет смысл попробовать больше SNI
+/// из пула, не упираясь сразу в обычный консервативный лимит.
+const SNI_MAX_ROTATIONS_PER_HOUR_UNDER_BLOCK: u32 = 6;
 
 /// Current Clash API secret, parsed from the active sing-box config.
 /// The panel now emits `experimental.clash_api.secret`, so all local Clash
@@ -84,6 +102,11 @@ struct Args {
 
 struct AgentState {
     current_hash: Option<String>,
+    /// U22: hash of the config the node has actually applied AND successfully
+    /// restarted sing-box with (the ACK value sent in the heartbeat). Distinct
+    /// from `current_hash` (what was fetched/saved): only set after a verified,
+    /// successful restart so the panel knows true rollout state.
+    last_applied_config_hash: Option<String>,
     // Kill Switch State
     last_successful_contact: std::time::Instant,
     kill_switch_enabled: bool,
@@ -102,6 +125,15 @@ struct AgentState {
     sni_rotation_hour: u64, // uptime / 3600, чтобы сбрасывать счётчик каждый час
     /// Ports currently opened in firewall by the agent (port, protocol)
     open_firewall_ports: HashSet<(u16, String)>,
+    /// U23: consecutive SNI-check failures that carried RU-block symptoms
+    /// (early-RST / handshake-terminated-early). Drives the adaptive cooldown:
+    /// once it crosses `SNI_BLOCK_FAILURE_THRESHOLD` we rotate faster. Reset to 0
+    /// on any healthy probe.
+    sni_block_failure_streak: u32,
+    /// U23: latest block-detection canary result, attached to the next heartbeat
+    /// so the panel can react (e.g. blacklist the SNI / rotate the whole group).
+    /// `None` once consumed by a heartbeat.
+    pending_block_signals: Option<caramba_shared::api::BlockSignals>,
 }
 
 #[tokio::main]
@@ -144,8 +176,12 @@ async fn main() -> anyhow::Result<()> {
     // 3. Load current hash (if config exists)
     let (scan_tx, scan_rx) = tokio::sync::mpsc::channel::<()>(1);
 
+    let initial_hash = load_current_hash(&args.config_path).await;
     let mut state = AgentState {
-        current_hash: load_current_hash(&args.config_path).await,
+        // On startup we assume the on-disk config is what sing-box is already
+        // running, so the loaded hash doubles as the initial applied/ACK hash.
+        last_applied_config_hash: initial_hash.clone(),
+        current_hash: initial_hash,
         last_successful_contact: std::time::Instant::now(),
         kill_switch_enabled: false,
         kill_switch_timeout: 300,
@@ -158,6 +194,8 @@ async fn main() -> anyhow::Result<()> {
         sni_rotation_count_this_hour: 0,
         sni_rotation_hour: 0,
         open_firewall_ports: HashSet::new(),
+        sni_block_failure_streak: 0,
+        pending_block_signals: None,
     };
 
     // Initialize HTTP Client with timeouts so a hung panel doesn't stall the heartbeat loop.
@@ -377,6 +415,67 @@ async fn main() -> anyhow::Result<()> {
                         current_sni, reason
                     );
 
+                    // U23: classify the failure — is this an active RU-block
+                    // (early-RST / handshake-terminated-early) or plain
+                    // unreachability? The DPI signature lets us rotate FASTER.
+                    let outcome = scanner::probe_block_symptoms(&current_sni).await;
+                    let block_detected = matches!(
+                        outcome,
+                        scanner::BlockProbeOutcome::EarlyRst
+                            | scanner::BlockProbeOutcome::HandshakeTerminatedEarly
+                    );
+                    if block_detected {
+                        state.sni_block_failure_streak =
+                            state.sni_block_failure_streak.saturating_add(1);
+                        let (detail, early_rst, hs_early) = match &outcome {
+                            scanner::BlockProbeOutcome::EarlyRst => ("early_rst", true, false),
+                            scanner::BlockProbeOutcome::HandshakeTerminatedEarly => {
+                                ("handshake_terminated_early", false, true)
+                            }
+                            _ => ("", false, false),
+                        };
+                        warn!(
+                            "🚨 RU-block symptom detected on SNI '{}': {} (streak: {})",
+                            current_sni, detail, state.sni_block_failure_streak
+                        );
+                        // Stage the canary result for the next heartbeat so the
+                        // panel can rotate the whole group / blacklist faster.
+                        state.pending_block_signals = Some(caramba_shared::api::BlockSignals {
+                            sni: current_sni.clone(),
+                            early_rst,
+                            handshake_terminated_early: hs_early,
+                            consecutive_failures: state.sni_block_failure_streak,
+                            detail: Some(detail.to_string()),
+                        });
+                    }
+                    // Note: a non-block failure does NOT reset the streak (the SNI
+                    // is still failing); only a healthy probe (below) clears it.
+
+                    // U23: under a confirmed active block, switch to the adaptive
+                    // (shorter) cooldown and a higher hourly rotation budget so we
+                    // can flee a blocked SNI quickly instead of waiting 30 min.
+                    let under_active_block =
+                        state.sni_block_failure_streak >= SNI_BLOCK_FAILURE_THRESHOLD;
+                    let effective_cooldown = if under_active_block {
+                        SNI_ROTATION_COOLDOWN_ADAPTIVE_SECS
+                    } else {
+                        SNI_ROTATION_COOLDOWN_SECS
+                    };
+                    let effective_max_rotations = if under_active_block {
+                        SNI_MAX_ROTATIONS_PER_HOUR_UNDER_BLOCK
+                    } else {
+                        SNI_MAX_ROTATIONS_PER_HOUR
+                    };
+                    if under_active_block {
+                        warn!(
+                            "⚡ Adaptive rotation engaged (block streak {} ≥ {}): cooldown {}s, max {}/h",
+                            state.sni_block_failure_streak,
+                            SNI_BLOCK_FAILURE_THRESHOLD,
+                            effective_cooldown,
+                            effective_max_rotations
+                        );
+                    }
+
                     // Сбрасываем счётчик если начался новый час работы агента
                     let current_hour = uptime / 3600;
                     if current_hour != state.sni_rotation_hour {
@@ -386,24 +485,24 @@ async fn main() -> anyhow::Result<()> {
 
                     // Проверяем cooldown — не ротировали ли мы совсем недавно?
                     let cooldown_ok = state.last_sni_rotation.map_or(true, |t| {
-                        t.elapsed().as_secs() >= SNI_ROTATION_COOLDOWN_SECS
+                        t.elapsed().as_secs() >= effective_cooldown
                     });
 
                     // Проверяем лимит ротаций за час
-                    let rate_ok = state.sni_rotation_count_this_hour < SNI_MAX_ROTATIONS_PER_HOUR;
+                    let rate_ok = state.sni_rotation_count_this_hour < effective_max_rotations;
 
                     if !cooldown_ok {
                         let elapsed = state.last_sni_rotation.unwrap().elapsed().as_secs();
                         warn!(
                             "🛑 SNI rotation BLOCKED by cooldown: last rotation was {}s ago (min: {}s). \
                              Current SNI '{}' will be retried after cooldown expires.",
-                            elapsed, SNI_ROTATION_COOLDOWN_SECS, current_sni
+                            elapsed, effective_cooldown, current_sni
                         );
                     } else if !rate_ok {
                         warn!(
                             "🛑 SNI rotation BLOCKED by rate-limit: {} rotations already performed \
                              this hour (max: {}). SNI pool may be exhausted or all SNIs failing.",
-                            state.sni_rotation_count_this_hour, SNI_MAX_ROTATIONS_PER_HOUR
+                            state.sni_rotation_count_this_hour, effective_max_rotations
                         );
                     } else {
                         info!(
@@ -440,6 +539,17 @@ async fn main() -> anyhow::Result<()> {
                             }
                             Err(e) => error!("❌ Failed to rotate SNI: {}", e),
                         }
+                    }
+                } else {
+                    // U23: healthy probe — the active-block streak is cleared so a
+                    // single transient failure later won't immediately trip the
+                    // adaptive fast-rotation path.
+                    if state.sni_block_failure_streak > 0 {
+                        info!(
+                            "✅ SNI '{}' healthy again — clearing block streak ({} → 0)",
+                            current_sni, state.sni_block_failure_streak
+                        );
+                        state.sni_block_failure_streak = 0;
                     }
                 }
             }
@@ -664,6 +774,11 @@ async fn send_heartbeat(
                 Some(items)
             }
         },
+        // U22: ACK the hash the node has actually applied + restarted with.
+        last_applied_config_hash: state.last_applied_config_hash.clone(),
+        // U23: hand the panel any pending block-detection canary result, then
+        // consume it so we only report each detection once.
+        block_signals: state.pending_block_signals.take(),
     };
 
     let resp = client
@@ -891,9 +1006,41 @@ async fn check_and_update_config(
             &config_resp.hash
         );
 
+        // U22 safe-apply: snapshot the current good config so we can roll back if
+        // the new one fails validation / restart. Best-effort — a missing prior
+        // config (fresh node) just means there is nothing to restore.
+        let backup = tokio::fs::read(config_path).await.ok();
+
         // Save new config
         save_config(config_path, &config_resp.content).await?;
-        state.current_hash = Some(config_resp.hash);
+
+        // U22 safe-apply: validate BEFORE restarting sing-box. If `sing-box check`
+        // exists and rejects the config, restore the previous good config and do
+        // NOT restart — the node stays on the last known-good config and reports
+        // its previous applied hash, so the panel sees the rollout did not land.
+        if let Some(valid) = validate_singbox_config(config_path).await {
+            if !valid {
+                error!(
+                    "🚑 New config FAILED sing-box validation. Rolling back to last good config (no restart)."
+                );
+                if let Some(prev) = backup {
+                    if let Err(e) = tokio::fs::write(config_path, &prev).await {
+                        error!("⚠️ Rollback write failed: {} — config left as-is", e);
+                    } else {
+                        info!("↩️ Rolled back to previous config. Keeping sing-box running.");
+                    }
+                } else {
+                    warn!("No previous config to roll back to; leaving new (invalid) config in place.");
+                }
+                // current_hash/last_applied stay as they were → panel knows apply failed.
+                anyhow::bail!("sing-box rejected new config; rolled back");
+            }
+            info!("✅ New config passed sing-box validation");
+        }
+        // If `sing-box check` is unavailable we fall through and apply as before
+        // (backward compatible with environments without the check subcommand).
+
+        state.current_hash = Some(config_resp.hash.clone());
         // Pick up a (possibly rotated) Clash API secret before restart.
         refresh_clash_secret(&config_resp.content);
 
@@ -903,7 +1050,11 @@ async fn check_and_update_config(
         // Restart sing-box
         restart_singbox()?;
 
-        info!("✅ Config updated and service restarted");
+        // U22: only ACK the applied hash AFTER a successful restart. The panel
+        // reads this in the heartbeat to confirm the rollout actually landed.
+        state.last_applied_config_hash = Some(config_resp.hash);
+
+        info!("✅ Config updated, validated and service restarted");
     } else {
         info!("✓ Config up to date");
         // Ensure the cached Clash secret is populated even when the config
@@ -1373,6 +1524,54 @@ fn sync_firewall(config: &serde_json::Value, state: &mut AgentState) {
 
     state.open_firewall_ports = desired;
     info!("🛡️ Firewall synced: {} ports open", state.open_firewall_ports.len());
+}
+
+/// U22 safe-apply: validate a sing-box config file with `sing-box check -c`.
+///
+/// Returns:
+///   - `Some(true)`  — config is valid.
+///   - `Some(false)` — `sing-box check` ran and REJECTED the config.
+///   - `None`        — the `sing-box` binary / `check` subcommand is unavailable,
+///                     so validation could not be performed (caller should fall
+///                     back to the legacy apply-without-validation path).
+///
+/// This keeps older installs (where `sing-box check` might behave differently)
+/// working: only an explicit non-zero exit from a runnable `check` is treated as
+/// a hard failure.
+async fn validate_singbox_config(config_path: &str) -> Option<bool> {
+    let path = config_path.to_string();
+    // `sing-box check` is CPU/IO-light; run it on the blocking pool so we don't
+    // stall the async runtime, mirroring the rest of the agent's process calls.
+    let result = tokio::task::spawn_blocking(move || {
+        std::process::Command::new("sing-box")
+            .args(["check", "-c", &path])
+            .output()
+    })
+    .await;
+
+    match result {
+        Ok(Ok(output)) => {
+            if output.status.success() {
+                Some(true)
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                warn!("sing-box check rejected config: {}", stderr.trim());
+                Some(false)
+            }
+        }
+        // Binary missing / not on PATH (e.g. NotFound) → cannot validate.
+        Ok(Err(e)) => {
+            warn!(
+                "sing-box check unavailable ({}); applying config without pre-validation",
+                e
+            );
+            None
+        }
+        Err(e) => {
+            warn!("sing-box check task join error ({}); skipping validation", e);
+            None
+        }
+    }
 }
 
 fn restart_singbox() -> anyhow::Result<()> {

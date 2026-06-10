@@ -19,11 +19,13 @@ async fn handle_payment_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
-    // Каждый провайдер передаёт подпись в своём заголовке:
-    //   CryptoBot    — crypto-pay-api-signature  (HMAC-SHA256 hex)
-    //   NowPayments  — x-nowpayments-sig         (HMAC-SHA512 hex)
-    //   Lava.top     — Signature                 (HMAC-SHA256 hex)
-    //   Cryptomus    — sign                      (MD5 hex, в заголовке)
+    // Каждый провайдер передаёт подпись по-своему:
+    //   CryptoBot    — crypto-pay-api-signature  (заголовок, HMAC-SHA256 hex)
+    //   NowPayments  — x-nowpayments-sig         (заголовок, HMAC-SHA512 hex)
+    //   Lava.ru biz  — Authorization             (заголовок, см. dev.lava.ru/business-webhook)
+    //   Cryptomus    — поле `sign` в ТЕЛЕ JSON    (MD5 hex; НЕ заголовок —
+    //                  doc.cryptomus.com/merchant-api/payments/webhook).
+    //                  Здесь передаём пустую строку, подпись читается из тела.
     //   AAIO         — подпись передаётся в теле формы (поле sign),
     //                  поэтому здесь мы передаём пустую строку, а
     //                  AaioProvider::verify_webhook читает тело самостоятельно.
@@ -40,8 +42,13 @@ async fn handle_payment_webhook(
     let sig_str: String = match provider.as_str() {
         "cryptobot" => header(&["crypto-pay-api-signature"]),
         "nowpayments" => header(&["x-nowpayments-sig"]),
-        "lava" => header(&["Signature", "signature"]),
-        "cryptomus" => header(&["sign"]),
+        // Lava.ru Business API delivers the signature in the `Authorization` header,
+        // NOT `Signature` (confirmed: dev.lava.ru/business-webhook —
+        // "В заголовке Authorization содержится сигнатура подтверждающая валидность").
+        "lava" => header(&["Authorization", "authorization"]),
+        // Cryptomus puts the signature in the JSON body field `sign`, not a header.
+        // Pass an empty string; CryptomusProvider::verify_webhook reads it from the body.
+        "cryptomus" => String::new(),
         // Stripe-Signature: "t=<ts>,v1=<hex>"
         "stripe" => header(&["stripe-signature", "Stripe-Signature"]),
         // New providers (7 added in this audit pass):

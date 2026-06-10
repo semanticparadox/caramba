@@ -457,6 +457,97 @@ pub async fn callback_handler(
                 }
             }
 
+            // Direct plan purchase via Telegram Stars.
+            // Callback format: "stars_plan_{plan_id}_{duration_id}".
+            // Unlike the balance-topup "star_" path below, this builds the invoice with
+            // PaymentType::SubscriptionPurchase(plan_id) so the resulting payload is
+            // "{user_id}:sub:{plan_id}". On successful_payment, process_any_payment routes
+            // "sub" -> process_subscription_purchase, activating the plan directly instead
+            // of merely crediting balance. The pre_checkout handler already validates "sub"
+            // payloads (ownership / ban / amount), so no extra gating is needed here.
+            stars_plan if stars_plan.starts_with("stars_plan_") => {
+                // Parse the two trailing ids: plan_id then duration_id.
+                let rest = stars_plan.strip_prefix("stars_plan_").unwrap_or("");
+                let parts: Vec<&str> = rest.split('_').collect();
+                if parts.len() != 2 {
+                    let _ = bot
+                        .answer_callback_query(callback_id)
+                        .text("❌ Invalid plan selection.")
+                        .show_alert(true)
+                        .await;
+                    return Ok(());
+                }
+                let plan_id: i64 = parts[0].parse().unwrap_or(0);
+                let duration_id: i64 = parts[1].parse().unwrap_or(0);
+
+                let user_db: Option<caramba_db::models::store::User> = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten();
+                if let Some(u) = user_db {
+                    // Price comes from the selected duration (minor units / cents).
+                    let duration_opt = state
+                        .catalog_service
+                        .get_plan_duration_by_id(duration_id)
+                        .await
+                        .unwrap_or(None);
+                    let duration = match duration_opt {
+                        // Guard against a duration belonging to a different plan than the
+                        // one encoded in the callback (stale/forged button).
+                        Some(d) if d.plan_id == plan_id => d,
+                        _ => {
+                            let _ = bot
+                                .answer_callback_query(callback_id)
+                                .text("❌ Invalid plan duration.")
+                                .show_alert(true)
+                                .await;
+                            return Ok(());
+                        }
+                    };
+
+                    let amount_usd = duration.price as f64 / 100.0;
+                    // Same XTR/USD rate as the balance-topup path and command.rs
+                    // (successful_payment converts back via amount_xtr / 50.0).
+                    // 50 XTR per $1 USD. ceil so we never undercharge by rounding.
+                    let xtr_amount = (amount_usd * 50.0).ceil() as u32;
+                    if xtr_amount == 0 {
+                        let _ = bot
+                            .answer_callback_query(callback_id)
+                            .text("❌ This plan cannot be paid with Stars.")
+                            .show_alert(true)
+                            .await;
+                        return Ok(());
+                    }
+
+                    // Payload "{user_id}:sub:{plan_id}" -> routed to subscription purchase.
+                    let payload =
+                        PaymentType::SubscriptionPurchase(plan_id).to_payload_string(u.id);
+                    let prices = vec![LabeledPrice {
+                        label: "Subscription".to_string(),
+                        amount: xtr_amount,
+                    }];
+
+                    let _ = bot.answer_callback_query(callback_id).await;
+                    if let Some(msg) = q.message {
+                        // Delete menu message
+                        let _ = bot.delete_message(msg.chat().id, msg.id()).await;
+
+                        let _ = bot
+                            .send_invoice(
+                                msg.chat().id,
+                                "VPN Subscription",
+                                format!("Subscription plan for ${:.2}", amount_usd),
+                                payload,
+                                "XTR",
+                                prices,
+                            )
+                            .await;
+                    }
+                }
+            }
+
             star if star.starts_with("star_") => {
                 let amount_usd = star
                     .strip_prefix("star_")
@@ -1333,6 +1424,48 @@ pub async fn callback_handler(
                             }
                         };
 
+                        // Telegram Stars is a native invoice (XTR), not a redirect URL, so it
+                        // cannot go through marketplace_service.create_session (which yields a
+                        // pay-URL). Build the Stars invoice directly with a "{user_id}:sub:{plan}"
+                        // payload so successful_payment -> process_any_payment activates the plan.
+                        if provider == "stars" {
+                            let amount_usd = duration.price as f64 / 100.0;
+                            // 50 XTR per $1 USD — same rate as the balance-topup Stars path and
+                            // command.rs (which converts back via amount_xtr / 50.0).
+                            let xtr_amount = (amount_usd * 50.0).ceil() as u32;
+                            if xtr_amount == 0 {
+                                let _ = bot
+                                    .answer_callback_query(callback_id)
+                                    .text("❌ This plan cannot be paid with Stars.")
+                                    .show_alert(true)
+                                    .await;
+                                return Ok(());
+                            }
+
+                            let payload = PaymentType::SubscriptionPurchase(duration.plan_id)
+                                .to_payload_string(u.id);
+                            let prices = vec![LabeledPrice {
+                                label: "Subscription".to_string(),
+                                amount: xtr_amount,
+                            }];
+
+                            let _ = bot.answer_callback_query(callback_id).await;
+                            if let Some(msg) = q.message {
+                                let _ = bot.delete_message(msg.chat().id, msg.id()).await;
+                                let _ = bot
+                                    .send_invoice(
+                                        msg.chat().id,
+                                        "VPN Subscription",
+                                        format!("Subscription plan for ${:.2}", amount_usd),
+                                        payload,
+                                        "XTR",
+                                        prices,
+                                    )
+                                    .await;
+                            }
+                            return Ok(());
+                        }
+
                         let amount = duration.price;
                         let currency = "USD";
                         let product_id = duration.plan_id;
@@ -1355,35 +1488,76 @@ pub async fn callback_handler(
                         {
                             Ok((session, invoice_payload)) => {
                                 if provider == "balance" {
-                                    // Synchronous fulfillment for balance
-                                    match state
+                                    // Charge the wallet FIRST with an atomic, conditional
+                                    // deduction so a user can never spend more than they hold
+                                    // (`balance >= $1` makes it a no-op on insufficient funds).
+                                    // Only fulfill after a successful charge; refund if
+                                    // fulfillment fails. Mirrors the Mini App path in
+                                    // api/client.rs and fixes the old fulfill-then-deduct
+                                    // TOCTOU double-spend / free-fulfillment bug.
+                                    let charged = sqlx::query(
+                                        "UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1",
+                                    )
+                                    .bind(amount)
+                                    .bind(u.id)
+                                    .execute(&state.pool)
+                                    .await;
+
+                                    match charged {
+                                        Ok(res) if res.rows_affected() == 1 => {}
+                                        Ok(_) => {
+                                            let _ = state
+                                                .marketplace_service
+                                                .mark_session_failed(session.id)
+                                                .await;
+                                            let _ = bot
+                                                .answer_callback_query(callback_id)
+                                                .text("❌ Insufficient balance")
+                                                .show_alert(true)
+                                                .await;
+                                            return Ok(());
+                                        }
+                                        Err(_) => {
+                                            let _ = state
+                                                .marketplace_service
+                                                .mark_session_failed(session.id)
+                                                .await;
+                                            let _ = bot
+                                                .answer_callback_query(callback_id)
+                                                .text("❌ Balance charge failed, please try again")
+                                                .show_alert(true)
+                                                .await;
+                                            return Ok(());
+                                        }
+                                    }
+
+                                    if let Err(e) = state
                                         .marketplace_service
                                         .fulfill_payment(session.id)
                                         .await
                                     {
-                                        Ok(_) => {
-                                            // Deduct balance
-                                            let _ = sqlx::query("UPDATE users SET balance = balance - $1 WHERE id = $2")
-                                                .bind(amount)
-                                                .bind(u.id)
-                                                .execute(&state.pool)
-                                                .await;
+                                        // Refund so the user isn't billed for nothing.
+                                        let _ = sqlx::query(
+                                            "UPDATE users SET balance = balance + $1 WHERE id = $2",
+                                        )
+                                        .bind(amount)
+                                        .bind(u.id)
+                                        .execute(&state.pool)
+                                        .await;
+                                        let _ = bot
+                                            .answer_callback_query(callback_id)
+                                            .text(format!("❌ Fulfillment failed: {}", e))
+                                            .show_alert(true)
+                                            .await;
+                                        return Ok(());
+                                    }
 
-                                            let _ = bot
-                                                .answer_callback_query(callback_id)
-                                                .text("✅ Payment successful!")
-                                                .await;
-                                            if let Some(msg) = q.message {
-                                                let _ = bot.send_message(msg.chat().id, "✅ *Subscription Activated!*\n\nYour payment via account balance was successful. Your subscription is now active.").parse_mode(ParseMode::MarkdownV2).await;
-                                            }
-                                        }
-                                        Err(e) => {
-                                            let _ = bot
-                                                .answer_callback_query(callback_id)
-                                                .text(format!("❌ Fulfillment failed: {}", e))
-                                                .show_alert(true)
-                                                .await;
-                                        }
+                                    let _ = bot
+                                        .answer_callback_query(callback_id)
+                                        .text("✅ Payment successful!")
+                                        .await;
+                                    if let Some(msg) = q.message {
+                                        let _ = bot.send_message(msg.chat().id, "✅ *Subscription Activated!*\n\nYour payment via account balance was successful. Your subscription is now active.").parse_mode(ParseMode::MarkdownV2).await;
                                     }
                                     return Ok(());
                                 }

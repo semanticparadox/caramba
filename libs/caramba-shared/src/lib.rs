@@ -39,6 +39,49 @@ pub mod api {
         /// Per-user traffic usage. Key is User Tag (e.g. "user_123"), value is bytes used.
         pub user_usage: Option<std::collections::HashMap<String, u64>>,
         pub discovered_snis: Option<Vec<DiscoveredSni>>,
+        /// U22 (config versioning/ACK): hash of the config the node has actually
+        /// applied AND successfully restarted sing-box with. The panel uses this
+        /// to know rollout state and avoid SNI-rotation race conditions.
+        /// `config_hash` is what the node *fetched*; this is what it has *applied*.
+        /// Optional + `#[serde(default)]` so older nodes (which never send it)
+        /// keep deserializing to `None` — backward compatible across version skew.
+        #[serde(default)]
+        pub last_applied_config_hash: Option<String>,
+        /// U23 (RU-side block detection canary): early-RST / handshake-terminated-early
+        /// symptoms observed by the node against its current SNI. Present only when the
+        /// node detected suspicious termination behaviour. Optional for skew safety.
+        #[serde(default)]
+        pub block_signals: Option<BlockSignals>,
+    }
+
+    /// U23 — RU-side block detection canary payload.
+    ///
+    /// The Feb 2026 RU failure mode terminated TLS sessions very early (RST after
+    /// SYN/ACK or during/just after the ClientHello), rather than failing DNS or
+    /// the TCP connect. The node probes its active SNI and reports these symptoms
+    /// so the panel can rotate SNI faster than the conservative 30-min cooldown.
+    ///
+    /// All fields are plain (non-Option) but the whole struct is optional on the
+    /// heartbeat, and `#[serde(default)]` keeps it forward/backward compatible.
+    #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+    pub struct BlockSignals {
+        /// SNI the node probed.
+        #[serde(default)]
+        pub sni: String,
+        /// Connection was reset very early (RST during/right after handshake start).
+        #[serde(default)]
+        pub early_rst: bool,
+        /// TLS handshake was terminated early (peer closed mid-handshake / EOF before
+        /// ServerHello completed) — classic DPI active-probe / RST-injection symptom.
+        #[serde(default)]
+        pub handshake_terminated_early: bool,
+        /// Number of consecutive failing probes observed for this SNI (saturating).
+        /// Lets the panel gauge confidence before reacting.
+        #[serde(default)]
+        pub consecutive_failures: u32,
+        /// Free-form classification string (e.g. "early_rst", "tls_eof").
+        #[serde(default)]
+        pub detail: Option<String>,
     }
 
     #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -9,6 +9,7 @@ use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::Sha512;
+use subtle::ConstantTimeEq;
 
 use super::provider::{PaymentProvider, PaymentWebhookAction};
 use caramba_db::models::store::{PaymentSession, User};
@@ -102,13 +103,35 @@ impl PaymentProvider for OxaPayProvider {
     }
 
     async fn verify_webhook(&self, payload: &[u8], signature: &str) -> Result<bool> {
-        // OxaPay передаёт HMAC-SHA512(body, key=merchant_api_key) в заголовке HMAC.
+        // OxaPay (legacy merchant API) signs the webhook as
+        //   HMAC-SHA512(raw_body, key = MERCHANT_API_KEY)
+        // and delivers the lowercase-hex digest in the `HMAC` request header
+        // (confirmed: docs.oxapay.com/legacy/webhook — "OxaPay uses your
+        // MERCHANT_API_KEY as the HMAC shared secret key to generate an
+        // HMAC(sha512) signature ... sent as an HTTP header called HMAC").
+        // The signature is over the RAW POST bytes, so we hash `payload`
+        // directly and must NOT re-serialize the JSON. The router reads the
+        // `HMAC` header and passes it here as `signature`.
+
+        // An empty/missing header can never match a real HMAC digest; reject
+        // early so an unsigned request never reaches the comparison.
+        if signature.is_empty() {
+            return Ok(false);
+        }
+
         type HmacSha512 = Hmac<Sha512>;
         let mut mac = HmacSha512::new_from_slice(self.merchant_key.as_bytes())
             .context("Неверный HMAC-ключ OxaPay")?;
         mac.update(payload);
         let expected = hex::encode(mac.finalize().into_bytes());
-        Ok(signature == expected)
+
+        // Constant-time comparison to avoid leaking the expected digest via
+        // timing. OxaPay emits lowercase hex; compare on the lowercased header
+        // so a correctly-signed request with upper-case hex still validates.
+        Ok(expected
+            .as_bytes()
+            .ct_eq(signature.to_ascii_lowercase().as_bytes())
+            .into())
     }
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {
@@ -126,15 +149,25 @@ impl PaymentProvider for OxaPayProvider {
             return Ok(PaymentWebhookAction::Ignored);
         }
 
-        match status {
-            "Paid" | "paid" | "Completed" | "completed" => Ok(PaymentWebhookAction::Completed {
+        // Official OxaPay legacy payment statuses (docs.oxapay.com/legacy/webhook):
+        //   Waiting    — payer selected a currency, awaiting payment   → pending
+        //   Confirming — funds sent, awaiting blockchain confirmation   → pending
+        //   Paid       — confirmed & credited to the merchant           → completed
+        //   Expired    — invoice lifetime elapsed without payment       → failed
+        //   Failed     — payment could not be completed                 → failed
+        // There is no separate over/under-payment status: OxaPay still reports
+        // "Paid" (with an `underPaidCover` tolerance field in the body), so
+        // partial/over payments are treated as completed, exactly as OxaPay does.
+        // Case-insensitive matching guards against any casing drift in the feed.
+        match status.to_ascii_lowercase().as_str() {
+            "paid" => Ok(PaymentWebhookAction::Completed {
                 external_id: order_id.to_string(),
             }),
-            "Expired" | "expired" | "Error" | "error" | "Refunded" | "refunded" => {
-                Ok(PaymentWebhookAction::Failed {
-                    reason: status.to_string(),
-                })
-            }
+            "expired" | "failed" => Ok(PaymentWebhookAction::Failed {
+                reason: status.to_string(),
+            }),
+            // Waiting / Confirming (and any unknown intermediate state) → keep
+            // the session open and wait for a terminal webhook.
             _ => Ok(PaymentWebhookAction::Pending),
         }
     }

@@ -95,4 +95,67 @@ impl PaymentSessionRepository {
         .await?;
         Ok(sessions)
     }
+
+    /// List still-`pending` sessions created within the last `max_age_hours`
+    /// (i.e. not yet stale-expired) for the webhook-loss polling fallback (U20/U13).
+    ///
+    /// Bounded by recency so the poller never hammers provider APIs for ancient
+    /// abandoned checkouts (those are swept to `expired` by the daily job), and
+    /// `LIMIT`ed so a backlog can't blow up a single tick. Oldest-first so the
+    /// sessions closest to expiry — the ones most at risk of a permanently lost
+    /// webhook — are reconciled before the cap is hit.
+    pub async fn list_pending_recent(
+        &self,
+        max_age_hours: i64,
+        limit: i64,
+    ) -> Result<Vec<PaymentSession>> {
+        let sessions = sqlx::query_as::<_, PaymentSession>(
+            "SELECT * FROM payment_sessions \
+             WHERE status = 'pending' \
+               AND created_at > CURRENT_TIMESTAMP - ($1 || ' hours')::INTERVAL \
+             ORDER BY created_at ASC \
+             LIMIT $2",
+        )
+        .bind(max_age_hours.to_string())
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(sessions)
+    }
+
+    /// Read-only audit feed for the daily reconciliation pass (U21).
+    ///
+    /// Returns `(id, provider, status, amount, currency, external_id, created_at)`
+    /// for sessions touched in the last `lookback_hours`, across the terminal and
+    /// open states the auditor cares about. Deliberately a thin projection (no
+    /// model dependency) so the monitoring layer can scan for divergence without
+    /// mutating anything.
+    #[allow(clippy::type_complexity)]
+    pub async fn list_recent_for_audit(
+        &self,
+        lookback_hours: i64,
+    ) -> Result<Vec<(Uuid, String, String, i64, String, Option<String>, chrono::DateTime<chrono::Utc>)>>
+    {
+        let rows = sqlx::query_as::<
+            _,
+            (
+                Uuid,
+                String,
+                String,
+                i64,
+                String,
+                Option<String>,
+                chrono::DateTime<chrono::Utc>,
+            ),
+        >(
+            "SELECT id, provider, status, amount, currency, external_id, created_at \
+             FROM payment_sessions \
+             WHERE created_at > CURRENT_TIMESTAMP - ($1 || ' hours')::INTERVAL \
+             ORDER BY created_at DESC",
+        )
+        .bind(lookback_hours.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
 }

@@ -379,12 +379,59 @@ pub fn routes(state: AppState) -> Router<AppState> {
         )
 }
 
+/// Извлекаем IP клиента из заголовков обратного прокси (Cloudflare / Caddy / Nginx),
+/// с фолбэком на адрес сокета. Тот же порядок приоритета, что и в admin-логине
+/// (handlers/admin/auth.rs::extract_login_ip), чтобы поведение было единообразным.
+fn extract_client_ip(headers: &HeaderMap, addr: &std::net::SocketAddr) -> String {
+    headers
+        .get("cf-connecting-ip")
+        .or_else(|| headers.get("x-real-ip"))
+        .or_else(|| headers.get("x-forwarded-for"))
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| addr.ip().to_string())
+}
+
 async fn auth_telegram(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Json(payload): Json<InitDataRequest>,
 ) -> impl IntoResponse {
     tracing::info!("Received auth request");
     ensure_jwt_crypto_provider();
+
+    // Rate limiting (защита от брутфорса/DoS на auth-эндпоинт).
+    // Fixed-window лимитер на Redis — тот же механизм, что и в admin-логине.
+    // Лимит по IP: не более 20 попыток за 60 секунд. При успешной валидации
+    // подписи Telegram легитимный клиент укладывается в этот предел с запасом.
+    const AUTH_IP_LIMIT: usize = 20;
+    const AUTH_WINDOW_SECS: usize = 60;
+    let client_ip = extract_client_ip(&headers, &addr);
+    let ip_rate_key = format!("rate:client_auth:ip:{}", client_ip);
+    match state
+        .redis
+        .check_rate_limit(&ip_rate_key, AUTH_IP_LIMIT, AUTH_WINDOW_SECS)
+        .await
+    {
+        Ok(allowed) => {
+            if !allowed {
+                tracing::warn!(ip = %client_ip, "Client auth rate limit exceeded (per-IP)");
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "Too many authentication attempts. Please try again later.",
+                )
+                    .into_response();
+            }
+        }
+        Err(e) => {
+            // При недоступности Redis НЕ блокируем легитимных пользователей —
+            // деградируем gracefully (fail-open), но логируем для наблюдаемости.
+            tracing::error!(err = %e, "Redis rate-limit check failed for client auth (per-IP)");
+        }
+    }
 
     // 1. Parse initData
     let mut params: HashMap<String, String> = HashMap::new();
@@ -490,6 +537,35 @@ async fn auth_telegram(
         Some(id) => id,
         None => return (StatusCode::BAD_REQUEST, "Missing user ID").into_response(),
     };
+
+    // Дополнительный rate-limit по tg_id — троттлит подбор/replay против
+    // конкретного аккаунта даже при ротации IP. Лимит щедрее, чем per-IP,
+    // т.к. сюда мы попадаем только после успешной проверки HMAC-подписи.
+    {
+        const AUTH_TGID_LIMIT: usize = 30;
+        const AUTH_TGID_WINDOW_SECS: usize = 60;
+        let tgid_rate_key = format!("rate:client_auth:tg:{}", tg_id);
+        match state
+            .redis
+            .check_rate_limit(&tgid_rate_key, AUTH_TGID_LIMIT, AUTH_TGID_WINDOW_SECS)
+            .await
+        {
+            Ok(allowed) => {
+                if !allowed {
+                    tracing::warn!(tg_id, "Client auth rate limit exceeded (per-tg_id)");
+                    return (
+                        StatusCode::TOO_MANY_REQUESTS,
+                        "Too many authentication attempts. Please try again later.",
+                    )
+                        .into_response();
+                }
+            }
+            Err(e) => {
+                // fail-open при недоступности Redis (как и для per-IP лимита)
+                tracing::error!(err = %e, "Redis rate-limit check failed for client auth (per-tg_id)");
+            }
+        }
+    }
 
     // 4. Look up user by tg_id
     let user_row = sqlx::query("SELECT id, username, full_name, balance FROM users WHERE tg_id = $1")
@@ -622,6 +698,26 @@ async fn auth_middleware(
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
+
+    // Token revocation deny-list (additive, inert-by-default).
+    // Если для данного клиента выставлен ключ `revoked:client:{sub}` в Redis —
+    // отклоняем токен. Сегодня этот ключ никем не устанавливается, поэтому для
+    // всех действующих сессий поведение не меняется; механизм даёт безопасную
+    // точку отзыва (например, admin «kill sessions» или будущий logout могут
+    // выполнить SETEX revoked:client:{tg_id} <ttl≈оставшееся время жизни JWT>).
+    // Fail-open при недоступности Redis — выход из строя кэша не должен
+    // блокировать легитимных пользователей.
+    let revoke_key = format!("revoked:client:{}", token_data.claims.sub);
+    match state.redis.exists(&revoke_key).await {
+        Ok(true) => {
+            tracing::warn!(sub = %token_data.claims.sub, "Rejected revoked client token");
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+        Ok(false) => {}
+        Err(e) => {
+            tracing::error!(err = %e, "Redis revocation check failed; allowing request (fail-open)");
+        }
+    }
 
     // Add user ID to request extensions
     req.extensions_mut().insert(token_data.claims);

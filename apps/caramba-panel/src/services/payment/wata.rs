@@ -1,19 +1,62 @@
 // WATA — платёжный провайдер для РФ (СБП, карты физлиц).
 // API: https://api.wata.pro
 // Аутентификация: Bearer JWT-токен в заголовке Authorization.
-// Подпись вебхука: HMAC-SHA256 над raw body, ключ = wata_webhook_secret.
-// (WATA изначально использовал RSA-SHA512, но в 2024–2025 мигрировали на HMAC-SHA256
-//  для упрощения интеграций. Если ключ не задан — принимаем с предупреждением.)
+//
+// Подпись вебхука (подтверждено docs.wata.pro и двумя независимыми боевыми
+// интеграциями, см. github.com/snoups/remnashop и Fresh-Donate/backend):
+//   * WATA подписывает RAW-тело запроса асимметрично: RSA с дайджестом SHA-512
+//     и padding PKCS#1 v1.5 (это НЕ HMAC).
+//   * Подпись приходит в заголовке `X-Signature`, закодирована в Base64.
+//   * Проверка выполняется ПУБЛИЧНЫМ ключом WATA, который отдаётся по
+//     GET https://api.wata.pro/api/h2h/public-key в виде JSON {"value":"<PEM>"}.
+//   * Никакого операторского webhook_secret у WATA нет — поле `webhook_secret`
+//     в структуре сохранено только для совместимости с местами конструирования
+//     (их править нельзя) и больше не используется.
+//
+// Публичный ключ кешируется на уровне модуля (WATA ротирует его редко); при
+// несовпадении подписи ключ обновляется один раз и проверка повторяется — это
+// штатно переживает ротацию ключа на стороне WATA.
+
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use hmac::{Hmac, Mac};
+use base64::Engine;
+use openssl::hash::MessageDigest;
+use openssl::pkey::PKey;
+use openssl::sign::Verifier;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::Sha256;
+use tokio::sync::Mutex;
 
 use super::provider::{PaymentProvider, PaymentWebhookAction};
 use caramba_db::models::store::{PaymentSession, User};
+
+/// Endpoint, отдающий публичный ключ для проверки подписи вебхуков.
+const WATA_PUBLIC_KEY_URL: &str = "https://api.wata.pro/api/h2h/public-key";
+/// Сколько кешируем публичный ключ, прежде чем перечитать его принудительно.
+const PUBLIC_KEY_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+
+#[derive(Clone)]
+struct CachedPublicKey {
+    pem: String,
+    fetched_at: Instant,
+}
+
+/// Процессный кеш публичного ключа WATA. Живёт на уровне модуля, т.к. структуру
+/// `WataProvider` нельзя расширять полями (она конструируется в файлах, которые
+/// этот провайдер не имеет права редактировать).
+fn public_key_cache() -> &'static Mutex<Option<CachedPublicKey>> {
+    static CACHE: OnceLock<Mutex<Option<CachedPublicKey>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+}
+
+/// Ответ эндпоинта public-key: {"value": "-----BEGIN PUBLIC KEY-----..."}.
+#[derive(Deserialize)]
+struct WataPublicKeyRes {
+    value: String,
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,14 +77,83 @@ struct WataInvoiceRes {
 
 #[allow(dead_code)]
 pub struct WataProvider {
-    /// JWT API-токен из личного кабинета WATA
+    /// JWT API-токен из личного кабинета WATA.
     pub jwt_token: String,
-    /// Секрет для проверки подписи вебхука (HMAC-SHA256).
-    /// Если пустой — подпись не верифицируется, в лог выводится предупреждение.
+    /// Историческое поле. У WATA нет операторского секрета вебхука — подпись
+    /// асимметричная (RSA-SHA512) и проверяется публичным ключом WATA. Поле
+    /// сохранено только ради совместимости с местами конструирования структуры.
     pub webhook_secret: String,
     /// Домен панели — используется для формирования callback_url в будущих версиях API.
     pub api_domain: String,
     pub bot_username: String,
+}
+
+impl WataProvider {
+    /// Возвращает PEM публичного ключа WATA, используя процессный кеш.
+    /// При `force_refresh = true` кеш игнорируется и ключ перечитывается.
+    async fn fetch_public_key(&self, force_refresh: bool) -> Result<String> {
+        let cache = public_key_cache();
+
+        if !force_refresh {
+            let guard = cache.lock().await;
+            if let Some(cached) = guard.as_ref() {
+                if cached.fetched_at.elapsed() < PUBLIC_KEY_TTL {
+                    return Ok(cached.pem.clone());
+                }
+            }
+        }
+
+        // Сетевой запрос делаем вне блокировки кеша, чтобы не держать lock на await.
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .context("Не удалось создать HTTP-клиент для запроса ключа WATA")?;
+
+        let res = client
+            .get(WATA_PUBLIC_KEY_URL)
+            .send()
+            .await
+            .context("Не удалось запросить публичный ключ WATA")?;
+
+        if !res.status().is_success() {
+            anyhow::bail!("WATA public-key endpoint вернул статус {}", res.status());
+        }
+
+        let body: WataPublicKeyRes = res
+            .json()
+            .await
+            .context("Не удалось разобрать ответ public-key WATA")?;
+
+        let pem = body.value.trim().to_string();
+        if pem.is_empty() {
+            anyhow::bail!("WATA public-key endpoint вернул пустой ключ");
+        }
+
+        let mut guard = cache.lock().await;
+        *guard = Some(CachedPublicKey {
+            pem: pem.clone(),
+            fetched_at: Instant::now(),
+        });
+
+        Ok(pem)
+    }
+
+    /// Проверяет RSA-SHA512 (PKCS#1 v1.5) подпись `signature_bytes` над `payload`
+    /// публичным ключом `pem`. Возвращает Ok(true)/Ok(false); Err — только если
+    /// сам ключ не удалось разобрать.
+    fn verify_rsa_sha512(pem: &str, payload: &[u8], signature_bytes: &[u8]) -> Result<bool> {
+        let pkey = PKey::public_key_from_pem(pem.as_bytes())
+            .context("Не удалось разобрать публичный ключ WATA (PEM)")?;
+
+        let mut verifier = Verifier::new(MessageDigest::sha512(), &pkey)
+            .context("Не удалось инициализировать RSA-SHA512 верификатор")?;
+        verifier
+            .update(payload)
+            .context("Ошибка при подаче тела вебхука в верификатор")?;
+
+        // verify() возвращает false при несовпадении подписи без ошибки.
+        Ok(verifier.verify(signature_bytes).unwrap_or(false))
+    }
 }
 
 #[async_trait]
@@ -97,26 +209,43 @@ impl PaymentProvider for WataProvider {
         resp.url.ok_or_else(|| anyhow::anyhow!("WATA API не вернул ссылку для оплаты"))
     }
 
+    /// Проверяет подпись вебхука WATA.
+    ///
+    /// `signature` — это значение заголовка `X-Signature` (Base64), которое
+    /// маршрут вебхука уже извлёк из заголовков и передал сюда. WATA подписывает
+    /// RAW-тело запроса (`payload`) асимметрично (RSA-SHA512), поэтому проверяем
+    /// его публичным ключом WATA, а не HMAC-секретом.
     async fn verify_webhook(&self, payload: &[u8], signature: &str) -> Result<bool> {
-        if self.webhook_secret.is_empty() {
-            // Without a configured secret we cannot authenticate the callback, so we
-            // reject it rather than trust an unsigned payload. Accepting unsigned
-            // webhooks would let anyone POST a forged "Paid" event for a known session
-            // and obtain free fulfillment. Configure wata_webhook_secret in admin
-            // settings to enable WATA payments.
-            tracing::error!(
-                "WATA webhook secret not configured — rejecting unsigned webhook. \
-                 Set wata_webhook_secret in admin settings to enable WATA."
-            );
+        let signature = signature.trim();
+        if signature.is_empty() {
+            tracing::warn!("WATA webhook missing X-Signature header — rejecting");
             return Ok(false);
         }
 
-        type HmacSha256 = Hmac<Sha256>;
-        let mut mac = HmacSha256::new_from_slice(self.webhook_secret.as_bytes())
-            .context("Неверный HMAC-ключ WATA")?;
-        mac.update(payload);
-        let expected = hex::encode(mac.finalize().into_bytes());
-        Ok(signature == expected)
+        let signature_bytes = match base64::engine::general_purpose::STANDARD.decode(signature) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                tracing::warn!("WATA webhook X-Signature is not valid base64: {}", e);
+                return Ok(false);
+            }
+        };
+
+        // Первая попытка — с кешированным ключом.
+        let pem = self.fetch_public_key(false).await?;
+        if Self::verify_rsa_sha512(&pem, payload, &signature_bytes)? {
+            return Ok(true);
+        }
+
+        // Несовпадение может означать ротацию ключа на стороне WATA — обновляем
+        // ключ принудительно и пробуем ещё раз.
+        tracing::warn!("WATA webhook signature mismatch — refreshing public key and retrying");
+        let pem = self.fetch_public_key(true).await?;
+        if Self::verify_rsa_sha512(&pem, payload, &signature_bytes)? {
+            return Ok(true);
+        }
+
+        tracing::warn!("WATA webhook signature invalid after public key refresh — rejecting");
+        Ok(false)
     }
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {
@@ -135,15 +264,17 @@ impl PaymentProvider for WataProvider {
             return Ok(PaymentWebhookAction::Ignored);
         }
 
+        // Документированные значения transactionStatus у WATA — "Paid" (успех)
+        // и "Declined" (отказ). Остальные написания приняты дополнительно,
+        // защитно, на случай иных нотификаций.
         match status {
             "Paid" | "paid" | "success" | "Success" => Ok(PaymentWebhookAction::Completed {
                 external_id: order_id.to_string(),
             }),
-            "Failed" | "failed" | "error" | "Error" | "Expired" | "expired" => {
-                Ok(PaymentWebhookAction::Failed {
-                    reason: status.to_string(),
-                })
-            }
+            "Declined" | "declined" | "Failed" | "failed" | "error" | "Error" | "Expired"
+            | "expired" => Ok(PaymentWebhookAction::Failed {
+                reason: status.to_string(),
+            }),
             _ => Ok(PaymentWebhookAction::Pending),
         }
     }

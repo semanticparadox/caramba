@@ -8,6 +8,16 @@
     "copied": "Скопировано",
     "refresh": "Обновить"
   },
+  "payment": {
+    "groupStars": "Telegram Stars",
+    "groupCrypto": "Криптовалюта",
+    "groupCards": "Карты и банкинг",
+    "groupOther": "Другие способы",
+    "recommended": "Рекомендуем",
+    "recommendedHint": "Надёжно работает для пользователей из РФ — без блокировок карт и эквайринга.",
+    "creatingInvoice": "Создаём счёт...",
+    "redirecting": "Открываем страницу оплаты..."
+  },
   "nav": {
     "center": "Центр",
     "promo": "Промо",
@@ -415,6 +425,11 @@
     "extend": "Продлить",
     "extendSuccess": "Подписка продлена до {{date}}",
     "selectDuration": "Выберите срок продления",
-    "insufficientBalance": "Недостаточно средств"
+    "insufficientBalance": "Недостаточно средств",
+    "autoRenew": "Автопродление",
+    "autoRenewOn": "Включено",
+    "autoRenewOff": "Выключено",
+    "autoRenewHint": "Когда включено, подписка продлевается автоматически с баланса перед истечением срока.",
+    "autoRenewManageBot": "Пока управлять автопродлением можно в боте."
   }
 }

@@ -1103,6 +1103,16 @@ impl PayService {
             return Ok(());
         }
 
+        // send_notification expects a Telegram chat id, but `user_id` here is the DB
+        // user id (from the "{db_id}:sub:{plan}" payload). Resolve the tg_id once so
+        // activation DMs actually reach the buyer instead of a wrong/non-existent chat.
+        let notify_chat_id = sqlx::query_scalar::<_, i64>("SELECT tg_id FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await
+            .ok()
+            .flatten();
+
         let durations = sqlx::query_as::<_, caramba_db::models::store::PlanDuration>(
             "SELECT * FROM plan_durations WHERE plan_id = $1 ORDER BY duration_days ASC LIMIT 1",
         )
@@ -1113,28 +1123,34 @@ impl PayService {
         if let Some(duration) = durations {
             match self.store_service.purchase_plan(user_id, duration.id, false).await {
                 Ok(crate::services::store_service::PurchaseResult::Subscription(_)) => {
-                    let _ = self
-                        .bot_manager
-                        .send_notification(user_id, "✅ Subscription activated successfully!")
-                        .await;
+                    if let Some(cid) = notify_chat_id {
+                        let _ = self
+                            .bot_manager
+                            .send_notification(cid, "✅ Subscription activated successfully!")
+                            .await;
+                    }
                 }
                 Ok(crate::services::store_service::PurchaseResult::GiftCode(_)) => {
                     // Не должно случаться при as_gift=false, игнорируем
                 }
                 Err(e) => {
                     error!("Failed to auto-purchase subscription after payment: {}", e);
-                    let _ = self.bot_manager.send_notification(user_id, "⚠️ Payment received but subscription activation failed. Please contact support.").await;
+                    if let Some(cid) = notify_chat_id {
+                        let _ = self.bot_manager.send_notification(cid, "⚠️ Payment received but subscription activation failed. Please contact support.").await;
+                    }
                 }
             }
         } else {
             error!("No duration found for plan {}", plan_id);
-            let _ = self
-                .bot_manager
-                .send_notification(
-                    user_id,
-                    "⚠️ Error: Plan duration not found. Balance credited.",
-                )
-                .await;
+            if let Some(cid) = notify_chat_id {
+                let _ = self
+                    .bot_manager
+                    .send_notification(
+                        cid,
+                        "⚠️ Error: Plan duration not found. Balance credited.",
+                    )
+                    .await;
+            }
         }
 
         Ok(())
@@ -1178,31 +1194,57 @@ impl PayService {
             Err(e) => return Err(e.into()),
         };
 
-        if let Some((referrer_tg_id, bonus)) = self
+        // Реферальный бонус начисляется ВНУТРИ транзакции (баланс реферрера + лог в
+        // referral_bonuses), но уведомление откладываем до успешного commit: иначе при
+        // откате транзакции реферрер получил бы DM о бонусе, который не был зачислен.
+        // apply_referral_bonus уже идемпотентен/однократен на платёж — дубль-вебхук сюда
+        // не доходит (process_balance_topup возвращает false раньше при unique violation).
+        let referral_bonus = self
             .store_service
             .apply_referral_bonus(&mut tx, user_id, amount_units, Some(payment_id))
-            .await?
-        {
-            let formatted_bonus = format!("{:.2}", bonus as f64 / 100.0);
+            .await?;
+
+        tx.commit().await?;
+
+        // Уведомляем реферрера о фактически зачисленном бонусе (ранее ему сообщали только
+        // о НОВОМ реферале, но не о самом бонусе). referrer_tg_id — это уже Telegram id,
+        // пригодный для send_notification напрямую.
+        if let Some((referrer_tg_id, bonus_cents)) = referral_bonus {
+            // Экранируем спецсимволы MarkdownV2 ('.', '!', '+'), иначе Telegram отклонит
+            // сообщение и реферрер вообще ничего не получит.
+            let formatted_bonus = format!("{:.2}", bonus_cents as f64 / 100.0).replace('.', "\\.");
             let msg = format!(
-                "🎉 *Referral Bonus* from your invited user!\n+${}",
-                formatted_bonus
+                "🎉 *Referral Bonus Credited*\n\n\
+                 A bonus of *${formatted_bonus}* from your invited user's payment \
+                 has been added to your balance\\!"
             );
             let _ = self
                 .bot_manager
                 .send_notification(referrer_tg_id, &msg)
                 .await;
+
+            info!(
+                "Sent referral bonus notification to referrer (tg_id={}) for +${:.2}",
+                referrer_tg_id,
+                bonus_cents as f64 / 100.0
+            );
         }
 
-        tx.commit().await?;
-
-        let _ = self
-            .bot_manager
-            .send_notification(
-                user_id,
-                &format!("✅ Balance topped up: +${:.2}", amount_usd),
-            )
-            .await;
+        if let Some(cid) = sqlx::query_scalar::<_, i64>("SELECT tg_id FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await
+            .ok()
+            .flatten()
+        {
+            let _ = self
+                .bot_manager
+                .send_notification(
+                    cid,
+                    &format!("✅ Balance topped up: +${:.2}", amount_usd),
+                )
+                .await;
+        }
         let _ = crate::services::analytics_service::AnalyticsService::track_revenue(
             &self.pool,
             amount_units,

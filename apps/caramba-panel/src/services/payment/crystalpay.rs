@@ -1,14 +1,17 @@
 // CrystalPay — российский платёжный провайдер (СБП + крипта).
 // API: https://api.crystalpay.io/v3/
 // Аутентификация: auth_login + auth_secret в теле запроса.
-// Подпись вебхука: SHA1(id + type + crystalpay_salt) — их схема хэширования.
+// Подпись вебхука: SHA1("{id}:{salt}") — простой SHA-1 hex-дайджест строки
+// "{id}:{salt}" (НЕ HMAC; salt — это данные, добавляемые к строке, а не ключ;
+// поле `type` в подпись НЕ входит). Источник: docs.crystalpay.io
+// (callback/invoice-uvedomleniya) + официальный python-sdk CrystalPAY-io.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha1::Sha1;
+use sha1::{Digest, Sha1};
+use subtle::ConstantTimeEq;
 
 use super::provider::{PaymentProvider, PaymentWebhookAction};
 use caramba_db::models::store::{PaymentSession, User};
@@ -105,12 +108,15 @@ impl PaymentProvider for CrystalPayProvider {
     }
 
     async fn verify_webhook(&self, payload: &[u8], _signature: &str) -> Result<bool> {
-        // CrystalPay верифицирует вебхуки через поле `signature` в теле запроса.
-        // Алгоритм: HMAC-SHA1(id + ":" + type + ":" + hash, key=salt),
-        // где hash = SHA1(amount + ":" + crystalpay_salt).
-        // Без соли подпись проверить невозможно — отклоняем вебхук, иначе любой мог бы
-        // отправить поддельное событие оплаты и получить бесплатную выдачу. Задайте
-        // crystalpay_salt в настройках админки, чтобы включить CrystalPay.
+        // CrystalPay подписывает вебхук полем `signature` в ТЕЛЕ запроса.
+        // Алгоритм (docs.crystalpay.io → callback/invoice-uvedomleniya, подтверждён
+        // официальным python-sdk CrystalPAY-io): простой SHA-1 hex-дайджест строки
+        // "{id}:{salt}". Это НЕ HMAC: salt — данные, добавляемые к строке, а не ключ;
+        // поле `type` в подпись НЕ входит.
+        // Заголовочный аргумент `_signature` намеренно игнорируется — подпись берётся
+        // из тела. Без соли проверить подпись невозможно: отклоняем вебхук, иначе любой
+        // мог бы прислать поддельное событие оплаты и получить бесплатную выдачу.
+        // Задайте crystalpay_salt в настройках админки, чтобы включить CrystalPay.
         if self.salt.is_empty() {
             tracing::error!(
                 "CrystalPay webhook salt not configured — rejecting unsigned webhook. \
@@ -131,25 +137,24 @@ impl PaymentProvider for CrystalPayProvider {
             });
 
         let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
-        let webhook_type = data.get("type").and_then(|v| v.as_str()).unwrap_or("");
         let received_sig = data
             .get("signature")
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        if received_sig.is_empty() {
+        if id.is_empty() || received_sig.is_empty() {
             return Ok(false);
         }
 
-        // Вычисляем ожидаемую подпись: HMAC-SHA1(concat(id, type, salt), key=salt)
-        type HmacSha1 = Hmac<Sha1>;
-        let sign_data = format!("{}:{}:{}", id, webhook_type, self.salt);
-        let mut mac = HmacSha1::new_from_slice(self.salt.as_bytes())
-            .context("Неверный HMAC-ключ CrystalPay")?;
-        mac.update(sign_data.as_bytes());
-        let expected = hex::encode(mac.finalize().into_bytes());
+        // Ожидаемая подпись: SHA1("{id}:{salt}"), нижний регистр hex.
+        let sign_data = format!("{}:{}", id, self.salt);
+        let mut hasher = Sha1::new();
+        hasher.update(sign_data.as_bytes());
+        let expected = hex::encode(hasher.finalize());
 
-        Ok(received_sig == expected)
+        // Сравнение в постоянном времени, регистронезависимо по hex.
+        let received_norm = received_sig.to_ascii_lowercase();
+        Ok(received_norm.as_bytes().ct_eq(expected.as_bytes()).into())
     }
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {
@@ -162,25 +167,29 @@ impl PaymentProvider for CrystalPayProvider {
                 serde_json::to_value(params).unwrap_or(serde_json::json!({}))
             });
 
-        let status = data.get("status").and_then(|v| v.as_str()).unwrap_or("");
+        // CrystalPay называет поле статуса `state` (НЕ `status`).
+        // Возможные значения: created, notpayed, processing, wrongamount, failed,
+        // payed, unavailable. Успех — только `payed`.
+        // Источник: docs.crystalpay.io/metody-api/invoice-platezhi.
+        let state = data.get("state").and_then(|v| v.as_str()).unwrap_or("");
         // extra хранит session UUID, переданный при создании инвойса.
         let order_id = data
             .get("extra")
             .and_then(|v| v.as_str())
-            .or_else(|| data.get("order_id").and_then(|v| v.as_str()))
             .unwrap_or("");
 
         if order_id.is_empty() {
             return Ok(PaymentWebhookAction::Ignored);
         }
 
-        match status {
-            "payed" | "paid" | "success" | "completed" => Ok(PaymentWebhookAction::Completed {
+        match state {
+            "payed" => Ok(PaymentWebhookAction::Completed {
                 external_id: order_id.to_string(),
             }),
-            "expired" | "cancelled" | "failed" | "error" => Ok(PaymentWebhookAction::Failed {
-                reason: status.to_string(),
+            "failed" | "unavailable" => Ok(PaymentWebhookAction::Failed {
+                reason: state.to_string(),
             }),
+            // created / notpayed / processing / wrongamount — ещё не финальный успех.
             _ => Ok(PaymentWebhookAction::Pending),
         }
     }

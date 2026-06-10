@@ -1257,8 +1257,12 @@ impl ConfigGenerator {
                         .filter(|s| !s.is_empty())
                         .map(|s| s.to_string()),
                     external_ui: None,
-                    access_control_allow_origin: Some(vec!["*".to_string()]),
-                    access_control_allow_private_network: Some(true),
+                    // No browser CORS: the Clash API is reached server-to-server by the
+                    // panel with a Bearer secret, never from a browser. A wildcard origin
+                    // + private-network allowance only widen the attack surface on :9090.
+                    // (Defence-in-depth: also firewall :9090 to the panel IP — installer.)
+                    access_control_allow_origin: None,
+                    access_control_allow_private_network: None,
                 },
                 // Persist remote rule-sets, selected outbound and rejected-DNS
                 // results across restarts: faster startup and resilience to

@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
+use subtle::ConstantTimeEq;
 
 use super::provider::{PaymentProvider, PaymentWebhookAction};
 use caramba_db::models::store::{PaymentSession, User};
@@ -132,7 +133,12 @@ impl PaymentProvider for StripeProvider {
         mac.update(signed_payload.as_bytes());
         let expected = hex::encode(mac.finalize().into_bytes());
 
-        Ok(sig_v1 == expected)
+        // Constant-time comparison to avoid leaking the signature via timing.
+        // Stripe explicitly recommends a constant-time string comparison for the
+        // v1 signature. ct_eq on unequal-length slices returns false without
+        // leaking content (both sides are fixed-length hex SHA-256 digests).
+        let matches: bool = sig_v1.as_bytes().ct_eq(expected.as_bytes()).into();
+        Ok(matches)
     }
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {
