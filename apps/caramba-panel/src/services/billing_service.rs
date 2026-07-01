@@ -41,63 +41,22 @@ impl BillingService {
         Ok(inserted.is_some())
     }
 
+    /// DEPRECATED / DEAD — divergent copy of the old per-payment referral
+    /// granting (percent of every payment -> referrer balance, logged as
+    /// referral_bonuses 'payment', ignoring user_referral_rates). It is not on
+    /// the live payment path and is superseded by the money model
+    /// (ReferralService::apply_first_purchase_reward, granted at fulfillment in
+    /// MarketplaceService). Kept as a no-op shim to preserve the signature for
+    /// any stale caller without re-introducing the old traffic-replaced reward
+    /// or tripping the dropped referral_bonuses uniqueness on repeat payments.
+    #[allow(dead_code)]
     pub async fn apply_referral_bonus(
         &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        user_id: i64,
-        amount_cents: i64,
+        _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        _user_id: i64,
+        _amount_cents: i64,
         _payment_id: Option<i64>,
     ) -> Result<Option<(i64, i64)>> {
-        // Проверяем оба поля — referrer_id (новое) и referred_by (легаси)
-        let referrer: Option<(Option<i64>, Option<i64>)> = sqlx::query_as(
-            "SELECT referrer_id, referred_by FROM users WHERE id = $1",
-        )
-        .bind(user_id)
-        .fetch_optional(&mut **tx)
-        .await?;
-
-        let referrer_id = referrer
-            .and_then(|(r, rb)| r.or(rb));
-
-        if let Some(referrer_id) = referrer_id {
-            let bonus_pct: i64 = sqlx::query_scalar::<_, String>(
-                "SELECT value FROM settings WHERE key = 'referral_bonus_percent'"
-            )
-            .fetch_optional(&mut **tx)
-            .await?
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(10);
-            let bonus = amount_cents * bonus_pct / 100;
-            if bonus > 0 {
-                sqlx::query("UPDATE users SET balance = balance + $1 WHERE id = $2")
-                    .bind(bonus)
-                    .bind(referrer_id)
-                    .execute(&mut **tx)
-                    .await?;
-
-                // Используем реальную схему таблицы referral_bonuses
-                sqlx::query(
-                    "INSERT INTO referral_bonuses \
-                     (user_id, referred_user_id, bonus_type, bonus_value, status, applied_at) \
-                     VALUES ($1, $2, 'payment', $3, 'completed', CURRENT_TIMESTAMP)"
-                )
-                    .bind(referrer_id)
-                    .bind(user_id)
-                    .bind(bonus as f64)
-                    .execute(&mut **tx)
-                    .await?;
-
-                let referrer_tg_id: Option<i64> =
-                    sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
-                        .bind(referrer_id)
-                        .fetch_optional(&mut **tx)
-                        .await?;
-
-                if let Some(tg_id) = referrer_tg_id {
-                    return Ok(Some((tg_id, bonus)));
-                }
-            }
-        }
         Ok(None)
     }
 

@@ -8,7 +8,7 @@ use crate::bot::keyboards::admin::{
 };
 use crate::bot::keyboards::make_amount_keyboard;
 use crate::bot::keyboards::{main_menu, terms_keyboard};
-use crate::bot::translations::{t, tf};
+use crate::bot::translations::{t, tf, tf_brand, DEFAULT_BRAND};
 use crate::bot::utils::escape_md;
 use crate::models::payment::PaymentType;
 use crate::models::store::{DetailedSubscription, GiftCode, Plan, SubscriptionIpTracking, User};
@@ -674,8 +674,23 @@ pub async fn callback_handler(
                                 .file_name("caramba_v2_profile.json");
 
                             if let Some(msg) = q.message {
+                                let raw_brand = state
+                                    .settings
+                                    .get_or_default("brand_name", DEFAULT_BRAND)
+                                    .await;
+                                // get_or_default only falls back when the key is
+                                // absent; a stored empty/whitespace brand_name
+                                // (e.g. set via the panel write path) would
+                                // otherwise substitute a blank {brand}. Trim and
+                                // fall back to the platform default here too.
+                                let trimmed = raw_brand.trim();
+                                let brand = if trimmed.is_empty() {
+                                    DEFAULT_BRAND
+                                } else {
+                                    trimmed
+                                };
                                 let _ = bot.send_document(msg.chat().id, input_file)
-                                    .caption(t(lang, "msg.your_profile_file"))
+                                    .caption(tf_brand(lang, "msg.your_profile_file", brand, &[]))
                                     .parse_mode(ParseMode::Html)
                                     .await;
                             }
@@ -2034,6 +2049,45 @@ pub async fn callback_handler(
                                 .await;
                         } else {
                             let _ = bot.send_message(chat_id, text).await;
+                        }
+                    }
+
+                    // --------------------------------------------------------
+                    // Бренд: меню
+                    // --------------------------------------------------------
+                    "adm:brand:menu" => {
+                        // Возврат в меню бренда отменяет любой незавершённый ввод.
+                        state.admin_fsm.clear(tg_id).await;
+                        crate::bot::handlers::brand::send_brand_menu(
+                            &bot, chat_id, msg_id, &state,
+                        )
+                        .await;
+                    }
+
+                    // --------------------------------------------------------
+                    // Бренд: переключить enabled
+                    // --------------------------------------------------------
+                    "adm:brand:toggle" => {
+                        crate::bot::handlers::brand::toggle_brand_enabled(
+                            &bot, chat_id, msg_id, &state,
+                        )
+                        .await;
+                    }
+
+                    // --------------------------------------------------------
+                    // Бренд: ввод значения поля adm:brand:set:<field>
+                    // --------------------------------------------------------
+                    set_field if set_field.starts_with("adm:brand:set:") => {
+                        let field_id = set_field
+                            .strip_prefix("adm:brand:set:")
+                            .unwrap_or("");
+                        if let Some(field) =
+                            crate::bot::handlers::brand::BrandField::from_id(field_id)
+                        {
+                            crate::bot::handlers::brand::prompt_brand_field(
+                                &bot, chat_id, tg_id, field, &state,
+                            )
+                            .await;
                         }
                     }
 

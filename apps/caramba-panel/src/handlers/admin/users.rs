@@ -1240,6 +1240,36 @@ pub async fn extend_user_subscription(
     }
 }
 
+/// POST /admin/users/subs/{id}/approve
+///
+/// Admin approval for a manual_approval (Free-tier) subscription. Flips a single
+/// 'pending' subscription to 'active' so its config is handed out. Only acts on
+/// pending rows: an already-active subscription is left untouched (never re-pended,
+/// never blocked). Triggers a node sync inside the service so the approved user is
+/// provisioned immediately.
+pub async fn approve_user_subscription(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    info!("Request to approve pending subscription ID: {}", id);
+    match state.subscription_service.approve_subscription(id).await {
+        Ok(true) => ([(("HX-Refresh", "true"))], "Approved").into_response(),
+        Ok(false) => (
+            axum::http::StatusCode::OK,
+            "No pending subscription to approve",
+        )
+            .into_response(),
+        Err(e) => {
+            error!("Failed to approve subscription {}: {}", id, e);
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to approve: {}", e),
+            )
+                .into_response()
+        }
+    }
+}
+
 pub async fn notify_user(
     Path(id): Path<i64>,
     State(state): State<AppState>,

@@ -6,7 +6,10 @@
   "directories": {
     "doc": "docs"
   },
-  "scripts": {},
+  "scripts": {
+    "lint": "biome check .",
+    "format": "biome format --write ."
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/semanticparadox/caramba.git"
@@ -20,6 +23,7 @@
   },
   "homepage": "https://github.com/semanticparadox/caramba#readme",
   "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
     "@playwright/test": "^1.58.2",
     "@types/node": "^25.5.0"
   }

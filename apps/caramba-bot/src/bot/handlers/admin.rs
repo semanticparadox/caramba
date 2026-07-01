@@ -57,6 +57,11 @@ pub enum AdminFsmState {
         title: String,
         body: String,
     },
+
+    /// Ожидаем ввод значения для одного из brand_*-ключей.
+    /// `field` — короткий идентификатор поля (см. brand::BrandField),
+    /// по нему хендлер выбирает целевой settings-ключ и валидацию.
+    BrandAwaitValue { field: String },
 }
 
 // ============================================================================
@@ -531,6 +536,21 @@ pub async fn handle_admin_text(
 
         // Уже в состоянии Ready — ожидаем кнопку, игнорируем текст
         Some(AdminFsmState::BcastReady { .. }) => true,
+
+        // -----------------------------------------------------------------------
+        // Бренд: ввод значения поля
+        // -----------------------------------------------------------------------
+        Some(AdminFsmState::BrandAwaitValue { field }) => {
+            crate::bot::handlers::brand::handle_brand_value(
+                bot,
+                msg.chat.id,
+                tg_id,
+                &field,
+                text,
+                state,
+            )
+            .await
+        }
 
         None => false,
     }

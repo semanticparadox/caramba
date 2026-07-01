@@ -368,8 +368,8 @@ pub fn t(lang: Option<&str>, key: &str) -> &'static str {
         // =====================================================================
         // Referral / Bonus
         // =====================================================================
-        ("msg.bonus_header", true) => "🎁 *БОНУСНАЯ ПРОГРАММА*\n\n🤝 *Приглашайте друзей и зарабатывайте\\!*\nВы получаете *10%* от *КАЖДОЙ* покупки ваших друзей\\.\n\n",
-        ("msg.bonus_header", false) => "🎁 *BONUS PROGRAM*\n\n🤝 *Invite friends and earn money\\!*\nYou get *10%* from *EVERY* purchase your friends make\\.\n\n",
+        ("msg.bonus_header", true) => "🎁 *Реферальная программа*\n\nПриглашайте друзей по своей ссылке\\. Часть каждого их платежа зачисляется на ваш баланс \\(в процентах\\), и эти средства можно тратить на тарифы\\. Приглашённый получает скидку на первую покупку\\.\n\n",
+        ("msg.bonus_header", false) => "🎁 *Referral program*\n\nInvite friends with your link\\. A percent of each payment they make is credited to your balance, and you can spend it on plans\\. The person you invite gets a discount on their first purchase\\.\n\n",
 
         ("msg.your_stats", true) => "📊 *Ваша статистика:*\n",
         ("msg.your_stats", false) => "📊 *Your Statistics:*\n",
@@ -377,11 +377,11 @@ pub fn t(lang: Option<&str>, key: &str) -> &'static str {
         ("msg.referrals_joined", true) => "👥 Рефералов: *{0}*\n",
         ("msg.referrals_joined", false) => "👥 Referrals joined: *{0}*\n",
 
-        ("msg.total_earned", true) => "💰 Заработано: *${0}\\.{1}*\n\n",
-        ("msg.total_earned", false) => "💰 Total earned: *${0}\\.{1}*\n\n",
+        ("msg.total_earned", true) => "💰 Начислено на баланс: *${0}\\.{1}*\n\n",
+        ("msg.total_earned", false) => "💰 Credited to balance: *${0}\\.{1}*\n\n",
 
-        ("msg.promo_data", true) => "🔗 *Ваши промо данные:*\nКод: `{0}`\nСсылка: `{1}`\n\n_Поделитесь ссылкой или кодом\\!_",
-        ("msg.promo_data", false) => "🔗 *Your Promo Data:*\nCode: `{0}`\nLink: `{1}`\n\n_Share your link or code to start earning\\!_",
+        ("msg.promo_data", true) => "🔗 *Ваши данные для приглашений:*\nКод: `{0}`\nСсылка: `{1}`\n\n_Поделитесь ссылкой или кодом, чтобы получать баланс с платежей друзей\\._",
+        ("msg.promo_data", false) => "🔗 *Your invite details:*\nCode: `{0}`\nLink: `{1}`\n\n_Share your link or code to earn balance from your friends' payments\\._",
 
         ("msg.alias_invalid_length", true) => "❌ *Неверная длина*\n\nКод должен быть от 3 до 32 символов\\.",
         ("msg.alias_invalid_length", false) => "❌ *Invalid Length*\n\nReferral alias must be between 3 and 32 characters\\.",
@@ -395,8 +395,8 @@ pub fn t(lang: Option<&str>, key: &str) -> &'static str {
         ("msg.alias_taken", true) => "❌ *Ошибка обновления*\n\nЭтот код уже занят или недействителен\\.",
         ("msg.alias_taken", false) => "❌ *Update Failed*\n\nThis alias might already be taken or invalid\\.",
 
-        ("msg.referrer_linked", true) => "✅ *Реферер привязан\\!*\n\nВы успешно указали реферера\\.",
-        ("msg.referrer_linked", false) => "✅ *Referrer Linked\\!*\n\nYou've successfully set your referrer\\.",
+        ("msg.referrer_linked", true) => "✅ *Реферер привязан\\!*\n\nСкидка применится к вашей первой покупке\\.",
+        ("msg.referrer_linked", false) => "✅ *Referrer Linked\\!*\n\nA discount will be applied to your first purchase\\.",
 
         ("msg.linking_failed", true) => "❌ Ошибка привязки: {0}",
         ("msg.linking_failed", false) => "❌ Linking Failed: {0}",
@@ -449,8 +449,8 @@ pub fn t(lang: Option<&str>, key: &str) -> &'static str {
         ("msg.generating_profile", true) => "Генерация профиля...",
         ("msg.generating_profile", false) => "Generating profile...",
 
-        ("msg.your_profile_file", true) => "📂 <b>Ваш профиль CARAMBA</b>\n\nИмпортируйте файл в Sing-box, Nekobox или Hiddify.",
-        ("msg.your_profile_file", false) => "📂 <b>Your CARAMBA Profile</b>\n\nImport this file into Sing-box, Nekobox, or Hiddify.",
+        ("msg.your_profile_file", true) => "📂 <b>Ваш профиль {brand}</b>\n\nИмпортируйте файл в Sing-box, Nekobox или Hiddify.",
+        ("msg.your_profile_file", false) => "📂 <b>Your {brand} Profile</b>\n\nImport this file into Sing-box, Nekobox, or Hiddify.",
 
         ("msg.profile_error", true) => "❌ Ошибка генерации профиля.",
         ("msg.profile_error", false) => "❌ Failed to generate profile.",
@@ -643,6 +643,80 @@ pub fn t(lang: Option<&str>, key: &str) -> &'static str {
         ("admin.status.changed", true) => "Статус тикета изменён.",
         ("admin.status.changed", false) => "Ticket status updated.",
 
+        // =====================================================================
+        // Brand admin
+        // =====================================================================
+        ("brand.menu.title", true) => "Бренд",
+        ("brand.menu.title", false) => "Brand",
+
+        ("brand.menu.note", true) => "Эти значения панель отдаёт клиенту. На тарифе Free брендинг скрыт, поэтому изменения видны только на Pro с включённым брендингом.",
+        ("brand.menu.note", false) => "These values are served to the client by the panel. On the Free tier branding stays hidden, so changes show up only on Pro with branding enabled.",
+
+        ("brand.field.enabled", true) => "Состояние",
+        ("brand.field.enabled", false) => "State",
+
+        ("brand.field.name", true) => "Название",
+        ("brand.field.name", false) => "Name",
+
+        ("brand.field.logo", true) => "Логотип",
+        ("brand.field.logo", false) => "Logo",
+
+        ("brand.field.accent", true) => "Акцент",
+        ("brand.field.accent", false) => "Accent",
+
+        ("brand.field.support", true) => "Поддержка",
+        ("brand.field.support", false) => "Support",
+
+        ("brand.field.bot", true) => "Бот",
+        ("brand.field.bot", false) => "Bot",
+
+        ("brand.state.on", true) => "включён",
+        ("brand.state.on", false) => "enabled",
+
+        ("brand.state.off", true) => "выключен",
+        ("brand.state.off", false) => "disabled",
+
+        ("brand.value.unset", true) => "не задано",
+        ("brand.value.unset", false) => "not set",
+
+        ("brand.saved", true) => "Сохранено.",
+        ("brand.saved", false) => "Saved.",
+
+        // Подсказки ввода
+        ("brand.prompt.name", true) => "Отправьте название бренда (до 64 символов).",
+        ("brand.prompt.name", false) => "Send the brand name (up to 64 characters).",
+
+        ("brand.prompt.logo", true) => "Отправьте URL логотипа (https://...).",
+        ("brand.prompt.logo", false) => "Send the logo URL (https://...).",
+
+        ("brand.prompt.accent", true) => "Отправьте цвет акцента в формате HEX, например #2E7D32. Фиолетовый, сине-фиолетовый и индиго не принимаются.",
+        ("brand.prompt.accent", false) => "Send the accent color as HEX, for example #2E7D32. Purple, violet and indigo are not accepted.",
+
+        ("brand.prompt.support", true) => "Отправьте URL поддержки (https://...).",
+        ("brand.prompt.support", false) => "Send the support URL (https://...).",
+
+        ("brand.prompt.bot", true) => "Отправьте URL бота (https://...).",
+        ("brand.prompt.bot", false) => "Send the bot URL (https://...).",
+
+        // Ошибки
+        ("brand.error.empty", true) => "Пустое значение. Отправьте текст ещё раз.",
+        ("brand.error.empty", false) => "Empty value. Please send the text again.",
+
+        ("brand.error.name_long", true) => "Слишком длинное название (более 64 символов).",
+        ("brand.error.name_long", false) => "Name is too long (over 64 characters).",
+
+        ("brand.error.url", true) => "Это не похоже на корректный URL. Нужен адрес вида https://...",
+        ("brand.error.url", false) => "That does not look like a valid URL. It should start with https://",
+
+        ("brand.error.accent_hex", true) => "Это не цвет в формате HEX. Нужен #RRGGBB, например #2E7D32.",
+        ("brand.error.accent_hex", false) => "That is not a HEX color. Use #RRGGBB, for example #2E7D32.",
+
+        ("brand.error.accent_banned", true) => "Этот оттенок не принимается. Фиолетовый, сине-фиолетовый и индиго запрещены. Выберите другой цвет.",
+        ("brand.error.accent_banned", false) => "This hue is not accepted. Purple, violet and indigo are not allowed. Pick another color.",
+
+        ("brand.error.save", true) => "Не удалось сохранить. Попробуйте ещё раз.",
+        ("brand.error.save", false) => "Could not save. Please try again.",
+
         // Fallback - unknown key
         (_, _) => "???",
     }
@@ -652,6 +726,30 @@ pub fn t(lang: Option<&str>, key: &str) -> &'static str {
 pub fn tf(lang: Option<&str>, key: &str, args: &[&str]) -> String {
     let template = t(lang, key);
     let mut result = template.to_string();
+    for (i, arg) in args.iter().enumerate() {
+        result = result.replace(&format!("{{{}}}", i), arg);
+    }
+    result
+}
+
+/// Default user-facing platform brand when `brand_name` is unset.
+///
+/// Per-instance brand resolution: callers read the configured `brand_name`
+/// setting (`state.settings.get_or_default("brand_name", DEFAULT_BRAND)`)
+/// and pass the result here. This default is the platform brand, never a
+/// tenant literal.
+pub const DEFAULT_BRAND: &str = "Caramba Connect";
+
+/// Brand-aware format: substitutes the `{brand}` named placeholder with the
+/// resolved per-instance brand name, then runs the positional `{0}`, `{1}`...
+/// substitution exactly like [`tf`].
+///
+/// `t()` / `tf()` stay sync and config-free; the brand string is resolved
+/// asynchronously at the call site (via `SettingsService`) and passed in,
+/// so translations.rs never touches the panel or `ApiClient`.
+pub fn tf_brand(lang: Option<&str>, key: &str, brand: &str, args: &[&str]) -> String {
+    let template = t(lang, key);
+    let mut result = template.replace("{brand}", brand);
     for (i, arg) in args.iter().enumerate() {
         result = result.replace(&format!("{{{}}}", i), arg);
     }

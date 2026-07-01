@@ -1,0 +1,42 @@
+name: caramba_vpn
+description: "Federated Flutter plugin: native VPN tunnel bridge to the caramba-core Go engine (mihomo)."
+publish_to: "none"
+version: 0.1.0
+
+environment:
+  sdk: ">=3.6.0 <4.0.0"
+  flutter: ">=3.29.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Cross-platform path/plugin-platform helpers used by the thin Dart facade.
+  plugin_platform_interface: ^2.1.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^5.0.0
+
+flutter:
+  plugin:
+    platforms:
+      # Channel names (com.caramba/vpn, .../status, .../traffic) and these
+      # pluginClass identifiers are the federation contract. The connect /
+      # disconnect / status MethodChannel calls and the status + traffic
+      # EventChannels are registered by these platform classes; the app's
+      # MethodChannelVpnConnection consumes them unchanged. CODE IDENTIFIERS
+      # stay 'caramba' (user-facing brand is 'exarobot').
+      android:
+        package: com.caramba.caramba_vpn
+        pluginClass: CarambaVpnPlugin
+      ios:
+        pluginClass: CarambaVpnPlugin
+      macos:
+        pluginClass: CarambaVpnPlugin
+      windows:
+        pluginClass: CarambaVpnPluginCApi
+      linux:
+        pluginClass: caramba_vpn

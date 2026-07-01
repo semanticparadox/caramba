@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Manifest contribution of the caramba_vpn plugin module.
+
+  This declares the VpnService and the permissions the tunnel needs. It is
+  MERGED into the host app manifest by the Android manifest merger, so the app
+  does not have to redeclare the service. The app DOES still have to launch the
+  system VPN-consent dialog (VpnService.prepare) from an Activity before the
+  first connect; that app-level glue is documented in INTEGRATION.md and listed
+  in this task's output.
+
+  CODE IDENTIFIERS stay 'caramba' (user-facing brand is 'exarobot').
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Run the tunnel as a foreground service while connected. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Android 14+ requires a typed foreground-service permission. The tunnel
+         uses the "special use" type (a VPN tunnel is not one of the predefined
+         categories). The app must justify this in Play Console. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Persistent connection notification (Android 13+). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+        <!-- The VPN tunnel service. BIND_VPN_SERVICE is enforced by the system:
+             only the OS may bind, which is what authorizes the VpnService. The
+             intent-filter marks it as the device's VPN provider. -->
+        <service
+            android:name="com.caramba.caramba_vpn.CarambaVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="vpn" />
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

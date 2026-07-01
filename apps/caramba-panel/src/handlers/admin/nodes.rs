@@ -470,6 +470,18 @@ pub async fn install_node(
         info!("Adding pending node: {}", form.name);
     }
 
+    // License gate (P4, contract E): block adding a node beyond the tier's
+    // max_nodes. Only the create path is gated; existing nodes keep running.
+    let limits = crate::license::effective_limits(&state).await;
+    let node_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM nodes")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(0);
+    if let Err(e) = crate::license::check_can_add_node(&limits, node_count) {
+        warn!("Node creation blocked by license: {}", e);
+        return (axum::http::StatusCode::FORBIDDEN, e.to_string()).into_response();
+    }
+
     match state
         .infrastructure_service
         .create_node(

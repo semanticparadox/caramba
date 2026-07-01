@@ -3,7 +3,7 @@ use crate::bot::keyboards::{language_keyboard, main_menu, terms_keyboard};
 use crate::bot::utils::{escape_md, register_bot_message};
 use crate::services::logging_service::LoggingService;
 use teloxide::prelude::*;
-use teloxide::types::{ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
+use teloxide::types::{ChatId, ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
 use tracing::{error, info};
 
 pub async fn message_handler(
@@ -84,10 +84,12 @@ pub async fn message_handler(
                 .as_ref()
                 .map(|u| u.full_name())
                 .unwrap_or_else(|| "User".to_string());
-            // Upsert returns User
+            // Upsert returns (User, was_new). was_new gates first-touch signup
+            // attribution side effects (partner code stamping) so they fire
+            // exactly once, on genuine signup.
             let user_res_inner = state
                 .store_service
-                .upsert_user(
+                .upsert_user_with_new_flag(
                     tg_id,
                     msg.from.as_ref().and_then(|u| u.username.as_deref()),
                     Some(&user_name),
@@ -96,7 +98,22 @@ pub async fn message_handler(
                 .await;
 
             match user_res_inner {
-                Ok(u) => {
+                Ok((u, was_new)) => {
+                    // Stamp the partner code this user signed up through, so
+                    // per-code stats (signups/conversions/balance) are derivable.
+                    // Only on genuine new signups, and only once (the deep-link
+                    // start_param may be a partner code). resolve_partner_code_id
+                    // also bumps the code's `clicks`, so call it once per signup.
+                    if was_new && !start_param.is_empty() {
+                        if let Ok(Some(code_id)) =
+                            state.store_service.resolve_partner_code_id(start_param).await
+                        {
+                            let _ = state
+                                .store_service
+                                .set_signup_partner_code(u.id, code_id)
+                                .await;
+                        }
+                    }
                     // Log user /start command
                     let _ = LoggingService::log_user(
                         &state.pool,
@@ -1351,10 +1368,61 @@ pub async fn message_handler(
                 }
             }
 
+            // "🔑 Войти в приложение" kept so reply keyboards already rendered on
+            // existing clients (pre-relabel) still resolve until they refresh.
+            "/login" | "🔑 Open in app" | "🔑 Войти в приложение" => {
+                // Одноразовый код для входа в standalone-приложение (Flutter + Go-ядро).
+                send_login_code(&bot, &state, msg.chat.id, tg_id).await;
+            }
+
             _ => {
                 // Fallback or handle promo code input if we implement state
             }
         }
     }
     Ok::<_, teloxide::RequestError>(())
+}
+
+/// Генерирует одноразовый 6-значный код для входа в приложение и отправляет его
+/// пользователю. Код кладётся в Redis по ключу "app:logincode:{code}" => tg_id
+/// (TTL 300с, одноразовый). Перезаписывает предыдущий активный код этого юзера.
+///
+/// Общая логика для команды /login и инлайн-кнопки «Получить код для входа».
+pub async fn send_login_code(bot: &Bot, state: &AppState, chat_id: ChatId, tg_id: i64) {
+    use rand::Rng;
+
+    // Перетираем предыдущий активный код пользователя, чтобы валидным был только
+    // один. Ключ обратного индекса tg_id -> code хранит текущий код юзера.
+    let user_index_key = format!("app:logincode:user:{}", tg_id);
+    if let Ok(Some(prev_code)) = state.redis.get(&user_index_key).await {
+        let _ = state.redis.del(&format!("app:logincode:{}", prev_code)).await;
+    }
+
+    // 6 цифр, ведущие нули допустимы (000000..=999999).
+    let code: String = format!("{:06}", rand::rng().random_range(0..1_000_000u32));
+    let code_key = format!("app:logincode:{}", code);
+
+    // TTL 300с (5 минут), single-use. Значение — tg_id строкой.
+    if let Err(e) = state.redis.set(&code_key, &tg_id.to_string(), 300).await {
+        error!("Failed to store login code in Redis: {}", e);
+        let _ = bot
+            .send_message(chat_id, "⚠️ Could not generate a code. Please try again later.")
+            .await;
+        return;
+    }
+    // Обратный индекс с тем же TTL — чтобы при следующем /login перетереть код.
+    let _ = state.redis.set(&user_index_key, &code, 300).await;
+
+    let text = format!(
+        "🔑 <b>Your login code</b>\n\n\
+        <code>{}</code>\n\n\
+        Enter it in the app. The code is valid for 5 minutes and works once.",
+        code
+    );
+    let _ = bot
+        .send_message(chat_id, text)
+        .parse_mode(ParseMode::Html)
+        .reply_markup(crate::bot::keyboards::login_code_keyboard())
+        .await
+        .map_err(|e| error!("Failed to send login code: {}", e));
 }

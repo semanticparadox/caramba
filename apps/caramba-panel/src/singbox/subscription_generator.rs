@@ -1168,8 +1168,14 @@ pub fn generate_clash_config(
                 let relay_suffix = if is_relay_path { " ↪" } else { "" };
                 let name = format!("{} {}{}", node_label, proto_label, relay_suffix);
 
+                // Clash/mihomo path: the mihomo client speaks AmneziaWG natively, so
+                // this emission is gated on the CLIENT flag, independent of the strict
+                // sing-box `amneziawg_enabled()` gate that protects node configs. This
+                // only adds a `wireguard` proxy to the subscription; it never writes an
+                // AmneziaWG inbound to a sing-box node. The proxy is inert unless a real
+                // AmneziaWG server runs on the node (see docs/AMNEZIAWG.md).
                 if inbound.protocol.eq_ignore_ascii_case("amneziawg")
-                    && !crate::utils::amneziawg_enabled()
+                    && !crate::utils::amneziawg_client_enabled()
                 {
                     continue;
                 }
@@ -1375,18 +1381,39 @@ pub fn generate_clash_config(
                             "mtu": 1280,
                         });
 
-                        // Clash Meta amnezia-wg opts
+                        // mihomo (Clash.Meta) reads the AmneziaWG obfuscation under the
+                        // nested `amnezia-wg-option` key (adapter/outbound/wireguard.go:
+                        // `AmneziaWGOption *AmneziaWGOption proxy:"amnezia-wg-option"`).
+                        // Inside it jc/jmin/jmax/s1..s4 are ints, but h1..h4 are STRINGS.
+                        // The node stores h1..h4 as JSON numbers (config.rs h1: u32), so we
+                        // stringify them here, otherwise mihomo's `proxy:` decoder rejects
+                        // the proxy and the obfuscation silently degrades to plain WireGuard.
                         if let Ok(awg_obj) =
                             serde_json::from_str::<serde_json::Value>(&inbound.settings)
                         {
                             let mut opts = json!({});
-                            for field in ["jc", "jmin", "jmax", "s1", "s2", "h1", "h2", "h3", "h4"]
-                            {
+                            for field in ["jc", "jmin", "jmax", "s1", "s2", "s3", "s4"] {
                                 if let Some(v) = awg_obj.get(field) {
-                                    opts[field] = v.clone();
+                                    if !v.is_null() {
+                                        opts[field] = v.clone();
+                                    }
                                 }
                             }
-                            proxy["amnezia-wg"] = opts;
+                            for field in ["h1", "h2", "h3", "h4"] {
+                                if let Some(v) = awg_obj.get(field) {
+                                    if !v.is_null() {
+                                        // Force string form for mihomo (numbers fail to decode).
+                                        let s = match v {
+                                            serde_json::Value::String(s) => s.clone(),
+                                            other => other.to_string(),
+                                        };
+                                        opts[field] = json!(s);
+                                    }
+                                }
+                            }
+                            if opts.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
+                                proxy["amnezia-wg-option"] = opts;
+                            }
                         }
                         proxies.push(proxy);
                     }

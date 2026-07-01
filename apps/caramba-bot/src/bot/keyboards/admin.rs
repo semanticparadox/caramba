@@ -38,10 +38,68 @@ pub fn admin_main_menu(open_tickets: usize) -> InlineKeyboardMarkup {
             "adm:stats",
         )],
         vec![InlineKeyboardButton::callback(
+            "Бренд",
+            "adm:brand:menu",
+        )],
+        vec![InlineKeyboardButton::callback(
             "Модерация",
             "adm:moderation",
         )],
     ])
+}
+
+// ============================================================================
+// Бренд — меню и поля
+// ============================================================================
+
+/// Меню брендинга. Кнопка enabled показывает текущее состояние и
+/// переключает его. Остальные кнопки запускают ввод значения поля.
+/// Callback-конвенция: `adm:brand:<action>[:<field>]`.
+pub fn brand_menu_keyboard(enabled: bool) -> InlineKeyboardMarkup {
+    let toggle_label = if enabled {
+        "Брендинг: вкл (выключить)"
+    } else {
+        "Брендинг: выкл (включить)"
+    };
+    InlineKeyboardMarkup::new(vec![
+        vec![InlineKeyboardButton::callback(
+            toggle_label,
+            "adm:brand:toggle",
+        )],
+        vec![InlineKeyboardButton::callback(
+            "Название",
+            "adm:brand:set:name",
+        )],
+        vec![InlineKeyboardButton::callback(
+            "Логотип (URL)",
+            "adm:brand:set:logo",
+        )],
+        vec![InlineKeyboardButton::callback(
+            "Акцент (HEX)",
+            "adm:brand:set:accent",
+        )],
+        vec![InlineKeyboardButton::callback(
+            "Поддержка (URL)",
+            "adm:brand:set:support",
+        )],
+        vec![InlineKeyboardButton::callback(
+            "Бот (URL)",
+            "adm:brand:set:boturl",
+        )],
+        vec![InlineKeyboardButton::callback(
+            "В меню",
+            "adm:menu",
+        )],
+    ])
+}
+
+/// Клавиатура под подсказкой ввода значения поля: только возврат в
+/// меню бренда (он же отменяет ввод).
+pub fn brand_field_back_keyboard() -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+        "Отмена",
+        "adm:brand:menu",
+    )]])
 }
 
 // ============================================================================

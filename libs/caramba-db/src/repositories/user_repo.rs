@@ -128,6 +128,65 @@ impl UserRepository {
         Ok(row.map(|r| Self::row_to_user(&r)))
     }
 
+    /// Поиск пользователя по email (регистронезависимо).
+    /// Используется логином/регистрацией standalone-приложения.
+    pub async fn find_by_email(&self, email: &str) -> Result<Option<User>> {
+        let row = sqlx::query("SELECT * FROM users WHERE LOWER(email) = LOWER($1)")
+            .bind(email)
+            .fetch_optional(&self.pool)
+            .await
+            .context("Failed to fetch user by email")?;
+        Ok(row.map(|r| Self::row_to_user(&r)))
+    }
+
+    /// Возвращает (id, password_hash) по email — для проверки пароля при логине.
+    /// Отдаём хеш отдельно, т.к. в модели `User` его сознательно нет.
+    pub async fn get_credentials_by_email(
+        &self,
+        email: &str,
+    ) -> Result<Option<(i64, Option<String>)>> {
+        let row = sqlx::query("SELECT id, password_hash FROM users WHERE LOWER(email) = LOWER($1)")
+            .bind(email)
+            .fetch_optional(&self.pool)
+            .await
+            .context("Failed to fetch credentials by email")?;
+        Ok(row.map(|r| {
+            (
+                r.try_get::<i64, _>("id").unwrap_or_default(),
+                r.try_get::<Option<String>, _>("password_hash").ok().flatten(),
+            )
+        }))
+    }
+
+    /// Создаёт email/password-аккаунт (без Telegram). Возвращает созданного юзера.
+    /// `referral_code` генерируется уникальным на основе случайного суффикса в вызывающем коде.
+    pub async fn create_email_user(
+        &self,
+        email: &str,
+        password_hash: &str,
+        full_name: Option<&str>,
+        referral_code: &str,
+    ) -> Result<User> {
+        let user_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            INSERT INTO users (email, password_hash, full_name, referral_code, auth_provider, email_verified)
+            VALUES ($1, $2, $3, $4, 'email', FALSE)
+            RETURNING id::bigint
+            "#,
+        )
+        .bind(email)
+        .bind(password_hash)
+        .bind(full_name)
+        .bind(referral_code)
+        .fetch_one(&self.pool)
+        .await
+        .context("Failed to create email user")?;
+
+        self.get_by_id(user_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("User {} not found after email signup", user_id))
+    }
+
     pub async fn upsert(
         &self,
         tg_id: i64,

@@ -1,0 +1,191 @@
+name: CI
+
+# Сквозной CI на три слоя монорепозитория: Rust workspace (panel/bot/node/sub/
+# installer + libs), Go core/CLI и Flutter-клиент. Гоняет проверки на каждый
+# push и PR. Релизный воркфлоу release.yml не затрагивается.
+#
+# Этот файл — ЕДИНСТВЕННЫЙ владелец Go-контура (по умолчанию для обоих модулей
+# + go-mihomo с continue-on-error). Прежний go-core.yml удалён, чтобы один и тот
+# же go build/test не запускался дважды параллельно в двух воркфлоу.
+#
+# Примечания по слоям:
+#   - Rust: panel использует sqlx в РАНТАЙМЕ (sqlx::query / sqlx::query_as), а не
+#     compile-time макросы query!/query_as!. caramba-db применяет sqlx::migrate!
+#     ("./migrations"), который лишь встраивает .sql-файлы во время компиляции и
+#     НЕ требует подключения к БД. Значит `cargo check`/`cargo test` собираются
+#     БЕЗ живого Postgres. SQLX_OFFLINE выставлен на всякий случай (no-op без
+#     query!-макросов и без .sqlx-кэша) и безвреден.
+#   - Go: матрица по двум модулям. Контур по умолчанию (без -tags mihomo) чистый,
+#     CGO не нужен. Сборка с -tags mihomo тянет неполный go.sum + большой граф +
+#     CGO и вынесена в отдельный continue-on-error job (см. go-mihomo).
+#   - Flutter: ядро ещё не привязано (gomobile), тестов пока может не быть —
+#     flutter test помечен allow-failure, чтобы не блокировать PR.
+
+on:
+  push:
+  pull_request:
+
+# Отменяем устаревшие прогоны на том же ref при новом пуше.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Rust workspace
+  # ---------------------------------------------------------------------------
+  rust:
+    name: Rust (check + test)
+    runs-on: ubuntu-latest
+    env:
+      # panel не использует compile-time sqlx-макросы; флаг безвреден и страхует
+      # от случайного добавления query!-макроса без живой БД в CI.
+      SQLX_OFFLINE: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Кэш реестра, индекса и target по содержимому Cargo.lock.
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # Системные зависимости panel/node (openssl/pkg-config), как в release.yml.
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config
+
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+      - name: cargo check
+        run: cargo check --workspace --all-targets
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
+
+  # ---------------------------------------------------------------------------
+  # Go core / CLI — контур по умолчанию (без нативного ядра mihomo)
+  # ---------------------------------------------------------------------------
+  go:
+    name: Go ${{ matrix.module }} (default)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - libs/caramba-core
+          - apps/caramba-cli
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+
+      - name: go vet
+        working-directory: ${{ matrix.module }}
+        run: go vet ./...
+
+      - name: go build
+        working-directory: ${{ matrix.module }}
+        run: go build ./...
+
+      - name: go test
+        working-directory: ${{ matrix.module }}
+        run: go test ./...
+
+  # ---------------------------------------------------------------------------
+  # Go core — контур с нативным ядром (-tags mihomo). Allow-failure: требует CGO,
+  # `go mod tidy` (go.sum в репозитории намеренно неполный) и доступ к прокси
+  # модулей. Тянет большой транзитивный граф (sing-tun/sing-box/gvisor/quic-go/
+  # utls). Ловит дрейф сигнатур mihomo API v1.19.27 (adapter.ParseProxy,
+  # Proxy.URLTest, utils.NewUnsignedRanges[uint16]), невидимый в сборке по
+  # умолчанию.
+  # ---------------------------------------------------------------------------
+  go-mihomo:
+    name: Go core (-tags mihomo, allow-failure)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      CGO_ENABLED: "1"
+      GOFLAGS: "-mod=mod"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: libs/caramba-core/go.sum
+
+      # go.sum в репозитории содержит только yaml.v3; tidy дописывает контрольные
+      # суммы mihomo и его транзитива, иначе сборка с тегом падает.
+      - name: Resolve mihomo deps (go mod tidy)
+        working-directory: libs/caramba-core
+        run: go mod tidy
+
+      - name: go build (-tags mihomo)
+        working-directory: libs/caramba-core
+        run: go build -tags mihomo ./...
+
+      - name: go test (-tags mihomo)
+        working-directory: libs/caramba-core
+        run: go test -tags mihomo ./...
+
+  # ---------------------------------------------------------------------------
+  # Flutter client
+  # ---------------------------------------------------------------------------
+  flutter:
+    name: Flutter (analyze + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/caramba-client
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: dart format check
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: flutter analyze
+        run: flutter analyze
+
+      # Тестов может ещё не быть (ядро не привязано) — не блокируем PR.
+      - name: flutter test (allow-failure)
+        continue-on-error: true
+        run: flutter test

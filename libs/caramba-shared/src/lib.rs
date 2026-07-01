@@ -4,6 +4,8 @@ pub use geo_service::{GeoData, GeoService};
 #[cfg(feature = "self-update")]
 pub mod self_update;
 
+pub mod license;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -2042,10 +2042,14 @@ async fn create_payment_invoice(
                 // user can never spend more than they hold (the `balance >= $1` guard
                 // makes the row update a no-op when funds are insufficient). Only after
                 // a successful charge do we fulfill; if fulfillment fails we refund.
+                // Charge session.amount, not the caller's pre-resolved amount:
+                // create_session may have applied the referee first-purchase discount,
+                // and the wallet charge, the recorded session, and the referrer reward
+                // base must all agree on the discounted figure.
                 let charged = sqlx::query(
                     "UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1",
                 )
-                .bind(amount)
+                .bind(session.amount)
                 .bind(u.id)
                 .execute(&state.pool)
                 .await;
@@ -2074,7 +2078,7 @@ async fn create_payment_invoice(
                     tracing::error!("Immediate balance fulfillment failed: {}", e);
                     // Refund the charge we just made so the user isn't billed for nothing.
                     let _ = sqlx::query("UPDATE users SET balance = balance + $1 WHERE id = $2")
-                        .bind(amount)
+                        .bind(session.amount)
                         .bind(u.id)
                         .execute(&state.pool)
                         .await;
@@ -3538,14 +3542,21 @@ async fn client_get_ticket(
             Json(serde_json::json!({ "ticket": ticket, "messages": messages })).into_response()
         }
         Err(e) => {
-            let msg = e.to_string();
-            if msg.contains("не найден") {
-                (StatusCode::NOT_FOUND, msg).into_response()
-            } else if msg.contains("запрещён") {
-                (StatusCode::FORBIDDEN, msg).into_response()
-            } else {
-                tracing::error!("client_get_ticket error: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            use crate::services::tickets_service::TicketError;
+            match e {
+                TicketError::NotFound => {
+                    (StatusCode::NOT_FOUND, "Ticket not found").into_response()
+                }
+                TicketError::Forbidden => {
+                    (StatusCode::FORBIDDEN, "Access denied").into_response()
+                }
+                TicketError::Closed => {
+                    (StatusCode::UNPROCESSABLE_ENTITY, "Ticket is closed").into_response()
+                }
+                TicketError::Internal(_) => {
+                    tracing::error!("client_get_ticket error: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                }
             }
         }
     }
@@ -3603,16 +3614,22 @@ async fn client_add_ticket_message(
     {
         Ok(msg) => (StatusCode::CREATED, Json(msg)).into_response(),
         Err(e) => {
-            let msg = e.to_string();
-            if msg.contains("запрещён") {
-                (StatusCode::FORBIDDEN, msg).into_response()
-            } else if msg.contains("не найден") {
-                (StatusCode::NOT_FOUND, msg).into_response()
-            } else if msg.contains("закрыт") {
-                (StatusCode::UNPROCESSABLE_ENTITY, msg).into_response()
-            } else {
-                tracing::error!("client_add_ticket_message error: {}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
+            use crate::services::tickets_service::TicketError;
+            match e {
+                TicketError::Forbidden => {
+                    (StatusCode::FORBIDDEN, "Access denied").into_response()
+                }
+                TicketError::NotFound => {
+                    (StatusCode::NOT_FOUND, "Ticket not found").into_response()
+                }
+                TicketError::Closed => {
+                    (StatusCode::UNPROCESSABLE_ENTITY, "Ticket is closed").into_response()
+                }
+                TicketError::Internal(_) => {
+                    tracing::error!("client_add_ticket_message error: {}", e);
+                    (StatusCode::INTERNAL_SERVER_ERROR, "Cannot reply to ticket")
+                        .into_response()
+                }
             }
         }
     }

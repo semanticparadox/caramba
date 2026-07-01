@@ -59,6 +59,21 @@ impl RedisService {
         Ok(())
     }
 
+    /// Атомарно читает и удаляет ключ за одну операцию (GETDEL, Redis >= 6.2).
+    /// Нужно для одноразовых значений (например, login-кодов): обычная пара
+    /// GET + DEL не атомарна — два конкурентных запроса успевают прочитать одно
+    /// значение до того, как любой из них выполнит DEL, и оба проходят как
+    /// «валидные». GETDEL отдаёт значение только первому, остальным — None.
+    pub async fn get_del(&self, key: &str) -> Result<Option<String>> {
+        let mut manager = self.manager.clone();
+        let value: Option<String> = redis::cmd("GETDEL")
+            .arg(key)
+            .query_async(&mut manager)
+            .await
+            .context("Redis GETDEL failed")?;
+        Ok(value)
+    }
+
     pub async fn exists(&self, key: &str) -> Result<bool> {
         let mut manager = self.manager.clone();
         let exists: bool = redis::cmd("EXISTS")

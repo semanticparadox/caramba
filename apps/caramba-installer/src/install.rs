@@ -1000,9 +1000,53 @@ SESSION_SECRET={}
     }
 
     let path = format!("{}/.env", config.install_dir);
+
+    // Stable instance id: reuse the existing value on re-run so a single-seat
+    // license stays bound to the same instance. Only generate a new one when no
+    // value is present. The .env writer fully overwrites the file, so the
+    // read-back must happen before the write.
+    let instance_id = read_existing_instance_id(&path)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+    env_content.push_str(&format!("CARAMBA_INSTANCE_ID={}\n", instance_id));
+    env_content.push_str(&format!(
+        "CARAMBA_LICENSE_KEY={}\n",
+        config.license_key.as_deref().unwrap_or("").trim()
+    ));
+    env_content.push_str(&format!(
+        "CARAMBA_LICENSE_SERVER_URL={}\n",
+        config.license_server_url.trim()
+    ));
+    env_content.push_str(&format!(
+        "CARAMBA_LICENSE_PUBKEY={}\n",
+        config.license_pubkey.trim()
+    ));
+
     std::fs::write(&path, env_content)?;
     println!("✅ Written .env to {}", path);
     Ok(())
+}
+
+/// Read a previously written CARAMBA_INSTANCE_ID from an existing .env file.
+/// Returns None when the file is missing or the key is absent or blank.
+fn read_existing_instance_id(env_path: &str) -> Option<String> {
+    let content = std::fs::read_to_string(env_path).ok()?;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = trimmed.split_once('=') else {
+            continue;
+        };
+        if key.trim() == "CARAMBA_INSTANCE_ID" {
+            let value = value.trim().to_string();
+            if !value.is_empty() {
+                return Some(value);
+            }
+        }
+    }
+    None
 }
 
 pub fn uninstall_caramba(install_dir: &str, purge_db: bool) -> Result<()> {

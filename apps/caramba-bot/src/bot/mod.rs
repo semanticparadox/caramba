@@ -26,7 +26,7 @@ pub async fn run_bot(
             let username = me.username.clone().unwrap_or("unknown".into());
             info!("Bot connected as: @{}", username);
             // Store bot username in settings for the footer
-            let _ = state.settings.set("bot_username", &username).await;
+            state.settings.set_local("bot_username", &username).await;
         }
         Err(e) => {
             error!("CRITICAL: Bot failed to connect to Telegram: {}", e);

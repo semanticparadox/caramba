@@ -3,6 +3,7 @@ mod bot;
 mod bot_manager;
 mod cli;
 pub mod handlers;
+mod license;
 mod scripts;
 mod services;
 mod settings;
@@ -85,6 +86,11 @@ pub struct AppState {
     // Система уведомлений и тикетов поддержки
     pub notifications_svc: Arc<services::notifications_service::NotificationsService>,
     pub tickets_svc: Arc<services::tickets_service::TicketsService>,
+
+    // Кэш проверенного по ed25519-подписи состояния лицензии (P4, контракт D).
+    // None => нет ключа/нет кэша => тир Free. effective_tier/effective_limits
+    // читают это поле; фоновая задача пере-верифицирует каждые 12-24 ч.
+    pub license: Arc<tokio::sync::RwLock<Option<license::LicenseState>>>,
 }
 
 #[derive(Parser)]
@@ -106,6 +112,8 @@ enum Commands {
     },
     /// Install the panel as a systemd service
     Install,
+    /// Download/refresh routing rule-set lists into RULESETS_DIR (./rulesets)
+    SyncRulesets,
 }
 
 #[derive(Subcommand)]
@@ -269,6 +277,16 @@ async fn main() -> Result<()> {
         },
         Commands::Install => {
             cli::install_service()?;
+        }
+        Commands::SyncRulesets => {
+            println!("Syncing routing rule-sets into RULESETS_DIR...");
+            match handlers::rulesets::sync_rulesets().await {
+                Ok(n) => println!("Synced {} rule-set(s).", n),
+                Err(e) => {
+                    eprintln!("Rule-set sync failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
     }
 
@@ -592,6 +610,11 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         notifications_svc.clone(),
     ));
 
+    // Кэш проверенного состояния лицензии (P4). Пустой до первой активации;
+    // load_cached_into_state + activate_and_cache наполнят его после сборки state.
+    let license_cache: Arc<tokio::sync::RwLock<Option<license::LicenseState>>> =
+        Arc::new(tokio::sync::RwLock::new(None));
+
     // App state
     let state = AppState {
         pool: pool.clone(),
@@ -629,10 +652,23 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         task_health,
         notifications_svc,
         tickets_svc,
+        license: license_cache,
     };
 
     if let Err(e) = state.sni_repo.seed_default_global_pool_if_empty().await {
         tracing::warn!("Failed to seed default global SNI pool: {}", e);
+    }
+
+    // Лицензия (P4, контракт D): сперва грузим кэш из license_state (чтобы
+    // офлайн-грейс работал немедленно), затем best-effort активация. Любой сбой
+    // не прерывает старт — падаем в кэш/Free. После — фоновая пере-верификация.
+    license::activation::load_cached_into_state(&state).await;
+    license::activation::activate_and_cache(&state).await;
+    {
+        let license_state = state.clone();
+        tokio::spawn(async move {
+            license::activation::reverify_loop(license_state).await;
+        });
     }
 
     // Auto-start bot if enabled in settings
@@ -696,6 +732,20 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     let expiry_state = state.clone();
     tokio::spawn(async move {
         handlers::admin::run_expiry_reminder_loop(expiry_state).await;
+    });
+
+    // Rule-set mirror sync: однократно на старте + раз в 12 часов (совпадает с
+    // Interval=43200 у RULE-PROVIDER'ов в Go-ядре). Лёгкая фоновая задача —
+    // скачивает апстрим-списки доменов/IP в RULESETS_DIR. Сбой не критичен:
+    // клиент mihomo переживёт временно недоступный провайдер.
+    tokio::spawn(async move {
+        loop {
+            match handlers::rulesets::sync_rulesets().await {
+                Ok(n) => tracing::info!(synced = n, "rulesets: sync complete"),
+                Err(e) => tracing::warn!(err = %e, "rulesets: sync failed"),
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(12 * 60 * 60)).await;
+        }
     });
 
     use tower_http::services::ServeDir;
@@ -977,6 +1027,26 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/tickets/{id}/status",
             post(handlers::admin::tickets::set_status),
         )
+        // Moderator ticket API (JSON) — staff with role 'moderator'|'admin'.
+        // Gated inside each handler by admin session + admins.role; kept on the
+        // admin path (NOT the client /api/v2/app router) since moderation is
+        // staff-only. Reuses tickets_svc, same as the web admin + bot paths.
+        .route(
+            "/api/moderator/tickets",
+            get(handlers::api::moderator::list_tickets),
+        )
+        .route(
+            "/api/moderator/tickets/{id}",
+            get(handlers::api::moderator::get_ticket),
+        )
+        .route(
+            "/api/moderator/tickets/{id}/assign",
+            post(handlers::api::moderator::assign_ticket),
+        )
+        .route(
+            "/api/moderator/tickets/{id}/reply",
+            post(handlers::api::moderator::reply_ticket),
+        )
         // Dedicated Notifications page
         .route(
             "/notifications",
@@ -1001,6 +1071,10 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         .route(
             "/users/subs/{id}/extend",
             axum::routing::post(handlers::admin::extend_user_subscription),
+        )
+        .route(
+            "/users/subs/{id}/approve",
+            axum::routing::post(handlers::admin::approve_user_subscription),
         )
         .route(
             "/users/subs/{id}/set-node",
@@ -1295,6 +1369,8 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         )
         // Bot API — защищённый роутер с проверкой X-Bot-Token и rate limiting
         .nest("/v2/bot", api::v2::bot_routes(state.clone()))
+        // App API — аутентификация и API standalone-приложения (email/Telegram JWT)
+        .nest("/v2/app", api::v2::app_routes(state.clone()))
         // AI Routing — рекомендованные узлы для клиента
         .route(
             "/v2/client/recommended",
@@ -1415,6 +1491,13 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         .route(
             "/sub/{uuid}",
             axum::routing::get(subscription::subscription_handler),
+        )
+        // Public rule-set mirror for routing presets (mihomo RULE-PROVIDER source).
+        // Текстовые списки доменов/IP, не секретны — отдаём без auth. Имя
+        // валидируется по белому списку внутри хендлера (защита от traversal).
+        .route(
+            "/rulesets/{name}",
+            axum::routing::get(handlers::rulesets::serve_ruleset),
         )
         // Local Mini App Serving
         .route("/app", axum::routing::get(handlers::local_app::serve_app))

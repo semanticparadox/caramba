@@ -9,6 +9,34 @@ use tracing::{error, info};
 use crate::bot_manager::BotManager;
 use crate::services::notifications_service::NotificationsService;
 
+/// Типизированные ошибки операций над тикетами для пользовательских путей.
+///
+/// Позволяет хендлерам мапить причину на HTTP-статус без сопоставления русского
+/// текста ошибки (которое ломается при любой смене формулировки и заодно
+/// светит внутренний текст клиенту). Внутренние сбои БД сворачиваются в
+/// `Internal(anyhow::Error)` и наружу как 500 без деталей.
+#[derive(Debug, thiserror::Error)]
+pub enum TicketError {
+    /// Тикет не существует.
+    #[error("ticket not found")]
+    NotFound,
+    /// Тикет принадлежит другому пользователю.
+    #[error("access to ticket denied")]
+    Forbidden,
+    /// Тикет закрыт/решён — новые сообщения недоступны.
+    #[error("ticket is closed")]
+    Closed,
+    /// Внутренняя ошибка (БД, транзакция и т.п.) — детали не для клиента.
+    #[error(transparent)]
+    Internal(#[from] anyhow::Error),
+}
+
+impl From<sqlx::Error> for TicketError {
+    fn from(e: sqlx::Error) -> Self {
+        TicketError::Internal(e.into())
+    }
+}
+
 /// Максимальный размер вложения — 10 МБ.
 const MAX_ATTACHMENT_SIZE: usize = 10 * 1024 * 1024;
 
@@ -133,7 +161,21 @@ impl TicketsService {
                  WHERE tm.ticket_id = t.id
                  ORDER BY tm.created_at DESC
                  LIMIT 1) AS last_message_preview,
-                0::BIGINT AS unread_for_user
+                -- "Непрочитанные" для пользователя — это ответы поддержки/системы,
+                -- пришедшие после последнего сообщения самого пользователя. Отдельного
+                -- маркера last_read нет, поэтому собственное сообщение пользователя
+                -- считается признаком того, что он видел всё до этого момента.
+                (SELECT COUNT(*)
+                 FROM ticket_messages tm
+                 WHERE tm.ticket_id = t.id
+                   AND tm.sender_role <> 'user'
+                   AND tm.created_at > COALESCE(
+                       (SELECT MAX(tm2.created_at)
+                        FROM ticket_messages tm2
+                        WHERE tm2.ticket_id = t.id
+                          AND tm2.sender_role = 'user'),
+                       '-infinity'::timestamptz
+                   )) AS unread_for_user
             FROM tickets t
             WHERE t.user_id = $1
             ORDER BY t.updated_at DESC
@@ -224,7 +266,7 @@ impl TicketsService {
         ticket_id: i64,
         is_admin: bool,
         requester_user_id: Option<i64>,
-    ) -> Result<(Ticket, Vec<TicketMessage>)> {
+    ) -> std::result::Result<(Ticket, Vec<TicketMessage>), TicketError> {
         let ticket: Option<Ticket> = sqlx::query_as::<_, Ticket>(
             "SELECT id, user_id, category, subject, status, assignee_tg_id,
                     related_payment_id, related_subscription_id, created_at, updated_at, closed_at
@@ -237,17 +279,15 @@ impl TicketsService {
 
         let ticket = match ticket {
             Some(t) => t,
-            None => bail!("Тикет #{} не найден", ticket_id),
+            None => return Err(TicketError::NotFound),
         };
 
         // Проверка владения для не-администраторов
         if !is_admin {
-            if let Some(uid) = requester_user_id {
-                if ticket.user_id != uid {
-                    bail!("Доступ к тикету запрещён");
-                }
-            } else {
-                bail!("Требуется идентификатор пользователя");
+            match requester_user_id {
+                Some(uid) if ticket.user_id == uid => {}
+                Some(_) => return Err(TicketError::Forbidden),
+                None => return Err(TicketError::Forbidden),
             }
         }
 
@@ -273,7 +313,7 @@ impl TicketsService {
         user_id: i64,
         body: &str,
         attachment_ids: Vec<i64>,
-    ) -> Result<TicketMessage> {
+    ) -> std::result::Result<TicketMessage, TicketError> {
         // Проверяем владение и текущий статус
         let ticket: Option<Ticket> = sqlx::query_as::<_, Ticket>(
             "SELECT id, user_id, category, subject, status, assignee_tg_id,
@@ -286,15 +326,15 @@ impl TicketsService {
 
         let ticket = match ticket {
             Some(t) => t,
-            None => bail!("Тикет #{} не найден", ticket_id),
+            None => return Err(TicketError::NotFound),
         };
 
         if ticket.user_id != user_id {
-            bail!("Доступ к тикету запрещён");
+            return Err(TicketError::Forbidden);
         }
 
         if ticket.status == "closed" || ticket.status == "resolved" {
-            bail!("Тикет закрыт, новые сообщения недоступны");
+            return Err(TicketError::Closed);
         }
 
         let mut tx = self.pool.begin().await?;

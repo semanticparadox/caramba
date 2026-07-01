@@ -393,6 +393,11 @@ impl SubscriptionService {
         Ok(code)
     }
 
+    /// NOT THE LIVE GIFT-CODE PATH. The runtime redemption used by the API and
+    /// bot goes through `PromoService::redeem_code` -> its own private
+    /// `redeem_gift_code`, which carries the manual_approval license gate. This
+    /// method has no callers (kept for reference only); the license gate below
+    /// is therefore dormant. Do not treat its presence as live coverage.
     pub async fn redeem_gift_code(&self, user_id: i64, code: &str) -> Result<Subscription> {
         let mut tx = self.pool.begin().await?;
 
@@ -421,10 +426,16 @@ impl SubscriptionService {
         let vless_uuid = Uuid::new_v4().to_string();
         let subscription_uuid = Uuid::new_v4().to_string();
 
+        // License gate (P4, contract E): manual_approval (Free) -> new sub stays
+        // 'pending' until an admin approves; Pro -> auto-'active'. Reuses the
+        // existing pending/active lifecycle; never re-pends an existing sub.
+        let limits = crate::license::effective_limits_from_pool(&self.pool).await;
+        let initial_status = crate::license::initial_subscription_status(&limits);
+
         let sub = sqlx::query_as::<_, Subscription>(
             r#"
             INSERT INTO subscriptions (user_id, plan_id, vless_uuid, expires_at, status, subscription_uuid)
-            VALUES ($1, $2, $3, $4, 'pending', $5)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id, user_id, plan_id, node_id, vless_uuid, expires_at, status, used_traffic, traffic_updated_at, created_at, note, auto_renew, alerts_sent, is_trial, subscription_uuid, last_sub_access
             "#
         )
@@ -432,6 +443,7 @@ impl SubscriptionService {
         .bind(plan_id)
         .bind(vless_uuid)
         .bind(expires_at)
+        .bind(initial_status)
         .bind(subscription_uuid)
         .fetch_one(&mut *tx)
         .await?;
@@ -528,6 +540,42 @@ impl SubscriptionService {
         }
 
         Ok(())
+    }
+
+    /// Admin approval for a manual-approval (Free-tier) subscription: flips a
+    /// 'pending' subscription to 'active' so its config gets handed out.
+    ///
+    /// Only acts on 'pending' rows — it WILL NOT re-pend or otherwise alter an
+    /// already-'active' subscription (returns Ok with `false` when nothing was
+    /// pending). Triggers a node config sync after activation so the newly
+    /// approved user is provisioned immediately.
+    pub async fn approve_subscription(&self, sub_id: i64) -> Result<bool> {
+        let updated = sqlx::query_scalar::<_, Option<i64>>(
+            "UPDATE subscriptions SET status = 'active' \
+             WHERE id = $1 AND status = 'pending' RETURNING node_id",
+        )
+        .bind(sub_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to approve subscription")?;
+
+        let Some(node_id_opt) = updated else {
+            // Row did not exist or was not pending: no-op, never re-pend active.
+            return Ok(false);
+        };
+
+        let _ = ActivityService::log(
+            &self.pool,
+            "Admin Action",
+            &format!("Admin approved pending subscription {}", sub_id),
+        )
+        .await;
+
+        if let (Some(orch), Some(nid)) = (&self.orchestration_service, node_id_opt) {
+            let _ = orch.notify_node_update(nid).await;
+        }
+
+        Ok(true)
     }
 
     pub async fn admin_gift_subscription(

@@ -44,8 +44,9 @@ pub use store::{
     get_store_products_page,
 };
 pub use users::{
-    admin_gift_subscription, admin_kill_subscription_sessions, delete_user_subscription,
-    extend_user_subscription, get_subscription_devices, get_user_details, get_users,
+    admin_gift_subscription, admin_kill_subscription_sessions, approve_user_subscription,
+    delete_user_subscription, extend_user_subscription, get_subscription_devices,
+    get_user_details, get_users,
     notify_all_users, notify_preview, notify_user, refund_user_subscription,
     reset_user_referral_rates, set_subscription_node, update_user, update_user_balance,
     update_user_referral_rates,

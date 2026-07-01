@@ -21,6 +21,19 @@ pub async fn callback_handler(
 
     if let Some(data) = q.data {
         match data.as_str() {
+            "get_login_code" => {
+                let _ = bot.answer_callback_query(callback_id).await;
+                if let Some(msg) = q.message {
+                    crate::bot::handlers::command::send_login_code(
+                        &bot,
+                        &state,
+                        msg.chat().id,
+                        tg_id,
+                    )
+                    .await;
+                }
+            }
+
             "set_lang_en" | "set_lang_ru" => {
                 let lang = if data.contains("en") { "en" } else { "ru" };
                 let _ = bot.answer_callback_query(callback_id).await;

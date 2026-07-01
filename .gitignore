@@ -119,3 +119,6 @@ GEMINI.md
 .beads/
 CLAUDE.md
 docs/superpowers/
+
+# Graphify knowledge graph output (local, regenerated on demand)
+graphify-out/

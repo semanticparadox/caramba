@@ -247,7 +247,15 @@ pub async fn purchase_product(
 /// Ключи с секретами (токены, API-ключи, пароли) здесь намеренно отсутствуют,
 /// чтобы утечка PANEL_TOKEN не давала доступ ко всем секретам.
 const BOT_SETTINGS_ALLOWLIST: &[&str] = &[
+    // Brand k/v (contract B) — the six canonical brand_* keys the bot reads back
+    // to render its brand admin menu and the panel branding endpoint serves.
+    "brand_enabled",
     "brand_name",
+    "brand_logo_url",
+    "brand_accent_hex",
+    "brand_support_url",
+    "brand_bot_url",
+    // Legacy/other read-only keys kept for backward compatibility.
     "support_url",
     "referral_enabled",
     "referral_bonus_percent",
@@ -259,6 +267,18 @@ const BOT_SETTINGS_ALLOWLIST: &[&str] = &[
     "bot_username",
     "panel_url",
     "subscription_domain",
+];
+
+/// Ключи, в которые боту РАЗРЕШЕНО писать через POST /settings/{key}.
+/// Строго шесть brand_*-ключей контракта B — никаких секретов, никаких
+/// прочих настроек панели. Запись в любой другой ключ → 403.
+const BOT_SETTINGS_WRITE_ALLOWLIST: &[&str] = &[
+    "brand_enabled",
+    "brand_name",
+    "brand_logo_url",
+    "brand_accent_hex",
+    "brand_support_url",
+    "brand_bot_url",
 ];
 
 pub async fn get_settings(
@@ -274,6 +294,44 @@ pub async fn get_settings(
     }
     let val = state.settings.get_or_default(&key, "").await;
     Json(Some(val)).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct SetSettingRequest {
+    pub value: String,
+}
+
+/// POST /api/v2/bot/settings/{key}
+/// Записывает значение настройки от бота. Контракт B (общий k/v): бот пишет
+/// brand_*-ключи, панель и клиент их читают.
+///
+/// Защита: разрешаем боту писать ТОЛЬКО шесть brand_*-ключей. Запись в любой
+/// другой ключ (секреты, тарифы, флаги системы) отвергается 403 — даже если
+/// PANEL_TOKEN утёк, боту нельзя перезаписать произвольную настройку.
+///
+/// `state.settings.set` пишет в БД И обновляет in-memory cache, поэтому
+/// branding-эндпоинт сразу отражает изменение без рестарта панели.
+pub async fn set_settings(
+    State(state): State<AppState>,
+    Path(key): Path<String>,
+    Json(payload): Json<SetSettingRequest>,
+) -> impl IntoResponse {
+    if !BOT_SETTINGS_WRITE_ALLOWLIST.contains(&key.as_str()) {
+        tracing::warn!(key = %key, "Bot API: settings write key not in allowlist — rejected");
+        return (
+            StatusCode::FORBIDDEN,
+            "Settings key not writable via bot API",
+        )
+            .into_response();
+    }
+
+    match state.settings.set(&key, &payload.value).await {
+        Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
+        Err(e) => {
+            tracing::error!(key = %key, "Bot API: settings write failed: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to persist setting").into_response()
+        }
+    }
 }
 
 pub async fn get_sub_links(
@@ -1040,12 +1098,23 @@ pub async fn bot_get_ticket(
             .into_response()
         }
         Err(e) => {
-            let msg = e.to_string();
-            if msg.contains("не найден") {
-                (StatusCode::NOT_FOUND, msg).into_response()
-            } else {
-                tracing::error!("bot_get_ticket error: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            use crate::services::tickets_service::TicketError;
+            match e {
+                TicketError::NotFound => {
+                    (StatusCode::NOT_FOUND, "Ticket not found").into_response()
+                }
+                // is_admin=true: Forbidden/Closed здесь не возникают, но мапим
+                // на безопасные коды ради полноты match.
+                TicketError::Forbidden => {
+                    (StatusCode::FORBIDDEN, "Access denied").into_response()
+                }
+                TicketError::Closed => {
+                    (StatusCode::UNPROCESSABLE_ENTITY, "Ticket is closed").into_response()
+                }
+                TicketError::Internal(_) => {
+                    tracing::error!("bot_get_ticket error: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                }
             }
         }
     }

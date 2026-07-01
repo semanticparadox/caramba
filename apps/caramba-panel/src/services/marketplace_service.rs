@@ -313,6 +313,31 @@ impl MarketplaceService {
         self.validate_session_resource(product_id, metadata.as_ref())
             .await?;
 
+        // Referral money model — REFEREE side: a one-time percentage discount on
+        // the invited user's FIRST paid purchase. `referee_first_purchase_discount`
+        // returns 0 unless the user has a referrer AND no prior claimed/completed
+        // purchase, so the discount can never apply twice (a discount claim is
+        // recorded below in the same path that produces the discounted session).
+        // The discount lands on session.amount — the figure every provider invoice
+        // is built from here, the figure the referrer reward is later computed
+        // against, and the figure the balance-wallet handlers (api/client.rs,
+        // app_billing.rs) debit and refund.
+        let discount_pct =
+            crate::services::referral_service::ReferralService::referee_first_purchase_discount(
+                &self.pool,
+                user.id,
+            )
+            .await
+            .unwrap_or(0);
+        let amount = if discount_pct > 0 {
+            let discounted = amount - (amount * discount_pct / 100);
+            // Never charge below zero; keep at least 1 minor unit so providers
+            // that reject zero-amount invoices still work.
+            discounted.max(1)
+        } else {
+            amount
+        };
+
         let session = PaymentSession {
             id: Uuid::new_v4(),
             user_id: user.id,
@@ -646,6 +671,26 @@ impl MarketplaceService {
                 self.session_repo
                     .update_status(session_id, "completed")
                     .await?;
+
+                // Referral money model — REFERRER side: credit the inviter's
+                // internal balance with reward_percent of this payment when the
+                // referee's FIRST paid purchase is fulfilled. Idempotent: the
+                // referral_rewards UNIQUE(referred_user_id) makes any later
+                // fulfillment a no-op, so a given referee credits the referrer at
+                // most once. A failure here must NOT undo the (already committed)
+                // fulfillment — log and move on.
+                if let Err(e) = self
+                    .grant_referrer_reward(session.user_id, session.amount)
+                    .await
+                {
+                    tracing::error!(
+                        session_id = %session_id,
+                        user_id = session.user_id,
+                        error = %e,
+                        "Referral reward granting failed after fulfillment (non-fatal)"
+                    );
+                }
+
                 Ok(())
             }
             Err(error) => {
@@ -653,6 +698,31 @@ impl MarketplaceService {
                 Err(error)
             }
         }
+    }
+
+    /// Credits the referrer of `user_id` with the first-purchase money reward.
+    /// Runs in its own transaction; the referral_rewards ledger makes it safe to
+    /// call on every fulfillment (only the first paid purchase per referee pays
+    /// out). The referrer sees the credit in the app's referral summary and
+    /// balance; this shared fulfillment path has no DM channel, so no push here.
+    async fn grant_referrer_reward(&self, user_id: i64, amount_cents: i64) -> Result<()> {
+        use crate::services::referral_service::ReferralService;
+
+        let mut tx = self.pool.begin().await?;
+        let reward =
+            ReferralService::apply_first_purchase_reward(&mut tx, user_id, amount_cents).await?;
+        tx.commit().await?;
+
+        if let Some((referrer_tg_id, bonus_cents)) = reward {
+            tracing::info!(
+                referrer_tg_id,
+                bonus_cents,
+                referred_user_id = user_id,
+                "Referral first-purchase reward credited to referrer balance"
+            );
+        }
+
+        Ok(())
     }
 
     async fn fulfill_session_resource(&self, session: &PaymentSession) -> Result<()> {

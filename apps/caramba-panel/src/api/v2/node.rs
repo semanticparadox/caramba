@@ -255,6 +255,19 @@ pub async fn heartbeat(
                 attributed_count += updated_sub_count;
                 touched_subscriptions.extend(updated_ids);
 
+                // Параллельно с накопительным счётчиком подписки пишем подневную
+                // дельту трафика на пользователя — это источник графика трафика в
+                // standalone-приложении (GET /api/v2/app/traffic). Узел отдаёт один
+                // счётчик байт на пользователя, поэтому весь объём идёт в down_bytes,
+                // up_bytes остаётся 0 до появления раздельных счётчиков у агента.
+                // Ошибка записи истории не должна ломать приём heartbeat'а.
+                let traffic_repo = caramba_db::repositories::traffic_repo::TrafficRepository::new(
+                    state.pool.clone(),
+                );
+                if let Err(e) = traffic_repo.record_usage_bulk(&user_ids, &bytes_vec).await {
+                    tracing::warn!(error = %e, "app: failed to record daily traffic history");
+                }
+
                 // Пользователи, у которых нет активной подписки — UPDATE их не затронул
                 let no_sub_count = resolved_count.saturating_sub(updated_sub_count);
                 if no_sub_count > 0 {
@@ -969,6 +982,19 @@ pub async fn register(
         if api_key.current_uses >= max {
             return (StatusCode::FORBIDDEN, "Key Usage Limit Reached").into_response();
         }
+    }
+
+    // License gate (P4, contract E): block self-register beyond max_nodes. Only
+    // the INSERT path is gated here; heartbeat/config/rotate for already
+    // registered nodes are never affected.
+    let limits = crate::license::effective_limits(&state).await;
+    let node_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM nodes")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(0);
+    if let Err(e) = crate::license::check_can_add_node(&limits, node_count) {
+        warn!("Node self-register blocked by license: {}", e);
+        return (StatusCode::FORBIDDEN, e.to_string()).into_response();
     }
 
     // 2. Increment Usage

@@ -11,6 +11,10 @@ use tracing::{error, info, warn};
 pub struct SubParams {
     pub client: Option<String>,
     pub relay_country: Option<String>,
+    /// Закрепление конкретного выходного узла. Панель (`/sub/{uuid}`) принимает
+    /// `node_id` как i64; здесь храним как строку и пробрасываем без разбора,
+    /// чтобы не терять выбор сервера (например, `caramba up <server>` из CLI).
+    pub node_id: Option<String>,
 }
 
 /// Detect client type from User-Agent header when ?client= is not specified.
@@ -70,7 +74,16 @@ pub async fn subscription_handler(
     // All formats proxied to panel — panel has the authoritative generators
     // for sing-box (geo-based auto-relay, proper naming), v2ray, and clash.
     // Forward client IP and User-Agent so panel can do device tracking and geo filtering.
-    proxy_to_panel(&state, &uuid, client_type, &client_ip, user_agent.as_deref(), params.relay_country.as_deref()).await
+    proxy_to_panel(
+        &state,
+        &uuid,
+        client_type,
+        &client_ip,
+        user_agent.as_deref(),
+        params.relay_country.as_deref(),
+        params.node_id.as_deref(),
+    )
+    .await
 }
 
 /// Proxy subscription requests to the panel, which has the authoritative
@@ -84,21 +97,30 @@ async fn proxy_to_panel(
     client_ip: &str,
     user_agent: Option<&str>,
     relay_country: Option<&str>,
+    node_id: Option<&str>,
 ) -> Response {
     let mut panel_sub_url = format!(
         "{}/sub/{}?client={}",
         state.config.panel_url, uuid, client_type
     );
+    // URL-кодируем значения: node_id пробрасывается «как есть» строкой, поэтому
+    // его (как и relay_country) нельзя интерполировать в query сырым.
     if let Some(rc) = relay_country {
-        panel_sub_url.push_str(&format!("&relay_country={}", rc));
+        panel_sub_url.push_str(&format!("&relay_country={}", urlencoding::encode(rc)));
+    }
+    // Пробрасываем node_id, иначе выбор сервера (`caramba up <server>`) теряется
+    // при прохождении через sub-сервис.
+    if let Some(nid) = node_id {
+        panel_sub_url.push_str(&format!("&node_id={}", urlencoding::encode(nid)));
     }
 
-    // Ключ кеша включает relay_country — разные страны дают разные конфиги.
+    // Ключ кеша включает relay_country и node_id — разные узлы/страны дают разные конфиги.
     let cache_key = format!(
-        "sub:config:{}:{}:{}",
+        "sub:config:{}:{}:{}:{}",
         uuid,
         client_type,
-        relay_country.unwrap_or("")
+        relay_country.unwrap_or(""),
+        node_id.unwrap_or("")
     );
 
     let resp = match state

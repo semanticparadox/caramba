@@ -917,7 +917,12 @@ fn escape_md(s: &str) -> String {
 /// Логика:
 /// - Берём все активные подписки, где план имеет daily_traffic_mb > 0.
 /// - Если last_daily_topup_at < начала текущего дня (UTC) — делаем пополнение:
-///   уменьшаем used_traffic на daily_traffic_mb (не уходим в минус).
+///   уменьшаем used_traffic на daily_traffic_mb.
+/// - Пол пополнения = -onboarding_bonus_bytes, а не 0: у обычной подписки
+///   onboarding_bonus_bytes = 0, поэтому пол остаётся на нуле (поведение для
+///   живых юзеров не меняется). У аккаунта с одноразовым онбординг-грантом
+///   used_traffic засеян в -bonus, и floor -bonus сохраняет этот headroom —
+///   суточное пополнение больше не стирает одноразовый онбординг (см. major-2).
 /// - Одновременно сбрасываем last_daily_topup_at = CURRENT_DATE (начало дня UTC).
 ///
 /// Функция вынесена за impl чтобы её можно было вызывать из мониторинга по пулу
@@ -926,7 +931,10 @@ async fn daily_traffic_topup(pool: &PgPool) -> anyhow::Result<()> {
     let rows = sqlx::query(
         r#"
         UPDATE subscriptions s
-        SET used_traffic = GREATEST(0, s.used_traffic - (p.daily_traffic_mb::BIGINT * 1024 * 1024)),
+        SET used_traffic = GREATEST(
+                -COALESCE(s.onboarding_bonus_bytes, 0),
+                s.used_traffic - (p.daily_traffic_mb::BIGINT * 1024 * 1024)
+            ),
             last_daily_topup_at = CURRENT_DATE::TIMESTAMPTZ
         FROM plans p
         WHERE s.plan_id = p.id

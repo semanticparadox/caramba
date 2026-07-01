@@ -28,8 +28,18 @@ pub fn main_menu(app_mode: bool, always_support: bool) -> KeyboardMarkup {
             KeyboardButton::new("🎁 Bonuses / Referral"),
             KeyboardButton::new("❓ Support"),
         ],
+        vec![KeyboardButton::new("🔑 Open in app")],
     ])
     .resize_keyboard()
+}
+
+/// Инлайн-клавиатура с кнопкой получения одноразового кода для входа в
+/// standalone-приложение. Используется в приветствии и где удобно.
+pub fn login_code_keyboard() -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+        "🔑 Get login code",
+        "get_login_code",
+    )]])
 }
 
 pub fn language_keyboard() -> InlineKeyboardMarkup {

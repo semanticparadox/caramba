@@ -131,6 +131,12 @@ impl StoreService {
         self.user_repo.get_by_tg_id(tg_id).await
     }
 
+    /// Поиск пользователя по внутреннему id. Нужен standalone-приложению, где
+    /// JWT несёт `user_id` (а не tg_id) — например, при создании чек-аута покупки.
+    pub async fn get_user_by_id(&self, id: i64) -> Result<Option<User>> {
+        self.user_repo.get_by_id(id).await
+    }
+
     pub async fn get_user_by_referral_code(&self, code: &str) -> Result<Option<User>> {
         self.user_repo.get_by_referral_code(code).await
     }
@@ -146,7 +152,47 @@ impl StoreService {
             return Ok(Some(user.id));
         }
 
+        // Partner per-source code -> owning partner user (same attribution path
+        // as a plain referral code). Lets bot /start deep links credit partners.
+        if let Some(partner_id) =
+            sqlx::query_scalar::<_, i64>("SELECT partner_user_id FROM partner_codes WHERE code = $1")
+                .bind(code.trim())
+                .fetch_optional(&self.pool)
+                .await?
+        {
+            return Ok(Some(partner_id));
+        }
+
         Ok(None)
+    }
+
+    /// Resolves a partner_codes.id for a raw signup code, or None when the code
+    /// is not a partner code. Used to stamp users.signup_partner_code_id so
+    /// per-code stats (signups/conversions) are derivable. Also bumps the code's
+    /// best-effort `clicks` counter (one deep-link signup hit), so call it at
+    /// most once per signup attribution.
+    pub async fn resolve_partner_code_id(&self, code: &str) -> Result<Option<i64>> {
+        let id: Option<i64> = sqlx::query_scalar(
+            "UPDATE partner_codes SET clicks = clicks + 1 WHERE code = $1 RETURNING id",
+        )
+        .bind(code.trim())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    /// Stamps the partner code a user signed up through, once. Never overwrites
+    /// an existing value (attribution is immutable, like referrer_id).
+    pub async fn set_signup_partner_code(&self, user_id: i64, partner_code_id: i64) -> Result<()> {
+        sqlx::query(
+            "UPDATE users SET signup_partner_code_id = $1 \
+             WHERE id = $2 AND signup_partner_code_id IS NULL",
+        )
+        .bind(partner_code_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn upsert_user(
@@ -173,6 +219,21 @@ impl StoreService {
         referrer_id: Option<i64>,
     ) -> Result<(User, bool)> {
         let existing = self.user_repo.get_by_tg_id(tg_id).await?;
+
+        // License gate (P4, contract E): block creating a NEW user beyond
+        // max_users. Existing users always pass; max_users == 0 = unlimited (Pro).
+        if existing.is_none() {
+            let limits = crate::license::effective_limits_from_pool(&self.pool).await;
+            if limits.max_users != 0 {
+                let current: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+                    .fetch_one(&self.pool)
+                    .await
+                    .unwrap_or(0);
+                crate::license::check_can_add_user(&limits, current)
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+            }
+        }
+
         let user = self
             .user_repo
             .upsert(tg_id, username, full_name, referrer_id)
@@ -314,6 +375,377 @@ impl StoreService {
         if let Err(e) = self.sync_family_subscriptions(invite.parent_id).await {
             tracing::warn!(parent_id = invite.parent_id, error = %e, "family sync after invite failed (children may be stale)");
         }
+        Ok(())
+    }
+
+    // ============================================================
+    // ENROLLMENT CODES (standalone app — Caramba Connect)
+    // ============================================================
+
+    /// Чистая READ-ONLY валидация кода вовлечения. НЕ списывает использование и
+    /// НЕ берёт row lock — нужна публичному эндпоинту GET /enroll/{code}, который
+    /// обязан быть идемпотентным чтением. Возвращает Some(code) если код существует
+    /// и валиден (не истёк, использования не исчерпаны), иначе None.
+    ///
+    /// Предикат валидности учитывает нуллабельный expires_at:
+    /// `(expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP) AND used_count < max_uses`.
+    pub async fn validate_enrollment_code(
+        &self,
+        code: &str,
+    ) -> Result<Option<caramba_db::models::store::EnrollmentCode>> {
+        let row = sqlx::query_as::<_, caramba_db::models::store::EnrollmentCode>(
+            "SELECT * FROM enrollment_codes \
+             WHERE code = $1 \
+               AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP) \
+               AND used_count < max_uses",
+        )
+        .bind(code)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// Списывает (consume) код вовлечения для ТОЛЬКО ЧТО созданного пользователя
+    /// и, если настроено, выдаёт одноразовый онбординг-трафик. Вся работа — в
+    /// ОДНОЙ транзакции, поэтому списание used_count служит якорем идемпотентности:
+    /// двойной сабмит не может ни дважды декрементировать used_traffic, ни
+    /// превысить max_uses.
+    ///
+    /// Шаги внутри транзакции:
+    ///   1. SELECT ... FOR UPDATE по предикату валидности — лочим строку кода.
+    ///   2. Условный UPDATE used_count = used_count + 1 WHERE used_count < max_uses;
+    ///      проверяем rows_affected == 1 (защита от гонки на max_uses).
+    ///   3. Если inviter_user_id задан и у юзера ещё нет referrer_id — проставляем
+    ///      его (immutable, set-once), как в signup-source семантике.
+    ///   4. Если onboarding_traffic_mb > 0 И аккаунт не имеет платной подписки —
+    ///      гарантируем наличие бесплатной подписки и единожды уменьшаем
+    ///      used_traffic на onboarding_traffic_mb*1024*1024 (GREATEST(0,...)).
+    ///
+    /// Возвращает Ok(true) если код успешно списан, Ok(false) если код невалиден
+    /// (не существует / истёк / исчерпан). Никогда не падает на отсутствии
+    /// бесплатного плана — онбординг-грант деградирует мягко (skip, не rollback).
+    ///
+    /// `apply_signup_bonus` (как в bot /start) запускается best-effort ПОСЛЕ
+    /// commit, чтобы сбой бонуса не откатывал списание кода.
+    pub async fn redeem_enrollment_code(
+        &self,
+        user_id: i64,
+        code: &str,
+        onboarding_traffic_mb: i64,
+    ) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+
+        let outcome = self
+            .redeem_enrollment_code_in_tx(&mut tx, user_id, code, onboarding_traffic_mb)
+            .await?;
+
+        let inviter = match outcome {
+            Some(inv) => inv,
+            None => {
+                // Невалидный код: откатываем (ничего не делали) и сообщаем вызову.
+                tx.rollback().await.ok();
+                return Ok(false);
+            }
+        };
+
+        tx.commit().await?;
+
+        self.apply_enrollment_signup_bonus(inviter, user_id).await;
+
+        Ok(true)
+    }
+
+    /// Атомарная регистрация email-аккаунта с обязательной попыткой списания
+    /// enroll-кода: создание пользователя И redeem идут в ОДНОЙ транзакции.
+    ///
+    /// Решает major-1: раньше create_email_user коммитил юзера в пул ДО redeem в
+    /// отдельной транзакции. Если код оказывался невалидным/исчерпанным или redeem
+    /// падал транзиентно, аккаунт уже существовал, а повтор с верным кодом упирался
+    /// в 409 (email занят) — валидный код было НЕВОЗМОЖНО списать, онбординг-трафик
+    /// терялся навсегда. Теперь обе операции в одной tx: при невалидном коде или
+    /// сбое redeem откатывается ВСЁ, аккаунт не создаётся, и клиент может повторить.
+    ///
+    /// `code` — уже trimmed непустая строка (валидатор вызова гарантирует это).
+    /// Возвращает `Ok(Some(user))` при успехе, `Ok(None)` если код невалиден
+    /// (аккаунт НЕ создан), `Err` при сбое БД (аккаунт НЕ создан).
+    pub async fn register_email_with_enroll(
+        &self,
+        email: &str,
+        password_hash: &str,
+        full_name: Option<&str>,
+        referral_code: &str,
+        code: &str,
+        onboarding_traffic_mb: i64,
+    ) -> Result<Option<User>> {
+        let mut tx = self.pool.begin().await?;
+
+        // 1. Создаём пользователя в ЭТОЙ же транзакции (не в пуле). Если redeem
+        //    ниже не пройдёт — INSERT откатится вместе со всем остальным.
+        let user_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            INSERT INTO users (email, password_hash, full_name, referral_code, auth_provider, email_verified)
+            VALUES ($1, $2, $3, $4, 'email', FALSE)
+            RETURNING id::bigint
+            "#,
+        )
+        .bind(email)
+        .bind(password_hash)
+        .bind(full_name)
+        .bind(referral_code)
+        .fetch_one(&mut *tx)
+        .await
+        .context("Failed to create email user (enroll tx)")?;
+
+        // 2. Списываем код в той же tx. None => невалиден: откатываем всё, аккаунт
+        //    не создаётся (клиент повторит с верным кодом — email ещё свободен).
+        let outcome = self
+            .redeem_enrollment_code_in_tx(&mut tx, user_id, code, onboarding_traffic_mb)
+            .await?;
+        let inviter = match outcome {
+            Some(inv) => inv,
+            None => {
+                tx.rollback().await.ok();
+                return Ok(None);
+            }
+        };
+
+        // 3. Читаем созданного юзера ДО commit, чтобы вернуть его целиком.
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&mut *tx)
+            .await
+            .context("Failed to load created email user (enroll tx)")?;
+
+        tx.commit().await?;
+
+        self.apply_enrollment_signup_bonus(inviter, user_id).await;
+
+        Ok(Some(user))
+    }
+
+    /// Ядро списания enroll-кода ВНУТРИ переданной транзакции. Делает шаги 1-4
+    /// (lock + условный инкремент used_count + signup-source referrer_id +
+    /// онбординг-грант). НЕ коммитит и НЕ откатывает — это ответственность вызова.
+    ///
+    /// Возвращает:
+    ///   - `Ok(Some(inviter_user_id_opt))` — код успешно списан в этой tx; вызов
+    ///     должен закоммитить и затем применить referral signup-бонус для
+    ///     `inviter_user_id_opt` (best-effort, после commit).
+    ///   - `Ok(None)` — код невалиден/исчерпан; вызов должен откатить tx.
+    async fn redeem_enrollment_code_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: i64,
+        code: &str,
+        onboarding_traffic_mb: i64,
+    ) -> Result<Option<Option<i64>>> {
+        // 1. Лочим строку кода под предикатом валидности (нуллабельный expires_at).
+        let enroll = sqlx::query_as::<_, caramba_db::models::store::EnrollmentCode>(
+            "SELECT * FROM enrollment_codes \
+             WHERE code = $1 \
+               AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP) \
+               AND used_count < max_uses \
+             FOR UPDATE",
+        )
+        .bind(code)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        let enroll = match enroll {
+            Some(e) => e,
+            None => return Ok(None),
+        };
+
+        // 2. Условный инкремент: повторная проверка used_count < max_uses под
+        //    блокировкой. rows_affected == 0 значит, что параллельная транзакция
+        //    исчерпала код между SELECT и UPDATE — трактуем как невалидный.
+        let res = sqlx::query(
+            "UPDATE enrollment_codes SET used_count = used_count + 1 \
+             WHERE id = $1 AND used_count < max_uses",
+        )
+        .bind(enroll.id)
+        .execute(&mut **tx)
+        .await?;
+        if res.rows_affected() != 1 {
+            return Ok(None);
+        }
+
+        // 3. Signup-source атрибуция: проставляем referrer_id один раз (immutable),
+        //    только если inviter задан и не является самим пользователем.
+        if let Some(inviter_id) = enroll.inviter_user_id {
+            if inviter_id != user_id {
+                sqlx::query(
+                    "UPDATE users SET referrer_id = $1 \
+                     WHERE id = $2 AND referrer_id IS NULL",
+                )
+                .bind(inviter_id)
+                .bind(user_id)
+                .execute(&mut **tx)
+                .await?;
+            }
+        }
+
+        // 4. Одноразовый онбординг-грант для неоплаченного аккаунта (headroom).
+        if onboarding_traffic_mb > 0 {
+            self.grant_onboarding_traffic_tx(tx, user_id, onboarding_traffic_mb)
+                .await?;
+        }
+
+        Ok(Some(enroll.inviter_user_id))
+    }
+
+    /// Реферальный signup-бонус (как в bot /start) — best-effort, ПОСЛЕ commit.
+    /// Сам кредит идемпотентен (referral_bonuses гард), поэтому повторов не боимся;
+    /// сбой не должен откатывать уже зафиксированное списание кода.
+    async fn apply_enrollment_signup_bonus(&self, inviter: Option<i64>, user_id: i64) {
+        if let Some(inviter_id) = inviter {
+            if inviter_id != user_id {
+                if let Err(e) =
+                    ReferralService::apply_signup_bonus(&self.pool, inviter_id, user_id).await
+                {
+                    tracing::warn!(
+                        inviter_id,
+                        user_id,
+                        error = %e,
+                        "enrollment: failed to apply referral signup bonus (non-fatal)"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Выдаёт одноразовый онбординг-трафик ВНУТРИ переданной транзакции.
+    ///
+    /// Грант применяется только к НЕОПЛАЧЕННОМУ аккаунту: если у пользователя есть
+    /// активная платная подписка (на плане с is_free = FALSE), грант пропускается.
+    /// Для бесплатного аккаунта гарантируем наличие активной бесплатной подписки
+    /// (как create_free_subscription, идемпотентно).
+    ///
+    /// Грант УВЕЛИЧИВАЕТ доступную квоту, а не уменьшает used_traffic. Все проверки
+    /// лимита в системе имеют вид `used_traffic >= traffic_limit_gb*1GB` (expire/
+    /// throttle в subscription_service.rs, заголовок подписки в subscription.rs/
+    /// client.rs). У свежего аккаунта used_traffic = 0, поэтому GREATEST(0, 0 - X)
+    /// = 0 был бы no-op и не давал бы НИЧЕГО (см. major-2). Вместо этого засеваем
+    /// used_traffic = -bonus (отрицательный headroom): сравнение `-bonus >= limit`
+    /// = false, что даёт ровно `bonus` лишних байт до отсечки, а учёт трафика с
+    /// узла (used_traffic = used_traffic + bytes) сначала съедает этот headroom.
+    /// Параллельно пишем onboarding_bonus_bytes, чтобы суточное пополнение
+    /// (monitoring.rs) опускало пол до -onboarding_bonus_bytes, а не до 0, и
+    /// никогда не стирало одноразовый онбординг-headroom.
+    ///
+    /// Идемпотентность гранта обеспечивается вызывающей транзакцией (used_count
+    /// инкрементится ровно один раз). Сверх того сам UPDATE условный
+    /// (onboarding_bonus_bytes = 0), поэтому повторный вызов в рамках того же
+    /// аккаунта не может удвоить headroom.
+    ///
+    /// Отсутствие настроенного бесплатного плана НЕ является ошибкой — грант
+    /// просто пропускается (мягкая деградация, без rollback всей регистрации).
+    async fn grant_onboarding_traffic_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: i64,
+        onboarding_traffic_mb: i64,
+    ) -> Result<()> {
+        // Неоплаченность: нет ни одной активной подписки на платном плане.
+        let has_paid: bool = sqlx::query_scalar(
+            "SELECT EXISTS( \
+               SELECT 1 FROM subscriptions s \
+               JOIN plans p ON p.id = s.plan_id \
+               WHERE s.user_id = $1 AND s.status = 'active' \
+                 AND COALESCE(p.is_free, FALSE) = FALSE)",
+        )
+        .bind(user_id)
+        .fetch_one(&mut **tx)
+        .await?;
+        if has_paid {
+            tracing::info!(user_id, "enrollment: account is paid, skipping onboarding grant");
+            return Ok(());
+        }
+
+        // Бесплатный план (как в create_free_subscription).
+        let free_plan_id: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM plans WHERE is_free = TRUE AND is_active = TRUE LIMIT 1",
+        )
+        .fetch_optional(&mut **tx)
+        .await?;
+        let plan_id = match free_plan_id {
+            Some(id) => id,
+            None => {
+                // Нет настроенного бесплатного плана — некуда применять грант.
+                tracing::warn!(
+                    user_id,
+                    "enrollment: no active free plan configured, onboarding grant skipped"
+                );
+                return Ok(());
+            }
+        };
+
+        let grant_bytes = onboarding_traffic_mb.saturating_mul(1024 * 1024);
+
+        // Гарантируем активную бесплатную подписку (идемпотентно на user+plan).
+        let existing_sub: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM subscriptions \
+             WHERE user_id = $1 AND plan_id = $2 AND status = 'active' LIMIT 1",
+        )
+        .bind(user_id)
+        .bind(plan_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        match existing_sub {
+            // Новая подписка: засеваем used_traffic отрицательным headroom и
+            // фиксируем bonus прямо в INSERT — одна запись, гранта не удвоить.
+            None => {
+                let sub_id = sqlx::query_scalar::<_, i64>(
+                    "INSERT INTO subscriptions \
+                     (user_id, plan_id, status, expires_at, subscription_uuid, used_traffic, onboarding_bonus_bytes, activated_at) \
+                     VALUES ($1, $2, 'active', '9999-12-31 23:59:59+00', gen_random_uuid()::TEXT, $3, $4, CURRENT_TIMESTAMP) \
+                     RETURNING id",
+                )
+                .bind(user_id)
+                .bind(plan_id)
+                .bind(-grant_bytes)
+                .bind(grant_bytes)
+                .fetch_one(&mut **tx)
+                .await?;
+                tracing::info!(
+                    user_id,
+                    subscription_id = sub_id,
+                    onboarding_traffic_mb,
+                    "enrollment: one-time onboarding traffic granted (fresh subscription)"
+                );
+            }
+            // Уже была бесплатная подписка: добавляем headroom условно, только
+            // если онбординг ещё не выдавался (onboarding_bonus_bytes = 0).
+            // rows_affected == 0 => бонус уже был, повтор не удваиваем.
+            Some(sub_id) => {
+                let res = sqlx::query(
+                    "UPDATE subscriptions \
+                     SET used_traffic = used_traffic - $1, \
+                         onboarding_bonus_bytes = $1 \
+                     WHERE id = $2 AND COALESCE(onboarding_bonus_bytes, 0) = 0",
+                )
+                .bind(grant_bytes)
+                .bind(sub_id)
+                .execute(&mut **tx)
+                .await?;
+                if res.rows_affected() == 1 {
+                    tracing::info!(
+                        user_id,
+                        subscription_id = sub_id,
+                        onboarding_traffic_mb,
+                        "enrollment: one-time onboarding traffic granted (existing subscription)"
+                    );
+                } else {
+                    tracing::info!(
+                        user_id,
+                        subscription_id = sub_id,
+                        "enrollment: onboarding bonus already present, skipping (idempotent)"
+                    );
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -558,7 +990,16 @@ impl StoreService {
         let sub_uuid = Uuid::new_v4().to_string();
 
         // as_gift=true → подписка pending (будет конвертирована в код),
-        // as_gift=false → подписка сразу active с activated_at = NOW()
+        // as_gift=false → подписка для конечного пользователя.
+        //
+        // License gate (P4, contract E): for a real end-user purchase (as_gift=false)
+        // on a Free instance (manual_approval), the new sub stays 'pending' until an
+        // admin approves; Pro -> auto-'active'. Reuses the existing pending/active
+        // lifecycle and never touches existing subs. Gift purchases stay 'pending'
+        // regardless (they are converted into a code, not handed to the buyer).
+        let limits = crate::license::effective_limits_from_pool(&self.pool).await;
+        let purchase_status = crate::license::initial_subscription_status(&limits);
+
         let sub = if as_gift {
             sqlx::query_as::<_, Subscription>(
                 r#"
@@ -579,7 +1020,7 @@ impl StoreService {
             sqlx::query_as::<_, Subscription>(
                 r#"
                 INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, expires_at, status, is_trial, activated_at)
-                VALUES ($1, $2, $3, $4, $5, 'active', $6, NOW())
+                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
                 RETURNING *
                 "#
             )
@@ -588,6 +1029,7 @@ impl StoreService {
             .bind(&vless_uuid)
             .bind(&sub_uuid)
             .bind(expires_at)
+            .bind(purchase_status)
             .bind(plan_is_trial.unwrap_or(false))
             .fetch_one(&mut *tx)
             .await?
@@ -838,6 +1280,10 @@ impl StoreService {
         Ok(code)
     }
 
+    /// NOT THE LIVE GIFT-CODE PATH. Runtime gift/promo redemption runs through
+    /// `PromoService::redeem_code` (which carries the manual_approval gate). This
+    /// method has no callers and already inserts 'pending'; do not treat it as
+    /// live manual_approval coverage.
     pub async fn redeem_gift_code(&self, user_id: i64, code: &str) -> Result<Subscription> {
         let mut tx = self.pool.begin().await?;
 

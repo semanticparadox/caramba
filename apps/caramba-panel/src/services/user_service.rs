@@ -62,7 +62,46 @@ impl UserService {
             return Ok(Some(user.id));
         }
 
+        // Partner per-source code: resolves to its owning partner user, reusing
+        // the same referrer_id attribution path as a plain referral code.
+        if let Some(partner_id) =
+            sqlx::query_scalar::<_, i64>("SELECT partner_user_id FROM partner_codes WHERE code = $1")
+                .bind(code.trim())
+                .fetch_optional(&self.pool)
+                .await?
+        {
+            return Ok(Some(partner_id));
+        }
+
         Ok(None)
+    }
+
+    /// Resolves a partner_codes.id for a raw signup code, or None when the code
+    /// is not a partner code. Used to stamp users.signup_partner_code_id so
+    /// per-code stats (signups/conversions) are derivable. Also bumps the code's
+    /// best-effort `clicks` counter (one deep-link signup hit).
+    pub async fn resolve_partner_code_id(&self, code: &str) -> Result<Option<i64>> {
+        let id: Option<i64> = sqlx::query_scalar(
+            "UPDATE partner_codes SET clicks = clicks + 1 WHERE code = $1 RETURNING id",
+        )
+        .bind(code.trim())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    /// Stamps the partner code a user signed up through, once. Never overwrites
+    /// an existing value (attribution is immutable, like referrer_id).
+    pub async fn set_signup_partner_code(&self, user_id: i64, partner_code_id: i64) -> Result<()> {
+        sqlx::query(
+            "UPDATE users SET signup_partner_code_id = $1 \
+             WHERE id = $2 AND signup_partner_code_id IS NULL",
+        )
+        .bind(partner_code_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn upsert(
@@ -73,6 +112,21 @@ impl UserService {
         referrer_id: Option<i64>,
     ) -> Result<User> {
         let existing = self.user_repo.get_by_tg_id(tg_id).await?;
+
+        // License gate (P4, contract E): block creating a NEW user beyond
+        // max_users. Existing users always pass (never block provisioned users);
+        // max_users == 0 means unlimited (Pro).
+        if existing.is_none() {
+            let limits = crate::license::effective_limits_from_pool(&self.pool).await;
+            if limits.max_users != 0 {
+                let current: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+                    .fetch_one(&self.pool)
+                    .await
+                    .unwrap_or(0);
+                crate::license::check_can_add_user(&limits, current)
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+            }
+        }
 
         let user = self
             .user_repo
@@ -199,6 +253,15 @@ impl UserService {
             .bind(user_id)
             .execute(&self.pool)
             .await?;
+
+        // If the entered code is a partner per-source code, stamp it so per-code
+        // stats (signups/conversions/balance) are derivable. This is a genuine
+        // first-time attribution (guarded above against re-setting a referrer),
+        // so resolve_partner_code_id — which also bumps `clicks` — runs once.
+        // set_signup_partner_code no-ops if somehow already stamped.
+        if let Some(code_id) = self.resolve_partner_code_id(referrer_code.trim()).await? {
+            self.set_signup_partner_code(user_id, code_id).await?;
+        }
 
         Ok(())
     }

@@ -64,6 +64,25 @@ impl ApiClient {
         Ok(resp.json().await?)
     }
 
+    /// Записывает значение настройки на панель: POST /api/v2/bot/settings/{key}.
+    /// Панель ограничивает запись brand_*-ключами по своему allowlist; всё
+    /// прочее вернёт 4xx, которое мы превращаем в Err. Body intentionally ignored.
+    pub async fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        let url = format!("{}/api/v2/bot/settings/{}", self.base_url, key);
+        let resp = self
+            .client
+            .post(&url)
+            .header("X-Bot-Token", &self.token)
+            .json(&serde_json::json!({ "value": value }))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(anyhow::anyhow!("Setting write failed: {}", resp.status()));
+        }
+        Ok(())
+    }
+
     /// DELETE on /api/v2/bot{path}. Used for idempotent removals (cart clear,
     /// session kill, etc.). Returns Ok on any 2xx; body intentionally ignored.
     pub async fn delete(&self, path: &str) -> Result<()> {

@@ -60,7 +60,7 @@ sysinfo = "0.38"
 # 0.38 introduced many changes. I'll stick to 0.33 for sysinfo to minimize breakage for now, or maybe 0.38 if I'm brave.
 # Let's go with 0.33 for sysinfo.
 
-caramba-shared = { path = "../../libs/caramba-shared", features = ["geo"] }
+caramba-shared = { path = "../../libs/caramba-shared", features = ["geo", "license"] }
 serde_yaml = "0.9"
 urlencoding = "2.1"
 url = "2.5"

@@ -4,6 +4,22 @@ use dialoguer::{theme::ColorfulTheme, Input, Password};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// Default license server URL. The platform owner hosts this; operators can
+/// override it per install with --license-server-url or the .env value.
+pub const DEFAULT_LICENSE_SERVER_URL: &str = "https://license.carambaconnect.com";
+
+/// Baked ed25519 public key (base64) used to verify activation signatures.
+/// This is the root of trust for license verification against a third party who
+/// does not hold the signing key. It is NOT a control against the self-hoster,
+/// who owns this value and the whole .env; see the trust model in
+/// apps/caramba-license/README.md.
+///
+/// Replace with the real platform owner public key before shipping. While this
+/// is empty, every fresh install is unverifiable and fails safe to the Free
+/// tier. Operators may override it per install, but that is an advanced option
+/// and weakens the trust model.
+pub const DEFAULT_LICENSE_PUBKEY: &str = "";
+
 #[derive(Debug)]
 pub struct InstallConfig {
     pub domain: String,
@@ -14,6 +30,12 @@ pub struct InstallConfig {
     pub admin_username: String,
     pub admin_password: String,
     pub hub_bot_token: Option<String>,
+    /// License key for this instance. Empty means a Free instance.
+    pub license_key: Option<String>,
+    /// License server URL. Defaults to the platform owner URL when not set.
+    pub license_server_url: String,
+    /// ed25519 public key (base64) used to verify activation signatures.
+    pub license_pubkey: String,
 }
 
 #[derive(Debug, Default)]
@@ -27,6 +49,9 @@ struct ExistingInstallDefaults {
     admin_username: Option<String>,
     admin_password: Option<String>,
     hub_bot_token: Option<String>,
+    license_key: Option<String>,
+    license_server_url: Option<String>,
+    license_pubkey: Option<String>,
 }
 
 fn normalize_admin_path(path: String) -> String {
@@ -133,6 +158,18 @@ fn load_existing_install_defaults(install_dir_hint: Option<&str>) -> ExistingIns
     let db_pass = env
         .get("DATABASE_URL")
         .and_then(|v| parse_db_password_from_url(v));
+    let license_key = env
+        .get("CARAMBA_LICENSE_KEY")
+        .cloned()
+        .filter(|v| !v.trim().is_empty());
+    let license_server_url = env
+        .get("CARAMBA_LICENSE_SERVER_URL")
+        .cloned()
+        .filter(|v| !v.trim().is_empty());
+    let license_pubkey = env
+        .get("CARAMBA_LICENSE_PUBKEY")
+        .cloned()
+        .filter(|v| !v.trim().is_empty());
 
     let sub_env = parse_key_value_file(&Path::new(&install_dir).join("sub.env"));
     let sub_domain = sub_env
@@ -158,6 +195,9 @@ fn load_existing_install_defaults(install_dir_hint: Option<&str>) -> ExistingIns
         admin_username,
         admin_password,
         hub_bot_token,
+        license_key,
+        license_server_url,
+        license_pubkey,
     }
 }
 
@@ -236,6 +276,31 @@ fn get_or_prompt_optional_password(value: Option<String>, prompt: &str) -> Optio
     }
 }
 
+/// Prompt for an optional license key. Blank input means a Free instance.
+fn get_or_prompt_license_key(value: Option<String>) -> Option<String> {
+    if let Some(v) = value {
+        let trimmed = v.trim().to_string();
+        if !trimmed.is_empty() {
+            return Some(trimmed);
+        }
+        return None;
+    }
+
+    let theme = ColorfulTheme::default();
+    let raw = Input::<String>::with_theme(&theme)
+        .with_prompt("License key (leave blank for Free)")
+        .allow_empty(true)
+        .default(String::new())
+        .interact_text()
+        .unwrap_or_default();
+    let trimmed = raw.trim().to_string();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
 pub fn resolve_install_config(
     hub_mode: bool,
     domain: Option<String>,
@@ -246,6 +311,9 @@ pub fn resolve_install_config(
     admin_username: Option<String>,
     admin_password: Option<String>,
     hub_bot_token: Option<String>,
+    license_key: Option<String>,
+    license_server_url: Option<String>,
+    license_pubkey: Option<String>,
 ) -> Result<InstallConfig> {
     let existing = load_existing_install_defaults(install_dir.as_deref());
     if existing.existing_install {
@@ -341,6 +409,29 @@ pub fn resolve_install_config(
         None
     };
 
+    // License key: flag wins, then existing .env value, then prompt. Blank is
+    // allowed and means a Free instance.
+    let license_key = if license_key.is_some() {
+        get_or_prompt_license_key(license_key)
+    } else {
+        get_or_prompt_license_key(existing.license_key.clone())
+    };
+
+    // Server URL and pubkey: flag wins, then existing .env value, then the
+    // baked defaults. Both are overridable but not prompted for in the normal
+    // flow to keep the install simple.
+    let license_server_url = license_server_url
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .or(existing.license_server_url.clone())
+        .unwrap_or_else(|| DEFAULT_LICENSE_SERVER_URL.to_string());
+
+    let license_pubkey = license_pubkey
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .or(existing.license_pubkey.clone())
+        .unwrap_or_else(|| DEFAULT_LICENSE_PUBKEY.to_string());
+
     Ok(InstallConfig {
         domain,
         sub_domain,
@@ -350,6 +441,9 @@ pub fn resolve_install_config(
         admin_username,
         admin_password,
         hub_bot_token,
+        license_key,
+        license_server_url,
+        license_pubkey,
     })
 }
 

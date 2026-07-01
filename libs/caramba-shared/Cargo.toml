@@ -13,7 +13,14 @@ sha2 = { version = "0.10", optional = true }
 uuid = { version = "1.11", features = ["v4"], optional = true }
 anyhow = { version = "1.0", optional = true }
 tokio = { version = "1", features = ["fs"], optional = true }
+ed25519-dalek = { version = "2", features = ["rand_core"], optional = true }
+chrono = { version = "0.4", features = ["serde"], optional = true }
+base64 = { version = "0.22", optional = true }
 
 [features]
 geo = ["dep:reqwest", "dep:tracing", "dep:maxminddb"]
 self-update = ["dep:reqwest", "dep:tracing", "dep:sha2", "dep:uuid", "dep:anyhow", "dep:tokio"]
+license = ["dep:ed25519-dalek", "dep:chrono", "dep:base64"]
+
+[dev-dependencies]
+rand_core = { version = "0.6", features = ["getrandom"] }

@@ -83,6 +83,15 @@ enum Commands {
         /// Skip installing apt dependencies
         #[arg(long)]
         skip_deps: bool,
+        /// License key (leave blank for a Free instance)
+        #[arg(long = "license-key")]
+        license_key: Option<String>,
+        /// License server URL (defaults to the platform owner URL)
+        #[arg(long = "license-server-url")]
+        license_server_url: Option<String>,
+        /// License public key in base64 (advanced, defaults to baked key)
+        #[arg(long = "license-pubkey")]
+        license_pubkey: Option<String>,
     },
     /// Upgrade Caramba components
     Upgrade {
@@ -756,6 +765,7 @@ Admin username: {admin_user}\n\
 Admin password: {admin_pass}\n\
 Install directory: {install_dir}\n\
 BOT_TOKEN: {bot_token}\n\
+License: {license}\n\
 ===============================\n",
         panel = config.domain,
         sub = sub_domain,
@@ -769,6 +779,16 @@ BOT_TOKEN: {bot_token}\n\
             "********"
         } else {
             "<not set>"
+        },
+        license = if config
+            .license_key
+            .as_deref()
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false)
+        {
+            "key set"
+        } else {
+            "Free (no key)"
         },
     );
 
@@ -837,6 +857,9 @@ async fn main() {
             bot_token,
             panel_token,
             skip_deps,
+            license_key,
+            license_server_url,
+            license_pubkey,
         } => {
             let install_dir_env_or_flag = pick_non_empty(install_dir.clone(), "INSTALL_DIR");
             let install_dir_effective = if hub || panel {
@@ -897,6 +920,9 @@ async fn main() {
                     pick_non_empty(admin_user, "ADMIN_USER"),
                     pick_non_empty(admin_pass, "ADMIN_PASS"),
                     pick_non_empty(bot_token.clone(), "BOT_TOKEN"),
+                    pick_non_empty(license_key.clone(), "CARAMBA_LICENSE_KEY"),
+                    pick_non_empty(license_server_url.clone(), "CARAMBA_LICENSE_SERVER_URL"),
+                    pick_non_empty(license_pubkey.clone(), "CARAMBA_LICENSE_PUBKEY"),
                 ) {
                     Ok(c) => c,
                     Err(e) => {
@@ -1007,6 +1033,9 @@ async fn main() {
                     pick_non_empty(admin_user, "ADMIN_USER"),
                     pick_non_empty(admin_pass, "ADMIN_PASS"),
                     None,
+                    pick_non_empty(license_key, "CARAMBA_LICENSE_KEY"),
+                    pick_non_empty(license_server_url, "CARAMBA_LICENSE_SERVER_URL"),
+                    pick_non_empty(license_pubkey, "CARAMBA_LICENSE_PUBKEY"),
                 ) {
                     Ok(c) => c,
                     Err(e) => {

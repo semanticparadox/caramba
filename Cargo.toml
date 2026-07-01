@@ -3,6 +3,7 @@ resolver = "2"
 members = ["apps/caramba-node",
     "apps/caramba-panel", "libs/caramba-db", "libs/caramba-shared",
     "apps/caramba-sub", "apps/caramba-installer", "apps/caramba-bot",
+    "apps/caramba-license",
 ]
 
 [profile.release]

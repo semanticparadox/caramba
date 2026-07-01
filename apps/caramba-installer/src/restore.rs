@@ -158,7 +158,7 @@ pub fn run_restore(backup_path: &str) -> Result<()> {
                 Ok(s) => println!(
                     "  {}",
                     style(format!(
-                        "Warning: pg_dump exited with {} — proceeding without recoverable snapshot",
+                        "Warning: pg_dump exited with {}, proceeding without recoverable snapshot",
                         s
                     ))
                     .red()
@@ -166,7 +166,7 @@ pub fn run_restore(backup_path: &str) -> Result<()> {
                 Err(e) => println!(
                     "  {}",
                     style(format!(
-                        "Warning: could not run pg_dump ({}) — proceeding without recoverable snapshot",
+                        "Warning: could not run pg_dump ({}), proceeding without recoverable snapshot",
                         e
                     ))
                     .red()

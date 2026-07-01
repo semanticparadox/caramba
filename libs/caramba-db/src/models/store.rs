@@ -90,6 +90,28 @@ pub struct FamilyInvite {
     pub created_at: DateTime<Utc>,
 }
 
+/// Код вовлечения (enrollment) для standalone-приложения Caramba Connect.
+///
+/// Повторяет форму `FamilyInvite` (code + max_uses + used_count + expires_at),
+/// чтобы переиспользовать проверенный паттерн безопасного списания
+/// (SELECT ... FOR UPDATE + условный UPDATE used_count). В отличие от
+/// `FamilyInvite` НЕ привязан к родителю семьи: `inviter_user_id` опционален —
+/// код может быть панельным/орг-уровня без конкретного пригласившего, а если
+/// задан, то подаётся в signup-source атрибуцию (users.referrer_id).
+///
+/// `expires_at` НУЛЛАБЕЛЬНЫЙ: NULL = бессрочный код. Предикат валидности обязан
+/// учитывать это: `(expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct EnrollmentCode {
+    pub id: i64,
+    pub code: String,
+    pub inviter_user_id: Option<i64>,
+    pub max_uses: i32,
+    pub used_count: i32,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct GiftCode {
     pub id: i64,

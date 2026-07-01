@@ -1,0 +1,89 @@
+// Gradle build for the caramba_vpn Android plugin module.
+//
+// This module hosts the Kotlin VPN plugin (CarambaVpnPlugin) and the Android
+// VpnService (CarambaVpnService). It bridges the com.caramba/vpn channels to the
+// Go core through the gomobile-generated AAR (caramba.aar), which exports the
+// `mobile` package as the Java/Kotlin class `Mobile` (static factory
+// Mobile.newClient(...)) and a `Client` type with camelCased methods (up, down,
+// statusJSON, trafficJSON, setTunFd, configure).
+//
+// CODE IDENTIFIERS stay 'caramba' (the user-facing brand is 'exarobot').
+//
+// The gomobile AAR is vendored under android/libs/ and picked up by the flatDir
+// repository below. Build it on the user's machine with:
+//
+//   cd libs/caramba-core
+//   gomobile bind -target=android -androidapi 21 -tags mihomo \
+//     -o apps/caramba-client/packages/caramba_vpn/android/libs/caramba.aar \
+//     ./mobile
+//
+// (The `mihomo` build tag is REQUIRED so the real engine_mihomo.go is compiled
+// in; without it the bundled stub does not move packets.)
+
+group 'com.caramba.caramba_vpn'
+version '1.0'
+
+buildscript {
+    ext.kotlin_version = '1.9.22'
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.1.0'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        // Vendored gomobile AAR (caramba.aar). Copied/built into android/libs/.
+        flatDir {
+            dirs "${project.projectDir}/libs"
+        }
+    }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+android {
+    namespace 'com.caramba.caramba_vpn'
+    compileSdk 34
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+
+    defaultConfig {
+        // gomobile -androidapi 21 → minSdk 21. VpnService needs 21+; the
+        // FOREGROUND_SERVICE_SPECIAL_USE type used below needs 34 at runtime but
+        // degrades gracefully on older devices (handled in CarambaVpnService).
+        minSdk 21
+    }
+
+    // Allow the module to build even if libs/caramba.aar is not yet present in a
+    // CI lint pass; the real build requires it (gomobile bind output).
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    // androidx.annotation for @NonNull on the plugin callbacks.
+    implementation 'androidx.annotation:annotation:1.7.1'
+    // gomobile AAR. `name` matches libs/caramba.aar (without extension).
+    implementation(name: 'caramba', ext: 'aar')
+    // The Flutter Android Gradle plugin injects the io.flutter:flutter_embedding_*
+    // dependency for plugin modules automatically, so FlutterPlugin / MethodChannel /
+    // EventChannel resolve without being declared here (standard plugin template).
+    // org.json (JSONObject) is part of the Android platform — no dependency needed.
+}

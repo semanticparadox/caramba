@@ -39,6 +39,39 @@ pub fn amneziawg_enabled() -> bool {
     )
 }
 
+/// Feature flag: AmneziaWG in the mihomo/clash subscription (the Go client core).
+///
+/// This is SEPARATE from `amneziawg_enabled()` on purpose. `amneziawg_enabled()`
+/// gates the sing-box NODE path: stock sing-box has no `wireguard` inbound, so
+/// emitting an AmneziaWG inbound breaks `sing-box check` and the whole node. The
+/// mihomo CLIENT, by contrast, speaks AmneziaWG natively and can consume a
+/// `wireguard` proxy with the `amnezia-wg-option` block — provided a real
+/// AmneziaWG-capable WireGuard server is actually listening on the node (plain
+/// sing-box cannot serve it; see docs/AMNEZIAWG.md).
+///
+/// Decoupling lets an operator hand a working AmneziaWG proxy to the mihomo
+/// client WITHOUT also un-gating the node-breaking sing-box inbound. The clash
+/// emission turns on when EITHER flag is set:
+///   - `CARAMBA_ENABLE_AMNEZIAWG=1`        — legacy combined switch (node + client),
+///   - `CARAMBA_ENABLE_AMNEZIAWG_CLIENT=1` — client/mihomo emission only.
+///
+/// Safety: this flag only adds a proxy to the clash subscription. It never causes
+/// an AmneziaWG inbound to be written to a sing-box node config, so a node that
+/// cannot serve AmneziaWG is never put into a failing state by it. The proxy is
+/// inert unless a matching AmneziaWG server is running on the node.
+pub fn amneziawg_client_enabled() -> bool {
+    if amneziawg_enabled() {
+        return true;
+    }
+    matches!(
+        std::env::var("CARAMBA_ENABLE_AMNEZIAWG_CLIENT")
+            .ok()
+            .map(|v| v.trim().to_ascii_lowercase())
+            .as_deref(),
+        Some("1") | Some("true") | Some("yes") | Some("on")
+    )
+}
+
 // Askama filters are functions.
 // I can define `format_bytes_i64` or just expect i64 since DB uses i64.
 
