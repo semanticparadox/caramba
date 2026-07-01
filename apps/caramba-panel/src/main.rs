@@ -157,6 +157,49 @@ async fn auth_middleware(
         return next.run(req).await;
     }
 
+    // CSRF defense-in-depth. The admin_session cookie is SameSite=Lax, which is
+    // a client-side-only control with known gaps (e.g. the Lax+POST 2-minute
+    // window, non-compliant clients). For any state-changing method, ALSO
+    // require the request to be either an HTMX request (every admin mutation is
+    // issued by HTMX, which always sends `HX-Request: true`) or same-origin
+    // (Origin/Referer host == Host). Safe methods and the login/setup bootstrap
+    // (allowlisted above) are exempt; webhooks live on the public /api router,
+    // which is not behind this middleware.
+    let method = req.method().clone();
+    if !matches!(method.as_str(), "GET" | "HEAD" | "OPTIONS") {
+        let headers = req.headers();
+        let host = headers
+            .get(axum::http::header::HOST)
+            .and_then(|h| h.to_str().ok());
+        let same_origin = |raw: Option<&str>| -> bool {
+            match (raw, host) {
+                (Some(v), Some(h)) => {
+                    let stripped = v
+                        .strip_prefix("https://")
+                        .or_else(|| v.strip_prefix("http://"))
+                        .unwrap_or(v);
+                    stripped.split('/').next() == Some(h)
+                }
+                _ => false,
+            }
+        };
+        let has_hx = headers.contains_key("hx-request");
+        let origin_ok = same_origin(
+            headers
+                .get(axum::http::header::ORIGIN)
+                .and_then(|h| h.to_str().ok()),
+        );
+        let referer_ok = same_origin(
+            headers
+                .get(axum::http::header::REFERER)
+                .and_then(|h| h.to_str().ok()),
+        );
+        if !has_hx && !origin_ok && !referer_ok {
+            tracing::warn!("CSRF check rejected {} {}", method, path);
+            return (axum::http::StatusCode::FORBIDDEN, "CSRF check failed").into_response();
+        }
+    }
+
     if let Some(cookie) = jar.get("admin_session") {
         let token = cookie.value();
         let redis_key = format!("session:{}", token);

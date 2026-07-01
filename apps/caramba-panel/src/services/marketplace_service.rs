@@ -656,22 +656,28 @@ impl MarketplaceService {
             .await?
             .context("Session not found")?;
 
-        // 2. Prevent double fulfillment
-        if session.status == "completed" {
-            tracing::warn!("Session {} is already completed, ignoring.", session_id);
-            return Ok(());
-        }
-
+        // 2. Validate the resource BEFORE claiming (read-only; a bad session
+        //    must not consume the atomic claim).
         self.validate_session_resource(session.product_id, session.metadata.as_ref())
             .await?;
 
+        // 3. Atomically claim the `pending` -> `completed` transition. A
+        //    duplicate provider webhook, a webhook retry, or a race with the
+        //    lost-webhook poller loses the claim (0 rows) and bails BEFORE any
+        //    side effect — so a subscription can never be extended twice.
+        if !self.session_repo.claim_for_fulfillment(session_id).await? {
+            tracing::warn!(
+                "Session {} already claimed/completed, ignoring duplicate fulfillment.",
+                session_id
+            );
+            return Ok(());
+        }
+
+        // 4. Fulfill. Status is already `completed` from the claim above; on
+        //    failure we mark it `failed` (matches prior behavior).
         let fulfillment_result = self.fulfill_session_resource(&session).await;
         match fulfillment_result {
             Ok(()) => {
-                self.session_repo
-                    .update_status(session_id, "completed")
-                    .await?;
-
                 // Referral money model — REFERRER side: credit the inviter's
                 // internal balance with reward_percent of this payment when the
                 // referee's FIRST paid purchase is fulfilled. Idempotent: the

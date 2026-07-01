@@ -66,6 +66,9 @@ jobs:
           cp target/x86_64-unknown-linux-musl/release/caramba-sub release/
           cp target/x86_64-unknown-linux-musl/release/caramba-installer release/
           tar -czf release/caramba-app-dist.tar.gz apps/caramba-app/dist
+          # Integrity manifest — install.sh verifies the downloaded installer
+          # against this before executing it as root (supply-chain hardening).
+          (cd release && sha256sum caramba-panel caramba-node caramba-bot caramba-sub caramba-installer caramba-app-dist.tar.gz > SHA256SUMS)
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -81,5 +84,6 @@ jobs:
             release/caramba-sub
             release/caramba-installer
             release/caramba-app-dist.tar.gz
+            release/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

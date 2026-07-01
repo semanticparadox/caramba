@@ -481,11 +481,42 @@ impl ReferralService {
     }
 
     fn mask_username(username: &str) -> String {
-        if username.len() <= 3 {
+        // Count/slice by CHARS, not bytes: byte-indexing a multibyte UTF-8
+        // username (Cyrillic/emoji — common on a Telegram VPN panel) panics on
+        // a non-char-boundary slice and took down the referral leaderboard.
+        let char_count = username.chars().count();
+        if char_count <= 3 {
             return "***".to_string();
         }
-        let len = username.len();
-        let visible = if len > 6 { 3 } else { 1 };
-        format!("{}***", &username[0..visible])
+        let visible = if char_count > 6 { 3 } else { 1 };
+        let prefix: String = username.chars().take(visible).collect();
+        format!("{prefix}***")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ReferralService;
+
+    #[test]
+    fn masks_short_names_fully() {
+        assert_eq!(ReferralService::mask_username("ab"), "***");
+        assert_eq!(ReferralService::mask_username("abc"), "***");
+    }
+
+    #[test]
+    fn masks_ascii_names_by_length() {
+        assert_eq!(ReferralService::mask_username("abcd"), "a***");
+        assert_eq!(ReferralService::mask_username("abcdefgh"), "abc***");
+    }
+
+    #[test]
+    fn masks_multibyte_usernames_without_panicking() {
+        // Regression: byte-index slicing panicked on non-ASCII usernames
+        // (Cyrillic/emoji) — extremely common for a Telegram VPN panel with
+        // RU users — taking down the referral leaderboard request.
+        assert_eq!(ReferralService::mask_username("абвг"), "а***");
+        assert_eq!(ReferralService::mask_username("абвгдеёж"), "абв***");
+        assert_eq!(ReferralService::mask_username("😀😀😀😀😀😀😀"), "😀😀😀***");
     }
 }

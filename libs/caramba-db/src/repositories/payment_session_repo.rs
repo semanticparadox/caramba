@@ -68,6 +68,22 @@ impl PaymentSessionRepository {
         Ok(())
     }
 
+    /// Atomically claim a `pending` session for fulfillment. Exactly one caller
+    /// wins the `pending` -> `completed` transition; concurrent callers (a
+    /// duplicate provider webhook, a webhook retry, or a race with the
+    /// lost-webhook poller) get `rows_affected == 0` and must bail WITHOUT any
+    /// side effect. Returns `true` only for the caller that won the claim.
+    pub async fn claim_for_fulfillment(&self, id: Uuid) -> Result<bool> {
+        let res = sqlx::query(
+            "UPDATE payment_sessions SET status = 'completed', updated_at = CURRENT_TIMESTAMP \
+             WHERE id = $1 AND status = 'pending'",
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected() == 1)
+    }
+
     pub async fn update_external_id(&self, id: Uuid, external_id: &str) -> Result<()> {
         sqlx::query("UPDATE payment_sessions SET external_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2")
             .bind(external_id)

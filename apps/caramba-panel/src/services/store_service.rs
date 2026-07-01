@@ -1508,7 +1508,10 @@ impl StoreService {
         duration_id: i64,
     ) -> Result<Subscription> {
         let mut tx = self.pool.begin().await?;
-        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        // FOR UPDATE locks the user row for the life of the tx so two concurrent
+        // extends can't both read the same balance and double-spend it negative
+        // (mirrors purchase_plan / checkout_cart in this file).
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1 FOR UPDATE")
             .bind(user_id)
             .fetch_one(&mut *tx)
             .await?;
@@ -1522,11 +1525,18 @@ impl StoreService {
             return Err(anyhow::anyhow!("Insufficient balance"));
         }
 
-        sqlx::query("UPDATE users SET balance = balance - $1 WHERE id = $2")
-            .bind(duration.price)
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
+        // Defense-in-depth: conditional debit so the balance can never go
+        // negative even if the guard above ever races a concurrent writer.
+        let debited = sqlx::query(
+            "UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1",
+        )
+        .bind(duration.price)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        if debited.rows_affected() != 1 {
+            return Err(anyhow::anyhow!("Insufficient balance"));
+        }
 
         let sub = self
             .extend_subscription_with_duration_internal(user_id, &duration, &mut tx)

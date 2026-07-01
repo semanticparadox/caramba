@@ -179,6 +179,34 @@ DOWNLOAD_URL="https://github.com/$REPO/releases/download/$VERSION/$INSTALLER_ASS
 echo "⬇️ Downloading installer from $DOWNLOAD_URL..."
 TMP_BIN=$(mktemp)
 curl -fL "$DOWNLOAD_URL" -o "$TMP_BIN"
+
+# Supply-chain hardening: verify the downloaded installer against the release's
+# SHA256SUMS manifest BEFORE making it executable and running it as root. Newer
+# releases publish SHA256SUMS; if a legacy release lacks it, warn and continue
+# so old-tag installs keep working (fail-closed on mismatch, not on absence).
+SUMS_URL="https://github.com/$REPO/releases/download/$VERSION/SHA256SUMS"
+TMP_SUMS=$(mktemp)
+if curl -fLs "$SUMS_URL" -o "$TMP_SUMS"; then
+  EXPECTED=$(grep -E "[[:space:]]$INSTALLER_ASSET\$" "$TMP_SUMS" | awk '{print $1}' | head -n1)
+  if [[ -z "$EXPECTED" ]]; then
+    echo "❌ SHA256SUMS present but has no entry for $INSTALLER_ASSET — refusing to run."
+    rm -f "$TMP_BIN" "$TMP_SUMS"; exit 1
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL=$(sha256sum "$TMP_BIN" | awk '{print $1}')
+  else
+    ACTUAL=$(shasum -a 256 "$TMP_BIN" | awk '{print $1}')
+  fi
+  if [[ "$EXPECTED" != "$ACTUAL" ]]; then
+    echo "❌ Checksum mismatch for $INSTALLER_ASSET (expected $EXPECTED, got $ACTUAL). Aborting."
+    rm -f "$TMP_BIN" "$TMP_SUMS"; exit 1
+  fi
+  echo "✅ Installer checksum verified."
+else
+  echo "⚠️  No SHA256SUMS for $VERSION (legacy release) — skipping checksum verification."
+fi
+rm -f "$TMP_SUMS"
+
 chmod +x "$TMP_BIN"
 
 echo "📦 Installing caramba to $INSTALL_BIN_DIR/caramba..."
