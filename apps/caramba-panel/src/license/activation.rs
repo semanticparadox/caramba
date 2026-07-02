@@ -45,15 +45,15 @@ fn decode_pubkey(raw: &str) -> Option<Vec<u8>> {
     if raw.is_empty() {
         return None;
     }
-    if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(raw) {
-        if bytes.len() == 32 {
-            return Some(bytes);
-        }
+    if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(raw)
+        && bytes.len() == 32
+    {
+        return Some(bytes);
     }
-    if let Ok(bytes) = hex::decode(raw) {
-        if bytes.len() == 32 {
-            return Some(bytes);
-        }
+    if let Ok(bytes) = hex::decode(raw)
+        && bytes.len() == 32
+    {
+        return Some(bytes);
     }
     None
 }
@@ -192,7 +192,7 @@ pub async fn activate_and_cache(state: &AppState) {
 
     // Пишем в БД (idempotent upsert single row).
     let repo = LicenseRepository::new(state.pool.clone());
-    let limits_json = serde_json::to_value(&resp.limits).unwrap_or(serde_json::Value::Null);
+    let limits_json = serde_json::to_value(resp.limits).unwrap_or(serde_json::Value::Null);
     let raw_payload = serde_json::to_value(&resp).unwrap_or(serde_json::Value::Null);
     let tier_str = match resp.tier {
         SharedTier::Free => "free",

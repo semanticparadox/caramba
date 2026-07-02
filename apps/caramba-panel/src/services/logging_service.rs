@@ -77,11 +77,11 @@ impl LoggingService {
         );
 
         let mut bind_index = 1;
-        if let Some(cat) = &category_filter {
-            if !cat.is_empty() {
-                query.push_str(&format!(" WHERE l.action = ${}", bind_index));
-                bind_index += 1;
-            }
+        if let Some(cat) = &category_filter
+            && !cat.is_empty()
+        {
+            query.push_str(&format!(" WHERE l.action = ${}", bind_index));
+            bind_index += 1;
         }
 
         query.push_str(&format!(
@@ -92,10 +92,10 @@ impl LoggingService {
 
         let mut q = sqlx::query_as::<_, RawLogEntry>(&query);
 
-        if let Some(cat) = &category_filter {
-            if !cat.is_empty() {
-                q = q.bind(cat);
-            }
+        if let Some(cat) = &category_filter
+            && !cat.is_empty()
+        {
+            q = q.bind(cat);
         }
 
         q = q.bind(limit).bind(offset);
@@ -126,10 +126,10 @@ impl LoggingService {
 }
 
 fn parse_log_timestamp(raw: &str) -> DateTime<Utc> {
-    if let Ok(ts) = raw.parse::<i64>() {
-        if let Some(dt) = DateTime::<Utc>::from_timestamp(ts, 0) {
-            return dt;
-        }
+    if let Ok(ts) = raw.parse::<i64>()
+        && let Some(dt) = DateTime::<Utc>::from_timestamp(ts, 0)
+    {
+        return dt;
     }
 
     if let Ok(dt) = DateTime::parse_from_rfc3339(raw) {

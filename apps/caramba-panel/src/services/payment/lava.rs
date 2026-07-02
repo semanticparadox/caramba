@@ -79,10 +79,7 @@ impl PaymentProvider for LavaProvider {
         if let Some(data) = lava_res.data {
             Ok(data.url)
         } else {
-            anyhow::bail!(
-                "Lava API missing invoice URL: {:?}",
-                lava_res.error
-            )
+            anyhow::bail!("Lava API missing invoice URL: {:?}", lava_res.error)
         }
     }
 

@@ -130,13 +130,7 @@ pub async fn restore_backup(
     // Defence-in-depth: require authenticated admin session
     let is_authed = if let Some(cookie) = jar.get("admin_session") {
         let redis_key = format!("session:{}", cookie.value());
-        state
-            .redis
-            .get(&redis_key)
-            .await
-            .ok()
-            .flatten()
-            .is_some()
+        state.redis.get(&redis_key).await.ok().flatten().is_some()
     } else {
         false
     };
@@ -148,46 +142,46 @@ pub async fn restore_backup(
     // Then exit process.
 
     while let Ok(Some(field)) = multipart.next_field().await {
-        if field.name() == Some("backup_file") {
-            if let Ok(bytes) = field.bytes().await {
-                if bytes.len() > 10 * 1024 * 1024 {
-                    // 10MB limit
-                    return (StatusCode::BAD_REQUEST, "File too large").into_response();
-                }
-
-                // Determine DB path
-                // We assume current working dir has caramba.db (standard install)
-                let db_path = "caramba.db";
-
-                // Backup current just in case (though install.sh does it too)
-                let _ = std::fs::copy(db_path, format!("{}.pre_restore.bak", db_path));
-
-                // Overwrite
-                if let Err(e) = std::fs::write(db_path, bytes) {
-                    error!("Failed to write restored DB: {}", e);
-                    return (StatusCode::INTERNAL_SERVER_ERROR, "Write failed").into_response();
-                }
-
-                info!("Database restored. Restarting server...");
-
-                // Trigger client-side reload after delay
-                // Return script to reload page? No, better return header.
-                // But the server will die soon.
-
-                // Spawn a thread to kill process after 1s allow response to send
-                std::thread::spawn(|| {
-                    std::thread::sleep(std::time::Duration::from_millis(1000));
-                    std::process::exit(0);
-                });
-
-                let admin_path = state.admin_path.clone();
-                let mut headers = axum::http::HeaderMap::new();
-                if let Ok(val) = format!("{}/login", admin_path).parse() {
-                    headers.insert("HX-Redirect", val);
-                }
-
-                return (StatusCode::OK, headers, "Restored. Restarting...").into_response();
+        if field.name() == Some("backup_file")
+            && let Ok(bytes) = field.bytes().await
+        {
+            if bytes.len() > 10 * 1024 * 1024 {
+                // 10MB limit
+                return (StatusCode::BAD_REQUEST, "File too large").into_response();
             }
+
+            // Determine DB path
+            // We assume current working dir has caramba.db (standard install)
+            let db_path = "caramba.db";
+
+            // Backup current just in case (though install.sh does it too)
+            let _ = std::fs::copy(db_path, format!("{}.pre_restore.bak", db_path));
+
+            // Overwrite
+            if let Err(e) = std::fs::write(db_path, bytes) {
+                error!("Failed to write restored DB: {}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, "Write failed").into_response();
+            }
+
+            info!("Database restored. Restarting server...");
+
+            // Trigger client-side reload after delay
+            // Return script to reload page? No, better return header.
+            // But the server will die soon.
+
+            // Spawn a thread to kill process after 1s allow response to send
+            std::thread::spawn(|| {
+                std::thread::sleep(std::time::Duration::from_millis(1000));
+                std::process::exit(0);
+            });
+
+            let admin_path = state.admin_path.clone();
+            let mut headers = axum::http::HeaderMap::new();
+            if let Ok(val) = format!("{}/login", admin_path).parse() {
+                headers.insert("HX-Redirect", val);
+            }
+
+            return (StatusCode::OK, headers, "Restored. Restarting...").into_response();
         }
     }
 

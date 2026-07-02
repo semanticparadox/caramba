@@ -8,14 +8,14 @@
 use anyhow::{Context, Result, bail};
 use base64::Engine as _;
 use ed25519_dalek::SigningKey;
-use ed25519_dalek::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use ed25519_dalek::pkcs8::spki::EncodePublicKey;
+use ed25519_dalek::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use pkcs8::LineEnding;
 
 /// Load an ed25519 signing key from a PKCS#8 PEM file on disk.
 pub fn load_signing_key_pem(path: &str) -> Result<SigningKey> {
-    let pem = std::fs::read_to_string(path)
-        .with_context(|| format!("reading signing key {path}"))?;
+    let pem =
+        std::fs::read_to_string(path).with_context(|| format!("reading signing key {path}"))?;
     let key = SigningKey::from_pkcs8_pem(&pem)
         .map_err(|e| anyhow::anyhow!("parsing PKCS#8 PEM signing key {path}: {e}"))?;
     Ok(key)

@@ -110,7 +110,8 @@ impl crate::services::payment::PaymentAdapter for CryptomusAdapter {
         let body_str = serde_json::to_string(&body_json)?;
         let sign = self.generate_signature(&body_str);
 
-        let resp = self.http_client
+        let resp = self
+            .http_client
             .post("https://api.cryptomus.com/v1/payment")
             .header("merchant", &self.merchant_id)
             .header("sign", sign)
@@ -121,10 +122,10 @@ impl crate::services::payment::PaymentAdapter for CryptomusAdapter {
 
         let resp_json: serde_json::Value = resp.json().await?;
 
-        if let Some(result) = resp_json.get("result") {
-            if let Some(url) = result.get("url").and_then(|u| u.as_str()) {
-                return Ok(url.to_string());
-            }
+        if let Some(result) = resp_json.get("result")
+            && let Some(url) = result.get("url").and_then(|u| u.as_str())
+        {
+            return Ok(url.to_string());
         }
 
         Err(anyhow::anyhow!("Cryptomus Error: {:?}", resp_json))
@@ -282,10 +283,7 @@ impl PaymentProvider for CryptomusProvider {
             amount: format!("{:.2}", (session.amount as f64) / 100.0),
             currency: session.currency.to_uppercase(),
             order_id: session.id.to_string(),
-            url_callback: format!(
-                "https://{}/api/webhooks/payment/cryptomus",
-                self.api_domain
-            ),
+            url_callback: format!("https://{}/api/webhooks/payment/cryptomus", self.api_domain),
             url_return: format!("https://t.me/{}", self.bot_username),
             additional_data: String::new(),
         };
@@ -344,10 +342,7 @@ impl PaymentProvider for CryptomusProvider {
         // Constant-time comparison to avoid leaking the signature via timing.
         // ct_eq on unequal-length slices returns false without leaking content; only
         // the (non-secret, fixed 32-char) length could differ, so this is safe.
-        let matches: bool = received_sign
-            .as_bytes()
-            .ct_eq(expected.as_bytes())
-            .into();
+        let matches: bool = received_sign.as_bytes().ct_eq(expected.as_bytes()).into();
         Ok(matches)
     }
 
@@ -379,9 +374,7 @@ impl PaymentProvider for CryptomusProvider {
                 // If either field is missing/unparseable we degrade to the legacy
                 // `Completed` (no amount check) rather than risk wrongly rejecting a
                 // genuine payment — keeping behavior at least as permissive as before.
-                let invoice_amount = data
-                    .get("amount")
-                    .and_then(parse_decimal_to_minor);
+                let invoice_amount = data.get("amount").and_then(parse_decimal_to_minor);
                 let invoice_currency = data
                     .get("currency")
                     .and_then(|v| v.as_str())

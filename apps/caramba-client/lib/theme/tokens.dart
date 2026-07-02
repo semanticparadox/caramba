@@ -28,22 +28,22 @@ class AppTokens extends ThemeExtension<AppTokens> {
   });
 
   factory AppTokens.dark() => const AppTokens(
-        colors: AppColors.dark,
-        elevCard: AppShadows.card,
-        elevRaised: AppShadows.raised,
-        elevSheet: AppShadows.sheet,
-        glowAccent: AppShadows.glowAccent,
-        glowConnected: AppShadows.glowConnected,
-      );
+    colors: AppColors.dark,
+    elevCard: AppShadows.card,
+    elevRaised: AppShadows.raised,
+    elevSheet: AppShadows.sheet,
+    glowAccent: AppShadows.glowAccent,
+    glowConnected: AppShadows.glowConnected,
+  );
 
   factory AppTokens.light() => const AppTokens(
-        colors: AppColors.light,
-        elevCard: AppShadows.cardLight,
-        elevRaised: AppShadows.raisedLight,
-        elevSheet: AppShadows.sheetLight,
-        glowAccent: AppShadows.glowAccentLight,
-        glowConnected: AppShadows.glowConnectedLight,
-      );
+    colors: AppColors.light,
+    elevCard: AppShadows.cardLight,
+    elevRaised: AppShadows.raisedLight,
+    elevSheet: AppShadows.sheetLight,
+    glowAccent: AppShadows.glowAccentLight,
+    glowConnected: AppShadows.glowConnectedLight,
+  );
 
   @override
   AppTokens copyWith({
@@ -53,15 +53,14 @@ class AppTokens extends ThemeExtension<AppTokens> {
     List<BoxShadow>? elevSheet,
     List<BoxShadow>? glowAccent,
     List<BoxShadow>? glowConnected,
-  }) =>
-      AppTokens(
-        colors: colors ?? this.colors,
-        elevCard: elevCard ?? this.elevCard,
-        elevRaised: elevRaised ?? this.elevRaised,
-        elevSheet: elevSheet ?? this.elevSheet,
-        glowAccent: glowAccent ?? this.glowAccent,
-        glowConnected: glowConnected ?? this.glowConnected,
-      );
+  }) => AppTokens(
+    colors: colors ?? this.colors,
+    elevCard: elevCard ?? this.elevCard,
+    elevRaised: elevRaised ?? this.elevRaised,
+    elevSheet: elevSheet ?? this.elevSheet,
+    glowAccent: glowAccent ?? this.glowAccent,
+    glowConnected: glowConnected ?? this.glowConnected,
+  );
 
   @override
   AppTokens lerp(ThemeExtension<AppTokens>? other, double t) {

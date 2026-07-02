@@ -439,15 +439,15 @@ pub async fn save_plan_bindings(
     // Manual parsing of "inbound_ids=1&inbound_ids=2..."
     for pair in body_str.split('&') {
         let mut parts = pair.split('=');
-        if let Some(key) = parts.next() {
-            if let Some(value) = parts.next() {
-                // Decode URL-encoded key/value if needed, but for simple numeric IDs it's fine.
-                // Key should match "inbound_ids"
-                if key == "inbound_ids" {
-                    if let Ok(id) = value.parse::<i64>() {
-                        inbound_ids.push(id);
-                    }
-                }
+        if let Some(key) = parts.next()
+            && let Some(value) = parts.next()
+        {
+            // Decode URL-encoded key/value if needed, but for simple numeric IDs it's fine.
+            // Key should match "inbound_ids"
+            if key == "inbound_ids"
+                && let Ok(id) = value.parse::<i64>()
+            {
+                inbound_ids.push(id);
             }
         }
     }
@@ -553,36 +553,46 @@ pub async fn preview_node_config(
                 .unwrap_or_default();
 
         if !linked_plans.is_empty() {
-            let active_subs: Vec<caramba_db::models::store::Subscription> =
-                sqlx::query_as::<_, caramba_db::models::store::Subscription>(
-                    "SELECT * FROM subscriptions WHERE status = 'active' AND plan_id = ANY($1) LIMIT 5"
-                )
-                    .bind(&linked_plans)
-                    .fetch_all(&state.pool)
-                    .await
-                    .unwrap_or_default();
+            let active_subs: Vec<caramba_db::models::store::Subscription> = sqlx::query_as::<
+                _,
+                caramba_db::models::store::Subscription,
+            >(
+                "SELECT * FROM subscriptions WHERE status = 'active' AND plan_id = ANY($1) LIMIT 5",
+            )
+            .bind(&linked_plans)
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default();
 
             use caramba_db::models::network::{InboundType, VlessClient};
             if let Ok(mut settings) = serde_json::from_str::<InboundType>(&inbound.settings) {
-                match &mut settings {
-                    InboundType::Vless(vless) => {
-                        // Determine if this inbound uses Reality (flow only for Reality+TCP)
-                        let stream_json: serde_json::Value = serde_json::from_str(&inbound.stream_settings).unwrap_or_default();
-                        let security = stream_json.get("security").and_then(|v| v.as_str()).unwrap_or("");
-                        let network = stream_json.get("network").and_then(|v| v.as_str()).unwrap_or("tcp");
-                        let use_flow = security == "reality" && network == "tcp";
+                if let InboundType::Vless(vless) = &mut settings {
+                    // Determine if this inbound uses Reality (flow only for Reality+TCP)
+                    let stream_json: serde_json::Value =
+                        serde_json::from_str(&inbound.stream_settings).unwrap_or_default();
+                    let security = stream_json
+                        .get("security")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let network = stream_json
+                        .get("network")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("tcp");
+                    let use_flow = security == "reality" && network == "tcp";
 
-                        for sub in &active_subs {
-                            if let Some(uuid) = &sub.vless_uuid {
-                                vless.clients.push(VlessClient {
-                                    id: uuid.clone(),
-                                    email: format!("user_{}", sub.user_id),
-                                    flow: if use_flow { "xtls-rprx-vision".to_string() } else { "".to_string() },
-                                });
-                            }
+                    for sub in &active_subs {
+                        if let Some(uuid) = &sub.vless_uuid {
+                            vless.clients.push(VlessClient {
+                                id: uuid.clone(),
+                                email: format!("user_{}", sub.user_id),
+                                flow: if use_flow {
+                                    "xtls-rprx-vision".to_string()
+                                } else {
+                                    "".to_string()
+                                },
+                            });
                         }
                     }
-                    _ => {}
                 }
                 inbound.settings =
                     serde_json::to_string(&settings).unwrap_or(inbound.settings.clone());

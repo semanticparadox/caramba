@@ -32,16 +32,13 @@ class AuthState {
   /// Текст последней ошибки логина/регистрации (для inline-показа в форме).
   final String? error;
 
-  const AuthState({
-    this.stage = AuthStage.unknown,
-    this.user,
-    this.error,
-  });
+  const AuthState({this.stage = AuthStage.unknown, this.user, this.error});
 
   bool get isAuthenticated => stage == AuthStage.authenticated;
   bool get isBusy => stage == AuthStage.authenticating;
 
-  AuthState copyWith({AuthStage? stage, User? user, String? error}) => AuthState(
+  AuthState copyWith({AuthStage? stage, User? user, String? error}) =>
+      AuthState(
         stage: stage ?? this.stage,
         user: user ?? this.user,
         error: error,
@@ -89,24 +86,23 @@ class AuthNotifier extends StateNotifier<AuthState> {
     required String password,
     String? fullName,
     String? enrollCode,
-  }) =>
-      _runAuth(() => _api.register(
-            email: email,
-            password: password,
-            fullName: fullName,
-            enrollCode: enrollCode,
-          ));
+  }) => _runAuth(
+    () => _api.register(
+      email: email,
+      password: password,
+      fullName: fullName,
+      enrollCode: enrollCode,
+    ),
+  );
 
-  Future<void> loginEmail({
-    required String email,
-    required String password,
-  }) =>
+  Future<void> loginEmail({required String email, required String password}) =>
       _runAuth(() => _api.loginEmail(email: email, password: password));
 
   /// Логин по коду из Telegram-бота (6 цифр). Панель сверяет код в Redis
   /// (`app:logincode:{code}`), привязанный к Telegram-аккаунту, и выдаёт
   /// JWT-пару. На неверный/истёкший код — 401 с inline-ошибкой в форме.
-  Future<void> loginCode({required String code, String? enrollCode}) => _runAuth(
+  Future<void> loginCode({required String code, String? enrollCode}) =>
+      _runAuth(
         () => _api.loginCode(code: code, enrollCode: enrollCode),
         unauthorizedMessage: 'Код неверный или истёк. Запросите новый в боте.',
       );
@@ -120,16 +116,17 @@ class AuthNotifier extends StateNotifier<AuthState> {
     String? username,
     int? authDate,
     String? hash,
-  }) =>
-      _runAuth(() => _api.loginTelegram(
-            initData: initData,
-            id: id,
-            firstName: firstName,
-            lastName: lastName,
-            username: username,
-            authDate: authDate,
-            hash: hash,
-          ));
+  }) => _runAuth(
+    () => _api.loginTelegram(
+      initData: initData,
+      id: id,
+      firstName: firstName,
+      lastName: lastName,
+      username: username,
+      authDate: authDate,
+      hash: hash,
+    ),
+  );
 
   /// Общий путь логина/регистрации: сохраняем токены, грузим профиль и
   /// подписку. [unauthorizedMessage] подменяет сырой текст панели на 401

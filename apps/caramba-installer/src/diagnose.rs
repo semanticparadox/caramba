@@ -73,7 +73,7 @@ pub fn run_diagnostics() -> Result<()> {
     if Path::new(config_path).exists() {
         println!("Checking config syntax...");
         let status = Command::new("sing-box")
-            .args(&["check", "-c", config_path])
+            .args(["check", "-c", config_path])
             .status();
         match status {
             Ok(s) if s.success() => println!("{}", style("Config Valid").green()),
@@ -130,7 +130,7 @@ fn check_command_silent(cmd: &str) -> bool {
 
 fn check_service(service: &str) {
     let output = Command::new("systemctl")
-        .args(&["is-active", service])
+        .args(["is-active", service])
         .output();
     match output {
         Ok(o) => {

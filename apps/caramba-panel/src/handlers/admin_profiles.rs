@@ -474,7 +474,10 @@ pub async fn validate_profile(
         }
     };
 
-    let relay_auth_mode_raw = state.settings.get_or_default("relay_auth_mode", "dual").await;
+    let relay_auth_mode_raw = state
+        .settings
+        .get_or_default("relay_auth_mode", "dual")
+        .await;
     let relay_auth_mode = RelayAuthMode::from_setting(Some(relay_auth_mode_raw.as_str()));
 
     let config = ConfigGenerator::generate_config_with_policy(
@@ -493,9 +496,11 @@ pub async fn validate_profile(
             "Config is valid (sing-box check passed).",
         ))
         .into_response(),
-        Err(e) => {
-            Html(validate_fragment(false, &format!("Validation failed: {}", e))).into_response()
-        }
+        Err(e) => Html(validate_fragment(
+            false,
+            &format!("Validation failed: {}", e),
+        ))
+        .into_response(),
     }
 }
 

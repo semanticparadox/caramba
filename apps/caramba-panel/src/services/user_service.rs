@@ -52,10 +52,10 @@ impl UserService {
     }
 
     pub async fn resolve_referrer_id(&self, code: &str) -> Result<Option<i64>> {
-        if let Ok(tg_id) = code.parse::<i64>() {
-            if let Some(user) = self.get_by_tg_id(tg_id).await? {
-                return Ok(Some(user.id));
-            }
+        if let Ok(tg_id) = code.parse::<i64>()
+            && let Some(user) = self.get_by_tg_id(tg_id).await?
+        {
+            return Ok(Some(user.id));
         }
 
         if let Some(user) = self.get_by_referral_code(code).await? {
@@ -64,11 +64,12 @@ impl UserService {
 
         // Partner per-source code: resolves to its owning partner user, reusing
         // the same referrer_id attribution path as a plain referral code.
-        if let Some(partner_id) =
-            sqlx::query_scalar::<_, i64>("SELECT partner_user_id FROM partner_codes WHERE code = $1")
-                .bind(code.trim())
-                .fetch_optional(&self.pool)
-                .await?
+        if let Some(partner_id) = sqlx::query_scalar::<_, i64>(
+            "SELECT partner_user_id FROM partner_codes WHERE code = $1",
+        )
+        .bind(code.trim())
+        .fetch_optional(&self.pool)
+        .await?
         {
             return Ok(Some(partner_id));
         }

@@ -157,17 +157,17 @@ class AppColors {
   /// are now flat single-color gradients: no purple to lilac, no glows on fills.
   /// Primary emphasis is a solid neutral; connected emphasis is solid green.
   LinearGradient get accentGradient => LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [accent, accent],
-      );
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [accent, accent],
+  );
 
   /// Connected emphasis: solid green (no cyan kiss).
   LinearGradient get connectedGradient => LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [success, success],
-      );
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [success, success],
+  );
 
   /// Dark theme. Neutral near-black base (#0A0A0A), surfaces step up in
   /// lightness. Matches demo/caramba-demo.html.

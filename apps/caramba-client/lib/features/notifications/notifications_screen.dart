@@ -83,9 +83,8 @@ class NotificationsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
     final async = ref.watch(notificationsProvider);
-    final hasUnread =
-        (async.valueOrNull?.items ?? const <AppNotification>[])
-            .any((n) => !n.read);
+    final hasUnread = (async.valueOrNull?.items ?? const <AppNotification>[])
+        .any((n) => !n.read);
 
     return Scaffold(
       backgroundColor: c.bgCanvas,
@@ -99,7 +98,8 @@ class NotificationsScreen extends ConsumerWidget {
             await ref
                 .read(notificationsProvider.future)
                 .catchError(
-                    (_) => const NotificationsPage(items: <AppNotification>[]));
+                  (_) => const NotificationsPage(items: <AppNotification>[]),
+                );
           },
           child: ListView(
             padding: const EdgeInsets.fromLTRB(
@@ -111,10 +111,7 @@ class NotificationsScreen extends ConsumerWidget {
             children: [
               ScreenHead(
                 'Уведомления',
-                trailing: IconBtn(
-                  Lucide.x,
-                  onTap: () => _close(context),
-                ),
+                trailing: IconBtn(Lucide.x, onTap: () => _close(context)),
               ),
               if (hasUnread) ...[
                 Align(
@@ -122,12 +119,20 @@ class NotificationsScreen extends ConsumerWidget {
                   child: TextButton.icon(
                     onPressed: () =>
                         ref.read(notificationsProvider.notifier).markAllRead(),
-                    icon: LucideIcon(Lucide.checkCheck, color: c.textMed, size: 16),
-                    label: Text('Прочитать все',
-                        style: AppType.bodySm.copyWith(color: c.textMed)),
+                    icon: LucideIcon(
+                      Lucide.checkCheck,
+                      color: c.textMed,
+                      size: 16,
+                    ),
+                    label: Text(
+                      'Прочитать все',
+                      style: AppType.bodySm.copyWith(color: c.textMed),
+                    ),
                     style: TextButton.styleFrom(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpace.s2, vertical: AppSpace.s1),
+                        horizontal: AppSpace.s2,
+                        vertical: AppSpace.s1,
+                      ),
                       minimumSize: Size.zero,
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
@@ -146,8 +151,8 @@ class NotificationsScreen extends ConsumerWidget {
                               onTap: n.read
                                   ? null
                                   : () => ref
-                                      .read(notificationsProvider.notifier)
-                                      .markRead(n.id),
+                                        .read(notificationsProvider.notifier)
+                                        .markRead(n.id),
                             ),
                         ],
                       ),
@@ -233,14 +238,16 @@ class _NotifCard extends StatelessWidget {
                       ),
                       if (notif.body.isNotEmpty) ...[
                         const SizedBox(height: 4),
-                        Text(notif.body,
-                            style:
-                                AppType.bodySm.copyWith(color: c.textMed)),
+                        Text(
+                          notif.body,
+                          style: AppType.bodySm.copyWith(color: c.textMed),
+                        ),
                       ],
                       const SizedBox(height: AppSpace.s2),
-                      Text(notif.whenLabel,
-                          style:
-                              AppType.monoSm.copyWith(color: c.textLow)),
+                      Text(
+                        notif.whenLabel,
+                        style: AppType.monoSm.copyWith(color: c.textLow),
+                      ),
                     ],
                   ),
                 ),
@@ -265,8 +272,10 @@ class _EmptyInbox extends StatelessWidget {
         children: [
           LucideIcon(Lucide.inbox, color: c.textLow, size: 32),
           const SizedBox(height: AppSpace.s3),
-          Text('Уведомлений пока нет',
-              style: AppType.bodyMd.copyWith(color: c.textMed)),
+          Text(
+            'Уведомлений пока нет',
+            style: AppType.bodyMd.copyWith(color: c.textMed),
+          ),
         ],
       ),
     );

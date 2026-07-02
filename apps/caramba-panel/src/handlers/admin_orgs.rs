@@ -34,13 +34,12 @@ async fn resolve_admin_user_id(state: &AppState, jar: &CookieJar) -> i64 {
         .await
         .unwrap_or_else(|| "Admin".to_string());
 
-    let admin_tg_id: Option<i64> = sqlx::query_scalar(
-        "SELECT tg_id FROM admins WHERE username = $1 LIMIT 1",
-    )
-    .bind(&session_username)
-    .fetch_optional(&state.pool)
-    .await
-    .unwrap_or(None);
+    let admin_tg_id: Option<i64> =
+        sqlx::query_scalar("SELECT tg_id FROM admins WHERE username = $1 LIMIT 1")
+            .bind(&session_username)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
 
     if let Some(tg_id) = admin_tg_id {
         let user_id: Option<i64> =

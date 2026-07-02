@@ -26,10 +26,12 @@ class NotificationsNotifier
               ? n.copyWith(read: true, readAt: DateTime.now())
               : n,
       ];
-      state = AsyncData(NotificationsPage(
-        items: items,
-        unreadCount: _decrement(current.unreadCount),
-      ));
+      state = AsyncData(
+        NotificationsPage(
+          items: items,
+          unreadCount: _decrement(current.unreadCount),
+        ),
+      );
     }
     try {
       await api.markNotificationRead(id);
@@ -65,8 +67,10 @@ class NotificationsNotifier
   }
 }
 
-final notificationsProvider = AutoDisposeAsyncNotifierProvider<
-    NotificationsNotifier, NotificationsPage>(NotificationsNotifier.new);
+final notificationsProvider =
+    AutoDisposeAsyncNotifierProvider<NotificationsNotifier, NotificationsPage>(
+      NotificationsNotifier.new,
+    );
 
 /// Кол-во непрочитанных для бейджа в шапке. Берём авторитетный серверный
 /// `unread_count`; если панель его не прислала — считаем по ленте локально.

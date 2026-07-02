@@ -10,9 +10,7 @@ use tar::Archive;
 
 /// Пытается остановить systemd-сервис. Не возвращает ошибку, если сервис не существует.
 fn try_stop_service(service: &str) {
-    let status = Command::new("systemctl")
-        .args(["stop", service])
-        .status();
+    let status = Command::new("systemctl").args(["stop", service]).status();
     match status {
         Ok(s) if s.success() => println!("  Stopped {}", service),
         Ok(_) => println!("  {} was not running (OK)", service),
@@ -22,9 +20,7 @@ fn try_stop_service(service: &str) {
 
 /// Пытается запустить systemd-сервис. Ошибка логируется, не пробрасывается.
 fn try_start_service(service: &str) {
-    let status = Command::new("systemctl")
-        .args(["start", service])
-        .status();
+    let status = Command::new("systemctl").args(["start", service]).status();
     match status {
         Ok(s) if s.success() => println!("  Started {}", service),
         Ok(s) => println!("  Warning: {} start exited with {}", service, s),
@@ -235,9 +231,7 @@ fn validate_pg_dump(path: &Path) -> Result<()> {
                 || head_str.contains("SET ")));
 
     if !looks_like_dump {
-        return Err(anyhow!(
-            "no recognisable pg_dump header in first 4KB"
-        ));
+        return Err(anyhow!("no recognisable pg_dump header in first 4KB"));
     }
     Ok(())
 }

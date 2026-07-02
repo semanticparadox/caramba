@@ -1,15 +1,13 @@
 pub mod activity_service; // Legacy, to be replaced by logging_service
-pub mod backup_service;
 pub mod analytics_service;
-pub mod notifications_service;
-pub mod tickets_service;
+pub mod backup_service;
 pub mod connection_service;
 pub mod export_service; // NEW: Database and settings export/backup
 pub mod infrastructure_service;
 pub mod logging_service; // NEW
 pub mod monitoring;
-pub mod task_health;
 pub mod notification_service;
+pub mod notifications_service;
 pub mod orchestration_service;
 pub mod pay_service;
 pub mod profile_service; // NEW: config-profile / DNS-policy resolver
@@ -18,7 +16,9 @@ pub mod redis_service; // NEW
 pub mod referral_service; // NEW
 pub mod security_service;
 pub mod store_service;
+pub mod task_health;
 pub mod telemetry_service;
+pub mod tickets_service;
 pub mod traffic_service; // Added Phase 3
 pub mod unified_log_service;
 

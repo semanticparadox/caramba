@@ -28,8 +28,8 @@ pub trait PaymentAdapter: Send + Sync {
 pub mod balance;
 pub mod btcpay;
 pub mod coinbase_commerce;
-pub mod crystalpay;
 pub mod cryptobot;
+pub mod crystalpay;
 pub mod manual;
 pub mod nowpayments;
 pub mod oxapay;

@@ -142,10 +142,10 @@ impl StoreService {
     }
 
     pub async fn resolve_referrer_id(&self, code: &str) -> Result<Option<i64>> {
-        if let Ok(tg_id) = code.parse::<i64>() {
-            if let Some(user) = self.get_user_by_tg_id(tg_id).await? {
-                return Ok(Some(user.id));
-            }
+        if let Ok(tg_id) = code.parse::<i64>()
+            && let Some(user) = self.get_user_by_tg_id(tg_id).await?
+        {
+            return Ok(Some(user.id));
         }
 
         if let Some(user) = self.get_user_by_referral_code(code).await? {
@@ -154,11 +154,12 @@ impl StoreService {
 
         // Partner per-source code -> owning partner user (same attribution path
         // as a plain referral code). Lets bot /start deep links credit partners.
-        if let Some(partner_id) =
-            sqlx::query_scalar::<_, i64>("SELECT partner_user_id FROM partner_codes WHERE code = $1")
-                .bind(code.trim())
-                .fetch_optional(&self.pool)
-                .await?
+        if let Some(partner_id) = sqlx::query_scalar::<_, i64>(
+            "SELECT partner_user_id FROM partner_codes WHERE code = $1",
+        )
+        .bind(code.trim())
+        .fetch_optional(&self.pool)
+        .await?
         {
             return Ok(Some(partner_id));
         }
@@ -260,17 +261,16 @@ impl StoreService {
             // double-crediting.
             if let Some(r_id) = user.referrer_id.or(referrer_id) {
                 // Never credit a self-referral.
-                if r_id != user.id {
-                    if let Err(e) =
+                if r_id != user.id
+                    && let Err(e) =
                         ReferralService::apply_signup_bonus(&self.pool, r_id, user.id).await
-                    {
-                        tracing::warn!(
-                            referrer_id = r_id,
-                            referred_user_id = user.id,
-                            error = %e,
-                            "failed to apply referral signup bonus on user creation"
-                        );
-                    }
+                {
+                    tracing::warn!(
+                        referrer_id = r_id,
+                        referred_user_id = user.id,
+                        error = %e,
+                        "failed to apply referral signup bonus on user creation"
+                    );
                 }
             }
         }
@@ -572,17 +572,17 @@ impl StoreService {
 
         // 3. Signup-source атрибуция: проставляем referrer_id один раз (immutable),
         //    только если inviter задан и не является самим пользователем.
-        if let Some(inviter_id) = enroll.inviter_user_id {
-            if inviter_id != user_id {
-                sqlx::query(
-                    "UPDATE users SET referrer_id = $1 \
+        if let Some(inviter_id) = enroll.inviter_user_id
+            && inviter_id != user_id
+        {
+            sqlx::query(
+                "UPDATE users SET referrer_id = $1 \
                      WHERE id = $2 AND referrer_id IS NULL",
-                )
-                .bind(inviter_id)
-                .bind(user_id)
-                .execute(&mut **tx)
-                .await?;
-            }
+            )
+            .bind(inviter_id)
+            .bind(user_id)
+            .execute(&mut **tx)
+            .await?;
         }
 
         // 4. Одноразовый онбординг-грант для неоплаченного аккаунта (headroom).
@@ -598,19 +598,17 @@ impl StoreService {
     /// Сам кредит идемпотентен (referral_bonuses гард), поэтому повторов не боимся;
     /// сбой не должен откатывать уже зафиксированное списание кода.
     async fn apply_enrollment_signup_bonus(&self, inviter: Option<i64>, user_id: i64) {
-        if let Some(inviter_id) = inviter {
-            if inviter_id != user_id {
-                if let Err(e) =
-                    ReferralService::apply_signup_bonus(&self.pool, inviter_id, user_id).await
-                {
-                    tracing::warn!(
-                        inviter_id,
-                        user_id,
-                        error = %e,
-                        "enrollment: failed to apply referral signup bonus (non-fatal)"
-                    );
-                }
-            }
+        if let Some(inviter_id) = inviter
+            && inviter_id != user_id
+            && let Err(e) =
+                ReferralService::apply_signup_bonus(&self.pool, inviter_id, user_id).await
+        {
+            tracing::warn!(
+                inviter_id,
+                user_id,
+                error = %e,
+                "enrollment: failed to apply referral signup bonus (non-fatal)"
+            );
         }
     }
 
@@ -658,7 +656,10 @@ impl StoreService {
         .fetch_one(&mut **tx)
         .await?;
         if has_paid {
-            tracing::info!(user_id, "enrollment: account is paid, skipping onboarding grant");
+            tracing::info!(
+                user_id,
+                "enrollment: account is paid, skipping onboarding grant"
+            );
             return Ok(());
         }
 
@@ -971,12 +972,10 @@ impl StoreService {
                 .await?
                 .flatten();
 
-        if plan_is_trial.unwrap_or(false) {
-            if user.trial_used.unwrap_or(false) {
-                return Err(anyhow::anyhow!(
-                    "Trial already used. You can only activate the trial period once."
-                ));
-            }
+        if plan_is_trial.unwrap_or(false) && user.trial_used.unwrap_or(false) {
+            return Err(anyhow::anyhow!(
+                "Trial already used. You can only activate the trial period once."
+            ));
         }
 
         sqlx::query("UPDATE users SET balance = balance - $1 WHERE id = $2")
@@ -1038,12 +1037,10 @@ impl StoreService {
         // Фиксируем использование пробного периода сразу после создания подписки,
         // ещё внутри транзакции — чтобы при откате флаг не остался установленным.
         if plan_is_trial.unwrap_or(false) {
-            sqlx::query(
-                "UPDATE users SET trial_used = TRUE, trial_used_at = NOW() WHERE id = $1",
-            )
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query("UPDATE users SET trial_used = TRUE, trial_used_at = NOW() WHERE id = $1")
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await?;
         }
 
         // Если покупка как подарок — сразу конвертируем pending-подписку в gift code внутри той же транзакции.
@@ -1075,12 +1072,16 @@ impl StoreService {
             .await?;
 
             tx.commit().await?;
-            let _ = crate::services::analytics_service::AnalyticsService::track_order(&self.pool).await;
+            let _ =
+                crate::services::analytics_service::AnalyticsService::track_order(&self.pool).await;
             // Логируем активность через pool после коммита транзакции
             let _ = ActivityService::log(
                 &self.pool,
                 "Gift Purchase",
-                &format!("Purchased gift code for plan (Duration ID: {})", duration_id),
+                &format!(
+                    "Purchased gift code for plan (Duration ID: {})",
+                    duration_id
+                ),
             )
             .await;
             return Ok(PurchaseResult::GiftCode(gift_code));
@@ -1105,10 +1106,10 @@ impl StoreService {
             }
         };
 
-        if let Some(orch) = orch_opt {
-            if let Some(node_id) = sub.node_id {
-                let _ = orch.notify_node_update(node_id).await;
-            }
+        if let Some(orch) = orch_opt
+            && let Some(node_id) = sub.node_id
+        {
+            let _ = orch.notify_node_update(node_id).await;
         }
 
         Ok(PurchaseResult::Subscription(sub))
@@ -1207,10 +1208,10 @@ impl StoreService {
             }
         };
 
-        if let Some(orch) = orch_opt {
-            if let Some(node_id) = updated_sub.node_id {
-                let _ = orch.notify_node_update(node_id).await;
-            }
+        if let Some(orch) = orch_opt
+            && let Some(node_id) = updated_sub.node_id
+        {
+            let _ = orch.notify_node_update(node_id).await;
         }
 
         Ok(updated_sub)
@@ -1381,7 +1382,7 @@ impl StoreService {
             SET user_id = $1 
             WHERE id = $2 
             RETURNING *
-            "#
+            "#,
         )
         .bind(target_user.id)
         .bind(sub_id)
@@ -1493,10 +1494,10 @@ impl StoreService {
             }
         };
 
-        if let Some(orch) = orch_opt {
-            if let Some(node_id) = sub.node_id {
-                let _ = orch.notify_node_update(node_id).await;
-            }
+        if let Some(orch) = orch_opt
+            && let Some(node_id) = sub.node_id
+        {
+            let _ = orch.notify_node_update(node_id).await;
         }
 
         Ok(sub)
@@ -1527,13 +1528,12 @@ impl StoreService {
 
         // Defense-in-depth: conditional debit so the balance can never go
         // negative even if the guard above ever races a concurrent writer.
-        let debited = sqlx::query(
-            "UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1",
-        )
-        .bind(duration.price)
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
+        let debited =
+            sqlx::query("UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1")
+                .bind(duration.price)
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await?;
         if debited.rows_affected() != 1 {
             return Err(anyhow::anyhow!("Insufficient balance"));
         }

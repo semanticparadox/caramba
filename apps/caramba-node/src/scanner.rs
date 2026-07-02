@@ -170,23 +170,23 @@ impl NeighborScanner {
         // Check ALPN
         let h2 = session.alpn_protocol() == Some(b"h2");
 
-        if let Some(certs) = session.peer_certificates() {
-            if let Some(cert) = certs.first() {
-                // Parse the certificate
-                if let Ok(domain) = self.extract_best_domain(cert.as_ref()) {
-                    if self.has_http_deny_fingerprint(ip, &domain).await {
-                        return Err(anyhow::anyhow!(
-                            "domain appears blocked (access denied fingerprint)"
-                        ));
-                    }
-                    return Ok(DiscoveredSni {
-                        domain,
-                        ip: ip.to_string(),
-                        latency_ms: latency,
-                        h2,
-                        h3: false, // Hard to detect H3 without QUIC handshake
-                    });
+        if let Some(certs) = session.peer_certificates()
+            && let Some(cert) = certs.first()
+        {
+            // Parse the certificate
+            if let Ok(domain) = self.extract_best_domain(cert.as_ref()) {
+                if self.has_http_deny_fingerprint(ip, &domain).await {
+                    return Err(anyhow::anyhow!(
+                        "domain appears blocked (access denied fingerprint)"
+                    ));
                 }
+                return Ok(DiscoveredSni {
+                    domain,
+                    ip: ip.to_string(),
+                    latency_ms: latency,
+                    h2,
+                    h3: false, // Hard to detect H3 without QUIC handshake
+                });
             }
         }
 
@@ -210,12 +210,12 @@ impl NeighborScanner {
         }
 
         // 2. Fallback to Subject Common Name (CN)
-        if let Some(subject) = cert.subject().iter_common_name().next() {
-            if let Ok(cn_str) = subject.as_str() {
-                let cn = cn_str.to_string();
-                if self.is_valid_public_domain(&cn) {
-                    return Ok(cn);
-                }
+        if let Some(subject) = cert.subject().iter_common_name().next()
+            && let Ok(cn_str) = subject.as_str()
+        {
+            let cn = cn_str.to_string();
+            if self.is_valid_public_domain(&cn) {
+                return Ok(cn);
             }
         }
 
@@ -599,7 +599,7 @@ mod tests {
 
     #[test]
     fn classify_handshake_error_detects_rst_and_eof() {
-        use super::{classify_handshake_error, BlockProbeOutcome};
+        use super::{BlockProbeOutcome, classify_handshake_error};
         // RST markers
         assert_eq!(
             classify_handshake_error("Connection reset by peer (os error 104)"),

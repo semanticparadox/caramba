@@ -1,6 +1,5 @@
 use crate::bot::handlers::admin::{
-    handle_broadcast_confirm, send_admin_stats, send_ticket_detail, send_ticket_list,
-    AdminFsmState,
+    handle_broadcast_confirm, send_admin_stats, send_ticket_detail, send_ticket_list, AdminFsmState,
 };
 use crate::bot::keyboards::admin::{
     broadcast_category_keyboard, broadcast_segment_keyboard, broadcast_severity_keyboard,
@@ -42,7 +41,10 @@ pub async fn callback_handler(
                 let user_res: AnyhowResult<Option<User>> =
                     state.store_service.get_user_by_tg_id(tg_id).await;
                 if let Ok(Some(u)) = user_res {
-                    let _ = state.store_service.update_user_language(u.id, chosen_lang).await;
+                    let _ = state
+                        .store_service
+                        .update_user_language(u.id, chosen_lang)
+                        .await;
                     let lang = Some(chosen_lang);
 
                     let terms_text = state
@@ -53,7 +55,16 @@ pub async fn callback_handler(
                     if let Some(msg) = q.message {
                         let _ = bot.delete_message(msg.chat().id, msg.id()).await;
 
-                        let _ = bot.send_message(msg.chat().id, format!("{}\n\n{}\n\n{}", t(lang, "msg.terms_header"), terms_text, t(lang, "msg.terms_accept_prompt")))
+                        let _ = bot
+                            .send_message(
+                                msg.chat().id,
+                                format!(
+                                    "{}\n\n{}\n\n{}",
+                                    t(lang, "msg.terms_header"),
+                                    terms_text,
+                                    t(lang, "msg.terms_accept_prompt")
+                                ),
+                            )
                             .parse_mode(ParseMode::Html)
                             .reply_markup(terms_keyboard(lang))
                             .await
@@ -85,7 +96,10 @@ pub async fn callback_handler(
                         }
                         Err(e) => {
                             // Бесплатного плана нет или ошибка API — не блокируем регистрацию
-                            error!("Не удалось создать бесплатную подписку для user {}: {}", u.id, e);
+                            error!(
+                                "Не удалось создать бесплатную подписку для user {}: {}",
+                                u.id, e
+                            );
                         }
                     }
 
@@ -115,8 +129,13 @@ pub async fn callback_handler(
 
             "decline_terms" => {
                 // Look up user lang for decline message
-                let decline_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let decline_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let _ = bot
                     .answer_callback_query(callback_id)
                     .text(t(decline_lang.as_deref(), "msg.must_accept_terms"))
@@ -125,8 +144,13 @@ pub async fn callback_handler(
             }
 
             extend if extend.starts_with("extend_sub_") => {
-                let ext_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let ext_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let text_plans: Vec<Plan> = state
                     .store_service
                     .get_active_plans()
@@ -147,7 +171,11 @@ pub async fn callback_handler(
                         response.push_str(&format!(
                             "💎 *{}*\n_{}_\n\n",
                             escape_md(&plan.name),
-                            escape_md(plan.description.as_deref().unwrap_or(t(ext_lang.as_deref(), "msg.premium_access")))
+                            escape_md(
+                                plan.description
+                                    .as_deref()
+                                    .unwrap_or(t(ext_lang.as_deref(), "msg.premium_access"))
+                            )
                         ));
 
                         let mut duration_row = Vec::new();
@@ -176,20 +204,33 @@ pub async fn callback_handler(
             }
 
             "enter_promo" => {
-                let promo_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let promo_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let _ = bot.answer_callback_query(callback_id).await;
                 if let Some(msg) = q.message {
                     let _ = bot
-                        .send_message(msg.chat().id, t(promo_lang.as_deref(), "msg.enter_gift_code"))
+                        .send_message(
+                            msg.chat().id,
+                            t(promo_lang.as_deref(), "msg.enter_gift_code"),
+                        )
                         .reply_markup(ForceReply::new().selective())
                         .await;
                 }
             }
 
             "topup_menu" => {
-                let topup_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let topup_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let response = t(topup_lang.as_deref(), "msg.topup_menu");
                 let buttons = vec![
                     vec![InlineKeyboardButton::callback(
@@ -223,8 +264,13 @@ pub async fn callback_handler(
             }
 
             "pay_cryptobot" => {
-                let pay_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let pay_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let buttons = make_amount_keyboard("cb");
                 if let Some(msg) = q.message {
                     let _ = bot
@@ -239,8 +285,13 @@ pub async fn callback_handler(
                 }
             }
             "pay_nowpayments" => {
-                let pay_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let pay_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let buttons = make_amount_keyboard("np");
                 if let Some(msg) = q.message {
                     let _ = bot
@@ -255,8 +306,13 @@ pub async fn callback_handler(
                 }
             }
             "pay_crystal" => {
-                let pay_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let pay_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let buttons = make_amount_keyboard("cp");
                 if let Some(msg) = q.message {
                     let _ = bot
@@ -271,8 +327,13 @@ pub async fn callback_handler(
                 }
             }
             "pay_stripe" => {
-                let pay_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let pay_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let buttons = make_amount_keyboard("str");
                 if let Some(msg) = q.message {
                     let _ = bot
@@ -287,12 +348,21 @@ pub async fn callback_handler(
                 }
             }
             "pay_stars" => {
-                let pay_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let pay_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let buttons = make_amount_keyboard("star");
                 if let Some(msg) = q.message {
                     let _ = bot
-                        .edit_message_text(msg.chat().id, msg.id(), t(pay_lang.as_deref(), "msg.select_amount_stars"))
+                        .edit_message_text(
+                            msg.chat().id,
+                            msg.id(),
+                            t(pay_lang.as_deref(), "msg.select_amount_stars"),
+                        )
                         .parse_mode(ParseMode::MarkdownV2)
                         .reply_markup(buttons)
                         .await;
@@ -315,35 +385,37 @@ pub async fn callback_handler(
                             .create_cryptobot_invoice(u.id, amount, PaymentType::BalanceTopup)
                             .await
                         {
-                            Ok(url) => {
-                                match url.parse::<Url>() {
-                                    Ok(parsed_url) => {
-                                        let buttons = vec![vec![InlineKeyboardButton::url(
-                                            t(lang, "msg.pay_cryptobot"),
-                                            parsed_url,
-                                        )]];
-                                        let _ = bot.answer_callback_query(callback_id).await;
-                                        if let Some(msg) = q.message {
-                                            let _ = bot
-                                                .send_message(
-                                                    msg.chat().id,
-                                                    tf(lang, "msg.invoice_created", &[&format!("{:.2}", amount)]),
-                                                )
-                                                .parse_mode(ParseMode::MarkdownV2)
-                                                .reply_markup(InlineKeyboardMarkup::new(buttons))
-                                                .await;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!(url = %url, error = %e, "Cryptobot вернул невалидный URL для оплаты");
+                            Ok(url) => match url.parse::<Url>() {
+                                Ok(parsed_url) => {
+                                    let buttons = vec![vec![InlineKeyboardButton::url(
+                                        t(lang, "msg.pay_cryptobot"),
+                                        parsed_url,
+                                    )]];
+                                    let _ = bot.answer_callback_query(callback_id).await;
+                                    if let Some(msg) = q.message {
                                         let _ = bot
-                                            .answer_callback_query(callback_id)
-                                            .text(t(lang, "msg.payment_error"))
-                                            .show_alert(true)
+                                            .send_message(
+                                                msg.chat().id,
+                                                tf(
+                                                    lang,
+                                                    "msg.invoice_created",
+                                                    &[&format!("{:.2}", amount)],
+                                                ),
+                                            )
+                                            .parse_mode(ParseMode::MarkdownV2)
+                                            .reply_markup(InlineKeyboardMarkup::new(buttons))
                                             .await;
                                     }
                                 }
-                            }
+                                Err(e) => {
+                                    error!(url = %url, error = %e, "Cryptobot вернул невалидный URL для оплаты");
+                                    let _ = bot
+                                        .answer_callback_query(callback_id)
+                                        .text(t(lang, "msg.payment_error"))
+                                        .show_alert(true)
+                                        .await;
+                                }
+                            },
                             Err(e) => {
                                 error!(tg_id, error = %e, "Ошибка создания инвойса CryptoBot");
                                 let _ = bot
@@ -380,35 +452,37 @@ pub async fn callback_handler(
                             .create_nowpayments_invoice(u.id, amount, PaymentType::BalanceTopup)
                             .await
                         {
-                            Ok(url) => {
-                                match url.parse::<Url>() {
-                                    Ok(parsed_url) => {
-                                        let buttons = vec![vec![InlineKeyboardButton::url(
-                                            t(lang, "msg.pay_nowpayments"),
-                                            parsed_url,
-                                        )]];
-                                        let _ = bot.answer_callback_query(callback_id).await;
-                                        if let Some(msg) = q.message {
-                                            let _ = bot
-                                                .send_message(
-                                                    msg.chat().id,
-                                                    tf(lang, "msg.invoice_created", &[&format!("{:.2}", amount)]),
-                                                )
-                                                .parse_mode(ParseMode::MarkdownV2)
-                                                .reply_markup(InlineKeyboardMarkup::new(buttons))
-                                                .await;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!(url = %url, error = %e, "NOWPayments вернул невалидный URL для оплаты");
+                            Ok(url) => match url.parse::<Url>() {
+                                Ok(parsed_url) => {
+                                    let buttons = vec![vec![InlineKeyboardButton::url(
+                                        t(lang, "msg.pay_nowpayments"),
+                                        parsed_url,
+                                    )]];
+                                    let _ = bot.answer_callback_query(callback_id).await;
+                                    if let Some(msg) = q.message {
                                         let _ = bot
-                                            .answer_callback_query(callback_id)
-                                            .text(t(lang, "msg.payment_error"))
-                                            .show_alert(true)
+                                            .send_message(
+                                                msg.chat().id,
+                                                tf(
+                                                    lang,
+                                                    "msg.invoice_created",
+                                                    &[&format!("{:.2}", amount)],
+                                                ),
+                                            )
+                                            .parse_mode(ParseMode::MarkdownV2)
+                                            .reply_markup(InlineKeyboardMarkup::new(buttons))
                                             .await;
                                     }
                                 }
-                            }
+                                Err(e) => {
+                                    error!(url = %url, error = %e, "NOWPayments вернул невалидный URL для оплаты");
+                                    let _ = bot
+                                        .answer_callback_query(callback_id)
+                                        .text(t(lang, "msg.payment_error"))
+                                        .show_alert(true)
+                                        .await;
+                                }
+                            },
                             Err(e) => {
                                 error!(tg_id, error = %e, "Ошибка создания инвойса NOWPayments");
                                 let _ = bot
@@ -444,35 +518,37 @@ pub async fn callback_handler(
                             .create_crystalpay_invoice(u.id, amount, PaymentType::BalanceTopup)
                             .await
                         {
-                            Ok(url) => {
-                                match url.parse::<Url>() {
-                                    Ok(parsed_url) => {
-                                        let buttons = vec![vec![InlineKeyboardButton::url(
-                                            t(lang, "msg.pay_crystal"),
-                                            parsed_url,
-                                        )]];
-                                        let _ = bot.answer_callback_query(callback_id).await;
-                                        if let Some(msg) = q.message {
-                                            let _ = bot
-                                                .send_message(
-                                                    msg.chat().id,
-                                                    tf(lang, "msg.invoice_created", &[&format!("{:.2}", amount)]),
-                                                )
-                                                .parse_mode(ParseMode::MarkdownV2)
-                                                .reply_markup(InlineKeyboardMarkup::new(buttons))
-                                                .await;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!(url = %url, error = %e, "CrystalPay вернул невалидный URL для оплаты");
+                            Ok(url) => match url.parse::<Url>() {
+                                Ok(parsed_url) => {
+                                    let buttons = vec![vec![InlineKeyboardButton::url(
+                                        t(lang, "msg.pay_crystal"),
+                                        parsed_url,
+                                    )]];
+                                    let _ = bot.answer_callback_query(callback_id).await;
+                                    if let Some(msg) = q.message {
                                         let _ = bot
-                                            .answer_callback_query(callback_id)
-                                            .text(t(lang, "msg.payment_error"))
-                                            .show_alert(true)
+                                            .send_message(
+                                                msg.chat().id,
+                                                tf(
+                                                    lang,
+                                                    "msg.invoice_created",
+                                                    &[&format!("{:.2}", amount)],
+                                                ),
+                                            )
+                                            .parse_mode(ParseMode::MarkdownV2)
+                                            .reply_markup(InlineKeyboardMarkup::new(buttons))
                                             .await;
                                     }
                                 }
-                            }
+                                Err(e) => {
+                                    error!(url = %url, error = %e, "CrystalPay вернул невалидный URL для оплаты");
+                                    let _ = bot
+                                        .answer_callback_query(callback_id)
+                                        .text(t(lang, "msg.payment_error"))
+                                        .show_alert(true)
+                                        .await;
+                                }
+                            },
                             Err(e) => {
                                 error!(tg_id, error = %e, "Ошибка создания инвойса CrystalPay");
                                 let _ = bot
@@ -508,35 +584,37 @@ pub async fn callback_handler(
                             .create_stripe_session(u.id, amount, PaymentType::BalanceTopup)
                             .await
                         {
-                            Ok(url) => {
-                                match url.parse::<Url>() {
-                                    Ok(parsed_url) => {
-                                        let buttons = vec![vec![InlineKeyboardButton::url(
-                                            t(lang, "msg.pay_stripe"),
-                                            parsed_url,
-                                        )]];
-                                        let _ = bot.answer_callback_query(callback_id).await;
-                                        if let Some(msg) = q.message {
-                                            let _ = bot
-                                                .send_message(
-                                                    msg.chat().id,
-                                                    tf(lang, "msg.invoice_created", &[&format!("{:.2}", amount)]),
-                                                )
-                                                .parse_mode(ParseMode::MarkdownV2)
-                                                .reply_markup(InlineKeyboardMarkup::new(buttons))
-                                                .await;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!(url = %url, error = %e, "Stripe вернул невалидный URL для оплаты");
+                            Ok(url) => match url.parse::<Url>() {
+                                Ok(parsed_url) => {
+                                    let buttons = vec![vec![InlineKeyboardButton::url(
+                                        t(lang, "msg.pay_stripe"),
+                                        parsed_url,
+                                    )]];
+                                    let _ = bot.answer_callback_query(callback_id).await;
+                                    if let Some(msg) = q.message {
                                         let _ = bot
-                                            .answer_callback_query(callback_id)
-                                            .text(t(lang, "msg.payment_error"))
-                                            .show_alert(true)
+                                            .send_message(
+                                                msg.chat().id,
+                                                tf(
+                                                    lang,
+                                                    "msg.invoice_created",
+                                                    &[&format!("{:.2}", amount)],
+                                                ),
+                                            )
+                                            .parse_mode(ParseMode::MarkdownV2)
+                                            .reply_markup(InlineKeyboardMarkup::new(buttons))
                                             .await;
                                     }
                                 }
-                            }
+                                Err(e) => {
+                                    error!(url = %url, error = %e, "Stripe вернул невалидный URL для оплаты");
+                                    let _ = bot
+                                        .answer_callback_query(callback_id)
+                                        .text(t(lang, "msg.payment_error"))
+                                        .show_alert(true)
+                                        .await;
+                                }
+                            },
                             Err(e) => {
                                 error!(tg_id, error = %e, "Ошибка создания сессии Stripe");
                                 let _ = bot
@@ -584,7 +662,11 @@ pub async fn callback_handler(
                                 .send_invoice(
                                     msg.chat().id,
                                     t(lang, "msg.balance_topup"),
-                                    tf(lang, "msg.topup_description", &[&format!("{}", amount_usd)]),
+                                    tf(
+                                        lang,
+                                        "msg.topup_description",
+                                        &[&format!("{}", amount_usd)],
+                                    ),
                                     payload,
                                     "XTR",
                                     prices,
@@ -610,8 +692,13 @@ pub async fn callback_handler(
                     .unwrap_or("0")
                     .parse::<i64>()
                     .unwrap_or(0);
-                let links_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let links_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let _ = bot
                     .answer_callback_query(callback_id.clone())
                     .text(t(links_lang.as_deref(), "msg.fetching_links"))
@@ -623,10 +710,14 @@ pub async fn callback_handler(
                     Ok(links) => {
                         if links.is_empty() {
                             let _ = bot
-                                .send_message(ChatId(tg_id), t(links_lang.as_deref(), "msg.no_links"))
+                                .send_message(
+                                    ChatId(tg_id),
+                                    t(links_lang.as_deref(), "msg.no_links"),
+                                )
                                 .await;
                         } else {
-                            let mut response = t(links_lang.as_deref(), "msg.your_links").to_string();
+                            let mut response =
+                                t(links_lang.as_deref(), "msg.your_links").to_string();
                             for link in links {
                                 response.push_str(&format!("`{}`\n\n", escape_md(&link)));
                             }
@@ -639,7 +730,10 @@ pub async fn callback_handler(
                     Err(e) => {
                         error!("Links error: {}", e);
                         let _ = bot
-                            .send_message(ChatId(tg_id), t(links_lang.as_deref(), "msg.links_error"))
+                            .send_message(
+                                ChatId(tg_id),
+                                t(links_lang.as_deref(), "msg.links_error"),
+                            )
                             .await;
                     }
                 }
@@ -654,8 +748,13 @@ pub async fn callback_handler(
                     .parse::<i64>()
                     .unwrap_or(0);
 
-                let cfg_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let cfg_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let _ = bot
                     .answer_callback_query(callback_id)
                     .text(t(cfg_lang.as_deref(), "msg.generating_profile"))
@@ -667,7 +766,11 @@ pub async fn callback_handler(
                     let lang = u.language_code.as_deref();
                     // Генерируем профиль для конкретной подписки (sub_id).
                     // Если sub_id == 0 или подписка не найдена — панель вернёт ошибку.
-                    match state.store_service.generate_subscription_file_for_sub(u.id, sub_id).await {
+                    match state
+                        .store_service
+                        .generate_subscription_file_for_sub(u.id, sub_id)
+                        .await
+                    {
                         Ok(json_content) => {
                             let data: Vec<u8> = json_content.into_bytes();
                             let input_file = teloxide::types::InputFile::memory(data)
@@ -689,7 +792,8 @@ pub async fn callback_handler(
                                 } else {
                                     trimmed
                                 };
-                                let _ = bot.send_document(msg.chat().id, input_file)
+                                let _ = bot
+                                    .send_document(msg.chat().id, input_file)
                                     .caption(tf_brand(lang, "msg.your_profile_file", brand, &[]))
                                     .parse_mode(ParseMode::Html)
                                     .await;
@@ -730,7 +834,11 @@ pub async fn callback_handler(
                                 let _ = bot
                                     .send_message(
                                         msg.chat().id,
-                                        tf(lang, "msg.sub_activated", &[&sub.expires_at.format("%Y-%m-%d").to_string()]),
+                                        tf(
+                                            lang,
+                                            "msg.sub_activated",
+                                            &[&sub.expires_at.format("%Y-%m-%d").to_string()],
+                                        ),
                                     )
                                     .parse_mode(ParseMode::MarkdownV2)
                                     .await;
@@ -761,15 +869,11 @@ pub async fn callback_handler(
                             if codes.is_empty() {
                                 if let Some(msg) = q.message {
                                     let _ = bot
-                                        .send_message(
-                                            msg.chat().id,
-                                            t(lang, "msg.no_gift_codes"),
-                                        )
+                                        .send_message(msg.chat().id, t(lang, "msg.no_gift_codes"))
                                         .await;
                                 }
                             } else {
-                                let mut response =
-                                    t(lang, "msg.my_gift_codes_header").to_string();
+                                let mut response = t(lang, "msg.my_gift_codes_header").to_string();
                                 for code in codes {
                                     response.push_str(&format!(
                                         "🎟 `{}`\n   Days: {}\n\n",
@@ -798,8 +902,13 @@ pub async fn callback_handler(
 
             edit_note if edit_note.starts_with("edit_note_") => {
                 let sub_id = edit_note.strip_prefix("edit_note_").unwrap_or("0");
-                let note_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let note_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let _ = bot.answer_callback_query(callback_id).await;
                 if let Some(msg) = q.message {
                     let _ = bot
@@ -818,8 +927,13 @@ pub async fn callback_handler(
                     .unwrap_or("0")
                     .parse::<i64>()
                     .unwrap_or(0);
-                let dev_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let dev_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let _ = bot.answer_callback_query(callback_id).await;
 
                 let limit_res: AnyhowResult<i64> = state
@@ -834,8 +948,16 @@ pub async fn callback_handler(
                 let ips = ips_res.unwrap_or_default();
 
                 let mut response = t(dev_lang.as_deref(), "msg.devices_header").to_string();
-                response.push_str(&tf(dev_lang.as_deref(), "msg.device_limit", &[&limit.to_string()]));
-                response.push_str(&tf(dev_lang.as_deref(), "msg.active_devices", &[&ips.len().to_string()]));
+                response.push_str(&tf(
+                    dev_lang.as_deref(),
+                    "msg.device_limit",
+                    &[&limit.to_string()],
+                ));
+                response.push_str(&tf(
+                    dev_lang.as_deref(),
+                    "msg.active_devices",
+                    &[&ips.len().to_string()],
+                ));
 
                 if ips.is_empty() {
                     response.push_str(t(dev_lang.as_deref(), "msg.no_devices"));
@@ -858,7 +980,7 @@ pub async fn callback_handler(
                 let keyboard =
                     InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
                         t(dev_lang.as_deref(), "kb.back_services"),
-                        format!("myservices_page_0"),
+                        "myservices_page_0".to_string(),
                     )]]);
 
                 if let Some(msg) = q.message {
@@ -871,8 +993,13 @@ pub async fn callback_handler(
             }
 
             buy_plan_idx if buy_plan_idx.starts_with("buy_plan_idx_") => {
-                let bp_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let bp_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let index = buy_plan_idx
                     .strip_prefix("buy_plan_idx_")
                     .unwrap_or("0")
@@ -907,7 +1034,12 @@ pub async fn callback_handler(
                         let price_major = dur.price / 100;
                         let price_minor = dur.price % 100;
                         let label = if dur.duration_days == 0 {
-                            format!("🚀 {} - ${}.{:02}", t(bp_lang.as_deref(), "msg.traffic_plan"), price_major, price_minor)
+                            format!(
+                                "🚀 {} - ${}.{:02}",
+                                t(bp_lang.as_deref(), "msg.traffic_plan"),
+                                price_major,
+                                price_minor
+                            )
                         } else {
                             format!(
                                 "{}d - ${}.{:02}",
@@ -1009,7 +1141,8 @@ pub async fn callback_handler(
                             ));
                             response.push_str(&format!(
                                 "   💎 *{}* {}\n",
-                                t(lang, "msg.plan"), escape_md(&sub.plan_name)
+                                t(lang, "msg.plan"),
+                                escape_md(&sub.plan_name)
                             ));
                             if let Some(desc) = &sub.plan_description {
                                 response.push_str(&format!("   _{}_\n", escape_md(desc)));
@@ -1024,34 +1157,42 @@ pub async fn callback_handler(
                                 if limit == 0 {
                                     response.push_str(&format!(
                                         "   📊 *{}* `{:.2} GB / ∞`\n",
-                                        t(lang, "msg.traffic"), used_gb
+                                        t(lang, "msg.traffic"),
+                                        used_gb
                                     ));
                                 } else {
                                     response.push_str(&format!(
                                         "   📊 *{}* `{:.2} GB / {} GB`\n",
-                                        t(lang, "msg.traffic"), used_gb, limit
+                                        t(lang, "msg.traffic"),
+                                        used_gb,
+                                        limit
                                     ));
                                 }
                             } else {
                                 response.push_str(&format!(
                                     "   📊 *{}* `{:.2} GB`\n",
-                                    t(lang, "msg.traffic_used"), used_gb
+                                    t(lang, "msg.traffic_used"),
+                                    used_gb
                                 ));
                             }
 
                             if sub.sub.status == "active" {
                                 response.push_str(&format!(
                                     "   ⌛ *{}* `{}`\n",
-                                    t(lang, "msg.expires"), sub.sub.expires_at.format("%Y-%m-%d")
+                                    t(lang, "msg.expires"),
+                                    sub.sub.expires_at.format("%Y-%m-%d")
                                 ));
                             } else {
                                 let duration = sub.sub.expires_at - sub.sub.created_at;
                                 response.push_str(&format!(
                                     "   ⏱ *{}* `{} {}` \\({}\\)\n",
-                                    t(lang, "msg.duration"), duration.num_days(), t(lang, "msg.days"), t(lang, "msg.starts_on_activation")
+                                    t(lang, "msg.duration"),
+                                    duration.num_days(),
+                                    t(lang, "msg.days"),
+                                    t(lang, "msg.starts_on_activation")
                                 ));
                             }
-                            response.push_str("\n");
+                            response.push('\n');
                             if let Some(note) = &sub.sub.note {
                                 response.push_str(&format!("📝 *Note:* {}\n\n", escape_md(note)));
                             }
@@ -1174,11 +1315,22 @@ pub async fn callback_handler(
 
             transfer if transfer.starts_with("transfer_init_") => {
                 let sub_id = transfer.strip_prefix("transfer_init_").unwrap_or("0");
-                let tr_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let tr_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let _ = bot.answer_callback_query(callback_id).await;
                 if let Some(msg) = q.message {
-                    let _ = bot.send_message(msg.chat().id, tf(tr_lang.as_deref(), "msg.transfer_prompt", &[sub_id])).reply_markup(ForceReply::new().selective()).await;
+                    let _ = bot
+                        .send_message(
+                            msg.chat().id,
+                            tf(tr_lang.as_deref(), "msg.transfer_prompt", &[sub_id]),
+                        )
+                        .reply_markup(ForceReply::new().selective())
+                        .await;
                 }
             }
 
@@ -1336,15 +1488,23 @@ pub async fn callback_handler(
                     .unwrap_or("0")
                     .parse::<i64>()
                     .unwrap_or(0);
-                let scat_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let scat_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let _ = bot.answer_callback_query(callback_id).await;
 
                 match state.store_service.get_products_by_category(cat_id).await {
                     Ok(prods) => {
                         if prods.is_empty() {
                             let _ = bot
-                                .send_message(ChatId(tg_id), t(scat_lang.as_deref(), "msg.no_products"))
+                                .send_message(
+                                    ChatId(tg_id),
+                                    t(scat_lang.as_deref(), "msg.no_products"),
+                                )
                                 .await;
                         } else {
                             let mut buttons = Vec::new();
@@ -1380,7 +1540,10 @@ pub async fn callback_handler(
                     Err(e) => {
                         error!(tg_id, error = %e, "Ошибка загрузки товаров категории");
                         let _ = bot
-                            .send_message(ChatId(tg_id), t(scat_lang.as_deref(), "msg.payment_error"))
+                            .send_message(
+                                ChatId(tg_id),
+                                t(scat_lang.as_deref(), "msg.payment_error"),
+                            )
                             .await;
                     }
                 }
@@ -1392,8 +1555,13 @@ pub async fn callback_handler(
                     .unwrap_or("0")
                     .parse::<i64>()
                     .unwrap_or(0);
-                let vp_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let vp_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let _ = bot.answer_callback_query(callback_id).await;
 
                 let text = t(vp_lang.as_deref(), "msg.product_details");
@@ -1402,7 +1570,10 @@ pub async fn callback_handler(
                         t(vp_lang.as_deref(), "kb.buy_now"),
                         format!("buy_prod_{}", prod_id),
                     )],
-                    vec![InlineKeyboardButton::callback(t(vp_lang.as_deref(), "kb.back"), "📦 Digital Store")],
+                    vec![InlineKeyboardButton::callback(
+                        t(vp_lang.as_deref(), "kb.back"),
+                        "📦 Digital Store",
+                    )],
                 ];
                 if let Some(msg) = q.message {
                     let _ = bot
@@ -1474,8 +1645,13 @@ pub async fn callback_handler(
             // внутри магазина (store_cat_ и view_prod_).
             // ------------------------------------------------------------------
             "📦 Digital Store" => {
-                let scat_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let scat_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let _ = bot.answer_callback_query(callback_id).await;
 
                 let categories_res = state.store_service.get_categories().await;
@@ -1484,7 +1660,11 @@ pub async fn callback_handler(
                 if categories.is_empty() {
                     if let Some(msg) = q.message {
                         let _ = bot
-                            .edit_message_text(msg.chat().id, msg.id(), t(scat_lang.as_deref(), "msg.store_empty"))
+                            .edit_message_text(
+                                msg.chat().id,
+                                msg.id(),
+                                t(scat_lang.as_deref(), "msg.store_empty"),
+                            )
                             .await;
                     }
                 } else {
@@ -1501,7 +1681,11 @@ pub async fn callback_handler(
                     )]);
                     if let Some(msg) = q.message {
                         let _ = bot
-                            .edit_message_text(msg.chat().id, msg.id(), t(scat_lang.as_deref(), "msg.store_welcome"))
+                            .edit_message_text(
+                                msg.chat().id,
+                                msg.id(),
+                                t(scat_lang.as_deref(), "msg.store_welcome"),
+                            )
                             .parse_mode(ParseMode::MarkdownV2)
                             .reply_markup(InlineKeyboardMarkup::new(buttons))
                             .await;
@@ -1519,11 +1703,19 @@ pub async fn callback_handler(
                     let lang = u.language_code.as_deref();
                     let _ = bot.answer_callback_query(callback_id).await;
 
-                    let cart_items = state.store_service.get_user_cart(u.id).await.unwrap_or_default();
+                    let cart_items = state
+                        .store_service
+                        .get_user_cart(u.id)
+                        .await
+                        .unwrap_or_default();
                     if cart_items.is_empty() {
                         if let Some(msg) = q.message {
                             let _ = bot
-                                .edit_message_text(msg.chat().id, msg.id(), t(lang, "msg.cart_empty"))
+                                .edit_message_text(
+                                    msg.chat().id,
+                                    msg.id(),
+                                    t(lang, "msg.cart_empty"),
+                                )
                                 .await;
                         }
                     } else {
@@ -1542,7 +1734,10 @@ pub async fn callback_handler(
                         }
                         let total_major = total_price / 100;
                         let total_minor = total_price % 100;
-                        text.push_str(&format!("\\n💰 *TOTAL: ${}\\.{:02}*", total_major, total_minor));
+                        text.push_str(&format!(
+                            "\\n💰 *TOTAL: ${}\\.{:02}*",
+                            total_major, total_minor
+                        ));
 
                         let buttons = vec![
                             vec![InlineKeyboardButton::callback(
@@ -1632,8 +1827,13 @@ pub async fn callback_handler(
             // edit_ref_code — запрашиваем новый алиас реферального кода
             // ------------------------------------------------------------------
             "edit_ref_code" => {
-                let ref_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let ref_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let _ = bot.answer_callback_query(callback_id).await;
                 if let Some(msg) = q.message {
                     let _ = bot
@@ -1647,12 +1847,20 @@ pub async fn callback_handler(
             // enter_referrer — запрашиваем код реферера
             // ------------------------------------------------------------------
             "enter_referrer" => {
-                let ref_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let ref_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let _ = bot.answer_callback_query(callback_id).await;
                 if let Some(msg) = q.message {
                     let _ = bot
-                        .send_message(msg.chat().id, t(ref_lang.as_deref(), "msg.enter_referrer_code"))
+                        .send_message(
+                            msg.chat().id,
+                            t(ref_lang.as_deref(), "msg.enter_referrer_code"),
+                        )
                         .reply_markup(ForceReply::new().selective())
                         .await;
                 }
@@ -1672,7 +1880,11 @@ pub async fn callback_handler(
                 let ks_lang = user.as_ref().and_then(|u| u.language_code.clone());
                 match (user, sub_id > 0) {
                     (Some(u), true) => {
-                        match state.store_service.kill_subscription_sessions(sub_id, u.id).await {
+                        match state
+                            .store_service
+                            .kill_subscription_sessions(sub_id, u.id)
+                            .await
+                        {
                             Ok(_) => {
                                 let _ = bot
                                     .answer_callback_query(callback_id)
@@ -1713,7 +1925,11 @@ pub async fn callback_handler(
                     return Ok(());
                 }
 
-                let chat_id = q.message.as_ref().map(|m| m.chat().id).unwrap_or(ChatId(tg_id));
+                let chat_id = q
+                    .message
+                    .as_ref()
+                    .map(|m| m.chat().id)
+                    .unwrap_or(ChatId(tg_id));
                 let msg_id = q.message.as_ref().map(|m| m.id());
 
                 match adm {
@@ -1779,7 +1995,9 @@ pub async fn callback_handler(
                     // Список тикетов: adm:tickets:list:<page>:<filter>
                     // --------------------------------------------------------
                     tickets_list if tickets_list.starts_with("adm:tickets:list:") => {
-                        let rest = tickets_list.strip_prefix("adm:tickets:list:").unwrap_or("0:open");
+                        let rest = tickets_list
+                            .strip_prefix("adm:tickets:list:")
+                            .unwrap_or("0:open");
                         let mut parts = rest.splitn(2, ':');
                         let page: usize = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
                         let filter = parts.next().unwrap_or("open");
@@ -1795,7 +2013,8 @@ pub async fn callback_handler(
                             .and_then(|s| s.parse().ok())
                             .unwrap_or(0);
                         if ticket_id > 0 {
-                            let _ = send_ticket_detail(&bot, chat_id, msg_id, &state, ticket_id).await;
+                            let _ =
+                                send_ticket_detail(&bot, chat_id, msg_id, &state, ticket_id).await;
                         }
                     }
 
@@ -1833,7 +2052,10 @@ pub async fn callback_handler(
                                     let _ = bot
                                         .send_message(chat_id, t(None, "admin.assign.success"))
                                         .await;
-                                    let _ = send_ticket_detail(&bot, chat_id, msg_id, &state, ticket_id).await;
+                                    let _ = send_ticket_detail(
+                                        &bot, chat_id, msg_id, &state, ticket_id,
+                                    )
+                                    .await;
                                 }
                                 Err(e) => {
                                     error!(ticket_id, tg_id, error = %e, "Failed to assign ticket");
@@ -1862,10 +2084,7 @@ pub async fn callback_handler(
                                     .reply_markup(kb)
                                     .await;
                             } else {
-                                let _ = bot
-                                    .send_message(chat_id, text)
-                                    .reply_markup(kb)
-                                    .await;
+                                let _ = bot.send_message(chat_id, text).reply_markup(kb).await;
                             }
                         }
                     }
@@ -1876,8 +2095,7 @@ pub async fn callback_handler(
                     setstatus if setstatus.starts_with("adm:setstatus:") => {
                         let rest = setstatus.strip_prefix("adm:setstatus:").unwrap_or("");
                         let mut parts = rest.splitn(2, ':');
-                        let ticket_id: i64 =
-                            parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+                        let ticket_id: i64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
                         let new_status = parts.next().unwrap_or("");
                         if ticket_id > 0 && !new_status.is_empty() {
                             match state
@@ -1889,7 +2107,10 @@ pub async fn callback_handler(
                                     let _ = bot
                                         .send_message(chat_id, t(None, "admin.status.changed"))
                                         .await;
-                                    let _ = send_ticket_detail(&bot, chat_id, msg_id, &state, ticket_id).await;
+                                    let _ = send_ticket_detail(
+                                        &bot, chat_id, msg_id, &state, ticket_id,
+                                    )
+                                    .await;
                                 }
                                 Err(e) => {
                                     error!(ticket_id, new_status, tg_id, error = %e, "Failed to change ticket status");
@@ -1915,10 +2136,7 @@ pub async fn callback_handler(
                                 .reply_markup(kb)
                                 .await;
                         } else {
-                            let _ = bot
-                                .send_message(chat_id, text)
-                                .reply_markup(kb)
-                                .await;
+                            let _ = bot.send_message(chat_id, text).reply_markup(kb).await;
                         }
                     }
 
@@ -1951,10 +2169,7 @@ pub async fn callback_handler(
                                 .reply_markup(kb)
                                 .await;
                         } else {
-                            let _ = bot
-                                .send_message(chat_id, text)
-                                .reply_markup(kb)
-                                .await;
+                            let _ = bot.send_message(chat_id, text).reply_markup(kb).await;
                         }
                     }
 
@@ -1985,10 +2200,7 @@ pub async fn callback_handler(
                                     .reply_markup(kb)
                                     .await;
                             } else {
-                                let _ = bot
-                                    .send_message(chat_id, text)
-                                    .reply_markup(kb)
-                                    .await;
+                                let _ = bot.send_message(chat_id, text).reply_markup(kb).await;
                             }
                         } else {
                             // Состояние потеряно — начинаем заново
@@ -2004,7 +2216,10 @@ pub async fn callback_handler(
                     sev if sev.starts_with("adm:bcast:sev:") => {
                         let severity = sev.strip_prefix("adm:bcast:sev:").unwrap_or("info");
                         let current = state.admin_fsm.get(tg_id).await;
-                        if let Some(AdminFsmState::BcastAwaitTitle { segment, category, .. }) = current {
+                        if let Some(AdminFsmState::BcastAwaitTitle {
+                            segment, category, ..
+                        }) = current
+                        {
                             // Переходим к вводу заголовка (текстовый ввод)
                             state
                                 .admin_fsm
@@ -2031,7 +2246,8 @@ pub async fn callback_handler(
                     // Broadcast: подтверждение отправки
                     // --------------------------------------------------------
                     "adm:bcast:confirm" => {
-                        let _ = handle_broadcast_confirm(&bot, chat_id, msg_id, tg_id, &state).await;
+                        let _ =
+                            handle_broadcast_confirm(&bot, chat_id, msg_id, tg_id, &state).await;
                     }
 
                     // --------------------------------------------------------
@@ -2058,10 +2274,8 @@ pub async fn callback_handler(
                     "adm:brand:menu" => {
                         // Возврат в меню бренда отменяет любой незавершённый ввод.
                         state.admin_fsm.clear(tg_id).await;
-                        crate::bot::handlers::brand::send_brand_menu(
-                            &bot, chat_id, msg_id, &state,
-                        )
-                        .await;
+                        crate::bot::handlers::brand::send_brand_menu(&bot, chat_id, msg_id, &state)
+                            .await;
                     }
 
                     // --------------------------------------------------------
@@ -2078,9 +2292,7 @@ pub async fn callback_handler(
                     // Бренд: ввод значения поля adm:brand:set:<field>
                     // --------------------------------------------------------
                     set_field if set_field.starts_with("adm:brand:set:") => {
-                        let field_id = set_field
-                            .strip_prefix("adm:brand:set:")
-                            .unwrap_or("");
+                        let field_id = set_field.strip_prefix("adm:brand:set:").unwrap_or("");
                         if let Some(field) =
                             crate::bot::handlers::brand::BrandField::from_id(field_id)
                         {

@@ -53,7 +53,8 @@ class _ConnectDialState extends State<ConnectDial>
   }
 
   void _syncSpin() {
-    final busy = widget.stage == VpnStage.connecting ||
+    final busy =
+        widget.stage == VpnStage.connecting ||
         widget.stage == VpnStage.reconnecting;
     if (busy) {
       if (!_spin.isAnimating) _spin.repeat();
@@ -84,17 +85,17 @@ class _ConnectDialState extends State<ConnectDial>
   }
 
   String _glyph() => switch (widget.stage) {
-        VpnStage.connected => Lucide.shield,
-        VpnStage.error => Lucide.alert,
-        _ => Lucide.power,
-      };
+    VpnStage.connected => Lucide.shield,
+    VpnStage.error => Lucide.alert,
+    _ => Lucide.power,
+  };
 
   Color _faceColor(AppColors c) => switch (widget.stage) {
-        VpnStage.connected => c.success,
-        VpnStage.error => c.danger,
-        VpnStage.connecting || VpnStage.reconnecting => c.warning,
-        VpnStage.disconnected => c.textMed,
-      };
+    VpnStage.connected => c.success,
+    VpnStage.error => c.danger,
+    VpnStage.connecting || VpnStage.reconnecting => c.warning,
+    VpnStage.disconnected => c.textMed,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -146,13 +147,17 @@ class _ConnectDialState extends State<ConnectDial>
                         color: widget.stage == VpnStage.connected
                             ? c.success
                             : widget.stage == VpnStage.error
-                                ? c.danger
-                                : c.borderSubtle,
+                            ? c.danger
+                            : c.borderSubtle,
                       ),
                     ),
                     alignment: Alignment.center,
-                    child: LucideIcon(_glyph(),
-                        color: faceColor, size: 42, strokeWidth: 1.8),
+                    child: LucideIcon(
+                      _glyph(),
+                      color: faceColor,
+                      size: 42,
+                      strokeWidth: 1.8,
+                    ),
                   ),
                 ),
               ],
@@ -166,10 +171,11 @@ class _ConnectDialState extends State<ConnectDial>
           Text(
             widget.subLabel!,
             textAlign: TextAlign.center,
-            style: (widget.stage == VpnStage.connected
-                    ? AppType.monoSm
-                    : AppType.bodySm)
-                .copyWith(color: c.textMed),
+            style:
+                (widget.stage == VpnStage.connected
+                        ? AppType.monoSm
+                        : AppType.bodySm)
+                    .copyWith(color: c.textMed),
           ),
         ],
       ],

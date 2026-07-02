@@ -1,6 +1,6 @@
 use crate::services::activity_service::ActivityService;
 use crate::singbox::connection_variants::{
-    apply_connection_variant, fixed_connection_variants, SingboxConnectionVariant,
+    SingboxConnectionVariant, apply_connection_variant, fixed_connection_variants,
 };
 use crate::singbox::subscription_generator::{NodeInfo, UserKeys};
 use anyhow::{Context, Result};
@@ -90,10 +90,10 @@ impl SubscriptionService {
         if let Ok(sock) = value.parse::<std::net::SocketAddr>() {
             return Some(Self::canonicalize_ip(sock.ip()));
         }
-        if let Some((host, _port)) = value.rsplit_once(':') {
-            if let Ok(ip) = host.parse::<IpAddr>() {
-                return Some(Self::canonicalize_ip(ip));
-            }
+        if let Some((host, _port)) = value.rsplit_once(':')
+            && let Ok(ip) = host.parse::<IpAddr>()
+        {
+            return Some(Self::canonicalize_ip(ip));
         }
         None
     }
@@ -319,7 +319,7 @@ impl SubscriptionService {
         let query =
             "SELECT * FROM plan_durations WHERE plan_id = ANY($1) ORDER BY duration_days ASC";
 
-        let all_durations = sqlx::query_as::<_, PlanDuration>(&query)
+        let all_durations = sqlx::query_as::<_, PlanDuration>(query)
             .bind(&plan_ids)
             .fetch_all(&self.pool)
             .await?;
@@ -526,14 +526,13 @@ impl SubscriptionService {
         .await;
 
         // Notify node to regenerate config with extended subscription
-        let node_id: Option<i64> = sqlx::query_scalar(
-            "SELECT node_id FROM subscriptions WHERE id = $1"
-        )
-        .bind(sub_id)
-        .fetch_optional(&self.pool)
-        .await
-        .ok()
-        .flatten();
+        let node_id: Option<i64> =
+            sqlx::query_scalar("SELECT node_id FROM subscriptions WHERE id = $1")
+                .bind(sub_id)
+                .fetch_optional(&self.pool)
+                .await
+                .ok()
+                .flatten();
 
         if let (Some(orch), Some(nid)) = (&self.orchestration_service, node_id) {
             let _ = orch.notify_node_update(nid).await;
@@ -829,14 +828,13 @@ impl SubscriptionService {
                 tx.commit().await?;
 
                 // Notify node to regenerate config with renewed subscription
-                let node_id: Option<i64> = sqlx::query_scalar(
-                    "SELECT node_id FROM subscriptions WHERE id = $1"
-                )
-                .bind(sub_id)
-                .fetch_optional(&self.pool)
-                .await
-                .ok()
-                .flatten();
+                let node_id: Option<i64> =
+                    sqlx::query_scalar("SELECT node_id FROM subscriptions WHERE id = $1")
+                        .bind(sub_id)
+                        .fetch_optional(&self.pool)
+                        .await
+                        .ok()
+                        .flatten();
 
                 if let (Some(orch), Some(nid)) = (&self.orchestration_service, node_id) {
                     let _ = orch.notify_node_update(nid).await;
@@ -875,7 +873,7 @@ impl SubscriptionService {
                 );
                 return Ok(links);
             };
-            let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>(&format!(
+            let inbounds = sqlx::query_as::<_, caramba_db::models::network::Inbound>(
                 r#"
                 SELECT DISTINCT i.id,
                        i.node_id,
@@ -883,8 +881,8 @@ impl SubscriptionService {
                        i.protocol,
                        i.listen_port::BIGINT AS listen_port,
                        COALESCE(i.listen_ip, '::') AS listen_ip,
-                       COALESCE(i.settings, '{{}}') AS settings,
-                       COALESCE(i.stream_settings, '{{}}') AS stream_settings,
+                       COALESCE(i.settings, '{}') AS settings,
+                       COALESCE(i.stream_settings, '{}') AS stream_settings,
                        i.remark,
                        COALESCE(i.enable, TRUE) AS enable,
                        COALESCE(i.renew_interval_mins, 0)::BIGINT AS renew_interval_mins,
@@ -898,8 +896,8 @@ impl SubscriptionService {
                 LEFT JOIN node_group_members ngm ON ngm.node_id = i.node_id
                 LEFT JOIN plan_groups pg ON pg.group_id = ngm.group_id
                 WHERE (pi.plan_id = $1 OR pn.plan_id = $1 OR pg.plan_id = $1) AND i.enable = TRUE
-                "#
-            ))
+                "#,
+            )
             .bind(sub.plan_id)
             .fetch_all(&self.pool)
             .await?;
@@ -1021,13 +1019,11 @@ impl SubscriptionService {
 
                         if let Ok(InboundType::Hysteria2(settings)) =
                             serde_json::from_str::<InboundType>(&inbound.settings)
+                            && let Some(obfs) = settings.obfs
+                            && obfs.ttype == "salamander"
                         {
-                            if let Some(obfs) = settings.obfs {
-                                if obfs.ttype == "salamander" {
-                                    params.push("obfs=salamander".to_string());
-                                    params.push(format!("obfs-password={}", obfs.password));
-                                }
-                            }
+                            params.push("obfs=salamander".to_string());
+                            params.push(format!("obfs-password={}", obfs.password));
                         }
 
                         let tg_id: i64 =
@@ -1220,7 +1216,9 @@ impl SubscriptionService {
 
     /// Возвращает подписки бесплатных планов, исчерпавших трафик, без смены статуса.
     /// Используется для принудительного обрыва соединений без истечения подписки.
-    pub async fn throttled_free_quota_subscriptions(&self) -> Result<Vec<ExpiredQuotaSubscription>> {
+    pub async fn throttled_free_quota_subscriptions(
+        &self,
+    ) -> Result<Vec<ExpiredQuotaSubscription>> {
         let rows = sqlx::query_as::<_, ExpiredQuotaSubscription>(
             r#"
             SELECT s.id AS subscription_id, s.user_id, s.node_id
@@ -1635,10 +1633,10 @@ impl SubscriptionService {
             let n_inbounds = inbounds_map.get(&n.id).cloned().unwrap_or_default();
             let mut ni = NodeInfo::new(n, n_inbounds);
 
-            if let Some(r_id) = n.relay_id {
-                if let Some(r_info) = relays_map.get(&r_id) {
-                    ni.relay_info = Some(Box::new(r_info.clone()));
-                }
+            if let Some(r_id) = n.relay_id
+                && let Some(r_info) = relays_map.get(&r_id)
+            {
+                ni.relay_info = Some(Box::new(r_info.clone()));
             }
             node_infos.push(ni);
         }
@@ -1649,11 +1647,10 @@ impl SubscriptionService {
     /// Fetch all active relay nodes with their inbounds — used to auto-match
     /// relay chains to every exit node at config generation time.
     pub async fn get_all_active_relay_infos(&self) -> Result<Vec<NodeInfo>> {
-        let relay_nodes: Vec<Node> = sqlx::query_as(
-            "SELECT * FROM nodes WHERE is_relay = TRUE AND status = 'active'"
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let relay_nodes: Vec<Node> =
+            sqlx::query_as("SELECT * FROM nodes WHERE is_relay = TRUE AND status = 'active'")
+                .fetch_all(&self.pool)
+                .await?;
 
         if relay_nodes.is_empty() {
             return Ok(Vec::new());
@@ -1836,8 +1833,12 @@ impl SubscriptionService {
         variant: Option<&str>,
         relay_nodes: &[NodeInfo],
     ) -> Result<String> {
-        let config =
-            crate::singbox::subscription_generator::generate_singbox_config(sub, nodes, keys, relay_nodes)?;
+        let config = crate::singbox::subscription_generator::generate_singbox_config(
+            sub,
+            nodes,
+            keys,
+            relay_nodes,
+        )?;
 
         match variant {
             Some(variant_id) => apply_connection_variant(&config, variant_id),

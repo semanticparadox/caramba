@@ -60,9 +60,7 @@ pub struct NodesRowsPartial {
 
 /// Запрашивает счётчики активных подписок и онлайн-устройств (активность за 15 минут)
 /// для всех узлов. Возвращает (subs_map, online_map) node_id -> count.
-async fn fetch_node_metrics(
-    pool: &sqlx::PgPool,
-) -> (HashMap<i64, i64>, HashMap<i64, i64>) {
+async fn fetch_node_metrics(pool: &sqlx::PgPool) -> (HashMap<i64, i64>, HashMap<i64, i64>) {
     // Активные подписки на каждом узле
     let subs_rows = sqlx::query_as::<_, (i64, i64)>(
         "SELECT node_id, COUNT(*)::bigint AS count
@@ -117,13 +115,28 @@ async fn fetch_node_list_data(state: &AppState, scope: NodesScope) -> NodeListDa
             Vec::new()
         });
 
-    let relay_nodes: Vec<Node> = all_nodes.iter().filter(|n| n.is_relay_node()).cloned().collect();
-    let exit_nodes: Vec<Node> = all_nodes.iter().filter(|n| n.is_exit_node()).cloned().collect();
-    let nodes_for_scope: Vec<Node> = all_nodes.iter().filter(|n| scope.matches_node(n)).cloned().collect();
+    let relay_nodes: Vec<Node> = all_nodes
+        .iter()
+        .filter(|n| n.is_relay_node())
+        .cloned()
+        .collect();
+    let exit_nodes: Vec<Node> = all_nodes
+        .iter()
+        .filter(|n| n.is_exit_node())
+        .cloned()
+        .collect();
+    let nodes_for_scope: Vec<Node> = all_nodes
+        .iter()
+        .filter(|n| scope.matches_node(n))
+        .cloned()
+        .collect();
     let all_nodes_count = all_nodes.len();
 
     let admin_path = normalized_admin_path(&state.admin_path);
-    let agent_latest_version = state.settings.get_or_default("agent_latest_version", "0.0.0").await;
+    let agent_latest_version = state
+        .settings
+        .get_or_default("agent_latest_version", "0.0.0")
+        .await;
     let auto_update_agents: bool = state
         .settings
         .get_or_default("auto_update_agents", "true")
@@ -714,12 +727,13 @@ pub async fn update_node(
     let mut headers = HeaderMap::new();
 
     // Check if HTMX request
-    if let Some(_) = form
+    if form
         .config_block_torrent
         .as_ref()
         .or(form.config_block_ads.as_ref())
         .or(form.config_block_porn.as_ref())
         .or(form.config_qos_enabled.as_ref())
+        .is_some()
     {
         // Targeted update from managing page switches
         return (axum::http::StatusCode::OK, "Saved").into_response();
@@ -1780,10 +1794,7 @@ pub async fn admin_rotate_node_sni(
                 .await;
 
             let mut resp_headers = axum::http::HeaderMap::new();
-            resp_headers.insert(
-                "HX-Trigger",
-                "refresh_nodes".parse().unwrap(),
-            );
+            resp_headers.insert("HX-Trigger", "refresh_nodes".parse().unwrap());
             (
                 axum::http::StatusCode::OK,
                 resp_headers,
@@ -1834,13 +1845,11 @@ pub async fn update_sni_interval(
         Some(v) => v.parse::<i32>().ok(),
     };
 
-    if let Err(e) = sqlx::query(
-        "UPDATE nodes SET sni_renew_interval_hours = $1 WHERE id = $2",
-    )
-    .bind(interval)
-    .bind(node_id)
-    .execute(&state.pool)
-    .await
+    if let Err(e) = sqlx::query("UPDATE nodes SET sni_renew_interval_hours = $1 WHERE id = $2")
+        .bind(interval)
+        .bind(node_id)
+        .execute(&state.pool)
+        .await
     {
         error!(
             "Failed to update sni_renew_interval_hours for node {}: {}",
@@ -1906,16 +1915,27 @@ pub async fn admin_reload_all_nodes(
             .generate_node_config_json(*node_id)
             .await
         {
-            warn!("Config regen failed for node {} during reload-all: {}", node_id, e);
+            warn!(
+                "Config regen failed for node {} during reload-all: {}",
+                node_id, e
+            );
         }
-        match state.orchestration_service.notify_node_update(*node_id).await {
+        match state
+            .orchestration_service
+            .notify_node_update(*node_id)
+            .await
+        {
             Ok(_) => ok += 1,
             Err(e) => failures.push((*node_id, e.to_string())),
         }
     }
 
     let body = if failures.is_empty() {
-        format!("✅ Уведомление разослано всем активным нодам ({}/{})", ok, active_ids.len())
+        format!(
+            "✅ Уведомление разослано всем активным нодам ({}/{})",
+            ok,
+            active_ids.len()
+        )
     } else {
         let fail_list = failures
             .iter()

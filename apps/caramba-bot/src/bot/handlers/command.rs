@@ -19,7 +19,7 @@ pub async fn message_handler(
     state: AppState,
 ) -> Result<(), teloxide::RequestError> {
     info!("Received message: {:?}", msg.text());
-    let tg_id = msg.chat.id.0 as i64;
+    let tg_id = msg.chat.id.0;
 
     if let Some(payment) = msg.successful_payment() {
         // Идемпотентный ключ — charge_id гарантированно уникален для каждого платежа.
@@ -62,21 +62,28 @@ pub async fn message_handler(
                     )
                     .await;
 
-                let pay_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let pay_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let _ = bot
                     .send_message(msg.chat.id, t(pay_lang.as_deref(), "msg.payment_success"))
                     .await;
             }
             Err(e) => {
                 error!(tg_id, charge_id = %charge_id, error = %e, "Stars payment processing failed");
-                let pay_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                    .ok().flatten().and_then(|u| u.language_code.clone());
+                let pay_lang = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|u| u.language_code.clone());
                 let _ = bot
-                    .send_message(
-                        msg.chat.id,
-                        t(pay_lang.as_deref(), "msg.payment_error"),
-                    )
+                    .send_message(msg.chat.id, t(pay_lang.as_deref(), "msg.payment_error"))
                     .await;
             }
         }
@@ -131,9 +138,8 @@ pub async fn message_handler(
                             let referred_id = u.id;
                             let api = state.api_client.clone();
                             tokio::spawn(async move {
-                                if let Err(e) = api
-                                    .apply_referral_signup_bonus(r_id, referred_id)
-                                    .await
+                                if let Err(e) =
+                                    api.apply_referral_signup_bonus(r_id, referred_id).await
                                 {
                                     tracing::warn!(
                                         "Failed to apply referral signup bonus (referrer={} referred={}): {}",
@@ -163,10 +169,7 @@ pub async fn message_handler(
             if user.is_banned {
                 let lang = user.language_code.as_deref();
                 let _ = bot
-                    .send_message(
-                        msg.chat.id,
-                        t(lang, "msg.access_denied"),
-                    )
+                    .send_message(msg.chat.id, t(lang, "msg.access_denied"))
                     .parse_mode(ParseMode::MarkdownV2)
                     .await;
                 return Ok(());
@@ -174,10 +177,7 @@ pub async fn message_handler(
 
             if user.language_code.is_none() {
                 let _ = bot
-                    .send_message(
-                        msg.chat.id,
-                        t(None, "msg.select_language"),
-                    )
+                    .send_message(msg.chat.id, t(None, "msg.select_language"))
                     .parse_mode(ParseMode::Html)
                     .reply_markup(language_keyboard())
                     .await
@@ -196,10 +196,7 @@ pub async fn message_handler(
                         let _ = state.store_service.ban_user(user.id).await;
                         let lang = user.language_code.as_deref();
                         let _ = bot
-                            .send_message(
-                                msg.chat.id,
-                                t(lang, "msg.account_banned"),
-                            )
+                            .send_message(msg.chat.id, t(lang, "msg.account_banned"))
                             .parse_mode(ParseMode::Html)
                             .await;
                         return Ok(());
@@ -209,10 +206,11 @@ pub async fn message_handler(
                     let _ = bot
                         .send_message(
                             msg.chat.id,
-                            tf(lang, "msg.tos_warning", &[
-                                &current_warning.to_string(),
-                                &MAX_WARNINGS.to_string(),
-                            ]),
+                            tf(
+                                lang,
+                                "msg.tos_warning",
+                                &[&current_warning.to_string(), &MAX_WARNINGS.to_string()],
+                            ),
                         )
                         .parse_mode(ParseMode::Html)
                         .await
@@ -224,17 +222,26 @@ pub async fn message_handler(
                     .get_or_default("terms_of_service", "Terms of Service...")
                     .await;
 
-                let _ = bot.send_message(msg.chat.id, format!("{}\n\n{}\n\n{}", t(lang, "msg.terms_header"), terms_text, t(lang, "msg.terms_accept_prompt")))
+                let _ = bot
+                    .send_message(
+                        msg.chat.id,
+                        format!(
+                            "{}\n\n{}\n\n{}",
+                            t(lang, "msg.terms_header"),
+                            terms_text,
+                            t(lang, "msg.terms_accept_prompt")
+                        ),
+                    )
                     .parse_mode(ParseMode::Html)
                     .reply_markup(terms_keyboard(lang))
                     .await
                     .map(move |m| {
-                         let state = state.clone();
-                         let bot = bot.clone();
-                         let uid = user.id;
-                         tokio::spawn(async move {
-                             register_bot_message(bot, &state, uid, &m).await;
-                         });
+                        let state = state.clone();
+                        let bot = bot.clone();
+                        let uid = user.id;
+                        tokio::spawn(async move {
+                            register_bot_message(bot, &state, uid, &m).await;
+                        });
                     })
                     .map_err(|e| error!("Failed to send terms: {}", e));
                 return Ok(());
@@ -307,15 +314,19 @@ pub async fn message_handler(
 
         // --- Admin FSM: обрабатываем текстовые вводы в FSM-состояниях администратора ---
         // Проверяем ДО стандартной обработки команд, чтобы не мешать нормальному флоу.
-        if state.admin_service.is_admin(tg_id).await {
-            if handle_admin_text(&bot, &msg, tg_id, text, &state).await {
-                return Ok(());
-            }
+        if state.admin_service.is_admin(tg_id).await
+            && handle_admin_text(&bot, &msg, tg_id, text, &state).await
+        {
+            return Ok(());
         }
 
         // --- Admin Commands ---
-        if text.starts_with("/admin") || text.starts_with("/stats") || text.starts_with("/gift ")
-            || text.starts_with("/promo ") || text.starts_with("/ban ") || text.starts_with("/unban ")
+        if text.starts_with("/admin")
+            || text.starts_with("/stats")
+            || text.starts_with("/gift ")
+            || text.starts_with("/promo ")
+            || text.starts_with("/ban ")
+            || text.starts_with("/unban ")
         {
             let is_admin = is_admin_tg_id(&state, tg_id).await;
             if !is_admin {
@@ -330,7 +341,12 @@ pub async fn message_handler(
 
             if text == "/admin" || text == "/admin@" || text.starts_with("/admin ") {
                 // Делегируем новому обработчику с inline-клавиатурой
-                let _ = crate::bot::handlers::admin::handle_admin_command(bot.clone(), msg.clone(), state.clone()).await;
+                let _ = crate::bot::handlers::admin::handle_admin_command(
+                    bot.clone(),
+                    msg.clone(),
+                    state.clone(),
+                )
+                .await;
                 return Ok(());
             }
 
@@ -347,15 +363,28 @@ pub async fn message_handler(
             }
 
             if text.starts_with("/ban ") {
-                let username = text.strip_prefix("/ban ").unwrap_or("").trim().trim_start_matches('@');
+                let username = text
+                    .strip_prefix("/ban ")
+                    .unwrap_or("")
+                    .trim()
+                    .trim_start_matches('@');
                 if username.is_empty() {
                     let _ = bot.send_message(msg.chat.id, "Usage: /ban @username").await;
                 } else {
                     match state.store_service.ban_user_by_username(username).await {
-                        Ok(_) => { let _ = bot.send_message(msg.chat.id, format!("Banned @{}", username)).await; }
+                        Ok(_) => {
+                            let _ = bot
+                                .send_message(msg.chat.id, format!("Banned @{}", username))
+                                .await;
+                        }
                         Err(e) => {
                             error!(username, error = %e, "Admin /ban failed");
-                            let _ = bot.send_message(msg.chat.id, format!("Failed to ban @{}. Check logs.", username)).await;
+                            let _ = bot
+                                .send_message(
+                                    msg.chat.id,
+                                    format!("Failed to ban @{}. Check logs.", username),
+                                )
+                                .await;
                         }
                     }
                 }
@@ -363,15 +392,30 @@ pub async fn message_handler(
             }
 
             if text.starts_with("/unban ") {
-                let username = text.strip_prefix("/unban ").unwrap_or("").trim().trim_start_matches('@');
+                let username = text
+                    .strip_prefix("/unban ")
+                    .unwrap_or("")
+                    .trim()
+                    .trim_start_matches('@');
                 if username.is_empty() {
-                    let _ = bot.send_message(msg.chat.id, "Usage: /unban @username").await;
+                    let _ = bot
+                        .send_message(msg.chat.id, "Usage: /unban @username")
+                        .await;
                 } else {
                     match state.store_service.unban_user_by_username(username).await {
-                        Ok(_) => { let _ = bot.send_message(msg.chat.id, format!("Unbanned @{}", username)).await; }
+                        Ok(_) => {
+                            let _ = bot
+                                .send_message(msg.chat.id, format!("Unbanned @{}", username))
+                                .await;
+                        }
                         Err(e) => {
                             error!(username, error = %e, "Admin /unban failed");
-                            let _ = bot.send_message(msg.chat.id, format!("Failed to unban @{}. Check logs.", username)).await;
+                            let _ = bot
+                                .send_message(
+                                    msg.chat.id,
+                                    format!("Failed to unban @{}. Check logs.", username),
+                                )
+                                .await;
                         }
                     }
                 }
@@ -394,21 +438,37 @@ pub async fn message_handler(
                             .store_service
                             .update_subscription_note(sub_id, text.to_string())
                             .await;
-                        let note_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                            .ok().flatten().and_then(|u| u.language_code.clone());
-                        let _ = bot.send_message(msg.chat.id, t(note_lang.as_deref(), "msg.note_updated")).await;
+                        let note_lang = state
+                            .store_service
+                            .get_user_by_tg_id(tg_id)
+                            .await
+                            .ok()
+                            .flatten()
+                            .and_then(|u| u.language_code.clone());
+                        let _ = bot
+                            .send_message(msg.chat.id, t(note_lang.as_deref(), "msg.note_updated"))
+                            .await;
                         return Ok(());
                     }
                 }
                 // Transfer (detect both EN and RU prompt markers)
-                let is_transfer = (reply_text.contains("Transfer Subscription") && reply_text.contains("Subscription #"))
-                    || (reply_text.contains("Передача подписки") && reply_text.contains("подписки #"));
+                let is_transfer = (reply_text.contains("Transfer Subscription")
+                    && reply_text.contains("Subscription #"))
+                    || (reply_text.contains("Передача подписки")
+                        && reply_text.contains("подписки #"));
                 if is_transfer {
                     // Extract sub ID: look for "Subscription #" or "подписки #"
-                    let marker = if reply_text.contains("Subscription #") { "Subscription #" } else { "подписки #" };
+                    let marker = if reply_text.contains("Subscription #") {
+                        "Subscription #"
+                    } else {
+                        "подписки #"
+                    };
                     if let Some(start) = reply_text.find(marker) {
                         let rest = &reply_text[start + marker.len()..];
-                        let id_str = rest.split(|c: char| !c.is_ascii_digit()).next().unwrap_or("0");
+                        let id_str = rest
+                            .split(|c: char| !c.is_ascii_digit())
+                            .next()
+                            .unwrap_or("0");
                         if let Ok(sub_id) = id_str.parse::<i64>() {
                             let user_db_res: AnyhowResult<Option<User>> =
                                 state.store_service.get_user_by_tg_id(tg_id).await;
@@ -420,13 +480,27 @@ pub async fn message_handler(
                                     .await
                                 {
                                     Ok(_) => {
-                                        let _ = bot.send_message(msg.chat.id, tf(lang, "msg.transfer_success", &[&sub_id.to_string(), &escape_md(text)])).parse_mode(ParseMode::MarkdownV2).await;
+                                        let _ = bot
+                                            .send_message(
+                                                msg.chat.id,
+                                                tf(
+                                                    lang,
+                                                    "msg.transfer_success",
+                                                    &[&sub_id.to_string(), &escape_md(text)],
+                                                ),
+                                            )
+                                            .parse_mode(ParseMode::MarkdownV2)
+                                            .await;
                                     }
                                     Err(e) => {
                                         let _ = bot
                                             .send_message(
                                                 msg.chat.id,
-                                                tf(lang, "msg.transfer_failed", &[&escape_md(&e.to_string())]),
+                                                tf(
+                                                    lang,
+                                                    "msg.transfer_failed",
+                                                    &[&escape_md(&e.to_string())],
+                                                ),
                                             )
                                             .parse_mode(ParseMode::MarkdownV2)
                                             .await;
@@ -463,7 +537,11 @@ pub async fn message_handler(
                                 let _ = bot
                                     .send_message(
                                         msg.chat.id,
-                                        tf(lang, "msg.redemption_failed", &[&escape_md(&e.to_string())]),
+                                        tf(
+                                            lang,
+                                            "msg.redemption_failed",
+                                            &[&escape_md(&e.to_string())],
+                                        ),
                                     )
                                     .parse_mode(ParseMode::MarkdownV2)
                                     .await;
@@ -478,15 +556,32 @@ pub async fn message_handler(
                     let new_code = text.trim();
 
                     // Basic validation
-                    let ref_lang = state.store_service.get_user_by_tg_id(tg_id).await
-                        .ok().flatten().and_then(|u| u.language_code.clone());
+                    let ref_lang = state
+                        .store_service
+                        .get_user_by_tg_id(tg_id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|u| u.language_code.clone());
                     if new_code.len() < 3 || new_code.len() > 32 {
-                        let _ = bot.send_message(msg.chat.id, t(ref_lang.as_deref(), "msg.alias_invalid_length")).parse_mode(ParseMode::MarkdownV2).await;
+                        let _ = bot
+                            .send_message(
+                                msg.chat.id,
+                                t(ref_lang.as_deref(), "msg.alias_invalid_length"),
+                            )
+                            .parse_mode(ParseMode::MarkdownV2)
+                            .await;
                         return Ok(());
                     }
 
                     if !new_code.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                        let _ = bot.send_message(msg.chat.id, t(ref_lang.as_deref(), "msg.alias_invalid_chars")).parse_mode(ParseMode::MarkdownV2).await;
+                        let _ = bot
+                            .send_message(
+                                msg.chat.id,
+                                t(ref_lang.as_deref(), "msg.alias_invalid_chars"),
+                            )
+                            .parse_mode(ParseMode::MarkdownV2)
+                            .await;
                         return Ok(());
                     }
 
@@ -507,10 +602,14 @@ pub async fn message_handler(
                                 let new_link =
                                     format!("https://t.me/{}?start={}", bot_username, new_code);
 
-                                let response = tf(lang, "msg.alias_updated", &[
-                                    &new_code.replace('`', "\\`").replace('\\', "\\\\"),
-                                    &new_link.replace('`', "\\`").replace('\\', "\\\\"),
-                                ]);
+                                let response = tf(
+                                    lang,
+                                    "msg.alias_updated",
+                                    &[
+                                        &new_code.replace('`', "\\`").replace('\\', "\\\\"),
+                                        &new_link.replace('`', "\\`").replace('\\', "\\\\"),
+                                    ],
+                                );
                                 if let Err(e) = bot
                                     .send_message(msg.chat.id, response)
                                     .parse_mode(ParseMode::MarkdownV2)
@@ -520,7 +619,10 @@ pub async fn message_handler(
                                 }
                             }
                             Err(_e) => {
-                                let _ = bot.send_message(msg.chat.id, t(lang, "msg.alias_taken")).parse_mode(ParseMode::MarkdownV2).await;
+                                let _ = bot
+                                    .send_message(msg.chat.id, t(lang, "msg.alias_taken"))
+                                    .parse_mode(ParseMode::MarkdownV2)
+                                    .await;
                             }
                         }
                     }
@@ -528,7 +630,8 @@ pub async fn message_handler(
                 }
 
                 // Enter Referrer Code (detect both EN and RU)
-                if reply_text.contains("Enter Referrer Code") || reply_text.contains("Код реферера") {
+                if reply_text.contains("Enter Referrer Code") || reply_text.contains("Код реферера")
+                {
                     let ref_code = text.trim();
                     let user_db_res: AnyhowResult<Option<User>> =
                         state.store_service.get_user_by_tg_id(tg_id).await;
@@ -536,13 +639,20 @@ pub async fn message_handler(
                         let lang = u.language_code.as_deref();
                         match state.store_service.set_user_referrer(u.id, ref_code).await {
                             Ok(_) => {
-                                let _ = bot.send_message(msg.chat.id, t(lang, "msg.referrer_linked")).parse_mode(ParseMode::MarkdownV2).await;
+                                let _ = bot
+                                    .send_message(msg.chat.id, t(lang, "msg.referrer_linked"))
+                                    .parse_mode(ParseMode::MarkdownV2)
+                                    .await;
                             }
                             Err(e) => {
                                 let _ = bot
                                     .send_message(
                                         msg.chat.id,
-                                        tf(lang, "msg.linking_failed", &[&escape_md(&e.to_string())]),
+                                        tf(
+                                            lang,
+                                            "msg.linking_failed",
+                                            &[&escape_md(&e.to_string())],
+                                        ),
                                     )
                                     .parse_mode(ParseMode::MarkdownV2)
                                     .await;
@@ -584,16 +694,15 @@ pub async fn message_handler(
 
                 let kb = InlineKeyboardMarkup::new(buttons);
                 let _ = bot
-                    .send_message(
-                        msg.chat.id,
-                        t(lang, "msg.store_welcome"),
-                    )
+                    .send_message(msg.chat.id, t(lang, "msg.store_welcome"))
                     .parse_mode(ParseMode::MarkdownV2)
                     .reply_markup(kb)
                     .await;
             }
-        } else if text == "🛒 My Cart" || text == "/cart"
-            || text == t(lang, "kb.view_cart") || text == t(Some("en"), "kb.view_cart")
+        } else if text == "🛒 My Cart"
+            || text == "/cart"
+            || text == t(lang, "kb.view_cart")
+            || text == t(Some("en"), "kb.view_cart")
         {
             if let Some(user) = &user_res {
                 let cart_items_res: AnyhowResult<Vec<CartItem>> =
@@ -654,13 +763,16 @@ pub async fn message_handler(
                 }
             }
         } else if text == "/enter_promo" || text == "🎁 Redeem Code" {
-            let _ = bot.send_message(msg.chat.id, t(lang, "msg.redeem_gift"))
+            let _ = bot
+                .send_message(msg.chat.id, t(lang, "msg.redeem_gift"))
                 .parse_mode(ParseMode::MarkdownV2)
                 .reply_markup(ForceReply::new().selective())
                 .await;
-        } else if text == t(lang, "kb.buy_sub") || text == t(Some("en"), "kb.buy_sub") || text == "/plans" {
-            let plans_res: AnyhowResult<Vec<Plan>> =
-                state.store_service.get_active_plans().await;
+        } else if text == t(lang, "kb.buy_sub")
+            || text == t(Some("en"), "kb.buy_sub")
+            || text == "/plans"
+        {
+            let plans_res: AnyhowResult<Vec<Plan>> = state.store_service.get_active_plans().await;
             let plans = plans_res.unwrap_or_default();
 
             if plans.is_empty() {
@@ -691,7 +803,12 @@ pub async fn message_handler(
                     let price_major = dur.price / 100;
                     let price_minor = dur.price % 100;
                     let label = if dur.duration_days == 0 {
-                        format!("🚀 {} - ${}.{:02}", t(lang, "msg.traffic_plan"), price_major, price_minor)
+                        format!(
+                            "🚀 {} - ${}.{:02}",
+                            t(lang, "msg.traffic_plan"),
+                            price_major,
+                            price_minor
+                        )
                     } else {
                         format!(
                             "{}d - ${}.{:02}",
@@ -752,19 +869,25 @@ pub async fn message_handler(
                         }
                     });
             }
-        } else if text == t(lang, "kb.my_profile") || text == t(Some("en"), "kb.my_profile") || text == "/profile" {
+        } else if text == t(lang, "kb.my_profile")
+            || text == t(Some("en"), "kb.my_profile")
+            || text == "/profile"
+        {
             if let Some(user) = &user_res {
                 let price_major = user.balance / 100;
                 let price_minor = user.balance % 100;
 
                 let balance_str = format!("{}.{:02}", price_major, price_minor);
-                let response = tf(lang, "msg.user_profile", &[&user.tg_id.to_string(), &balance_str]);
+                let response = tf(
+                    lang,
+                    "msg.user_profile",
+                    &[&user.tg_id.to_string(), &balance_str],
+                );
 
-                let mut buttons = Vec::new();
-                buttons.push(vec![InlineKeyboardButton::callback(
+                let buttons = vec![vec![InlineKeyboardButton::callback(
                     t(lang, "kb.topup"),
                     "topup_menu",
-                )]);
+                )]];
 
                 let _ = bot
                     .send_message(msg.chat.id, response)
@@ -780,7 +903,10 @@ pub async fn message_handler(
                         });
                     });
             }
-        } else if text == t(lang, "kb.my_services") || text == t(Some("en"), "kb.my_services") || text == "/services" {
+        } else if text == t(lang, "kb.my_services")
+            || text == t(Some("en"), "kb.my_services")
+            || text == "/services"
+        {
             if let Some(user) = &user_res {
                 let mut response = t(lang, "msg.my_services").to_string();
 
@@ -795,13 +921,13 @@ pub async fn message_handler(
 
                 // Sort subs by status (Active first)
                 let mut sorted_subs = subs.clone();
-                sorted_subs.sort_by(|a, b| {
-                    match (a.sub.status.as_str(), b.sub.status.as_str()) {
+                sorted_subs.sort_by(
+                    |a, b| match (a.sub.status.as_str(), b.sub.status.as_str()) {
                         ("pending", "active") => std::cmp::Ordering::Less,
                         ("active", "pending") => std::cmp::Ordering::Greater,
                         _ => b.sub.created_at.cmp(&a.sub.created_at),
-                    }
-                });
+                    },
+                );
 
                 if sorted_subs.is_empty() {
                     response.push_str(t(lang, "msg.no_subscriptions"));
@@ -833,8 +959,11 @@ pub async fn message_handler(
                         page + 1,
                         total_pages
                     ));
-                    response
-                        .push_str(&format!("   💎 *{}* {}\n", t(lang, "msg.plan"), escape_md(&sub.plan_name)));
+                    response.push_str(&format!(
+                        "   💎 *{}* {}\n",
+                        t(lang, "msg.plan"),
+                        escape_md(&sub.plan_name)
+                    ));
                     if let Some(desc) = &sub.plan_description {
                         response.push_str(&format!("   _{}_\n", escape_md(desc)));
                     }
@@ -849,17 +978,23 @@ pub async fn message_handler(
                         if limit == 0 {
                             response.push_str(&format!(
                                 "   📊 *{}* `{:.2} GB / ∞`\n",
-                                t(lang, "msg.traffic"), used_gb
+                                t(lang, "msg.traffic"),
+                                used_gb
                             ));
                         } else {
                             response.push_str(&format!(
                                 "   📊 *{}* `{:.2} GB / {} GB`\n",
-                                t(lang, "msg.traffic"), used_gb, limit
+                                t(lang, "msg.traffic"),
+                                used_gb,
+                                limit
                             ));
                         }
                     } else {
-                        response
-                            .push_str(&format!("   📊 *{}* `{:.2} GB`\n", t(lang, "msg.traffic_used"), used_gb));
+                        response.push_str(&format!(
+                            "   📊 *{}* `{:.2} GB`\n",
+                            t(lang, "msg.traffic_used"),
+                            used_gb
+                        ));
                     }
 
                     if sub.sub.status == "active" {
@@ -867,12 +1002,15 @@ pub async fn message_handler(
                         if duration.num_days() == 0 {
                             response.push_str(&format!(
                                 "   ⌛ *{}* `{}` \\({}\\)\n",
-                                t(lang, "msg.expires"), t(lang, "msg.no_expiration"), t(lang, "msg.traffic_plan")
+                                t(lang, "msg.expires"),
+                                t(lang, "msg.no_expiration"),
+                                t(lang, "msg.traffic_plan")
                             ));
                         } else {
                             response.push_str(&format!(
                                 "   ⌛ *{}* `{}`\n",
-                                t(lang, "msg.expires"), sub.sub.expires_at.format("%Y-%m-%d")
+                                t(lang, "msg.expires"),
+                                sub.sub.expires_at.format("%Y-%m-%d")
                             ));
                         }
                     } else {
@@ -880,16 +1018,21 @@ pub async fn message_handler(
                         if duration.num_days() == 0 {
                             response.push_str(&format!(
                                 "   ⏱ *{}* `{}` \\({}\\)\n",
-                                t(lang, "msg.duration"), t(lang, "msg.no_expiration"), t(lang, "msg.traffic_plan")
+                                t(lang, "msg.duration"),
+                                t(lang, "msg.no_expiration"),
+                                t(lang, "msg.traffic_plan")
                             ));
                         } else {
                             response.push_str(&format!(
                                 "   ⏱ *{}* `{} {}` \\({}\\)\n",
-                                t(lang, "msg.duration"), duration.num_days(), t(lang, "msg.days"), t(lang, "msg.starts_on_activation")
+                                t(lang, "msg.duration"),
+                                duration.num_days(),
+                                t(lang, "msg.days"),
+                                t(lang, "msg.starts_on_activation")
                             ));
                         }
                     }
-                    response.push_str("\n");
+                    response.push('\n');
                     if let Some(note) = &sub.sub.note {
                         response.push_str(&format!("📝 *Note:* {}\n\n", escape_md(note)));
                     }
@@ -980,7 +1123,10 @@ pub async fn message_handler(
                         });
                 }
             }
-        } else if text == t(lang, "kb.bonuses") || text == t(Some("en"), "kb.bonuses") || text == "/referral" {
+        } else if text == t(lang, "kb.bonuses")
+            || text == t(Some("en"), "kb.bonuses")
+            || text == "/referral"
+        {
             if let Some(user) = &user_res {
                 let bot_me = bot.get_me().await.ok();
                 let bot_username = bot_me
@@ -1010,11 +1156,22 @@ pub async fn message_handler(
                 let mut response = t(lang, "msg.bonus_header").to_string();
                 response.push_str(&tf(lang, "msg.your_stats", &[]));
                 response.push_str(&tf(lang, "msg.referrals_joined", &[&ref_count.to_string()]));
-                response.push_str(&tf(lang, "msg.total_earned", &[&earnings_major.to_string(), &format!("{:02}", earnings_minor)]));
-                response.push_str(&tf(lang, "msg.promo_data", &[
-                    &ref_code.replace('`', "\\`").replace('\\', "\\\\"),
-                    &ref_link.replace('`', "\\`").replace('\\', "\\\\"),
-                ]));
+                response.push_str(&tf(
+                    lang,
+                    "msg.total_earned",
+                    &[
+                        &earnings_major.to_string(),
+                        &format!("{:02}", earnings_minor),
+                    ],
+                ));
+                response.push_str(&tf(
+                    lang,
+                    "msg.promo_data",
+                    &[
+                        &ref_code.replace('`', "\\`").replace('\\', "\\\\"),
+                        &ref_link.replace('`', "\\`").replace('\\', "\\\\"),
+                    ],
+                ));
 
                 let mut buttons = Vec::new();
                 buttons.push(vec![InlineKeyboardButton::callback(
@@ -1068,10 +1225,7 @@ pub async fn message_handler(
                             parsed_url,
                         )]]);
                         let _ = bot
-                            .send_message(
-                                msg.chat.id,
-                                t(lang, "msg.support_prompt"),
-                            )
+                            .send_message(msg.chat.id, t(lang, "msg.support_prompt"))
                             .reply_markup(kb)
                             .await;
                     }
@@ -1111,7 +1265,8 @@ pub async fn message_handler(
                             .await;
                         let limit = limit_res.unwrap_or(0);
 
-                        let mut text = tf(lang, "msg.devices_for_sub", &[&format!("{:?}", sub.sub.id)]);
+                        let mut text =
+                            tf(lang, "msg.devices_for_sub", &[&format!("{:?}", sub.sub.id)]);
                         text.push_str(&format!(
                             "Limit: `{}/{}` devices\n\n",
                             ips.len(),
@@ -1164,16 +1319,18 @@ pub async fn message_handler(
                         let mut buttons = Vec::new();
                         for sub in active_subs {
                             buttons.push(vec![InlineKeyboardButton::callback(
-                                format!("{} {} (#{})", t(lang, "msg.plan"), sub.plan_name, sub.sub.id),
+                                format!(
+                                    "{} {} (#{})",
+                                    t(lang, "msg.plan"),
+                                    sub.plan_name,
+                                    sub.sub.id
+                                ),
                                 format!("devices_{}", sub.sub.id),
                             )]);
                         }
 
                         let _ = bot
-                            .send_message(
-                                msg.chat.id,
-                                t(lang, "msg.select_sub_devices"),
-                            )
+                            .send_message(msg.chat.id, t(lang, "msg.select_sub_devices"))
                             .parse_mode(ParseMode::MarkdownV2)
                             .reply_markup(InlineKeyboardMarkup::new(buttons))
                             .await;
@@ -1193,7 +1350,10 @@ pub async fn message_handler(
 // ============================================================================
 
 async fn is_admin_tg_id(state: &AppState, tg_id: i64) -> bool {
-    let admin_ids_str = state.settings.get_or_default("admin_notification_tg_ids", "").await;
+    let admin_ids_str = state
+        .settings
+        .get_or_default("admin_notification_tg_ids", "")
+        .await;
     admin_ids_str
         .split(',')
         .any(|s| s.trim().parse::<i64>().ok() == Some(tg_id))
@@ -1214,14 +1374,18 @@ async fn handle_admin_stats(
                 Active subs: {}\n\
                 Revenue: ${:.2}\n\
                 Traffic (30d): {} GB",
-                s.active_nodes, s.total_users, s.active_subs,
-                s.total_revenue, s.traffic_30d_gb,
+                s.active_nodes, s.total_users, s.active_subs, s.total_revenue, s.traffic_30d_gb,
             );
-            let _ = bot.send_message(msg.chat.id, text).parse_mode(ParseMode::Html).await;
+            let _ = bot
+                .send_message(msg.chat.id, text)
+                .parse_mode(ParseMode::Html)
+                .await;
         }
         Err(e) => {
             error!(error = %e, "Admin /stats failed");
-            let _ = bot.send_message(msg.chat.id, "Failed to fetch stats. Check logs.").await;
+            let _ = bot
+                .send_message(msg.chat.id, "Failed to fetch stats. Check logs.")
+                .await;
         }
     }
     Ok(())
@@ -1236,27 +1400,45 @@ async fn handle_admin_gift(
     // /gift @username 30d
     let parts: Vec<&str> = text.splitn(3, ' ').collect();
     if parts.len() < 3 {
-        let _ = bot.send_message(msg.chat.id, "Usage: /gift @username 30d").await;
+        let _ = bot
+            .send_message(msg.chat.id, "Usage: /gift @username 30d")
+            .await;
         return Ok(());
     }
     let username = parts[1].trim_start_matches('@');
     let duration_str = parts[2].trim();
-    let days: i64 = duration_str
-        .trim_end_matches('d')
-        .parse()
-        .unwrap_or(0);
+    let days: i64 = duration_str.trim_end_matches('d').parse().unwrap_or(0);
     if days <= 0 {
-        let _ = bot.send_message(msg.chat.id, "Invalid duration. Use e.g. 30d").await;
+        let _ = bot
+            .send_message(msg.chat.id, "Invalid duration. Use e.g. 30d")
+            .await;
         return Ok(());
     }
 
-    match state.store_service.admin_gift_subscription(username, days).await {
+    match state
+        .store_service
+        .admin_gift_subscription(username, days)
+        .await
+    {
         Ok(sub_id) => {
-            let _ = bot.send_message(msg.chat.id, format!("Gift sub #{} created for @{} ({} days)", sub_id, username, days)).await;
+            let _ = bot
+                .send_message(
+                    msg.chat.id,
+                    format!(
+                        "Gift sub #{} created for @{} ({} days)",
+                        sub_id, username, days
+                    ),
+                )
+                .await;
         }
         Err(e) => {
             error!(username, error = %e, "Admin /gift failed");
-            let _ = bot.send_message(msg.chat.id, format!("Failed to gift sub to @{}. Check logs.", username)).await;
+            let _ = bot
+                .send_message(
+                    msg.chat.id,
+                    format!("Failed to gift sub to @{}. Check logs.", username),
+                )
+                .await;
         }
     }
     Ok(())
@@ -1276,16 +1458,24 @@ async fn handle_admin_promo(
                 if promos.is_empty() {
                     let _ = bot.send_message(msg.chat.id, "No active promos.").await;
                 } else {
-                    let lines: Vec<String> = promos.iter().map(|p| {
-                        format!("<code>{}</code> — {} uses", p.code, p.use_count)
-                    }).collect();
-                    let _ = bot.send_message(msg.chat.id, format!("📋 <b>Active Promos</b>\n\n{}", lines.join("\n")))
-                        .parse_mode(ParseMode::Html).await;
+                    let lines: Vec<String> = promos
+                        .iter()
+                        .map(|p| format!("<code>{}</code> — {} uses", p.code, p.use_count))
+                        .collect();
+                    let _ = bot
+                        .send_message(
+                            msg.chat.id,
+                            format!("📋 <b>Active Promos</b>\n\n{}", lines.join("\n")),
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .await;
                 }
             }
             Err(e) => {
                 error!(error = %e, "Admin /promo list failed");
-                let _ = bot.send_message(msg.chat.id, "Failed to list promos. Check logs.").await;
+                let _ = bot
+                    .send_message(msg.chat.id, "Failed to list promos. Check logs.")
+                    .await;
             }
         }
         return Ok(());
@@ -1299,16 +1489,37 @@ async fn handle_admin_promo(
             let _ = bot.send_message(msg.chat.id, "Invalid value.").await;
             return Ok(());
         }
-        match state.promo_service.create_promo(code, promo_type, value).await {
-            Ok(_) => { let _ = bot.send_message(msg.chat.id, format!("Promo {} created ({} = {})", code, promo_type, value)).await; }
+        match state
+            .promo_service
+            .create_promo(code, promo_type, value)
+            .await
+        {
+            Ok(_) => {
+                let _ = bot
+                    .send_message(
+                        msg.chat.id,
+                        format!("Promo {} created ({} = {})", code, promo_type, value),
+                    )
+                    .await;
+            }
             Err(e) => {
                 error!(code, promo_type, value, error = %e, "Admin /promo create failed");
-                let _ = bot.send_message(msg.chat.id, format!("Failed to create promo {}. Check logs.", code)).await;
+                let _ = bot
+                    .send_message(
+                        msg.chat.id,
+                        format!("Failed to create promo {}. Check logs.", code),
+                    )
+                    .await;
             }
         }
         return Ok(());
     }
 
-    let _ = bot.send_message(msg.chat.id, "Usage:\n/promo list\n/promo create CODE balance 500").await;
+    let _ = bot
+        .send_message(
+            msg.chat.id,
+            "Usage:\n/promo list\n/promo create CODE balance 500",
+        )
+        .await;
     Ok(())
 }

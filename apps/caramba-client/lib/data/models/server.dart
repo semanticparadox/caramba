@@ -57,31 +57,31 @@ class Server {
   }
 
   factory Server.fromJson(Map<String, dynamic> json) => Server(
-        id: (json['id'] as num).toInt(),
-        name: (json['name'] as String?) ?? 'Server',
-        countryCode: json['country_code'] as String?,
-        pingMs: (json['latency_ms'] as num?)?.toInt(),
-        load: (json['load_pct'] as num?)?.toDouble() ?? 0,
-        status: (json['status'] as String?) ?? 'online',
-      );
+    id: (json['id'] as num).toInt(),
+    name: (json['name'] as String?) ?? 'Server',
+    countryCode: json['country_code'] as String?,
+    pingMs: (json['latency_ms'] as num?)?.toInt(),
+    load: (json['load_pct'] as num?)?.toDouble() ?? 0,
+    status: (json['status'] as String?) ?? 'online',
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'country_code': countryCode,
-        'latency_ms': pingMs,
-        'load_pct': load,
-        'status': status,
-      };
+    'id': id,
+    'name': name,
+    'country_code': countryCode,
+    'latency_ms': pingMs,
+    'load_pct': load,
+    'status': status,
+  };
 
   Server copyWith({int? pingMs, double? load, String? status}) => Server(
-        id: id,
-        name: name,
-        countryCode: countryCode,
-        pingMs: pingMs ?? this.pingMs,
-        load: load ?? this.load,
-        status: status ?? this.status,
-      );
+    id: id,
+    name: name,
+    countryCode: countryCode,
+    pingMs: pingMs ?? this.pingMs,
+    load: load ?? this.load,
+    status: status ?? this.status,
+  );
 }
 
 enum PingBucket { good, fair, poor, timeout }

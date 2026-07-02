@@ -64,20 +64,17 @@ async fn resolve_user_id(state: &AppState, headers: &axum::http::HeaderMap) -> O
         token,
         &DecodingKey::from_secret(state.session_secret.as_bytes()),
         &Validation::new(Algorithm::HS256),
-    ) {
-        if token_data.claims.role == "client" {
-            if let Ok(tg_id) = token_data.claims.sub.parse::<i64>() {
-                let user_id: Option<i64> =
-                    sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
-                        .bind(tg_id)
-                        .fetch_optional(&state.pool)
-                        .await
-                        .ok()
-                        .flatten();
-                if user_id.is_some() {
-                    return user_id;
-                }
-            }
+    ) && token_data.claims.role == "client"
+        && let Ok(tg_id) = token_data.claims.sub.parse::<i64>()
+    {
+        let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+            .bind(tg_id)
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten();
+        if user_id.is_some() {
+            return user_id;
         }
     }
 
@@ -123,8 +120,8 @@ pub async fn generate_invite(
     // Let's assume any user for now, but strictly speaking only those with valid plans should probably invite.
     // For now, let's just proceed.
 
-    let max_uses = payload.max_uses.unwrap_or(1).max(1).min(100); // specific limits
-    let duration = payload.duration_days.unwrap_or(7).max(1).min(30);
+    let max_uses = payload.max_uses.unwrap_or(1).clamp(1, 100); // specific limits
+    let duration = payload.duration_days.unwrap_or(7).clamp(1, 30);
 
     match state
         .store_service

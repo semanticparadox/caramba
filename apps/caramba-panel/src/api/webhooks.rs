@@ -53,7 +53,11 @@ async fn handle_payment_webhook(
         "stripe" => header(&["stripe-signature", "Stripe-Signature"]),
         // New providers (7 added in this audit pass):
         "wata" => header(&["X-Signature", "x-signature"]),
-        "tribute" => header(&["trbt-signature", "X-Tribute-Signature", "x-tribute-signature"]),
+        "tribute" => header(&[
+            "trbt-signature",
+            "X-Tribute-Signature",
+            "x-tribute-signature",
+        ]),
         "btcpay" => header(&["BTCPay-Sig", "btcpay-sig"]),
         "oxapay" => header(&["HMAC", "hmac"]),
         "coinbase_commerce" => header(&["X-CC-Webhook-Signature", "x-cc-webhook-signature"]),
@@ -82,7 +86,9 @@ async fn handle_payment_webhook(
             //     we never registered — could be cleanup needed or recon attempt.
             // We DON'T page on every 400 (e.g. "no matching session") — those are noisy
             // and not actionable in real-time.
-            if err_msg.contains("Invalid webhook signature") || err_msg.contains("Payment provider not found") {
+            if err_msg.contains("Invalid webhook signature")
+                || err_msg.contains("Payment provider not found")
+            {
                 let pool = state.pool.clone();
                 let bot_manager = state.bot_manager.clone();
                 let provider_name = provider.clone();

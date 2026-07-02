@@ -3,7 +3,7 @@
 // Кэш: 24 часа, in-memory, без внешних зависимостей.
 
 #[cfg(feature = "geo")]
-use maxminddb::{geoip2, Reader};
+use maxminddb::{Reader, geoip2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -96,31 +96,34 @@ impl GeoService {
             }
 
             // 3. MaxMind DB
-            if let Some(reader) = &self.reader {
-                if let Ok(ip_addr) = ip.parse::<std::net::IpAddr>() {
-                    if let Ok(city) = reader.lookup::<geoip2::City>(ip_addr) {
-                        let country = city
-                            .country
-                            .and_then(|c| c.iso_code)
-                            .unwrap_or("XX")
-                            .to_string();
-                        let lat = city
-                            .location
-                            .as_ref()
-                            .and_then(|l| l.latitude)
-                            .unwrap_or(0.0);
-                        let lon = city
-                            .location
-                            .as_ref()
-                            .and_then(|l| l.longitude)
-                            .unwrap_or(0.0);
+            if let Some(reader) = &self.reader
+                && let Ok(ip_addr) = ip.parse::<std::net::IpAddr>()
+                && let Ok(city) = reader.lookup::<geoip2::City>(ip_addr)
+            {
+                let country = city
+                    .country
+                    .and_then(|c| c.iso_code)
+                    .unwrap_or("XX")
+                    .to_string();
+                let lat = city
+                    .location
+                    .as_ref()
+                    .and_then(|l| l.latitude)
+                    .unwrap_or(0.0);
+                let lon = city
+                    .location
+                    .as_ref()
+                    .and_then(|l| l.longitude)
+                    .unwrap_or(0.0);
 
-                        let data = GeoData { country_code: country, lat, lon };
-                        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-                        cache.insert(ip.to_string(), (data.clone(), Instant::now()));
-                        return Some(data);
-                    }
-                }
+                let data = GeoData {
+                    country_code: country,
+                    lat,
+                    lon,
+                };
+                let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+                cache.insert(ip.to_string(), (data.clone(), Instant::now()));
+                return Some(data);
             }
 
             // 4. Основной: ip-api.com (бесплатно, 45 req/min)
@@ -146,18 +149,18 @@ impl GeoService {
             let url2 = format!("https://ipinfo.io/{}/json", ip);
             match self.http_client.get(&url2).send().await {
                 Ok(resp) => {
-                    if let Ok(json) = resp.json::<serde_json::Value>().await {
-                        if let Some(cc) = json.get("country").and_then(|v| v.as_str()) {
-                            let data = GeoData {
-                                country_code: cc.to_uppercase(),
-                                lat: 0.0,
-                                lon: 0.0,
-                            };
-                            tracing::debug!("GeoIP: ipinfo.io → {} = {}", ip, data.country_code);
-                            let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-                            cache.insert(ip.to_string(), (data.clone(), Instant::now()));
-                            return Some(data);
-                        }
+                    if let Ok(json) = resp.json::<serde_json::Value>().await
+                        && let Some(cc) = json.get("country").and_then(|v| v.as_str())
+                    {
+                        let data = GeoData {
+                            country_code: cc.to_uppercase(),
+                            lat: 0.0,
+                            lon: 0.0,
+                        };
+                        tracing::debug!("GeoIP: ipinfo.io → {} = {}", ip, data.country_code);
+                        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+                        cache.insert(ip.to_string(), (data.clone(), Instant::now()));
+                        return Some(data);
                     }
                 }
                 Err(e) => tracing::warn!("GeoIP: ipinfo.io также недоступен для {}: {}", ip, e),

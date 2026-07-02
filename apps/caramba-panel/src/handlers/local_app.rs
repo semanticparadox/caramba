@@ -83,10 +83,10 @@ pub async fn serve_app_assets(Path(path): Path<String>) -> Response {
     }
 
     // SPA fallback
-    if !path.contains('.') {
-        if let Some(response) = read_asset("index.html").await {
-            return response;
-        }
+    if !path.contains('.')
+        && let Some(response) = read_asset("index.html").await
+    {
+        return response;
     }
 
     Response::builder()

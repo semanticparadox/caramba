@@ -142,7 +142,7 @@ pg_dump $DATABASE_URL > backup.sql
             .context("Invalid directory name")?;
 
         let output = Command::new("tar")
-            .args(&["czf", archive_path, "-C", "/tmp", dir_name])
+            .args(["czf", archive_path, "-C", "/tmp", dir_name])
             .output()
             .context("Failed to execute tar command")?;
 

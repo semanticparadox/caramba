@@ -60,10 +60,7 @@ class ConnectionsScreen extends ConsumerWidget {
               Column(
                 children: [
                   for (final p in state.profiles)
-                    _ProfileCard(
-                      profile: p,
-                      active: p.id == state.active?.id,
-                    ),
+                    _ProfileCard(profile: p, active: p.id == state.active?.id),
                 ],
               ),
           ],
@@ -125,8 +122,10 @@ class _ProfileCard extends ConsumerWidget {
           children: [
             ListTile(
               leading: LucideIcon(Lucide.check, color: c.textHi, size: 20),
-              title: Text('Сделать активным',
-                  style: AppType.bodyMd.copyWith(color: c.textHi)),
+              title: Text(
+                'Сделать активным',
+                style: AppType.bodyMd.copyWith(color: c.textHi),
+              ),
               enabled: !active,
               onTap: () {
                 Navigator.of(ctx).pop();
@@ -137,8 +136,10 @@ class _ProfileCard extends ConsumerWidget {
             ),
             ListTile(
               leading: LucideIcon(Lucide.copy, color: c.textHi, size: 20),
-              title: Text('Переименовать',
-                  style: AppType.bodyMd.copyWith(color: c.textHi)),
+              title: Text(
+                'Переименовать',
+                style: AppType.bodyMd.copyWith(color: c.textHi),
+              ),
               onTap: () {
                 Navigator.of(ctx).pop();
                 _rename(context, ref);
@@ -146,8 +147,10 @@ class _ProfileCard extends ConsumerWidget {
             ),
             ListTile(
               leading: LucideIcon(Lucide.trash, color: c.danger, size: 20),
-              title: Text('Удалить',
-                  style: AppType.bodyMd.copyWith(color: c.danger)),
+              title: Text(
+                'Удалить',
+                style: AppType.bodyMd.copyWith(color: c.danger),
+              ),
               onTap: () {
                 Navigator.of(ctx).pop();
                 ref
@@ -169,8 +172,10 @@ class _ProfileCard extends ConsumerWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: c.surface1,
-        title: Text('Переименовать',
-            style: AppType.titleMd.copyWith(color: c.textHi)),
+        title: Text(
+          'Переименовать',
+          style: AppType.titleMd.copyWith(color: c.textHi),
+        ),
         content: TextField(
           controller: controller,
           autofocus: true,
@@ -209,8 +214,10 @@ class _EmptyConnections extends StatelessWidget {
         children: [
           LucideIcon(Lucide.layers, color: c.textLow, size: 32),
           const SizedBox(height: AppSpace.s3),
-          Text('Профилей пока нет',
-              style: AppType.bodyMd.copyWith(color: c.textMed)),
+          Text(
+            'Профилей пока нет',
+            style: AppType.bodyMd.copyWith(color: c.textMed),
+          ),
           const SizedBox(height: AppSpace.s1),
           Text(
             'Импортируйте подписку, чтобы подключиться.',

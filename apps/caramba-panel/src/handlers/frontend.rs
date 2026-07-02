@@ -82,7 +82,7 @@ pub async fn create_frontend(
     .bind(&payload.miniapp_domain)
     .bind(&sub_path)
     .bind(&token_hash)
-    .bind(&expires_at)
+    .bind(expires_at)
     .fetch_one(&state.pool)
     .await
     .map_err(|e| {
@@ -176,15 +176,15 @@ pub async fn frontend_heartbeat(
     }
 
     // Check expiration
-    if let Some(expires) = frontend.token_expires_at {
-        if expires < chrono::Utc::now() {
-            tracing::warn!(
-                "Expired token for frontend: {} (expired: {})",
-                domain,
-                expires
-            );
-            return Err(StatusCode::UNAUTHORIZED);
-        }
+    if let Some(expires) = frontend.token_expires_at
+        && expires < chrono::Utc::now()
+    {
+        tracing::warn!(
+            "Expired token for frontend: {} (expired: {})",
+            domain,
+            expires
+        );
+        return Err(StatusCode::UNAUTHORIZED);
     }
 
     // Token is valid - update heartbeat and stats.
@@ -267,7 +267,7 @@ pub async fn rotate_token(
          WHERE id = $3",
     )
     .bind(&token_hash)
-    .bind(&expires_at)
+    .bind(expires_at)
     .bind(id)
     .execute(&state.pool)
     .await
@@ -278,7 +278,7 @@ pub async fn rotate_token(
 
     Ok(Json(TokenRotateResponse {
         token: token.clone(),
-        expires_at: expires_at,
+        expires_at,
         instructions: generate_install_command(
             &frontend.domain,
             &token,

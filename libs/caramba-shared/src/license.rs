@@ -206,11 +206,11 @@ pub fn verify_activation(
         Ok(k) => k,
         Err(_) => return false,
     };
-    let sig_bytes = match base64::engine::general_purpose::STANDARD.decode(resp.signature.as_bytes())
-    {
-        Ok(b) => b,
-        Err(_) => return false,
-    };
+    let sig_bytes =
+        match base64::engine::general_purpose::STANDARD.decode(resp.signature.as_bytes()) {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
     let signature = match Signature::from_slice(&sig_bytes) {
         Ok(s) => s,
         Err(_) => return false,
@@ -266,8 +266,14 @@ mod tests {
         let pub_bytes = signing_key.verifying_key().to_bytes();
         let limits = LicenseLimits::for_tier(LicenseTier::Pro);
         let expires = fixed_expiry();
-        let signature =
-            sign_activation(&signing_key, "inst-1", "KEY-1", LicenseTier::Pro, expires, &limits);
+        let signature = sign_activation(
+            &signing_key,
+            "inst-1",
+            "KEY-1",
+            LicenseTier::Pro,
+            expires,
+            &limits,
+        );
         let resp = ActivationResponse {
             tier: LicenseTier::Pro,
             expires_at: expires,
@@ -283,8 +289,14 @@ mod tests {
         let pub_bytes = signing_key.verifying_key().to_bytes();
         let limits = LicenseLimits::for_tier(LicenseTier::Pro);
         let expires = fixed_expiry();
-        let signature =
-            sign_activation(&signing_key, "inst-1", "KEY-1", LicenseTier::Pro, expires, &limits);
+        let signature = sign_activation(
+            &signing_key,
+            "inst-1",
+            "KEY-1",
+            LicenseTier::Pro,
+            expires,
+            &limits,
+        );
         let resp = ActivationResponse {
             tier: LicenseTier::Pro,
             expires_at: expires,
@@ -301,8 +313,14 @@ mod tests {
         let pub_bytes = signing_key.verifying_key().to_bytes();
         let expires = fixed_expiry();
         let pro_limits = LicenseLimits::for_tier(LicenseTier::Pro);
-        let signature =
-            sign_activation(&signing_key, "inst-1", "KEY-1", LicenseTier::Pro, expires, &pro_limits);
+        let signature = sign_activation(
+            &signing_key,
+            "inst-1",
+            "KEY-1",
+            LicenseTier::Pro,
+            expires,
+            &pro_limits,
+        );
         // Attacker edits limits but keeps the signature.
         let mut tampered = pro_limits;
         tampered.max_nodes = 9999;

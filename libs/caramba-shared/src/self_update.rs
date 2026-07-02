@@ -29,10 +29,11 @@ pub async fn apply_self_update(
         .error_for_status()?;
     let bytes = response.bytes().await?;
 
-    if let Some(hash) = expected_sha256 {
-        if !hash.trim().is_empty() && !verify_sha256(&bytes, hash) {
-            return Err(anyhow::anyhow!("SHA256 mismatch for downloaded binary"));
-        }
+    if let Some(hash) = expected_sha256
+        && !hash.trim().is_empty()
+        && !verify_sha256(&bytes, hash)
+    {
+        return Err(anyhow::anyhow!("SHA256 mismatch for downloaded binary"));
     }
 
     let exe_path = std::env::current_exe()?;
@@ -53,7 +54,10 @@ pub async fn apply_self_update(
     // Ошибка прав → удаляем tmp файл и прокидываем ошибку.
     if let Err(e) = std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755)) {
         let _ = std::fs::remove_file(&tmp_path);
-        return Err(anyhow::anyhow!("Failed to set permissions on update binary: {}", e));
+        return Err(anyhow::anyhow!(
+            "Failed to set permissions on update binary: {}",
+            e
+        ));
     }
 
     // rename() — атомарная операция на том же разделе ФС.

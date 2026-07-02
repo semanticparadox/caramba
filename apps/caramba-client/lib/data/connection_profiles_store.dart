@@ -17,13 +17,14 @@ class ConnectionProfilesStore {
   final FlutterSecureStorage _storage;
 
   ConnectionProfilesStore({FlutterSecureStorage? storage})
-      : _storage = storage ??
-            const FlutterSecureStorage(
-              aOptions: AndroidOptions(encryptedSharedPreferences: true),
-              iOptions: IOSOptions(
-                accessibility: KeychainAccessibility.first_unlock,
-              ),
-            );
+    : _storage =
+          storage ??
+          const FlutterSecureStorage(
+            aOptions: AndroidOptions(encryptedSharedPreferences: true),
+            iOptions: IOSOptions(
+              accessibility: KeychainAccessibility.first_unlock,
+            ),
+          );
 
   /// Читает сохранённый список профилей. Пустой список, если ничего нет или
   /// JSON повреждён (не роняем UI на битой записи).
@@ -35,9 +36,11 @@ class ConnectionProfilesStore {
       if (decoded is! List) return const [];
       return decoded
           .whereType<Map>()
-          .map((e) => ConnectionProfile.fromJson(
-                e.map((k, v) => MapEntry(k.toString(), v)),
-              ))
+          .map(
+            (e) => ConnectionProfile.fromJson(
+              e.map((k, v) => MapEntry(k.toString(), v)),
+            ),
+          )
           .toList(growable: false);
     } catch (_) {
       return const [];
@@ -49,8 +52,9 @@ class ConnectionProfilesStore {
 
   /// Сохраняет весь список профилей одной записью.
   Future<void> writeProfiles(List<ConnectionProfile> profiles) async {
-    final encoded =
-        jsonEncode(profiles.map((p) => p.toJson()).toList(growable: false));
+    final encoded = jsonEncode(
+      profiles.map((p) => p.toJson()).toList(growable: false),
+    );
     await _storage.write(key: _kProfiles, value: encoded);
   }
 

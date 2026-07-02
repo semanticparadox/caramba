@@ -33,7 +33,10 @@ struct SubsystemStatus {
 pub async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
     // 1. DB — hard requirement
     let (db_ok, db_detail, active_nodes, active_frontends) =
-        match sqlx::query_scalar::<_, i64>("SELECT 1").fetch_one(&state.pool).await {
+        match sqlx::query_scalar::<_, i64>("SELECT 1")
+            .fetch_one(&state.pool)
+            .await
+        {
             Ok(_) => {
                 let nodes: i64 = sqlx::query_scalar(
                     "SELECT COUNT(*) FROM nodes WHERE status = 'active' AND is_enabled = TRUE",

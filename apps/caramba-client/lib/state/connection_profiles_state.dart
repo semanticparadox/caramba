@@ -17,8 +17,9 @@ import 'package:caramba_client/data/models/connection_profile.dart';
 /// Платформенное secure storage профилей подключения. Параллель
 /// `tokenStoreProvider` из `providers.dart`, но объявлена здесь, чтобы не
 /// трогать чужой файл (Build C владеет providers.dart).
-final connectionProfilesStoreProvider =
-    Provider<ConnectionProfilesStore>((ref) => ConnectionProfilesStore());
+final connectionProfilesStoreProvider = Provider<ConnectionProfilesStore>(
+  (ref) => ConnectionProfilesStore(),
+);
 
 /// Иммутабельный снимок мульти-профиля: список + id активного + флаг загрузки.
 class ConnectionProfilesState {
@@ -51,12 +52,11 @@ class ConnectionProfilesState {
     String? activeId,
     bool clearActive = false,
     bool? loading,
-  }) =>
-      ConnectionProfilesState(
-        profiles: profiles ?? this.profiles,
-        activeId: clearActive ? null : (activeId ?? this.activeId),
-        loading: loading ?? this.loading,
-      );
+  }) => ConnectionProfilesState(
+    profiles: profiles ?? this.profiles,
+    activeId: clearActive ? null : (activeId ?? this.activeId),
+    loading: loading ?? this.loading,
+  );
 }
 
 class ConnectionProfilesNotifier
@@ -64,7 +64,7 @@ class ConnectionProfilesNotifier
   final ConnectionProfilesStore _store;
 
   ConnectionProfilesNotifier(this._store)
-      : super(const ConnectionProfilesState()) {
+    : super(const ConnectionProfilesState()) {
     _load();
   }
 
@@ -99,8 +99,9 @@ class ConnectionProfilesNotifier
   /// Удаляет профиль по id. Если удалили активный — активным становится первый
   /// оставшийся (или null, если список опустел).
   Future<void> remove(String id) async {
-    final next =
-        state.profiles.where((p) => p.id != id).toList(growable: false);
+    final next = state.profiles
+        .where((p) => p.id != id)
+        .toList(growable: false);
     if (state.activeId == id) {
       state = ConnectionProfilesState(
         profiles: next,
@@ -176,10 +177,7 @@ class ConnectionProfilesNotifier
     await _persist();
   }
 
-  static bool _sameBranding(
-    Map<String, dynamic>? a,
-    Map<String, dynamic> b,
-  ) {
+  static bool _sameBranding(Map<String, dynamic>? a, Map<String, dynamic> b) {
     if (a == null) return false;
     if (a.length != b.length) return false;
     for (final e in b.entries) {
@@ -202,12 +200,12 @@ class ConnectionProfilesNotifier
 
 /// Мульти-профиль: список + активный id. Build C читает производный
 /// [activeConnectionProfileProvider], чтобы выбрать путь подключения.
-final connectionProfilesProvider = StateNotifierProvider<
-    ConnectionProfilesNotifier, ConnectionProfilesState>(
-  (ref) => ConnectionProfilesNotifier(
-    ref.watch(connectionProfilesStoreProvider),
-  ),
-);
+final connectionProfilesProvider =
+    StateNotifierProvider<ConnectionProfilesNotifier, ConnectionProfilesState>(
+      (ref) => ConnectionProfilesNotifier(
+        ref.watch(connectionProfilesStoreProvider),
+      ),
+    );
 
 /// Текущий активный [ConnectionProfile] или `null` (нет профилей / ещё грузим).
 /// Build C ветвится по `profile.type`: panelAccount -> configure+connect;

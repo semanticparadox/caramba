@@ -336,10 +336,10 @@ fn parse_ip_maybe(raw: &str) -> Option<IpAddr> {
     if let Ok(sock) = raw.parse::<std::net::SocketAddr>() {
         return Some(canonicalize_ip(sock.ip()));
     }
-    if let Some((host, _port)) = raw.rsplit_once(':') {
-        if let Ok(ip) = host.parse::<IpAddr>() {
-            return Some(canonicalize_ip(ip));
-        }
+    if let Some((host, _port)) = raw.rsplit_once(':')
+        && let Ok(ip) = host.parse::<IpAddr>()
+    {
+        return Some(canonicalize_ip(ip));
     }
     None
 }
@@ -828,16 +828,14 @@ pub async fn admin_gift_subscription(
             }
 
             let admin_path = state.admin_path.clone();
-            return axum::response::Redirect::to(&format!("{}/users/{}", admin_path, user_id))
-                .into_response();
+            axum::response::Redirect::to(&format!("{}/users/{}", admin_path, user_id))
+                .into_response()
         }
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to gift subscription: {}", e),
-            )
-                .into_response();
-        }
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to gift subscription: {}", e),
+        )
+            .into_response(),
     }
 }
 
@@ -1121,7 +1119,7 @@ pub async fn update_user(
 
             let admin_path = state.admin_path.clone();
             (
-                [(("HX-Redirect", format!("{}/users/{}", admin_path, id)))],
+                [("HX-Redirect", format!("{}/users/{}", admin_path, id))],
                 "Updated",
             )
                 .into_response()
@@ -1158,7 +1156,7 @@ pub async fn update_user_balance(
 
             let admin_path = state.admin_path.clone();
             (
-                [(("HX-Redirect", format!("{}/users", admin_path)))],
+                [("HX-Redirect", format!("{}/users", admin_path))],
                 "Updated",
             )
                 .into_response()
@@ -1206,7 +1204,7 @@ pub async fn refund_user_subscription(
         .admin_refund_subscription(id, form.amount)
         .await
     {
-        Ok(_) => ([(("HX-Refresh", "true"))], "Refunded").into_response(),
+        Ok(_) => ([("HX-Refresh", "true")], "Refunded").into_response(),
         Err(e) => {
             error!("Failed to refund subscripton {}: {}", id, e);
             (
@@ -1228,7 +1226,7 @@ pub async fn extend_user_subscription(
         id, form.days
     );
     match state.subscription_service.admin_extend(id, form.days).await {
-        Ok(_) => ([(("HX-Refresh", "true"))], "Extended").into_response(),
+        Ok(_) => ([("HX-Refresh", "true")], "Extended").into_response(),
         Err(e) => {
             error!("Failed to extend subscripton {}: {}", id, e);
             (
@@ -1253,7 +1251,7 @@ pub async fn approve_user_subscription(
 ) -> impl IntoResponse {
     info!("Request to approve pending subscription ID: {}", id);
     match state.subscription_service.approve_subscription(id).await {
-        Ok(true) => ([(("HX-Refresh", "true"))], "Approved").into_response(),
+        Ok(true) => ([("HX-Refresh", "true")], "Approved").into_response(),
         Ok(false) => (
             axum::http::StatusCode::OK,
             "No pending subscription to approve",
@@ -1598,12 +1596,7 @@ pub async fn get_subscription_devices(
     for ip_record in ips {
         let time_ago = format_duration(chrono::Utc::now() - ip_record.last_seen_at);
         // Экранируем строки из БД перед вставкой в HTML — user_agent может содержать <script>
-        let device = escape_html(
-            ip_record
-                .user_agent
-                .as_deref()
-                .unwrap_or("Unknown"),
-        );
+        let device = escape_html(ip_record.user_agent.as_deref().unwrap_or("Unknown"));
         let ip_escaped = escape_html(&ip_record.client_ip);
         let time_ago_escaped = escape_html(&time_ago);
         html.push_str(&format!(
@@ -1704,7 +1697,10 @@ pub async fn set_subscription_node(
     // HTMX: триггер перезагрузки страницы на клиенте
     (
         axum::http::StatusCode::OK,
-        [(axum::http::header::HeaderName::from_static("hx-refresh"), "true")],
+        [(
+            axum::http::header::HeaderName::from_static("hx-refresh"),
+            "true",
+        )],
         "",
     )
         .into_response()
@@ -1797,7 +1793,10 @@ pub async fn reset_user_referral_rates(
     let admin_path = state.admin_path.clone();
     match result {
         Ok(_) => {
-            info!(user_id = id, "Admin reset referral rates to global defaults");
+            info!(
+                user_id = id,
+                "Admin reset referral rates to global defaults"
+            );
             (
                 [(
                     axum::http::header::HeaderName::from_static("hx-redirect"),

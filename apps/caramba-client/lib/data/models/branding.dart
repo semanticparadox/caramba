@@ -73,29 +73,29 @@ class Branding {
   }
 
   factory Branding.fromJson(Map<String, dynamic> json) => Branding(
-        enabled: json['enabled'] == true,
-        brandName: (json['brand_name'] as String?)?.trim() ?? '',
-        logoUrl: (json['logo_url'] as String?)?.trim() ?? '',
-        accentHex: (json['accent_hex'] as String?)?.trim() ?? '',
-        supportUrl: (json['support_url'] as String?)?.trim() ?? '',
-        botUrl: (json['bot_url'] as String?)?.trim() ?? '',
-        // Дефолт upstream_ads = true: если поля нет, считаем что upsell нужен.
-        upstreamAds: json['upstream_ads'] == null
-            ? true
-            : json['upstream_ads'] == true,
-      );
+    enabled: json['enabled'] == true,
+    brandName: (json['brand_name'] as String?)?.trim() ?? '',
+    logoUrl: (json['logo_url'] as String?)?.trim() ?? '',
+    accentHex: (json['accent_hex'] as String?)?.trim() ?? '',
+    supportUrl: (json['support_url'] as String?)?.trim() ?? '',
+    botUrl: (json['bot_url'] as String?)?.trim() ?? '',
+    // Дефолт upstream_ads = true: если поля нет, считаем что upsell нужен.
+    upstreamAds: json['upstream_ads'] == null
+        ? true
+        : json['upstream_ads'] == true,
+  );
 
   /// Сериализация для кэша в `ConnectionProfile.brandingCache`. Ключи совпадают
   /// с контрактом панели, чтобы [Branding.fromJson] читал и сетевой ответ, и кэш.
   Map<String, dynamic> toJson() => {
-        'enabled': enabled,
-        'brand_name': brandName,
-        'logo_url': logoUrl,
-        'accent_hex': accentHex,
-        'support_url': supportUrl,
-        'bot_url': botUrl,
-        'upstream_ads': upstreamAds,
-      };
+    'enabled': enabled,
+    'brand_name': brandName,
+    'logo_url': logoUrl,
+    'accent_hex': accentHex,
+    'support_url': supportUrl,
+    'bot_url': botUrl,
+    'upstream_ads': upstreamAds,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -110,14 +110,14 @@ class Branding {
 
   @override
   int get hashCode => Object.hash(
-        enabled,
-        brandName,
-        logoUrl,
-        accentHex,
-        supportUrl,
-        botUrl,
-        upstreamAds,
-      );
+    enabled,
+    brandName,
+    logoUrl,
+    accentHex,
+    supportUrl,
+    botUrl,
+    upstreamAds,
+  );
 }
 
 /// Разбирает и КЛАМПИТ операторский accent-hex под анти-слоп.

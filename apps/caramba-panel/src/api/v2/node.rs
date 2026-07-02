@@ -23,10 +23,7 @@ struct IpApiResponse {
 
 fn country_code_to_flag(code: &str) -> String {
     let code = code.to_uppercase();
-    let chars: Vec<char> = code
-        .chars()
-        .filter(|c| c.is_ascii_alphabetic())
-        .collect();
+    let chars: Vec<char> = code.chars().filter(|c| c.is_ascii_alphabetic()).collect();
     if chars.len() != 2 {
         return "🌐".to_string();
     }
@@ -183,10 +180,10 @@ pub async fn heartbeat(
         // Собираем пары (tg_id, bytes) для пользователей и отдельно relay_legacy
         let mut tg_id_bytes: Vec<(i64, u64)> = Vec::new();
         for (tag, bytes) in usage_map {
-            if tag.starts_with("user_") {
-                if let Ok(tg_id) = tag[5..].parse::<i64>() {
-                    tg_id_bytes.push((tg_id, *bytes));
-                }
+            if tag.starts_with("user_")
+                && let Ok(tg_id) = tag[5..].parse::<i64>()
+            {
+                tg_id_bytes.push((tg_id, *bytes));
             }
             if tag.starts_with("relay_") && tag.ends_with("_legacy") {
                 relay_legacy_usage_bytes = relay_legacy_usage_bytes.saturating_add(*bytes);
@@ -205,14 +202,16 @@ pub async fn heartbeat(
                     .unwrap_or_default();
 
             // tg_id → user_id
-            let tg_to_uid: HashMap<i64, i64> = rows.into_iter().map(|(id, tg_id)| (tg_id, id)).collect();
+            let tg_to_uid: HashMap<i64, i64> =
+                rows.into_iter().map(|(id, tg_id)| (tg_id, id)).collect();
 
             // Логируем пользователей, которых не нашли в БД
             for (tg_id, bytes) in &tg_id_bytes {
                 if !tg_to_uid.contains_key(tg_id) {
                     tracing::warn!(
                         "Traffic: tg_id={} not found in users table, {} bytes lost",
-                        tg_id, bytes
+                        tg_id,
+                        bytes
                     );
                     unresolved_count += 1;
                 }
@@ -283,7 +282,8 @@ pub async fn heartbeat(
         if attributed_count > 0 || unresolved_count > 0 {
             tracing::debug!(
                 "Traffic heartbeat: {} tags attributed, {} unresolved",
-                attributed_count, unresolved_count
+                attributed_count,
+                unresolved_count
             );
         }
 
@@ -390,17 +390,17 @@ pub async fn heartbeat(
     // avoid races. Stored in Redis (no schema change needed; backward compatible —
     // older nodes simply omit the field and we skip the write). TTL 3 days so it
     // survives normal operation but self-cleans for dead nodes.
-    if let Some(applied) = req.last_applied_config_hash.as_deref() {
-        if !applied.is_empty() {
-            let _ = state
-                .redis
-                .set(
-                    &format!("node_applied_config_hash:{}", node_id),
-                    applied,
-                    3 * 24 * 3600,
-                )
-                .await;
-        }
+    if let Some(applied) = req.last_applied_config_hash.as_deref()
+        && !applied.is_empty()
+    {
+        let _ = state
+            .redis
+            .set(
+                &format!("node_applied_config_hash:{}", node_id),
+                applied,
+                3 * 24 * 3600,
+            )
+            .await;
     }
 
     // U23 (RU-side block detection canary): the node reports early-RST /
@@ -409,27 +409,27 @@ pub async fn heartbeat(
     // loudly so an active block is visible. Rotation itself is still driven by the
     // node (which already requests a faster rotation under block); here we make the
     // event observable and durable for cross-node correlation.
-    if let Some(ref signals) = req.block_signals {
-        if signals.early_rst || signals.handshake_terminated_early {
-            warn!(
-                "🚨 [U23] Node {} reports RU-block symptoms on SNI '{}': early_rst={}, handshake_terminated_early={}, streak={}",
-                node_id,
-                signals.sni,
-                signals.early_rst,
-                signals.handshake_terminated_early,
-                signals.consecutive_failures
-            );
-            if let Ok(payload) = serde_json::to_string(signals) {
-                // Per-node latest signal (short TTL — block state is transient).
-                let _ = state
-                    .redis
-                    .set(
-                        &format!("node_block_signal:{}", node_id),
-                        &payload,
-                        900, // 15 min
-                    )
-                    .await;
-            }
+    if let Some(ref signals) = req.block_signals
+        && (signals.early_rst || signals.handshake_terminated_early)
+    {
+        warn!(
+            "🚨 [U23] Node {} reports RU-block symptoms on SNI '{}': early_rst={}, handshake_terminated_early={}, streak={}",
+            node_id,
+            signals.sni,
+            signals.early_rst,
+            signals.handshake_terminated_early,
+            signals.consecutive_failures
+        );
+        if let Ok(payload) = serde_json::to_string(signals) {
+            // Per-node latest signal (short TTL — block state is transient).
+            let _ = state
+                .redis
+                .set(
+                    &format!("node_block_signal:{}", node_id),
+                    &payload,
+                    900, // 15 min
+                )
+                .await;
         }
     }
 
@@ -446,13 +446,14 @@ pub async fn heartbeat(
         .await;
 
     // Per-node target_version (set by "Rollout Now") always takes priority
-    let stored_target: Option<String> =
-        sqlx::query_scalar::<_, String>("SELECT COALESCE(target_version, '') FROM nodes WHERE id = $1")
-            .bind(node_id)
-            .fetch_optional(&state.pool)
-            .await
-            .unwrap_or(None)
-            .filter(|v: &String| !v.is_empty() && v != "0.0.0");
+    let stored_target: Option<String> = sqlx::query_scalar::<_, String>(
+        "SELECT COALESCE(target_version, '') FROM nodes WHERE id = $1",
+    )
+    .bind(node_id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None)
+    .filter(|v: &String| !v.is_empty() && v != "0.0.0");
 
     let target_version = stored_target.or_else(|| {
         // Fall back to global agent_latest_version only if auto-update is ON
@@ -535,15 +536,15 @@ pub async fn get_update_info(
     let hash = state.settings.get_or_default("agent_update_hash", "").await;
 
     // Resolve relative URL
-    if url.starts_with('/') {
-        if let Some(host) = headers.get("host").and_then(|h| h.to_str().ok()) {
-            let protocol = if host.contains("localhost") || host.contains("127.0.0.1") {
-                "http"
-            } else {
-                "https"
-            };
-            url = format!("{}://{}{}", protocol, host, url);
-        }
+    if url.starts_with('/')
+        && let Some(host) = headers.get("host").and_then(|h| h.to_str().ok())
+    {
+        let protocol = if host.contains("localhost") || host.contains("127.0.0.1") {
+            "http"
+        } else {
+            "https"
+        };
+        url = format!("{}://{}{}", protocol, host, url);
     }
 
     Json(serde_json::json!({
@@ -702,7 +703,12 @@ pub async fn rotate_sni(
             });
 
             // Уведомляем пользователей (async, non-blocking)
-            if let Ok(bot) = state.bot_manager.get_bot().await.map(|b| b as teloxide::Bot) {
+            if let Ok(bot) = state
+                .bot_manager
+                .get_bot()
+                .await
+                .map(|b| b as teloxide::Bot)
+            {
                 let notification_service = state.notification_service.clone();
                 let old_clone = old_sni.clone();
                 let new_clone = new_sni.clone();
@@ -777,44 +783,44 @@ pub async fn poll_updates(
 
     // 3. Check State Before Waiting (Fixes Race Condition)
     // If client's config hash is stale, update immediately without waiting for PubSub.
-    if let Some(client_hash) = headers.get("X-Config-Hash").and_then(|h| h.to_str().ok()) {
-        if !client_hash.trim().is_empty() {
-            // Need to know what the current hash *should* be.
-            // Since storing the exact current hash in DB is expensive on every generation,
-            // we rely on `last_synced_at` or `last_sync_trigger`.
-            // But a true hash check requires generating or caching the config.
-            //
-            // Optimization: If `last_sync_trigger` is recent, force update.
-            // Or better: Let's assume if the client is polling, they want to know if something CHANGED.
-            //
-            // For now, we trust the PubSub. But to fix the "missed message" race:
-            // We check if `last_synced_at` < `last_rotated_at` or similar? No.
-            //
-            // Best approach: "State Check".
-            // We don't have the current server-side hash readily available without generating it.
-            // However, we can use a "config_version" or "sequence" if we had one.
-            //
-            // Fallback: If X-Config-Hash is provided, we can check if it matches a cached value.
-            // If not cached, we wait.
-            //
-            // Actually, the issue is often that the "Update" signal was sent WHILE the agent was restarting its poll loop.
-            // We can check Redis for a "pending_update" flag for this node?
-            // Or simply rely on the fact that if a user clicks "Sync", we publish.
-            //
-            // To truly fix "Timeout" where the user waits:
-            // If this is a manual "Sync" action from UI, the UI sets a flag in Redis `node_sync_pending:{id}`.
-            // We check that flag here.
-            let pending_key = format!("node_sync_pending:{}", node_id);
-            if let Ok(exists) = state.redis.exists(&pending_key).await {
-                if exists {
-                    let _ = state.redis.del(&pending_key).await; // Consume the flag
-                    return (
-                        StatusCode::OK,
-                        Json(serde_json::json!({"update": true, "message": "pending_sync"})),
-                    )
-                        .into_response();
-                }
-            }
+    if let Some(client_hash) = headers.get("X-Config-Hash").and_then(|h| h.to_str().ok())
+        && !client_hash.trim().is_empty()
+    {
+        // Need to know what the current hash *should* be.
+        // Since storing the exact current hash in DB is expensive on every generation,
+        // we rely on `last_synced_at` or `last_sync_trigger`.
+        // But a true hash check requires generating or caching the config.
+        //
+        // Optimization: If `last_sync_trigger` is recent, force update.
+        // Or better: Let's assume if the client is polling, they want to know if something CHANGED.
+        //
+        // For now, we trust the PubSub. But to fix the "missed message" race:
+        // We check if `last_synced_at` < `last_rotated_at` or similar? No.
+        //
+        // Best approach: "State Check".
+        // We don't have the current server-side hash readily available without generating it.
+        // However, we can use a "config_version" or "sequence" if we had one.
+        //
+        // Fallback: If X-Config-Hash is provided, we can check if it matches a cached value.
+        // If not cached, we wait.
+        //
+        // Actually, the issue is often that the "Update" signal was sent WHILE the agent was restarting its poll loop.
+        // We can check Redis for a "pending_update" flag for this node?
+        // Or simply rely on the fact that if a user clicks "Sync", we publish.
+        //
+        // To truly fix "Timeout" where the user waits:
+        // If this is a manual "Sync" action from UI, the UI sets a flag in Redis `node_sync_pending:{id}`.
+        // We check that flag here.
+        let pending_key = format!("node_sync_pending:{}", node_id);
+        if let Ok(exists) = state.redis.exists(&pending_key).await
+            && exists
+        {
+            let _ = state.redis.del(&pending_key).await; // Consume the flag
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({"update": true, "message": "pending_sync"})),
+            )
+                .into_response();
         }
     }
 
@@ -978,10 +984,10 @@ pub async fn register(
         return (StatusCode::FORBIDDEN, "Invalid Key Type").into_response();
     }
 
-    if let Some(max) = api_key.max_uses {
-        if api_key.current_uses >= max {
-            return (StatusCode::FORBIDDEN, "Key Usage Limit Reached").into_response();
-        }
+    if let Some(max) = api_key.max_uses
+        && api_key.current_uses >= max
+    {
+        return (StatusCode::FORBIDDEN, "Key Usage Limit Reached").into_response();
     }
 
     // License gate (P4, contract E): block self-register beyond max_nodes. Only
@@ -1162,7 +1168,10 @@ async fn auto_provision_relay(
     .await?;
 
     let Some(domain) = sni else {
-        anyhow::bail!("No premium/favorite SNI available for relay node {}", node_id);
+        anyhow::bail!(
+            "No premium/favorite SNI available for relay node {}",
+            node_id
+        );
     };
 
     // Обновляем ноду: reality_sni, status=active, auto_configure=true

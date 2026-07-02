@@ -301,6 +301,7 @@ fn get_or_prompt_license_key(value: Option<String>) -> Option<String> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_install_config(
     hub_mode: bool,
     domain: Option<String>,

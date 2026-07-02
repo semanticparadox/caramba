@@ -209,9 +209,7 @@ impl ConfigValidationService {
         settings_json: &str,
         stream_settings_json: &str,
     ) -> Result<(), String> {
-        if protocol.trim().eq_ignore_ascii_case("amneziawg")
-            && !crate::utils::amneziawg_enabled()
-        {
+        if protocol.trim().eq_ignore_ascii_case("amneziawg") && !crate::utils::amneziawg_enabled() {
             return Err(
                 "AmneziaWG is currently disabled: official sing-box cannot run a WireGuard \
                  inbound with AmneziaWG obfuscation fields, so it would break the node config. \
@@ -361,14 +359,14 @@ mod tests {
     fn rejects_amneziawg_when_flag_disabled() {
         // CARAMBA_ENABLE_AMNEZIAWG is unset by default → creation must be refused
         // regardless of payload validity, before any schema checks run.
-        let result = ConfigValidationService::validate_inbound_json(
-            "amneziawg",
-            r#"{}"#,
-            r#"{}"#,
-        );
+        let result = ConfigValidationService::validate_inbound_json("amneziawg", r#"{}"#, r#"{}"#);
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("AmneziaWG is currently disabled"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("AmneziaWG is currently disabled")
+        );
     }
 
     #[test]

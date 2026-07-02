@@ -11,8 +11,8 @@ pub mod bot_rate_limit;
 pub mod client;
 pub mod node;
 
-use crate::handlers;
 use crate::AppState;
+use crate::handlers;
 use axum::routing::{delete, get, patch, post};
 
 /// Защищённый роутер для всех /api/v2/bot/* маршрутов бота.
@@ -24,8 +24,8 @@ use axum::routing::{delete, get, patch, post};
 ///   1. `require_bot_token` — проверяет X-Bot-Token; неавторизованные запросы
 ///      отсекаются до проверки rate limit (экономим Redis RTT).
 ///   2. `bot_rate_limit`   — ограничивает частоту через Redis:
-///        • per-endpoint лимиты для дорогих операций
-///        • глобальный лимит 50 req / 3 сек
+///      per-endpoint лимиты для дорогих операций,
+///      глобальный лимит 50 req / 3 сек
 ///
 /// В Axum 0.8: route_layer добавляет слои снаружи (LIFO), поэтому последний
 /// `.route_layer()` в коде — первый выполняется.
@@ -40,10 +40,7 @@ pub fn bot_routes(state: AppState) -> axum::Router<AppState> {
         )
         .route("/users/{id}/subs", get(handlers::api::bot::get_user_subs))
         .route("/plans", get(handlers::api::bot::get_plans))
-        .route(
-            "/store/categories",
-            get(handlers::api::bot::get_categories),
-        )
+        .route("/store/categories", get(handlers::api::bot::get_categories))
         .route(
             "/store/categories/{id}/products",
             get(handlers::api::bot::get_products_by_category),
@@ -61,7 +58,10 @@ pub fn bot_routes(state: AppState) -> axum::Router<AppState> {
             get(handlers::api::bot::get_settings).post(handlers::api::bot::set_settings),
         )
         .route("/subs/{id}/links", get(handlers::api::bot::get_sub_links))
-        .route("/subs/{id}/activate", post(handlers::api::bot::activate_sub))
+        .route(
+            "/subs/{id}/activate",
+            post(handlers::api::bot::activate_sub),
+        )
         // Бесплатная подписка
         .route(
             "/users/create-free-subscription",
@@ -102,14 +102,8 @@ pub fn bot_routes(state: AppState) -> axum::Router<AppState> {
             get(handlers::api::bot::get_sub_config_file),
         )
         // Тикеты поддержки — управление из бота
-        .route(
-            "/tickets",
-            get(handlers::api::bot::bot_list_tickets),
-        )
-        .route(
-            "/tickets/{id}",
-            get(handlers::api::bot::bot_get_ticket),
-        )
+        .route("/tickets", get(handlers::api::bot::bot_list_tickets))
+        .route("/tickets/{id}", get(handlers::api::bot::bot_get_ticket))
         .route(
             "/tickets/{id}/messages",
             post(handlers::api::bot::bot_add_ticket_message),
@@ -174,10 +168,7 @@ pub fn app_routes(_state: AppState) -> axum::Router<AppState> {
             patch(app_account::rename_device).delete(app_account::revoke_device),
         )
         .route("/referrals", get(app_account::get_referrals))
-        .route(
-            "/family",
-            get(app_account::get_family),
-        )
+        .route("/family", get(app_account::get_family))
         .route("/family/invite", post(app_account::create_family_invite))
         .route(
             "/family/{member_id}",

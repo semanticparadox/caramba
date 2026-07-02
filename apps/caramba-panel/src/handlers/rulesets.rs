@@ -112,11 +112,7 @@ pub async fn serve_ruleset(Path(name): Path<String>) -> Response {
             );
             resp
         }
-        Err(_) => (
-            StatusCode::NOT_FOUND,
-            "Rule-set not yet synced; try later",
-        )
-            .into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, "Rule-set not yet synced; try later").into_response(),
     }
 }
 
@@ -217,7 +213,10 @@ pub async fn sync_rulesets() -> anyhow::Result<usize> {
         }
 
         if set.is_empty() {
-            tracing::warn!(ruleset = spec.name, "rulesets: no entries fetched, keeping existing file");
+            tracing::warn!(
+                ruleset = spec.name,
+                "rulesets: no entries fetched, keeping existing file"
+            );
             continue;
         }
 

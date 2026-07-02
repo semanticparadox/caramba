@@ -44,8 +44,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.dispose();
   }
 
-  void _startTicker() =>
-      _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) => _tick.value++);
+  void _startTicker() => _ticker ??= Timer.periodic(
+    const Duration(seconds: 1),
+    (_) => _tick.value++,
+  );
 
   void _stopTicker() {
     _ticker?.cancel();
@@ -107,19 +109,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       final active = subsList.where((s) => s.isActive);
       subPlanName = (active.isNotEmpty ? active.first : subsList.first).name;
     }
-    final plan = subPlanName ??
+    final plan =
+        subPlanName ??
         user?.planName ??
         ref.watch(subscriptionProvider).valueOrNull?.planName ??
         'Free';
 
     final csub = switch (status.stage) {
       VpnStage.connected => () {
-          final relay = relays[relayIdx];
-          if (!relay.isOff && !relay.isAuto) {
-            return 'Вход: ${relay.name} -> ${server?.name ?? 'сервер'}';
-          }
-          return server?.name ?? 'Защищено';
-        }(),
+        final relay = relays[relayIdx];
+        if (!relay.isOff && !relay.isAuto) {
+          return 'Вход: ${relay.name} -> ${server?.name ?? 'сервер'}';
+        }
+        return server?.name ?? 'Защищено';
+      }(),
       VpnStage.connecting || VpnStage.reconnecting =>
         '${server?.name ?? 'Сервер'} · ${protocols[cfg.protocol].name}',
       VpnStage.error => 'Проверьте сеть и нажмите снова',
@@ -140,8 +143,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           children: [
             Row(
               children: [
-                Text(kBrandName,
-                    style: AppType.titleMd.copyWith(color: c.textHi)),
+                Text(
+                  kBrandName,
+                  style: AppType.titleMd.copyWith(color: c.textHi),
+                ),
                 const Spacer(),
                 _PlanChip(plan: plan),
                 const SizedBox(width: AppSpace.s2),
@@ -165,42 +170,44 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
             const SizedBox(height: AppSpace.s5),
-            RowsGroup(children: [
-              CRow(
-                icon: Lucide.globe,
-                label: 'Сервер',
-                value: server == null ? 'Авто' : server.name,
-                chevron: true,
-                trailing: server?.countryCode == null
-                    ? null
-                    : Padding(
-                        padding: const EdgeInsets.only(right: AppSpace.s2),
-                        child: CodeChip(server!.countryCode!),
-                      ),
-                onTap: () => context.go(AppRoute.servers),
-              ),
-              CRow(
-                icon: Lucide.waypoints,
-                label: 'Relay (вход)',
-                value: relays[relayIdx].name,
-                chevron: true,
-                onTap: () => _pickRelay(),
-              ),
-              CRow(
-                icon: protocols[cfg.protocol].icon,
-                label: 'Протокол',
-                value: protocols[cfg.protocol].name,
-                chevron: true,
-                onTap: () => context.go(AppRoute.protocol),
-              ),
-              CRow(
-                icon: Lucide.route,
-                label: 'Маршрут',
-                value: modes[cfg.route].name,
-                chevron: true,
-                onTap: () => _pickRoute(),
-              ),
-            ]),
+            RowsGroup(
+              children: [
+                CRow(
+                  icon: Lucide.globe,
+                  label: 'Сервер',
+                  value: server == null ? 'Авто' : server.name,
+                  chevron: true,
+                  trailing: server?.countryCode == null
+                      ? null
+                      : Padding(
+                          padding: const EdgeInsets.only(right: AppSpace.s2),
+                          child: CodeChip(server!.countryCode!),
+                        ),
+                  onTap: () => context.go(AppRoute.servers),
+                ),
+                CRow(
+                  icon: Lucide.waypoints,
+                  label: 'Relay (вход)',
+                  value: relays[relayIdx].name,
+                  chevron: true,
+                  onTap: () => _pickRelay(),
+                ),
+                CRow(
+                  icon: protocols[cfg.protocol].icon,
+                  label: 'Протокол',
+                  value: protocols[cfg.protocol].name,
+                  chevron: true,
+                  onTap: () => context.go(AppRoute.protocol),
+                ),
+                CRow(
+                  icon: Lucide.route,
+                  label: 'Маршрут',
+                  value: modes[cfg.route].name,
+                  chevron: true,
+                  onTap: () => _pickRoute(),
+                ),
+              ],
+            ),
             const SizedBox(height: AppSpace.s4),
             ValueListenableBuilder<int>(
               valueListenable: _tick,
@@ -212,14 +219,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   latency: connected && server?.pingMs != null
                       ? '${server!.pingMs} мс'
                       : '·',
-                  session: connected ? _session(status.connectedSince) : '00:00',
+                  session: connected
+                      ? _session(status.connectedSince)
+                      : '00:00',
                 );
               },
             ),
             const SizedBox(height: AppSpace.s4),
-            SectionTitle('Трафик',
-                padding: const EdgeInsets.only(bottom: AppSpace.s3)),
-            ref.watch(trafficHistoryProvider).when(
+            SectionTitle(
+              'Трафик',
+              padding: const EdgeInsets.only(bottom: AppSpace.s3),
+            ),
+            ref
+                .watch(trafficHistoryProvider)
+                .when(
                   data: (points) => TrafficChart(points: points),
                   loading: () => const TrafficChart(points: []),
                   error: (_, __) => const TrafficChart(points: []),
@@ -233,8 +246,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<void> _pickRelay() async {
     final relays = ref.read(relaysProvider);
     final cfg = ref.read(coreConfigProvider);
-    final sel =
-        relays.isEmpty ? 0 : cfg.relay.clamp(0, relays.length - 1);
+    final sel = relays.isEmpty ? 0 : cfg.relay.clamp(0, relays.length - 1);
     final i = await showPickerSheet(
       context: context,
       title: 'Relay (вход)',
@@ -312,17 +324,21 @@ class _StatsGrid extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          Row(children: [
-            Expanded(child: _cell(c, down, 'Скачано')),
-            Container(width: 1, height: 64, color: c.borderSubtle),
-            Expanded(child: _cell(c, up, 'Отправлено')),
-          ]),
+          Row(
+            children: [
+              Expanded(child: _cell(c, down, 'Скачано')),
+              Container(width: 1, height: 64, color: c.borderSubtle),
+              Expanded(child: _cell(c, up, 'Отправлено')),
+            ],
+          ),
           Container(height: 1, color: c.borderSubtle),
-          Row(children: [
-            Expanded(child: _cell(c, latency, 'Задержка')),
-            Container(width: 1, height: 64, color: c.borderSubtle),
-            Expanded(child: _cell(c, session, 'Сессия')),
-          ]),
+          Row(
+            children: [
+              Expanded(child: _cell(c, latency, 'Задержка')),
+              Container(width: 1, height: 64, color: c.borderSubtle),
+              Expanded(child: _cell(c, session, 'Сессия')),
+            ],
+          ),
         ],
       ),
     );
@@ -332,7 +348,9 @@ class _StatsGrid extends StatelessWidget {
     return Container(
       color: c.surface1,
       padding: const EdgeInsets.symmetric(
-          horizontal: AppSpace.s4, vertical: AppSpace.s4),
+        horizontal: AppSpace.s4,
+        vertical: AppSpace.s4,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -350,7 +368,10 @@ class _StatsGrid extends StatelessWidget {
           const SizedBox(height: AppSpace.s1),
           Text(
             key.toUpperCase(),
-            style: AppType.caption.copyWith(color: c.textLow, letterSpacing: 0.6),
+            style: AppType.caption.copyWith(
+              color: c.textLow,
+              letterSpacing: 0.6,
+            ),
           ),
         ],
       ),

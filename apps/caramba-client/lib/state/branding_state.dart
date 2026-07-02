@@ -40,9 +40,9 @@ class BrandingState {
   });
 
   BrandingState copyWith({Branding? branding, bool? loading}) => BrandingState(
-        branding: branding ?? this.branding,
-        loading: loading ?? this.loading,
-      );
+    branding: branding ?? this.branding,
+    loading: loading ?? this.loading,
+  );
 }
 
 /// Нотифаер брендинга. Реагирует на смену активного профиля (panelUrl) и
@@ -68,7 +68,10 @@ class BrandingNotifier extends StateNotifier<BrandingState> {
     // Бренд ведёт только аккаунт панели. Импорт-подписка / пустой профиль =>
     // дефолтный вид Caramba Connect.
     final panelUrl = profile?.panelUrl;
-    if (profile == null || !profile.isPanel || panelUrl == null || panelUrl.isEmpty) {
+    if (profile == null ||
+        !profile.isPanel ||
+        panelUrl == null ||
+        panelUrl.isEmpty) {
       _activePanelUrl = null;
       state = const BrandingState();
       return;
@@ -109,7 +112,10 @@ class BrandingNotifier extends StateNotifier<BrandingState> {
   Future<void> refresh() async {
     final profile = _ref.read(activeConnectionProfileProvider);
     final panelUrl = profile?.panelUrl;
-    if (profile == null || !profile.isPanel || panelUrl == null || panelUrl.isEmpty) {
+    if (profile == null ||
+        !profile.isPanel ||
+        panelUrl == null ||
+        panelUrl.isEmpty) {
       return;
     }
     state = state.copyWith(loading: true);
@@ -122,8 +128,7 @@ class BrandingNotifier extends StateNotifier<BrandingState> {
 ///   * `title` / wordmark         => `branding.displayName(kBrandName)`
 ///   * `AppTheme.dark/light`      => `brandAccent: branding.brandAccentColor`
 ///   * powered-by/upsell-блок     => виден при `branding.upstreamAds`
-final brandingProvider =
-    StateNotifierProvider<BrandingNotifier, BrandingState>(
+final brandingProvider = StateNotifierProvider<BrandingNotifier, BrandingState>(
   (ref) => BrandingNotifier(ref),
 );
 

@@ -74,19 +74,12 @@ class _SplashScreenState extends State<SplashScreen>
                   );
                 },
                 child: Center(
-                  child: LucideIcon(
-                    Lucide.shield,
-                    size: 52,
-                    color: c.textMed,
-                  ),
+                  child: LucideIcon(Lucide.shield, size: 52, color: c.textMed),
                 ),
               ),
             ),
             const SizedBox(height: AppSpace.s4),
-            Text(
-              kBrandName,
-              style: AppType.titleMd.copyWith(color: c.textHi),
-            ),
+            Text(kBrandName, style: AppType.titleMd.copyWith(color: c.textHi)),
           ],
         ),
       ),

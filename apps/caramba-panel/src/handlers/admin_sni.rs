@@ -192,10 +192,11 @@ pub async fn bulk_add_sni(
 
     let mut count = 0;
     for domain in domains {
-        if let Ok(_) = state
+        if state
             .sni_repo
             .add_sni(domain, form.tier, form.notes.as_deref())
             .await
+            .is_ok()
         {
             count += 1;
         }

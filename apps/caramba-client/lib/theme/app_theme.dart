@@ -183,12 +183,17 @@ class AppTheme {
         ),
         border: OutlineInputBorder(
           borderRadius: AppRadius.r16,
-          borderSide: BorderSide(color: c.borderStrong, width: AppBorders.input),
+          borderSide: BorderSide(
+            color: c.borderStrong,
+            width: AppBorders.input,
+          ),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: AppRadius.r16,
-          borderSide:
-              BorderSide(color: c.borderStrong, width: AppBorders.input),
+          borderSide: BorderSide(
+            color: c.borderStrong,
+            width: AppBorders.input,
+          ),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: AppRadius.r16,
@@ -207,8 +212,7 @@ class AppTheme {
 
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith(
-          (s) =>
-              s.contains(WidgetState.selected) ? c.textOnAccent : c.textMed,
+          (s) => s.contains(WidgetState.selected) ? c.textOnAccent : c.textMed,
         ),
         trackColor: WidgetStateProperty.resolveWith(
           (s) => s.contains(WidgetState.selected) ? c.accent : c.surface3,

@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     // use super::*; // Unused
     use caramba_db::models::network::Inbound;
@@ -195,8 +196,13 @@ mod tests {
         let node = create_mock_node("vless", stream_settings);
 
         // 1. Test Sing-box JSON
-        let json_config =
-            generate_singbox_config(&match_any_sub(), &[node.clone()], &user_keys, &[]).unwrap();
+        let json_config = generate_singbox_config(
+            &match_any_sub(),
+            std::slice::from_ref(&node),
+            &user_keys,
+            &[],
+        )
+        .unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
 
         let outbound = parsed["outbounds"]
@@ -208,19 +214,24 @@ mod tests {
 
         assert_eq!(outbound["type"], "vless");
         // HTTPUpgrade outbounds no longer have packet_encoding
-        assert!(outbound.get("packet_encoding").is_none() || outbound["packet_encoding"].is_null(),
-            "HTTPUpgrade should not have packet_encoding");
+        assert!(
+            outbound.get("packet_encoding").is_none() || outbound["packet_encoding"].is_null(),
+            "HTTPUpgrade should not have packet_encoding"
+        );
 
         let transport = &outbound["transport"];
         assert_eq!(transport["type"], "httpupgrade");
         assert_eq!(transport["path"], "/xhttp-path");
 
         // HTTPUpgrade outbounds no longer have multiplex
-        assert!(!outbound["multiplex"].is_object(),
-            "HTTPUpgrade should not have multiplex");
+        assert!(
+            !outbound["multiplex"].is_object(),
+            "HTTPUpgrade should not have multiplex"
+        );
 
         // 2. Test VLESS Link
-        let _links_base64 = generate_v2ray_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
+        let _links_base64 =
+            generate_v2ray_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
         // Since it's base64, we'd need to decode it to verify fully, but let's assume if it generated, logic ran.
         // For unit test simplicity in this environment, checking the JSON structure is the critical part for Sing-box.
     }
@@ -244,7 +255,8 @@ mod tests {
 
         let node = create_mock_node("hysteria2", stream_settings);
 
-        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
+        let json_config =
+            generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
 
         let outbound = parsed["outbounds"]
@@ -278,7 +290,8 @@ mod tests {
 
         let node = create_mock_node("tuic", stream_settings);
 
-        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
+        let json_config =
+            generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
 
         let outbound = parsed["outbounds"]
@@ -307,7 +320,8 @@ mod tests {
 
         let node = create_mock_node("naive", stream_settings);
 
-        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
+        let json_config =
+            generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
 
         let outbound = parsed["outbounds"]
@@ -319,8 +333,14 @@ mod tests {
 
         assert_eq!(outbound["username"], "uuid");
         // NaiveProxy TLS only supports server_name — no alpn, utls, insecure
-        assert!(outbound["tls"]["utls"].is_null(), "naive outbound should not have utls");
-        assert!(outbound["tls"]["alpn"].is_null(), "naive outbound should not have alpn");
+        assert!(
+            outbound["tls"]["utls"].is_null(),
+            "naive outbound should not have utls"
+        );
+        assert!(
+            outbound["tls"]["alpn"].is_null(),
+            "naive outbound should not have alpn"
+        );
     }
 
     // Helper stub
@@ -338,7 +358,8 @@ mod tests {
         });
         let node = create_mock_node("vless", stream_settings);
 
-        let json_config = generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
+        let json_config =
+            generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
 
         // 1. Check Route Rules
@@ -381,8 +402,10 @@ mod tests {
             .find(|o| o["type"] == "vless" && o["transport"]["type"] == "httpupgrade")
             .expect("Outbound missing");
 
-        assert!(!outbound["multiplex"].is_object(),
-            "HTTPUpgrade should not have multiplex");
+        assert!(
+            !outbound["multiplex"].is_object(),
+            "HTTPUpgrade should not have multiplex"
+        );
     }
 
     // Helper stub
@@ -405,7 +428,8 @@ mod tests {
         node.frontend_url = Some("frontend.fake-shop.com".to_string()); // Masquerade Domain
 
         // Test VLESS Link (v2ray config)
-        let links_base64 = generate_v2ray_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
+        let links_base64 =
+            generate_v2ray_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
         use base64::Engine;
         let links_str = String::from_utf8(
             base64::engine::general_purpose::STANDARD
@@ -1214,27 +1238,32 @@ mod tests {
         use crate::singbox::policy::ConfigPolicy;
         let v = gen_with_policy(&ConfigPolicy::default());
         let servers = v["dns"]["servers"].as_array().unwrap();
-        assert!(servers.iter().any(
-            |s| s["type"] == "udp" && s["server"] == "8.8.8.8" && s["tag"] == "google"
-        ));
-        assert!(servers.iter().any(|s| s["type"] == "local" && s["tag"] == "local"));
+        assert!(
+            servers
+                .iter()
+                .any(|s| s["type"] == "udp" && s["server"] == "8.8.8.8" && s["tag"] == "google")
+        );
+        assert!(
+            servers
+                .iter()
+                .any(|s| s["type"] == "local" && s["tag"] == "local")
+        );
         assert_eq!(v["route"]["default_domain_resolver"], "google");
         // strategy must be omitted for byte-identical legacy output.
-        assert!(v["dns"].get("strategy").map(|s| s.is_null()).unwrap_or(true));
+        assert!(
+            v["dns"]
+                .get("strategy")
+                .map(|s| s.is_null())
+                .unwrap_or(true)
+        );
     }
 
     #[test]
     fn test_dns_policy_default_is_byte_identical_to_wrapper() {
         use crate::singbox::policy::ConfigPolicy;
         let node = create_base_enterprise_node(7, "Node-7", "10.9.9.9");
-        let legacy = ConfigGenerator::generate_config(
-            &node,
-            vec![],
-            None,
-            None,
-            vec![],
-            RelayAuthMode::V1,
-        );
+        let legacy =
+            ConfigGenerator::generate_config(&node, vec![], None, None, vec![], RelayAuthMode::V1);
         let policied = ConfigGenerator::generate_config_with_policy(
             &node,
             vec![],

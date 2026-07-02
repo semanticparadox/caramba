@@ -134,7 +134,10 @@ impl ConnectionService {
             if node.status != "active" {
                 continue;
             }
-            match self.fetch_node_connections(&node.ip, node.clash_api_secret.as_deref()).await {
+            match self
+                .fetch_node_connections(&node.ip, node.clash_api_secret.as_deref())
+                .await
+            {
                 Ok(connections) => {
                     info!(
                         "Fetched {} connections from node {}",
@@ -146,27 +149,26 @@ impl ConnectionService {
                         // Strategy 1: Check metadata.user (e.g. "user_123")
                         let mut sub_id_opt = None;
 
-                        if let Some(user_tag) = &conn.metadata.user {
-                            if user_tag.starts_with("user_") {
-                                if let Ok(id) = user_tag[5..].parse::<i64>() {
-                                    sub_id_opt = Some(id);
-                                }
-                            }
+                        if let Some(user_tag) = &conn.metadata.user
+                            && user_tag.starts_with("user_")
+                            && let Ok(id) = user_tag[5..].parse::<i64>()
+                        {
+                            sub_id_opt = Some(id);
                         }
 
                         // Strategy 2: Check chains for UUID if Strategy 1 failed
-                        if sub_id_opt.is_none() {
-                            if let Some(uuid) = extract_uuid_from_chain(&conn) {
-                                if let Some(cached_id) = uuid_cache.get(&uuid) {
-                                    sub_id_opt = Some(*cached_id);
-                                } else {
-                                    // Resolve UUID to ID from DB
-                                    if let Ok(Some(sub)) =
-                                        self.store.get_subscription_by_uuid(&uuid).await
-                                    {
-                                        uuid_cache.insert(uuid.clone(), sub.id);
-                                        sub_id_opt = Some(sub.id);
-                                    }
+                        if sub_id_opt.is_none()
+                            && let Some(uuid) = extract_uuid_from_chain(&conn)
+                        {
+                            if let Some(cached_id) = uuid_cache.get(&uuid) {
+                                sub_id_opt = Some(*cached_id);
+                            } else {
+                                // Resolve UUID to ID from DB
+                                if let Ok(Some(sub)) =
+                                    self.store.get_subscription_by_uuid(&uuid).await
+                                {
+                                    uuid_cache.insert(uuid.clone(), sub.id);
+                                    sub_id_opt = Some(sub.id);
                                 }
                             }
                         }
@@ -181,13 +183,13 @@ impl ConnectionService {
                             }
                             subscription_ips
                                 .entry(sub_id)
-                                .or_insert_with(HashSet::new)
+                                .or_default()
                                 .insert(normalized_ip.clone());
                             subscription_connections
                                 .entry(sub_id)
-                                .or_insert_with(HashMap::new)
+                                .or_default()
                                 .entry(normalized_ip)
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push(NodeConnectionRef {
                                     node_host: node.ip.clone(),
                                     connection_id: conn.id.clone(),
@@ -358,11 +360,11 @@ impl ConnectionService {
         .flatten();
         let preferred_ip = preferred_ip_raw.and_then(|ip| normalize_client_ip(&ip));
 
-        if let Some(preferred) = preferred_ip {
-            if let Some(pos) = ordered.iter().position(|ip| ip == &preferred) {
-                let value = ordered.remove(pos);
-                ordered.insert(0, value);
-            }
+        if let Some(preferred) = preferred_ip
+            && let Some(pos) = ordered.iter().position(|ip| ip == &preferred)
+        {
+            let value = ordered.remove(pos);
+            ordered.insert(0, value);
         }
 
         let blocked: HashSet<String> = ordered.into_iter().skip(device_limit).collect();
@@ -385,7 +387,11 @@ impl ConnectionService {
                 if let Some(connections) = by_ip.get(ip) {
                     for conn in connections {
                         match self
-                            .close_connection(&conn.node_host, &conn.connection_id, conn.secret.as_deref())
+                            .close_connection(
+                                &conn.node_host,
+                                &conn.connection_id,
+                                conn.secret.as_deref(),
+                            )
                             .await
                         {
                             Ok(_) => killed += 1,
@@ -426,15 +432,18 @@ impl ConnectionService {
         let target_user = format!("user_{}", sub_id);
 
         for node in nodes {
-            match self.fetch_node_connections(&node.ip, node.clash_api_secret.as_deref()).await {
+            match self
+                .fetch_node_connections(&node.ip, node.clash_api_secret.as_deref())
+                .await
+            {
                 Ok(connections) => {
                     for conn in connections {
                         // Check metadata.user
                         let mut match_found = false;
-                        if let Some(user) = &conn.metadata.user {
-                            if user == &target_user {
-                                match_found = true;
-                            }
+                        if let Some(user) = &conn.metadata.user
+                            && user == &target_user
+                        {
+                            match_found = true;
                         }
 
                         if match_found {
@@ -442,7 +451,14 @@ impl ConnectionService {
                                 "Killing connection {} on node {} for {}",
                                 conn.id, node.name, target_user
                             );
-                            if let Err(e) = self.close_connection(&node.ip, &conn.id, node.clash_api_secret.as_deref()).await {
+                            if let Err(e) = self
+                                .close_connection(
+                                    &node.ip,
+                                    &conn.id,
+                                    node.clash_api_secret.as_deref(),
+                                )
+                                .await
+                            {
                                 error!(
                                     "Failed to close connection {} on {}: {}",
                                     conn.id, node.name, e
@@ -513,10 +529,10 @@ fn parse_ip_maybe(value: &str) -> Option<IpAddr> {
         return Some(canonicalize_ip(sock.ip()));
     }
 
-    if let Some((host, _port)) = value.rsplit_once(':') {
-        if let Ok(ip) = host.parse::<IpAddr>() {
-            return Some(canonicalize_ip(ip));
-        }
+    if let Some((host, _port)) = value.rsplit_once(':')
+        && let Ok(ip) = host.parse::<IpAddr>()
+    {
+        return Some(canonicalize_ip(ip));
     }
 
     None

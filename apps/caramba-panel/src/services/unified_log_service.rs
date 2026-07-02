@@ -47,10 +47,10 @@ impl UnifiedLogService {
             offset
         );
 
-        if let Some(cached) = redis.get(&cache_key).await? {
-            if let Ok(payload) = serde_json::from_str::<UnifiedLogPayload>(&cached) {
-                return Ok(payload);
-            }
+        if let Some(cached) = redis.get(&cache_key).await?
+            && let Ok(payload) = serde_json::from_str::<UnifiedLogPayload>(&cached)
+        {
+            return Ok(payload);
         }
 
         let mut logs = Vec::new();
@@ -83,26 +83,24 @@ impl UnifiedLogService {
             logs.extend(read_flat_log_file("bot", "bot.log", limit));
         }
 
-        if (normalized_source.is_empty()
-            || normalized_source == "all"
-            || normalized_source == "node")
-            && node_filter.is_some()
+        if let Some((node_id, node_name)) = node_filter
+            && (normalized_source.is_empty()
+                || normalized_source == "all"
+                || normalized_source == "node")
+            && let Some(serialized) = redis.get(&format!("node_logs:{}", node_id)).await?
         {
-            let (node_id, node_name) = node_filter.unwrap();
-            if let Some(serialized) = redis.get(&format!("node_logs:{}", node_id)).await? {
-                let parsed: HashMap<String, String> =
-                    serde_json::from_str(&serialized).unwrap_or_default();
-                for (service_name, content) in parsed {
-                    for line in content.lines().rev().take(limit) {
-                        if line.trim().is_empty() {
-                            continue;
-                        }
-                        logs.push(parse_external_log_line(
-                            "node",
-                            line,
-                            Some(format!("{} · {}", node_name, service_name)),
-                        ));
+            let parsed: HashMap<String, String> =
+                serde_json::from_str(&serialized).unwrap_or_default();
+            for (service_name, content) in parsed {
+                for line in content.lines().rev().take(limit) {
+                    if line.trim().is_empty() {
+                        continue;
                     }
+                    logs.push(parse_external_log_line(
+                        "node",
+                        line,
+                        Some(format!("{} · {}", node_name, service_name)),
+                    ));
                 }
             }
         }
@@ -114,23 +112,23 @@ impl UnifiedLogService {
         {
             let task_entries = task_health.get_all().await;
             for task in task_entries {
-                if let Some(ref err) = task.last_error {
-                    if let Some(last_run) = task.last_run {
-                        logs.push(UnifiedLogEntry {
-                            source: "monitoring".to_string(),
-                            level: "ERROR".to_string(),
-                            category: "background_task".to_string(),
-                            message: format!("[{}] {}", task.name, err),
-                            node_label: None,
-                            created_at: last_run.format("%Y-%m-%d %H:%M:%S").to_string(),
-                            sort_ts: last_run.timestamp(),
-                        });
-                    }
+                if let Some(ref err) = task.last_error
+                    && let Some(last_run) = task.last_run
+                {
+                    logs.push(UnifiedLogEntry {
+                        source: "monitoring".to_string(),
+                        level: "ERROR".to_string(),
+                        category: "background_task".to_string(),
+                        message: format!("[{}] {}", task.name, err),
+                        node_label: None,
+                        created_at: last_run.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        sort_ts: last_run.timestamp(),
+                    });
                 }
             }
         }
 
-        logs.sort_by(|left, right| right.sort_ts.cmp(&left.sort_ts));
+        logs.sort_by_key(|entry| std::cmp::Reverse(entry.sort_ts));
         if logs.len() > limit {
             logs.truncate(limit);
         }

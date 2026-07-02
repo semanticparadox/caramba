@@ -36,12 +36,13 @@ impl From<String> for OrgRole {
     }
 }
 
-impl ToString for OrgRole {
-    fn to_string(&self) -> String {
-        match self {
-            OrgRole::Owner => "owner".to_string(),
-            OrgRole::Admin => "admin".to_string(),
-            OrgRole::Member => "member".to_string(),
-        }
+impl std::fmt::Display for OrgRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            OrgRole::Owner => "owner",
+            OrgRole::Admin => "admin",
+            OrgRole::Member => "member",
+        };
+        f.write_str(s)
     }
 }

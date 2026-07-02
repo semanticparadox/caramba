@@ -95,7 +95,7 @@ impl ReferralService {
             FROM users u
             WHERE COALESCE(u.referrer_id, u.referred_by) = $2
             ORDER BY u.created_at DESC
-            "#
+            "#,
         )
         .bind(referrer_id)
         .bind(referrer_id)
@@ -164,12 +164,11 @@ impl ReferralService {
     /// already made a paid purchase (so the discount applies once only).
     pub async fn referee_first_purchase_discount(pool: &PgPool, user_id: i64) -> Result<i64> {
         // Must have a referrer (new field or legacy column).
-        let referrer: Option<(Option<i64>, Option<i64>)> = sqlx::query_as(
-            "SELECT referrer_id, referred_by FROM users WHERE id = $1",
-        )
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await?;
+        let referrer: Option<(Option<i64>, Option<i64>)> =
+            sqlx::query_as("SELECT referrer_id, referred_by FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await?;
         let has_referrer = referrer.and_then(|(r, rb)| r.or(rb)).is_some();
         if !has_referrer {
             return Ok(0);
@@ -224,12 +223,11 @@ impl ReferralService {
             return Ok(true);
         }
 
-        let rewarded: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM referral_rewards WHERE referred_user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_one(pool)
-        .await?;
+        let rewarded: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM referral_rewards WHERE referred_user_id = $1")
+                .bind(user_id)
+                .fetch_one(pool)
+                .await?;
         Ok(rewarded > 0)
     }
 
@@ -517,6 +515,9 @@ mod tests {
         // RU users — taking down the referral leaderboard request.
         assert_eq!(ReferralService::mask_username("абвг"), "а***");
         assert_eq!(ReferralService::mask_username("абвгдеёж"), "абв***");
-        assert_eq!(ReferralService::mask_username("😀😀😀😀😀😀😀"), "😀😀😀***");
+        assert_eq!(
+            ReferralService::mask_username("😀😀😀😀😀😀😀"),
+            "😀😀😀***"
+        );
     }
 }

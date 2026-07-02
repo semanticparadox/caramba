@@ -404,10 +404,10 @@ impl InfrastructureService {
 }
 
 fn is_undefined_table_or_column(err: &sqlx::Error) -> bool {
-    if let sqlx::Error::Database(db_err) = err {
-        if let Some(code) = db_err.code() {
-            return code == "42P01" || code == "42703";
-        }
+    if let sqlx::Error::Database(db_err) = err
+        && let Some(code) = db_err.code()
+    {
+        return code == "42P01" || code == "42703";
     }
     false
 }

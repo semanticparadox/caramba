@@ -9,11 +9,7 @@ class TrafficPoint {
   final int upBytes;
   final int downBytes;
 
-  const TrafficPoint({
-    required this.ts,
-    this.upBytes = 0,
-    this.downBytes = 0,
-  });
+  const TrafficPoint({required this.ts, this.upBytes = 0, this.downBytes = 0});
 
   int get totalBytes => upBytes + downBytes;
 
@@ -21,13 +17,12 @@ class TrafficPoint {
   double get totalMb => totalBytes / (1024 * 1024);
 
   factory TrafficPoint.fromJson(Map<String, dynamic> json) => TrafficPoint(
-        // Панель отдаёт `date` (YYYY-MM-DD); `ts` (RFC3339) — фолбэк на случай
-        // иного источника.
-        ts: DateTime.tryParse(
-              (json['date'] ?? json['ts'])?.toString() ?? '',
-            ) ??
-            DateTime.fromMillisecondsSinceEpoch(0),
-        upBytes: (json['up_bytes'] as num?)?.toInt() ?? 0,
-        downBytes: (json['down_bytes'] as num?)?.toInt() ?? 0,
-      );
+    // Панель отдаёт `date` (YYYY-MM-DD); `ts` (RFC3339) — фолбэк на случай
+    // иного источника.
+    ts:
+        DateTime.tryParse((json['date'] ?? json['ts'])?.toString() ?? '') ??
+        DateTime.fromMillisecondsSinceEpoch(0),
+    upBytes: (json['up_bytes'] as num?)?.toInt() ?? 0,
+    downBytes: (json['down_bytes'] as num?)?.toInt() ?? 0,
+  );
 }

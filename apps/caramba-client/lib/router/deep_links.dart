@@ -23,7 +23,7 @@ class DeepLinkHandler {
   StreamSubscription<Uri>? _sub;
 
   DeepLinkHandler(this._router, {AppLinks? appLinks})
-      : _appLinks = appLinks ?? AppLinks();
+    : _appLinks = appLinks ?? AppLinks();
 
   /// Подписывается на поток ссылок и обрабатывает ту, что запустила приложение.
   Future<void> start() async {
@@ -44,10 +44,12 @@ class DeepLinkHandler {
   void _handle(Uri uri) {
     final link = EnrollLink.tryParse(uri.toString());
     if (link == null) return;
-    _router.go(Uri(
-      path: AppRoute.enroll,
-      queryParameters: {'panel': link.panelUrl, 'code': link.code},
-    ).toString());
+    _router.go(
+      Uri(
+        path: AppRoute.enroll,
+        queryParameters: {'panel': link.panelUrl, 'code': link.code},
+      ).toString(),
+    );
   }
 
   void dispose() {

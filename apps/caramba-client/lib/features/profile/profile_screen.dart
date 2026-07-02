@@ -51,9 +51,9 @@ class ProfileScreen extends ConsumerWidget {
             ref.invalidate(partnerProvider);
             // Ждём первую перезагрузку (ошибки проглатываем — секции покажут
             // своё состояние ошибки сами).
-            await ref.read(subscriptionsProvider.future).catchError(
-                  (_) => <SubPlan>[],
-                );
+            await ref
+                .read(subscriptionsProvider.future)
+                .catchError((_) => <SubPlan>[]);
           },
           child: ListView(
             padding: const EdgeInsets.fromLTRB(
@@ -82,14 +82,18 @@ class ProfileScreen extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(handle,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppType.titleLg.copyWith(color: c.textHi)),
+                        Text(
+                          handle,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppType.titleLg.copyWith(color: c.textHi),
+                        ),
                         if (user?.email != null && user!.email!.isNotEmpty) ...[
                           const SizedBox(height: 2),
-                          Text(user.email!,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppType.bodySm.copyWith(color: c.textMed)),
+                          Text(
+                            user.email!,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppType.bodySm.copyWith(color: c.textMed),
+                          ),
                         ],
                       ],
                     ),
@@ -99,16 +103,19 @@ class ProfileScreen extends ConsumerWidget {
 
               // ---- Баланс кошелька (money-модель: пополняется рефералами).
               SectionTitle('Баланс'),
-              RowsGroup(children: [
-                CRow(
-                  icon: Lucide.wallet,
-                  label: 'На балансе',
-                  value: _balanceLabel(user?.balanceCents ?? 0),
-                  mono: true,
-                  valueColor:
-                      (user?.balanceCents ?? 0) > 0 ? c.success : c.textHi,
-                ),
-              ]),
+              RowsGroup(
+                children: [
+                  CRow(
+                    icon: Lucide.wallet,
+                    label: 'На балансе',
+                    value: _balanceLabel(user?.balanceCents ?? 0),
+                    mono: true,
+                    valueColor: (user?.balanceCents ?? 0) > 0
+                        ? c.success
+                        : c.textHi,
+                  ),
+                ],
+              ),
 
               // ---- Подписки
               SectionTitle('Подписки'),
@@ -131,18 +138,15 @@ class ProfileScreen extends ConsumerWidget {
               GhostButton(
                 label: 'Купить или продлить',
                 icon: Lucide.creditCard,
-                onPressed: () => openExternal(
-                    context, 'https://t.me/exarobot?start=plans'),
+                onPressed: () =>
+                    openExternal(context, 'https://t.me/exarobot?start=plans'),
               ),
 
               // ---- Устройства
               devicesAsync.when(
                 data: (devices) => _DevicesSection(devices: devices),
                 loading: () => Column(
-                  children: const [
-                    SectionTitle('Устройства'),
-                    InlineLoading(),
-                  ],
+                  children: const [SectionTitle('Устройства'), InlineLoading()],
                 ),
                 error: (_, __) => Column(
                   children: [
@@ -169,26 +173,30 @@ class ProfileScreen extends ConsumerWidget {
               // ---- Партнёрам (только при подтверждённой партнёрской роли)
               if (isPartner) ...[
                 SectionTitle('Партнёрам'),
-                RowsGroup(children: [
-                  CRow(
-                    icon: Lucide.trendingUp,
-                    label: 'Партнёрский дашборд',
-                    chevron: true,
-                    onTap: () => context.go(AppRoute.partner),
-                  ),
-                ]),
+                RowsGroup(
+                  children: [
+                    CRow(
+                      icon: Lucide.trendingUp,
+                      label: 'Партнёрский дашборд',
+                      chevron: true,
+                      onTap: () => context.go(AppRoute.partner),
+                    ),
+                  ],
+                ),
               ],
 
               // ---- Поддержка
               SectionTitle('Поддержка'),
-              RowsGroup(children: [
-                CRow(
-                  icon: Lucide.lifeBuoy,
-                  label: 'Запросы в поддержку',
-                  chevron: true,
-                  onTap: () => context.go(AppRoute.tickets),
-                ),
-              ]),
+              RowsGroup(
+                children: [
+                  CRow(
+                    icon: Lucide.lifeBuoy,
+                    label: 'Запросы в поддержку',
+                    chevron: true,
+                    onTap: () => context.go(AppRoute.tickets),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -211,9 +219,13 @@ class _DevicesSection extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SectionTitle('Устройства',
-            trailing: Text('${devices.length}',
-                style: AppType.monoSm.copyWith(color: c.textLow))),
+        SectionTitle(
+          'Устройства',
+          trailing: Text(
+            '${devices.length}',
+            style: AppType.monoSm.copyWith(color: c.textLow),
+          ),
+        ),
         if (devices.isEmpty)
           const InlineEmpty(message: 'Подключённых устройств нет')
         else
@@ -260,33 +272,37 @@ class _ReferralSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        RowsGroup(children: [
-          CRow(
-            icon: Lucide.users,
-            label: 'Ваш код',
-            value: referral.code.isEmpty ? '·' : referral.code,
-            mono: true,
-            valueColor: c.textHi,
-          ),
-          CRow(
-            label: 'Приглашено',
-            value: '${referral.invited}',
-            mono: true,
-            valueColor: c.textHi,
-          ),
-          CRow(
-            label: 'Всего начислено',
-            value: referral.balanceEarnedLabel,
-            mono: true,
-            valueColor: referral.balanceEarnedCents > 0 ? c.success : c.textMed,
-          ),
-          CRow(
-            icon: Lucide.gift,
-            label: 'Реферальная программа',
-            chevron: true,
-            onTap: () => context.go(AppRoute.referrals),
-          ),
-        ]),
+        RowsGroup(
+          children: [
+            CRow(
+              icon: Lucide.users,
+              label: 'Ваш код',
+              value: referral.code.isEmpty ? '·' : referral.code,
+              mono: true,
+              valueColor: c.textHi,
+            ),
+            CRow(
+              label: 'Приглашено',
+              value: '${referral.invited}',
+              mono: true,
+              valueColor: c.textHi,
+            ),
+            CRow(
+              label: 'Всего начислено',
+              value: referral.balanceEarnedLabel,
+              mono: true,
+              valueColor: referral.balanceEarnedCents > 0
+                  ? c.success
+                  : c.textMed,
+            ),
+            CRow(
+              icon: Lucide.gift,
+              label: 'Реферальная программа',
+              chevron: true,
+              onTap: () => context.go(AppRoute.referrals),
+            ),
+          ],
+        ),
         const SizedBox(height: AppSpace.s3),
         GhostButton(
           label: 'Скопировать ссылку',
@@ -331,9 +347,11 @@ class _SubCard extends ConsumerWidget {
               IBox(sub.icon, size: 34),
               const SizedBox(width: AppSpace.s3),
               Expanded(
-                child: Text(sub.name,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppType.bodyMd.copyWith(color: c.textHi)),
+                child: Text(
+                  sub.name,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppType.bodyMd.copyWith(color: c.textHi),
+                ),
               ),
               Tag(sub.isActive ? 'Активна' : sub.status, ok: sub.isActive),
             ],
@@ -355,10 +373,14 @@ class _SubCard extends ConsumerWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Устройства',
-                  style: AppType.bodySm.copyWith(color: c.textMed)),
-              Text('${sub.devUsed} из ${sub.devLimit}',
-                  style: AppType.monoSm.copyWith(color: c.textHi)),
+              Text(
+                'Устройства',
+                style: AppType.bodySm.copyWith(color: c.textMed),
+              ),
+              Text(
+                '${sub.devUsed} из ${sub.devLimit}',
+                style: AppType.monoSm.copyWith(color: c.textHi),
+              ),
             ],
           ),
           const SizedBox(height: AppSpace.s2),
@@ -407,13 +429,19 @@ class _FamilySheet extends ConsumerWidget {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(
-            AppSpace.s5, AppSpace.s1, AppSpace.s5, AppSpace.s6),
+          AppSpace.s5,
+          AppSpace.s1,
+          AppSpace.s5,
+          AppSpace.s6,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Семейный доступ',
-                style: AppType.titleLg.copyWith(color: c.textHi)),
+            Text(
+              'Семейный доступ',
+              style: AppType.titleLg.copyWith(color: c.textHi),
+            ),
             const SizedBox(height: AppSpace.s1),
             Text(
               '${sub.name}: пригласите близких. Их устройства займут свободные слоты.',
@@ -433,8 +461,11 @@ class _FamilySheet extends ConsumerWidget {
             if (sub.freeSlots > 0)
               FilledButton.icon(
                 onPressed: () => _invite(context, ref),
-                icon: LucideIcon(Lucide.userPlus,
-                    color: c.textOnAccent, size: 18),
+                icon: LucideIcon(
+                  Lucide.userPlus,
+                  color: c.textOnAccent,
+                  size: 18,
+                ),
                 label: Text('Пригласить (${sub.freeSlots} своб.)'),
               )
             else
@@ -452,7 +483,9 @@ class _FamilySheet extends ConsumerWidget {
     final c = context.c;
     if (family.members.isEmpty) {
       return const InlineEmpty(
-          top: AppSpace.s2, message: 'В семье пока только вы');
+        top: AppSpace.s2,
+        message: 'В семье пока только вы',
+      );
     }
     return RowsGroup(
       children: [
@@ -488,8 +521,9 @@ class _FamilySheet extends ConsumerWidget {
 
   Future<void> _invite(BuildContext context, WidgetRef ref) async {
     try {
-      final invite =
-          await ref.read(apiClientProvider).inviteFamily(subscriptionId: sub.id);
+      final invite = await ref
+          .read(apiClientProvider)
+          .inviteFamily(subscriptionId: sub.id);
       Clipboard.setData(ClipboardData(text: invite.inviteLink));
       ref.invalidate(familyProvider(sub.id));
       if (context.mounted) {

@@ -84,10 +84,9 @@ pub async fn callback_handler(
                     if let Some(msg) = q.message {
                         let _ = bot.delete_message(msg.chat().id, msg.id()).await;
 
-                        let welcome_text = format!(
-                            "👋 <b>Welcome!</b>\n\n\
+                        let welcome_text = "👋 <b>Welcome!</b>\n\n\
                             Use the menu below to manage your VPN subscriptions and digital goods."
-                        );
+                            .to_string();
                         let _ = bot
                             .send_message(msg.chat().id, welcome_text)
                             .parse_mode(ParseMode::Html)
@@ -582,7 +581,7 @@ pub async fn callback_handler(
                     let payload = PaymentType::BalanceTopup.to_payload_string(u.id);
                     let prices = vec![LabeledPrice {
                         label: "Top-up".to_string(),
-                        amount: xtr_amount as u32,
+                        amount: xtr_amount,
                     }];
 
                     if let Some(msg) = q.message {
@@ -670,7 +669,7 @@ pub async fn callback_handler(
                                         if is_localhost {
                                             response.push_str("⚠️ _Admin: Set PANEL_URL or subscription_domain setting\\!_\n\n");
                                         } else {
-                                            response.push_str("\n");
+                                            response.push('\n');
                                         }
 
                                         for link in links {
@@ -862,14 +861,13 @@ pub async fn callback_handler(
                                         code.duration_days.unwrap_or(0)
                                     ));
                                 }
-                                if let Some(msg) = q.message {
-                                    if let Err(e) = bot
+                                if let Some(msg) = q.message
+                                    && let Err(e) = bot
                                         .send_message(msg.chat().id, response)
                                         .parse_mode(ParseMode::MarkdownV2)
                                         .await
-                                    {
-                                        error!("Failed to send gift codes: {}", e);
-                                    }
+                                {
+                                    error!("Failed to send gift codes: {}", e);
                                 }
                             }
                         }
@@ -930,7 +928,7 @@ pub async fn callback_handler(
                         .await
                         .unwrap_or_default();
 
-                    let mut response = format!("📱 *CONNECTED DEVICES*\\n\\n");
+                    let mut response = "📱 *CONNECTED DEVICES*\\n\\n".to_string();
                     response.push_str(&format!("🔢 *Device Limit:* `{}`\\n", device_limit));
                     response.push_str(&format!(
                         "✅ *Active Devices:* `{}`\\n\\n",
@@ -964,16 +962,16 @@ pub async fn callback_handler(
                         }
 
                         if active_ips.len() > device_limit as usize {
-                            response.push_str(&format!(
-                                "\\n⚠️ *Warning:* You have exceeded your device limit\\!"
-                            ));
+                            response.push_str(
+                                "\\n⚠️ *Warning:* You have exceeded your device limit\\!",
+                            );
                         }
                     }
 
                     let keyboard =
                         InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
                             "« Back to Services",
-                            format!("myservices_page_0"),
+                            "myservices_page_0".to_string(),
                         )]]);
 
                     let _ = bot
@@ -1094,160 +1092,156 @@ pub async fn callback_handler(
                     .ok()
                     .flatten();
 
-                if let Some(user) = user_db {
-                    if let Ok(subs) = state.store_service.get_user_subscriptions(user.id).await {
-                        // Sort subs (same logic as main handler)
-                        let mut sorted_subs = subs.clone();
-                        sorted_subs.sort_by(|a, b| {
-                            match (a.sub.status.as_str(), b.sub.status.as_str()) {
-                                ("pending", "active") => std::cmp::Ordering::Less,
-                                ("active", "pending") => std::cmp::Ordering::Greater,
-                                _ => b.sub.created_at.cmp(&a.sub.created_at),
-                            }
-                        });
+                if let Some(user) = user_db
+                    && let Ok(subs) = state.store_service.get_user_subscriptions(user.id).await
+                {
+                    // Sort subs (same logic as main handler)
+                    let mut sorted_subs = subs.clone();
+                    sorted_subs.sort_by(|a, b| {
+                        match (a.sub.status.as_str(), b.sub.status.as_str()) {
+                            ("pending", "active") => std::cmp::Ordering::Less,
+                            ("active", "pending") => std::cmp::Ordering::Greater,
+                            _ => b.sub.created_at.cmp(&a.sub.created_at),
+                        }
+                    });
 
-                        if !sorted_subs.is_empty() {
-                            let total_pages = sorted_subs.len();
-                            // Ensure page is valid
-                            let page = if page >= total_pages { 0 } else { page };
-                            let sub = &sorted_subs[page];
+                    if !sorted_subs.is_empty() {
+                        let total_pages = sorted_subs.len();
+                        // Ensure page is valid
+                        let page = if page >= total_pages { 0 } else { page };
+                        let sub = &sorted_subs[page];
 
-                            let mut response = "🔐 *MY SERVICES*\n\n".to_string();
-                            let status_icon = if sub.sub.status == "active" {
-                                "✅"
-                            } else {
-                                "⏳"
-                            };
-                            response.push_str(&format!(
-                                "🔹 *Subscription \\#{}/{:}*\n",
-                                page + 1,
-                                total_pages
-                            ));
-                            response.push_str(&format!(
-                                "   💎 *Plan:* {}\n",
-                                escape_md(&sub.plan_name)
-                            ));
-                            if let Some(desc) = &sub.plan_description {
-                                response.push_str(&format!("   _{}_\n", escape_md(desc)));
-                            }
-                            response.push_str(&format!(
-                                "   🔑 *Status:* {} `{}`\n",
-                                status_icon, sub.sub.status
-                            ));
+                        let mut response = "🔐 *MY SERVICES*\n\n".to_string();
+                        let status_icon = if sub.sub.status == "active" {
+                            "✅"
+                        } else {
+                            "⏳"
+                        };
+                        response.push_str(&format!(
+                            "🔹 *Subscription \\#{}/{:}*\n",
+                            page + 1,
+                            total_pages
+                        ));
+                        response
+                            .push_str(&format!("   💎 *Plan:* {}\n", escape_md(&sub.plan_name)));
+                        if let Some(desc) = &sub.plan_description {
+                            response.push_str(&format!("   _{}_\n", escape_md(desc)));
+                        }
+                        response.push_str(&format!(
+                            "   🔑 *Status:* {} `{}`\n",
+                            status_icon, sub.sub.status
+                        ));
 
-                            // Traffic
-                            let used_gb = sub.sub.used_traffic as f64 / 1024.0 / 1024.0 / 1024.0;
-                            if let Some(limit) = sub.traffic_limit_gb {
-                                if limit == 0 {
-                                    response.push_str(&format!(
-                                        "   📊 *Traffic:* `{:.2} GB / ∞`\n",
-                                        used_gb
-                                    ));
-                                } else {
-                                    response.push_str(&format!(
-                                        "   📊 *Traffic:* `{:.2} GB / {} GB`\n",
-                                        used_gb, limit
-                                    ));
-                                }
-                            } else {
+                        // Traffic
+                        let used_gb = sub.sub.used_traffic as f64 / 1024.0 / 1024.0 / 1024.0;
+                        if let Some(limit) = sub.traffic_limit_gb {
+                            if limit == 0 {
                                 response.push_str(&format!(
-                                    "   📊 *Traffic Used:* `{:.2} GB`\n",
+                                    "   📊 *Traffic:* `{:.2} GB / ∞`\n",
                                     used_gb
                                 ));
-                            }
-
-                            if sub.sub.status == "active" {
-                                response.push_str(&format!(
-                                    "   ⌛ *Expires:* `{}`\n",
-                                    sub.sub.expires_at.format("%Y-%m-%d")
-                                ));
                             } else {
-                                let duration = sub.sub.expires_at - sub.sub.created_at;
                                 response.push_str(&format!(
-                                    "   ⏱ *Duration:* `{} days` \\(starts on activation\\)\n",
-                                    duration.num_days()
+                                    "   📊 *Traffic:* `{:.2} GB / {} GB`\n",
+                                    used_gb, limit
                                 ));
                             }
-                            response.push_str("\n");
-                            if let Some(note) = &sub.sub.note {
-                                response.push_str(&format!("📝 *Note:* {}\n\n", escape_md(note)));
-                            }
+                        } else {
+                            response
+                                .push_str(&format!("   📊 *Traffic Used:* `{:.2} GB`\n", used_gb));
+                        }
 
-                            // Navigation & Actions
-                            let mut buttons = Vec::new();
+                        if sub.sub.status == "active" {
+                            response.push_str(&format!(
+                                "   ⌛ *Expires:* `{}`\n",
+                                sub.sub.expires_at.format("%Y-%m-%d")
+                            ));
+                        } else {
+                            let duration = sub.sub.expires_at - sub.sub.created_at;
+                            response.push_str(&format!(
+                                "   ⏱ *Duration:* `{} days` \\(starts on activation\\)\n",
+                                duration.num_days()
+                            ));
+                        }
+                        response.push('\n');
+                        if let Some(note) = &sub.sub.note {
+                            response.push_str(&format!("📝 *Note:* {}\n\n", escape_md(note)));
+                        }
 
-                            // Edit Note Button
-                            buttons.push(vec![InlineKeyboardButton::callback(
-                                "📝 Edit Note",
-                                format!("edit_note_{}", sub.sub.id),
-                            )]);
+                        // Navigation & Actions
+                        let mut buttons = Vec::new();
 
-                            // Action Buttons
-                            if sub.sub.status == "active" {
-                                buttons.push(vec![
-                                    InlineKeyboardButton::callback(
-                                        "🔗 Get Links",
-                                        format!("get_links_{}", sub.sub.id),
-                                    ),
-                                    InlineKeyboardButton::callback(
-                                        "📄 JSON Profile",
-                                        format!("get_config_{}", sub.sub.id),
-                                    ),
-                                    InlineKeyboardButton::callback(
-                                        "⏳ Extend",
-                                        format!("extend_sub_{}", sub.sub.id),
-                                    ),
-                                ]);
-                            } else if sub.sub.status == "pending" {
-                                buttons.push(vec![
-                                    InlineKeyboardButton::callback(
-                                        "▶️ Activate",
-                                        format!("activate_{}", sub.sub.id),
-                                    ),
-                                    InlineKeyboardButton::callback(
-                                        "🎁 Make Gift Code",
-                                        format!("gift_init_{}", sub.sub.id),
-                                    ),
-                                ]);
-                            }
+                        // Edit Note Button
+                        buttons.push(vec![InlineKeyboardButton::callback(
+                            "📝 Edit Note",
+                            format!("edit_note_{}", sub.sub.id),
+                        )]);
 
-                            // Navigation Row
-                            let mut nav_row = Vec::new();
-                            if total_pages > 1 {
-                                let prev_page = if page > 0 { page - 1 } else { total_pages - 1 };
-                                let next_page = if page < total_pages - 1 { page + 1 } else { 0 };
+                        // Action Buttons
+                        if sub.sub.status == "active" {
+                            buttons.push(vec![
+                                InlineKeyboardButton::callback(
+                                    "🔗 Get Links",
+                                    format!("get_links_{}", sub.sub.id),
+                                ),
+                                InlineKeyboardButton::callback(
+                                    "📄 JSON Profile",
+                                    format!("get_config_{}", sub.sub.id),
+                                ),
+                                InlineKeyboardButton::callback(
+                                    "⏳ Extend",
+                                    format!("extend_sub_{}", sub.sub.id),
+                                ),
+                            ]);
+                        } else if sub.sub.status == "pending" {
+                            buttons.push(vec![
+                                InlineKeyboardButton::callback(
+                                    "▶️ Activate",
+                                    format!("activate_{}", sub.sub.id),
+                                ),
+                                InlineKeyboardButton::callback(
+                                    "🎁 Make Gift Code",
+                                    format!("gift_init_{}", sub.sub.id),
+                                ),
+                            ]);
+                        }
 
-                                nav_row.push(InlineKeyboardButton::callback(
-                                    "⬅️ Prev",
-                                    format!("myservices_page_{}", prev_page),
-                                ));
-                                nav_row.push(InlineKeyboardButton::callback(
-                                    format!("{}/{}", page + 1, total_pages),
-                                    "ignore",
-                                ));
-                                nav_row.push(InlineKeyboardButton::callback(
-                                    "Next ➡️",
-                                    format!("myservices_page_{}", next_page),
-                                ));
-                            }
-                            if !nav_row.is_empty() {
-                                buttons.push(nav_row);
-                            }
+                        // Navigation Row
+                        let mut nav_row = Vec::new();
+                        if total_pages > 1 {
+                            let prev_page = if page > 0 { page - 1 } else { total_pages - 1 };
+                            let next_page = if page < total_pages - 1 { page + 1 } else { 0 };
 
-                            // My Gifts Link
-                            buttons.push(vec![InlineKeyboardButton::callback(
-                                "🎁 My Gift Codes",
-                                "my_gifts",
-                            )]);
+                            nav_row.push(InlineKeyboardButton::callback(
+                                "⬅️ Prev",
+                                format!("myservices_page_{}", prev_page),
+                            ));
+                            nav_row.push(InlineKeyboardButton::callback(
+                                format!("{}/{}", page + 1, total_pages),
+                                "ignore",
+                            ));
+                            nav_row.push(InlineKeyboardButton::callback(
+                                "Next ➡️",
+                                format!("myservices_page_{}", next_page),
+                            ));
+                        }
+                        if !nav_row.is_empty() {
+                            buttons.push(nav_row);
+                        }
 
-                            // Edit the message
-                            if let Some(msg) = q.message {
-                                let _ = bot
-                                    .edit_message_text(msg.chat().id, msg.id(), response)
-                                    .parse_mode(ParseMode::MarkdownV2)
-                                    .reply_markup(InlineKeyboardMarkup::new(buttons))
-                                    .await;
-                            }
+                        // My Gifts Link
+                        buttons.push(vec![InlineKeyboardButton::callback(
+                            "🎁 My Gift Codes",
+                            "my_gifts",
+                        )]);
+
+                        // Edit the message
+                        if let Some(msg) = q.message {
+                            let _ = bot
+                                .edit_message_text(msg.chat().id, msg.id(), response)
+                                .parse_mode(ParseMode::MarkdownV2)
+                                .reply_markup(InlineKeyboardMarkup::new(buttons))
+                                .await;
                         }
                     }
                 }
@@ -1544,10 +1538,8 @@ pub async fn callback_handler(
                                         }
                                     }
 
-                                    if let Err(e) = state
-                                        .marketplace_service
-                                        .fulfill_payment(session.id)
-                                        .await
+                                    if let Err(e) =
+                                        state.marketplace_service.fulfill_payment(session.id).await
                                     {
                                         // Refund so the user isn't billed for nothing.
                                         let _ = sqlx::query(
@@ -2240,7 +2232,7 @@ pub async fn callback_handler(
 }
 
 fn make_amount_keyboard(prefix: &str) -> InlineKeyboardMarkup {
-    let amounts = vec![5, 10, 20, 50];
+    let amounts = [5, 10, 20, 50];
     let mut buttons = Vec::new();
 
     // 2x2 grid

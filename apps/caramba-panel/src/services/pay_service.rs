@@ -678,10 +678,12 @@ impl PayService {
         let tg_res: TgResponse = res.json().await?;
 
         if tg_res.ok {
-            tg_res.result.ok_or_else(|| anyhow!(
-                "Failed to create Stars invoice (ok=true but no result): {:?}",
-                tg_res.description
-            ))
+            tg_res.result.ok_or_else(|| {
+                anyhow!(
+                    "Failed to create Stars invoice (ok=true but no result): {:?}",
+                    tg_res.description
+                )
+            })
         } else {
             Err(anyhow!(
                 "Failed to create Stars invoice: {:?}",
@@ -705,30 +707,31 @@ impl PayService {
             "cryptobot" => {
                 self.verify_cryptobot_signature(payload, crypto_sig)?;
 
-                if let Some(update_type) = body["update_type"].as_str() {
-                    if update_type == "invoice_paid" {
-                        let invoice = &body["update_payload"];
-                        let status = invoice["status"].as_str().unwrap_or("");
-                        if status == "paid" {
-                            let amount: f64 = invoice["amount"]
-                                .as_str()
-                                .unwrap_or("0")
-                                .parse()
-                                .unwrap_or(0.0);
-                            let payload_str = invoice["payload"].as_str().unwrap_or("");
-                            let id = invoice["invoice_id"].to_string();
-                            self.process_any_payment(amount, "cryptobot", Some(id), payload_str)
-                                .await?;
-                        } else if status == "expired" || status == "cancelled" {
-                            // CryptoBot invoice expired or was cancelled — уведомляем пользователя
-                            let amount: f64 = invoice["amount"]
-                                .as_str()
-                                .unwrap_or("0")
-                                .parse()
-                                .unwrap_or(0.0);
-                            let payload_str = invoice["payload"].as_str().unwrap_or("");
-                            self.notify_payment_declined(payload_str, amount, "CryptoBot").await;
-                        }
+                if let Some(update_type) = body["update_type"].as_str()
+                    && update_type == "invoice_paid"
+                {
+                    let invoice = &body["update_payload"];
+                    let status = invoice["status"].as_str().unwrap_or("");
+                    if status == "paid" {
+                        let amount: f64 = invoice["amount"]
+                            .as_str()
+                            .unwrap_or("0")
+                            .parse()
+                            .unwrap_or(0.0);
+                        let payload_str = invoice["payload"].as_str().unwrap_or("");
+                        let id = invoice["invoice_id"].to_string();
+                        self.process_any_payment(amount, "cryptobot", Some(id), payload_str)
+                            .await?;
+                    } else if status == "expired" || status == "cancelled" {
+                        // CryptoBot invoice expired or was cancelled — уведомляем пользователя
+                        let amount: f64 = invoice["amount"]
+                            .as_str()
+                            .unwrap_or("0")
+                            .parse()
+                            .unwrap_or(0.0);
+                        let payload_str = invoice["payload"].as_str().unwrap_or("");
+                        self.notify_payment_declined(payload_str, amount, "CryptoBot")
+                            .await;
                     }
                 }
             }
@@ -748,7 +751,8 @@ impl PayService {
                         let amount: f64 = body["pay_amount"].as_f64().unwrap_or(0.0);
                         let order_id = body["order_id"].as_str().unwrap_or("");
                         let payload_str = order_id.split('_').next().unwrap_or("");
-                        self.notify_payment_declined(payload_str, amount, "NOWPayments").await;
+                        self.notify_payment_declined(payload_str, amount, "NOWPayments")
+                            .await;
                     }
                 }
             }
@@ -767,7 +771,8 @@ impl PayService {
                         // CrystalPay payment failed — уведомляем пользователя
                         let amount: f64 = body["amount"].as_f64().unwrap_or(0.0);
                         let extra = body["extra"].as_str().unwrap_or("");
-                        self.notify_payment_declined(extra, amount, "CrystalPay").await;
+                        self.notify_payment_declined(extra, amount, "CrystalPay")
+                            .await;
                     }
                 }
             }
@@ -793,7 +798,8 @@ impl PayService {
                     let amount_subtokens = session["amount_total"].as_i64().unwrap_or(0);
                     let amount_usd = amount_subtokens as f64 / 100.0;
                     let payload_str = session["client_reference_id"].as_str().unwrap_or("");
-                    self.notify_payment_declined(payload_str, amount_usd, "Stripe").await;
+                    self.notify_payment_declined(payload_str, amount_usd, "Stripe")
+                        .await;
                 }
             }
 
@@ -816,7 +822,11 @@ impl PayService {
 
                     self.process_any_payment(amount, "cryptomus", Some(id), payload_str)
                         .await?;
-                } else if status == "cancel" || status == "fail" || status == "system_fail" || status == "wrong_amount_waiting" {
+                } else if status == "cancel"
+                    || status == "fail"
+                    || status == "system_fail"
+                    || status == "wrong_amount_waiting"
+                {
                     // Cryptomus terminal failure — уведомляем пользователя
                     let amount: f64 = body["amount"]
                         .as_str()
@@ -824,7 +834,8 @@ impl PayService {
                         .parse()
                         .unwrap_or(0.0);
                     let payload_str = body["additional_data"].as_str().unwrap_or("");
-                    self.notify_payment_declined(payload_str, amount, "Cryptomus").await;
+                    self.notify_payment_declined(payload_str, amount, "Cryptomus")
+                        .await;
                 }
             }
             "aaio" => {
@@ -886,7 +897,7 @@ impl PayService {
         .await;
 
         if let Ok(Some((tg_id, lang))) = row {
-            let is_ru = lang.as_deref().map_or(true, |l| l.starts_with("ru"));
+            let is_ru = lang.as_deref().is_none_or(|l| l.starts_with("ru"));
             let amount_str = format!("{:.2}", amount_usd);
 
             let msg = if is_ru {
@@ -1036,12 +1047,11 @@ impl PayService {
         self.catalog_service.process_order_payment(order_id).await?;
 
         // Получаем tg_id пользователя — bot_manager принимает tg_id, не DB id
-        let tg_id: Option<i64> =
-            sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
-                .bind(user_id)
-                .fetch_optional(&self.pool)
-                .await
-                .unwrap_or(None);
+        let tg_id: Option<i64> = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await
+            .unwrap_or(None);
 
         if let Some(tg_id) = tg_id {
             let _ = self
@@ -1059,7 +1069,10 @@ impl PayService {
         let _ = ActivityService::log(
             &self.pool,
             "Order",
-            &format!("Order #{} paid ${:.2} via {} for user {}", order_id, amount_usd, method, user_id),
+            &format!(
+                "Order #{} paid ${:.2} via {} for user {}",
+                order_id, amount_usd, method, user_id
+            ),
         )
         .await;
 
@@ -1121,7 +1134,11 @@ impl PayService {
         .await?;
 
         if let Some(duration) = durations {
-            match self.store_service.purchase_plan(user_id, duration.id, false).await {
+            match self
+                .store_service
+                .purchase_plan(user_id, duration.id, false)
+                .await
+            {
                 Ok(crate::services::store_service::PurchaseResult::Subscription(_)) => {
                     if let Some(cid) = notify_chat_id {
                         let _ = self
@@ -1145,10 +1162,7 @@ impl PayService {
             if let Some(cid) = notify_chat_id {
                 let _ = self
                     .bot_manager
-                    .send_notification(
-                        cid,
-                        "⚠️ Error: Plan duration not found. Balance credited.",
-                    )
+                    .send_notification(cid, "⚠️ Error: Plan duration not found. Balance credited.")
                     .await;
             }
         }
@@ -1239,10 +1253,7 @@ impl PayService {
         {
             let _ = self
                 .bot_manager
-                .send_notification(
-                    cid,
-                    &format!("✅ Balance topped up: +${:.2}", amount_usd),
-                )
+                .send_notification(cid, &format!("✅ Balance topped up: +${:.2}", amount_usd))
                 .await;
         }
         let _ = crate::services::analytics_service::AnalyticsService::track_revenue(
@@ -1262,16 +1273,20 @@ impl PayService {
         .await;
 
         // Admin notification
-        let username: String = sqlx::query_scalar("SELECT COALESCE(username, tg_id::TEXT) FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_optional(&self.pool)
-            .await
-            .unwrap_or(None)
-            .unwrap_or_else(|| user_id.to_string());
+        let username: String =
+            sqlx::query_scalar("SELECT COALESCE(username, tg_id::TEXT) FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(&self.pool)
+                .await
+                .unwrap_or(None)
+                .unwrap_or_else(|| user_id.to_string());
         self.bot_manager
             .notify_admins(
                 &self.pool,
-                &format!("💰 Payment ${:.2} from {} via {}", amount_usd, username, method),
+                &format!(
+                    "💰 Payment ${:.2} from {} via {}",
+                    amount_usd, username, method
+                ),
             )
             .await;
 

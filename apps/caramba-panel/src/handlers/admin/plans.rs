@@ -383,7 +383,7 @@ pub async fn update_plan(
 
     let admin_path = state.admin_path.clone();
     (
-        [(("HX-Redirect", format!("{}/plans", admin_path)))],
+        [("HX-Redirect", format!("{}/plans", admin_path))],
         "Redirecting...",
     )
         .into_response()

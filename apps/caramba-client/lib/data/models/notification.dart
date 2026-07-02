@@ -44,7 +44,8 @@ class AppNotification {
     final status = (json['status'] as String?)?.toLowerCase();
     return AppNotification(
       id: (json['id'] as num?)?.toInt() ?? 0,
-      category: (json['kind'] as String?) ?? (json['category'] as String?) ?? '',
+      category:
+          (json['kind'] as String?) ?? (json['category'] as String?) ?? '',
       title: (json['title'] as String?) ?? '',
       body: (json['body'] as String?) ?? '',
       read: (json['read'] as bool?) ?? (status == 'read' || readAt != null),
@@ -54,14 +55,14 @@ class AppNotification {
   }
 
   AppNotification copyWith({bool? read, DateTime? readAt}) => AppNotification(
-        id: id,
-        category: category,
-        title: title,
-        body: body,
-        read: read ?? this.read,
-        createdAt: createdAt,
-        readAt: readAt ?? this.readAt,
-      );
+    id: id,
+    category: category,
+    title: title,
+    body: body,
+    read: read ?? this.read,
+    createdAt: createdAt,
+    readAt: readAt ?? this.readAt,
+  );
 
   static DateTime? _parseDate(Object? v) {
     if (v is String && v.isNotEmpty) return DateTime.tryParse(v)?.toLocal();

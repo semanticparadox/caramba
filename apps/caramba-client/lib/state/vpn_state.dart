@@ -25,7 +25,7 @@ class VpnNotifier extends StateNotifier<VpnStatus> {
   StreamSubscription<VpnStatus>? _sub;
 
   VpnNotifier(this._conn, this._recommended, this._activeProfile)
-      : super(_conn.currentStatus) {
+    : super(_conn.currentStatus) {
     _sub = _conn.status.listen((s) => state = s);
   }
 
@@ -42,10 +42,7 @@ class VpnNotifier extends StateNotifier<VpnStatus> {
     if (server == null && profile != null && profile.isRaw) {
       final raw = profile.rawConfig ?? profile.source;
       if (raw.isEmpty) {
-        state = const VpnStatus(
-          stage: VpnStage.error,
-          detail: 'Empty profile',
-        );
+        state = const VpnStatus(stage: VpnStage.error, detail: 'Empty profile');
         return false;
       }
       await _conn.connectRaw(

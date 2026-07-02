@@ -179,7 +179,11 @@ impl AdminService {
         }
 
         // Вариант 2: GET /api/v2/bot/settings/admin_notification_tg_ids
-        if let Ok(raw) = self.api.get::<String>("/settings/admin_notification_tg_ids").await {
+        if let Ok(raw) = self
+            .api
+            .get::<String>("/settings/admin_notification_tg_ids")
+            .await
+        {
             return raw
                 .split(',')
                 .filter_map(|s| s.trim().parse::<i64>().ok())

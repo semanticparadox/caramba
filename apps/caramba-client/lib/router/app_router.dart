@@ -222,18 +222,12 @@ class _AuthRefresh extends ChangeNotifier {
   late final ProviderSubscription<bool> _firstRunSub;
 
   _AuthRefresh(Ref ref) {
-    _authSub = ref.listen<AuthState>(
-      authProvider,
-      (prev, next) {
-        if (prev?.stage != next.stage) notifyListeners();
-      },
-    );
-    _firstRunSub = ref.listen<bool>(
-      firstRunProvider,
-      (prev, next) {
-        if (prev != next) notifyListeners();
-      },
-    );
+    _authSub = ref.listen<AuthState>(authProvider, (prev, next) {
+      if (prev?.stage != next.stage) notifyListeners();
+    });
+    _firstRunSub = ref.listen<bool>(firstRunProvider, (prev, next) {
+      if (prev != next) notifyListeners();
+    });
   }
 
   @override

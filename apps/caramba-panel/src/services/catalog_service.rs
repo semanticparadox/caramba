@@ -57,7 +57,12 @@ impl CatalogService {
 
         match ov {
             Some((amount, currency)) => Ok(Some((plan_id, duration_days, amount, currency))),
-            None => Ok(Some((plan_id, duration_days, base_price, "USD".to_string()))),
+            None => Ok(Some((
+                plan_id,
+                duration_days,
+                base_price,
+                "USD".to_string(),
+            ))),
         }
     }
 
@@ -411,7 +416,18 @@ impl CatalogService {
         prices: Vec<i64>,
         group_ids: Vec<i64>,
     ) -> Result<i64> {
-        self.create_plan_full(name, description, device_limit, traffic_limit_gb, 0, false, duration_days, prices, group_ids).await
+        self.create_plan_full(
+            name,
+            description,
+            device_limit,
+            traffic_limit_gb,
+            0,
+            false,
+            duration_days,
+            prices,
+            group_ids,
+        )
+        .await
     }
 
     pub async fn create_plan_full(
@@ -475,7 +491,19 @@ impl CatalogService {
         prices: Vec<i64>,
         group_ids: Vec<i64>,
     ) -> Result<()> {
-        self.update_plan_full(id, name, description, device_limit, traffic_limit_gb, 0, false, duration_days, prices, group_ids).await
+        self.update_plan_full(
+            id,
+            name,
+            description,
+            device_limit,
+            traffic_limit_gb,
+            0,
+            false,
+            duration_days,
+            prices,
+            group_ids,
+        )
+        .await
     }
 
     pub async fn update_plan_full(
@@ -734,7 +762,10 @@ impl CatalogService {
             &mut *tx,
             Some(user_id),
             "Checkout",
-            &format!("Order #{} created (pending). Total: {}", order_id, total_price),
+            &format!(
+                "Order #{} created (pending). Total: {}",
+                order_id, total_price
+            ),
         )
         .await;
         tx.commit().await?;

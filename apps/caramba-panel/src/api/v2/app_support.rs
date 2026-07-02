@@ -59,9 +59,10 @@ pub async fn list_notifications(
 ) -> impl IntoResponse {
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let offset = q.offset.unwrap_or(0).max(0);
-    let status_filter = q.status.as_deref().filter(|s| {
-        matches!(*s, "unread" | "read" | "archived")
-    });
+    let status_filter = q
+        .status
+        .as_deref()
+        .filter(|s| matches!(*s, "unread" | "read" | "archived"));
 
     let rows = match state
         .notifications_svc
@@ -120,8 +121,7 @@ pub async fn mark_notification_read(
                 .unread_count(auth.user_id)
                 .await
                 .unwrap_or(0);
-            Json(serde_json::json!({ "ok": true, "unread_count": unread_count }))
-                .into_response()
+            Json(serde_json::json!({ "ok": true, "unread_count": unread_count })).into_response()
         }
         Err(e) => {
             tracing::error!(err = %e, "app: mark notification read failed");
@@ -378,8 +378,7 @@ pub async fn reply_ticket(
                 }
                 TicketError::Internal(_) => {
                     tracing::error!(err = %e, ticket_id, "app: reply ticket internal error");
-                    (StatusCode::INTERNAL_SERVER_ERROR, "Cannot reply to ticket")
-                        .into_response()
+                    (StatusCode::INTERNAL_SERVER_ERROR, "Cannot reply to ticket").into_response()
                 }
             }
         }

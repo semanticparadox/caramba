@@ -117,17 +117,18 @@ impl TelemetryService {
             .execute(&self.pool)
             .await?;
 
-            if let Some(conns) = active_connections {
-                if conns > 50 && (diff_in + diff_eg) < 1024 {
-                    warn!(
-                        "⚠️ Potential Censorship Detected on Node {}: {} connections but only {} bytes traffic.",
-                        node_id,
-                        conns,
-                        diff_in + diff_eg
-                    );
+            if let Some(conns) = active_connections
+                && conns > 50
+                && (diff_in + diff_eg) < 1024
+            {
+                warn!(
+                    "⚠️ Potential Censorship Detected on Node {}: {} connections but only {} bytes traffic.",
+                    node_id,
+                    conns,
+                    diff_in + diff_eg
+                );
 
-                    let _ = self.trigger_mitigation(node_id).await;
-                }
+                let _ = self.trigger_mitigation(node_id).await;
             }
         }
 
@@ -557,12 +558,12 @@ fn normalize_host_candidate(raw: &str) -> Option<String> {
         value = value.trim_matches(|ch| ch == '[' || ch == ']').to_string();
     }
 
-    if value.matches(':').count() == 1 {
-        if let Some((host, port)) = value.split_once(':') {
-            if !port.is_empty() && port.chars().all(|ch| ch.is_ascii_digit()) {
-                value = host.to_string();
-            }
-        }
+    if value.matches(':').count() == 1
+        && let Some((host, port)) = value.split_once(':')
+        && !port.is_empty()
+        && port.chars().all(|ch| ch.is_ascii_digit())
+    {
+        value = host.to_string();
     }
 
     value = value.trim().trim_end_matches('.').to_string();

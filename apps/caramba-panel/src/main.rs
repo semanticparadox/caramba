@@ -1,3 +1,11 @@
+// Crate-wide clippy policy: these fire pervasively on this service-heavy crate
+// (many-field service constructors like MarketplaceService::new, generated
+// sing-box config data models). Suppressed crate-wide as a deliberate, reviewed
+// choice rather than dozens of per-item #[allow]s.
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::large_enum_variant)]
+#![allow(clippy::type_complexity)]
+
 mod api;
 mod bot;
 mod bot_manager;
@@ -17,7 +25,6 @@ use settings::SettingsService;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing_appender;
 
 use anyhow::Result;
 use axum::{
@@ -621,7 +628,10 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
 
     let session_secret = std::env::var("SESSION_SECRET")
         .expect("SESSION_SECRET must be set (minimum 32 characters)");
-    assert!(session_secret.len() >= 32, "SESSION_SECRET must be at least 32 characters");
+    assert!(
+        session_secret.len() >= 32,
+        "SESSION_SECRET must be at least 32 characters"
+    );
 
     let promo_service = Arc::new(services::promo_service::PromoService::new(pool.clone()));
 
@@ -1050,18 +1060,9 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         )
         .route("/users/notify/all", post(handlers::admin::notify_all_users))
         // Support Tickets — admin web UI
-        .route(
-            "/tickets",
-            get(handlers::admin::tickets::list),
-        )
-        .route(
-            "/tickets/{id}",
-            get(handlers::admin::tickets::detail),
-        )
-        .route(
-            "/tickets/{id}/reply",
-            post(handlers::admin::tickets::reply),
-        )
+        .route("/tickets", get(handlers::admin::tickets::list))
+        .route("/tickets/{id}", get(handlers::admin::tickets::detail))
+        .route("/tickets/{id}/reply", post(handlers::admin::tickets::reply))
         .route(
             "/tickets/{id}/assign",
             post(handlers::admin::tickets::assign),
@@ -1497,10 +1498,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         )
         // Public status page — human-readable HTML at /status.
         // No auth, no PII. Different from /api/health which is JSON for monitors.
-        .route(
-            "/status",
-            axum::routing::get(handlers::status::status_page),
-        )
+        .route("/status", axum::routing::get(handlers::status::status_page))
         .route(
             "/assets/css/modern.css",
             axum::routing::get(handlers::assets::modern_css),

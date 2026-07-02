@@ -55,19 +55,17 @@ impl NotificationsService {
 
         // Пытаемся отправить в бот, если оба условия выполнены
         let mut delivered_via_bot = false;
-        if bot_dm_enabled {
-            if let Some(tid) = tg_id {
-                let msg = format!("*{}*\n{}", escape_md(title), escape_md(body));
-                match self.bot_manager.send_notification(tid, &msg).await {
-                    Ok(_) => {
-                        delivered_via_bot = true;
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Не удалось доставить уведомление пользователю {} через бот: {}",
-                            user_id, e
-                        );
-                    }
+        if bot_dm_enabled && let Some(tid) = tg_id {
+            let msg = format!("*{}*\n{}", escape_md(title), escape_md(body));
+            match self.bot_manager.send_notification(tid, &msg).await {
+                Ok(_) => {
+                    delivered_via_bot = true;
+                }
+                Err(e) => {
+                    warn!(
+                        "Не удалось доставить уведомление пользователю {} через бот: {}",
+                        user_id, e
+                    );
                 }
             }
         }
@@ -242,7 +240,11 @@ impl NotificationsService {
         prefs: Vec<NotificationChannelPref>,
     ) -> Result<()> {
         // Транзакционно удаляем старые и вставляем новые
-        let mut tx = self.pool.begin().await.context("Ошибка начала транзакции")?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Ошибка начала транзакции")?;
 
         sqlx::query("DELETE FROM notification_channel_prefs WHERE user_id = $1")
             .bind(user_id)

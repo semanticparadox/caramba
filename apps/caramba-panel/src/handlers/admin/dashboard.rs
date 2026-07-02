@@ -304,10 +304,13 @@ pub async fn get_dashboard(State(state): State<AppState>, jar: CookieJar) -> imp
         is_zero_network_load,
         orders,
         top_users,
-        history_data_json: serde_json::to_string(&history_data).unwrap_or_else(|_| "[0]".to_string()),
-        history_labels_json: serde_json::to_string(&history_labels).unwrap_or_else(|_| r#"["Today"]"#.to_string()),
+        history_data_json: serde_json::to_string(&history_data)
+            .unwrap_or_else(|_| "[0]".to_string()),
+        history_labels_json: serde_json::to_string(&history_labels)
+            .unwrap_or_else(|_| r#"["Today"]"#.to_string()),
         node_series_json: serde_json::to_string(&node_series).unwrap_or_else(|_| "[0]".to_string()),
-        node_labels_json: serde_json::to_string(&node_labels).unwrap_or_else(|_| r#"["All"]"#.to_string()),
+        node_labels_json: serde_json::to_string(&node_labels)
+            .unwrap_or_else(|_| r#"["All"]"#.to_string()),
         activities,
         bot_status,
         is_auth: true,

@@ -156,13 +156,13 @@ pub async fn create_template(
             .into_response();
     }
 
-    if let Some(obj) = settings_json.as_object_mut() {
-        if !obj.contains_key("protocol") {
-            obj.insert(
-                "protocol".to_string(),
-                serde_json::Value::String(form.protocol.clone()),
-            );
-        }
+    if let Some(obj) = settings_json.as_object_mut()
+        && !obj.contains_key("protocol")
+    {
+        obj.insert(
+            "protocol".to_string(),
+            serde_json::Value::String(form.protocol.clone()),
+        );
     }
     let final_settings = settings_json.to_string();
 
@@ -486,13 +486,13 @@ pub async fn update_template(
             .into_response();
     }
 
-    if let Some(obj) = settings_json.as_object_mut() {
-        if !obj.contains_key("protocol") {
-            obj.insert(
-                "protocol".to_string(),
-                serde_json::Value::String(form.protocol.clone()),
-            );
-        }
+    if let Some(obj) = settings_json.as_object_mut()
+        && !obj.contains_key("protocol")
+    {
+        obj.insert(
+            "protocol".to_string(),
+            serde_json::Value::String(form.protocol.clone()),
+        );
     }
     let final_settings = settings_json.to_string();
 

@@ -5,8 +5,8 @@
 /// Все операции ввода-вывода неблокирующие — pg_dump запускается как
 /// дочерний процесс tokio, читается и сжимается потоково.
 use chrono::{DateTime, Utc};
-use flate2::write::GzEncoder;
 use flate2::Compression;
+use flate2::write::GzEncoder;
 use std::io::Write as IoWrite;
 use std::path::PathBuf;
 use tokio::io::AsyncReadExt;
@@ -36,8 +36,7 @@ pub struct BackupInfo {
 /// По умолчанию — /var/lib/caramba/backups.
 fn backup_dir() -> PathBuf {
     PathBuf::from(
-        std::env::var("BACKUP_DIR")
-            .unwrap_or_else(|_| "/var/lib/caramba/backups".to_string()),
+        std::env::var("BACKUP_DIR").unwrap_or_else(|_| "/var/lib/caramba/backups".to_string()),
     )
 }
 
@@ -170,7 +169,9 @@ pub async fn create_backup() -> anyhow::Result<BackupInfo> {
             .truncate(true)
             .mode(0o600)
             .open(&out_path_clone)
-            .map_err(|e| anyhow::anyhow!("Cannot create backup file {:?}: {}", out_path_clone, e))?;
+            .map_err(|e| {
+                anyhow::anyhow!("Cannot create backup file {:?}: {}", out_path_clone, e)
+            })?;
 
         let mut encoder = GzEncoder::new(file, Compression::default());
         encoder
@@ -187,7 +188,10 @@ pub async fn create_backup() -> anyhow::Result<BackupInfo> {
 
     // Если запись провалилась — удаляем частичный файл
     if let Err(ref e) = compressed_result {
-        warn!("Backup write failed, removing partial file {:?}: {}", out_path, e);
+        warn!(
+            "Backup write failed, removing partial file {:?}: {}",
+            out_path, e
+        );
         let _ = tokio::fs::remove_file(&out_path).await;
     }
     compressed_result?;
@@ -248,7 +252,7 @@ pub async fn list_backups() -> anyhow::Result<Vec<BackupInfo>> {
         let created_at = parse_timestamp_from_filename(&name).unwrap_or_else(|| {
             // Фолбэк на mtime
             meta.modified()
-                .map(|t| DateTime::from(t))
+                .map(DateTime::from)
                 .unwrap_or_else(|_| Utc::now())
         });
 
@@ -262,7 +266,7 @@ pub async fn list_backups() -> anyhow::Result<Vec<BackupInfo>> {
     }
 
     // Сортируем от новых к старым
-    backups.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    backups.sort_by_key(|b| std::cmp::Reverse(b.created_at));
 
     Ok(backups)
 }
@@ -298,10 +302,7 @@ pub async fn rotate(keep: usize) -> anyhow::Result<u64> {
 /// Имя валидируется перед удалением для защиты от path-traversal.
 pub async fn delete_backup(filename: &str) -> anyhow::Result<()> {
     if !validate_filename(filename) {
-        return Err(anyhow::anyhow!(
-            "Invalid backup filename: {}",
-            filename
-        ));
+        return Err(anyhow::anyhow!("Invalid backup filename: {}", filename));
     }
 
     let dir = backup_dir();
@@ -341,8 +342,8 @@ pub fn backup_file_path(filename: &str) -> anyhow::Result<PathBuf> {
 /// Если разбор не удался — возвращает URL целиком как аргумент (упрощённый фолбэк).
 fn parse_pg_url(url: &str) -> anyhow::Result<(Vec<String>, String)> {
     // Используем url::Url для парсинга
-    let parsed = url::Url::parse(url)
-        .map_err(|e| anyhow::anyhow!("Cannot parse DATABASE_URL: {}", e))?;
+    let parsed =
+        url::Url::parse(url).map_err(|e| anyhow::anyhow!("Cannot parse DATABASE_URL: {}", e))?;
 
     let password = parsed.password().unwrap_or("").to_string();
     let host = parsed.host_str().unwrap_or("localhost").to_string();
@@ -352,11 +353,12 @@ fn parse_pg_url(url: &str) -> anyhow::Result<(Vec<String>, String)> {
     let dbname = parsed.path().trim_start_matches('/').to_string();
 
     if dbname.is_empty() {
-        return Err(anyhow::anyhow!("DATABASE_URL does not contain a database name"));
+        return Err(anyhow::anyhow!(
+            "DATABASE_URL does not contain a database name"
+        ));
     }
 
-    let mut args: Vec<String> = Vec::new();
-    args.push("--no-password".to_string());
+    let mut args: Vec<String> = vec!["--no-password".to_string()];
     args.push("-h".to_string());
     args.push(host);
     args.push("-p".to_string());
@@ -373,9 +375,7 @@ fn parse_pg_url(url: &str) -> anyhow::Result<(Vec<String>, String)> {
 /// Извлекает DateTime<Utc> из имени файла `caramba-YYYYMMDDTHHMMSSZ.sql.gz`.
 fn parse_timestamp_from_filename(filename: &str) -> Option<DateTime<Utc>> {
     // caramba-20260428T153045Z.sql.gz
-    let inner = filename
-        .strip_prefix("caramba-")?
-        .strip_suffix(".sql.gz")?;
+    let inner = filename.strip_prefix("caramba-")?.strip_suffix(".sql.gz")?;
     // inner = "20260428T153045Z"
     chrono::NaiveDateTime::parse_from_str(inner, "%Y%m%dT%H%M%SZ")
         .ok()
@@ -402,7 +402,10 @@ mod regex_lite {
         pub fn is_match(&self, s: &str) -> bool {
             // caramba-YYYYMMDDTHHMMSSZ.sql.gz
             // 8 цифр даты, T, 6 цифр времени, Z
-            if let Some(inner) = s.strip_prefix("caramba-").and_then(|s| s.strip_suffix(".sql.gz")) {
+            if let Some(inner) = s
+                .strip_prefix("caramba-")
+                .and_then(|s| s.strip_suffix(".sql.gz"))
+            {
                 // inner must be exactly 16 chars: YYYYMMDDTHHMMSSZ
                 if inner.len() != 16 {
                     return false;
@@ -436,7 +439,9 @@ mod tests {
     #[test]
     fn validate_filename_rejects_traversal() {
         assert!(!validate_filename("../etc/passwd"));
-        assert!(!validate_filename("../../backup/caramba-20260428T153045Z.sql.gz"));
+        assert!(!validate_filename(
+            "../../backup/caramba-20260428T153045Z.sql.gz"
+        ));
         assert!(!validate_filename("caramba-20260428T153045Z.sql.gz/extra"));
     }
 

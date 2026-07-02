@@ -57,10 +57,7 @@ impl PaymentProvider for OxaPayProvider {
         let amount = (session.amount as f64) / 100.0;
         let currency = session.currency.to_uppercase();
         let return_url = format!("https://t.me/{}", self.bot_username);
-        let callback_url = format!(
-            "https://{}/api/webhooks/payment/oxapay",
-            self.api_domain
-        );
+        let callback_url = format!("https://{}/api/webhooks/payment/oxapay", self.api_domain);
 
         let req_body = OxaPayInvoiceReq {
             merchant: self.merchant_key.clone(),

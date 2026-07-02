@@ -80,9 +80,7 @@ impl StoreService {
 
     /// DELETE /users/{id}/cart — empty user's cart. Idempotent.
     pub async fn clear_cart(&self, user_id: i64) -> Result<()> {
-        self.api
-            .delete(&format!("/users/{}/cart", user_id))
-            .await
+        self.api.delete(&format!("/users/{}/cart", user_id)).await
     }
 
     /// POST /subs/{id}/kill-sessions — kicks all active devices for the
@@ -361,7 +359,10 @@ impl StoreService {
         self.api
             .post::<serde_json::Value, _>(
                 &format!("/users/{}/purchase-plan", user_id),
-                &BuyReq { duration_id, as_gift },
+                &BuyReq {
+                    duration_id,
+                    as_gift,
+                },
             )
             .await
     }
@@ -412,24 +413,58 @@ impl StoreService {
 
     pub async fn admin_gift_subscription(&self, username: &str, days: i64) -> Result<i64> {
         #[derive(serde::Serialize)]
-        struct GiftReq { username: String, days: i64 }
+        struct GiftReq {
+            username: String,
+            days: i64,
+        }
         #[derive(serde::Deserialize)]
-        struct GiftRes { subscription_id: i64 }
-        let res: GiftRes = self.api.post("/admin/gift", &GiftReq { username: username.to_string(), days }).await?;
+        struct GiftRes {
+            subscription_id: i64,
+        }
+        let res: GiftRes = self
+            .api
+            .post(
+                "/admin/gift",
+                &GiftReq {
+                    username: username.to_string(),
+                    days,
+                },
+            )
+            .await?;
         Ok(res.subscription_id)
     }
 
     pub async fn ban_user_by_username(&self, username: &str) -> Result<()> {
         #[derive(serde::Serialize)]
-        struct Req { username: String }
-        let _: serde_json::Value = self.api.post("/admin/ban", &Req { username: username.to_string() }).await?;
+        struct Req {
+            username: String,
+        }
+        let _: serde_json::Value = self
+            .api
+            .post(
+                "/admin/ban",
+                &Req {
+                    username: username.to_string(),
+                },
+            )
+            .await?;
         Ok(())
     }
 
     pub async fn unban_user_by_username(&self, username: &str) -> Result<()> {
         #[derive(serde::Serialize)]
-        struct Req { username: String }
-        let _: serde_json::Value = self.api.post("/admin/unban", &Req { username: username.to_string() }).await?;
+        struct Req {
+            username: String,
+        }
+        let _: serde_json::Value = self
+            .api
+            .post(
+                "/admin/unban",
+                &Req {
+                    username: username.to_string(),
+                },
+            )
+            .await?;
         Ok(())
     }
 
@@ -437,10 +472,18 @@ impl StoreService {
     /// Возвращает (subscription_id, already_had_free).
     pub async fn create_free_subscription(&self, user_id: i64) -> Result<(i64, bool)> {
         #[derive(serde::Serialize)]
-        struct Req { user_id: i64 }
+        struct Req {
+            user_id: i64,
+        }
         #[derive(serde::Deserialize)]
-        struct Resp { subscription_id: i64, already_had_free: bool }
-        let resp: Resp = self.api.post("/users/create-free-subscription", &Req { user_id }).await?;
+        struct Resp {
+            subscription_id: i64,
+            already_had_free: bool,
+        }
+        let resp: Resp = self
+            .api
+            .post("/users/create-free-subscription", &Req { user_id })
+            .await?;
         Ok((resp.subscription_id, resp.already_had_free))
     }
 }

@@ -296,13 +296,12 @@ pub async fn get_referrals(
     headers: HeaderMap,
     axum::Extension(auth): axum::Extension<AuthUser>,
 ) -> impl IntoResponse {
-    let code: Option<String> =
-        sqlx::query_scalar("SELECT referral_code FROM users WHERE id = $1")
-            .bind(auth.user_id)
-            .fetch_optional(&state.pool)
-            .await
-            .ok()
-            .flatten();
+    let code: Option<String> = sqlx::query_scalar("SELECT referral_code FROM users WHERE id = $1")
+        .bind(auth.user_id)
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten();
 
     let balance: i64 = sqlx::query_scalar("SELECT balance::BIGINT FROM users WHERE id = $1")
         .bind(auth.user_id)
@@ -445,10 +444,10 @@ pub async fn get_family(
     axum::Extension(auth): axum::Extension<AuthUser>,
     Query(q): Query<FamilyQuery>,
 ) -> impl IntoResponse {
-    if let Some(sid) = q.subscription_id {
-        if !sub_owned_by(&state, sid, auth.user_id).await {
-            return (StatusCode::FORBIDDEN, "Not your subscription").into_response();
-        }
+    if let Some(sid) = q.subscription_id
+        && !sub_owned_by(&state, sid, auth.user_id).await
+    {
+        return (StatusCode::FORBIDDEN, "Not your subscription").into_response();
     }
 
     let rows = sqlx::query(
@@ -516,10 +515,10 @@ pub async fn create_family_invite(
     axum::Extension(auth): axum::Extension<AuthUser>,
     Json(payload): Json<FamilyInviteRequest>,
 ) -> impl IntoResponse {
-    if let Some(sid) = payload.subscription_id {
-        if !sub_owned_by(&state, sid, auth.user_id).await {
-            return (StatusCode::FORBIDDEN, "Not your subscription").into_response();
-        }
+    if let Some(sid) = payload.subscription_id
+        && !sub_owned_by(&state, sid, auth.user_id).await
+    {
+        return (StatusCode::FORBIDDEN, "Not your subscription").into_response();
     }
 
     let max_uses = payload.max_uses.unwrap_or(1).clamp(1, 100);
@@ -661,9 +660,7 @@ pub async fn list_subscriptions(
             let daily_mb: i32 = r.try_get("daily_traffic_mb").unwrap_or(0);
             let is_free: bool = r.try_get("is_free").unwrap_or(false);
             let note: Option<String> = r.try_get::<Option<String>, _>("note").ok().flatten();
-            let expires: chrono::DateTime<chrono::Utc> = r
-                .try_get("expires_at")
-                .unwrap_or(now);
+            let expires: chrono::DateTime<chrono::Utc> = r.try_get("expires_at").unwrap_or(now);
 
             // private = семейная (выдана родителем), затем free по флагу плана,
             // иначе paid.
@@ -703,7 +700,10 @@ pub async fn list_subscriptions(
                 device_used: r.try_get("device_used").unwrap_or(0),
                 device_limit: r.try_get("device_limit").unwrap_or(0),
                 pool_name: r.try_get::<Option<String>, _>("pool_name").ok().flatten(),
-                relay_country: r.try_get::<Option<String>, _>("relay_country").ok().flatten(),
+                relay_country: r
+                    .try_get::<Option<String>, _>("relay_country")
+                    .ok()
+                    .flatten(),
             }
         })
         .collect();

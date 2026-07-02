@@ -122,22 +122,22 @@ impl SniMonitor {
                     return DomainHealth::Blacklist(format!("HTTP {}", status));
                 }
 
-                if status_obj.is_success() {
-                    if let Ok(body) = res.text().await {
-                        let body = body.to_ascii_lowercase();
-                        const BODY_DENY_MARKERS: &[&str] = &[
-                            "access denied",
-                            "forbidden",
-                            "not authorized",
-                            "permission denied",
-                            "security check",
-                            "request blocked",
-                        ];
-                        if BODY_DENY_MARKERS.iter().any(|marker| body.contains(marker)) {
-                            return DomainHealth::Blacklist(
-                                "response body indicates access denied".to_string(),
-                            );
-                        }
+                if status_obj.is_success()
+                    && let Ok(body) = res.text().await
+                {
+                    let body = body.to_ascii_lowercase();
+                    const BODY_DENY_MARKERS: &[&str] = &[
+                        "access denied",
+                        "forbidden",
+                        "not authorized",
+                        "permission denied",
+                        "security check",
+                        "request blocked",
+                    ];
+                    if BODY_DENY_MARKERS.iter().any(|marker| body.contains(marker)) {
+                        return DomainHealth::Blacklist(
+                            "response body indicates access denied".to_string(),
+                        );
                     }
                 }
 

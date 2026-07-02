@@ -192,23 +192,23 @@ impl OrchestrationService {
             .await
             .ok()
             .flatten();
-        if let Some(group) = default_group {
-            if group_ids.contains(&group.id) {
-                {
-                    // Always run bootstrap — it's idempotent (skips existing templates by name).
-                    // This ensures new template types (TUIC, NaiveProxy) get created for groups
-                    // that were seeded before those templates existed.
-                    let _ = self.bootstrap_default_templates(group.id).await;
+        if let Some(group) = default_group
+            && group_ids.contains(&group.id)
+        {
+            {
+                // Always run bootstrap — it's idempotent (skips existing templates by name).
+                // This ensures new template types (TUIC, NaiveProxy) get created for groups
+                // that were seeded before those templates existed.
+                let _ = self.bootstrap_default_templates(group.id).await;
 
-                    templates.clear();
-                    for gid in &group_ids {
-                        match self.node_repo.get_templates_for_group(*gid).await {
-                            Ok(group_templates) => templates.extend(group_templates),
-                            Err(e) => warn!(
-                                "Failed to refresh templates for group {} (node {}): {}",
-                                gid, node_id, e
-                            ),
-                        }
+                templates.clear();
+                for gid in &group_ids {
+                    match self.node_repo.get_templates_for_group(*gid).await {
+                        Ok(group_templates) => templates.extend(group_templates),
+                        Err(e) => warn!(
+                            "Failed to refresh templates for group {} (node {}): {}",
+                            gid, node_id, e
+                        ),
                     }
                 }
             }
@@ -249,7 +249,10 @@ impl OrchestrationService {
         // 4. Instantiate Inbounds from Templates
         // Relay nodes only get Hysteria2 — other protocols cause port conflicts.
         let applicable_templates: Vec<_> = if node.is_relay {
-            templates.into_iter().filter(|t| t.protocol == "hysteria2").collect()
+            templates
+                .into_iter()
+                .filter(|t| t.protocol == "hysteria2")
+                .collect()
         } else {
             templates
         };
@@ -435,7 +438,8 @@ impl OrchestrationService {
         // touched — this only changes what fresh provisioning generates.
         let _vless_tcp_tls_stream =
             r#"{"network":"tcp","security":"tls","tlsSettings":{"serverName":"{{SNI}}"}}"#;
-        let naive_stream = r#"{"network":"tcp","security":"tls","tlsSettings":{"serverName":"{{SNI}}"}}"#;
+        let naive_stream =
+            r#"{"network":"tcp","security":"tls","tlsSettings":{"serverName":"{{SNI}}"}}"#;
         let tuic_stream = r#"{"network":"udp","security":"tls","tlsSettings":{"serverName":"{{SNI}}"},"tuicSettings":{"congestion":"bbr"}}"#;
 
         // DPI-resistant baseline: only transports that survived the RU Feb-2026
@@ -571,13 +575,12 @@ impl OrchestrationService {
         // 0. Placeholder Replacement
         // 0.1 Allocate Port if needed (Dynamic Port Allocation)
         let mut port = template.port_range_start;
-        if template.port_range_end > template.port_range_start {
-            if let Ok(new_port) = self
+        if template.port_range_end > template.port_range_start
+            && let Ok(new_port) = self
                 .allocate_port(node.id, template.port_range_start, template.port_range_end)
                 .await
-            {
-                port = new_port;
-            }
+        {
+            port = new_port;
         }
 
         // 0.2 Smart SNI selection
@@ -639,7 +642,9 @@ impl OrchestrationService {
                 .node_repo
                 .get_node_by_id(node.id)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("Node {} not found after Reality key update", node.id))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Node {} not found after Reality key update", node.id)
+                })?;
             let pkey = node_updated.reality_priv.unwrap_or_default();
             let pubkey = node_updated.reality_pub.unwrap_or_default();
             let sid = node_updated.short_id.unwrap_or_default();
@@ -660,23 +665,25 @@ impl OrchestrationService {
                 .node_repo
                 .get_node_by_id(node.id)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("Node {} not found when injecting Naive Reality keys", node.id))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Node {} not found when injecting Naive Reality keys",
+                        node.id
+                    )
+                })?;
             if let (Some(pkey), Some(pubkey), Some(sid)) = (
                 node_updated.reality_priv,
                 node_updated.reality_pub,
                 node_updated.short_id,
-            ) {
-                if let Ok(mut stream_obj) = serde_json::from_str::<
-                    caramba_db::models::network::StreamSettings,
-                >(&stream_json)
-                {
-                    if let Some(reality) = &mut stream_obj.reality_settings {
-                        reality.private_key = pkey;
-                        reality.public_key = Some(pubkey);
-                        reality.short_ids = vec![sid];
-                    }
-                    stream_json = serde_json::to_string(&stream_obj)?;
+            ) && let Ok(mut stream_obj) =
+                serde_json::from_str::<caramba_db::models::network::StreamSettings>(&stream_json)
+            {
+                if let Some(reality) = &mut stream_obj.reality_settings {
+                    reality.private_key = pkey;
+                    reality.public_key = Some(pubkey);
+                    reality.short_ids = vec![sid];
                 }
+                stream_json = serde_json::to_string(&stream_obj)?;
             }
         } else if template.protocol == "amneziawg" {
             let (priv_key, pub_key) = self.generate_wireguard_keys()?;
@@ -753,14 +760,14 @@ impl OrchestrationService {
             .trim()
             .to_string();
 
-        let short_id = hex::encode(&rand::random::<[u8; 8]>()).trim().to_string();
+        let short_id = hex::encode(rand::random::<[u8; 8]>()).trim().to_string();
         Ok((priv_key, pub_key, short_id))
     }
 
     fn generate_wireguard_keys(&self) -> anyhow::Result<(String, String)> {
         use std::process::Command;
         let output = Command::new("sing-box")
-            .args(&["generate", "wireguard-keypair"])
+            .args(["generate", "wireguard-keypair"])
             .output()
             .map_err(|e| anyhow::anyhow!("sing-box awg generate error: {}", e))?;
 
@@ -1012,10 +1019,10 @@ impl OrchestrationService {
 
                 // Enforce node.reality_sni on ALL TLS inbounds (not just Reality)
                 // so all variants use the same SNI
-                if let Some(tls) = &mut stream.tls_settings {
-                    if let Some(new_sni) = &node.reality_sni {
-                        tls.server_name = new_sni.clone();
-                    }
+                if let Some(tls) = &mut stream.tls_settings
+                    && let Some(new_sni) = &node.reality_sni
+                {
+                    tls.server_name = new_sni.clone();
                 }
 
                 // Also unify transport host fields with the current SNI
@@ -1081,15 +1088,15 @@ impl OrchestrationService {
             let mut settings_value: serde_json::Value =
                 serde_json::from_str(&inbound.settings).unwrap_or(serde_json::Value::Null);
 
-            if let Some(obj) = settings_value.as_object_mut() {
-                if !obj.contains_key("protocol") {
-                    // Determine protocol from inbound.protocol if missing in JSON
-                    // InboundType expects lowercase tags matching the protocol name
-                    obj.insert(
-                        "protocol".to_string(),
-                        serde_json::Value::String(inbound.protocol.clone().to_lowercase()),
-                    );
-                }
+            if let Some(obj) = settings_value.as_object_mut()
+                && !obj.contains_key("protocol")
+            {
+                // Determine protocol from inbound.protocol if missing in JSON
+                // InboundType expects lowercase tags matching the protocol name
+                obj.insert(
+                    "protocol".to_string(),
+                    serde_json::Value::String(inbound.protocol.clone().to_lowercase()),
+                );
             }
 
             match serde_json::from_value::<InboundType>(settings_value) {
@@ -1292,24 +1299,24 @@ impl OrchestrationService {
         // 3.5 Fetch Relay Logic Context
         let mut relay_target_node: Option<Node> = None;
         let mut relay_target_inbound: Option<caramba_db::models::network::Inbound> = None;
-        if let Some(target_id) = node.relay_id {
-            if node.is_relay {
-                relay_target_node = self
+        if let Some(target_id) = node.relay_id
+            && node.is_relay
+        {
+            relay_target_node = self
+                .node_repo
+                .get_node_by_id(target_id)
+                .await
+                .unwrap_or(None);
+            if relay_target_node.is_some() {
+                let mut target_inbounds = self
                     .node_repo
-                    .get_node_by_id(target_id)
+                    .get_inbounds_by_node(target_id)
                     .await
-                    .unwrap_or(None);
-                if relay_target_node.is_some() {
-                    let mut target_inbounds = self
-                        .node_repo
-                        .get_inbounds_by_node(target_id)
-                        .await
-                        .unwrap_or_default();
-                    target_inbounds.sort_by_key(|i| i.listen_port);
-                    relay_target_inbound = target_inbounds
-                        .into_iter()
-                        .find(|i| i.enable && i.protocol.eq_ignore_ascii_case("shadowsocks"));
-                }
+                    .unwrap_or_default();
+                target_inbounds.sort_by_key(|i| i.listen_port);
+                relay_target_inbound = target_inbounds
+                    .into_iter()
+                    .find(|i| i.enable && i.protocol.eq_ignore_ascii_case("shadowsocks"));
             }
         }
 

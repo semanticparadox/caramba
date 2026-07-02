@@ -40,24 +40,22 @@ abstract final class AppType {
     double height,
     FontWeight w,
     double tracking,
-  ) =>
-      TextStyle(
-        fontFamilyFallback: sansFallback,
-        fontSize: size,
-        height: height / size,
-        fontWeight: w,
-        letterSpacing: tracking,
-      );
+  ) => TextStyle(
+    fontFamilyFallback: sansFallback,
+    fontSize: size,
+    height: height / size,
+    fontWeight: w,
+    letterSpacing: tracking,
+  );
 
-  static TextStyle _mono(double size, double height, FontWeight w) =>
-      TextStyle(
-        fontFamily: 'SF Mono',
-        fontFamilyFallback: monoFallback,
-        fontSize: size,
-        height: height / size,
-        fontWeight: w,
-        fontFeatures: _tabular,
-      );
+  static TextStyle _mono(double size, double height, FontWeight w) => TextStyle(
+    fontFamily: 'SF Mono',
+    fontFamilyFallback: monoFallback,
+    fontSize: size,
+    height: height / size,
+    fontWeight: w,
+    fontFeatures: _tabular,
+  );
 
   // Scale (px): t1 27, t2 20, t3 15, t4 13, t5 11 (demo). Line-heights tuned
   // for calm reading. Tracking negative on large display/title text only.

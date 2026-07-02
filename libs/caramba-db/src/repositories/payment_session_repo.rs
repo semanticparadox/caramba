@@ -150,8 +150,17 @@ impl PaymentSessionRepository {
     pub async fn list_recent_for_audit(
         &self,
         lookback_hours: i64,
-    ) -> Result<Vec<(Uuid, String, String, i64, String, Option<String>, chrono::DateTime<chrono::Utc>)>>
-    {
+    ) -> Result<
+        Vec<(
+            Uuid,
+            String,
+            String,
+            i64,
+            String,
+            Option<String>,
+            chrono::DateTime<chrono::Utc>,
+        )>,
+    > {
         let rows = sqlx::query_as::<
             _,
             (

@@ -35,30 +35,26 @@ class AppSettings {
     bool? killSwitch,
     bool? connectOnSelect,
     bool? notifications,
-  }) =>
-      AppSettings(
-        themeMode: themeMode ?? this.themeMode,
-        autoConnect: autoConnect ?? this.autoConnect,
-        killSwitch: killSwitch ?? this.killSwitch,
-        connectOnSelect: connectOnSelect ?? this.connectOnSelect,
-        notifications: notifications ?? this.notifications,
-      );
+  }) => AppSettings(
+    themeMode: themeMode ?? this.themeMode,
+    autoConnect: autoConnect ?? this.autoConnect,
+    killSwitch: killSwitch ?? this.killSwitch,
+    connectOnSelect: connectOnSelect ?? this.connectOnSelect,
+    notifications: notifications ?? this.notifications,
+  );
 }
 
 class SettingsNotifier extends StateNotifier<AppSettings> {
   SettingsNotifier() : super(const AppSettings());
 
-  void setThemeMode(ThemeMode mode) =>
-      state = state.copyWith(themeMode: mode);
+  void setThemeMode(ThemeMode mode) => state = state.copyWith(themeMode: mode);
   void setAutoConnect(bool v) => state = state.copyWith(autoConnect: v);
   void setKillSwitch(bool v) => state = state.copyWith(killSwitch: v);
-  void setConnectOnSelect(bool v) =>
-      state = state.copyWith(connectOnSelect: v);
+  void setConnectOnSelect(bool v) => state = state.copyWith(connectOnSelect: v);
   void setNotifications(bool v) => state = state.copyWith(notifications: v);
 }
 
-final settingsProvider =
-    StateNotifierProvider<SettingsNotifier, AppSettings>(
+final settingsProvider = StateNotifierProvider<SettingsNotifier, AppSettings>(
   (ref) => SettingsNotifier(),
 );
 
@@ -75,5 +71,6 @@ class FirstRunNotifier extends StateNotifier<bool> {
   void reset() => state = true;
 }
 
-final firstRunProvider =
-    StateNotifierProvider<FirstRunNotifier, bool>((ref) => FirstRunNotifier());
+final firstRunProvider = StateNotifierProvider<FirstRunNotifier, bool>(
+  (ref) => FirstRunNotifier(),
+);

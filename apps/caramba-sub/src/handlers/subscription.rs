@@ -1,7 +1,7 @@
 use crate::AppState;
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
@@ -27,7 +27,8 @@ fn detect_client_from_ua(headers: &HeaderMap) -> &'static str {
 
     // Check sing-box clients FIRST — Hiddify UA contains "ClashMeta" and "v2ray"
     // e.g. "HiddifyNext/4.0.0 (ios) like ClashMeta v2ray sing-box"
-    if ua.contains("hiddify") || ua.contains("sing-box") || ua.contains("sfi") || ua.contains("sfa") {
+    if ua.contains("hiddify") || ua.contains("sing-box") || ua.contains("sfi") || ua.contains("sfa")
+    {
         "singbox"
     } else if ua.contains("clash") || ua.contains("stash") || ua.contains("mihomo") {
         "clash"
@@ -150,7 +151,10 @@ async fn proxy_to_panel(
                             return Response::builder()
                                 .status(StatusCode::OK)
                                 .header(header::CONTENT_TYPE, ct_val)
-                                .header(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate")
+                                .header(
+                                    header::CACHE_CONTROL,
+                                    "no-store, no-cache, must-revalidate",
+                                )
                                 .header(header::PRAGMA, "no-cache")
                                 .body(axum::body::Body::from(body.to_vec()))
                                 .unwrap()
@@ -176,11 +180,7 @@ async fn proxy_to_panel(
             "Panel returned redirect {} -> {:?} (Host header may not match subscription_domain)",
             status, location
         );
-        return (
-            StatusCode::BAD_GATEWAY,
-            "Panel subscription redirect loop",
-        )
-            .into_response();
+        return (StatusCode::BAD_GATEWAY, "Panel subscription redirect loop").into_response();
     }
 
     let mut builder = Response::builder().status(status.as_u16());

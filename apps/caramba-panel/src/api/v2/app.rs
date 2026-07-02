@@ -123,7 +123,10 @@ pub async fn get_subscription(
         Ok(s) => s,
         Err(e) => {
             tracing::error!(err = %e, "app: failed to fetch subscriptions");
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch subscription")
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to fetch subscription",
+            )
                 .into_response();
         }
     };
@@ -214,9 +217,7 @@ pub async fn list_servers(
         .into_iter()
         .filter(|n| {
             // Прячем relay-узлы и перегруженные машины.
-            !n.is_relay
-                && n.last_cpu.unwrap_or(0.0) < 95.0
-                && n.last_ram.unwrap_or(0.0) < 98.0
+            !n.is_relay && n.last_cpu.unwrap_or(0.0) < 95.0 && n.last_ram.unwrap_or(0.0) < 98.0
         })
         .map(|n| {
             let cpu = n.last_cpu.unwrap_or(0.0);

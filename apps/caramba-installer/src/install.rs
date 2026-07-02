@@ -23,7 +23,7 @@ fn run_command(cmd: &str, args: &[&str], msg: &str) -> Result<()> {
             .template("{spinner:.green} {msg}")
             .unwrap(),
     );
-    pb.set_message(format!("{}", msg));
+    pb.set_message(msg.to_string());
     pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
     let output = Command::new(cmd)
@@ -624,7 +624,11 @@ pub fn install_singbox() -> Result<()> {
         "echo '{}' | tee /etc/apt/preferences.d/sing-box.pref",
         pin_pref
     );
-    run_command("sh", &["-c", &pin_cmd], "Pinning sing-box to the 1.13.* series")?;
+    run_command(
+        "sh",
+        &["-c", &pin_cmd],
+        "Pinning sing-box to the 1.13.* series",
+    )?;
 
     run_command("apt-get", &["update"], "Updating package lists")?;
     run_command_optional(
@@ -990,7 +994,7 @@ SESSION_SECRET={}
         encoded_db_pass,
         panel_url,
         config.admin_path,
-        uuid::Uuid::new_v4().to_string()
+        uuid::Uuid::new_v4()
     );
 
     if let Some(token) = internal_api_token {
@@ -1005,8 +1009,8 @@ SESSION_SECRET={}
     // license stays bound to the same instance. Only generate a new one when no
     // value is present. The .env writer fully overwrites the file, so the
     // read-back must happen before the write.
-    let instance_id = read_existing_instance_id(&path)
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let instance_id =
+        read_existing_instance_id(&path).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     env_content.push_str(&format!("CARAMBA_INSTANCE_ID={}\n", instance_id));
     env_content.push_str(&format!(

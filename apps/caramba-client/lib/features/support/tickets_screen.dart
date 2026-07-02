@@ -135,24 +135,32 @@ class _TicketCard extends StatelessWidget {
               const SizedBox(height: AppSpace.s2),
               Row(
                 children: [
-                  Text('#${ticket.id}',
-                      style: AppType.monoSm.copyWith(color: c.textLow)),
+                  Text(
+                    '#${ticket.id}',
+                    style: AppType.monoSm.copyWith(color: c.textLow),
+                  ),
                   const SizedBox(width: AppSpace.s2),
-                  Text(ticket.whenLabel,
-                      style: AppType.monoSm.copyWith(color: c.textLow)),
+                  Text(
+                    ticket.whenLabel,
+                    style: AppType.monoSm.copyWith(color: c.textLow),
+                  ),
                   const Spacer(),
                   if (ticket.hasUnread)
                     Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 1,
+                      ),
                       decoration: BoxDecoration(
                         color: c.danger,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
                         'новое',
-                        style: AppType.monoSm
-                            .copyWith(color: Colors.white, fontSize: 10),
+                        style: AppType.monoSm.copyWith(
+                          color: Colors.white,
+                          fontSize: 10,
+                        ),
                       ),
                     ),
                 ],
@@ -201,8 +209,10 @@ class _EmptyTickets extends StatelessWidget {
         children: [
           LucideIcon(Lucide.lifeBuoy, color: c.textLow, size: 32),
           const SizedBox(height: AppSpace.s3),
-          Text('Запросов пока нет',
-              style: AppType.bodyMd.copyWith(color: c.textMed)),
+          Text(
+            'Запросов пока нет',
+            style: AppType.bodyMd.copyWith(color: c.textMed),
+          ),
         ],
       ),
     );

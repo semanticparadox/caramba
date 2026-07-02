@@ -16,8 +16,8 @@
 //! Инвариант утечки: отдаём ТОЛЬКО шесть brand_* полей + два флага. Никаких
 //! секретов; эндпоинт строго READ-ONLY (пишет бот через /api/v2/bot/*).
 
-use crate::license;
 use crate::AppState;
+use crate::license;
 use axum::{extract::State, response::Json};
 use serde::Serialize;
 
@@ -52,10 +52,7 @@ pub async fn get_branding(State(state): State<AppState>) -> Json<BrandingRespons
     let brand_name = state.settings.get_or_default("brand_name", "").await;
     let logo_url = state.settings.get_or_default("brand_logo_url", "").await;
     let accent_hex = state.settings.get_or_default("brand_accent_hex", "").await;
-    let support_url = state
-        .settings
-        .get_or_default("brand_support_url", "")
-        .await;
+    let support_url = state.settings.get_or_default("brand_support_url", "").await;
     let bot_url = state.settings.get_or_default("brand_bot_url", "").await;
 
     // Гейт: бренд активен только если тир разрешает И оператор включил И задал имя.

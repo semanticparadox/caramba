@@ -39,17 +39,28 @@ impl MonitoringService {
             minute_counter += 1;
 
             match self.check_node_status().await {
-                Ok(_) => self.state.task_health.record_success("check_node_status").await,
+                Ok(_) => {
+                    self.state
+                        .task_health
+                        .record_success("check_node_status")
+                        .await
+                }
                 Err(e) => {
                     error!("Monitoring error (node status): {}", e);
                     self.record_error("check_node_status", &e.to_string()).await;
                 }
             }
             match self.check_frontend_status().await {
-                Ok(_) => self.state.task_health.record_success("check_frontend_status").await,
+                Ok(_) => {
+                    self.state
+                        .task_health
+                        .record_success("check_frontend_status")
+                        .await
+                }
                 Err(e) => {
                     error!("Monitoring error (frontend status): {}", e);
-                    self.record_error("check_frontend_status", &e.to_string()).await;
+                    self.record_error("check_frontend_status", &e.to_string())
+                        .await;
                 }
             }
 
@@ -71,7 +82,10 @@ impl MonitoringService {
                             .record_success("poll_pending_payments")
                             .await;
                         if n > 0 {
-                            info!("poll_pending_payments: fulfilled {} session(s) via polling fallback", n);
+                            info!(
+                                "poll_pending_payments: fulfilled {} session(s) via polling fallback",
+                                n
+                            );
                         }
                     }
                     Err(e) => {
@@ -84,7 +98,12 @@ impl MonitoringService {
 
             if minute_counter % 5 == 0 {
                 match self.check_expirations().await {
-                    Ok(_) => self.state.task_health.record_success("check_expirations").await,
+                    Ok(_) => {
+                        self.state
+                            .task_health
+                            .record_success("check_expirations")
+                            .await
+                    }
                     Err(e) => {
                         error!("Monitoring error (expirations): {}", e);
                         self.record_error("check_expirations", &e.to_string()).await;
@@ -101,17 +120,29 @@ impl MonitoringService {
 
             if minute_counter % 60 == 0 {
                 match self.process_auto_renewals().await {
-                    Ok(_) => self.state.task_health.record_success("process_auto_renewals").await,
+                    Ok(_) => {
+                        self.state
+                            .task_health
+                            .record_success("process_auto_renewals")
+                            .await
+                    }
                     Err(e) => {
                         error!("Auto-renewal processing error: {}", e);
-                        self.record_error("process_auto_renewals", &e.to_string()).await;
+                        self.record_error("process_auto_renewals", &e.to_string())
+                            .await;
                     }
                 }
                 match self.check_low_balances().await {
-                    Ok(_) => self.state.task_health.record_success("check_low_balances").await,
+                    Ok(_) => {
+                        self.state
+                            .task_health
+                            .record_success("check_low_balances")
+                            .await
+                    }
                     Err(e) => {
                         error!("Low balance check error: {}", e);
-                        self.record_error("check_low_balances", &e.to_string()).await;
+                        self.record_error("check_low_balances", &e.to_string())
+                            .await;
                     }
                 }
             }
@@ -121,20 +152,32 @@ impl MonitoringService {
             // пользователям бесплатного плана, исчерпавшим дневной лимит.
             if minute_counter % 60 == 0 {
                 match daily_traffic_topup(&self.state.pool).await {
-                    Ok(_) => self.state.task_health.record_success("daily_traffic_topup").await,
+                    Ok(_) => {
+                        self.state
+                            .task_health
+                            .record_success("daily_traffic_topup")
+                            .await
+                    }
                     Err(e) => {
                         error!("Daily traffic top-up error: {}", e);
-                        self.record_error("daily_traffic_topup", &e.to_string()).await;
+                        self.record_error("daily_traffic_topup", &e.to_string())
+                            .await;
                     }
                 }
             }
 
             if minute_counter % 360 == 0 {
                 match self.check_traffic_alerts().await {
-                    Ok(_) => self.state.task_health.record_success("check_traffic_alerts").await,
+                    Ok(_) => {
+                        self.state
+                            .task_health
+                            .record_success("check_traffic_alerts")
+                            .await
+                    }
                     Err(e) => {
                         error!("Traffic alerts error: {}", e);
-                        self.record_error("check_traffic_alerts", &e.to_string()).await;
+                        self.record_error("check_traffic_alerts", &e.to_string())
+                            .await;
                     }
                 }
                 if minute_counter > 10000 {
@@ -147,21 +190,30 @@ impl MonitoringService {
             if minute_counter % 2880 == 0 {
                 match self.state.tickets_svc.auto_close_stale().await {
                     Ok(n) => {
-                        self.state.task_health.record_success("auto_close_stale_tickets").await;
+                        self.state
+                            .task_health
+                            .record_success("auto_close_stale_tickets")
+                            .await;
                         if n > 0 {
                             info!("auto_close_stale_tickets: закрыто {} тикетов", n);
                         }
                     }
                     Err(e) => {
                         error!("auto_close_stale_tickets error: {}", e);
-                        self.record_error("auto_close_stale_tickets", &e.to_string()).await;
+                        self.record_error("auto_close_stale_tickets", &e.to_string())
+                            .await;
                     }
                 }
 
                 // Same daily slot: cancel payment_sessions that have been pending
                 // for more than 24h. Without this, abandoned checkouts pile up
                 // forever (no active poll, no webhook would fix them).
-                match self.state.marketplace_service.expire_stale_sessions(24).await {
+                match self
+                    .state
+                    .marketplace_service
+                    .expire_stale_sessions(24)
+                    .await
+                {
                     Ok(_) => {
                         self.state
                             .task_health
@@ -178,12 +230,7 @@ impl MonitoringService {
                 // Same daily slot: payment reconciliation audit (U21). Read-only —
                 // scans the last 24h of sessions for divergence and pages admins
                 // with any findings. No auto-mutation: a human decides remediation.
-                match self
-                    .state
-                    .marketplace_service
-                    .reconcile_recent(24)
-                    .await
-                {
+                match self.state.marketplace_service.reconcile_recent(24).await {
                     Ok(findings) => {
                         self.state
                             .task_health
@@ -220,10 +267,16 @@ impl MonitoringService {
 
             if minute_counter % 60 == 0 {
                 match self.check_and_rotate_snis().await {
-                    Ok(_) => self.state.task_health.record_success("check_and_rotate_snis").await,
+                    Ok(_) => {
+                        self.state
+                            .task_health
+                            .record_success("check_and_rotate_snis")
+                            .await
+                    }
                     Err(e) => {
                         error!("Auto SNI Rotation check error: {}", e);
-                        self.record_error("check_and_rotate_snis", &e.to_string()).await;
+                        self.record_error("check_and_rotate_snis", &e.to_string())
+                            .await;
                     }
                 }
             }
@@ -246,11 +299,17 @@ impl MonitoringService {
 
         if rows_affected > 0 {
             info!("Marked {} nodes as offline", rows_affected);
-            let names: Vec<String> = going_offline.iter().map(|(n, c)| format!("{} ({})", n, c)).collect();
-            self.state.bot_manager.notify_admins(
-                &self.state.pool,
-                &format!("🔴 Nodes went OFFLINE: {}", names.join(", ")),
-            ).await;
+            let names: Vec<String> = going_offline
+                .iter()
+                .map(|(n, c)| format!("{} ({})", n, c))
+                .collect();
+            self.state
+                .bot_manager
+                .notify_admins(
+                    &self.state.pool,
+                    &format!("🔴 Nodes went OFFLINE: {}", names.join(", ")),
+                )
+                .await;
         }
         Ok(())
     }
@@ -346,7 +405,10 @@ impl MonitoringService {
                         "subscription",
                         "warning",
                         "Subscription expired",
-                        &format!("Your \"{}\" subscription has expired. Renew to keep your VPN access.", plan_name),
+                        &format!(
+                            "Your \"{}\" subscription has expired. Renew to keep your VPN access.",
+                            plan_name
+                        ),
                         Some(serde_json::json!({"sub_id": sub_id, "url": "/billing"})),
                     )
                     .await;
@@ -360,7 +422,11 @@ impl MonitoringService {
 
         // Notify affected nodes to regenerate configs (remove expired users)
         for node_id in affected_node_ids {
-            let _ = self.state.orchestration_service.notify_node_update(node_id).await;
+            let _ = self
+                .state
+                .orchestration_service
+                .notify_node_update(node_id)
+                .await;
         }
 
         Ok(())
@@ -403,12 +469,13 @@ impl MonitoringService {
 
                     if let Ok(Some((tg_id, lang))) = user_row {
                         // Получаем новую дату истечения после продления
-                        let new_expires: Option<chrono::DateTime<Utc>> =
-                            sqlx::query_scalar("SELECT expires_at FROM subscriptions WHERE id = $1")
-                                .bind(sub_id)
-                                .fetch_optional(&self.state.pool)
-                                .await
-                                .unwrap_or(None);
+                        let new_expires: Option<chrono::DateTime<Utc>> = sqlx::query_scalar(
+                            "SELECT expires_at FROM subscriptions WHERE id = $1",
+                        )
+                        .bind(sub_id)
+                        .fetch_optional(&self.state.pool)
+                        .await
+                        .unwrap_or(None);
 
                         let expires_str = new_expires
                             .map(|dt| dt.format("%Y-%m-%d").to_string())
@@ -416,7 +483,7 @@ impl MonitoringService {
 
                         let lang_ref = lang.as_deref();
                         let amount_str = format!("{:.2}", amount as f64 / 100.0);
-                        let is_ru = lang_ref.map_or(true, |l| l.starts_with("ru"));
+                        let is_ru = lang_ref.is_none_or(|l| l.starts_with("ru"));
 
                         // Экранируем символы для MarkdownV2
                         let plan_escaped = escape_md(&plan_name);
@@ -446,7 +513,11 @@ impl MonitoringService {
                                 user_id,
                                 "subscription",
                                 "info",
-                                if is_ru { "Подписка автопродлена" } else { "Subscription auto-renewed" },
+                                if is_ru {
+                                    "Подписка автопродлена"
+                                } else {
+                                    "Subscription auto-renewed"
+                                },
                                 &format!(
                                     "{} \"{}\" — ${} · до {}",
                                     if is_ru { "Тариф" } else { "Plan" },
@@ -493,7 +564,7 @@ impl MonitoringService {
                         .unwrap_or_else(|| "Subscription".to_string());
 
                         let lang_ref = lang.as_deref();
-                        let is_ru = lang_ref.map_or(true, |l| l.starts_with("ru"));
+                        let is_ru = lang_ref.is_none_or(|l| l.starts_with("ru"));
                         let plan_escaped = escape_md(&plan_name);
                         let avail_str = format!("{:.2}", available as f64 / 100.0);
                         let req_str = format!("{:.2}", required as f64 / 100.0);
@@ -524,14 +595,22 @@ impl MonitoringService {
                                 user_id,
                                 "subscription",
                                 "error",
-                                if is_ru { "Автопродление не выполнено" } else { "Auto-renewal failed" },
+                                if is_ru {
+                                    "Автопродление не выполнено"
+                                } else {
+                                    "Auto-renewal failed"
+                                },
                                 &format!(
                                     "{} \"{}\" — {} ${} / {} ${}",
                                     if is_ru { "Тариф" } else { "Plan" },
                                     plan_name,
                                     if is_ru { "баланс" } else { "balance" },
                                     avail_str,
-                                    if is_ru { "требуется" } else { "required" },
+                                    if is_ru {
+                                        "требуется"
+                                    } else {
+                                        "required"
+                                    },
                                     req_str,
                                 ),
                                 Some(serde_json::json!({"sub_id": sub_id, "url": "/billing"})),
@@ -583,30 +662,24 @@ impl MonitoringService {
             let redis_key = format!("balance_warned:{}", user_db_id);
 
             // Проверяем дедупликацию: уже предупреждали за последние 24 часа?
-            let already_warned = self
-                .state
-                .redis
-                .exists(&redis_key)
-                .await
-                .unwrap_or(false);
+            let already_warned = self.state.redis.exists(&redis_key).await.unwrap_or(false);
 
             if already_warned {
                 continue;
             }
 
             // Получаем актуальный баланс для отображения пользователю
-            let balance: i64 =
-                sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
-                    .bind(user_db_id)
-                    .fetch_optional(&self.state.pool)
-                    .await
-                    .unwrap_or(None)
-                    .unwrap_or(0);
+            let balance: i64 = sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
+                .bind(user_db_id)
+                .fetch_optional(&self.state.pool)
+                .await
+                .unwrap_or(None)
+                .unwrap_or(0);
 
             let balance_str = format!("{:.2}", balance as f64 / 100.0);
             let plan_escaped = escape_md(&plan_name);
             let lang_ref = lang.as_deref();
-            let is_ru = lang_ref.map_or(true, |l| l.starts_with("ru"));
+            let is_ru = lang_ref.is_none_or(|l| l.starts_with("ru"));
 
             let msg = if is_ru {
                 format!(
@@ -632,12 +705,24 @@ impl MonitoringService {
                     user_db_id,
                     "payment",
                     "warning",
-                    if is_ru { "Баланс заканчивается" } else { "Balance running low" },
+                    if is_ru {
+                        "Баланс заканчивается"
+                    } else {
+                        "Balance running low"
+                    },
                     &format!(
                         "{} ${} · {} «{}»",
-                        if is_ru { "Текущий баланс" } else { "Current balance" },
+                        if is_ru {
+                            "Текущий баланс"
+                        } else {
+                            "Current balance"
+                        },
                         balance_str,
-                        if is_ru { "автопродление" } else { "auto-renewal of" },
+                        if is_ru {
+                            "автопродление"
+                        } else {
+                            "auto-renewal of"
+                        },
                         plan_name,
                     ),
                     Some(serde_json::json!({"url": "/billing"})),
@@ -646,7 +731,10 @@ impl MonitoringService {
 
             // Ставим флаг в Redis на 24 часа — не беспокоим снова до следующих суток
             if let Err(e) = self.state.redis.set(&redis_key, "1", 86400).await {
-                error!("Failed to set balance_warned Redis key for user {}: {}", user_db_id, e);
+                error!(
+                    "Failed to set balance_warned Redis key for user {}: {}",
+                    user_db_id, e
+                );
             }
 
             info!(
@@ -784,7 +872,12 @@ impl MonitoringService {
                     "⚠️ *Daily DB backup failed*\n\nError: `{}`\n\nCheck BACKUP_DIR permissions and pg_dump availability.",
                     e
                 );
-                if let Some(count) = self.state.task_health.record_error("daily_db_backup", &e.to_string()).await {
+                if let Some(count) = self
+                    .state
+                    .task_health
+                    .record_error("daily_db_backup", &e.to_string())
+                    .await
+                {
                     // Уведомляем только когда счётчик пересёк порог (не при каждой ошибке)
                     let _ = count;
                     self.state
@@ -855,13 +948,12 @@ impl MonitoringService {
                         );
 
                         // Обновляем метку последней ротации
-                        if let Err(e) = sqlx::query(
-                            "UPDATE nodes SET last_sni_rotation = $1 WHERE id = $2",
-                        )
-                        .bind(now)
-                        .bind(node_id)
-                        .execute(&self.state.pool)
-                        .await
+                        if let Err(e) =
+                            sqlx::query("UPDATE nodes SET last_sni_rotation = $1 WHERE id = $2")
+                                .bind(now)
+                                .bind(node_id)
+                                .execute(&self.state.pool)
+                                .await
                         {
                             error!(
                                 "Failed to update last_sni_rotation for node {}: {}",
@@ -901,7 +993,9 @@ pub fn escape_md_pub(s: &str) -> String {
 /// Экранирует специальные символы MarkdownV2 для Telegram.
 /// Список символов взят из официальной документации Bot API.
 fn escape_md(s: &str) -> String {
-    let special = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'];
+    let special = [
+        '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!',
+    ];
     let mut out = String::with_capacity(s.len() + 8);
     for c in s.chars() {
         if special.contains(&c) {

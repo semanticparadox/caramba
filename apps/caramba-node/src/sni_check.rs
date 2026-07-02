@@ -12,10 +12,10 @@ pub async fn get_current_sni(config_path: &str) -> Option<String> {
 
     if let Some(inbounds) = json.get("inbounds").and_then(|v| v.as_array()) {
         for inbound in inbounds {
-            if let Some(tls) = inbound.get("tls") {
-                if let Some(server_name) = tls.get("server_name").and_then(|v| v.as_str()) {
-                    return Some(server_name.to_string());
-                }
+            if let Some(tls) = inbound.get("tls")
+                && let Some(server_name) = tls.get("server_name").and_then(|v| v.as_str())
+            {
+                return Some(server_name.to_string());
             }
         }
     }

@@ -302,7 +302,9 @@ fn is_valid_email(email: &str) -> bool {
     }
     match email.split_once('@') {
         Some((local, domain)) => {
-            !local.is_empty() && domain.contains('.') && !domain.starts_with('.')
+            !local.is_empty()
+                && domain.contains('.')
+                && !domain.starts_with('.')
                 && !domain.ends_with('.')
         }
         None => false,
@@ -324,7 +326,10 @@ fn is_unique_violation(err: &anyhow::Error) -> bool {
 
 /// Middleware: валидирует Bearer access-JWT и кладёт `AuthUser` в extensions.
 /// Подключается через `axum::middleware::from_fn`.
-pub async fn require_app_jwt(mut req: Request, next: Next) -> Result<impl IntoResponse, StatusCode> {
+pub async fn require_app_jwt(
+    mut req: Request,
+    next: Next,
+) -> Result<impl IntoResponse, StatusCode> {
     ensure_jwt_crypto_provider();
 
     let token = match req
@@ -428,7 +433,10 @@ pub async fn register_email(
         match state.store_service.validate_enrollment_code(code).await {
             Ok(Some(_)) => {}
             Ok(None) => {
-                return (StatusCode::BAD_REQUEST, "Invalid or expired enrollment code")
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "Invalid or expired enrollment code",
+                )
                     .into_response();
             }
             Err(e) => {
@@ -471,7 +479,10 @@ pub async fn register_email(
             Ok(Some(u)) => u,
             Ok(None) => {
                 tracing::warn!("register: enroll_code invalid/exhausted at redemption");
-                return (StatusCode::BAD_REQUEST, "Invalid or expired enrollment code")
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "Invalid or expired enrollment code",
+                )
                     .into_response();
             }
             Err(e) => {
@@ -515,11 +526,11 @@ pub async fn register_email(
         Ok(t) => t,
         Err(s) => return s.into_response(),
     };
-    let refresh = match issue_refresh_token(&state, user.id, user_agent_of(&headers).as_deref()).await
-    {
-        Ok(t) => t,
-        Err(s) => return s.into_response(),
-    };
+    let refresh =
+        match issue_refresh_token(&state, user.id, user_agent_of(&headers).as_deref()).await {
+            Ok(t) => t,
+            Err(s) => return s.into_response(),
+        };
 
     (
         StatusCode::CREATED,
@@ -589,106 +600,112 @@ pub async fn login_telegram(
 ) -> impl IntoResponse {
     let bot_token = state.settings.get_or_default("bot_token", "").await;
     if bot_token.is_empty() {
-        return (StatusCode::INTERNAL_SERVER_ERROR, "Bot token not configured").into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Bot token not configured",
+        )
+            .into_response();
     }
 
     // Разбираем входные данные в (params, hash, tg_id, secret_key_mode).
     // WebApp: secret_key = HMAC("WebAppData", bot_token).
     // Login Widget: secret_key = SHA256(bot_token).
-    let (data_check_string, provided_hash, tg_id, is_webapp) = if let Some(init_data) =
-        payload.init_data.as_ref().filter(|s| !s.is_empty())
-    {
-        // --- Telegram WebApp initData ---
-        let mut params: HashMap<String, String> = HashMap::new();
-        for (k, v) in url::form_urlencoded::parse(init_data.as_bytes()) {
-            params.insert(k.into_owned(), v.into_owned());
-        }
-        let hash = match params.get("hash") {
-            Some(h) => h.clone(),
-            None => return (StatusCode::BAD_REQUEST, "Missing hash").into_response(),
-        };
-        // Проверка свежести (24ч) — защита от replay.
-        if let Some(ad) = params.get("auth_date").and_then(|s| s.parse::<i64>().ok()) {
-            let age = chrono::Utc::now().timestamp() - ad;
-            if age < 0 || age > 86_400 {
-                return (StatusCode::UNAUTHORIZED, "InitData expired").into_response();
+    let (data_check_string, provided_hash, tg_id, is_webapp) =
+        if let Some(init_data) = payload.init_data.as_ref().filter(|s| !s.is_empty()) {
+            // --- Telegram WebApp initData ---
+            let mut params: HashMap<String, String> = HashMap::new();
+            for (k, v) in url::form_urlencoded::parse(init_data.as_bytes()) {
+                params.insert(k.into_owned(), v.into_owned());
             }
-        } else {
-            return (StatusCode::BAD_REQUEST, "Missing auth_date").into_response();
-        }
-        let user_json = match params.get("user").and_then(|u| serde_json::from_str::<serde_json::Value>(u).ok()) {
-            Some(v) => v,
-            None => return (StatusCode::BAD_REQUEST, "Missing user data").into_response(),
-        };
-        let tg_id = match user_json.get("id").and_then(|v| v.as_i64()) {
-            Some(id) => id,
-            None => return (StatusCode::BAD_REQUEST, "Missing user ID").into_response(),
-        };
-        let mut pairs: Vec<String> = params
-            .iter()
-            .filter(|(k, _)| k.as_str() != "hash")
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect();
-        pairs.sort();
-        (pairs.join("\n"), hash, tg_id, true)
-    } else {
-        // --- Telegram Login Widget (плоские поля) ---
-        let hash = match payload.hash.clone() {
-            Some(h) if !h.is_empty() => h,
-            _ => return (StatusCode::BAD_REQUEST, "Missing hash").into_response(),
-        };
-        let tg_id = match payload.id {
-            Some(id) => id,
-            None => return (StatusCode::BAD_REQUEST, "Missing user ID").into_response(),
-        };
-        if let Some(ad) = payload.auth_date {
-            let age = chrono::Utc::now().timestamp() - ad;
-            if age < 0 || age > 86_400 {
-                return (StatusCode::UNAUTHORIZED, "Auth data expired").into_response();
-            }
-        } else {
-            return (StatusCode::BAD_REQUEST, "Missing auth_date").into_response();
-        }
-        // data-check-string из ВСЕХ полученных полей, кроме `hash`,
-        // отсортированных по ключу (требование спецификации Telegram).
-        // Иначе для пользователей с аватаром (photo_url) HMAC не сойдётся.
-        let mut fields: Vec<(String, String)> = Vec::new();
-        if let Some(ad) = payload.auth_date {
-            fields.push(("auth_date".into(), ad.to_string()));
-        }
-        if let Some(v) = payload.first_name.as_ref() {
-            fields.push(("first_name".into(), v.clone()));
-        }
-        fields.push(("id".into(), tg_id.to_string()));
-        if let Some(v) = payload.last_name.as_ref() {
-            fields.push(("last_name".into(), v.clone()));
-        }
-        if let Some(v) = payload.username.as_ref() {
-            fields.push(("username".into(), v.clone()));
-        }
-        if let Some(v) = payload.photo_url.as_ref() {
-            fields.push(("photo_url".into(), v.clone()));
-        }
-        // Прочие поля из catch-all (на случай будущих добавлений Telegram).
-        for (k, v) in payload.extra.iter() {
-            if k == "hash" {
-                continue;
-            }
-            // Строкам не добавляем кавычки; остальные значения сериализуем как JSON.
-            let s = match v {
-                serde_json::Value::String(s) => s.clone(),
-                other => other.to_string(),
+            let hash = match params.get("hash") {
+                Some(h) => h.clone(),
+                None => return (StatusCode::BAD_REQUEST, "Missing hash").into_response(),
             };
-            fields.push((k.clone(), s));
-        }
-        fields.sort_by(|a, b| a.0.cmp(&b.0));
-        let dcs = fields
-            .into_iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("\n");
-        (dcs, hash, tg_id, false)
-    };
+            // Проверка свежести (24ч) — защита от replay.
+            if let Some(ad) = params.get("auth_date").and_then(|s| s.parse::<i64>().ok()) {
+                let age = chrono::Utc::now().timestamp() - ad;
+                if !(0..=86_400).contains(&age) {
+                    return (StatusCode::UNAUTHORIZED, "InitData expired").into_response();
+                }
+            } else {
+                return (StatusCode::BAD_REQUEST, "Missing auth_date").into_response();
+            }
+            let user_json = match params
+                .get("user")
+                .and_then(|u| serde_json::from_str::<serde_json::Value>(u).ok())
+            {
+                Some(v) => v,
+                None => return (StatusCode::BAD_REQUEST, "Missing user data").into_response(),
+            };
+            let tg_id = match user_json.get("id").and_then(|v| v.as_i64()) {
+                Some(id) => id,
+                None => return (StatusCode::BAD_REQUEST, "Missing user ID").into_response(),
+            };
+            let mut pairs: Vec<String> = params
+                .iter()
+                .filter(|(k, _)| k.as_str() != "hash")
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect();
+            pairs.sort();
+            (pairs.join("\n"), hash, tg_id, true)
+        } else {
+            // --- Telegram Login Widget (плоские поля) ---
+            let hash = match payload.hash.clone() {
+                Some(h) if !h.is_empty() => h,
+                _ => return (StatusCode::BAD_REQUEST, "Missing hash").into_response(),
+            };
+            let tg_id = match payload.id {
+                Some(id) => id,
+                None => return (StatusCode::BAD_REQUEST, "Missing user ID").into_response(),
+            };
+            if let Some(ad) = payload.auth_date {
+                let age = chrono::Utc::now().timestamp() - ad;
+                if !(0..=86_400).contains(&age) {
+                    return (StatusCode::UNAUTHORIZED, "Auth data expired").into_response();
+                }
+            } else {
+                return (StatusCode::BAD_REQUEST, "Missing auth_date").into_response();
+            }
+            // data-check-string из ВСЕХ полученных полей, кроме `hash`,
+            // отсортированных по ключу (требование спецификации Telegram).
+            // Иначе для пользователей с аватаром (photo_url) HMAC не сойдётся.
+            let mut fields: Vec<(String, String)> = Vec::new();
+            if let Some(ad) = payload.auth_date {
+                fields.push(("auth_date".into(), ad.to_string()));
+            }
+            if let Some(v) = payload.first_name.as_ref() {
+                fields.push(("first_name".into(), v.clone()));
+            }
+            fields.push(("id".into(), tg_id.to_string()));
+            if let Some(v) = payload.last_name.as_ref() {
+                fields.push(("last_name".into(), v.clone()));
+            }
+            if let Some(v) = payload.username.as_ref() {
+                fields.push(("username".into(), v.clone()));
+            }
+            if let Some(v) = payload.photo_url.as_ref() {
+                fields.push(("photo_url".into(), v.clone()));
+            }
+            // Прочие поля из catch-all (на случай будущих добавлений Telegram).
+            for (k, v) in payload.extra.iter() {
+                if k == "hash" {
+                    continue;
+                }
+                // Строкам не добавляем кавычки; остальные значения сериализуем как JSON.
+                let s = match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                fields.push((k.clone(), s));
+            }
+            fields.sort_by(|a, b| a.0.cmp(&b.0));
+            let dcs = fields
+                .into_iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect::<Vec<_>>()
+                .join("\n");
+            (dcs, hash, tg_id, false)
+        };
 
     // Вычисляем ожидаемый HMAC.
     let secret_key: Vec<u8> = if is_webapp {
@@ -748,23 +765,24 @@ pub async fn login_telegram(
     // невалидный код НЕ блокирует логин (в отличие от register): диплинк-вход —
     // не строго регистрационный путь, отказ ухудшил бы UX уже валидного юзера.
     // Логируем и продолжаем.
-    if was_new {
-        if let Some(raw_code) = payload.enroll_code.as_deref() {
-            let code = raw_code.trim();
-            if !code.is_empty() {
-                let onboarding_mb = read_onboarding_traffic_mb(&state).await;
-                match state
-                    .store_service
-                    .redeem_enrollment_code(user.id, code, onboarding_mb)
-                    .await
-                {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        tracing::warn!(user_id = user.id, "telegram login: enroll_code invalid/exhausted (ignored)");
-                    }
-                    Err(e) => {
-                        tracing::error!(err = %e, user_id = user.id, "telegram login: enroll redemption failed (ignored)");
-                    }
+    if was_new && let Some(raw_code) = payload.enroll_code.as_deref() {
+        let code = raw_code.trim();
+        if !code.is_empty() {
+            let onboarding_mb = read_onboarding_traffic_mb(&state).await;
+            match state
+                .store_service
+                .redeem_enrollment_code(user.id, code, onboarding_mb)
+                .await
+            {
+                Ok(true) => {}
+                Ok(false) => {
+                    tracing::warn!(
+                        user_id = user.id,
+                        "telegram login: enroll_code invalid/exhausted (ignored)"
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(err = %e, user_id = user.id, "telegram login: enroll redemption failed (ignored)");
                 }
             }
         }

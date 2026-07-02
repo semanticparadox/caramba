@@ -56,14 +56,14 @@ class PartnerCode {
   String get balanceEarnedLabel => ReferralInfo.formatMinor(balanceEarnedCents);
 
   factory PartnerCode.fromJson(Map<String, dynamic> json) => PartnerCode(
-        code: (json['code'] as String?) ?? '',
-        sourceLabel: (json['source_label'] as String?) ?? '',
-        createdAt: SubPlan.parseDate(json['created_at']),
-        clicks: (json['clicks'] as num?)?.toInt() ?? 0,
-        signups: (json['signups'] as num?)?.toInt() ?? 0,
-        conversions: (json['conversions'] as num?)?.toInt() ?? 0,
-        balanceEarnedCents: (json['balance_earned'] as num?)?.toInt() ?? 0,
-      );
+    code: (json['code'] as String?) ?? '',
+    sourceLabel: (json['source_label'] as String?) ?? '',
+    createdAt: SubPlan.parseDate(json['created_at']),
+    clicks: (json['clicks'] as num?)?.toInt() ?? 0,
+    signups: (json['signups'] as num?)?.toInt() ?? 0,
+    conversions: (json['conversions'] as num?)?.toInt() ?? 0,
+    balanceEarnedCents: (json['balance_earned'] as num?)?.toInt() ?? 0,
+  );
 }
 
 /// Партнёрская сводка (`GET /api/v2/app/partner/codes`):

@@ -268,8 +268,16 @@ pub(crate) async fn fetch_worker_inventory(pool: &sqlx::PgPool) -> Vec<WorkerInv
             WorkerInventoryView {
                 role: row.role.to_ascii_uppercase(),
                 worker_id: row.worker_id,
-                current_version: if current_v.is_empty() { "-".to_string() } else { current_v },
-                target_version: if target_v.is_empty() { "-".to_string() } else { target_v },
+                current_version: if current_v.is_empty() {
+                    "-".to_string()
+                } else {
+                    current_v
+                },
+                target_version: if target_v.is_empty() {
+                    "-".to_string()
+                } else {
+                    target_v
+                },
                 last_state: row.last_state.to_ascii_uppercase(),
                 last_message: row.last_message.unwrap_or_default(),
                 is_online,
@@ -575,7 +583,10 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     let lava_project_id = state.settings.get_or_default("lava_project_id", "").await;
     let lava_secret_key = state.settings.get_or_default("lava_secret_key", "").await;
     let stripe_secret_key = state.settings.get_or_default("stripe_secret_key", "").await;
-    let stripe_webhook_secret = state.settings.get_or_default("stripe_webhook_secret", "").await;
+    let stripe_webhook_secret = state
+        .settings
+        .get_or_default("stripe_webhook_secret", "")
+        .await;
     let bot_token = state.settings.get_or_default("bot_token", "").await;
     let telegram_stars_enabled = state
         .settings
@@ -619,7 +630,10 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         resolve_internal_api_token(&state).await;
     let bot_username = state.settings.get_or_default("bot_username", "").await;
     let brand_name = state.settings.get_or_default("brand_name", "CARAMBA").await;
-    let referral_bonus_percent = state.settings.get_or_default("referral_bonus_percent", "10").await;
+    let referral_bonus_percent = state
+        .settings
+        .get_or_default("referral_bonus_percent", "10")
+        .await;
     let referral_referrer_signup_bonus_cents = state
         .settings
         .get_or_default("referral_referrer_signup_bonus_cents", "0")
@@ -628,7 +642,10 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .settings
         .get_or_default("referral_referred_signup_bonus_cents", "0")
         .await;
-    let admin_notification_tg_ids = state.settings.get_or_default("admin_notification_tg_ids", "").await;
+    let admin_notification_tg_ids = state
+        .settings
+        .get_or_default("admin_notification_tg_ids", "")
+        .await;
     let terms_of_service = state
         .settings
         .get_or_default("terms_of_service", "Welcome to CARAMBA.")
@@ -763,10 +780,10 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
             bot_worker_update_url.clone(),
         );
     }
-    if !auto_fill_updates.is_empty() {
-        if let Err(e) = state.settings.set_multiple(auto_fill_updates).await {
-            error!("Failed to persist auto-filled rollout settings: {}", e);
-        }
+    if !auto_fill_updates.is_empty()
+        && let Err(e) = state.settings.set_multiple(auto_fill_updates).await
+    {
+        error!("Failed to persist auto-filled rollout settings: {}", e);
     }
     if let Err(e) = crate::handlers::api::internal::ensure_worker_update_tables(&state.pool).await {
         error!("Failed to ensure worker update tables: {}", e);
@@ -912,46 +929,141 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     // ── Новые платёжные провайдеры ──────────────────────────────────────────
     let wata_enabled = state.settings.get_or_default("wata_enabled", "false").await == "true";
     let wata_jwt_token_raw = state.settings.get_or_default("wata_jwt_token", "").await;
-    let wata_webhook_secret_raw = state.settings.get_or_default("wata_webhook_secret", "").await;
-    let masked_wata_jwt_token = if wata_jwt_token_raw.is_empty() { "".to_string() } else { mask_key(&wata_jwt_token_raw) };
-    let masked_wata_webhook_secret = if wata_webhook_secret_raw.is_empty() { "".to_string() } else { mask_key(&wata_webhook_secret_raw) };
+    let wata_webhook_secret_raw = state
+        .settings
+        .get_or_default("wata_webhook_secret", "")
+        .await;
+    let masked_wata_jwt_token = if wata_jwt_token_raw.is_empty() {
+        "".to_string()
+    } else {
+        mask_key(&wata_jwt_token_raw)
+    };
+    let masked_wata_webhook_secret = if wata_webhook_secret_raw.is_empty() {
+        "".to_string()
+    } else {
+        mask_key(&wata_webhook_secret_raw)
+    };
 
-    let crystalpay_enabled = state.settings.get_or_default("crystalpay_enabled", "false").await == "true";
+    let crystalpay_enabled = state
+        .settings
+        .get_or_default("crystalpay_enabled", "false")
+        .await
+        == "true";
     let crystalpay_login_raw = state.settings.get_or_default("crystalpay_login", "").await;
     let crystalpay_secret_raw = state.settings.get_or_default("crystalpay_secret", "").await;
     let crystalpay_salt_raw = state.settings.get_or_default("crystalpay_salt", "").await;
-    let masked_crystalpay_login = if crystalpay_login_raw.is_empty() { "".to_string() } else { mask_key(&crystalpay_login_raw) };
-    let masked_crystalpay_secret = if crystalpay_secret_raw.is_empty() { "".to_string() } else { mask_key(&crystalpay_secret_raw) };
-    let masked_crystalpay_salt = if crystalpay_salt_raw.is_empty() { "".to_string() } else { mask_key(&crystalpay_salt_raw) };
+    let masked_crystalpay_login = if crystalpay_login_raw.is_empty() {
+        "".to_string()
+    } else {
+        mask_key(&crystalpay_login_raw)
+    };
+    let masked_crystalpay_secret = if crystalpay_secret_raw.is_empty() {
+        "".to_string()
+    } else {
+        mask_key(&crystalpay_secret_raw)
+    };
+    let masked_crystalpay_salt = if crystalpay_salt_raw.is_empty() {
+        "".to_string()
+    } else {
+        mask_key(&crystalpay_salt_raw)
+    };
 
-    let tribute_enabled = state.settings.get_or_default("tribute_enabled", "false").await == "true";
+    let tribute_enabled = state
+        .settings
+        .get_or_default("tribute_enabled", "false")
+        .await
+        == "true";
     let tribute_api_key_raw = state.settings.get_or_default("tribute_api_key", "").await;
-    let tribute_webhook_secret_raw = state.settings.get_or_default("tribute_webhook_secret", "").await;
-    let masked_tribute_api_key = if tribute_api_key_raw.is_empty() { "".to_string() } else { mask_key(&tribute_api_key_raw) };
-    let masked_tribute_webhook_secret = if tribute_webhook_secret_raw.is_empty() { "".to_string() } else { mask_key(&tribute_webhook_secret_raw) };
+    let tribute_webhook_secret_raw = state
+        .settings
+        .get_or_default("tribute_webhook_secret", "")
+        .await;
+    let masked_tribute_api_key = if tribute_api_key_raw.is_empty() {
+        "".to_string()
+    } else {
+        mask_key(&tribute_api_key_raw)
+    };
+    let masked_tribute_webhook_secret = if tribute_webhook_secret_raw.is_empty() {
+        "".to_string()
+    } else {
+        mask_key(&tribute_webhook_secret_raw)
+    };
 
-    let btcpay_enabled = state.settings.get_or_default("btcpay_enabled", "false").await == "true";
+    let btcpay_enabled = state
+        .settings
+        .get_or_default("btcpay_enabled", "false")
+        .await
+        == "true";
     let btcpay_url_raw = state.settings.get_or_default("btcpay_url", "").await;
     let btcpay_api_key_raw = state.settings.get_or_default("btcpay_api_key", "").await;
     let btcpay_store_id_raw = state.settings.get_or_default("btcpay_store_id", "").await;
-    let btcpay_webhook_secret_raw = state.settings.get_or_default("btcpay_webhook_secret", "").await;
-    let masked_btcpay_api_key = if btcpay_api_key_raw.is_empty() { "".to_string() } else { mask_key(&btcpay_api_key_raw) };
-    let masked_btcpay_store_id = if btcpay_store_id_raw.is_empty() { "".to_string() } else { mask_key(&btcpay_store_id_raw) };
-    let masked_btcpay_webhook_secret = if btcpay_webhook_secret_raw.is_empty() { "".to_string() } else { mask_key(&btcpay_webhook_secret_raw) };
+    let btcpay_webhook_secret_raw = state
+        .settings
+        .get_or_default("btcpay_webhook_secret", "")
+        .await;
+    let masked_btcpay_api_key = if btcpay_api_key_raw.is_empty() {
+        "".to_string()
+    } else {
+        mask_key(&btcpay_api_key_raw)
+    };
+    let masked_btcpay_store_id = if btcpay_store_id_raw.is_empty() {
+        "".to_string()
+    } else {
+        mask_key(&btcpay_store_id_raw)
+    };
+    let masked_btcpay_webhook_secret = if btcpay_webhook_secret_raw.is_empty() {
+        "".to_string()
+    } else {
+        mask_key(&btcpay_webhook_secret_raw)
+    };
 
-    let oxapay_enabled = state.settings.get_or_default("oxapay_enabled", "false").await == "true";
-    let oxapay_merchant_key_raw = state.settings.get_or_default("oxapay_merchant_key", "").await;
-    let masked_oxapay_merchant_key = if oxapay_merchant_key_raw.is_empty() { "".to_string() } else { mask_key(&oxapay_merchant_key_raw) };
+    let oxapay_enabled = state
+        .settings
+        .get_or_default("oxapay_enabled", "false")
+        .await
+        == "true";
+    let oxapay_merchant_key_raw = state
+        .settings
+        .get_or_default("oxapay_merchant_key", "")
+        .await;
+    let masked_oxapay_merchant_key = if oxapay_merchant_key_raw.is_empty() {
+        "".to_string()
+    } else {
+        mask_key(&oxapay_merchant_key_raw)
+    };
 
-    let coinbase_enabled = state.settings.get_or_default("coinbase_enabled", "false").await == "true";
+    let coinbase_enabled = state
+        .settings
+        .get_or_default("coinbase_enabled", "false")
+        .await
+        == "true";
     let coinbase_api_key_raw = state.settings.get_or_default("coinbase_api_key", "").await;
-    let coinbase_webhook_secret_raw = state.settings.get_or_default("coinbase_webhook_secret", "").await;
-    let masked_coinbase_api_key = if coinbase_api_key_raw.is_empty() { "".to_string() } else { mask_key(&coinbase_api_key_raw) };
-    let masked_coinbase_webhook_secret = if coinbase_webhook_secret_raw.is_empty() { "".to_string() } else { mask_key(&coinbase_webhook_secret_raw) };
+    let coinbase_webhook_secret_raw = state
+        .settings
+        .get_or_default("coinbase_webhook_secret", "")
+        .await;
+    let masked_coinbase_api_key = if coinbase_api_key_raw.is_empty() {
+        "".to_string()
+    } else {
+        mask_key(&coinbase_api_key_raw)
+    };
+    let masked_coinbase_webhook_secret = if coinbase_webhook_secret_raw.is_empty() {
+        "".to_string()
+    } else {
+        mask_key(&coinbase_webhook_secret_raw)
+    };
 
-    let plisio_enabled = state.settings.get_or_default("plisio_enabled", "false").await == "true";
+    let plisio_enabled = state
+        .settings
+        .get_or_default("plisio_enabled", "false")
+        .await
+        == "true";
     let plisio_api_key_raw = state.settings.get_or_default("plisio_api_key", "").await;
-    let masked_plisio_api_key = if plisio_api_key_raw.is_empty() { "".to_string() } else { mask_key(&plisio_api_key_raw) };
+    let masked_plisio_api_key = if plisio_api_key_raw.is_empty() {
+        "".to_string()
+    } else {
+        mask_key(&plisio_api_key_raw)
+    };
     // ────────────────────────────────────────────────────────────────────────
 
     let template = SettingsTemplate {
@@ -1123,10 +1235,11 @@ pub async fn save_settings(
         "".to_string()
     };
 
-    if let Some(v) = form.payment_api_key {
-        if !v.is_empty() && v != masked_payment_key {
-            settings.insert("payment_api_key".to_string(), v);
-        }
+    if let Some(v) = form.payment_api_key
+        && !v.is_empty()
+        && v != masked_payment_key
+    {
+        settings.insert("payment_api_key".to_string(), v);
     }
 
     let current_nowpayments_key = state
@@ -1138,10 +1251,11 @@ pub async fn save_settings(
     } else {
         "".to_string()
     };
-    if let Some(v) = form.nowpayments_api_key {
-        if !v.is_empty() && v != masked_nowpayments_key {
-            settings.insert("nowpayments_api_key".to_string(), v);
-        }
+    if let Some(v) = form.nowpayments_api_key
+        && !v.is_empty()
+        && v != masked_nowpayments_key
+    {
+        settings.insert("nowpayments_api_key".to_string(), v);
     }
 
     let current_nowpayments_ipn = state
@@ -1153,10 +1267,11 @@ pub async fn save_settings(
     } else {
         "".to_string()
     };
-    if let Some(v) = form.nowpayments_ipn_secret {
-        if !v.is_empty() && v != masked_nowpayments_ipn {
-            settings.insert("nowpayments_ipn_secret".to_string(), v);
-        }
+    if let Some(v) = form.nowpayments_ipn_secret
+        && !v.is_empty()
+        && v != masked_nowpayments_ipn
+    {
+        settings.insert("nowpayments_ipn_secret".to_string(), v);
     }
 
     let current_lava_project = state.settings.get_or_default("lava_project_id", "").await;
@@ -1165,10 +1280,11 @@ pub async fn save_settings(
     } else {
         "".to_string()
     };
-    if let Some(v) = form.lava_project_id {
-        if !v.is_empty() && v != masked_lava_project {
-            settings.insert("lava_project_id".to_string(), v);
-        }
+    if let Some(v) = form.lava_project_id
+        && !v.is_empty()
+        && v != masked_lava_project
+    {
+        settings.insert("lava_project_id".to_string(), v);
     }
 
     let current_lava_secret = state.settings.get_or_default("lava_secret_key", "").await;
@@ -1177,10 +1293,11 @@ pub async fn save_settings(
     } else {
         "".to_string()
     };
-    if let Some(v) = form.lava_secret_key {
-        if !v.is_empty() && v != masked_lava_secret {
-            settings.insert("lava_secret_key".to_string(), v);
-        }
+    if let Some(v) = form.lava_secret_key
+        && !v.is_empty()
+        && v != masked_lava_secret
+    {
+        settings.insert("lava_secret_key".to_string(), v);
     }
 
     let current_stripe_secret = state.settings.get_or_default("stripe_secret_key", "").await;
@@ -1189,22 +1306,27 @@ pub async fn save_settings(
     } else {
         "".to_string()
     };
-    if let Some(v) = form.stripe_secret_key {
-        if !v.is_empty() && v != masked_stripe_secret {
-            settings.insert("stripe_secret_key".to_string(), v);
-        }
+    if let Some(v) = form.stripe_secret_key
+        && !v.is_empty()
+        && v != masked_stripe_secret
+    {
+        settings.insert("stripe_secret_key".to_string(), v);
     }
 
-    let current_stripe_webhook = state.settings.get_or_default("stripe_webhook_secret", "").await;
+    let current_stripe_webhook = state
+        .settings
+        .get_or_default("stripe_webhook_secret", "")
+        .await;
     let masked_stripe_webhook = if !current_stripe_webhook.is_empty() {
         mask_key(&current_stripe_webhook)
     } else {
         "".to_string()
     };
-    if let Some(v) = form.stripe_webhook_secret {
-        if !v.is_empty() && v != masked_stripe_webhook {
-            settings.insert("stripe_webhook_secret".to_string(), v);
-        }
+    if let Some(v) = form.stripe_webhook_secret
+        && !v.is_empty()
+        && v != masked_stripe_webhook
+    {
+        settings.insert("stripe_webhook_secret".to_string(), v);
     }
 
     settings.insert(
@@ -1234,10 +1356,11 @@ pub async fn save_settings(
     } else {
         "".to_string()
     };
-    if let Some(v) = form.cryptomus_merchant_id {
-        if !v.is_empty() && v != masked_cryptomus_id {
-            settings.insert("cryptomus_merchant_id".to_string(), v);
-        }
+    if let Some(v) = form.cryptomus_merchant_id
+        && !v.is_empty()
+        && v != masked_cryptomus_id
+    {
+        settings.insert("cryptomus_merchant_id".to_string(), v);
     }
 
     let current_cryptomus_key = state
@@ -1249,10 +1372,11 @@ pub async fn save_settings(
     } else {
         "".to_string()
     };
-    if let Some(v) = form.cryptomus_payment_api_key {
-        if !v.is_empty() && v != masked_cryptomus_key {
-            settings.insert("cryptomus_payment_api_key".to_string(), v);
-        }
+    if let Some(v) = form.cryptomus_payment_api_key
+        && !v.is_empty()
+        && v != masked_cryptomus_key
+    {
+        settings.insert("cryptomus_payment_api_key".to_string(), v);
     }
 
     let current_aaio_id = state.settings.get_or_default("aaio_merchant_id", "").await;
@@ -1261,10 +1385,11 @@ pub async fn save_settings(
     } else {
         "".to_string()
     };
-    if let Some(v) = form.aaio_merchant_id {
-        if !v.is_empty() && v != masked_aaio_id {
-            settings.insert("aaio_merchant_id".to_string(), v);
-        }
+    if let Some(v) = form.aaio_merchant_id
+        && !v.is_empty()
+        && v != masked_aaio_id
+    {
+        settings.insert("aaio_merchant_id".to_string(), v);
     }
 
     let current_aaio_s1 = state.settings.get_or_default("aaio_secret_1", "").await;
@@ -1273,10 +1398,11 @@ pub async fn save_settings(
     } else {
         "".to_string()
     };
-    if let Some(v) = form.aaio_secret_1 {
-        if !v.is_empty() && v != masked_aaio_s1 {
-            settings.insert("aaio_secret_1".to_string(), v);
-        }
+    if let Some(v) = form.aaio_secret_1
+        && !v.is_empty()
+        && v != masked_aaio_s1
+    {
+        settings.insert("aaio_secret_1".to_string(), v);
     }
 
     let current_aaio_s2 = state.settings.get_or_default("aaio_secret_2", "").await;
@@ -1285,10 +1411,11 @@ pub async fn save_settings(
     } else {
         "".to_string()
     };
-    if let Some(v) = form.aaio_secret_2 {
-        if !v.is_empty() && v != masked_aaio_s2 {
-            settings.insert("aaio_secret_2".to_string(), v);
-        }
+    if let Some(v) = form.aaio_secret_2
+        && !v.is_empty()
+        && v != masked_aaio_s2
+    {
+        settings.insert("aaio_secret_2".to_string(), v);
     }
 
     if let Some(v) = form.payment_ipn_url {
@@ -1403,9 +1530,9 @@ pub async fn save_settings(
     if let Some(v) = form.agent_update_url {
         let normalized = v.trim().to_string();
         if !normalized.is_empty()
-            && !(normalized.starts_with("https://")
-                || normalized.starts_with("http://")
-                || normalized.starts_with('/'))
+            && !normalized.starts_with("https://")
+            && !normalized.starts_with("http://")
+            && !normalized.starts_with('/')
         {
             return (
                 StatusCode::BAD_REQUEST,
@@ -1431,63 +1558,134 @@ pub async fn save_settings(
     // Паттерн: чувствительные поля сохраняются только если не совпадают с маской.
     settings.insert(
         "wata_enabled".to_string(),
-        if is_checkbox_enabled(form.wata_enabled.as_deref()) { "true".to_string() } else { "false".to_string() },
+        if is_checkbox_enabled(form.wata_enabled.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
     );
     {
         let cur = state.settings.get_or_default("wata_jwt_token", "").await;
-        let masked = if cur.is_empty() { "".to_string() } else { mask_key(&cur) };
-        if let Some(v) = form.wata_jwt_token {
-            if !v.is_empty() && v != masked { settings.insert("wata_jwt_token".to_string(), v); }
+        let masked = if cur.is_empty() {
+            "".to_string()
+        } else {
+            mask_key(&cur)
+        };
+        if let Some(v) = form.wata_jwt_token
+            && !v.is_empty()
+            && v != masked
+        {
+            settings.insert("wata_jwt_token".to_string(), v);
         }
-        let cur = state.settings.get_or_default("wata_webhook_secret", "").await;
-        let masked = if cur.is_empty() { "".to_string() } else { mask_key(&cur) };
-        if let Some(v) = form.wata_webhook_secret {
-            if !v.is_empty() && v != masked { settings.insert("wata_webhook_secret".to_string(), v); }
+        let cur = state
+            .settings
+            .get_or_default("wata_webhook_secret", "")
+            .await;
+        let masked = if cur.is_empty() {
+            "".to_string()
+        } else {
+            mask_key(&cur)
+        };
+        if let Some(v) = form.wata_webhook_secret
+            && !v.is_empty()
+            && v != masked
+        {
+            settings.insert("wata_webhook_secret".to_string(), v);
         }
     }
 
     settings.insert(
         "crystalpay_enabled".to_string(),
-        if is_checkbox_enabled(form.crystalpay_enabled.as_deref()) { "true".to_string() } else { "false".to_string() },
+        if is_checkbox_enabled(form.crystalpay_enabled.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
     );
     {
         let cur = state.settings.get_or_default("crystalpay_login", "").await;
-        let masked = if cur.is_empty() { "".to_string() } else { mask_key(&cur) };
-        if let Some(v) = form.crystalpay_login {
-            if !v.is_empty() && v != masked { settings.insert("crystalpay_login".to_string(), v); }
+        let masked = if cur.is_empty() {
+            "".to_string()
+        } else {
+            mask_key(&cur)
+        };
+        if let Some(v) = form.crystalpay_login
+            && !v.is_empty()
+            && v != masked
+        {
+            settings.insert("crystalpay_login".to_string(), v);
         }
         let cur = state.settings.get_or_default("crystalpay_secret", "").await;
-        let masked = if cur.is_empty() { "".to_string() } else { mask_key(&cur) };
-        if let Some(v) = form.crystalpay_secret {
-            if !v.is_empty() && v != masked { settings.insert("crystalpay_secret".to_string(), v); }
+        let masked = if cur.is_empty() {
+            "".to_string()
+        } else {
+            mask_key(&cur)
+        };
+        if let Some(v) = form.crystalpay_secret
+            && !v.is_empty()
+            && v != masked
+        {
+            settings.insert("crystalpay_secret".to_string(), v);
         }
         let cur = state.settings.get_or_default("crystalpay_salt", "").await;
-        let masked = if cur.is_empty() { "".to_string() } else { mask_key(&cur) };
-        if let Some(v) = form.crystalpay_salt {
-            if !v.is_empty() && v != masked { settings.insert("crystalpay_salt".to_string(), v); }
+        let masked = if cur.is_empty() {
+            "".to_string()
+        } else {
+            mask_key(&cur)
+        };
+        if let Some(v) = form.crystalpay_salt
+            && !v.is_empty()
+            && v != masked
+        {
+            settings.insert("crystalpay_salt".to_string(), v);
         }
     }
 
     settings.insert(
         "tribute_enabled".to_string(),
-        if is_checkbox_enabled(form.tribute_enabled.as_deref()) { "true".to_string() } else { "false".to_string() },
+        if is_checkbox_enabled(form.tribute_enabled.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
     );
     {
         let cur = state.settings.get_or_default("tribute_api_key", "").await;
-        let masked = if cur.is_empty() { "".to_string() } else { mask_key(&cur) };
-        if let Some(v) = form.tribute_api_key {
-            if !v.is_empty() && v != masked { settings.insert("tribute_api_key".to_string(), v); }
+        let masked = if cur.is_empty() {
+            "".to_string()
+        } else {
+            mask_key(&cur)
+        };
+        if let Some(v) = form.tribute_api_key
+            && !v.is_empty()
+            && v != masked
+        {
+            settings.insert("tribute_api_key".to_string(), v);
         }
-        let cur = state.settings.get_or_default("tribute_webhook_secret", "").await;
-        let masked = if cur.is_empty() { "".to_string() } else { mask_key(&cur) };
-        if let Some(v) = form.tribute_webhook_secret {
-            if !v.is_empty() && v != masked { settings.insert("tribute_webhook_secret".to_string(), v); }
+        let cur = state
+            .settings
+            .get_or_default("tribute_webhook_secret", "")
+            .await;
+        let masked = if cur.is_empty() {
+            "".to_string()
+        } else {
+            mask_key(&cur)
+        };
+        if let Some(v) = form.tribute_webhook_secret
+            && !v.is_empty()
+            && v != masked
+        {
+            settings.insert("tribute_webhook_secret".to_string(), v);
         }
     }
 
     settings.insert(
         "btcpay_enabled".to_string(),
-        if is_checkbox_enabled(form.btcpay_enabled.as_deref()) { "true".to_string() } else { "false".to_string() },
+        if is_checkbox_enabled(form.btcpay_enabled.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
     );
     {
         if let Some(v) = form.btcpay_url {
@@ -1495,60 +1693,130 @@ pub async fn save_settings(
             settings.insert("btcpay_url".to_string(), normalized);
         }
         let cur = state.settings.get_or_default("btcpay_api_key", "").await;
-        let masked = if cur.is_empty() { "".to_string() } else { mask_key(&cur) };
-        if let Some(v) = form.btcpay_api_key {
-            if !v.is_empty() && v != masked { settings.insert("btcpay_api_key".to_string(), v); }
+        let masked = if cur.is_empty() {
+            "".to_string()
+        } else {
+            mask_key(&cur)
+        };
+        if let Some(v) = form.btcpay_api_key
+            && !v.is_empty()
+            && v != masked
+        {
+            settings.insert("btcpay_api_key".to_string(), v);
         }
         let cur = state.settings.get_or_default("btcpay_store_id", "").await;
-        let masked = if cur.is_empty() { "".to_string() } else { mask_key(&cur) };
-        if let Some(v) = form.btcpay_store_id {
-            if !v.is_empty() && v != masked { settings.insert("btcpay_store_id".to_string(), v); }
+        let masked = if cur.is_empty() {
+            "".to_string()
+        } else {
+            mask_key(&cur)
+        };
+        if let Some(v) = form.btcpay_store_id
+            && !v.is_empty()
+            && v != masked
+        {
+            settings.insert("btcpay_store_id".to_string(), v);
         }
-        let cur = state.settings.get_or_default("btcpay_webhook_secret", "").await;
-        let masked = if cur.is_empty() { "".to_string() } else { mask_key(&cur) };
-        if let Some(v) = form.btcpay_webhook_secret {
-            if !v.is_empty() && v != masked { settings.insert("btcpay_webhook_secret".to_string(), v); }
+        let cur = state
+            .settings
+            .get_or_default("btcpay_webhook_secret", "")
+            .await;
+        let masked = if cur.is_empty() {
+            "".to_string()
+        } else {
+            mask_key(&cur)
+        };
+        if let Some(v) = form.btcpay_webhook_secret
+            && !v.is_empty()
+            && v != masked
+        {
+            settings.insert("btcpay_webhook_secret".to_string(), v);
         }
     }
 
     settings.insert(
         "oxapay_enabled".to_string(),
-        if is_checkbox_enabled(form.oxapay_enabled.as_deref()) { "true".to_string() } else { "false".to_string() },
+        if is_checkbox_enabled(form.oxapay_enabled.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
     );
     {
-        let cur = state.settings.get_or_default("oxapay_merchant_key", "").await;
-        let masked = if cur.is_empty() { "".to_string() } else { mask_key(&cur) };
-        if let Some(v) = form.oxapay_merchant_key {
-            if !v.is_empty() && v != masked { settings.insert("oxapay_merchant_key".to_string(), v); }
+        let cur = state
+            .settings
+            .get_or_default("oxapay_merchant_key", "")
+            .await;
+        let masked = if cur.is_empty() {
+            "".to_string()
+        } else {
+            mask_key(&cur)
+        };
+        if let Some(v) = form.oxapay_merchant_key
+            && !v.is_empty()
+            && v != masked
+        {
+            settings.insert("oxapay_merchant_key".to_string(), v);
         }
     }
 
     settings.insert(
         "coinbase_enabled".to_string(),
-        if is_checkbox_enabled(form.coinbase_enabled.as_deref()) { "true".to_string() } else { "false".to_string() },
+        if is_checkbox_enabled(form.coinbase_enabled.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
     );
     {
         let cur = state.settings.get_or_default("coinbase_api_key", "").await;
-        let masked = if cur.is_empty() { "".to_string() } else { mask_key(&cur) };
-        if let Some(v) = form.coinbase_api_key {
-            if !v.is_empty() && v != masked { settings.insert("coinbase_api_key".to_string(), v); }
+        let masked = if cur.is_empty() {
+            "".to_string()
+        } else {
+            mask_key(&cur)
+        };
+        if let Some(v) = form.coinbase_api_key
+            && !v.is_empty()
+            && v != masked
+        {
+            settings.insert("coinbase_api_key".to_string(), v);
         }
-        let cur = state.settings.get_or_default("coinbase_webhook_secret", "").await;
-        let masked = if cur.is_empty() { "".to_string() } else { mask_key(&cur) };
-        if let Some(v) = form.coinbase_webhook_secret {
-            if !v.is_empty() && v != masked { settings.insert("coinbase_webhook_secret".to_string(), v); }
+        let cur = state
+            .settings
+            .get_or_default("coinbase_webhook_secret", "")
+            .await;
+        let masked = if cur.is_empty() {
+            "".to_string()
+        } else {
+            mask_key(&cur)
+        };
+        if let Some(v) = form.coinbase_webhook_secret
+            && !v.is_empty()
+            && v != masked
+        {
+            settings.insert("coinbase_webhook_secret".to_string(), v);
         }
     }
 
     settings.insert(
         "plisio_enabled".to_string(),
-        if is_checkbox_enabled(form.plisio_enabled.as_deref()) { "true".to_string() } else { "false".to_string() },
+        if is_checkbox_enabled(form.plisio_enabled.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
     );
     {
         let cur = state.settings.get_or_default("plisio_api_key", "").await;
-        let masked = if cur.is_empty() { "".to_string() } else { mask_key(&cur) };
-        if let Some(v) = form.plisio_api_key {
-            if !v.is_empty() && v != masked { settings.insert("plisio_api_key".to_string(), v); }
+        let masked = if cur.is_empty() {
+            "".to_string()
+        } else {
+            mask_key(&cur)
+        };
+        if let Some(v) = form.plisio_api_key
+            && !v.is_empty()
+            && v != masked
+        {
+            settings.insert("plisio_api_key".to_string(), v);
         }
     }
     // ─────────────────────────────────────────────────────────────────────────
@@ -1570,7 +1838,7 @@ pub async fn save_settings(
                 }
             });
 
-            ([(("HX-Refresh", "true"))], "Settings Saved").into_response()
+            ([("HX-Refresh", "true")], "Settings Saved").into_response()
         }
         Err(e) => {
             error!("Failed to save settings: {}", e);
@@ -2453,9 +2721,7 @@ pub async fn queue_worker_update(
     )
     .bind(role)
     .bind(version.as_str())
-    .bind(format!(
-        "Queued from panel settings. Worker will self-update on next poll."
-    ))
+    .bind("Queued from panel settings. Worker will self-update on next poll.".to_string())
     .execute(&state.pool)
     .await
     {

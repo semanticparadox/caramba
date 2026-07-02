@@ -37,20 +37,20 @@ class AuthTokens {
   });
 
   factory AuthTokens.fromJson(Map<String, dynamic> json) => AuthTokens(
-        accessToken: json['access_token'] as String,
-        refreshToken: json['refresh_token'] as String,
-        tokenType: (json['token_type'] as String?) ?? 'Bearer',
-        expiresIn: (json['expires_in'] as num?)?.toInt() ?? 900,
-        userId: (json['user_id'] as num?)?.toInt() ?? 0,
-      );
+    accessToken: json['access_token'] as String,
+    refreshToken: json['refresh_token'] as String,
+    tokenType: (json['token_type'] as String?) ?? 'Bearer',
+    expiresIn: (json['expires_in'] as num?)?.toInt() ?? 900,
+    userId: (json['user_id'] as num?)?.toInt() ?? 0,
+  );
 
   Map<String, dynamic> toJson() => {
-        'access_token': accessToken,
-        'refresh_token': refreshToken,
-        'token_type': tokenType,
-        'expires_in': expiresIn,
-        'user_id': userId,
-      };
+    'access_token': accessToken,
+    'refresh_token': refreshToken,
+    'token_type': tokenType,
+    'expires_in': expiresIn,
+    'user_id': userId,
+  };
 
   AuthTokens copyWith({
     String? accessToken,
@@ -58,12 +58,11 @@ class AuthTokens {
     String? tokenType,
     int? expiresIn,
     int? userId,
-  }) =>
-      AuthTokens(
-        accessToken: accessToken ?? this.accessToken,
-        refreshToken: refreshToken ?? this.refreshToken,
-        tokenType: tokenType ?? this.tokenType,
-        expiresIn: expiresIn ?? this.expiresIn,
-        userId: userId ?? this.userId,
-      );
+  }) => AuthTokens(
+    accessToken: accessToken ?? this.accessToken,
+    refreshToken: refreshToken ?? this.refreshToken,
+    tokenType: tokenType ?? this.tokenType,
+    expiresIn: expiresIn ?? this.expiresIn,
+    userId: userId ?? this.userId,
+  );
 }

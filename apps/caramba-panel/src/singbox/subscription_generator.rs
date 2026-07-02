@@ -102,7 +102,8 @@ struct StreamInfo {
     // XHTTP / Advanced settings
     packet_encoding: Option<String>, // packet-up / packetaddr
     x_padding_bytes: Option<String>, // 500-1200
-    xmux: Option<Value>,             // JSON object for mux settings
+    #[allow(dead_code)] // WIP: xmux/mux settings not yet emitted into configs
+    xmux: Option<Value>, // JSON object for mux settings
 
     // Hysteria 2
     hy2_ports: Option<String>, // Port hopping range e.g. "20000-50000"
@@ -160,21 +161,19 @@ fn format_node_label(node: &NodeInfo) -> String {
 /// protocol jargon.
 fn format_proto_label(protocol: &str, si: &StreamInfo) -> String {
     match protocol.to_ascii_lowercase().as_str() {
-        "vless" => {
-            match si.network.as_str() {
-                "tcp" => match si.security.as_str() {
-                    "reality" => "Stealth",
-                    "tls" => "Secure",
-                    _ => "TCP",
-                },
-                "ws" => "WebSocket",
-                "grpc" => "Stream",
-                "xhttp" | "splithttp" => "XHTTP",
-                "httpupgrade" => "HTTP",
-                other => other,
-            }
-            .to_string()
+        "vless" => match si.network.as_str() {
+            "tcp" => match si.security.as_str() {
+                "reality" => "Stealth",
+                "tls" => "Secure",
+                _ => "TCP",
+            },
+            "ws" => "WebSocket",
+            "grpc" => "Stream",
+            "xhttp" | "splithttp" => "XHTTP",
+            "httpupgrade" => "HTTP",
+            other => other,
         }
+        .to_string(),
         "vmess" => "VMess".to_string(),
         "trojan" => match si.security.as_str() {
             "reality" => "Trojan·Stealth".to_string(),
@@ -376,7 +375,8 @@ fn build_singbox_outbound(
                 let single = inbound.listen_port.to_string();
                 if ports != &single {
                     // Convert comma/space separated ranges to array
-                    let ranges: Vec<&str> = ports.split([',', ' '])
+                    let ranges: Vec<&str> = ports
+                        .split([',', ' '])
                         .map(|s| s.trim())
                         .filter(|s| !s.is_empty())
                         .collect();
@@ -435,14 +435,14 @@ fn build_singbox_outbound(
             ob["private_key"] = json!(user_keys._awg_private_key.clone().unwrap_or_default());
             ob["peer_public_key"] = json!(si.public_key);
             ob["mtu"] = json!(1280);
-            if let Ok(awg) = serde_json::from_str::<serde_json::Value>(&inbound.settings) {
-                if let Some(jc) = awg.get("jc") {
-                    ob["reserved"] = json!([
-                        jc.as_u64().unwrap_or(0),
-                        awg["jmin"].as_u64().unwrap_or(0),
-                        awg["jmax"].as_u64().unwrap_or(0)
-                    ]);
-                }
+            if let Ok(awg) = serde_json::from_str::<serde_json::Value>(&inbound.settings)
+                && let Some(jc) = awg.get("jc")
+            {
+                ob["reserved"] = json!([
+                    jc.as_u64().unwrap_or(0),
+                    awg["jmin"].as_u64().unwrap_or(0),
+                    awg["jmax"].as_u64().unwrap_or(0)
+                ]);
             }
         }
         _ => return None,
@@ -515,14 +515,11 @@ fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
     // Определяем security: берём из stream_settings, если не задано — определяем по наличию
     // realitySettings/tlsSettings, иначе "none".
     // ВАЖНО: дефолт НЕ может быть "reality" — это ломает ws/grpc/httpupgrade инбаунды.
-    let security_raw = settings
-        .security
-        .clone()
-        .or_else(|| {
-            v.get("security")
-                .and_then(|s| s.as_str())
-                .map(|s| s.to_string())
-        });
+    let security_raw = settings.security.clone().or_else(|| {
+        v.get("security")
+            .and_then(|s| s.as_str())
+            .map(|s| s.to_string())
+    });
     let security = security_raw.unwrap_or_else(|| {
         // Автоопределение: reality → tls → none
         if settings.reality_settings.is_some()
@@ -779,14 +776,13 @@ fn parse_ss_password(settings_raw: &str, user_uuid: &str) -> String {
                 .get("username")
                 .or(user.get("name"))
                 .and_then(|u| u.as_str())
+                && username == user_uuid
             {
-                if username == user_uuid {
-                    return user
-                        .get("password")
-                        .and_then(|p| p.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                }
+                return user
+                    .get("password")
+                    .and_then(|p| p.as_str())
+                    .unwrap_or("")
+                    .to_string();
             }
         }
         // Fallback: if list has 1 item and we didn't match (maybe single user mode but ID mismatch?), use it.
@@ -1011,7 +1007,7 @@ pub fn generate_v2ray_config(
                             params.push(format!("mport={}", ports));
                         }
                         if let Some(obfs) = &si.hy2_obfs {
-                            params.push(format!("obfs=salamander"));
+                            params.push("obfs=salamander".to_string());
                             params.push(format!("obfs-password={}", obfs));
                         }
 
@@ -1076,13 +1072,13 @@ pub fn generate_v2ray_config(
                     }
                     "tuic" => {
                         let host = node.frontend_url.as_deref().unwrap_or(&node.address);
-                        let params = vec![
+                        let params = [
                             format!("sni={}", si.sni),
                             format!(
                                 "congestion_control={}",
                                 si.tuic_congestion_control.as_deref().unwrap_or("bbr")
                             ),
-                            format!("alpn=h3"),
+                            "alpn=h3".to_string(),
                         ];
                         links.push(format!(
                             "tuic://{}:{}@{}:{}?{}#{}",
@@ -1393,22 +1389,22 @@ pub fn generate_clash_config(
                         {
                             let mut opts = json!({});
                             for field in ["jc", "jmin", "jmax", "s1", "s2", "s3", "s4"] {
-                                if let Some(v) = awg_obj.get(field) {
-                                    if !v.is_null() {
-                                        opts[field] = v.clone();
-                                    }
+                                if let Some(v) = awg_obj.get(field)
+                                    && !v.is_null()
+                                {
+                                    opts[field] = v.clone();
                                 }
                             }
                             for field in ["h1", "h2", "h3", "h4"] {
-                                if let Some(v) = awg_obj.get(field) {
-                                    if !v.is_null() {
-                                        // Force string form for mihomo (numbers fail to decode).
-                                        let s = match v {
-                                            serde_json::Value::String(s) => s.clone(),
-                                            other => other.to_string(),
-                                        };
-                                        opts[field] = json!(s);
-                                    }
+                                if let Some(v) = awg_obj.get(field)
+                                    && !v.is_null()
+                                {
+                                    // Force string form for mihomo (numbers fail to decode).
+                                    let s = match v {
+                                        serde_json::Value::String(s) => s.clone(),
+                                        other => other.to_string(),
+                                    };
+                                    opts[field] = json!(s);
                                 }
                             }
                             if opts.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
@@ -1443,14 +1439,14 @@ pub fn generate_clash_config(
         }
 
         // Legacy Hysteria2
-        if !node.is_relay && node.hy2_port.is_some() {
+        if let Some(hy2_port) = node.hy2_port.filter(|_| !node.is_relay) {
             let hy2_legacy_name = format!("{} hy2", format_node_label(node));
             direct_names.push(hy2_legacy_name.clone());
             proxies.push(json!({
                 "name": hy2_legacy_name,
                 "type": "hysteria2",
                 "server": node.frontend_url.as_deref().unwrap_or(&node.address),
-                "port": node.hy2_port.unwrap(),
+                "port": hy2_port,
                 "password": user_keys.hy2_password,
                 "sni": node.hy2_sni.as_ref().unwrap_or(&node.address),
                 "skip-cert-verify": true
@@ -1597,10 +1593,7 @@ pub fn generate_singbox_config(
             let proto_label = format_proto_label(&inbound.protocol, &si);
 
             // ── Direct outbound ───────────────────────────────────────────────
-            let direct_tag = unique_tag(
-                format!("{} {}", node_label, proto_label),
-                &mut used_tags,
-            );
+            let direct_tag = unique_tag(format!("{} {}", node_label, proto_label), &mut used_tags);
             if let Some(ob) =
                 build_singbox_outbound(&direct_tag, inbound, endpoint, &si, user_keys, None)
             {
@@ -1634,31 +1627,31 @@ pub fn generate_singbox_config(
         }
 
         // ── Legacy fallback: node has no inbounds stored ──────────────────────
-        if enabled.is_empty() {
-            if let Some(port) = node.reality_port {
-                let tag = unique_tag(format!("{} Stealth", node_label), &mut used_tags);
-                let ob = json!({
-                    "type": "vless",
-                    "tag": &tag,
-                    "server": endpoint,
-                    "server_port": port,
-                    "uuid": user_keys.user_uuid,
-                    "flow": "xtls-rprx-vision",
-                    "tls": {
+        if enabled.is_empty()
+            && let Some(port) = node.reality_port
+        {
+            let tag = unique_tag(format!("{} Stealth", node_label), &mut used_tags);
+            let ob = json!({
+                "type": "vless",
+                "tag": &tag,
+                "server": endpoint,
+                "server_port": port,
+                "uuid": user_keys.user_uuid,
+                "flow": "xtls-rprx-vision",
+                "tls": {
+                    "enabled": true,
+                    "server_name": node.reality_sni.as_deref().unwrap_or("www.google.com"),
+                    "reality": {
                         "enabled": true,
-                        "server_name": node.reality_sni.as_deref().unwrap_or("www.google.com"),
-                        "reality": {
-                            "enabled": true,
-                            "public_key": node.reality_public_key.as_deref().unwrap_or(""),
-                            "short_id": node.reality_short_id.as_deref().unwrap_or("")
-                        },
-                        "utls": { "enabled": true, "fingerprint": "chrome" }
+                        "public_key": node.reality_public_key.as_deref().unwrap_or(""),
+                        "short_id": node.reality_short_id.as_deref().unwrap_or("")
                     },
-                    "_remark": format!("{} Reality", node_label)
-                });
-                proxy_outbounds.push(ob);
-                direct_tags.push(tag);
-            }
+                    "utls": { "enabled": true, "fingerprint": "chrome" }
+                },
+                "_remark": format!("{} Reality", node_label)
+            });
+            proxy_outbounds.push(ob);
+            direct_tags.push(tag);
         }
     }
 

@@ -101,13 +101,13 @@ impl ConfigGenerator {
             let mut settings_value: serde_json::Value = serde_json::from_str(&inbound.settings)
                 .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
 
-            if let Some(obj) = settings_value.as_object_mut() {
-                if !obj.contains_key("protocol") {
-                    obj.insert(
-                        "protocol".to_string(),
-                        serde_json::Value::String(inbound.protocol.clone().to_lowercase()),
-                    );
-                }
+            if let Some(obj) = settings_value.as_object_mut()
+                && !obj.contains_key("protocol")
+            {
+                obj.insert(
+                    "protocol".to_string(),
+                    serde_json::Value::String(inbound.protocol.clone().to_lowercase()),
+                );
             }
 
             let protocol_settings: InboundType = match serde_json::from_value(
@@ -174,13 +174,15 @@ impl ConfigGenerator {
                             } else {
                                 tls_config = Some(VlessTlsConfig {
                                     enabled: true,
-                                    server_name: reality.server_names.first().cloned().unwrap_or_else(
-                                        || {
+                                    server_name: reality
+                                        .server_names
+                                        .first()
+                                        .cloned()
+                                        .unwrap_or_else(|| {
                                             node.reality_sni
                                                 .clone()
                                                 .unwrap_or_else(|| "www.google.com".to_string())
-                                        },
-                                    ),
+                                        }),
                                     alpn: None, // Set later based on transport type
                                     // reality = Some только когда enabled: true и ключ валиден
                                     reality: Some(RealityConfig {
@@ -201,7 +203,7 @@ impl ConfigGenerator {
                                             server_port: reality
                                                 .dest
                                                 .split(':')
-                                                .last()
+                                                .next_back()
                                                 .and_then(|p: &str| p.parse().ok())
                                                 .unwrap_or(443),
                                         },
@@ -228,10 +230,8 @@ impl ConfigGenerator {
                     } else if security == "tls" {
                         // Для TLS-инбаундов используем домен ноды (если задан),
                         // иначе IP — серт генерируется агентом с этим CN/SAN.
-                        let mut server_name = node
-                            .domain
-                            .clone()
-                            .unwrap_or_else(|| node.ip.clone());
+                        let mut server_name =
+                            node.domain.clone().unwrap_or_else(|| node.ip.clone());
                         let mut key_path = None;
                         let mut cert_path = None;
 
@@ -242,7 +242,7 @@ impl ConfigGenerator {
                             }
                             if let Some(certs) = &tls.certificates {
                                 let certs: &Vec<Certificate> = certs;
-                                if let Some(first) = certs.get(0) {
+                                if let Some(first) = certs.first() {
                                     if !first.key_path.is_empty() {
                                         key_path = Some(first.key_path.clone());
                                     }
@@ -304,16 +304,22 @@ impl ConfigGenerator {
                             }
                             "grpc" => {
                                 // gRPC transport — read service_name from raw stream_settings JSON
-                                let raw: serde_json::Value = serde_json::from_str(&inbound.stream_settings).unwrap_or_default();
-                                let grpc = raw.get("grpcSettings").or_else(|| raw.get("grpc_settings"));
+                                let raw: serde_json::Value =
+                                    serde_json::from_str(&inbound.stream_settings)
+                                        .unwrap_or_default();
+                                let grpc =
+                                    raw.get("grpcSettings").or_else(|| raw.get("grpc_settings"));
                                 let service_name = grpc
-                                    .and_then(|g| g.get("serviceName").or_else(|| g.get("service_name")))
+                                    .and_then(|g| {
+                                        g.get("serviceName").or_else(|| g.get("service_name"))
+                                    })
                                     .and_then(|s| s.as_str())
                                     .unwrap_or("grpc")
                                     .to_string();
-                                transport_config = Some(VlessTransportConfig::Grpc(
-                                    GrpcTransport { service_name },
-                                ));
+                                transport_config =
+                                    Some(VlessTransportConfig::Grpc(GrpcTransport {
+                                        service_name,
+                                    }));
                             }
                             "xhttp" | "splithttp" => {
                                 if let Some(xhttp) = stream_settings.xhttp_settings.as_ref() {
@@ -399,7 +405,7 @@ impl ConfigGenerator {
                         // enforced node.reality_sni on all TLS configs
                         if let Some(certs) = tls.certificates {
                             let certs: Vec<caramba_db::models::network::Certificate> = certs;
-                            if let Some(first) = certs.get(0) {
+                            if let Some(first) = certs.first() {
                                 if !first.key_path.is_empty() {
                                     tls_config.key_path = Some(first.key_path.clone());
                                 }
@@ -500,7 +506,7 @@ impl ConfigGenerator {
                         tls_config.server_name = tls.server_name;
                         if let Some(certs) = tls.certificates {
                             let certs: Vec<caramba_db::models::network::Certificate> = certs;
-                            if let Some(first) = certs.get(0) {
+                            if let Some(first) = certs.first() {
                                 if !first.key_path.is_empty() {
                                     tls_config.key_path = Some(first.key_path.clone());
                                 }
@@ -547,12 +553,20 @@ impl ConfigGenerator {
                         // receiving "" which fails Go duration parsing -> FATAL.
                         auth_timeout: {
                             let s = tuic.auth_timeout.trim();
-                            if s.is_empty() { None } else { Some(s.to_string()) }
+                            if s.is_empty() {
+                                None
+                            } else {
+                                Some(s.to_string())
+                            }
                         },
                         zero_rtt_handshake: tuic.zero_rtt_handshake,
                         heartbeat: {
                             let s = tuic.heartbeat.trim();
-                            if s.is_empty() { None } else { Some(s.to_string()) }
+                            if s.is_empty() {
+                                None
+                            } else {
+                                Some(s.to_string())
+                            }
                         },
                         tls: tls_config,
                     }));
@@ -591,7 +605,7 @@ impl ConfigGenerator {
                                         server_port: reality
                                             .dest
                                             .split(':')
-                                            .last()
+                                            .next_back()
                                             .and_then(|p: &str| p.parse().ok())
                                             .unwrap_or(443),
                                     },
@@ -613,10 +627,8 @@ impl ConfigGenerator {
                     } else if security == "tls" {
                         // Для TLS-инбаундов используем домен ноды (если задан),
                         // иначе IP — серт генерируется агентом с этим CN/SAN.
-                        let mut server_name = node
-                            .domain
-                            .clone()
-                            .unwrap_or_else(|| node.ip.clone());
+                        let mut server_name =
+                            node.domain.clone().unwrap_or_else(|| node.ip.clone());
                         let mut key_path = None;
                         let mut cert_path = None;
 
@@ -626,7 +638,7 @@ impl ConfigGenerator {
                             }
                             if let Some(certs) = &tls.certificates {
                                 let certs: &Vec<caramba_db::models::network::Certificate> = certs;
-                                if let Some(first) = certs.get(0) {
+                                if let Some(first) = certs.first() {
                                     if !first.key_path.is_empty() {
                                         key_path = Some(first.key_path.clone());
                                     }
@@ -704,7 +716,7 @@ impl ConfigGenerator {
                                         server_port: reality
                                             .dest
                                             .split(':')
-                                            .last()
+                                            .next_back()
                                             .and_then(|p: &str| p.parse().ok())
                                             .unwrap_or(443),
                                     },
@@ -726,10 +738,8 @@ impl ConfigGenerator {
                     } else {
                         // Для TLS-инбаундов используем домен ноды (если задан),
                         // иначе IP — серт генерируется агентом с этим CN/SAN.
-                        let mut server_name = node
-                            .domain
-                            .clone()
-                            .unwrap_or_else(|| node.ip.clone());
+                        let mut server_name =
+                            node.domain.clone().unwrap_or_else(|| node.ip.clone());
                         let mut key_path = None;
                         let mut cert_path = None;
 
@@ -739,7 +749,7 @@ impl ConfigGenerator {
                             }
                             if let Some(certs) = &tls.certificates {
                                 let certs: &Vec<caramba_db::models::network::Certificate> = certs;
-                                if let Some(first) = certs.get(0) {
+                                if let Some(first) = certs.first() {
                                     if !first.key_path.is_empty() {
                                         key_path = Some(first.key_path.clone());
                                     }
@@ -934,50 +944,50 @@ impl ConfigGenerator {
         // 3. Relay Logic: Add Relay Outbound if enabled
         let mut default_outbound_tag = "direct".to_string();
 
-        if let Some(target) = target_node {
-            if node.is_relay {
+        if let Some(target) = target_node
+            && node.is_relay
+        {
+            warn!(
+                "🔗 Configuring Node as RELAY -> Target: {} ({})",
+                target.name, target.ip
+            );
+            let relay_password = node
+                .join_token
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|token| match relay_auth_mode {
+                    RelayAuthMode::Legacy => token.to_string(),
+                    RelayAuthMode::V1 | RelayAuthMode::Dual => {
+                        derive_relay_password(token, target.id)
+                    }
+                });
+
+            if relay_password.is_none() {
                 warn!(
-                    "🔗 Configuring Node as RELAY -> Target: {} ({})",
-                    target.name, target.ip
+                    "⚠️ Relay mode requested for node {} but join_token is missing. Skipping relay detour.",
+                    node.id
                 );
-                let relay_password = node
-                    .join_token
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(|token| match relay_auth_mode {
-                        RelayAuthMode::Legacy => token.to_string(),
-                        RelayAuthMode::V1 | RelayAuthMode::Dual => {
-                            derive_relay_password(token, target.id)
-                        }
-                    });
+            } else if let Some(target_inbound) = relay_target_inbound.as_ref() {
+                let relay_port = target_inbound.listen_port as u16;
+                let relay_method = parse_shadowsocks_method(&target_inbound.settings)
+                    .unwrap_or_else(|| "chacha20-ietf-poly1305".to_string());
 
-                if relay_password.is_none() {
-                    warn!(
-                        "⚠️ Relay mode requested for node {} but join_token is missing. Skipping relay detour.",
-                        node.id
-                    );
-                } else if let Some(target_inbound) = relay_target_inbound.as_ref() {
-                    let relay_port = target_inbound.listen_port as u16;
-                    let relay_method = parse_shadowsocks_method(&target_inbound.settings)
-                        .unwrap_or_else(|| "chacha20-ietf-poly1305".to_string());
+                outbounds.push(Outbound::Shadowsocks(ShadowsocksOutbound {
+                    tag: "relay-out".to_string(),
+                    server: target.ip.clone(),
+                    server_port: relay_port,
+                    method: relay_method,
+                    password: relay_password.unwrap_or_default(), // We authenticate using OUR token
+                }));
 
-                    outbounds.push(Outbound::Shadowsocks(ShadowsocksOutbound {
-                        tag: "relay-out".to_string(),
-                        server: target.ip.clone(),
-                        server_port: relay_port,
-                        method: relay_method,
-                        password: relay_password.unwrap_or_default(), // We authenticate using OUR token
-                    }));
-
-                    // Override default route to Relay
-                    default_outbound_tag = "relay-out".to_string();
-                } else {
-                    warn!(
-                        "⚠️ Relay mode requested for node {} but target node {} has no active shadowsocks inbound. Skipping relay detour.",
-                        node.id, target.id
-                    );
-                }
+                // Override default route to Relay
+                default_outbound_tag = "relay-out".to_string();
+            } else {
+                warn!(
+                    "⚠️ Relay mode requested for node {} but target node {} has no active shadowsocks inbound. Skipping relay detour.",
+                    node.id, target.id
+                );
             }
         }
 

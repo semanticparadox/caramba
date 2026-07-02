@@ -7,18 +7,18 @@ enum SplitMode { off, onlySelected, bypassSelected }
 
 extension SplitModeX on SplitMode {
   String get title => switch (this) {
-        SplitMode.off => 'Выключено',
-        SplitMode.onlySelected => 'Только выбранные',
-        SplitMode.bypassSelected => 'Кроме выбранных',
-      };
+    SplitMode.off => 'Выключено',
+    SplitMode.onlySelected => 'Только выбранные',
+    SplitMode.bypassSelected => 'Кроме выбранных',
+  };
 
   String get desc => switch (this) {
-        SplitMode.off => 'Весь трафик идёт через VPN.',
-        SplitMode.onlySelected =>
-          'Через VPN идут только отмеченные приложения, остальное напрямую.',
-        SplitMode.bypassSelected =>
-          'Отмеченные приложения идут напрямую, остальное через VPN.',
-      };
+    SplitMode.off => 'Весь трафик идёт через VPN.',
+    SplitMode.onlySelected =>
+      'Через VPN идут только отмеченные приложения, остальное напрямую.',
+    SplitMode.bypassSelected =>
+      'Отмеченные приложения идут напрямую, остальное через VPN.',
+  };
 }
 
 /// Приложение в списке split-tunnel. `id` = package/bundle id или путь процесса
@@ -31,10 +31,10 @@ class SplitApp {
   const SplitApp({required this.id, required this.name, required this.icon});
 
   factory SplitApp.fromJson(Map<String, dynamic> json) => SplitApp(
-        id: (json['id'] as String?) ?? (json['package'] as String?) ?? '',
-        name: (json['name'] as String?) ?? 'App',
-        icon: Lucide.appWindow,
-      );
+    id: (json['id'] as String?) ?? (json['package'] as String?) ?? '',
+    name: (json['name'] as String?) ?? 'App',
+    icon: Lucide.appWindow,
+  );
 
   /// Демо-список установленных приложений (desktop/dev).
   static const demo = <SplitApp>[

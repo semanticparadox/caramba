@@ -70,8 +70,8 @@ impl PromoService {
         .fetch_optional(&mut *tx)
         .await?;
 
-        let (gift_id, plan_id, duration) = gift
-            .ok_or_else(|| anyhow::anyhow!("Gift code already redeemed or expired"))?;
+        let (gift_id, plan_id, duration) =
+            gift.ok_or_else(|| anyhow::anyhow!("Gift code already redeemed or expired"))?;
 
         // Проверяем, является ли план, привязанный к подарочному коду, пробным.
         // Подарочный код на пробный тариф тоже нельзя активировать дважды.
@@ -132,24 +132,25 @@ impl PromoService {
 
         // Фиксируем использование триала атомарно внутри транзакции.
         if plan_is_trial.unwrap_or(false) {
-            sqlx::query(
-                "UPDATE users SET trial_used = TRUE, trial_used_at = NOW() WHERE id = $1",
-            )
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query("UPDATE users SET trial_used = TRUE, trial_used_at = NOW() WHERE id = $1")
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await?;
         }
 
         tx.commit().await?;
-        Ok(format!("Gift subscription activated for {} days!", duration))
+        Ok(format!(
+            "Gift subscription activated for {} days!",
+            duration
+        ))
     }
 
     async fn redeem_promo_code(&self, user_id: i64, promo: PromoCode) -> Result<String> {
         // Быстрая проверка срока действия до открытия транзакции
-        if let Some(expiry) = promo.expires_at {
-            if expiry < Utc::now() {
-                return Err(anyhow::anyhow!("Promo code has expired"));
-            }
+        if let Some(expiry) = promo.expires_at
+            && expiry < Utc::now()
+        {
+            return Err(anyhow::anyhow!("Promo code has expired"));
         }
 
         let mut tx = self.pool.begin().await?;
@@ -333,12 +334,11 @@ impl PromoService {
 
     /// Whether a user holds the partner role (gate for /app/partner/*).
     pub async fn is_partner(&self, user_id: i64) -> Result<bool> {
-        let flag: Option<bool> =
-            sqlx::query_scalar("SELECT is_partner FROM users WHERE id = $1")
-                .bind(user_id)
-                .fetch_optional(&self.pool)
-                .await
-                .context("Failed to read partner flag")?;
+        let flag: Option<bool> = sqlx::query_scalar("SELECT is_partner FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await
+            .context("Failed to read partner flag")?;
         Ok(flag.unwrap_or(false))
     }
 
@@ -446,13 +446,12 @@ impl PromoService {
             match res {
                 Ok(_) => return Ok(code),
                 Err(e) => {
-                    if let Some(db) = e.as_database_error() {
-                        if db.code().as_deref() == Some("23505") {
-                            continue; // collision — regenerate
-                        }
+                    if let Some(db) = e.as_database_error()
+                        && db.code().as_deref() == Some("23505")
+                    {
+                        continue; // collision — regenerate
                     }
-                    return Err(anyhow::Error::from(e))
-                        .context("Failed to create partner code");
+                    return Err(anyhow::Error::from(e)).context("Failed to create partner code");
                 }
             }
         }
@@ -464,15 +463,14 @@ impl PromoService {
     /// signup_partner_code_id NULLed (ON DELETE SET NULL) — historical earnings
     /// in referral_rewards are untouched.
     pub async fn delete_partner_code(&self, partner_user_id: i64, code: &str) -> Result<bool> {
-        let affected = sqlx::query(
-            "DELETE FROM partner_codes WHERE code = $1 AND partner_user_id = $2",
-        )
-        .bind(code)
-        .bind(partner_user_id)
-        .execute(&self.pool)
-        .await
-        .context("Failed to delete partner code")?
-        .rows_affected();
+        let affected =
+            sqlx::query("DELETE FROM partner_codes WHERE code = $1 AND partner_user_id = $2")
+                .bind(code)
+                .bind(partner_user_id)
+                .execute(&self.pool)
+                .await
+                .context("Failed to delete partner code")?
+                .rows_affected();
         Ok(affected > 0)
     }
 

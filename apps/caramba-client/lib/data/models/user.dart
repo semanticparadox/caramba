@@ -69,33 +69,32 @@ class User {
   bool get hasActivePlan => activeSubscriptions > 0;
 
   factory User.fromJson(Map<String, dynamic> json) => User(
-        id: (json['id'] as num).toInt(),
-        tgId: (json['tg_id'] as num?)?.toInt(),
-        email: json['email'] as String?,
-        username: json['username'] as String?,
-        fullName: json['full_name'] as String?,
-        balance: (json['balance'] as num?)?.toDouble() ?? 0,
-        balanceCents: (json['balance_cents'] as num?)?.toInt() ?? 0,
-        referralCode: json['referral_code'] as String?,
-        emailVerified: (json['email_verified'] as bool?) ?? false,
-        authProvider: json['auth_provider'] as String?,
-        activeSubscriptions:
-            (json['active_subscriptions'] as num?)?.toInt() ?? 0,
-        planName: json['plan_name'] as String?,
-      );
+    id: (json['id'] as num).toInt(),
+    tgId: (json['tg_id'] as num?)?.toInt(),
+    email: json['email'] as String?,
+    username: json['username'] as String?,
+    fullName: json['full_name'] as String?,
+    balance: (json['balance'] as num?)?.toDouble() ?? 0,
+    balanceCents: (json['balance_cents'] as num?)?.toInt() ?? 0,
+    referralCode: json['referral_code'] as String?,
+    emailVerified: (json['email_verified'] as bool?) ?? false,
+    authProvider: json['auth_provider'] as String?,
+    activeSubscriptions: (json['active_subscriptions'] as num?)?.toInt() ?? 0,
+    planName: json['plan_name'] as String?,
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'tg_id': tgId,
-        'email': email,
-        'username': username,
-        'full_name': fullName,
-        'balance': balance,
-        'balance_cents': balanceCents,
-        'referral_code': referralCode,
-        'email_verified': emailVerified,
-        'auth_provider': authProvider,
-        'active_subscriptions': activeSubscriptions,
-        'plan_name': planName,
-      };
+    'id': id,
+    'tg_id': tgId,
+    'email': email,
+    'username': username,
+    'full_name': fullName,
+    'balance': balance,
+    'balance_cents': balanceCents,
+    'referral_code': referralCode,
+    'email_verified': emailVerified,
+    'auth_provider': authProvider,
+    'active_subscriptions': activeSubscriptions,
+    'plan_name': planName,
+  };
 }

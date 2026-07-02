@@ -213,19 +213,18 @@ async fn get_admin_tg_id(state: &AppState, session_username: &str) -> i64 {
             .ok()
             .flatten();
 
-    if let Some(id) = result {
-        if id > 0 {
-            return id;
-        }
+    if let Some(id) = result
+        && id > 0
+    {
+        return id;
     }
 
     // Fallback: env var
-    if let Ok(val) = std::env::var("ADMIN_DEFAULT_TG_ID") {
-        if let Ok(id) = val.parse::<i64>() {
-            if id > 0 {
-                return id;
-            }
-        }
+    if let Ok(val) = std::env::var("ADMIN_DEFAULT_TG_ID")
+        && let Ok(id) = val.parse::<i64>()
+        && id > 0
+    {
+        return id;
     }
 
     warn!(
@@ -317,11 +316,7 @@ pub async fn list(
                 .as_deref()
                 .unwrap_or("Unknown")
                 .to_string();
-            let username_str = r
-                .user_username
-                .as_deref()
-                .unwrap_or("unknown")
-                .to_string();
+            let username_str = r.user_username.as_deref().unwrap_or("unknown").to_string();
             TicketListItem {
                 id: r.id,
                 subject: r.subject,
@@ -507,7 +502,11 @@ pub async fn reply(
 
     // Валидация: тело не пустое, не длиннее 4000 символов
     if body.is_empty() {
-        return (axum::http::StatusCode::BAD_REQUEST, "Reply body is required").into_response();
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            "Reply body is required",
+        )
+            .into_response();
     }
     if body.chars().count() > 4000 {
         return (
@@ -636,13 +635,8 @@ pub async fn set_status(
 // ── Запросы к БД ──────────────────────────────────────────────────────────
 
 /// Whitelist of valid ticket statuses (mirrors migrations/20260429000000_notifications_and_tickets.sql)
-const ALLOWED_TICKET_STATUSES: &[&str] = &[
-    "open",
-    "in_progress",
-    "awaiting_user",
-    "resolved",
-    "closed",
-];
+const ALLOWED_TICKET_STATUSES: &[&str] =
+    &["open", "in_progress", "awaiting_user", "resolved", "closed"];
 
 async fn fetch_ticket_list(
     state: &AppState,
@@ -740,10 +734,9 @@ async fn fetch_ticket_list(
     let total: i64 = cq.fetch_one(&state.pool).await?;
 
     // Количество открытых тикетов (для заголовка)
-    let open_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM tickets WHERE status = 'open'")
-            .fetch_one(&state.pool)
-            .await?;
+    let open_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tickets WHERE status = 'open'")
+        .fetch_one(&state.pool)
+        .await?;
 
     Ok((rows, total, open_count))
 }

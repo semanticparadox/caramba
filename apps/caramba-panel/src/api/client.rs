@@ -301,7 +301,10 @@ pub fn routes(state: AppState) -> Router<AppState> {
             "/user/notifications",
             get(get_notification_preferences)
                 .put(update_notification_preferences)
-                .layer(middleware::from_fn_with_state(state.clone(), auth_middleware)),
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    auth_middleware,
+                )),
         )
         // ----------------------------------------------------------------
         // Система уведомлений (inbox пользователя)
@@ -338,16 +341,19 @@ pub fn routes(state: AppState) -> Router<AppState> {
             "/notification-preferences",
             get(client_get_notif_prefs)
                 .put(client_set_notif_prefs)
-                .layer(middleware::from_fn_with_state(state.clone(), auth_middleware)),
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    auth_middleware,
+                )),
         )
         // ----------------------------------------------------------------
         // Тикеты поддержки
         // ----------------------------------------------------------------
         .route(
             "/tickets",
-            get(client_list_tickets)
-                .post(client_create_ticket)
-                .layer(middleware::from_fn_with_state(state.clone(), auth_middleware)),
+            get(client_list_tickets).post(client_create_ticket).layer(
+                middleware::from_fn_with_state(state.clone(), auth_middleware),
+            ),
         )
         .route(
             "/tickets/{id}",
@@ -502,7 +508,7 @@ async fn auth_telegram(
             Ok(auth_date) => {
                 let now = chrono::Utc::now().timestamp();
                 let age = now - auth_date;
-                if age < 0 || age > MAX_AUTH_AGE_SECONDS {
+                if !(0..=MAX_AUTH_AGE_SECONDS).contains(&age) {
                     tracing::warn!(
                         auth_date,
                         age_seconds = age,
@@ -568,11 +574,12 @@ async fn auth_telegram(
     }
 
     // 4. Look up user by tg_id
-    let user_row = sqlx::query("SELECT id, username, full_name, balance FROM users WHERE tg_id = $1")
-        .bind(tg_id)
-        .fetch_optional(&state.pool)
-        .await
-        .unwrap_or(None);
+    let user_row =
+        sqlx::query("SELECT id, username, full_name, balance FROM users WHERE tg_id = $1")
+            .bind(tg_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
 
     let user_row = match user_row {
         Some(row) => row,
@@ -590,9 +597,15 @@ async fn auth_telegram(
     let balance: i64 = user_row.try_get("balance").unwrap_or(0);
 
     // Fallback to Telegram initData first_name + last_name if DB full_name is empty
-    let full_name = if db_full_name.as_ref().map_or(true, |n| n.trim().is_empty()) {
-        let first = user_json.get("first_name").and_then(|v| v.as_str()).unwrap_or("");
-        let last = user_json.get("last_name").and_then(|v| v.as_str()).unwrap_or("");
+    let full_name = if db_full_name.as_ref().is_none_or(|n| n.trim().is_empty()) {
+        let first = user_json
+            .get("first_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let last = user_json
+            .get("last_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let combined = format!("{} {}", first, last).trim().to_string();
         if !combined.is_empty() {
             // Persist to DB so it's available everywhere
@@ -835,10 +848,7 @@ async fn get_user_stats(
         balance,
         total_download: usage.traffic_used,
         total_upload: 0,
-        brand_name: state
-            .settings
-            .get_or_default("brand_name", "CARAMBA")
-            .await,
+        brand_name: state.settings.get_or_default("brand_name", "CARAMBA").await,
         support_url: state
             .settings
             .get_or_default("support_url", "https://t.me/")
@@ -962,8 +972,14 @@ async fn get_user_subscriptions(
             .get(&s.sub.plan_id)
             .copied()
             .unwrap_or(0);
-        let is_free = is_free_by_plan.get(&s.sub.plan_id).copied().unwrap_or(false);
-        let daily_traffic_mb = daily_traffic_mb_by_plan.get(&s.sub.plan_id).copied().unwrap_or(0);
+        let is_free = is_free_by_plan
+            .get(&s.sub.plan_id)
+            .copied()
+            .unwrap_or(false);
+        let daily_traffic_mb = daily_traffic_mb_by_plan
+            .get(&s.sub.plan_id)
+            .copied()
+            .unwrap_or(0);
         let (last_node_name, last_node_flag) = s
             .sub
             .node_id
@@ -1257,9 +1273,11 @@ async fn get_active_servers(
         .into_iter()
         .filter(|n| {
             // Hide relay infrastructure nodes from users
-            if n.is_relay { return false; }
-            let load_ok = n.last_cpu.unwrap_or(0.0) < 95.0 && n.last_ram.unwrap_or(0.0) < 98.0;
-            load_ok
+            if n.is_relay {
+                return false;
+            }
+
+            n.last_cpu.unwrap_or(0.0) < 95.0 && n.last_ram.unwrap_or(0.0) < 98.0
         })
         .map(|n| {
             let dist = if let (Some(u_lat), Some(u_lon), Some(n_lat), Some(n_lon)) = (
@@ -1293,7 +1311,11 @@ async fn get_active_servers(
                 country_code: n.country_code.clone(),
                 flag: get_flag(n.country_code.as_deref().unwrap_or("US")),
                 latency: n.last_latency.map(|l| l as i32),
-                status: if is_full { "full".to_string() } else { status_label },
+                status: if is_full {
+                    "full".to_string()
+                } else {
+                    status_label
+                },
                 distance_km: dist,
                 name: format!("Node #{} ({} Mbps)", n.id, speed),
                 available_variant_ids: variants_by_node.get(&n.ip).cloned().unwrap_or_default(),
@@ -1316,9 +1338,7 @@ async fn get_active_servers(
 }
 
 // Relay Countries Endpoint
-async fn get_relay_countries(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn get_relay_countries(State(state): State<AppState>) -> impl IntoResponse {
     #[derive(Serialize)]
     struct RelayCountry {
         code: String,
@@ -1972,7 +1992,9 @@ async fn create_payment_invoice(
                 .await
             {
                 Ok(Some((plan_id, days, amt, cur))) => (plan_id, Some(days), amt, cur),
-                Ok(None) => return (StatusCode::BAD_REQUEST, "Invalid duration ID").into_response(),
+                Ok(None) => {
+                    return (StatusCode::BAD_REQUEST, "Invalid duration ID").into_response();
+                }
                 Err(e) => {
                     tracing::error!("resolve_duration_price failed: {}", e);
                     return (StatusCode::INTERNAL_SERVER_ERROR, "Price resolution failed")
@@ -2175,7 +2197,7 @@ async fn build_recommended_variants_by_node(
 
     let node_rows =
         match sqlx::query_as::<_, (i64, String)>("SELECT id, ip FROM nodes WHERE ip = ANY($1)")
-            .bind(&variants_by_node_ip.keys().cloned().collect::<Vec<String>>())
+            .bind(variants_by_node_ip.keys().cloned().collect::<Vec<String>>())
             .fetch_all(pool)
             .await
         {
@@ -2966,11 +2988,13 @@ async fn kick_subscription_device(
     };
 
     // Delete from device leases
-    let _ = sqlx::query("DELETE FROM subscription_device_leases WHERE id = $1 AND subscription_id = $2")
-        .bind(device_id)
-        .bind(sub_id)
-        .execute(&state.pool)
-        .await;
+    let _ = sqlx::query(
+        "DELETE FROM subscription_device_leases WHERE id = $1 AND subscription_id = $2",
+    )
+    .bind(device_id)
+    .bind(sub_id)
+    .execute(&state.pool)
+    .await;
 
     // Delete from legacy IP tracking
     let _ = sqlx::query(
@@ -2996,7 +3020,12 @@ async fn kick_subscription_device(
     let _ = crate::services::activity_service::ActivityService::log(
         &state.pool,
         "Device:Kicked",
-        &format!("User kicked device {} (IP {}) from sub #{}", device_id, mask_ip(&ip), sub_id),
+        &format!(
+            "User kicked device {} (IP {}) from sub #{}",
+            device_id,
+            mask_ip(&ip),
+            sub_id
+        ),
     )
     .await;
 
@@ -3035,12 +3064,10 @@ async fn kill_all_subscription_devices(
     .unwrap_or(0);
 
     // Чистим legacy IP tracking
-    let _ = sqlx::query(
-        "DELETE FROM subscription_ip_tracking WHERE subscription_id = $1",
-    )
-    .bind(sub_id)
-    .execute(&state.pool)
-    .await;
+    let _ = sqlx::query("DELETE FROM subscription_ip_tracking WHERE subscription_id = $1")
+        .bind(sub_id)
+        .execute(&state.pool)
+        .await;
 
     // Закрываем активные соединения через Clash API (неблокирующий spawn)
     let conn_service = state.connection_service.clone();
@@ -3257,8 +3284,7 @@ async fn extend_subscription(
     match owner_check {
         None => return (StatusCode::NOT_FOUND, "Subscription not found").into_response(),
         Some(owner_id) if owner_id != user_id => {
-            return (StatusCode::FORBIDDEN, "Subscription does not belong to you")
-                .into_response()
+            return (StatusCode::FORBIDDEN, "Subscription does not belong to you").into_response();
         }
         _ => {}
     }
@@ -3402,11 +3428,7 @@ async fn client_notification_mark_read(
         None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
     };
 
-    match state
-        .notifications_svc
-        .mark_read(user_id, notif_id)
-        .await
-    {
+    match state.notifications_svc.mark_read(user_id, notif_id).await {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => {
             tracing::error!("client_notification_mark_read error: {}", e);
@@ -3460,12 +3482,14 @@ async fn client_set_notif_prefs(
 
     let prefs = body
         .into_iter()
-        .map(|p| caramba_db::models::notifications::NotificationChannelPref {
-            user_id,
-            category: p.category,
-            channel: p.channel,
-            enabled: p.enabled,
-        })
+        .map(
+            |p| caramba_db::models::notifications::NotificationChannelPref {
+                user_id,
+                category: p.category,
+                channel: p.channel,
+                enabled: p.enabled,
+            },
+        )
         .collect();
 
     match state
@@ -3547,9 +3571,7 @@ async fn client_get_ticket(
                 TicketError::NotFound => {
                     (StatusCode::NOT_FOUND, "Ticket not found").into_response()
                 }
-                TicketError::Forbidden => {
-                    (StatusCode::FORBIDDEN, "Access denied").into_response()
-                }
+                TicketError::Forbidden => (StatusCode::FORBIDDEN, "Access denied").into_response(),
                 TicketError::Closed => {
                     (StatusCode::UNPROCESSABLE_ENTITY, "Ticket is closed").into_response()
                 }
@@ -3616,9 +3638,7 @@ async fn client_add_ticket_message(
         Err(e) => {
             use crate::services::tickets_service::TicketError;
             match e {
-                TicketError::Forbidden => {
-                    (StatusCode::FORBIDDEN, "Access denied").into_response()
-                }
+                TicketError::Forbidden => (StatusCode::FORBIDDEN, "Access denied").into_response(),
                 TicketError::NotFound => {
                     (StatusCode::NOT_FOUND, "Ticket not found").into_response()
                 }
@@ -3627,8 +3647,7 @@ async fn client_add_ticket_message(
                 }
                 TicketError::Internal(_) => {
                     tracing::error!("client_add_ticket_message error: {}", e);
-                    (StatusCode::INTERNAL_SERVER_ERROR, "Cannot reply to ticket")
-                        .into_response()
+                    (StatusCode::INTERNAL_SERVER_ERROR, "Cannot reply to ticket").into_response()
                 }
             }
         }
@@ -3650,17 +3669,16 @@ async fn client_attach_file(
     };
 
     // Проверяем права доступа к тикету
-    let owner_id: Option<i64> =
-        sqlx::query_scalar("SELECT user_id FROM tickets WHERE id = $1")
-            .bind(ticket_id)
-            .fetch_optional(&state.pool)
-            .await
-            .unwrap_or(None);
+    let owner_id: Option<i64> = sqlx::query_scalar("SELECT user_id FROM tickets WHERE id = $1")
+        .bind(ticket_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
 
     match owner_id {
         None => return (StatusCode::NOT_FOUND, "Ticket not found").into_response(),
         Some(oid) if oid != user_id => {
-            return (StatusCode::FORBIDDEN, "Access denied").into_response()
+            return (StatusCode::FORBIDDEN, "Access denied").into_response();
         }
         _ => {}
     }
@@ -3672,10 +3690,7 @@ async fn client_attach_file(
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     };
 
-    let filename = field
-        .file_name()
-        .unwrap_or("upload")
-        .to_string();
+    let filename = field.file_name().unwrap_or("upload").to_string();
 
     let content_type = field.content_type().map(|s| s.to_string());
 
@@ -3686,13 +3701,7 @@ async fn client_attach_file(
 
     match state
         .tickets_svc
-        .attach_file(
-            ticket_id,
-            None,
-            &filename,
-            content_type.as_deref(),
-            &data,
-        )
+        .attach_file(ticket_id, None, &filename, content_type.as_deref(), &data)
         .await
     {
         Ok(att) => (
@@ -3702,7 +3711,8 @@ async fn client_attach_file(
             .into_response(),
         Err(e) => {
             let msg = e.to_string();
-            if msg.contains("слишком большой") || msg.contains("Недопустимый тип") {
+            if msg.contains("слишком большой") || msg.contains("Недопустимый тип")
+            {
                 (StatusCode::UNPROCESSABLE_ENTITY, msg).into_response()
             } else {
                 tracing::error!("client_attach_file error: {}", e);
@@ -3762,7 +3772,10 @@ async fn client_download_attachment(
                 [
                     (axum::http::header::CONTENT_TYPE, mime),
                     (axum::http::header::CONTENT_DISPOSITION, disposition),
-                    (axum::http::header::CACHE_CONTROL, "private, max-age=300".to_string()),
+                    (
+                        axum::http::header::CACHE_CONTROL,
+                        "private, max-age=300".to_string(),
+                    ),
                 ],
                 bytes,
             )

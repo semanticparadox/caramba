@@ -43,7 +43,10 @@ class ServersScreen extends ConsumerWidget {
             children: [
               ScreenHead(
                 'Серверы',
-                trailing: IconBtn(Lucide.x, onTap: () => context.go(AppRoute.home)),
+                trailing: IconBtn(
+                  Lucide.x,
+                  onTap: () => context.go(AppRoute.home),
+                ),
               ),
               async.when(
                 data: (servers) => _list(context, ref, servers, selected),
@@ -74,8 +77,10 @@ class ServersScreen extends ConsumerWidget {
       return Padding(
         padding: const EdgeInsets.only(top: AppSpace.s12),
         child: Center(
-          child: Text('Серверы недоступны',
-              style: AppType.bodyMd.copyWith(color: c.textMed)),
+          child: Text(
+            'Серверы недоступны',
+            style: AppType.bodyMd.copyWith(color: c.textMed),
+          ),
         ),
       );
     }
@@ -83,19 +88,28 @@ class ServersScreen extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SectionTitle('Общий пул',
-            padding: const EdgeInsets.only(bottom: AppSpace.s3)),
+        SectionTitle(
+          'Общий пул',
+          padding: const EdgeInsets.only(bottom: AppSpace.s3),
+        ),
         for (final s in common) _tile(context, ref, s, selected),
         if (priv.isNotEmpty) ...[
-          SectionTitle('Частный пул · Private',
-              trailing: LucideIcon(Lucide.key, color: c.textLow, size: 14)),
+          SectionTitle(
+            'Частный пул · Private',
+            trailing: LucideIcon(Lucide.key, color: c.textLow, size: 14),
+          ),
           for (final s in priv) _tile(context, ref, s, selected),
         ],
       ],
     );
   }
 
-  Widget _tile(BuildContext context, WidgetRef ref, Server s, Server? selected) {
+  Widget _tile(
+    BuildContext context,
+    WidgetRef ref,
+    Server s,
+    Server? selected,
+  ) {
     final c = context.c;
     final isSel = selected?.id == s.id;
     final pingColor = switch (s.pingBucket) {
@@ -170,8 +184,10 @@ class _Error extends StatelessWidget {
         children: [
           LucideIcon(Lucide.alert, color: c.textMed, size: 28),
           const SizedBox(height: AppSpace.s3),
-          Text('Не удалось загрузить серверы',
-              style: AppType.bodyMd.copyWith(color: c.textMed)),
+          Text(
+            'Не удалось загрузить серверы',
+            style: AppType.bodyMd.copyWith(color: c.textMed),
+          ),
           const SizedBox(height: AppSpace.s4),
           GhostButton(label: 'Повторить', onPressed: onRetry),
         ],

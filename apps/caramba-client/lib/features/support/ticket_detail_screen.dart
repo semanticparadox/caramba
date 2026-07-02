@@ -64,10 +64,18 @@ class _TicketDetailScreenState extends ConsumerState<TicketDetailScreen> {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(
-                  AppSpace.s5, AppSpace.s4, AppSpace.s5, AppSpace.s2),
+                AppSpace.s5,
+                AppSpace.s4,
+                AppSpace.s5,
+                AppSpace.s2,
+              ),
               child: Row(
                 children: [
-                  IconBtn(Lucide.arrowLeft, size: 40, onTap: () => _back(context)),
+                  IconBtn(
+                    Lucide.arrowLeft,
+                    size: 40,
+                    onTap: () => _back(context),
+                  ),
                   const SizedBox(width: AppSpace.s3),
                   Expanded(
                     child: Column(
@@ -78,8 +86,10 @@ class _TicketDetailScreenState extends ConsumerState<TicketDetailScreen> {
                           overflow: TextOverflow.ellipsis,
                           style: AppType.titleMd.copyWith(color: c.textHi),
                         ),
-                        Text('#${widget.ticketId}',
-                            style: AppType.monoSm.copyWith(color: c.textLow)),
+                        Text(
+                          '#${widget.ticketId}',
+                          style: AppType.monoSm.copyWith(color: c.textLow),
+                        ),
                       ],
                     ),
                   ),
@@ -97,10 +107,13 @@ class _TicketDetailScreenState extends ConsumerState<TicketDetailScreen> {
                     ? const InlineEmpty(message: 'Сообщений пока нет')
                     : ListView.builder(
                         padding: const EdgeInsets.fromLTRB(
-                            AppSpace.s5, AppSpace.s4, AppSpace.s5, AppSpace.s4),
+                          AppSpace.s5,
+                          AppSpace.s4,
+                          AppSpace.s5,
+                          AppSpace.s4,
+                        ),
                         itemCount: d.messages.length,
-                        itemBuilder: (_, i) =>
-                            _Bubble(message: d.messages[i]),
+                        itemBuilder: (_, i) => _Bubble(message: d.messages[i]),
                       ),
                 loading: () => const InlineLoading(),
                 error: (_, __) => InlineError(
@@ -111,16 +124,14 @@ class _TicketDetailScreenState extends ConsumerState<TicketDetailScreen> {
               ),
             ),
             if (canReply)
-              _Composer(
-                controller: _input,
-                sending: _sending,
-                onSend: _send,
-              )
+              _Composer(controller: _input, sending: _sending, onSend: _send)
             else if (detail != null)
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpace.s5, vertical: AppSpace.s4),
+                  horizontal: AppSpace.s5,
+                  vertical: AppSpace.s4,
+                ),
                 decoration: BoxDecoration(
                   color: c.surface1,
                   border: Border(top: BorderSide(color: c.borderSubtle)),
@@ -167,7 +178,9 @@ class _Bubble extends StatelessWidget {
             ),
             child: Container(
               padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpace.s4, vertical: AppSpace.s3),
+                horizontal: AppSpace.s4,
+                vertical: AppSpace.s3,
+              ),
               decoration: BoxDecoration(
                 color: bg,
                 borderRadius: BorderRadius.only(
@@ -178,8 +191,10 @@ class _Bubble extends StatelessWidget {
                 ),
                 border: Border.all(color: c.borderSubtle),
               ),
-              child: Text(message.body,
-                  style: AppType.bodyMd.copyWith(color: c.textHi)),
+              child: Text(
+                message.body,
+                style: AppType.bodyMd.copyWith(color: c.textHi),
+              ),
             ),
           ),
           const SizedBox(height: 3),
@@ -187,12 +202,16 @@ class _Bubble extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (!mine) ...[
-                Text('Поддержка',
-                    style: AppType.monoSm.copyWith(color: c.textLow)),
+                Text(
+                  'Поддержка',
+                  style: AppType.monoSm.copyWith(color: c.textLow),
+                ),
                 const SizedBox(width: AppSpace.s2),
               ],
-              Text(message.timeLabel,
-                  style: AppType.monoSm.copyWith(color: c.textLow)),
+              Text(
+                message.timeLabel,
+                style: AppType.monoSm.copyWith(color: c.textLow),
+              ),
             ],
           ),
         ],
@@ -241,7 +260,9 @@ class _Composer extends StatelessWidget {
                 filled: true,
                 fillColor: c.surfaceInset,
                 contentPadding: const EdgeInsets.symmetric(
-                    horizontal: AppSpace.s4, vertical: AppSpace.s3),
+                  horizontal: AppSpace.s4,
+                  vertical: AppSpace.s3,
+                ),
                 border: OutlineInputBorder(
                   borderRadius: AppRadius.r12,
                   borderSide: BorderSide(color: c.borderSubtle),
@@ -273,10 +294,15 @@ class _Composer extends StatelessWidget {
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: c.textOnAccent),
+                            strokeWidth: 2,
+                            color: c.textOnAccent,
+                          ),
                         )
-                      : LucideIcon(Lucide.send,
-                          color: c.textOnAccent, size: 18),
+                      : LucideIcon(
+                          Lucide.send,
+                          color: c.textOnAccent,
+                          size: 18,
+                        ),
                 ),
               ),
             ),

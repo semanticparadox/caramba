@@ -53,11 +53,13 @@ class _AutotuneScreenState extends ConsumerState<AutotuneScreen> {
       _done = false;
     });
     for (var i = 0; i < _steps.length; i++) {
-      _timers.add(Timer(Duration(milliseconds: 700 + 950 * (i + 1)), () {
-        if (!mounted) return;
-        setState(() => _current = i + 1);
-        if (i == _steps.length - 1) _finish();
-      }));
+      _timers.add(
+        Timer(Duration(milliseconds: 700 + 950 * (i + 1)), () {
+          if (!mounted) return;
+          setState(() => _current = i + 1);
+          if (i == _steps.length - 1) _finish();
+        }),
+      );
     }
   }
 
@@ -131,30 +133,36 @@ class _AutotuneScreenState extends ConsumerState<AutotuneScreen> {
                 if (!_done)
                   ...List.generate(_steps.length, (i) => _stepRow(i))
                 else ...[
-                  SectionTitle('Выбрано',
-                      padding: const EdgeInsets.only(bottom: AppSpace.s3)),
-                  RowsGroup(children: [
-                    CRow(
-                      icon: protocols[cfg.protocol].icon,
-                      label: 'Протокол',
-                      value: protocols[cfg.protocol].name,
-                    ),
-                    CRow(
-                      icon: Lucide.globe,
-                      label: 'Сервер',
-                      value: best == null
-                          ? 'Авто'
-                          : '${best.name}${best.pingMs != null ? ' · ${best.pingMs} мс' : ''}',
-                    ),
-                    CRow(
-                      icon: Lucide.layers,
-                      label: 'Сетевой стек',
-                      value: CoreOption.stacks[cfg.stack].name,
-                    ),
-                  ]),
+                  SectionTitle(
+                    'Выбрано',
+                    padding: const EdgeInsets.only(bottom: AppSpace.s3),
+                  ),
+                  RowsGroup(
+                    children: [
+                      CRow(
+                        icon: protocols[cfg.protocol].icon,
+                        label: 'Протокол',
+                        value: protocols[cfg.protocol].name,
+                      ),
+                      CRow(
+                        icon: Lucide.globe,
+                        label: 'Сервер',
+                        value: best == null
+                            ? 'Авто'
+                            : '${best.name}${best.pingMs != null ? ' · ${best.pingMs} мс' : ''}',
+                      ),
+                      CRow(
+                        icon: Lucide.layers,
+                        label: 'Сетевой стек',
+                        value: CoreOption.stacks[cfg.stack].name,
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: AppSpace.s5),
                   FilledButton(
-                      onPressed: _continue, child: const Text('Продолжить')),
+                    onPressed: _continue,
+                    child: const Text('Продолжить'),
+                  ),
                   const SizedBox(height: AppSpace.s1),
                   QuietButton(
                     label: 'Настрою вручную',
@@ -176,7 +184,9 @@ class _AutotuneScreenState extends ConsumerState<AutotuneScreen> {
     return Container(
       margin: const EdgeInsets.only(bottom: AppSpace.s2),
       padding: const EdgeInsets.symmetric(
-          horizontal: AppSpace.s4, vertical: AppSpace.s4),
+        horizontal: AppSpace.s4,
+        vertical: AppSpace.s4,
+      ),
       decoration: BoxDecoration(
         color: c.surface1,
         borderRadius: AppRadius.r14,
@@ -199,8 +209,9 @@ class _AutotuneScreenState extends ConsumerState<AutotuneScreen> {
           Expanded(
             child: Text(
               _steps[i],
-              style: AppType.bodyMd
-                  .copyWith(color: done ? c.textMed : c.textHi),
+              style: AppType.bodyMd.copyWith(
+                color: done ? c.textMed : c.textHi,
+              ),
             ),
           ),
         ],

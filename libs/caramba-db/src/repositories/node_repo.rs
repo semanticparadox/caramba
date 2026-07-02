@@ -255,10 +255,10 @@ impl NodeRepository {
     }
 
     fn parse_datetime_utc(raw: &str) -> DateTime<Utc> {
-        if let Ok(ts) = raw.parse::<i64>() {
-            if let Some(dt) = DateTime::<Utc>::from_timestamp(ts, 0) {
-                return dt;
-            }
+        if let Ok(ts) = raw.parse::<i64>()
+            && let Some(dt) = DateTime::<Utc>::from_timestamp(ts, 0)
+        {
+            return dt;
         }
 
         if let Ok(dt) = DateTime::parse_from_rfc3339(raw) {

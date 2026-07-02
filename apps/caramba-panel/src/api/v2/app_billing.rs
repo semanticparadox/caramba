@@ -126,6 +126,7 @@ struct PurchaseResponse {
     ///   * относительный путь панели (`manual` → `/manual-upload`) — клиент
     ///     должен достроить до абсолютного через базовый URL панели;
     ///   * сентинел `SUCCESS` при оплате с баланса (`fulfilled=true`).
+    ///
     /// Telegram Stars здесь не появляется (см. doc-comment модуля). Используй
     /// `pay_url_kind` для надёжной классификации вместо парсинга строки.
     pay_url: String,
@@ -184,7 +185,11 @@ pub async fn purchase(
             .unwrap_or_else(|| "balance".to_string()),
     };
     if state.marketplace_service.get_provider(&provider).is_none() {
-        return (StatusCode::BAD_REQUEST, "Unknown or disabled payment provider").into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            "Unknown or disabled payment provider",
+        )
+            .into_response();
     }
 
     // Резолвим (product_id, duration_days?, amount, currency) + metadata — той же
@@ -197,7 +202,9 @@ pub async fn purchase(
                 .await
             {
                 Ok(Some((plan_id, days, amt, cur))) => (plan_id, Some(days), amt, cur),
-                Ok(None) => return (StatusCode::BAD_REQUEST, "Invalid duration ID").into_response(),
+                Ok(None) => {
+                    return (StatusCode::BAD_REQUEST, "Invalid duration ID").into_response();
+                }
                 Err(e) => {
                     tracing::error!(err = %e, "app: resolve_duration_price failed");
                     return (StatusCode::INTERNAL_SERVER_ERROR, "Price resolution failed")
@@ -304,10 +311,7 @@ pub async fn purchase(
                         .bind(user.id)
                         .execute(&state.pool)
                         .await;
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Fulfillment failed",
-                    )
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "Fulfillment failed")
                         .into_response();
                 }
 

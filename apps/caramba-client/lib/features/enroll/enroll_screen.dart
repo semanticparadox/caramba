@@ -153,8 +153,10 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
         decoration: const InputDecoration(hintText: 'INVITE-XXXX'),
       ),
       const SizedBox(height: AppSpace.s5),
-      SectionTitle('URL панели',
-          padding: const EdgeInsets.only(bottom: AppSpace.s3)),
+      SectionTitle(
+        'URL панели',
+        padding: const EdgeInsets.only(bottom: AppSpace.s3),
+      ),
       TextField(
         controller: _panelController,
         keyboardType: TextInputType.url,
@@ -173,10 +175,7 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
         _errorLine(context, s.error!),
       ],
       const SizedBox(height: AppSpace.s6),
-      FilledButton(
-        onPressed: _submitManual,
-        child: const Text('Продолжить'),
-      ),
+      FilledButton(onPressed: _submitManual, child: const Text('Продолжить')),
     ];
   }
 
@@ -187,8 +186,7 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
   List<Widget> _invalid(BuildContext context, EnrollState s) {
     final c = context.c;
     return [
-      Text('Код не подошёл',
-          style: AppType.headline.copyWith(color: c.textHi)),
+      Text('Код не подошёл', style: AppType.headline.copyWith(color: c.textHi)),
       const SizedBox(height: AppSpace.s4),
       _errorLine(context, s.error ?? 'Код недействителен.'),
       const SizedBox(height: AppSpace.s6),
@@ -207,14 +205,15 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
   List<Widget> _accountStep(BuildContext context, EnrollState s) {
     final c = context.c;
     final v = s.validation;
-    final panelName =
-        (v?.panelName != null && v!.panelName!.isNotEmpty)
-            ? v.panelName!
-            : kBrandName;
+    final panelName = (v?.panelName != null && v!.panelName!.isNotEmpty)
+        ? v.panelName!
+        : kBrandName;
 
     return [
-      Text('Создать аккаунт',
-          style: AppType.headline.copyWith(color: c.textHi)),
+      Text(
+        'Создать аккаунт',
+        style: AppType.headline.copyWith(color: c.textHi),
+      ),
       const SizedBox(height: AppSpace.s3),
       Text(
         'Панель проверена. Заведите аккаунт, чтобы подключиться.',
@@ -247,8 +246,10 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
       const SizedBox(height: AppSpace.s6),
 
       // Регистрация по email/password (свежий аккаунт расходует enroll-код).
-      SectionTitle('Регистрация',
-          padding: const EdgeInsets.only(bottom: AppSpace.s3)),
+      SectionTitle(
+        'Регистрация',
+        padding: const EdgeInsets.only(bottom: AppSpace.s3),
+      ),
       TextField(
         controller: _emailController,
         keyboardType: TextInputType.emailAddress,
@@ -274,14 +275,13 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
         _errorLine(context, s.error!),
       ],
       const SizedBox(height: AppSpace.s5),
-      FilledButton(
-        onPressed: _register,
-        child: const Text('Создать аккаунт'),
-      ),
+      FilledButton(onPressed: _register, child: const Text('Создать аккаунт')),
 
       const SizedBox(height: AppSpace.s6),
-      SectionTitle('Уже есть аккаунт',
-          padding: const EdgeInsets.only(bottom: AppSpace.s3)),
+      SectionTitle(
+        'Уже есть аккаунт',
+        padding: const EdgeInsets.only(bottom: AppSpace.s3),
+      ),
       Text(
         'Войдите по коду из Telegram-бота этой панели.',
         style: AppType.bodySm.copyWith(color: c.textMed),
@@ -316,8 +316,10 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
           LucideIcon(Lucide.check, color: c.textHi, size: 26),
           const SizedBox(width: AppSpace.s3),
           Expanded(
-            child: Text('Аккаунт готов',
-                style: AppType.headline.copyWith(color: c.textHi)),
+            child: Text(
+              'Аккаунт готов',
+              style: AppType.headline.copyWith(color: c.textHi),
+            ),
           ),
         ],
       ),
@@ -355,12 +357,16 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
       const SizedBox(height: AppSpace.s8),
       const InlineLoading(),
       const SizedBox(height: AppSpace.s4),
-      Builder(builder: (context) {
-        final c = context.c;
-        return Text(label,
+      Builder(
+        builder: (context) {
+          final c = context.c;
+          return Text(
+            label,
             textAlign: TextAlign.center,
-            style: AppType.bodyMd.copyWith(color: c.textMed));
-      }),
+            style: AppType.bodyMd.copyWith(color: c.textMed),
+          );
+        },
+      ),
     ];
   }
 
@@ -372,8 +378,7 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
         LucideIcon(Lucide.alert, color: c.danger, size: 16),
         const SizedBox(width: AppSpace.s2),
         Flexible(
-          child: Text(message,
-              style: AppType.bodySm.copyWith(color: c.danger)),
+          child: Text(message, style: AppType.bodySm.copyWith(color: c.danger)),
         ),
       ],
     );
@@ -381,7 +386,9 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
 
   void _submitManual() {
     FocusScope.of(context).unfocus();
-    ref.read(enrollProvider.notifier).submitManual(
+    ref
+        .read(enrollProvider.notifier)
+        .submitManual(
           panelUrl: _panelController.text,
           code: _codeController.text,
         );
@@ -395,7 +402,9 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
       return;
     }
     FocusScope.of(context).unfocus();
-    ref.read(enrollProvider.notifier).registerWithEnroll(
+    ref
+        .read(enrollProvider.notifier)
+        .registerWithEnroll(
           email: email,
           password: password,
           fullName: _nameController.text.trim(),

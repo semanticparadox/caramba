@@ -33,14 +33,8 @@ pub fn admin_main_menu(open_tickets: usize) -> InlineKeyboardMarkup {
             "Broadcast уведомление",
             "adm:bcast:start",
         )],
-        vec![InlineKeyboardButton::callback(
-            "Статистика",
-            "adm:stats",
-        )],
-        vec![InlineKeyboardButton::callback(
-            "Бренд",
-            "adm:brand:menu",
-        )],
+        vec![InlineKeyboardButton::callback("Статистика", "adm:stats")],
+        vec![InlineKeyboardButton::callback("Бренд", "adm:brand:menu")],
         vec![InlineKeyboardButton::callback(
             "Модерация",
             "adm:moderation",
@@ -86,10 +80,7 @@ pub fn brand_menu_keyboard(enabled: bool) -> InlineKeyboardMarkup {
             "Бот (URL)",
             "adm:brand:set:boturl",
         )],
-        vec![InlineKeyboardButton::callback(
-            "В меню",
-            "adm:menu",
-        )],
+        vec![InlineKeyboardButton::callback("В меню", "adm:menu")],
     ])
 }
 
@@ -191,10 +182,7 @@ pub fn ticket_list_keyboard(
         rows.push(nav_row);
     }
 
-    rows.push(vec![InlineKeyboardButton::callback(
-        "Закрыть",
-        "adm:close",
-    )]);
+    rows.push(vec![InlineKeyboardButton::callback("Закрыть", "adm:close")]);
 
     InlineKeyboardMarkup::new(rows)
 }
@@ -206,14 +194,8 @@ pub fn ticket_list_keyboard(
 pub fn ticket_detail_keyboard(ticket_id: i64) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![
         vec![
-            InlineKeyboardButton::callback(
-                "Ответить",
-                format!("adm:reply:{}", ticket_id),
-            ),
-            InlineKeyboardButton::callback(
-                "Взять",
-                format!("adm:assign:{}", ticket_id),
-            ),
+            InlineKeyboardButton::callback("Ответить", format!("adm:reply:{}", ticket_id)),
+            InlineKeyboardButton::callback("Взять", format!("adm:assign:{}", ticket_id)),
         ],
         vec![InlineKeyboardButton::callback(
             "Статус",

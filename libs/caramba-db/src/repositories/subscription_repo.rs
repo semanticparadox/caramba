@@ -108,6 +108,7 @@ impl SubscriptionRepository {
         .context("Failed to fetch active plan ID")
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create(
         &self,
         user_id: i64,
@@ -141,6 +142,7 @@ impl SubscriptionRepository {
 
     /// Tx-aware вариант: создаёт подписку внутри переданной транзакции.
     /// Атомарность со списанием баланса обеспечивается единой транзакцией вызывающей стороны.
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_tx(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -245,12 +247,14 @@ impl SubscriptionRepository {
         status: &str,
         expires_at: DateTime<Utc>,
     ) -> Result<()> {
-        sqlx::query("UPDATE subscriptions SET status = $1, expires_at = $2, used_traffic = 0 WHERE id = $3")
-            .bind(status)
-            .bind(expires_at)
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "UPDATE subscriptions SET status = $1, expires_at = $2, used_traffic = 0 WHERE id = $3",
+        )
+        .bind(status)
+        .bind(expires_at)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -455,10 +459,10 @@ fn parse_ip_maybe(value: &str) -> Option<IpAddr> {
         return Some(canonicalize_ip(sock.ip()));
     }
 
-    if let Some((host, _port)) = value.rsplit_once(':') {
-        if let Ok(ip) = host.parse::<IpAddr>() {
-            return Some(canonicalize_ip(ip));
-        }
+    if let Some((host, _port)) = value.rsplit_once(':')
+        && let Ok(ip) = host.parse::<IpAddr>()
+    {
+        return Some(canonicalize_ip(ip));
     }
 
     None

@@ -168,10 +168,7 @@ class _ConnectionImportScreenState
             const SizedBox(height: AppSpace.s6),
 
             if (_error != null) ...[
-              InlineError(
-                message: _error!,
-                onRetry: _submit,
-              ),
+              InlineError(message: _error!, onRetry: _submit),
               const SizedBox(height: AppSpace.s5),
             ],
 
@@ -230,7 +227,9 @@ class _ConnectionImportScreenState
       // Ссылку на подписку тянем здесь и сохраняем тело в rawConfig: нативная
       // сторона (subimport.Import) умеет только парсить байты, HTTP-клиента у
       // неё нет. Так raw всегда несёт реальный конфиг, а не голый URL.
-      final rawConfig = looksLikeUrl ? await _fetchSubscription(source) : source;
+      final rawConfig = looksLikeUrl
+          ? await _fetchSubscription(source)
+          : source;
       final profile = ConnectionProfile(
         id: 'cp_$now',
         type: ProfileType.rawSub,
@@ -257,12 +256,14 @@ class _ConnectionImportScreenState
   /// внешний URL, не эндпоинт панели. Бросает при пустом ответе или сетевой
   /// ошибке — её ловит [_submit] и показывает inline-ошибку.
   Future<String> _fetchSubscription(String url) async {
-    final dio = Dio(BaseOptions(
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 20),
-      responseType: ResponseType.plain,
-      followRedirects: true,
-    ));
+    final dio = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 20),
+        responseType: ResponseType.plain,
+        followRedirects: true,
+      ),
+    );
     try {
       final res = await dio.get<String>(url);
       final body = res.data?.trim() ?? '';

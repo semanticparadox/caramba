@@ -120,7 +120,11 @@ class CoreOption {
   static const stacks = <CoreOption>[
     CoreOption('auto', 'Авто', 'Выбирается под платформу.'),
     CoreOption('system', 'System', 'Стек ОС. Быстрее, но менее совместим.'),
-    CoreOption('gvisor', 'gVisor', 'Изолированный стек. Стабильнее в сложных сетях.'),
+    CoreOption(
+      'gvisor',
+      'gVisor',
+      'Изолированный стек. Стабильнее в сложных сетях.',
+    ),
     CoreOption('mixed', 'Mixed', 'TCP через system, UDP через gVisor.'),
   ];
 

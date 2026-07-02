@@ -173,10 +173,13 @@ pub async fn get_traffic_analytics(
         active_nodes_count,
         orders,
         top_users,
-        history_data_json: serde_json::to_string(&history_data).unwrap_or_else(|_| "[0]".to_string()),
-        history_labels_json: serde_json::to_string(&history_labels).unwrap_or_else(|_| r#"["Today"]"#.to_string()),
+        history_data_json: serde_json::to_string(&history_data)
+            .unwrap_or_else(|_| "[0]".to_string()),
+        history_labels_json: serde_json::to_string(&history_labels)
+            .unwrap_or_else(|_| r#"["Today"]"#.to_string()),
         node_series_json: serde_json::to_string(&node_series).unwrap_or_else(|_| "[0]".to_string()),
-        node_labels_json: serde_json::to_string(&node_labels).unwrap_or_else(|_| r#"["All"]"#.to_string()),
+        node_labels_json: serde_json::to_string(&node_labels)
+            .unwrap_or_else(|_| r#"["All"]"#.to_string()),
         is_auth: true,
         admin_path,
         active_page: "analytics".to_string(),

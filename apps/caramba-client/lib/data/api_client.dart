@@ -57,20 +57,20 @@ class ApiClient {
   /// Single-flight: текущая операция ротации refresh-токена.
   Future<AuthTokens?>? _refreshing;
 
-  ApiClient({
-    required TokenStore tokens,
-    Dio? dio,
-    String? baseUrl,
-  })  : _tokens = tokens,
-        _dio = dio ??
-            Dio(BaseOptions(
+  ApiClient({required TokenStore tokens, Dio? dio, String? baseUrl})
+    : _tokens = tokens,
+      _dio =
+          dio ??
+          Dio(
+            BaseOptions(
               baseUrl: '${baseUrl ?? kApiBaseUrl}/api/v2/app',
               connectTimeout: const Duration(seconds: 15),
               receiveTimeout: const Duration(seconds: 20),
               contentType: Headers.jsonContentType,
               // Сами решаем по статус-коду — не бросаем на не-2xx автоматически.
               validateStatus: (s) => s != null && s < 500,
-            )) {
+            ),
+          ) {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
@@ -197,7 +197,10 @@ class ApiClient {
   /// свежий аккаунт (резолвит уже существующий tg_id, заведённый ботом), так
   /// что панель его расходует только если за этим входом стоит создание нового
   /// аккаунта; иначе это no-op. Шлём как `enroll_code`.
-  Future<AuthTokens> loginCode({required String code, String? enrollCode}) async {
+  Future<AuthTokens> loginCode({
+    required String code,
+    String? enrollCode,
+  }) async {
     final res = await _dio.post(
       '/login/code',
       data: {
@@ -293,10 +296,7 @@ class ApiClient {
   /// PATCH /devices/{id} — переименование устройства. Пустое/`null` имя
   /// сбрасывает на авто-имя. Возвращает `true` при успехе.
   Future<bool> renameDevice(int id, String? name) async {
-    final res = await _dio.patch(
-      '/devices/$id',
-      data: {'name': name},
-    );
+    final res = await _dio.patch('/devices/$id', data: {'name': name});
     _ensureOk(res);
     return true;
   }
@@ -432,11 +432,16 @@ class ApiClient {
   /// серверного счётчика нет и клиент считает локально.
   Future<NotificationsPage> getNotifications() async {
     final res = await _dio.get('/notifications');
-    final items = _listFlex(res, AppNotification.fromJson, 'notifications',
-        keys: const ['items', 'notifications']);
+    final items = _listFlex(
+      res,
+      AppNotification.fromJson,
+      'notifications',
+      keys: const ['items', 'notifications'],
+    );
     final data = res.data;
-    final unreadCount =
-        (data is Map) ? (data['unread_count'] as num?)?.toInt() : null;
+    final unreadCount = (data is Map)
+        ? (data['unread_count'] as num?)?.toInt()
+        : null;
     return NotificationsPage(items: items, unreadCount: unreadCount);
   }
 
@@ -461,8 +466,12 @@ class ApiClient {
   /// GET /tickets — список тикетов пользователя (`TicketSummary[]`).
   Future<List<TicketSummary>> getTickets() async {
     final res = await _dio.get('/tickets');
-    return _listFlex(res, TicketSummary.fromJson, 'tickets',
-        keys: const ['items', 'tickets']);
+    return _listFlex(
+      res,
+      TicketSummary.fromJson,
+      'tickets',
+      keys: const ['items', 'tickets'],
+    );
   }
 
   /// POST /tickets — создать тикет. Контракт: `{ subject, message }` ->
@@ -476,7 +485,9 @@ class ApiClient {
       data: {'subject': subject, 'message': message},
     );
     final m = _okMap(res);
-    final t = (m['ticket'] is Map) ? (m['ticket'] as Map).cast<String, dynamic>() : m;
+    final t = (m['ticket'] is Map)
+        ? (m['ticket'] as Map).cast<String, dynamic>()
+        : m;
     return (t['id'] as num?)?.toInt() ?? 0;
   }
 
@@ -529,8 +540,9 @@ class ApiClient {
       data: {'source_label': sourceLabel},
     );
     final m = _okMap(res);
-    final c =
-        (m['code'] is Map) ? (m['code'] as Map).cast<String, dynamic>() : m;
+    final c = (m['code'] is Map)
+        ? (m['code'] as Map).cast<String, dynamic>()
+        : m;
     return PartnerCode.fromJson(c);
   }
 
@@ -616,8 +628,9 @@ class ApiClient {
         onSessionExpired?.call();
         return null;
       }
-      final tokens =
-          AuthTokens.fromJson((res.data as Map).cast<String, dynamic>());
+      final tokens = AuthTokens.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
       await _tokens.save(tokens);
       return tokens;
     } catch (_) {

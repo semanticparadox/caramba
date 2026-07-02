@@ -160,7 +160,7 @@ async fn send_expiry_reminders(
         RETURNING id
         "#,
     )
-    .bind(format!("⏰ Your subscription expires soon\\. Renew now to keep your connection active\\!"))
+    .bind("⏰ Your subscription expires soon\\. Renew now to keep your connection active\\!".to_string())
     .bind(rows.len().min(i32::MAX as usize) as i32)
     .fetch_one(&state.pool)
     .await?;

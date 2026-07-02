@@ -1,5 +1,7 @@
 use anyhow::{Context, Result, bail};
-use caramba_db::models::tickets::{Ticket, TicketAttachment, TicketMessage, TicketSummary, TicketWithUser};
+use caramba_db::models::tickets::{
+    Ticket, TicketAttachment, TicketMessage, TicketSummary, TicketWithUser,
+};
 use serde_json::json;
 use sqlx::PgPool;
 use std::path::PathBuf;
@@ -41,12 +43,7 @@ impl From<sqlx::Error> for TicketError {
 const MAX_ATTACHMENT_SIZE: usize = 10 * 1024 * 1024;
 
 /// Разрешённые MIME-типы вложений.
-const ALLOWED_MIMES: &[&str] = &[
-    "image/png",
-    "image/jpeg",
-    "image/webp",
-    "application/pdf",
-];
+const ALLOWED_MIMES: &[&str] = &["image/png", "image/jpeg", "image/webp", "application/pdf"];
 
 /// Сервис тикетов поддержки.
 pub struct TicketsService {
@@ -83,7 +80,11 @@ impl TicketsService {
         related_payment_id: Option<i64>,
         related_subscription_id: Option<i64>,
     ) -> Result<Ticket> {
-        let mut tx = self.pool.begin().await.context("Ошибка начала транзакции")?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Ошибка начала транзакции")?;
 
         let ticket: Ticket = sqlx::query_as::<_, Ticket>(
             "INSERT INTO tickets (user_id, category, subject, status, related_payment_id, related_subscription_id)
@@ -135,9 +136,7 @@ impl TicketsService {
             crate::services::monitoring::escape_md_pub(subject)
         );
 
-        self.bot_manager
-            .notify_admins(&self.pool, &admin_msg)
-            .await;
+        self.bot_manager.notify_admins(&self.pool, &admin_msg).await;
 
         info!("Создан тикет #{} от пользователя {}", ticket.id, user_id);
         Ok(ticket)
@@ -341,12 +340,10 @@ impl TicketsService {
 
         // Если ждали ответа пользователя — возвращаем в open
         if ticket.status == "awaiting_user" {
-            sqlx::query(
-                "UPDATE tickets SET status = 'open', updated_at = NOW() WHERE id = $1",
-            )
-            .bind(ticket_id)
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query("UPDATE tickets SET status = 'open', updated_at = NOW() WHERE id = $1")
+                .bind(ticket_id)
+                .execute(&mut *tx)
+                .await?;
         } else {
             sqlx::query("UPDATE tickets SET updated_at = NOW() WHERE id = $1")
                 .bind(ticket_id)
@@ -571,8 +568,7 @@ impl TicketsService {
             } else {
                 (
                     format!("Тикет #{} закрыт", ticket_id),
-                    "Ваш тикет был закрыт. Если вопрос остался — создайте новый тикет."
-                        .to_string(),
+                    "Ваш тикет был закрыт. Если вопрос остался — создайте новый тикет.".to_string(),
                 )
             };
 
@@ -583,7 +579,14 @@ impl TicketsService {
 
             if let Err(e) = self
                 .notifications
-                .create(ticket.user_id, "support_ticket", "info", &title, &body, Some(payload))
+                .create(
+                    ticket.user_id,
+                    "support_ticket",
+                    "info",
+                    &title,
+                    &body,
+                    Some(payload),
+                )
                 .await
             {
                 error!(
@@ -616,10 +619,10 @@ impl TicketsService {
         }
 
         // Проверяем MIME-тип
-        if let Some(m) = mime {
-            if !ALLOWED_MIMES.contains(&m) {
-                bail!("Недопустимый тип файла: {}", m);
-            }
+        if let Some(m) = mime
+            && !ALLOWED_MIMES.contains(&m)
+        {
+            bail!("Недопустимый тип файла: {}", m);
         }
 
         // Создаём директорию, если нет
@@ -703,14 +706,13 @@ impl TicketsService {
     /// Проверяет принадлежность тикета пользователю — для предотвращения
     /// перебора attachment_id чужих тикетов.
     pub async fn verify_user_owns_ticket(&self, ticket_id: i64, user_id: i64) -> Result<bool> {
-        let owns: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM tickets WHERE id = $1 AND user_id = $2",
-        )
-        .bind(ticket_id)
-        .bind(user_id)
-        .fetch_optional(&self.pool)
-        .await
-        .context("Ошибка проверки владельца тикета")?;
+        let owns: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM tickets WHERE id = $1 AND user_id = $2")
+                .bind(ticket_id)
+                .bind(user_id)
+                .fetch_optional(&self.pool)
+                .await
+                .context("Ошибка проверки владельца тикета")?;
         Ok(owns.is_some())
     }
 

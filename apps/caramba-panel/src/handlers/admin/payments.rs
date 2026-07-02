@@ -15,18 +15,10 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::handlers::admin::auth::is_authenticated;
 use crate::services::payment::{
-    aaio::AaioProvider,
-    btcpay::BtcPayProvider,
-    coinbase_commerce::CoinbaseCommerceProvider,
-    cryptobot::CryptoBotProvider,
-    cryptomus::CryptomusProvider,
-    crystalpay::CrystalPayProvider,
-    lava::LavaProvider,
-    nowpayments::NowPaymentsProvider,
-    oxapay::OxaPayProvider,
-    plisio::PlisioProvider,
-    provider::PaymentProvider,
-    tribute::TributeProvider,
+    aaio::AaioProvider, btcpay::BtcPayProvider, coinbase_commerce::CoinbaseCommerceProvider,
+    cryptobot::CryptoBotProvider, cryptomus::CryptomusProvider, crystalpay::CrystalPayProvider,
+    lava::LavaProvider, nowpayments::NowPaymentsProvider, oxapay::OxaPayProvider,
+    plisio::PlisioProvider, provider::PaymentProvider, tribute::TributeProvider,
     wata::WataProvider,
 };
 use caramba_db::models::store::{PaymentSession, User};
@@ -86,10 +78,7 @@ fn test_user() -> User {
 // Для провайдеров, у которых API возвращает pay_url, это означает появление
 // «висящего» инвойса на $0.01 — он истечёт автоматически согласно настройкам TTL.
 // Manual / Stars / balance — возвращаем ok без вызова API.
-async fn invoke_provider_test(
-    provider_name: &str,
-    state: &AppState,
-) -> Result<String, String> {
+async fn invoke_provider_test(provider_name: &str, state: &AppState) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
@@ -101,9 +90,7 @@ async fn invoke_provider_test(
 
     match provider_name {
         // ── Провайдеры без удалённых вызовов (всегда ok) ─────────────────────
-        "manual" | "balance" => {
-            return Ok("no remote check applicable — manual approval flow".to_string());
-        }
+        "manual" | "balance" => Ok("no remote check applicable — manual approval flow".to_string()),
 
         "stars" => {
             // Stars инвойсы создаются через Bot API; без tg_id пользователя
@@ -112,7 +99,7 @@ async fn invoke_provider_test(
             if bot_token.trim().is_empty() {
                 return Err("Bot token not configured — required for Telegram Stars".to_string());
             }
-            return Ok("bot_token present — Stars should work when bot is running".to_string());
+            Ok("bot_token present — Stars should work when bot is running".to_string())
         }
 
         // ── CryptoBot ────────────────────────────────────────────────────────
@@ -122,7 +109,10 @@ async fn invoke_provider_test(
                 return Err("CryptoBot API token is not configured".to_string());
             }
             let bot_username = s.get_or_default("bot_username", "testbot").await;
-            let provider = CryptoBotProvider { token, bot_username };
+            let provider = CryptoBotProvider {
+                token,
+                bot_username,
+            };
             provider
                 .create_invoice(&session, &user, &client)
                 .await
@@ -156,7 +146,9 @@ async fn invoke_provider_test(
             let merchant_id = s.get_or_default("cryptomus_merchant_id", "").await;
             let api_key = s.get_or_default("cryptomus_payment_api_key", "").await;
             if merchant_id.trim().is_empty() || api_key.trim().is_empty() {
-                return Err("Cryptomus merchant_id or payment_api_key is not configured".to_string());
+                return Err(
+                    "Cryptomus merchant_id or payment_api_key is not configured".to_string()
+                );
             }
             let panel_url = s.get_or_default("panel_url", "").await;
             let bot_username = s.get_or_default("bot_username", "").await;
@@ -280,7 +272,10 @@ async fn invoke_provider_test(
             let api_key = s.get_or_default("btcpay_api_key", "").await;
             let store_id = s.get_or_default("btcpay_store_id", "").await;
             let webhook_secret = s.get_or_default("btcpay_webhook_secret", "").await;
-            if btcpay_url.trim().is_empty() || api_key.trim().is_empty() || store_id.trim().is_empty() {
+            if btcpay_url.trim().is_empty()
+                || api_key.trim().is_empty()
+                || store_id.trim().is_empty()
+            {
                 return Err("BTCPay Server url, api_key or store_id is not configured".to_string());
             }
             let bot_username = s.get_or_default("bot_username", "").await;
@@ -387,11 +382,7 @@ pub async fn test_provider_connection(
     match invoke_provider_test(&provider, &state).await {
         Ok(msg) => {
             info!(provider = %provider, message = %msg, "Payment provider test: OK");
-            (
-                StatusCode::OK,
-                Json(json!({"ok": true, "message": msg})),
-            )
-                .into_response()
+            (StatusCode::OK, Json(json!({"ok": true, "message": msg}))).into_response()
         }
         Err(err) => {
             warn!(provider = %provider, error = %err, "Payment provider test: FAILED");

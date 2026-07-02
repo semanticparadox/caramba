@@ -10,26 +10,28 @@ enum TicketStatus { open, inProgress, awaitingUser, resolved, closed }
 extension TicketStatusX on TicketStatus {
   /// Короткая русская метка для пилюли статуса.
   String get label => switch (this) {
-        TicketStatus.open => 'Открыт',
-        TicketStatus.inProgress => 'В работе',
-        TicketStatus.awaitingUser => 'Ждёт ответа',
-        TicketStatus.resolved => 'Решён',
-        TicketStatus.closed => 'Закрыт',
-      };
+    TicketStatus.open => 'Открыт',
+    TicketStatus.inProgress => 'В работе',
+    TicketStatus.awaitingUser => 'Ждёт ответа',
+    TicketStatus.resolved => 'Решён',
+    TicketStatus.closed => 'Закрыт',
+  };
 
   /// Тикет в работе для пользователя (можно отвечать).
-  bool get isOpen => this != TicketStatus.closed && this != TicketStatus.resolved;
+  bool get isOpen =>
+      this != TicketStatus.closed && this != TicketStatus.resolved;
 
   /// Завершённый тикет (статус-пилюля окрашивается в success).
-  bool get isDone => this == TicketStatus.resolved || this == TicketStatus.closed;
+  bool get isDone =>
+      this == TicketStatus.resolved || this == TicketStatus.closed;
 
   static TicketStatus parse(String? raw) => switch (raw?.toLowerCase()) {
-        'in_progress' || 'inprogress' => TicketStatus.inProgress,
-        'awaiting_user' || 'awaitinguser' => TicketStatus.awaitingUser,
-        'resolved' => TicketStatus.resolved,
-        'closed' => TicketStatus.closed,
-        _ => TicketStatus.open,
-      };
+    'in_progress' || 'inprogress' => TicketStatus.inProgress,
+    'awaiting_user' || 'awaitinguser' => TicketStatus.awaitingUser,
+    'resolved' => TicketStatus.resolved,
+    'closed' => TicketStatus.closed,
+    _ => TicketStatus.open,
+  };
 }
 
 /// Сводка тикета для списка. Контракт панели (`app_support.rs::AppTicketSummary`):
@@ -71,14 +73,15 @@ class TicketSummary {
     final unread = (u is bool)
         ? (u ? 1 : 0)
         : (u is num)
-            ? u.toInt()
-            : (json['unread_for_user'] as num?)?.toInt() ?? 0;
+        ? u.toInt()
+        : (json['unread_for_user'] as num?)?.toInt() ?? 0;
     return TicketSummary(
       id: (json['id'] as num?)?.toInt() ?? 0,
       category: (json['category'] as String?) ?? '',
       subject: (json['subject'] as String?) ?? 'Без темы',
       status: TicketStatusX.parse(json['status'] as String?),
-      updatedAt: _parseDate(json['updated_at']) ?? _parseDate(json['created_at']),
+      updatedAt:
+          _parseDate(json['updated_at']) ?? _parseDate(json['created_at']),
       lastMessagePreview: json['last_message_preview'] as String?,
       unread: unread,
     );
@@ -93,6 +96,7 @@ class TicketSummary {
 class TicketMessage {
   final int id;
   final int ticketId;
+
   /// Автор: "user" — сам пользователь, иначе поддержка/система.
   final String author;
   final String body;
@@ -116,22 +120,24 @@ class TicketMessage {
     final two = (int n) => n.toString().padLeft(2, '0');
     final hm = '${two(t.hour)}:${two(t.minute)}';
     final now = DateTime.now();
-    final sameDay = t.year == now.year && t.month == now.month && t.day == now.day;
+    final sameDay =
+        t.year == now.year && t.month == now.month && t.day == now.day;
     if (sameDay) return hm;
     return '${two(t.day)}.${two(t.month)} $hm';
   }
 
   factory TicketMessage.fromJson(Map<String, dynamic> json) => TicketMessage(
-        id: (json['id'] as num?)?.toInt() ?? 0,
-        ticketId: (json['ticket_id'] as num?)?.toInt() ?? 0,
-        // Панель присылает author ("user"|"support"); поддерживаем и старое
-        // sender_role на случай иной обёртки.
-        author: (json['author'] as String?) ??
-            (json['sender_role'] as String?) ??
-            'user',
-        body: (json['body'] as String?) ?? '',
-        createdAt: _parseDate(json['created_at']),
-      );
+    id: (json['id'] as num?)?.toInt() ?? 0,
+    ticketId: (json['ticket_id'] as num?)?.toInt() ?? 0,
+    // Панель присылает author ("user"|"support"); поддерживаем и старое
+    // sender_role на случай иной обёртки.
+    author:
+        (json['author'] as String?) ??
+        (json['sender_role'] as String?) ??
+        'user',
+    body: (json['body'] as String?) ?? '',
+    createdAt: _parseDate(json['created_at']),
+  );
 }
 
 /// Тикет с лентой сообщений (`GET /api/v2/app/tickets/{id}`). Контракт-допущение:
@@ -164,9 +170,9 @@ class TicketDetail {
     final rawMessages = json['messages'] ?? ticket['messages'];
     final messages = (rawMessages is List)
         ? rawMessages
-            .whereType<Map>()
-            .map((e) => TicketMessage.fromJson(e.cast<String, dynamic>()))
-            .toList(growable: false)
+              .whereType<Map>()
+              .map((e) => TicketMessage.fromJson(e.cast<String, dynamic>()))
+              .toList(growable: false)
         : const <TicketMessage>[];
     return TicketDetail(
       id: (ticket['id'] as num?)?.toInt() ?? 0,

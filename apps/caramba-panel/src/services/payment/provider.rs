@@ -3,7 +3,9 @@ use async_trait::async_trait;
 use caramba_db::models::store::{PaymentSession, User};
 
 pub enum PaymentWebhookAction {
-    Completed { external_id: String },
+    Completed {
+        external_id: String,
+    },
     /// Like `Completed`, but carries the amount/currency the provider says was
     /// actually paid so the fulfillment path can verify it against the stored
     /// session before granting the resource (anti under/over-pay abuse, U18).
@@ -20,7 +22,9 @@ pub enum PaymentWebhookAction {
         paid_amount_minor: i64,
         paid_currency: String,
     },
-    Failed { reason: String },
+    Failed {
+        reason: String,
+    },
     Pending,
     Ignored,
 }

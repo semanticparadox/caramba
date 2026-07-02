@@ -69,7 +69,8 @@ impl GeneratorService {
             // Creating exit-node inbounds (Reality:443, gRPC, WS, etc.) on relay nodes
             // causes port conflicts and crashes sing-box.
             if node.is_relay {
-                let relay_templates: Vec<_> = templates.iter()
+                let relay_templates: Vec<_> = templates
+                    .iter()
                     .filter(|t| t.protocol == "hysteria2")
                     .collect();
                 for template in &relay_templates {
@@ -129,14 +130,14 @@ impl GeneratorService {
                     "Inbound {} port {} is outside template range {}-{}, updating...",
                     tag, existing_port, template.port_range_start, template.port_range_end
                 );
-                let new_port = if template.port_range_end > template.port_range_start {
+
+                if template.port_range_end > template.port_range_start {
                     self.allocate_port(node.id, template.port_range_start, template.port_range_end)
                         .await
                         .unwrap_or(template.port_range_start)
                 } else {
                     template.port_range_start
-                };
-                new_port
+                }
             };
 
             settings = settings.replace("{{port}}", &port.to_string());
@@ -145,7 +146,10 @@ impl GeneratorService {
                 if let Some(priv_key) = &node.reality_priv {
                     stream_settings = stream_settings.replace("{{reality_private}}", priv_key);
                 } else {
-                    warn!("Node {} missing Reality keys for template — clearing placeholder", node.id);
+                    warn!(
+                        "Node {} missing Reality keys for template — clearing placeholder",
+                        node.id
+                    );
                     stream_settings = stream_settings.replace("{{reality_private}}", "");
                 }
             }
@@ -184,7 +188,10 @@ impl GeneratorService {
             if let Some(priv_key) = &node.reality_priv {
                 stream_settings = stream_settings.replace("{{reality_private}}", priv_key);
             } else {
-                warn!("Node {} missing Reality keys for template — clearing placeholder", node.id);
+                warn!(
+                    "Node {} missing Reality keys for template — clearing placeholder",
+                    node.id
+                );
                 stream_settings = stream_settings.replace("{{reality_private}}", "");
             }
         }
@@ -349,7 +356,10 @@ impl GeneratorService {
             if let Some(pkey) = &node.reality_priv {
                 stream_settings = stream_settings.replace("{{reality_private}}", pkey);
             } else if stream_settings.contains("{{reality_private}}") {
-                warn!("Node {} missing Reality keys during rotation — clearing placeholder", node.id);
+                warn!(
+                    "Node {} missing Reality keys during rotation — clearing placeholder",
+                    node.id
+                );
                 stream_settings = stream_settings.replace("{{reality_private}}", "");
             }
         }

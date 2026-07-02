@@ -42,11 +42,7 @@ impl PaymentProvider for StripeProvider {
         // Stripe expects a lowercase ISO currency. Honor the per-method override; default usd.
         let currency = {
             let c = session.currency.trim().to_lowercase();
-            if c.is_empty() {
-                "usd".to_string()
-            } else {
-                c
-            }
+            if c.is_empty() { "usd".to_string() } else { c }
         };
 
         // Stripe принимает form-encoded для checkout.sessions
@@ -80,8 +76,10 @@ impl PaymentProvider for StripeProvider {
             anyhow::bail!("Stripe API Error: {}", error_text);
         }
 
-        let checkout: StripeCheckoutSession =
-            res.json().await.context("Failed to parse Stripe response")?;
+        let checkout: StripeCheckoutSession = res
+            .json()
+            .await
+            .context("Failed to parse Stripe response")?;
 
         checkout.url.ok_or_else(|| {
             anyhow::anyhow!(
@@ -155,7 +153,9 @@ impl PaymentProvider for StripeProvider {
                     .unwrap_or("")
                     .to_string();
                 if session_id.is_empty() {
-                    tracing::warn!("Stripe webhook: checkout.session.completed missing client_reference_id");
+                    tracing::warn!(
+                        "Stripe webhook: checkout.session.completed missing client_reference_id"
+                    );
                     return Ok(PaymentWebhookAction::Ignored);
                 }
                 Ok(PaymentWebhookAction::Completed {

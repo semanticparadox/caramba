@@ -84,9 +84,7 @@ impl DnsPolicy {
     /// `upstream` with any known scheme prefix stripped.
     fn stripped(&self) -> &str {
         let u = self.upstream.trim();
-        for p in [
-            "https://", "tls://", "tcp://", "udp://", "quic://", "h3://",
-        ] {
+        for p in ["https://", "tls://", "tcp://", "udp://", "quic://", "h3://"] {
             if let Some(rest) = u.strip_prefix(p) {
                 return rest;
             }
@@ -140,12 +138,11 @@ impl DnsPolicy {
         }
         let s = self.stripped();
         let host_port = s.split('/').next().unwrap_or(s);
-        if let Some((h, p)) = host_port.rsplit_once(':') {
-            if !h.is_empty() {
-                if let Ok(n) = p.parse::<u16>() {
-                    return Some(n);
-                }
-            }
+        if let Some((h, p)) = host_port.rsplit_once(':')
+            && !h.is_empty()
+            && let Ok(n) = p.parse::<u16>()
+        {
+            return Some(n);
         }
         None
     }

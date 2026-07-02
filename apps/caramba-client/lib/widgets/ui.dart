@@ -17,8 +17,8 @@ class SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     return Padding(
-      padding: padding ??
-          const EdgeInsets.fromLTRB(0, AppSpace.s6, 0, AppSpace.s3),
+      padding:
+          padding ?? const EdgeInsets.fromLTRB(0, AppSpace.s6, 0, AppSpace.s3),
       child: Row(
         children: [
           Text(
@@ -28,7 +28,10 @@ class SectionTitle extends StatelessWidget {
               letterSpacing: 1.0,
             ),
           ),
-          if (trailing != null) ...[const SizedBox(width: AppSpace.s2), trailing!],
+          if (trailing != null) ...[
+            const SizedBox(width: AppSpace.s2),
+            trailing!,
+          ],
         ],
       ),
     );
@@ -47,7 +50,8 @@ class RowsGroup extends StatelessWidget {
     final c = context.c;
     final rows = <Widget>[];
     for (var i = 0; i < children.length; i++) {
-      if (i > 0) rows.add(Divider(height: 1, thickness: 1, color: c.borderSubtle));
+      if (i > 0)
+        rows.add(Divider(height: 1, thickness: 1, color: c.borderSubtle));
       rows.add(children[i]);
     }
     return Container(
@@ -113,8 +117,9 @@ class CRow extends StatelessWidget {
                   value!,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.right,
-                  style: (mono ? AppType.monoMd : AppType.bodyMd)
-                      .copyWith(color: valueColor ?? c.textMed),
+                  style: (mono ? AppType.monoMd : AppType.bodyMd).copyWith(
+                    color: valueColor ?? c.textMed,
+                  ),
                 ),
               ),
             if (chevron) ...[
@@ -167,9 +172,7 @@ class ListItemCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? c.surface2 : c.surface1,
           borderRadius: AppRadius.r14,
-          border: Border.all(
-            color: selected ? c.borderStrong : c.borderSubtle,
-          ),
+          border: Border.all(color: selected ? c.borderStrong : c.borderSubtle),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -209,8 +212,7 @@ class ListItemCard extends StatelessWidget {
                               child: Text(
                                 title,
                                 overflow: TextOverflow.ellipsis,
-                                style: AppType.bodyMd
-                                    .copyWith(color: c.textHi),
+                                style: AppType.bodyMd.copyWith(color: c.textHi),
                               ),
                             ),
                             for (final b in titleBadges) ...[
@@ -407,9 +409,7 @@ class GhostButton extends StatelessWidget {
               LucideIcon(icon!, color: c.textHi, size: 18),
               const SizedBox(width: AppSpace.s2),
             ],
-            Flexible(
-              child: Text(label, overflow: TextOverflow.ellipsis),
-            ),
+            Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
           ],
         ),
       ),
@@ -422,7 +422,12 @@ class QuietButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
   final Color? color;
-  const QuietButton({required this.label, this.onPressed, this.color, super.key});
+  const QuietButton({
+    required this.label,
+    this.onPressed,
+    this.color,
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -447,7 +452,13 @@ class IconBtn extends StatelessWidget {
   final VoidCallback? onTap;
   final Color? color;
   final double size;
-  const IconBtn(this.glyph, {this.onTap, this.color, this.size = 44, super.key});
+  const IconBtn(
+    this.glyph, {
+    this.onTap,
+    this.color,
+    this.size = 44,
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -582,11 +593,17 @@ class InlineError extends StatelessWidget {
         children: [
           LucideIcon(Lucide.alert, color: c.textMed, size: 26),
           const SizedBox(height: AppSpace.s3),
-          Text(message,
-              textAlign: TextAlign.center,
-              style: AppType.bodyMd.copyWith(color: c.textMed)),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppType.bodyMd.copyWith(color: c.textMed),
+          ),
           const SizedBox(height: AppSpace.s4),
-          GhostButton(label: 'Повторить', icon: Lucide.refresh, onPressed: onRetry),
+          GhostButton(
+            label: 'Повторить',
+            icon: Lucide.refresh,
+            onPressed: onRetry,
+          ),
         ],
       ),
     );
@@ -605,9 +622,11 @@ class InlineEmpty extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.only(top: top, bottom: top),
       child: Center(
-        child: Text(message,
-            textAlign: TextAlign.center,
-            style: AppType.bodyMd.copyWith(color: c.textMed)),
+        child: Text(
+          message,
+          textAlign: TextAlign.center,
+          style: AppType.bodyMd.copyWith(color: c.textMed),
+        ),
       ),
     );
   }
@@ -647,8 +666,10 @@ Future<int?> showPickerSheet({
               children: [
                 Text(title, style: AppType.titleLg.copyWith(color: c.textHi)),
                 const SizedBox(height: AppSpace.s1),
-                Text(subtitle,
-                    style: AppType.bodyMd.copyWith(color: c.textMed)),
+                Text(
+                  subtitle,
+                  style: AppType.bodyMd.copyWith(color: c.textMed),
+                ),
                 const SizedBox(height: AppSpace.s3),
                 Flexible(
                   child: ListView.builder(

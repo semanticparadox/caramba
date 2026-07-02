@@ -213,6 +213,7 @@ fn saturation_of(r: u8, g: u8, b: u8) -> f32 {
 ///  - только #RGB / #RRGGBB (никаких rgba/hsl/градиентов/имён),
 ///  - запрещена полоса оттенков индиго/фиолетовый/сине-фиолетовый
 ///    (~240..295 hue) при заметной насыщенности.
+///
 /// Почти-серые (низкая saturation) проходят — там «оттенок» шумовой.
 pub fn validate_accent(value: &str) -> BrandValidation {
     let (r, g, b) = match parse_hex(value) {
@@ -265,7 +266,10 @@ pub async fn send_brand_menu(
         == "true";
     let name = state.settings.get_or_default(KEY_BRAND_NAME, "").await;
     let logo = state.settings.get_or_default(KEY_BRAND_LOGO_URL, "").await;
-    let accent = state.settings.get_or_default(KEY_BRAND_ACCENT_HEX, "").await;
+    let accent = state
+        .settings
+        .get_or_default(KEY_BRAND_ACCENT_HEX, "")
+        .await;
     let support = state
         .settings
         .get_or_default(KEY_BRAND_SUPPORT_URL, "")
@@ -350,9 +354,7 @@ pub async fn toggle_brand_enabled(
         }
         Err(e) => {
             error!(error = %e, "Failed to persist brand_enabled");
-            let _ = bot
-                .send_message(chat_id, t(None, "brand.error.save"))
-                .await;
+            let _ = bot.send_message(chat_id, t(None, "brand.error.save")).await;
         }
     }
 }
@@ -404,18 +406,14 @@ pub async fn handle_brand_value(
             Ok(()) => {
                 state.admin_fsm.clear(tg_id).await;
                 info!(key = field.key(), "Brand field saved");
-                let _ = bot
-                    .send_message(chat_id, t(None, "brand.saved"))
-                    .await;
+                let _ = bot.send_message(chat_id, t(None, "brand.saved")).await;
                 // Показываем обновлённое меню без msg_id (новое сообщение).
                 send_brand_menu(bot, chat_id, None, state).await;
             }
             Err(e) => {
                 error!(error = %e, key = field.key(), "Failed to persist brand field");
                 // FSM не сбрасываем — пусть админ повторит ввод.
-                let _ = bot
-                    .send_message(chat_id, t(None, "brand.error.save"))
-                    .await;
+                let _ = bot.send_message(chat_id, t(None, "brand.error.save")).await;
             }
         },
         BrandValidation::Reject(err_key) => {

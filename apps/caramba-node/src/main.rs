@@ -224,10 +224,10 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Sync firewall for existing config (in case agent restarted but config hash unchanged)
-    if let Ok(existing) = tokio::fs::read_to_string(&args.config_path).await {
-        if let Ok(config_json) = serde_json::from_str::<serde_json::Value>(&existing) {
-            sync_firewall(&config_json, &mut state);
-        }
+    if let Ok(existing) = tokio::fs::read_to_string(&args.config_path).await
+        && let Ok(config_json) = serde_json::from_str::<serde_json::Value>(&existing)
+    {
+        sync_firewall(&config_json, &mut state);
     }
 
     // 4.5. Run Initial Speed Test
@@ -334,9 +334,7 @@ async fn main() -> anyhow::Result<()> {
                     // Без нормализации "v0.9.47" != "0.9.47" — бесконечный цикл обновления.
                     let target_normalized = target_ver.trim().trim_start_matches('v');
                     let current_normalized = current_version.trim().trim_start_matches('v');
-                    if target_normalized != current_normalized
-                        && target_ver != "0.0.0"
-                    {
+                    if target_normalized != current_normalized && target_ver != "0.0.0" {
                         info!(
                             "📣 New version available: {} (Current: {})",
                             target_ver, current_version
@@ -388,7 +386,10 @@ async fn main() -> anyhow::Result<()> {
                     7..=9 => 60,
                     _ => 120,
                 };
-                error!("❌ Heartbeat failed ({}, backoff {}s): {}", failures, backoff_secs, e);
+                error!(
+                    "❌ Heartbeat failed ({}, backoff {}s): {}",
+                    failures, backoff_secs, e
+                );
                 tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
             }
         }
@@ -484,9 +485,9 @@ async fn main() -> anyhow::Result<()> {
                     }
 
                     // Проверяем cooldown — не ротировали ли мы совсем недавно?
-                    let cooldown_ok = state.last_sni_rotation.map_or(true, |t| {
-                        t.elapsed().as_secs() >= effective_cooldown
-                    });
+                    let cooldown_ok = state
+                        .last_sni_rotation
+                        .is_none_or(|t| t.elapsed().as_secs() >= effective_cooldown);
 
                     // Проверяем лимит ротаций за час
                     let rate_ok = state.sni_rotation_count_this_hour < effective_max_rotations;
@@ -528,7 +529,10 @@ async fn main() -> anyhow::Result<()> {
                                 }
                             }
                             // 409 Conflict = панель не нашла другого SNI в пуле
-                            Err(e) if e.to_string().contains("409") || e.to_string().contains("No other SNI") => {
+                            Err(e)
+                                if e.to_string().contains("409")
+                                    || e.to_string().contains("No other SNI") =>
+                            {
                                 warn!(
                                     "⚠️ SNI pool exhausted — no alternative SNI available ({}). \
                                      Activating emergency cooldown to prevent hammering.",
@@ -556,39 +560,40 @@ async fn main() -> anyhow::Result<()> {
         }
 
         // KILL SWITCH MONITOR
-        if state.kill_switch_enabled && !state.vpn_stopped_by_kill_switch {
-            if state.last_successful_contact.elapsed().as_secs() > state.kill_switch_timeout {
-                warn!(
-                    "⚠️ EMERGENCY KILL SWITCH TRIGGERED! Lost connection for {}s (Timeout: {}s)",
-                    state.last_successful_contact.elapsed().as_secs(),
-                    state.kill_switch_timeout
-                );
+        if state.kill_switch_enabled
+            && !state.vpn_stopped_by_kill_switch
+            && state.last_successful_contact.elapsed().as_secs() > state.kill_switch_timeout
+        {
+            warn!(
+                "⚠️ EMERGENCY KILL SWITCH TRIGGERED! Lost connection for {}s (Timeout: {}s)",
+                state.last_successful_contact.elapsed().as_secs(),
+                state.kill_switch_timeout
+            );
 
-                if let Err(e) = stop_singbox() {
-                    error!("❌ FAILED TO STOP VPN SERVICE: {}", e);
-                } else {
-                    // Verify sing-box actually stopped
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                    let still_running = std::process::Command::new("pgrep")
+            if let Err(e) = stop_singbox() {
+                error!("❌ FAILED TO STOP VPN SERVICE: {}", e);
+            } else {
+                // Verify sing-box actually stopped
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                let still_running = std::process::Command::new("pgrep")
+                    .arg("-x")
+                    .arg("sing-box")
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false);
+
+                if still_running {
+                    warn!("⚠️ sing-box still running after stop, sending SIGKILL");
+                    let _ = std::process::Command::new("pkill")
+                        .arg("-9")
                         .arg("-x")
                         .arg("sing-box")
-                        .output()
-                        .map(|o| o.status.success())
-                        .unwrap_or(false);
-
-                    if still_running {
-                        warn!("⚠️ sing-box still running after stop, sending SIGKILL");
-                        let _ = std::process::Command::new("pkill")
-                            .arg("-9")
-                            .arg("-x")
-                            .arg("sing-box")
-                            .output();
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                    }
-
-                    state.vpn_stopped_by_kill_switch = true;
-                    info!("🛑 Kill switch activated: VPN service confirmed stopped");
+                        .output();
+                    tokio::time::sleep(Duration::from_secs(1)).await;
                 }
+
+                state.vpn_stopped_by_kill_switch = true;
+                info!("🛑 Kill switch activated: VPN service confirmed stopped");
             }
         }
 
@@ -747,7 +752,7 @@ async fn send_heartbeat(
         traffic_down,
         certificates: Some(
             check_certificates(
-                &state
+                state
                     .current_hash
                     .as_ref()
                     .map(|_| "/etc/sing-box/config.json")
@@ -803,15 +808,15 @@ fn extract_counter_field(obj: &serde_json::Value, keys: &[&str]) -> Option<u64> 
         if let Some(v) = candidate.as_u64() {
             return Some(v);
         }
-        if let Some(v) = candidate.as_i64() {
-            if v >= 0 {
-                return Some(v as u64);
-            }
+        if let Some(v) = candidate.as_i64()
+            && v >= 0
+        {
+            return Some(v as u64);
         }
-        if let Some(v) = candidate.as_str() {
-            if let Ok(parsed) = v.trim().parse::<u64>() {
-                return Some(parsed);
-            }
+        if let Some(v) = candidate.as_str()
+            && let Ok(parsed) = v.trim().parse::<u64>()
+        {
+            return Some(parsed);
         }
     }
     None
@@ -837,21 +842,19 @@ async fn collect_total_traffic(client: &reqwest::Client) -> Option<(u64, u64)> {
         .timeout(Duration::from_secs(2))
         .send()
         .await
+        && resp.status().is_success()
+        && let Ok(value) = resp.json::<serde_json::Value>().await
     {
-        if resp.status().is_success() {
-            if let Ok(value) = resp.json::<serde_json::Value>().await {
-                let up = extract_counter_field(
-                    &value,
-                    &["up", "upload", "uploadTotal", "uplink", "totalUp"],
-                );
-                let down = extract_counter_field(
-                    &value,
-                    &["down", "download", "downloadTotal", "downlink", "totalDown"],
-                );
-                if let (Some(up), Some(down)) = (up, down) {
-                    return Some((up, down));
-                }
-            }
+        let up = extract_counter_field(
+            &value,
+            &["up", "upload", "uploadTotal", "uplink", "totalUp"],
+        );
+        let down = extract_counter_field(
+            &value,
+            &["down", "download", "downloadTotal", "downlink", "totalDown"],
+        );
+        if let (Some(up), Some(down)) = (up, down) {
+            return Some((up, down));
         }
     }
 
@@ -912,11 +915,9 @@ async fn collect_user_usage_delta(
 
         let upload =
             extract_counter_field(conn, &["upload", "uploadTotal", "uplink", "sent"]).unwrap_or(0);
-        let download = extract_counter_field(
-            conn,
-            &["download", "downloadTotal", "downlink", "received"],
-        )
-        .unwrap_or(0);
+        let download =
+            extract_counter_field(conn, &["download", "downloadTotal", "downlink", "received"])
+                .unwrap_or(0);
 
         let total = upload.saturating_add(download);
         let entry = current_totals.entry(user).or_insert(0);
@@ -926,7 +927,9 @@ async fn collect_user_usage_delta(
     if anonymous > 0 || identified > 0 {
         tracing::debug!(
             "Traffic: {} connections total, {} identified (user_*), {} anonymous",
-            identified + anonymous, identified, anonymous
+            identified + anonymous,
+            identified,
+            anonymous
         );
     }
 
@@ -1030,7 +1033,9 @@ async fn check_and_update_config(
                         info!("↩️ Rolled back to previous config. Keeping sing-box running.");
                     }
                 } else {
-                    warn!("No previous config to roll back to; leaving new (invalid) config in place.");
+                    warn!(
+                        "No previous config to roll back to; leaving new (invalid) config in place."
+                    );
                 }
                 // current_hash/last_applied stay as they were → panel knows apply failed.
                 anyhow::bail!("sing-box rejected new config; rolled back");
@@ -1122,7 +1127,10 @@ async fn save_config(path: &str, content: &serde_json::Value) -> anyhow::Result<
 
     if needs_regen {
         match ensure_self_signed_cert(&cert_dir, &cert_path, &key_path, content).await {
-            Ok(()) => info!("✅ Self-signed TLS cert generated at {}", cert_dir.display()),
+            Ok(()) => info!(
+                "✅ Self-signed TLS cert generated at {}",
+                cert_dir.display()
+            ),
             Err(e) => error!("⚠️ Failed to generate self-signed cert: {e}. TLS inbounds may fail."),
         }
     }
@@ -1154,9 +1162,18 @@ fn parse_openssl_enddate(stdout: &[u8]) -> i64 {
             continue;
         }
         let month: u32 = match month_str {
-            "Jan" => 1, "Feb" => 2, "Mar" => 3, "Apr" => 4,
-            "May" => 5, "Jun" => 6, "Jul" => 7, "Aug" => 8,
-            "Sep" => 9, "Oct" => 10, "Nov" => 11, "Dec" => 12,
+            "Jan" => 1,
+            "Feb" => 2,
+            "Mar" => 3,
+            "Apr" => 4,
+            "May" => 5,
+            "Jun" => 6,
+            "Jul" => 7,
+            "Aug" => 8,
+            "Sep" => 9,
+            "Oct" => 10,
+            "Nov" => 11,
+            "Dec" => 12,
             _ => continue,
         };
         // Days from Unix epoch (Jan 1 1970) to (year, month, day).
@@ -1171,10 +1188,11 @@ fn parse_openssl_enddate(stdout: &[u8]) -> i64 {
             let leap_total = y_minus_1 / 4 - y_minus_1 / 100 + y_minus_1 / 400;
             let leap_days = leap_total - LEAP_BEFORE_1970;
             let years_offset = (year as i64) - 1970;
-            let month_days_cumul: [i64; 13] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365];
+            let month_days_cumul: [i64; 13] =
+                [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365];
             let is_leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-            let mdays = month_days_cumul[month as usize - 1]
-                + if is_leap && month > 2 { 1 } else { 0 };
+            let mdays =
+                month_days_cumul[month as usize - 1] + if is_leap && month > 2 { 1 } else { 0 };
             years_offset * 365 + leap_days + mdays + (day as i64 - 1)
         };
         return days_since_epoch * 86400;
@@ -1217,8 +1235,14 @@ async fn ensure_self_signed_cert(
 
     // Собираем ВСЕ server_name из TLS-инбаундов
     let all_names = extract_all_tls_server_names(config);
-    let cn = all_names.first().cloned().unwrap_or_else(|| "vpn.local".to_string());
-    info!("🔐 Generating self-signed cert for CN={}, SANs={:?}", cn, all_names);
+    let cn = all_names
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "vpn.local".to_string());
+    info!(
+        "🔐 Generating self-signed cert for CN={}, SANs={:?}",
+        cn, all_names
+    );
 
     let key_pair = KeyPair::generate()?;
 
@@ -1312,19 +1336,20 @@ fn extract_all_tls_server_names(config: &serde_json::Value) -> Vec<String> {
         let inbound_type = inbound.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
         let sn = match inbound_type {
-            "hysteria2" | "hysteria" | "tuic" => {
-                inbound
-                    .pointer("/tls/server_name")
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty() && !s.contains("google"))
-                    .map(str::to_string)
-            }
+            "hysteria2" | "hysteria" | "tuic" => inbound
+                .pointer("/tls/server_name")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty() && !s.contains("google"))
+                .map(str::to_string),
             "vless" | "trojan" => {
                 let tls = match inbound.get("tls") {
                     Some(t) => t,
                     None => continue,
                 };
-                let enabled = tls.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                let enabled = tls
+                    .get("enabled")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 let has_reality = tls
                     .get("reality")
                     .and_then(|r| r.get("enabled"))
@@ -1343,10 +1368,10 @@ fn extract_all_tls_server_names(config: &serde_json::Value) -> Vec<String> {
             _ => None,
         };
 
-        if let Some(name) = sn {
-            if seen.insert(name.clone()) {
-                names.push(name);
-            }
+        if let Some(name) = sn
+            && seen.insert(name.clone())
+        {
+            names.push(name);
         }
     }
 
@@ -1356,10 +1381,7 @@ fn extract_all_tls_server_names(config: &serde_json::Value) -> Vec<String> {
 /// Конвертирует SystemTime в (год, месяц, день) для rcgen::date_time_ymd.
 fn time_from_system(t: std::time::SystemTime) -> (i32, u8, u8) {
     use std::time::UNIX_EPOCH;
-    let secs = t
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
+    let secs = t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
     // Простое вычисление даты без зависимостей
     let days = secs / 86400;
     let mut remaining = days;
@@ -1413,10 +1435,7 @@ fn sync_firewall(config: &serde_json::Value, state: &mut AgentState) {
 
     if let Some(inbounds) = config.get("inbounds").and_then(|v| v.as_array()) {
         for ib in inbounds {
-            let port = ib
-                .get("listen_port")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u16;
+            let port = ib.get("listen_port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
             if port == 0 {
                 continue;
             }
@@ -1438,8 +1457,15 @@ fn sync_firewall(config: &serde_json::Value, state: &mut AgentState) {
     desired.insert((22, "tcp".to_string()));
     desired.insert((443, "tcp".to_string()));
 
-    let to_open: Vec<_> = desired.difference(&state.open_firewall_ports).cloned().collect();
-    let to_close: Vec<_> = state.open_firewall_ports.difference(&desired).cloned().collect();
+    let to_open: Vec<_> = desired
+        .difference(&state.open_firewall_ports)
+        .cloned()
+        .collect();
+    let to_close: Vec<_> = state
+        .open_firewall_ports
+        .difference(&desired)
+        .cloned()
+        .collect();
 
     if to_open.is_empty() && to_close.is_empty() {
         return;
@@ -1469,26 +1495,49 @@ fn sync_firewall(config: &serde_json::Value, state: &mut AgentState) {
                 .output();
             match out {
                 Ok(o) if o.status.success() => info!("🔓 Firewall: opened {}", rule),
-                Ok(o) => warn!("⚠️ ufw allow {} failed: {}", rule, String::from_utf8_lossy(&o.stderr)),
+                Ok(o) => warn!(
+                    "⚠️ ufw allow {} failed: {}",
+                    rule,
+                    String::from_utf8_lossy(&o.stderr)
+                ),
                 Err(e) => warn!("⚠️ ufw allow {} error: {}", rule, e),
             }
         } else {
             // Fallback to iptables
             let out = std::process::Command::new("iptables")
                 .args([
-                    "-C", "INPUT", "-p", proto, "--dport", &port.to_string(), "-j", "ACCEPT",
+                    "-C",
+                    "INPUT",
+                    "-p",
+                    proto,
+                    "--dport",
+                    &port.to_string(),
+                    "-j",
+                    "ACCEPT",
                 ])
                 .output();
             let already_exists = out.map(|o| o.status.success()).unwrap_or(false);
             if !already_exists {
                 let out = std::process::Command::new("iptables")
                     .args([
-                        "-I", "INPUT", "-p", proto, "--dport", &port.to_string(), "-j", "ACCEPT",
+                        "-I",
+                        "INPUT",
+                        "-p",
+                        proto,
+                        "--dport",
+                        &port.to_string(),
+                        "-j",
+                        "ACCEPT",
                     ])
                     .output();
                 match out {
                     Ok(o) if o.status.success() => info!("🔓 Firewall: opened {}/{}", port, proto),
-                    Ok(o) => warn!("⚠️ iptables open {}/{} failed: {}", port, proto, String::from_utf8_lossy(&o.stderr)),
+                    Ok(o) => warn!(
+                        "⚠️ iptables open {}/{} failed: {}",
+                        port,
+                        proto,
+                        String::from_utf8_lossy(&o.stderr)
+                    ),
                     Err(e) => warn!("⚠️ iptables open {}/{} error: {}", port, proto, e),
                 }
             }
@@ -1512,7 +1561,14 @@ fn sync_firewall(config: &serde_json::Value, state: &mut AgentState) {
         } else {
             let out = std::process::Command::new("iptables")
                 .args([
-                    "-D", "INPUT", "-p", proto, "--dport", &port.to_string(), "-j", "ACCEPT",
+                    "-D",
+                    "INPUT",
+                    "-p",
+                    proto,
+                    "--dport",
+                    &port.to_string(),
+                    "-j",
+                    "ACCEPT",
                 ])
                 .output();
             match out {
@@ -1523,7 +1579,10 @@ fn sync_firewall(config: &serde_json::Value, state: &mut AgentState) {
     }
 
     state.open_firewall_ports = desired;
-    info!("🛡️ Firewall synced: {} ports open", state.open_firewall_ports.len());
+    info!(
+        "🛡️ Firewall synced: {} ports open",
+        state.open_firewall_ports.len()
+    );
 }
 
 /// U22 safe-apply: validate a sing-box config file with `sing-box check -c`.
@@ -1532,8 +1591,8 @@ fn sync_firewall(config: &serde_json::Value, state: &mut AgentState) {
 ///   - `Some(true)`  — config is valid.
 ///   - `Some(false)` — `sing-box check` ran and REJECTED the config.
 ///   - `None`        — the `sing-box` binary / `check` subcommand is unavailable,
-///                     so validation could not be performed (caller should fall
-///                     back to the legacy apply-without-validation path).
+///     so validation could not be performed (caller should fall
+///     back to the legacy apply-without-validation path).
 ///
 /// This keeps older installs (where `sing-box check` might behave differently)
 /// working: only an explicit non-zero exit from a runnable `check` is treated as
@@ -1568,7 +1627,10 @@ async fn validate_singbox_config(config_path: &str) -> Option<bool> {
             None
         }
         Err(e) => {
-            warn!("sing-box check task join error ({}); skipping validation", e);
+            warn!(
+                "sing-box check task join error ({}); skipping validation",
+                e
+            );
             None
         }
     }
@@ -1578,7 +1640,7 @@ fn restart_singbox() -> anyhow::Result<()> {
     info!("🔄 Restarting sing-box service...");
 
     let output = std::process::Command::new("systemctl")
-        .args(&["restart", "sing-box"])
+        .args(["restart", "sing-box"])
         .output()?;
 
     if !output.status.success() {
@@ -1611,68 +1673,65 @@ async fn check_certificates(config_path: &str) -> Vec<caramba_shared::api::Certi
         let path = entry.path();
         // Only check .pem files likely to be certs (not keys)
         // Convention: cert.pem or *.crt
-        if let Some(ext) = path.extension() {
-            if ext == "pem" || ext == "crt" {
-                // Heuristic: check if this is a cert or key
-                // Or just try openssl x509 on it. If it fails, maybe it's a key.
+        if let Some(ext) = path.extension()
+            && (ext == "pem" || ext == "crt")
+        {
+            // Heuristic: check if this is a cert or key
+            // Or just try openssl x509 on it. If it fails, maybe it's a key.
 
-                let output = std::process::Command::new("openssl")
-                    .args(&[
-                        "x509",
-                        "-in",
-                        path.to_str().unwrap_or(""),
-                        "-noout",
-                        "-subject",
-                        "-enddate",
-                        "-checkend",
-                        "0",
-                    ])
-                    .output();
+            let output = std::process::Command::new("openssl")
+                .args([
+                    "x509",
+                    "-in",
+                    path.to_str().unwrap_or(""),
+                    "-noout",
+                    "-subject",
+                    "-enddate",
+                    "-checkend",
+                    "0",
+                ])
+                .output();
 
-                match output {
-                    Ok(out) => {
-                        if out.status.success() {
-                            let stdout = String::from_utf8_lossy(&out.stdout);
-                            // Parse subject: subject=CN = drive.google.com
-                            let sni = stdout
-                                .lines()
-                                .find(|l| l.starts_with("subject="))
-                                .and_then(|l| l.split("CN = ").nth(1))
-                                .or_else(|| {
-                                    stdout
-                                        .lines()
-                                        .find(|l| l.starts_with("subject="))
-                                        .and_then(|l| l.split("CN=").nth(1))
-                                })
-                                // Handling both "CN = val" and "CN=val"
-                                .map(|s| s.trim().to_string())
-                                .unwrap_or_else(|| "unknown".to_string());
+            if let Ok(out) = output
+                && out.status.success()
+            {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                // Parse subject: subject=CN = drive.google.com
+                let sni = stdout
+                    .lines()
+                    .find(|l| l.starts_with("subject="))
+                    .and_then(|l| l.split("CN = ").nth(1))
+                    .or_else(|| {
+                        stdout
+                            .lines()
+                            .find(|l| l.starts_with("subject="))
+                            .and_then(|l| l.split("CN=").nth(1))
+                    })
+                    // Handling both "CN = val" and "CN=val"
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
 
-                            // Parse expiry
-                            // openssl -checkend 0 returns 0 if valid (not expired), 1 if expired
-                            // But we also want the date for display.
-                            // We don't parse date strictly here for now to avoid chrono dep complexity if not present,
-                            // but we can trust checkend for valid flag.
-                            let valid = out.status.code() == Some(0);
+                // Parse expiry
+                // openssl -checkend 0 returns 0 if valid (not expired), 1 if expired
+                // But we also want the date for display.
+                // We don't parse date strictly here for now to avoid chrono dep complexity if not present,
+                // but we can trust checkend for valid flag.
+                let valid = out.status.code() == Some(0);
 
-                            // For expires_at, we might need to parse "notAfter=Jan 27 00:00:00 2036 GMT"
-                            // For MVP, just return current timestamp + 1 year if valid?
-                            // Or better: use openssl -enddate -noout -> "notAfter=..."
-                            // Implementation detail: Shared struct requires expires_at: i64.
-                            // We can use 0 for now or implement parsing.
+                // For expires_at, we might need to parse "notAfter=Jan 27 00:00:00 2036 GMT"
+                // For MVP, just return current timestamp + 1 year if valid?
+                // Or better: use openssl -enddate -noout -> "notAfter=..."
+                // Implementation detail: Shared struct requires expires_at: i64.
+                // We can use 0 for now or implement parsing.
 
-                            // Парсим дату истечения из строки "notAfter=Month Day HH:MM:SS YYYY GMT"
-                            let expires_at = parse_openssl_enddate(&out.stdout);
-                            statuses.push(caramba_shared::api::CertificateStatus {
-                                sni,
-                                valid,
-                                expires_at,
-                                error: None,
-                            });
-                        }
-                    }
-                    Err(_) => {}
-                }
+                // Парсим дату истечения из строки "notAfter=Month Day HH:MM:SS YYYY GMT"
+                let expires_at = parse_openssl_enddate(&out.stdout);
+                statuses.push(caramba_shared::api::CertificateStatus {
+                    sni,
+                    valid,
+                    expires_at,
+                    error: None,
+                });
             }
         }
     }
@@ -1684,7 +1743,7 @@ async fn check_certificates(config_path: &str) -> Vec<caramba_shared::api::Certi
 fn stop_singbox() -> anyhow::Result<()> {
     info!("🛑 Stopping sing-box service (Kill Switch Triggered)...");
     let output = std::process::Command::new("systemctl")
-        .args(&["stop", "sing-box"])
+        .args(["stop", "sing-box"])
         .output()?;
     if !output.status.success() {
         anyhow::bail!("systemctl stop failed");
@@ -1779,20 +1838,17 @@ async fn count_active_connections(client: &reqwest::Client) -> Option<u32> {
         .timeout(Duration::from_secs(2))
         .send()
         .await
+        && resp.status().is_success()
+        && let Ok(value) = resp.json::<serde_json::Value>().await
+        && let Some(items) = value.get("connections").and_then(|v| v.as_array())
     {
-        if resp.status().is_success() {
-            if let Ok(value) = resp.json::<serde_json::Value>().await {
-                if let Some(items) = value.get("connections").and_then(|v| v.as_array()) {
-                    let mut unique = HashSet::new();
-                    for item in items {
-                        if let Some(identity) = extract_subscription_identity(item) {
-                            unique.insert(identity);
-                        }
-                    }
-                    return Some(unique.len() as u32);
-                }
+        let mut unique = HashSet::new();
+        for item in items {
+            if let Some(identity) = extract_subscription_identity(item) {
+                unique.insert(identity);
             }
         }
+        return Some(unique.len() as u32);
     }
 
     // Do not fallback to raw socket counting by default: it includes scanner/health traffic
@@ -1907,7 +1963,7 @@ async fn report_logs(
 
     for service in services {
         let recent = std::process::Command::new("journalctl")
-            .args(&[
+            .args([
                 "-u",
                 service,
                 "--since",

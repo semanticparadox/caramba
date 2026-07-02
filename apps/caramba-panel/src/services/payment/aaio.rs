@@ -110,7 +110,10 @@ impl PaymentProvider for AaioProvider {
         // Constant-time comparison of the hex signatures to avoid timing leaks.
         // Both strings are deterministic SHA-256 hex (64 chars); compare bytes
         // without short-circuiting. No external crate is used to keep deps unchanged.
-        Ok(constant_time_eq(sign_from_body.as_bytes(), expected.as_bytes()))
+        Ok(constant_time_eq(
+            sign_from_body.as_bytes(),
+            expected.as_bytes(),
+        ))
     }
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {

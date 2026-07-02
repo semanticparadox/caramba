@@ -166,7 +166,7 @@ pub async fn trigger_update(
             .orchestration_service
             .notify_node_update(node_id)
             .await;
-        return (axum::http::StatusCode::OK, "Update signal sent to node").into_response();
+        (axum::http::StatusCode::OK, "Update signal sent to node").into_response()
     } else {
         // Rollout to all active
         let active_nodes = state
@@ -190,11 +190,10 @@ pub async fn trigger_update(
                 count += 1;
             }
         }
-        return (
+        (
             axum::http::StatusCode::OK,
             format!("Rollout signal sent to {} nodes", count),
         )
-            .into_response();
+            .into_response()
     }
 }
-

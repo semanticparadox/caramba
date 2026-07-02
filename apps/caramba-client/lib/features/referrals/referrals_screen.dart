@@ -33,9 +33,9 @@ class ReferralsScreen extends ConsumerWidget {
           backgroundColor: c.surface2,
           onRefresh: () async {
             ref.invalidate(referralProvider);
-            await ref.read(referralProvider.future).catchError(
-                  (_) => const ReferralInfo(code: '', invited: 0),
-                );
+            await ref
+                .read(referralProvider.future)
+                .catchError((_) => const ReferralInfo(code: '', invited: 0));
           },
           child: ListView(
             padding: const EdgeInsets.fromLTRB(
@@ -117,35 +117,37 @@ class _ReferralBody extends StatelessWidget {
 
         // ---- Код + ссылка.
         SectionTitle('Ваш код'),
-        RowsGroup(children: [
-          CRow(
-            icon: Lucide.users,
-            label: 'Код',
-            value: referral.code.isEmpty ? '·' : referral.code,
-            mono: true,
-            valueColor: c.textHi,
-          ),
-          CRow(
-            label: 'Приглашено',
-            value: '${referral.invited}',
-            mono: true,
-            valueColor: c.textHi,
-          ),
-          CRow(
-            icon: Lucide.percent,
-            label: 'Ваше вознаграждение',
-            value: '${referral.rewardPercent}%',
-            mono: true,
-            valueColor: c.textHi,
-          ),
-          CRow(
-            icon: Lucide.badgePercent,
-            label: 'Скидка приглашённому',
-            value: '${referral.refereeDiscountPercent}%',
-            mono: true,
-            valueColor: c.textHi,
-          ),
-        ]),
+        RowsGroup(
+          children: [
+            CRow(
+              icon: Lucide.users,
+              label: 'Код',
+              value: referral.code.isEmpty ? '·' : referral.code,
+              mono: true,
+              valueColor: c.textHi,
+            ),
+            CRow(
+              label: 'Приглашено',
+              value: '${referral.invited}',
+              mono: true,
+              valueColor: c.textHi,
+            ),
+            CRow(
+              icon: Lucide.percent,
+              label: 'Ваше вознаграждение',
+              value: '${referral.rewardPercent}%',
+              mono: true,
+              valueColor: c.textHi,
+            ),
+            CRow(
+              icon: Lucide.badgePercent,
+              label: 'Скидка приглашённому',
+              value: '${referral.refereeDiscountPercent}%',
+              mono: true,
+              valueColor: c.textHi,
+            ),
+          ],
+        ),
         const SizedBox(height: AppSpace.s3),
         GhostButton(
           label: 'Скопировать ссылку',
@@ -165,8 +167,10 @@ class _ReferralBody extends StatelessWidget {
         // ---- Список приглашённых.
         SectionTitle(
           'Приглашённые',
-          trailing: Text('${referral.referrals.length}',
-              style: AppType.monoSm.copyWith(color: c.textLow)),
+          trailing: Text(
+            '${referral.referrals.length}',
+            style: AppType.monoSm.copyWith(color: c.textLow),
+          ),
         ),
         if (referral.referrals.isEmpty)
           const InlineEmpty(
@@ -244,16 +248,10 @@ class _ReferralRow extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Tag(
-            entry.purchased ? 'оплатил' : 'регистрация',
-            ok: entry.purchased,
-          ),
+          Tag(entry.purchased ? 'оплатил' : 'регистрация', ok: entry.purchased),
           if (entry.earnedCents > 0) ...[
             const SizedBox(width: AppSpace.s3),
-            Text(
-              '+$earned',
-              style: AppType.monoMd.copyWith(color: c.success),
-            ),
+            Text('+$earned', style: AppType.monoMd.copyWith(color: c.success)),
           ],
         ],
       ),

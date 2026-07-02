@@ -33,7 +33,12 @@ pub async fn pre_checkout_handler(
 ) -> Result<(), teloxide::RequestError> {
     // 1. Amount sanity.
     if q.total_amount == 0 || q.total_amount > MAX_XTR_PER_INVOICE {
-        return reject(&bot, q.id.clone(), "Invalid payment amount. Please try again.").await;
+        return reject(
+            &bot,
+            q.id.clone(),
+            "Invalid payment amount. Please try again.",
+        )
+        .await;
     }
 
     // 2. Payload must be "{user_id}:{type}:{target}" or a bare numeric user_id.
@@ -51,7 +56,7 @@ pub async fn pre_checkout_handler(
                 q.id.clone(),
                 "Malformed payment session. Please start over.",
             )
-            .await
+            .await;
         }
     };
 
@@ -79,7 +84,7 @@ pub async fn pre_checkout_handler(
                 q.id.clone(),
                 "Account not found. Send /start and try again.",
             )
-            .await
+            .await;
         }
         Err(_) => {
             return reject(
@@ -87,7 +92,7 @@ pub async fn pre_checkout_handler(
                 q.id.clone(),
                 "Service temporarily unavailable. Please try again.",
             )
-            .await
+            .await;
         }
     }
 

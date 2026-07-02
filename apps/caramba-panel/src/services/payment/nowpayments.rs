@@ -111,8 +111,8 @@ impl PaymentProvider for NowPaymentsProvider {
             return Ok(false);
         }
 
-        let data: Value = serde_json::from_slice(payload)
-            .context("Invalid JSON in NowPayments IPN webhook")?;
+        let data: Value =
+            serde_json::from_slice(payload).context("Invalid JSON in NowPayments IPN webhook")?;
 
         // serde_json (no preserve_order) serializes object keys in sorted order,
         // recursively, with compact separators — exactly the canonical form
@@ -128,10 +128,7 @@ impl PaymentProvider for NowPaymentsProvider {
 
         // Constant-time comparison to avoid leaking timing information about the
         // expected signature.
-        Ok(computed_sig
-            .as_bytes()
-            .ct_eq(signature.as_bytes())
-            .into())
+        Ok(computed_sig.as_bytes().ct_eq(signature.as_bytes()).into())
     }
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {
@@ -169,9 +166,7 @@ impl PaymentProvider for NowPaymentsProvider {
                 //
                 // Missing/unparseable fields degrade to the legacy `Completed` (no
                 // amount check) so a real payment is never wrongly rejected.
-                let invoice_amount = data
-                    .get("price_amount")
-                    .and_then(parse_decimal_to_minor);
+                let invoice_amount = data.get("price_amount").and_then(parse_decimal_to_minor);
                 let invoice_currency = data
                     .get("price_currency")
                     .and_then(|v| v.as_str())

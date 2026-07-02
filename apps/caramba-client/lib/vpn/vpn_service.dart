@@ -53,11 +53,8 @@ abstract interface class VpnConnection {
 /// пайплайн статуса несёт `Server?` для подписи на орбе. Здесь собирается
 /// плейсхолдер с именем профиля и нейтральными полями; id<0 помечает его как
 /// не-панельный (никакой узел подписки за ним не стоит).
-Server _rawProfileServer(String label) => Server(
-      id: -1,
-      name: label,
-      status: 'online',
-    );
+Server _rawProfileServer(String label) =>
+    Server(id: -1, name: label, status: 'online');
 
 /// Данные для одноразовой авторизации Go-ядра перед поднятием туннеля.
 ///
@@ -81,10 +78,10 @@ class VpnConfig {
   });
 
   Map<String, dynamic> toArgs() => {
-        'panelUrl': panelUrl,
-        'subscriptionUuid': subscriptionUuid,
-        'accessToken': accessToken,
-      };
+    'panelUrl': panelUrl,
+    'subscriptionUuid': subscriptionUuid,
+    'accessToken': accessToken,
+  };
 
   /// Можно ли вообще конфигурировать ядро (все поля заполнены).
   bool get isComplete =>
@@ -127,7 +124,7 @@ class MethodChannelVpnConnection implements VpnConnection {
   VpnConfig? _appliedConfig;
 
   MethodChannelVpnConnection({VpnConfigResolver? configResolver})
-      : _resolveConfig = configResolver {
+    : _resolveConfig = configResolver {
     _statusSub = _statusEvents.receiveBroadcastStream().listen(
       (event) {
         if (event is Map) {
@@ -266,17 +263,21 @@ class MockVpnConnection implements VpnConnection {
   @override
   Future<void> connect(Server server) async {
     _phaseTimer?.cancel();
-    _emit(VpnStatus(
-      stage: VpnStage.connecting,
-      server: server,
-      detail: 'Securing tunnel',
-    ));
-    _phaseTimer = Timer(const Duration(milliseconds: 1400), () {
-      _emit(VpnStatus(
-        stage: VpnStage.connected,
+    _emit(
+      VpnStatus(
+        stage: VpnStage.connecting,
         server: server,
-        connectedSince: DateTime.now(),
-      ));
+        detail: 'Securing tunnel',
+      ),
+    );
+    _phaseTimer = Timer(const Duration(milliseconds: 1400), () {
+      _emit(
+        VpnStatus(
+          stage: VpnStage.connected,
+          server: server,
+          connectedSince: DateTime.now(),
+        ),
+      );
       _startTraffic();
     });
   }
@@ -289,17 +290,21 @@ class MockVpnConnection implements VpnConnection {
   }) async {
     _phaseTimer?.cancel();
     final server = _rawProfileServer(label);
-    _emit(VpnStatus(
-      stage: VpnStage.connecting,
-      server: server,
-      detail: 'Importing profile',
-    ));
-    _phaseTimer = Timer(const Duration(milliseconds: 1400), () {
-      _emit(VpnStatus(
-        stage: VpnStage.connected,
+    _emit(
+      VpnStatus(
+        stage: VpnStage.connecting,
         server: server,
-        connectedSince: DateTime.now(),
-      ));
+        detail: 'Importing profile',
+      ),
+    );
+    _phaseTimer = Timer(const Duration(milliseconds: 1400), () {
+      _emit(
+        VpnStatus(
+          stage: VpnStage.connected,
+          server: server,
+          connectedSince: DateTime.now(),
+        ),
+      );
       _startTraffic();
     });
   }
@@ -319,12 +324,14 @@ class MockVpnConnection implements VpnConnection {
       final wobble = (_seed * 2654435761) & 0x7fffffff;
       final down = 4 * 1024 * 1024 + (wobble % (10 * 1024 * 1024));
       final up = 256 * 1024 + (wobble % (1024 * 1024));
-      _trafficCtrl.add(TrafficStats(
-        downBps: down,
-        upBps: up,
-        downTotal: down * _seed,
-        upTotal: up * _seed,
-      ));
+      _trafficCtrl.add(
+        TrafficStats(
+          downBps: down,
+          upBps: up,
+          downTotal: down * _seed,
+          upTotal: up * _seed,
+        ),
+      );
     });
   }
 

@@ -58,9 +58,12 @@ fn init_tracing() {
 async fn serve(args: ServeArgs) -> Result<()> {
     init_tracing();
 
-    let signing_key = keys::load_signing_key_pem(&args.signing_key)
-        .context("loading signing key for serve")?;
-    tracing::info!("loaded signing key, public key: {}", keys::pubkey_b64(&signing_key));
+    let signing_key =
+        keys::load_signing_key_pem(&args.signing_key).context("loading signing key for serve")?;
+    tracing::info!(
+        "loaded signing key, public key: {}",
+        keys::pubkey_b64(&signing_key)
+    );
 
     // Validate the store loads (creates an empty in-memory store if missing).
     let store_path = PathBuf::from(&args.store);
@@ -121,7 +124,9 @@ fn issue(args: IssueArgs) -> Result<()> {
         note: args.note,
     };
     store.keys.insert(license_key.clone(), entry);
-    store.save(&store_path).context("saving key store after issue")?;
+    store
+        .save(&store_path)
+        .context("saving key store after issue")?;
 
     println!("Issued license key:");
     println!("  key:        {license_key}");

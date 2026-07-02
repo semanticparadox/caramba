@@ -136,7 +136,9 @@ pub async fn get_ticket(
         Err(e) => {
             use crate::services::tickets_service::TicketError;
             match e {
-                TicketError::NotFound => (StatusCode::NOT_FOUND, "Ticket not found").into_response(),
+                TicketError::NotFound => {
+                    (StatusCode::NOT_FOUND, "Ticket not found").into_response()
+                }
                 TicketError::Forbidden => (StatusCode::FORBIDDEN, "Access denied").into_response(),
                 TicketError::Closed => {
                     (StatusCode::UNPROCESSABLE_ENTITY, "Ticket is closed").into_response()
@@ -200,7 +202,11 @@ pub async fn reply_ticket(
         return (StatusCode::BAD_REQUEST, "Reply body is required").into_response();
     }
     if body.chars().count() > 4000 {
-        return (StatusCode::BAD_REQUEST, "Reply exceeds 4000 character limit").into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            "Reply exceeds 4000 character limit",
+        )
+            .into_response();
     }
 
     match state

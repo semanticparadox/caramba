@@ -1,9 +1,4 @@
-use axum::{
-    extract::Request,
-    http::StatusCode,
-    middleware::Next,
-    response::IntoResponse,
-};
+use axum::{extract::Request, http::StatusCode, middleware::Next, response::IntoResponse};
 use subtle::{Choice, ConstantTimeEq};
 
 /// Middleware: проверяет заголовок X-Bot-Token у всех /api/v2/bot/* маршрутов.

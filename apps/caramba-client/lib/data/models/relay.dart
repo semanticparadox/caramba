@@ -9,22 +9,17 @@ class Relay {
   final String desc;
   final String? country; // relay_country для caramba-sub
 
-  const Relay({
-    this.id,
-    required this.name,
-    required this.desc,
-    this.country,
-  });
+  const Relay({this.id, required this.name, required this.desc, this.country});
 
   bool get isOff => id == null;
   bool get isAuto => id == 'auto';
 
   factory Relay.fromJson(Map<String, dynamic> json) => Relay(
-        id: json['id']?.toString(),
-        name: (json['name'] as String?) ?? 'Relay',
-        desc: (json['description'] as String?) ?? '',
-        country: json['country'] as String?,
-      );
+    id: json['id']?.toString(),
+    name: (json['name'] as String?) ?? 'Relay',
+    desc: (json['description'] as String?) ?? '',
+    country: json['country'] as String?,
+  );
 
   /// Один элемент из `GET /api/v2/app/relays` (`AppRelay`):
   /// ```json
@@ -38,9 +33,7 @@ class Relay {
     return Relay(
       id: cc,
       name: (name != null && name.isNotEmpty) ? name : cc,
-      desc: count > 0
-          ? 'Вход через $cc, узлов: $count'
-          : 'Вход через $cc',
+      desc: count > 0 ? 'Вход через $cc, узлов: $count' : 'Вход через $cc',
       country: cc,
     );
   }
@@ -50,11 +43,15 @@ class Relay {
   static List<Relay> fromCountries(List<Relay> countries) {
     if (countries.isEmpty) return defaults;
     return <Relay>[
-      const Relay(name: 'Выкл', desc: 'Прямое подключение к выбранному серверу.'),
       const Relay(
-          id: 'auto',
-          name: 'Авто',
-          desc: 'Приложение выберет устойчивый вход само.'),
+        name: 'Выкл',
+        desc: 'Прямое подключение к выбранному серверу.',
+      ),
+      const Relay(
+        id: 'auto',
+        name: 'Авто',
+        desc: 'Приложение выберет устойчивый вход само.',
+      ),
       ...countries,
     ];
   }
@@ -63,8 +60,17 @@ class Relay {
   /// не отдала список (или для desktop/dev).
   static const defaults = <Relay>[
     Relay(name: 'Выкл', desc: 'Прямое подключение к выбранному серверу.'),
-    Relay(id: 'auto', name: 'Авто', desc: 'Приложение выберет устойчивый вход само.'),
-    Relay(id: 'TR', name: 'Турция', desc: 'Вход через TR, выход через выбранный сервер.', country: 'TR'),
+    Relay(
+      id: 'auto',
+      name: 'Авто',
+      desc: 'Приложение выберет устойчивый вход само.',
+    ),
+    Relay(
+      id: 'TR',
+      name: 'Турция',
+      desc: 'Вход через TR, выход через выбранный сервер.',
+      country: 'TR',
+    ),
     Relay(id: 'KZ', name: 'Казахстан', desc: 'Вход через KZ.', country: 'KZ'),
     Relay(id: 'FI', name: 'Финляндия', desc: 'Вход через FI.', country: 'FI'),
   ];

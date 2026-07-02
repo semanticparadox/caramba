@@ -26,10 +26,8 @@ class AppShell extends StatelessWidget {
 
   int get _currentIndex => navigationShell.currentIndex;
 
-  void _go(int index) => navigationShell.goBranch(
-        index,
-        initialLocation: index == _currentIndex,
-      );
+  void _go(int index) =>
+      navigationShell.goBranch(index, initialLocation: index == _currentIndex);
 
   @override
   Widget build(BuildContext context) {
@@ -51,8 +49,11 @@ class AppShell extends StatelessWidget {
                 for (final d in _destinations)
                   NavigationRailDestination(
                     icon: LucideIcon(d.glyph, color: c.textLow, size: 22),
-                    selectedIcon:
-                        LucideIcon(d.glyph, color: c.textHi, size: 22),
+                    selectedIcon: LucideIcon(
+                      d.glyph,
+                      color: c.textHi,
+                      size: 22,
+                    ),
                     label: Text(d.label),
                   ),
               ],
@@ -77,10 +78,7 @@ class AppShell extends StatelessWidget {
       backgroundColor: c.bgCanvas,
       extendBody: true,
       body: navigationShell,
-      bottomNavigationBar: _BottomNav(
-        currentIndex: _currentIndex,
-        onTap: _go,
-      ),
+      bottomNavigationBar: _BottomNav(currentIndex: _currentIndex, onTap: _go),
     );
   }
 }
@@ -102,7 +100,10 @@ class _BottomNav extends StatelessWidget {
           decoration: BoxDecoration(
             color: c.bgCanvas.withValues(alpha: 0.92),
             border: Border(
-              top: BorderSide(color: c.borderSubtle, width: AppBorders.hairline),
+              top: BorderSide(
+                color: c.borderSubtle,
+                width: AppBorders.hairline,
+              ),
             ),
           ),
           padding: EdgeInsets.only(bottom: bottomInset),

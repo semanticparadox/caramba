@@ -10,15 +10,15 @@ use askama_web::WebTemplate;
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::{Html, IntoResponse, Response},
 };
 use axum_extra::extract::cookie::CookieJar;
 use tracing::error;
 
 use super::auth::get_auth_user;
-use crate::services::backup_service::{self, BackupInfo};
 use crate::AppState;
+use crate::services::backup_service::{self, BackupInfo};
 
 // ────────────────────────────────────────────────────────────────────────────
 // Шаблон
@@ -163,26 +163,17 @@ async fn render_page(state: &AppState, jar: &CookieJar, flash: Option<String>) -
 // ────────────────────────────────────────────────────────────────────────────
 
 /// GET {admin_path}/backups — страница управления резервными копиями.
-pub async fn get_backups_page(
-    State(state): State<AppState>,
-    jar: CookieJar,
-) -> impl IntoResponse {
+pub async fn get_backups_page(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {
     render_page(&state, &jar, None).await
 }
 
 /// POST {admin_path}/backups/create — немедленно создаёт резервную копию.
 /// После завершения (или ошибки) возвращает страницу с flash-сообщением.
-pub async fn create_backup_now(
-    State(state): State<AppState>,
-    jar: CookieJar,
-) -> impl IntoResponse {
+pub async fn create_backup_now(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {
     let flash = match backup_service::create_backup().await {
         Ok(info) => {
             // Обновляем task_health — чтобы панель знала что задача отработала
-            state
-                .task_health
-                .record_success("daily_db_backup")
-                .await;
+            state.task_health.record_success("daily_db_backup").await;
             format!(
                 "Backup created: {} ({}, {}ms)",
                 info.filename,
@@ -211,28 +202,23 @@ pub async fn download_backup(
 ) -> Response {
     match backup_service::backup_file_path(&filename) {
         Err(e) => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
-        Ok(path) => {
-            match tokio::fs::read(&path).await {
-                Err(e) => {
-                    error!("Cannot read backup file {:?}: {}", path, e);
-                    (StatusCode::INTERNAL_SERVER_ERROR, "File read error").into_response()
-                }
-                Ok(bytes) => {
-                    Response::builder()
-                        .status(StatusCode::OK)
-                        .header(header::CONTENT_TYPE, "application/gzip")
-                        .header(
-                            header::CONTENT_DISPOSITION,
-                            format!("attachment; filename=\"{}\"", filename),
-                        )
-                        .body(Body::from(bytes))
-                        .unwrap_or_else(|_| {
-                            (StatusCode::INTERNAL_SERVER_ERROR, "Response build error")
-                                .into_response()
-                        })
-                }
+        Ok(path) => match tokio::fs::read(&path).await {
+            Err(e) => {
+                error!("Cannot read backup file {:?}: {}", path, e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "File read error").into_response()
             }
-        }
+            Ok(bytes) => Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/gzip")
+                .header(
+                    header::CONTENT_DISPOSITION,
+                    format!("attachment; filename=\"{}\"", filename),
+                )
+                .body(Body::from(bytes))
+                .unwrap_or_else(|_| {
+                    (StatusCode::INTERNAL_SERVER_ERROR, "Response build error").into_response()
+                }),
+        },
     }
 }
 

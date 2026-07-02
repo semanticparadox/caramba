@@ -2,13 +2,7 @@ import 'package:caramba_client/data/models/server.dart';
 
 /// Фаза туннеля — отражает state-машину из DESIGN.md §4
 /// (disconnected → connecting → connected → error, + reconnecting).
-enum VpnStage {
-  disconnected,
-  connecting,
-  connected,
-  reconnecting,
-  error,
-}
+enum VpnStage { disconnected, connecting, connected, reconnecting, error }
 
 /// Снимок состояния VPN-соединения, который эмитит нативное ядро (mihomo через
 /// gomobile) и потребляет UI/`vpnProvider`.
@@ -32,10 +26,10 @@ class VpnStatus {
   });
 
   const VpnStatus.disconnected()
-      : stage = VpnStage.disconnected,
-        server = null,
-        detail = null,
-        connectedSince = null;
+    : stage = VpnStage.disconnected,
+      server = null,
+      detail = null,
+      connectedSince = null;
 
   bool get isConnected => stage == VpnStage.connected;
   bool get isBusy =>
@@ -79,13 +73,12 @@ class VpnStatus {
     Server? server,
     String? detail,
     DateTime? connectedSince,
-  }) =>
-      VpnStatus(
-        stage: stage ?? this.stage,
-        server: server ?? this.server,
-        detail: detail ?? this.detail,
-        connectedSince: connectedSince ?? this.connectedSince,
-      );
+  }) => VpnStatus(
+    stage: stage ?? this.stage,
+    server: server ?? this.server,
+    detail: detail ?? this.detail,
+    connectedSince: connectedSince ?? this.connectedSince,
+  );
 }
 
 /// Мгновенная пропускная способность и накопленные счётчики туннеля.
@@ -112,9 +105,9 @@ class TrafficStats {
   static const zero = TrafficStats();
 
   factory TrafficStats.fromMap(Map<dynamic, dynamic> map) => TrafficStats(
-        downBps: (map['downBps'] as num?)?.toInt() ?? 0,
-        upBps: (map['upBps'] as num?)?.toInt() ?? 0,
-        downTotal: (map['downTotal'] as num?)?.toInt() ?? 0,
-        upTotal: (map['upTotal'] as num?)?.toInt() ?? 0,
-      );
+    downBps: (map['downBps'] as num?)?.toInt() ?? 0,
+    upBps: (map['upBps'] as num?)?.toInt() ?? 0,
+    downTotal: (map['downTotal'] as num?)?.toInt() ?? 0,
+    upTotal: (map['upTotal'] as num?)?.toInt() ?? 0,
+  );
 }

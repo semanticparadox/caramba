@@ -93,8 +93,10 @@ Future<VpnConfig?> _resolveVpnConfig(Ref ref) async {
 /// чтобы голый `flutter run` (CI/dev без собранных нативных либ) показывал UI на
 /// моке и не ловил MissingPluginException на незарегистрированном канале.
 /// Поднимать флагом сборки: `flutter run --dart-define=USE_NATIVE_VPN=true`.
-const bool _nativeVpnEnabled =
-    bool.fromEnvironment('USE_NATIVE_VPN', defaultValue: false);
+const bool _nativeVpnEnabled = bool.fromEnvironment(
+  'USE_NATIVE_VPN',
+  defaultValue: false,
+);
 
 /// Нативный путь доступен на всех 5 десктоп/мобильных платформах (плагин
 /// `caramba_vpn` регистрирует `com.caramba/vpn` на каждой). Web — всегда мок.

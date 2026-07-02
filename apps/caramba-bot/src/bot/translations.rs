@@ -1,7 +1,7 @@
 /// Get translated string. `lang` is user's language_code (e.g. Some("ru"), Some("en"), None).
 /// Returns Russian for "ru*", English for everything else.
 pub fn t(lang: Option<&str>, key: &str) -> &'static str {
-    let is_ru = lang.map_or(true, |l| l.starts_with("ru")); // Default to Russian
+    let is_ru = lang.is_none_or(|l| l.starts_with("ru")); // Default to Russian
     match (key, is_ru) {
         // =====================================================================
         // Keyboard buttons (main menu)

@@ -107,9 +107,8 @@ class SubPlan {
     return SubPlan(
       id: (json['id'] as num?)?.toInt() ?? 0,
       subscriptionUuid: (json['subscription_uuid'] as String?) ?? '',
-      name: (json['plan_name'] as String?) ??
-          (json['name'] as String?) ??
-          'План',
+      name:
+          (json['plan_name'] as String?) ?? (json['name'] as String?) ?? 'План',
       kind: kind,
       status: (json['status'] as String?) ?? 'active',
       icon: switch (kind) {
@@ -184,8 +183,11 @@ class Device {
   factory Device.fromJson(Map<String, dynamic> json) {
     final ua = (json['user_agent'] as String?)?.toLowerCase() ?? '';
     final name =
-        (json['name'] as String?) ?? (json['display_name'] as String?) ?? 'Устройство';
-    final isPhone = ua.contains('iphone') ||
+        (json['name'] as String?) ??
+        (json['display_name'] as String?) ??
+        'Устройство';
+    final isPhone =
+        ua.contains('iphone') ||
         ua.contains('android') ||
         ua.contains('mobile') ||
         name.toLowerCase().contains('iphone') ||
@@ -240,16 +242,17 @@ class ReferralEntry {
   String get earnedLabel => ReferralInfo.formatMinor(earnedCents);
 
   factory ReferralEntry.fromJson(Map<String, dynamic> json) => ReferralEntry(
-        usernameMasked: (json['username_masked'] as String?) ??
-            (json['username'] as String?) ??
-            '',
-        joinedAt: SubPlan._parseDate(json['joined_at']),
-        status: switch ((json['status'] as String?) ?? 'registered') {
-          'purchased' => ReferralStatus.purchased,
-          _ => ReferralStatus.registered,
-        },
-        earnedCents: (json['earned'] as num?)?.toInt() ?? 0,
-      );
+    usernameMasked:
+        (json['username_masked'] as String?) ??
+        (json['username'] as String?) ??
+        '',
+    joinedAt: SubPlan._parseDate(json['joined_at']),
+    status: switch ((json['status'] as String?) ?? 'registered') {
+      'purchased' => ReferralStatus.purchased,
+      _ => ReferralStatus.registered,
+    },
+    earnedCents: (json['earned'] as num?)?.toInt() ?? 0,
+  );
 }
 
 /// Реферальная сводка (`AppReferrals` из `app_account.rs`,
@@ -327,21 +330,23 @@ class ReferralInfo {
   factory ReferralInfo.fromJson(Map<String, dynamic> json) {
     final list = (json['referrals'] as List?) ?? const [];
     return ReferralInfo(
-      code: (json['referral_code'] as String?) ??
-          (json['code'] as String?) ??
-          '',
-      invited: (json['invited_count'] as num?)?.toInt() ??
+      code:
+          (json['referral_code'] as String?) ?? (json['code'] as String?) ?? '',
+      invited:
+          (json['invited_count'] as num?)?.toInt() ??
           (json['invited'] as num?)?.toInt() ??
           list.length,
       // Минорные единицы из контракта; терпим legacy bonus_cents.
-      balanceCents: (json['balance'] as num?)?.toInt() ??
+      balanceCents:
+          (json['balance'] as num?)?.toInt() ??
           (json['balance_cents'] as num?)?.toInt() ??
           0,
       balanceEarnedCents: (json['balance_earned'] as num?)?.toInt() ?? 0,
       rewardPercent: (json['reward_percent'] as num?)?.toInt() ?? 20,
       refereeDiscountPercent:
           (json['referee_discount_percent'] as num?)?.toInt() ?? 15,
-      shareLink: (json['referral_link'] as String?) ??
+      shareLink:
+          (json['referral_link'] as String?) ??
           (json['share_link'] as String?) ??
           '',
       botLink: json['bot_link'] as String?,
@@ -379,12 +384,12 @@ class FamilyMember {
   }
 
   factory FamilyMember.fromJson(Map<String, dynamic> json) => FamilyMember(
-        userId: (json['user_id'] as num?)?.toInt() ?? 0,
-        username: json['username'] as String?,
-        fullName: json['full_name'] as String?,
-        hasActiveSub: (json['has_active_sub'] as bool?) ?? false,
-        joinedAt: SubPlan._parseDate(json['joined_at']),
-      );
+    userId: (json['user_id'] as num?)?.toInt() ?? 0,
+    username: json['username'] as String?,
+    fullName: json['full_name'] as String?,
+    hasActiveSub: (json['has_active_sub'] as bool?) ?? false,
+    joinedAt: SubPlan._parseDate(json['joined_at']),
+  );
 }
 
 /// Семья пользователя (`FamilyResponse`).
@@ -395,12 +400,12 @@ class Family {
   const Family({this.isParent = false, this.members = const []});
 
   factory Family.fromJson(Map<String, dynamic> json) => Family(
-        isParent: (json['is_parent'] as bool?) ?? false,
-        members: ((json['members'] as List?) ?? const [])
-            .whereType<Map>()
-            .map((e) => FamilyMember.fromJson(e.cast<String, dynamic>()))
-            .toList(growable: false),
-      );
+    isParent: (json['is_parent'] as bool?) ?? false,
+    members: ((json['members'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((e) => FamilyMember.fromJson(e.cast<String, dynamic>()))
+        .toList(growable: false),
+  );
 }
 
 /// Инвайт в семью (`FamilyInviteResponse`).
@@ -421,9 +426,9 @@ class FamilyInvite {
   String get inviteLink => 'https://t.me/exarobot?start=family-$code';
 
   factory FamilyInvite.fromJson(Map<String, dynamic> json) => FamilyInvite(
-        code: (json['code'] as String?) ?? '',
-        expiresAt: SubPlan._parseDate(json['expires_at']),
-        maxUses: (json['max_uses'] as num?)?.toInt() ?? 1,
-        usedCount: (json['used_count'] as num?)?.toInt() ?? 0,
-      );
+    code: (json['code'] as String?) ?? '',
+    expiresAt: SubPlan._parseDate(json['expires_at']),
+    maxUses: (json['max_uses'] as num?)?.toInt() ?? 1,
+    usedCount: (json['used_count'] as num?)?.toInt() ?? 0,
+  );
 }

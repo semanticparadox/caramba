@@ -58,21 +58,20 @@ class CoreConfig {
     bool? autoConnect,
     SplitMode? splitMode,
     Set<String>? splitApps,
-  }) =>
-      CoreConfig(
-        protocol: protocol ?? this.protocol,
-        route: route ?? this.route,
-        relay: relay ?? this.relay,
-        stack: stack ?? this.stack,
-        dns: dns ?? this.dns,
-        mtu: mtu ?? this.mtu,
-        fakeIp: fakeIp ?? this.fakeIp,
-        ipv6: ipv6 ?? this.ipv6,
-        killSwitch: killSwitch ?? this.killSwitch,
-        autoConnect: autoConnect ?? this.autoConnect,
-        splitMode: splitMode ?? this.splitMode,
-        splitApps: splitApps ?? this.splitApps,
-      );
+  }) => CoreConfig(
+    protocol: protocol ?? this.protocol,
+    route: route ?? this.route,
+    relay: relay ?? this.relay,
+    stack: stack ?? this.stack,
+    dns: dns ?? this.dns,
+    mtu: mtu ?? this.mtu,
+    fakeIp: fakeIp ?? this.fakeIp,
+    ipv6: ipv6 ?? this.ipv6,
+    killSwitch: killSwitch ?? this.killSwitch,
+    autoConnect: autoConnect ?? this.autoConnect,
+    splitMode: splitMode ?? this.splitMode,
+    splitApps: splitApps ?? this.splitApps,
+  );
 }
 
 class CoreConfigNotifier extends StateNotifier<CoreConfig> {
@@ -105,16 +104,18 @@ class CoreConfigNotifier extends StateNotifier<CoreConfig> {
 
 final coreConfigProvider =
     StateNotifierProvider<CoreConfigNotifier, CoreConfig>(
-  (ref) => CoreConfigNotifier(),
-);
+      (ref) => CoreConfigNotifier(),
+    );
 
 /// Список протоколов (пока статичный набор caramba-core).
-final protocolsProvider =
-    Provider<List<ProtocolOption>>((ref) => ProtocolOption.defaults);
+final protocolsProvider = Provider<List<ProtocolOption>>(
+  (ref) => ProtocolOption.defaults,
+);
 
 /// Список пресетов маршрутизации.
-final routingModesProvider =
-    Provider<List<RoutingMode>>((ref) => RoutingMode.defaults);
+final routingModesProvider = Provider<List<RoutingMode>>(
+  (ref) => RoutingMode.defaults,
+);
 
 /// Список relay-входов для синхронного чтения (Home config-row). Берёт реальные
 /// relay-страны из [apiRelaysProvider] когда они загружены, иначе [Relay.defaults].
@@ -125,5 +126,4 @@ final relaysProvider = Provider<List<Relay>>((ref) {
 
 /// Установленные приложения для split-tunnel (демо/desktop; на мобильных
 /// заменится платформенным каналом перечисления приложений).
-final installedAppsProvider =
-    Provider<List<SplitApp>>((ref) => SplitApp.demo);
+final installedAppsProvider = Provider<List<SplitApp>>((ref) => SplitApp.demo);

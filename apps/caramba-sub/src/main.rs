@@ -5,12 +5,12 @@ use axum::{
     routing::get,
     Router,
 };
+use caramba_shared::self_update::{apply_self_update, restart_service};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use caramba_shared::self_update::{apply_self_update, restart_service};
 
 mod config;
 mod geo_service;
@@ -136,18 +136,22 @@ impl AppState {
             panel_client::PanelClient::new(config.panel_url.clone(), config.auth_token.clone());
 
         // Инициализируем Redis клиент из переменной окружения REDIS_URL (опционально)
-        let redis_client = std::env::var("REDIS_URL").ok().and_then(|url| {
-            match redis::Client::open(url.as_str()) {
-                Ok(client) => {
-                    tracing::info!("Redis cache enabled for subscription configs");
-                    Some(client)
+        let redis_client =
+            std::env::var("REDIS_URL").ok().and_then(|url| {
+                match redis::Client::open(url.as_str()) {
+                    Ok(client) => {
+                        tracing::info!("Redis cache enabled for subscription configs");
+                        Some(client)
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to initialize Redis client (caching disabled): {}",
+                            e
+                        );
+                        None
+                    }
                 }
-                Err(e) => {
-                    tracing::warn!("Failed to initialize Redis client (caching disabled): {}", e);
-                    None
-                }
-            }
-        });
+            });
 
         Self {
             config,
@@ -220,7 +224,6 @@ fn local_sub_worker_id(config: &FrontendConfig) -> String {
     let hostname = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown-host".to_string());
     format!("sub:{}", hostname)
 }
-
 
 fn start_worker_update_loop(state: AppState) {
     tokio::spawn(async move {

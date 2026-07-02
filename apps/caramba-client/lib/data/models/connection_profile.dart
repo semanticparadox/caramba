@@ -98,17 +98,17 @@ class ConnectionProfile {
       );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'type': type.name,
-        'display_name': displayName,
-        'source': source,
-        'panel_url': panelUrl,
-        'subscription_uuid': subscriptionUuid,
-        'access_token': accessToken,
-        'raw_config': rawConfig,
-        'branding_cache': brandingCache,
-        'last_active_ms': lastActiveMs,
-      };
+    'id': id,
+    'type': type.name,
+    'display_name': displayName,
+    'source': source,
+    'panel_url': panelUrl,
+    'subscription_uuid': subscriptionUuid,
+    'access_token': accessToken,
+    'raw_config': rawConfig,
+    'branding_cache': brandingCache,
+    'last_active_ms': lastActiveMs,
+  };
 
   ConnectionProfile copyWith({
     String? id,
@@ -121,19 +121,18 @@ class ConnectionProfile {
     String? rawConfig,
     Map<String, dynamic>? brandingCache,
     int? lastActiveMs,
-  }) =>
-      ConnectionProfile(
-        id: id ?? this.id,
-        type: type ?? this.type,
-        displayName: displayName ?? this.displayName,
-        source: source ?? this.source,
-        panelUrl: panelUrl ?? this.panelUrl,
-        subscriptionUuid: subscriptionUuid ?? this.subscriptionUuid,
-        accessToken: accessToken ?? this.accessToken,
-        rawConfig: rawConfig ?? this.rawConfig,
-        brandingCache: brandingCache ?? this.brandingCache,
-        lastActiveMs: lastActiveMs ?? this.lastActiveMs,
-      );
+  }) => ConnectionProfile(
+    id: id ?? this.id,
+    type: type ?? this.type,
+    displayName: displayName ?? this.displayName,
+    source: source ?? this.source,
+    panelUrl: panelUrl ?? this.panelUrl,
+    subscriptionUuid: subscriptionUuid ?? this.subscriptionUuid,
+    accessToken: accessToken ?? this.accessToken,
+    rawConfig: rawConfig ?? this.rawConfig,
+    brandingCache: brandingCache ?? this.brandingCache,
+    lastActiveMs: lastActiveMs ?? this.lastActiveMs,
+  );
 
   /// Тивкость: branding мог быть как map, так и строкой-JSON (старые записи).
   static Map<String, dynamic>? _decodeBranding(Object? v) {

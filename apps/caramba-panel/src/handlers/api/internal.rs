@@ -1,9 +1,9 @@
 use crate::AppState;
 use axum::{
+    Json,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    Json,
 };
 use caramba_db::models::network::Inbound;
 use caramba_db::models::node::Node;
@@ -48,10 +48,10 @@ async fn is_valid_frontend_token(state: &AppState, token: &str) -> bool {
     .unwrap_or_default();
 
     for row in rows {
-        if let Some(expires_at) = row.token_expires_at {
-            if expires_at < Utc::now() {
-                continue;
-            }
+        if let Some(expires_at) = row.token_expires_at
+            && expires_at < Utc::now()
+        {
+            continue;
         }
 
         if let Some(hash) = row.auth_token_hash {
@@ -59,12 +59,11 @@ async fn is_valid_frontend_token(state: &AppState, token: &str) -> bool {
             // чтобы не блокировать Tokio executor
             let token_clone = token.to_owned();
             let hash_clone = hash.clone();
-            let verified = tokio::task::spawn_blocking(move || {
-                bcrypt::verify(&token_clone, &hash_clone)
-            })
-            .await
-            .unwrap_or(Ok(false))
-            .unwrap_or(false);
+            let verified =
+                tokio::task::spawn_blocking(move || bcrypt::verify(&token_clone, &hash_clone))
+                    .await
+                    .unwrap_or(Ok(false))
+                    .unwrap_or(false);
             if verified {
                 return true;
             }

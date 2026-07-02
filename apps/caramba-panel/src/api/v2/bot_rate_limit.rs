@@ -111,11 +111,7 @@ fn rate_limited_response(retry_after_secs: u64) -> Response {
 /// При недоступности Redis пропускаем запрос с предупреждением в лог —
 /// мы предпочитаем доступность защите при деградации инфраструктуры.
 /// (Это соответствует поведению auth.rs в той же ситуации.)
-pub async fn bot_rate_limit(
-    State(state): State<AppState>,
-    req: Request,
-    next: Next,
-) -> Response {
+pub async fn bot_rate_limit(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let path = req.uri().path().to_owned();
 
     // ── Шаг 1: endpoint-специфичные лимиты ──────────────────────────────────

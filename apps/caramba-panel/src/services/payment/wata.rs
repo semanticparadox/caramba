@@ -96,10 +96,10 @@ impl WataProvider {
 
         if !force_refresh {
             let guard = cache.lock().await;
-            if let Some(cached) = guard.as_ref() {
-                if cached.fetched_at.elapsed() < PUBLIC_KEY_TTL {
-                    return Ok(cached.pem.clone());
-                }
+            if let Some(cached) = guard.as_ref()
+                && cached.fetched_at.elapsed() < PUBLIC_KEY_TTL
+            {
+                return Ok(cached.pem.clone());
             }
         }
 
@@ -206,7 +206,8 @@ impl PaymentProvider for WataProvider {
             .await
             .context("Не удалось разобрать ответ WATA")?;
 
-        resp.url.ok_or_else(|| anyhow::anyhow!("WATA API не вернул ссылку для оплаты"))
+        resp.url
+            .ok_or_else(|| anyhow::anyhow!("WATA API не вернул ссылку для оплаты"))
     }
 
     /// Проверяет подпись вебхука WATA.
@@ -249,16 +250,14 @@ impl PaymentProvider for WataProvider {
     }
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {
-        let data: Value = serde_json::from_slice(payload).context("Неверный JSON в вебхуке WATA")?;
+        let data: Value =
+            serde_json::from_slice(payload).context("Неверный JSON в вебхуке WATA")?;
 
         let status = data
             .get("transactionStatus")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let order_id = data
-            .get("orderId")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let order_id = data.get("orderId").and_then(|v| v.as_str()).unwrap_or("");
 
         if order_id.is_empty() {
             return Ok(PaymentWebhookAction::Ignored);

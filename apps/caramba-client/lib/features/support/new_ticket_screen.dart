@@ -39,7 +39,9 @@ class _NewTicketScreenState extends ConsumerState<NewTicketScreen> {
     if (!_valid || _sending) return;
     setState(() => _sending = true);
     try {
-      final id = await ref.read(apiClientProvider).createTicket(
+      final id = await ref
+          .read(apiClientProvider)
+          .createTicket(
             subject: _subject.text.trim(),
             message: _message.text.trim(),
           );
@@ -82,8 +84,10 @@ class _NewTicketScreenState extends ConsumerState<NewTicketScreen> {
               style: AppType.bodyMd.copyWith(color: c.textMed),
             ),
             const SizedBox(height: AppSpace.s5),
-            SectionTitle('Тема',
-                padding: const EdgeInsets.only(bottom: AppSpace.s2)),
+            SectionTitle(
+              'Тема',
+              padding: const EdgeInsets.only(bottom: AppSpace.s2),
+            ),
             _field(
               context,
               controller: _subject,
@@ -92,8 +96,10 @@ class _NewTicketScreenState extends ConsumerState<NewTicketScreen> {
               onChanged: () => setState(() {}),
             ),
             const SizedBox(height: AppSpace.s5),
-            SectionTitle('Сообщение',
-                padding: const EdgeInsets.only(bottom: AppSpace.s2)),
+            SectionTitle(
+              'Сообщение',
+              padding: const EdgeInsets.only(bottom: AppSpace.s2),
+            ),
             _field(
               context,
               controller: _message,
@@ -110,7 +116,9 @@ class _NewTicketScreenState extends ConsumerState<NewTicketScreen> {
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: c.textOnAccent),
+                        strokeWidth: 2,
+                        color: c.textOnAccent,
+                      ),
                     )
                   : const Text('Отправить'),
             ),
@@ -141,7 +149,9 @@ class _NewTicketScreenState extends ConsumerState<NewTicketScreen> {
         filled: true,
         fillColor: c.surface1,
         contentPadding: const EdgeInsets.symmetric(
-            horizontal: AppSpace.s4, vertical: AppSpace.s3),
+          horizontal: AppSpace.s4,
+          vertical: AppSpace.s3,
+        ),
         border: OutlineInputBorder(
           borderRadius: AppRadius.r14,
           borderSide: BorderSide(color: c.borderSubtle),

@@ -128,19 +128,15 @@ impl PaymentProvider for CrystalPayProvider {
         let body_str = std::str::from_utf8(payload).unwrap_or("");
 
         // Разбираем как JSON (основной режим в v3).
-        let data: Value = serde_json::from_str(body_str)
-            .unwrap_or_else(|_| {
-                // Fallback: form-urlencoded (устаревший режим)
-                let params: std::collections::HashMap<String, String> =
-                    serde_urlencoded::from_str(body_str).unwrap_or_default();
-                serde_json::to_value(params).unwrap_or(serde_json::json!({}))
-            });
+        let data: Value = serde_json::from_str(body_str).unwrap_or_else(|_| {
+            // Fallback: form-urlencoded (устаревший режим)
+            let params: std::collections::HashMap<String, String> =
+                serde_urlencoded::from_str(body_str).unwrap_or_default();
+            serde_json::to_value(params).unwrap_or(serde_json::json!({}))
+        });
 
         let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
-        let received_sig = data
-            .get("signature")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let received_sig = data.get("signature").and_then(|v| v.as_str()).unwrap_or("");
 
         if id.is_empty() || received_sig.is_empty() {
             return Ok(false);
@@ -160,12 +156,11 @@ impl PaymentProvider for CrystalPayProvider {
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {
         let body_str = std::str::from_utf8(payload).unwrap_or("");
 
-        let data: Value = serde_json::from_str(body_str)
-            .unwrap_or_else(|_| {
-                let params: std::collections::HashMap<String, String> =
-                    serde_urlencoded::from_str(body_str).unwrap_or_default();
-                serde_json::to_value(params).unwrap_or(serde_json::json!({}))
-            });
+        let data: Value = serde_json::from_str(body_str).unwrap_or_else(|_| {
+            let params: std::collections::HashMap<String, String> =
+                serde_urlencoded::from_str(body_str).unwrap_or_default();
+            serde_json::to_value(params).unwrap_or(serde_json::json!({}))
+        });
 
         // CrystalPay называет поле статуса `state` (НЕ `status`).
         // Возможные значения: created, notpayed, processing, wrongamount, failed,
@@ -173,10 +168,7 @@ impl PaymentProvider for CrystalPayProvider {
         // Источник: docs.crystalpay.io/metody-api/invoice-platezhi.
         let state = data.get("state").and_then(|v| v.as_str()).unwrap_or("");
         // extra хранит session UUID, переданный при создании инвойса.
-        let order_id = data
-            .get("extra")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let order_id = data.get("extra").and_then(|v| v.as_str()).unwrap_or("");
 
         if order_id.is_empty() {
             return Ok(PaymentWebhookAction::Ignored);

@@ -37,17 +37,15 @@ impl TaskHealthRegistry {
     /// Записываем успешное выполнение задачи — обновляем счётчики и временные метки.
     pub async fn record_success(&self, name: &str) {
         let mut tasks = self.tasks.write().await;
-        let entry = tasks
-            .entry(name.to_string())
-            .or_insert_with(|| TaskHealth {
-                name: name.to_string(),
-                last_run: None,
-                last_success: None,
-                last_error: None,
-                run_count: 0,
-                error_count: 0,
-                consecutive_errors: 0,
-            });
+        let entry = tasks.entry(name.to_string()).or_insert_with(|| TaskHealth {
+            name: name.to_string(),
+            last_run: None,
+            last_success: None,
+            last_error: None,
+            run_count: 0,
+            error_count: 0,
+            consecutive_errors: 0,
+        });
         entry.last_run = Some(Utc::now());
         entry.last_success = Some(Utc::now());
         entry.run_count += 1;
@@ -60,17 +58,15 @@ impl TaskHealthRegistry {
     /// alert admins ONCE per stuck-task incident. Returns `None` otherwise.
     pub async fn record_error(&self, name: &str, error: &str) -> Option<u64> {
         let mut tasks = self.tasks.write().await;
-        let entry = tasks
-            .entry(name.to_string())
-            .or_insert_with(|| TaskHealth {
-                name: name.to_string(),
-                last_run: None,
-                last_success: None,
-                last_error: None,
-                run_count: 0,
-                error_count: 0,
-                consecutive_errors: 0,
-            });
+        let entry = tasks.entry(name.to_string()).or_insert_with(|| TaskHealth {
+            name: name.to_string(),
+            last_run: None,
+            last_success: None,
+            last_error: None,
+            run_count: 0,
+            error_count: 0,
+            consecutive_errors: 0,
+        });
         entry.last_run = Some(Utc::now());
         entry.last_error = Some(error.to_string());
         entry.run_count += 1;

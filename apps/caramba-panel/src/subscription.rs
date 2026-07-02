@@ -4,7 +4,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
-use sqlx;
 use tracing::{error, warn};
 
 use crate::AppState;
@@ -56,10 +55,10 @@ fn parse_ip_maybe(value: &str) -> Option<std::net::IpAddr> {
     if let Ok(sock) = value.parse::<std::net::SocketAddr>() {
         return Some(canonicalize_ip(sock.ip()));
     }
-    if let Some((host, _port)) = value.rsplit_once(':') {
-        if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-            return Some(canonicalize_ip(ip));
-        }
+    if let Some((host, _port)) = value.rsplit_once(':')
+        && let Ok(ip) = host.parse::<std::net::IpAddr>()
+    {
+        return Some(canonicalize_ip(ip));
     }
     None
 }
@@ -105,34 +104,6 @@ where
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::filter_nodes_for_subscription;
-
-    #[derive(Clone, Debug, PartialEq, Eq)]
-    struct TestNode {
-        id: i64,
-    }
-
-    #[test]
-    fn keeps_full_node_set_when_subscription_has_last_selected_node() {
-        let nodes = vec![TestNode { id: 1 }, TestNode { id: 2 }, TestNode { id: 3 }];
-
-        let filtered = filter_nodes_for_subscription(nodes.clone(), None, |node| node.id);
-
-        assert_eq!(filtered, nodes);
-    }
-
-    #[test]
-    fn scopes_nodes_only_when_request_explicitly_targets_node() {
-        let nodes = vec![TestNode { id: 1 }, TestNode { id: 2 }, TestNode { id: 3 }];
-
-        let filtered = filter_nodes_for_subscription(nodes, Some(2), |node| node.id);
-
-        assert_eq!(filtered, vec![TestNode { id: 2 }]);
-    }
-}
-
 pub async fn subscription_handler(
     Path(uuid): Path<String>,
     Query(params): Query<SubParams>,
@@ -144,21 +115,24 @@ pub async fn subscription_handler(
         .settings
         .get_or_default("subscription_domain", "")
         .await;
-    if !sub_domain.is_empty() {
-        if let Some(host) = req
+    if !sub_domain.is_empty()
+        && let Some(host) = req
             .headers()
             .get(header::HOST)
             .and_then(|h| h.to_str().ok())
-        {
-            let host_clean = host.split(':').next().unwrap_or(host);
-            let sub_domain_clean = sub_domain.split(':').next().unwrap_or(&sub_domain);
+    {
+        let host_clean = host.split(':').next().unwrap_or(host);
+        let sub_domain_clean = sub_domain.split(':').next().unwrap_or(&sub_domain);
 
-            if host_clean != sub_domain_clean {
-                let proto = "https";
-                let query = req.uri().query().map(|q| format!("?{}", q)).unwrap_or_default();
-                let full_url = format!("{}://{}/sub/{}{}", proto, sub_domain, uuid, query);
-                return axum::response::Redirect::permanent(&full_url).into_response();
-            }
+        if host_clean != sub_domain_clean {
+            let proto = "https";
+            let query = req
+                .uri()
+                .query()
+                .map(|q| format!("?{}", q))
+                .unwrap_or_default();
+            let full_url = format!("{}://{}/sub/{}{}", proto, sub_domain, uuid, query);
+            return axum::response::Redirect::permanent(&full_url).into_response();
         }
     }
 
@@ -634,26 +608,31 @@ function copyLink(){{
 
     // Auto-select first (nearest) server for new users who haven't chosen yet.
     // Prevents dumping 40+ outbounds to the client on first subscription fetch.
-    if effective_node_id.is_none() && filtered_nodes.len() > 1 {
-        if let Some(first) = filtered_nodes.first() {
-            let auto_id = first.id;
-            filtered_nodes.retain(|n| n.id == auto_id);
-            let _ = state
-                .subscription_service
-                .update_subscription_node(sub.id, Some(auto_id))
-                .await;
-            tracing::info!("Auto-selected node {} for new subscription {}", auto_id, sub.id);
-        }
+    if effective_node_id.is_none()
+        && filtered_nodes.len() > 1
+        && let Some(first) = filtered_nodes.first()
+    {
+        let auto_id = first.id;
+        filtered_nodes.retain(|n| n.id == auto_id);
+        let _ = state
+            .subscription_service
+            .update_subscription_node(sub.id, Some(auto_id))
+            .await;
+        tracing::info!(
+            "Auto-selected node {} for new subscription {}",
+            auto_id,
+            sub.id
+        );
     }
 
     // Persist last explicitly selected node so UI/miniapp can show where the user last pulled config from.
-    if let Some(selected_node_id) = params.node_id {
-        if filtered_nodes.iter().any(|n| n.id == selected_node_id) {
-            let _ = state
-                .subscription_service
-                .update_subscription_node(sub.id, Some(selected_node_id))
-                .await;
-        }
+    if let Some(selected_node_id) = params.node_id
+        && filtered_nodes.iter().any(|n| n.id == selected_node_id)
+    {
+        let _ = state
+            .subscription_service
+            .update_subscription_node(sub.id, Some(selected_node_id))
+            .await;
     }
 
     let node_infos = match state
@@ -690,7 +669,11 @@ function copyLink(){{
             client_ip, client_country_header
         );
     } else {
-        tracing::debug!("Subscription geo: client_ip={}, country={}", client_ip, client_cc.as_deref().unwrap_or("?"));
+        tracing::debug!(
+            "Subscription geo: client_ip={}, country={}",
+            client_ip,
+            client_cc.as_deref().unwrap_or("?")
+        );
     }
 
     let cache_node_id = effective_node_id.unwrap_or(0);
@@ -745,7 +728,9 @@ function copyLink(){{
     // 2. Persisted relay_country in subscription DB record
     // 3. Auto-detected client country via GeoIP
     // 4. Fallback: include all relays
-    let effective_relay = params.relay_country.clone()
+    let effective_relay = params
+        .relay_country
+        .clone()
         .or_else(|| sub.relay_country.clone());
 
     // Persist relay choice when explicitly provided via URL param
@@ -758,9 +743,7 @@ function copyLink(){{
     }
 
     let relay_filter_cc: Option<String> = match effective_relay.as_deref() {
-        Some("none") | Some("NONE") => {
-            Some("NONE".to_string())
-        }
+        Some("none") | Some("NONE") => Some("NONE".to_string()),
         Some(cc) if cc.len() == 2 => Some(cc.to_uppercase()),
         _ => client_cc.clone(),
     };
@@ -783,10 +766,12 @@ function copyLink(){{
     let (content, content_type, _filename): (String, &'static str, &'static str) = match client_type
     {
         "clash" => {
-            match state
-                .subscription_service
-                .generate_clash(&sub, &node_infos, &user_keys, &relay_nodes)
-            {
+            match state.subscription_service.generate_clash(
+                &sub,
+                &node_infos,
+                &user_keys,
+                &relay_nodes,
+            ) {
                 Ok(c) => (c, "text/yaml; charset=utf-8", "config.yaml"),
                 Err(e) => {
                     error!("Clash gen failed: {}", e);
@@ -796,10 +781,12 @@ function copyLink(){{
             }
         }
         "v2ray" => {
-            match state
-                .subscription_service
-                .generate_v2ray(&sub, &node_infos, &user_keys, &relay_nodes)
-            {
+            match state.subscription_service.generate_v2ray(
+                &sub,
+                &node_infos,
+                &user_keys,
+                &relay_nodes,
+            ) {
                 Ok(c) => (c, "text/plain; charset=utf-8", "config.txt"),
                 Err(e) => {
                     error!("V2Ray gen failed: {}", e);
@@ -849,4 +836,32 @@ function copyLink(){{
         content,
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::filter_nodes_for_subscription;
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct TestNode {
+        id: i64,
+    }
+
+    #[test]
+    fn keeps_full_node_set_when_subscription_has_last_selected_node() {
+        let nodes = vec![TestNode { id: 1 }, TestNode { id: 2 }, TestNode { id: 3 }];
+
+        let filtered = filter_nodes_for_subscription(nodes.clone(), None, |node| node.id);
+
+        assert_eq!(filtered, nodes);
+    }
+
+    #[test]
+    fn scopes_nodes_only_when_request_explicitly_targets_node() {
+        let nodes = vec![TestNode { id: 1 }, TestNode { id: 2 }, TestNode { id: 3 }];
+
+        let filtered = filter_nodes_for_subscription(nodes, Some(2), |node| node.id);
+
+        assert_eq!(filtered, vec![TestNode { id: 2 }]);
+    }
 }

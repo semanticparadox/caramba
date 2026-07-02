@@ -36,7 +36,7 @@ pub fn terms_keyboard(lang: Option<&str>) -> InlineKeyboardMarkup {
 }
 
 pub fn make_amount_keyboard(prefix: &str) -> InlineKeyboardMarkup {
-    let amounts = vec![5.0, 10.0, 20.0, 50.0, 100.0];
+    let amounts = [5.0, 10.0, 20.0, 50.0, 100.0];
     let mut grid = Vec::new();
 
     let mut row = Vec::new();

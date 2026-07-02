@@ -66,13 +66,12 @@ class EnrollState {
     EnrollValidation? validation,
     String? error,
     bool clearError = false,
-  }) =>
-      EnrollState(
-        stage: stage ?? this.stage,
-        link: link ?? this.link,
-        validation: validation ?? this.validation,
-        error: clearError ? null : (error ?? this.error),
-      );
+  }) => EnrollState(
+    stage: stage ?? this.stage,
+    link: link ?? this.link,
+    validation: validation ?? this.validation,
+    error: clearError ? null : (error ?? this.error),
+  );
 }
 
 class EnrollNotifier extends StateNotifier<EnrollState> {
@@ -119,10 +118,9 @@ class EnrollNotifier extends StateNotifier<EnrollState> {
 
     // Профиль панели заводится сразу: аккаунт обязателен, профиль ведёт
     // последующий вход и подключение. Имя уточним из panel_name после валидации.
-    await _ref.read(connectionProfilesProvider.notifier).addPanelAccount(
-          panelUrl: link.panelUrl,
-          displayName: link.panelUrl,
-        );
+    await _ref
+        .read(connectionProfilesProvider.notifier)
+        .addPanelAccount(panelUrl: link.panelUrl, displayName: link.panelUrl);
 
     final client = _ref.read(enrollApiClientProvider(link.panelUrl));
     try {
@@ -140,7 +138,10 @@ class EnrollNotifier extends StateNotifier<EnrollState> {
       if (v.panelName != null && v.panelName!.isNotEmpty) {
         await _ref
             .read(connectionProfilesProvider.notifier)
-            .addPanelAccount(panelUrl: link.panelUrl, displayName: v.panelName!);
+            .addPanelAccount(
+              panelUrl: link.panelUrl,
+              displayName: v.panelName!,
+            );
       }
       state = state.copyWith(
         stage: EnrollStage.valid,
@@ -169,21 +170,20 @@ class EnrollNotifier extends StateNotifier<EnrollState> {
     required String email,
     required String password,
     String? fullName,
-  }) =>
-      _runAuth((client, code) => client.register(
-            email: email,
-            password: password,
-            fullName: fullName,
-            enrollCode: code,
-          ));
+  }) => _runAuth(
+    (client, code) => client.register(
+      email: email,
+      password: password,
+      fullName: fullName,
+      enrollCode: code,
+    ),
+  );
 
   /// Вход по 6-значному коду из бота, с передачей enroll-кода. login/code
   /// расходует enroll только если за ним стоит создание нового аккаунта.
-  Future<void> loginCodeWithEnroll({required String botCode}) =>
-      _runAuth((client, code) => client.loginCode(
-            code: botCode,
-            enrollCode: code,
-          ));
+  Future<void> loginCodeWithEnroll({required String botCode}) => _runAuth(
+    (client, code) => client.loginCode(code: botCode, enrollCode: code),
+  );
 
   /// Общий путь создания/привязки аккаунта на панели из ссылки. Токены кладём
   /// в общий [TokenStore] и перенимаем сессию инвалидацией [authProvider].
@@ -240,19 +240,18 @@ class EnrollNotifier extends StateNotifier<EnrollState> {
 /// Провайдер потока энроллмента. autoDispose: состояние живёт, пока открыт экран.
 final enrollProvider =
     StateNotifierProvider.autoDispose<EnrollNotifier, EnrollState>(
-  (ref) => EnrollNotifier(ref),
-);
+      (ref) => EnrollNotifier(ref),
+    );
 
 /// Per-panel [ApiClient], нацеленный на URL панели из enroll-ссылки. Нужен,
 /// потому что [apiClientProvider] жёстко зашит на [kApiBaseUrl] (тенант-1):
 /// валидацию и регистрацию энроллмента шлём на инстанс из ссылки, иначе токены
 /// выпустит не та панель. Токены берём из общего [TokenStore].
-final enrollApiClientProvider =
-    Provider.autoDispose.family<ApiClient, String>((ref, panelUrl) {
+final enrollApiClientProvider = Provider.autoDispose.family<ApiClient, String>((
+  ref,
+  panelUrl,
+) {
   // [ApiClient] сам строит Dio с baseUrl '$panelUrl/api/v2/app' и нашими
   // интерсепторами (skipAuth на публичных вызовах энроллмента).
-  return ApiClient(
-    tokens: ref.watch(tokenStoreProvider),
-    baseUrl: panelUrl,
-  );
+  return ApiClient(tokens: ref.watch(tokenStoreProvider), baseUrl: panelUrl);
 });

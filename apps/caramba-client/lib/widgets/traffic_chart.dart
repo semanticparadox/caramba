@@ -20,7 +20,11 @@ class TrafficChart extends StatelessWidget {
     final box = Container(
       height: 120,
       padding: const EdgeInsets.fromLTRB(
-          AppSpace.s2, AppSpace.s4, AppSpace.s4, AppSpace.s3),
+        AppSpace.s2,
+        AppSpace.s4,
+        AppSpace.s4,
+        AppSpace.s3,
+      ),
       decoration: BoxDecoration(
         color: c.surface1,
         borderRadius: AppRadius.r14,
@@ -28,8 +32,10 @@ class TrafficChart extends StatelessWidget {
       ),
       child: points.isEmpty
           ? Center(
-              child: Text('Нет данных о трафике',
-                  style: AppType.bodySm.copyWith(color: c.textLow)),
+              child: Text(
+                'Нет данных о трафике',
+                style: AppType.bodySm.copyWith(color: c.textLow),
+              ),
             )
           : _line(c),
     );

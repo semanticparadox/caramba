@@ -197,79 +197,78 @@ impl BotManager {
                 Some(InlineKeyboardMarkup::new(rows))
             };
 
-            if let Some(media_url) = payload.media_url.as_deref().map(str::trim) {
-                if !media_url.is_empty()
-                    && !matches!(payload.media_type, NotificationMediaType::None)
-                {
-                    if payload.text.chars().count() > 1024 {
-                        return Err("Caption too long for media message (max 1024 chars)"
-                            .to_string()
-                            .into());
-                    }
-
-                    let media_parsed = url::Url::parse(media_url)?;
-                    match payload.media_type {
-                        NotificationMediaType::Photo => {
-                            let mut req = bot
-                                .send_photo(ChatId(chat_id), InputFile::url(media_parsed))
-                                .caption(payload.text.clone());
-
-                            req = match payload.parse_mode {
-                                NotificationParseMode::Plain => req,
-                                NotificationParseMode::MarkdownV2 => {
-                                    req.parse_mode(ParseMode::MarkdownV2)
-                                }
-                                NotificationParseMode::Html => req.parse_mode(ParseMode::Html),
-                            };
-
-                            if let Some(markup) = keyboard.clone() {
-                                req = req.reply_markup(markup);
-                            }
-
-                            req.await?;
-                        }
-                        NotificationMediaType::Video => {
-                            let mut req = bot
-                                .send_video(ChatId(chat_id), InputFile::url(media_parsed))
-                                .caption(payload.text.clone());
-
-                            req = match payload.parse_mode {
-                                NotificationParseMode::Plain => req,
-                                NotificationParseMode::MarkdownV2 => {
-                                    req.parse_mode(ParseMode::MarkdownV2)
-                                }
-                                NotificationParseMode::Html => req.parse_mode(ParseMode::Html),
-                            };
-
-                            if let Some(markup) = keyboard.clone() {
-                                req = req.reply_markup(markup);
-                            }
-
-                            req.await?;
-                        }
-                        NotificationMediaType::Document => {
-                            let mut req = bot
-                                .send_document(ChatId(chat_id), InputFile::url(media_parsed))
-                                .caption(payload.text.clone());
-
-                            req = match payload.parse_mode {
-                                NotificationParseMode::Plain => req,
-                                NotificationParseMode::MarkdownV2 => {
-                                    req.parse_mode(ParseMode::MarkdownV2)
-                                }
-                                NotificationParseMode::Html => req.parse_mode(ParseMode::Html),
-                            };
-
-                            if let Some(markup) = keyboard.clone() {
-                                req = req.reply_markup(markup);
-                            }
-
-                            req.await?;
-                        }
-                        NotificationMediaType::None => {}
-                    }
-                    return Ok(());
+            if let Some(media_url) = payload.media_url.as_deref().map(str::trim)
+                && !media_url.is_empty()
+                && !matches!(payload.media_type, NotificationMediaType::None)
+            {
+                if payload.text.chars().count() > 1024 {
+                    return Err("Caption too long for media message (max 1024 chars)"
+                        .to_string()
+                        .into());
                 }
+
+                let media_parsed = url::Url::parse(media_url)?;
+                match payload.media_type {
+                    NotificationMediaType::Photo => {
+                        let mut req = bot
+                            .send_photo(ChatId(chat_id), InputFile::url(media_parsed))
+                            .caption(payload.text.clone());
+
+                        req = match payload.parse_mode {
+                            NotificationParseMode::Plain => req,
+                            NotificationParseMode::MarkdownV2 => {
+                                req.parse_mode(ParseMode::MarkdownV2)
+                            }
+                            NotificationParseMode::Html => req.parse_mode(ParseMode::Html),
+                        };
+
+                        if let Some(markup) = keyboard.clone() {
+                            req = req.reply_markup(markup);
+                        }
+
+                        req.await?;
+                    }
+                    NotificationMediaType::Video => {
+                        let mut req = bot
+                            .send_video(ChatId(chat_id), InputFile::url(media_parsed))
+                            .caption(payload.text.clone());
+
+                        req = match payload.parse_mode {
+                            NotificationParseMode::Plain => req,
+                            NotificationParseMode::MarkdownV2 => {
+                                req.parse_mode(ParseMode::MarkdownV2)
+                            }
+                            NotificationParseMode::Html => req.parse_mode(ParseMode::Html),
+                        };
+
+                        if let Some(markup) = keyboard.clone() {
+                            req = req.reply_markup(markup);
+                        }
+
+                        req.await?;
+                    }
+                    NotificationMediaType::Document => {
+                        let mut req = bot
+                            .send_document(ChatId(chat_id), InputFile::url(media_parsed))
+                            .caption(payload.text.clone());
+
+                        req = match payload.parse_mode {
+                            NotificationParseMode::Plain => req,
+                            NotificationParseMode::MarkdownV2 => {
+                                req.parse_mode(ParseMode::MarkdownV2)
+                            }
+                            NotificationParseMode::Html => req.parse_mode(ParseMode::Html),
+                        };
+
+                        if let Some(markup) = keyboard.clone() {
+                            req = req.reply_markup(markup);
+                        }
+
+                        req.await?;
+                    }
+                    NotificationMediaType::None => {}
+                }
+                return Ok(());
             }
 
             let mut req = bot.send_message(ChatId(chat_id), payload.text.clone());
@@ -304,13 +303,9 @@ impl BotManager {
     /// Send a notification to all configured admin Telegram IDs.
     /// Reads `admin_notification_tg_ids` from settings (comma-separated).
     /// Silently ignores individual send failures.
-    pub async fn notify_admins(
-        &self,
-        pool: &sqlx::PgPool,
-        message: &str,
-    ) {
+    pub async fn notify_admins(&self, pool: &sqlx::PgPool, message: &str) {
         let admin_ids_str: String = sqlx::query_scalar(
-            "SELECT value FROM settings WHERE key = 'admin_notification_tg_ids'"
+            "SELECT value FROM settings WHERE key = 'admin_notification_tg_ids'",
         )
         .fetch_optional(pool)
         .await
@@ -331,7 +326,7 @@ impl BotManager {
     /// Check if a given tg_id is in the admin list.
     pub async fn is_admin_tg_id(pool: &sqlx::PgPool, tg_id: i64) -> bool {
         let admin_ids_str: String = sqlx::query_scalar(
-            "SELECT value FROM settings WHERE key = 'admin_notification_tg_ids'"
+            "SELECT value FROM settings WHERE key = 'admin_notification_tg_ids'",
         )
         .fetch_optional(pool)
         .await

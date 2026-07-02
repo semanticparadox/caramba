@@ -17,10 +17,10 @@ use crate::singbox::policy::ConfigPolicy;
 
 /// Resolve the effective policy for `node`.
 pub async fn resolve_policy(pool: &PgPool, node: &Node) -> ConfigPolicy {
-    if let Some(profile_id) = node.config_profile_id {
-        if let Some(policy) = policy_by_id(pool, profile_id).await {
-            return policy;
-        }
+    if let Some(profile_id) = node.config_profile_id
+        && let Some(policy) = policy_by_id(pool, profile_id).await
+    {
+        return policy;
     }
 
     if let Some(policy) = policy_for_groups(pool, node.id).await {
@@ -74,12 +74,11 @@ async fn policy_for_groups(pool: &PgPool, node_id: i64) -> Option<ConfigPolicy> 
 }
 
 async fn default_policy(pool: &PgPool) -> Option<ConfigPolicy> {
-    let raw: Option<String> = sqlx::query_scalar(
-        "SELECT policy FROM config_profiles WHERE is_default = TRUE LIMIT 1",
-    )
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
+    let raw: Option<String> =
+        sqlx::query_scalar("SELECT policy FROM config_profiles WHERE is_default = TRUE LIMIT 1")
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
     raw.and_then(|r| parse(&r, "default"))
 }

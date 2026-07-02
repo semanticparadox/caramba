@@ -67,8 +67,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final clean = v.replaceAll(RegExp(r'\D'), '');
     if (clean != v) {
       _controllers[i].text = clean;
-      _controllers[i].selection =
-          TextSelection.collapsed(offset: clean.length);
+      _controllers[i].selection = TextSelection.collapsed(offset: clean.length);
     }
     if (clean.isNotEmpty && i < _len - 1) {
       _focus[i + 1].requestFocus();
@@ -142,8 +141,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(kBrandName,
-                    style: AppType.titleMd.copyWith(color: c.textHi)),
+                Text(
+                  kBrandName,
+                  style: AppType.titleMd.copyWith(color: c.textHi),
+                ),
                 const SizedBox(height: AppSpace.s6),
                 Text('Вход', style: AppType.headline.copyWith(color: c.textHi)),
                 const SizedBox(height: AppSpace.s3),
@@ -158,8 +159,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   onPressed: busy ? null : _openBot,
                 ),
                 const SizedBox(height: AppSpace.s6),
-                SectionTitle('Код из бота',
-                    padding: const EdgeInsets.only(bottom: AppSpace.s3)),
+                SectionTitle(
+                  'Код из бота',
+                  padding: const EdgeInsets.only(bottom: AppSpace.s3),
+                ),
                 Row(
                   children: [
                     for (var i = 0; i < _len; i++) ...[
@@ -180,8 +183,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             Flexible(
                               child: Text(
                                 error,
-                                style:
-                                    AppType.bodySm.copyWith(color: c.danger),
+                                style: AppType.bodySm.copyWith(color: c.danger),
                               ),
                             ),
                           ],
@@ -196,8 +198,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           height: 18,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation(c.textOnAccent),
+                            valueColor: AlwaysStoppedAnimation(c.textOnAccent),
                           ),
                         )
                       : const Text('Войти'),
@@ -208,8 +209,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   style: AppType.bodySm.copyWith(color: c.textMed),
                 ),
                 const SizedBox(height: AppSpace.s6),
-                SectionTitle('Есть инвайт-код',
-                    padding: const EdgeInsets.only(bottom: AppSpace.s3)),
+                SectionTitle(
+                  'Есть инвайт-код',
+                  padding: const EdgeInsets.only(bottom: AppSpace.s3),
+                ),
                 Text(
                   'Подключаетесь к другой панели по приглашению? Введите инвайт-код.',
                   style: AppType.bodySm.copyWith(color: c.textMed),
@@ -238,8 +241,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         controller: _controllers[i],
         focusNode: _focus[i],
         keyboardType: TextInputType.number,
-        textInputAction:
-            i == _len - 1 ? TextInputAction.done : TextInputAction.next,
+        textInputAction: i == _len - 1
+            ? TextInputAction.done
+            : TextInputAction.next,
         textAlign: TextAlign.center,
         maxLength: i == 0 ? _len : 1,
         autofillHints: const [AutofillHints.oneTimeCode],
@@ -260,12 +264,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           enabledBorder: OutlineInputBorder(
             borderRadius: AppRadius.r12,
             borderSide: BorderSide(
-                color: hasError ? c.danger : c.borderSubtle, width: 1),
+              color: hasError ? c.danger : c.borderSubtle,
+              width: 1,
+            ),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: AppRadius.r12,
             borderSide: BorderSide(
-                color: hasError ? c.danger : c.textHi, width: 1.5),
+              color: hasError ? c.danger : c.textHi,
+              width: 1.5,
+            ),
           ),
           border: OutlineInputBorder(
             borderRadius: AppRadius.r12,

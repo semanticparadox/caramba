@@ -30,8 +30,8 @@ class SelectedServerNotifier extends StateNotifier<Server?> {
 
 final selectedServerProvider =
     StateNotifierProvider<SelectedServerNotifier, Server?>(
-  (ref) => SelectedServerNotifier(),
-);
+      (ref) => SelectedServerNotifier(),
+    );
 
 /// Рекомендуемый сервер: выбранный пользователем, иначе самый быстрый
 /// подключаемый из загруженного списка.
@@ -40,8 +40,5 @@ final recommendedServerProvider = Provider<Server?>((ref) {
   if (selected != null) return selected;
   final servers = ref.watch(serversProvider).valueOrNull;
   if (servers == null || servers.isEmpty) return null;
-  return servers.firstWhere(
-    (s) => s.isSelectable,
-    orElse: () => servers.first,
-  );
+  return servers.firstWhere((s) => s.isSelectable, orElse: () => servers.first);
 });

@@ -135,10 +135,7 @@ impl PaymentProvider for PlisioProvider {
         let expected = hex::encode(mac.finalize().into_bytes());
 
         // ct_eq на срезах разной длины вернёт false без утечки содержимого.
-        Ok(expected
-            .as_bytes()
-            .ct_eq(received_hash.as_bytes())
-            .into())
+        Ok(expected.as_bytes().ct_eq(received_hash.as_bytes()).into())
     }
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {

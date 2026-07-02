@@ -184,7 +184,7 @@ pub async fn get_recommended_nodes(
         .into_iter()
         .filter(|node| normalized_node_type(node.node_type.as_deref(), node.is_relay) == "exit")
         .filter(|node| {
-            country_filter.as_ref().map_or(true, |target| {
+            country_filter.as_ref().is_none_or(|target| {
                 node.country_code
                     .as_deref()
                     .map(|value| value.eq_ignore_ascii_case(target))
@@ -240,6 +240,16 @@ pub async fn get_recommended_nodes(
     .into_response()
 }
 
+fn haversine(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    let r = 6371.0; // Earth radius in km
+    let dlat = (lat2 - lat1).to_radians();
+    let dlon = (lon2 - lon1).to_radians();
+    let a = (dlat / 2.0).sin().powi(2)
+        + lat1.to_radians().cos() * lat2.to_radians().cos() * (dlon / 2.0).sin().powi(2);
+    let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
+    r * c
+}
+
 #[cfg(test)]
 mod tests {
     use super::{RoutingStrategy, normalize_country_filter, normalized_node_type};
@@ -285,14 +295,4 @@ mod tests {
         assert_eq!(normalized_node_type(None, Some(true)), "relay");
         assert_eq!(normalized_node_type(None, Some(false)), "exit");
     }
-}
-
-fn haversine(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
-    let r = 6371.0; // Earth radius in km
-    let dlat = (lat2 - lat1).to_radians();
-    let dlon = (lon2 - lon1).to_radians();
-    let a = (dlat / 2.0).sin().powi(2)
-        + lat1.to_radians().cos() * lat2.to_radians().cos() * (dlon / 2.0).sin().powi(2);
-    let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
-    r * c
 }

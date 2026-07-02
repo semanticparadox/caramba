@@ -12,7 +12,7 @@ pub async fn message_handler(
     state: AppState,
 ) -> Result<(), teloxide::RequestError> {
     info!("Received message: {:?}", msg.text());
-    let tg_id = msg.chat.id.0 as i64;
+    let tg_id = msg.chat.id.0;
 
     if let Some(payment) = msg.successful_payment() {
         let amount_xtr = payment.total_amount as f64;
@@ -104,15 +104,17 @@ pub async fn message_handler(
                     // Only on genuine new signups, and only once (the deep-link
                     // start_param may be a partner code). resolve_partner_code_id
                     // also bumps the code's `clicks`, so call it once per signup.
-                    if was_new && !start_param.is_empty() {
-                        if let Ok(Some(code_id)) =
-                            state.store_service.resolve_partner_code_id(start_param).await
-                        {
-                            let _ = state
-                                .store_service
-                                .set_signup_partner_code(u.id, code_id)
-                                .await;
-                        }
+                    if was_new
+                        && !start_param.is_empty()
+                        && let Ok(Some(code_id)) = state
+                            .store_service
+                            .resolve_partner_code_id(start_param)
+                            .await
+                    {
+                        let _ = state
+                            .store_service
+                            .set_signup_partner_code(u.id, code_id)
+                            .await;
                     }
                     // Log user /start command
                     let _ = LoggingService::log_user(
@@ -125,18 +127,19 @@ pub async fn message_handler(
                     .await;
 
                     // Notify referrer about new referral (only for genuinely new users)
-                    if let Some(r_id) = referrer_id {
-                        if r_id != u.id {
-                            let referrer_tg_id: Option<i64> =
-                                sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
-                                    .bind(r_id)
-                                    .fetch_optional(&state.pool)
-                                    .await
-                                    .unwrap_or(None);
-                            if let Some(ref_tg_id) = referrer_tg_id {
-                                let msg = "👤 Новый реферал\\! Пользователь присоединился по вашей ссылке\\.";
-                                let _ = state.bot_manager.send_notification(ref_tg_id, msg).await;
-                            }
+                    if let Some(r_id) = referrer_id
+                        && r_id != u.id
+                    {
+                        let referrer_tg_id: Option<i64> =
+                            sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
+                                .bind(r_id)
+                                .fetch_optional(&state.pool)
+                                .await
+                                .unwrap_or(None);
+                        if let Some(ref_tg_id) = referrer_tg_id {
+                            let msg =
+                                "👤 Новый реферал\\! Пользователь присоединился по вашей ссылке\\.";
+                            let _ = state.bot_manager.send_notification(ref_tg_id, msg).await;
                         }
                     }
 
@@ -321,70 +324,32 @@ pub async fn message_handler(
 
         // 3. Normal Message Processing (User is verified)
         // Check for Reply to Transfer or Note
-        if let Some(reply) = msg.reply_to_message() {
-            if let Some(reply_text) = reply.text() {
-                info!("Processing reply to message with text: [{}]", reply_text);
-                info!("User reply body: [{}]", text);
-                // Note Update
-                if let Some(start_idx) = reply_text.find('#') {
-                    let id_part = &reply_text[start_idx + 1..];
-                    let id_str = id_part.trim_end_matches('.');
-                    if let Ok(sub_id) = id_str.parse::<i64>() {
-                        let _ = state
-                            .store_service
-                            .update_subscription_note(sub_id, text.to_string())
-                            .await;
-                        let _ = bot.send_message(msg.chat.id, "✅ Note updated!").await;
-                        return Ok(());
-                    }
+        if let Some(reply) = msg.reply_to_message()
+            && let Some(reply_text) = reply.text()
+        {
+            info!("Processing reply to message with text: [{}]", reply_text);
+            info!("User reply body: [{}]", text);
+            // Note Update
+            if let Some(start_idx) = reply_text.find('#') {
+                let id_part = &reply_text[start_idx + 1..];
+                let id_str = id_part.trim_end_matches('.');
+                if let Ok(sub_id) = id_str.parse::<i64>() {
+                    let _ = state
+                        .store_service
+                        .update_subscription_note(sub_id, text.to_string())
+                        .await;
+                    let _ = bot.send_message(msg.chat.id, "✅ Note updated!").await;
+                    return Ok(());
                 }
-                // Transfer
-                if reply_text.contains("Transfer Subscription")
-                    && reply_text.contains("Subscription #")
-                {
-                    if let Some(start) = reply_text.find("Subscription #") {
-                        let rest = &reply_text[start + "Subscription #".len()..];
-                        let id_str = rest.split_whitespace().next().unwrap_or("0");
-                        if let Ok(sub_id) = id_str.parse::<i64>() {
-                            let user_db: Option<caramba_db::models::store::User> = state
-                                .store_service
-                                .get_user_by_tg_id(tg_id)
-                                .await
-                                .ok()
-                                .flatten();
-                            if let Some(u) = user_db {
-                                match state
-                                    .store_service
-                                    .transfer_subscription(sub_id, u.id, text)
-                                    .await
-                                {
-                                    Ok(_) => {
-                                        let _ = bot.send_message(msg.chat.id, format!("✅ Subscription \\#{} transferred to {} successfully\\!", sub_id, escape_md(text))).parse_mode(ParseMode::MarkdownV2).await;
-                                    }
-                                    Err(e) => {
-                                        let _ = bot
-                                            .send_message(
-                                                msg.chat.id,
-                                                format!(
-                                                    "❌ Transfer failed: {}",
-                                                    escape_md(&e.to_string())
-                                                ),
-                                            )
-                                            .parse_mode(ParseMode::MarkdownV2)
-                                            .await;
-                                    }
-                                }
-                            }
-                            return Ok(());
-                        }
-                    }
-                }
-
-                // Gift Code
-                if reply_text.contains("🎟 Enter your Gift Code")
-                    || reply_text.contains("🎟 Enter your Promo Code")
-                {
-                    let code = text.trim();
+            }
+            // Transfer
+            if reply_text.contains("Transfer Subscription")
+                && reply_text.contains("Subscription #")
+                && let Some(start) = reply_text.find("Subscription #")
+            {
+                let rest = &reply_text[start + "Subscription #".len()..];
+                let id_str = rest.split_whitespace().next().unwrap_or("0");
+                if let Ok(sub_id) = id_str.parse::<i64>() {
                     let user_db: Option<caramba_db::models::store::User> = state
                         .store_service
                         .get_user_by_tg_id(tg_id)
@@ -392,22 +357,20 @@ pub async fn message_handler(
                         .ok()
                         .flatten();
                     if let Some(u) = user_db {
-                        match state.promo_service.redeem_code(u.id, code).await {
-                            Ok(res_msg) => {
-                                let _ = bot
-                                    .send_message(
-                                        msg.chat.id,
-                                        format!("✅ *Success\\!*\n\n{}", escape_md(&res_msg)),
-                                    )
-                                    .parse_mode(ParseMode::MarkdownV2)
-                                    .await;
+                        match state
+                            .store_service
+                            .transfer_subscription(sub_id, u.id, text)
+                            .await
+                        {
+                            Ok(_) => {
+                                let _ = bot.send_message(msg.chat.id, format!("✅ Subscription \\#{} transferred to {} successfully\\!", sub_id, escape_md(text))).parse_mode(ParseMode::MarkdownV2).await;
                             }
                             Err(e) => {
                                 let _ = bot
                                     .send_message(
                                         msg.chat.id,
                                         format!(
-                                            "❌ Redemption Failed: {}",
+                                            "❌ Transfer failed: {}",
                                             escape_md(&e.to_string())
                                         ),
                                     )
@@ -418,106 +381,145 @@ pub async fn message_handler(
                     }
                     return Ok(());
                 }
+            }
 
-                // Edit Referral Code Alias
-                if reply_text.contains("EDIT REFERRAL ALIAS") {
-                    let new_code = text.trim();
-
-                    // Basic validation
-                    if new_code.len() < 3 || new_code.len() > 32 {
-                        let _ = bot.send_message(msg.chat.id, "❌ *Invalid Length*\n\nReferral alias must be between 3 and 32 characters\\.").parse_mode(ParseMode::MarkdownV2).await;
-                        return Ok(());
-                    }
-
-                    if !new_code.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                        let _ = bot.send_message(msg.chat.id, "❌ *Invalid Characters*\n\nReferral alias can only contain letters, numbers, and underscores\\.").parse_mode(ParseMode::MarkdownV2).await;
-                        return Ok(());
-                    }
-
-                    let user_db: Option<caramba_db::models::store::User> = state
-                        .store_service
-                        .get_user_by_tg_id(tg_id)
-                        .await
-                        .ok()
-                        .flatten();
-                    if let Some(u) = user_db {
-                        match state
-                            .store_service
-                            .update_user_referral_code(u.id, new_code)
-                            .await
-                        {
-                            Ok(_) => {
-                                let bot_me = bot.get_me().await.ok();
-                                let bot_username = bot_me
-                                    .and_then(|m| m.username.clone())
-                                    .unwrap_or_else(|| "bot".to_string());
-                                let new_link =
-                                    format!("https://t.me/{}?start={}", bot_username, new_code);
-
-                                let response = format!(
-                                    "✅ *Referral Alias Updated\\!*\n\n\
-                                        Your new data:\n\
-                                        Code: `{}`\n\
-                                        Link: `{}`",
-                                    new_code.replace("`", "\\`").replace("\\", "\\\\"),
-                                    new_link.replace("`", "\\`").replace("\\", "\\\\")
-                                );
-                                if let Err(e) = bot
-                                    .send_message(msg.chat.id, response)
-                                    .parse_mode(ParseMode::MarkdownV2)
-                                    .await
-                                {
-                                    error!("Failed to send alias update confirmation: {}", e);
-                                }
-                            }
-                            Err(_e) => {
-                                let _ = bot.send_message(msg.chat.id, "❌ *Update Failed*\n\nThis alias might already be taken or invalid\\.").parse_mode(ParseMode::MarkdownV2).await;
-                            }
+            // Gift Code
+            if reply_text.contains("🎟 Enter your Gift Code")
+                || reply_text.contains("🎟 Enter your Promo Code")
+            {
+                let code = text.trim();
+                let user_db: Option<caramba_db::models::store::User> = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten();
+                if let Some(u) = user_db {
+                    match state.promo_service.redeem_code(u.id, code).await {
+                        Ok(res_msg) => {
+                            let _ = bot
+                                .send_message(
+                                    msg.chat.id,
+                                    format!("✅ *Success\\!*\n\n{}", escape_md(&res_msg)),
+                                )
+                                .parse_mode(ParseMode::MarkdownV2)
+                                .await;
+                        }
+                        Err(e) => {
+                            let _ = bot
+                                .send_message(
+                                    msg.chat.id,
+                                    format!("❌ Redemption Failed: {}", escape_md(&e.to_string())),
+                                )
+                                .parse_mode(ParseMode::MarkdownV2)
+                                .await;
                         }
                     }
+                }
+                return Ok(());
+            }
+
+            // Edit Referral Code Alias
+            if reply_text.contains("EDIT REFERRAL ALIAS") {
+                let new_code = text.trim();
+
+                // Basic validation
+                if new_code.len() < 3 || new_code.len() > 32 {
+                    let _ = bot.send_message(msg.chat.id, "❌ *Invalid Length*\n\nReferral alias must be between 3 and 32 characters\\.").parse_mode(ParseMode::MarkdownV2).await;
                     return Ok(());
                 }
 
-                // Enter Referrer Code
-                if reply_text.contains("Enter Referrer Code") {
-                    let ref_code = text.trim();
-                    let user_db: Option<caramba_db::models::store::User> = state
-                        .store_service
-                        .get_user_by_tg_id(tg_id)
-                        .await
-                        .ok()
-                        .flatten();
-                    if let Some(u) = user_db {
-                        match state.store_service.set_user_referrer(u.id, ref_code).await {
-                            Ok(_) => {
-                                let _ = bot.send_message(msg.chat.id, "✅ *Referrer Linked\\!*\n\nYou've successfully set your referrer\\.").parse_mode(ParseMode::MarkdownV2).await;
+                if !new_code.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    let _ = bot.send_message(msg.chat.id, "❌ *Invalid Characters*\n\nReferral alias can only contain letters, numbers, and underscores\\.").parse_mode(ParseMode::MarkdownV2).await;
+                    return Ok(());
+                }
 
-                                // Notify referrer about new referral
-                                let referrer_tg_id: Option<i64> = sqlx::query_scalar(
+                let user_db: Option<caramba_db::models::store::User> = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten();
+                if let Some(u) = user_db {
+                    match state
+                        .store_service
+                        .update_user_referral_code(u.id, new_code)
+                        .await
+                    {
+                        Ok(_) => {
+                            let bot_me = bot.get_me().await.ok();
+                            let bot_username = bot_me
+                                .and_then(|m| m.username.clone())
+                                .unwrap_or_else(|| "bot".to_string());
+                            let new_link =
+                                format!("https://t.me/{}?start={}", bot_username, new_code);
+
+                            let response = format!(
+                                "✅ *Referral Alias Updated\\!*\n\n\
+                                        Your new data:\n\
+                                        Code: `{}`\n\
+                                        Link: `{}`",
+                                new_code.replace("`", "\\`").replace("\\", "\\\\"),
+                                new_link.replace("`", "\\`").replace("\\", "\\\\")
+                            );
+                            if let Err(e) = bot
+                                .send_message(msg.chat.id, response)
+                                .parse_mode(ParseMode::MarkdownV2)
+                                .await
+                            {
+                                error!("Failed to send alias update confirmation: {}", e);
+                            }
+                        }
+                        Err(_e) => {
+                            let _ = bot.send_message(msg.chat.id, "❌ *Update Failed*\n\nThis alias might already be taken or invalid\\.").parse_mode(ParseMode::MarkdownV2).await;
+                        }
+                    }
+                }
+                return Ok(());
+            }
+
+            // Enter Referrer Code
+            if reply_text.contains("Enter Referrer Code") {
+                let ref_code = text.trim();
+                let user_db: Option<caramba_db::models::store::User> = state
+                    .store_service
+                    .get_user_by_tg_id(tg_id)
+                    .await
+                    .ok()
+                    .flatten();
+                if let Some(u) = user_db {
+                    match state.store_service.set_user_referrer(u.id, ref_code).await {
+                        Ok(_) => {
+                            let _ = bot.send_message(msg.chat.id, "✅ *Referrer Linked\\!*\n\nYou've successfully set your referrer\\.").parse_mode(ParseMode::MarkdownV2).await;
+
+                            // Notify referrer about new referral
+                            let referrer_tg_id: Option<i64> = sqlx::query_scalar(
                                     "SELECT u2.tg_id FROM users u1 JOIN users u2 ON u2.id = u1.referrer_id WHERE u1.id = $1"
                                 )
                                 .bind(u.id)
                                 .fetch_optional(&state.pool)
                                 .await
                                 .unwrap_or(None);
-                                if let Some(ref_tg_id) = referrer_tg_id {
-                                    let notify_msg = "👤 Новый реферал\\! Пользователь присоединился по вашей ссылке\\.";
-                                    let _ = state.bot_manager.send_notification(ref_tg_id, notify_msg).await;
-                                }
-                            }
-                            Err(e) => {
-                                let _ = bot
-                                    .send_message(
-                                        msg.chat.id,
-                                        format!("❌ Linking Failed: {}", escape_md(&e.to_string())),
-                                    )
-                                    .parse_mode(ParseMode::MarkdownV2)
+                            if let Some(ref_tg_id) = referrer_tg_id {
+                                let notify_msg = "👤 Новый реферал\\! Пользователь присоединился по вашей ссылке\\.";
+                                let _ = state
+                                    .bot_manager
+                                    .send_notification(ref_tg_id, notify_msg)
                                     .await;
                             }
                         }
+                        Err(e) => {
+                            let _ = bot
+                                .send_message(
+                                    msg.chat.id,
+                                    format!("❌ Linking Failed: {}", escape_md(&e.to_string())),
+                                )
+                                .parse_mode(ParseMode::MarkdownV2)
+                                .await;
+                        }
                     }
-                    return Ok(());
                 }
+                return Ok(());
             }
         }
 
@@ -868,11 +870,10 @@ pub async fn message_handler(
                         user.tg_id, price_major, price_minor
                     );
 
-                    let mut buttons = Vec::new();
-                    buttons.push(vec![InlineKeyboardButton::callback(
+                    let buttons = vec![vec![InlineKeyboardButton::callback(
                         "💳 Top-up Balance",
                         "topup_menu",
-                    )]);
+                    )]];
 
                     let _ = bot
                         .send_message(msg.chat.id, response)
@@ -997,7 +998,7 @@ pub async fn message_handler(
                                 ));
                             }
                         }
-                        response.push_str("\n");
+                        response.push('\n');
                         if let Some(note) = &sub.sub.note {
                             response.push_str(&format!("📝 *Note:* {}\n\n", escape_md(note)));
                         }
@@ -1395,7 +1396,10 @@ pub async fn send_login_code(bot: &Bot, state: &AppState, chat_id: ChatId, tg_id
     // один. Ключ обратного индекса tg_id -> code хранит текущий код юзера.
     let user_index_key = format!("app:logincode:user:{}", tg_id);
     if let Ok(Some(prev_code)) = state.redis.get(&user_index_key).await {
-        let _ = state.redis.del(&format!("app:logincode:{}", prev_code)).await;
+        let _ = state
+            .redis
+            .del(&format!("app:logincode:{}", prev_code))
+            .await;
     }
 
     // 6 цифр, ведущие нули допустимы (000000..=999999).
@@ -1406,7 +1410,10 @@ pub async fn send_login_code(bot: &Bot, state: &AppState, chat_id: ChatId, tg_id
     if let Err(e) = state.redis.set(&code_key, &tg_id.to_string(), 300).await {
         error!("Failed to store login code in Redis: {}", e);
         let _ = bot
-            .send_message(chat_id, "⚠️ Could not generate a code. Please try again later.")
+            .send_message(
+                chat_id,
+                "⚠️ Could not generate a code. Please try again later.",
+            )
             .await;
         return;
     }

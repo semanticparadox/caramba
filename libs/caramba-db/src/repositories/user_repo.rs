@@ -153,7 +153,9 @@ impl UserRepository {
         Ok(row.map(|r| {
             (
                 r.try_get::<i64, _>("id").unwrap_or_default(),
-                r.try_get::<Option<String>, _>("password_hash").ok().flatten(),
+                r.try_get::<Option<String>, _>("password_hash")
+                    .ok()
+                    .flatten(),
             )
         }))
     }

@@ -105,6 +105,7 @@ pub fn free_limits() -> LicenseLimits {
 }
 
 /// Маппит локальный P3-тир в авторитетные i64-лимиты `caramba_shared`.
+#[allow(dead_code)] // WIP: consumed once Caramba Connect licensing is wired end-to-end
 pub fn shared_limits_for(tier: LicenseTier) -> LicenseLimits {
     match tier {
         LicenseTier::Free => free_limits(),
@@ -121,6 +122,7 @@ pub fn shared_limits_for(tier: LicenseTier) -> LicenseLimits {
 
 /// Локальный P3-`Limits` из авторитетных i64-лимитов. `i64::max` обрезается до
 /// `u32::MAX`, «0 = без лимита» сохраняется как `0`.
+#[allow(dead_code)] // WIP: consumed once Caramba Connect licensing is wired end-to-end
 fn local_limits_from(limits: &LicenseLimits) -> Limits {
     fn clamp_u32(v: i64) -> u32 {
         if v <= 0 {
@@ -224,6 +226,7 @@ pub async fn effective_limits(state: &AppState) -> LicenseLimits {
 /// Локальный `Limits` из эффективных авторитетных лимитов (для кода, который
 /// исторически работает с u32-представлением). Не используется branding-путём,
 /// но удобен будущим вызывающим, чтобы не хардкодить тир->лимиты.
+#[allow(dead_code)] // WIP: consumed once Caramba Connect licensing is wired end-to-end
 pub async fn effective_local_limits(state: &AppState) -> Limits {
     local_limits_from(&effective_limits(state).await)
 }

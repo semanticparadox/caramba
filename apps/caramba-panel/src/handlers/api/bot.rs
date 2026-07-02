@@ -1,5 +1,5 @@
-use crate::services::store_service::PurchaseResult;
 use crate::AppState;
+use crate::services::store_service::PurchaseResult;
 use axum::{
     Json,
     extract::{Path, Query, State},
@@ -290,7 +290,11 @@ pub async fn get_settings(
     // stripe_secret_key, bot_token и другие секреты.
     if !BOT_SETTINGS_ALLOWLIST.contains(&key.as_str()) {
         tracing::warn!(key = %key, "Bot API: settings key not in allowlist — rejected");
-        return (StatusCode::FORBIDDEN, "Settings key not accessible via bot API").into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            "Settings key not accessible via bot API",
+        )
+            .into_response();
     }
     let val = state.settings.get_or_default(&key, "").await;
     Json(Some(val)).into_response()
@@ -329,7 +333,11 @@ pub async fn set_settings(
         Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
         Err(e) => {
             tracing::error!(key = %key, "Bot API: settings write failed: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to persist setting").into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to persist setting",
+            )
+                .into_response()
         }
     }
 }
@@ -389,12 +397,11 @@ pub async fn create_free_subscription(
 
     // Проверяем, что пользователь с таким ID реально существует в БД,
     // чтобы не создавать подписки-сироты для несуществующих user_id
-    let user_exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)")
-            .bind(user_id)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap_or(false);
+    let user_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)")
+        .bind(user_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(false);
 
     if !user_exists {
         return (StatusCode::NOT_FOUND, "User not found").into_response();
@@ -410,13 +417,7 @@ pub async fn create_free_subscription(
 
     let (plan_id, traffic_limit_gb) = match free_plan {
         Some(row) => row,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                "No active free plan configured",
-            )
-                .into_response()
-        }
+        None => return (StatusCode::NOT_FOUND, "No active free plan configured").into_response(),
     };
 
     // Проверяем: уже есть активная подписка на этот план?
@@ -498,7 +499,8 @@ pub async fn admin_stats(State(state): State<AppState>) -> impl IntoResponse {
                 "active_subs": s.active_subs,
                 "total_revenue": s.total_revenue,
                 "traffic_30d_gb": traffic_30d_gb,
-            })).into_response()
+            }))
+            .into_response()
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
@@ -508,7 +510,10 @@ pub async fn admin_gift(
     State(state): State<AppState>,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let username = payload.get("username").and_then(|v| v.as_str()).unwrap_or("");
+    let username = payload
+        .get("username")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let days = payload.get("days").and_then(|v| v.as_i64()).unwrap_or(0);
 
     // Ограничиваем days разумным диапазоном: 1..3650 (10 лет макс.)
@@ -529,10 +534,11 @@ pub async fn admin_gift(
     };
 
     // Find default plan
-    let plan_id: Option<i64> = sqlx::query_scalar("SELECT id FROM plans WHERE is_active = TRUE ORDER BY id LIMIT 1")
-        .fetch_optional(&state.pool)
-        .await
-        .unwrap_or(None);
+    let plan_id: Option<i64> =
+        sqlx::query_scalar("SELECT id FROM plans WHERE is_active = TRUE ORDER BY id LIMIT 1")
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
 
     let plan_id = match plan_id {
         Some(id) => id,
@@ -560,7 +566,10 @@ pub async fn admin_ban(
     State(state): State<AppState>,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let username = payload.get("username").and_then(|v| v.as_str()).unwrap_or("");
+    let username = payload
+        .get("username")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let result = sqlx::query("UPDATE users SET is_banned = TRUE WHERE username = $1")
         .bind(username)
         .execute(&state.pool)
@@ -576,7 +585,10 @@ pub async fn admin_unban(
     State(state): State<AppState>,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let username = payload.get("username").and_then(|v| v.as_str()).unwrap_or("");
+    let username = payload
+        .get("username")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let result = sqlx::query("UPDATE users SET is_banned = FALSE WHERE username = $1")
         .bind(username)
         .execute(&state.pool)
@@ -596,9 +608,10 @@ pub async fn admin_list_promos(State(state): State<AppState>) -> impl IntoRespon
     .await
     .unwrap_or_default();
 
-    let items: Vec<serde_json::Value> = promos.iter().map(|(code, count)| {
-        serde_json::json!({ "code": code, "use_count": count })
-    }).collect();
+    let items: Vec<serde_json::Value> = promos
+        .iter()
+        .map(|(code, count)| serde_json::json!({ "code": code, "use_count": count }))
+        .collect();
 
     Json(items)
 }
@@ -608,7 +621,10 @@ pub async fn admin_create_promo(
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     let code = payload.get("code").and_then(|v| v.as_str()).unwrap_or("");
-    let promo_type = payload.get("promo_type").and_then(|v| v.as_str()).unwrap_or("balance");
+    let promo_type = payload
+        .get("promo_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("balance");
     let value = payload.get("value").and_then(|v| v.as_i64()).unwrap_or(0);
 
     if code.is_empty() || value <= 0 {
@@ -616,7 +632,7 @@ pub async fn admin_create_promo(
     }
 
     let result = sqlx::query(
-        "INSERT INTO promo_codes (code, promo_type, value, is_active) VALUES ($1, $2, $3, TRUE)"
+        "INSERT INTO promo_codes (code, promo_type, value, is_active) VALUES ($1, $2, $3, TRUE)",
     )
     .bind(code)
     .bind(promo_type)
@@ -694,7 +710,11 @@ pub async fn referral_signup_bonus(
         }
         Err(e) => {
             tracing::error!("Failed to apply signup bonus: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to apply signup bonus").into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to apply signup bonus",
+            )
+                .into_response()
         }
     }
 }
@@ -718,11 +738,15 @@ pub async fn checkout_cart(
         .unwrap_or(false);
 
     if !user_exists {
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({
-            "ok": false,
-            "error": "user_not_found",
-            "message": "User not found"
-        }))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "ok": false,
+                "error": "user_not_found",
+                "message": "User not found"
+            })),
+        )
+            .into_response();
     }
 
     match state.store_service.checkout_cart(user_id).await {
@@ -766,11 +790,14 @@ pub async fn clear_cart(
         Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
         Err(e) => {
             tracing::error!(user_id, "clear_cart failed: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
-                "ok": false,
-                "error": "internal_error",
-                "message": e.to_string(),
-            })))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "ok": false,
+                    "error": "internal_error",
+                    "message": e.to_string(),
+                })),
+            )
                 .into_response()
         }
     }
@@ -797,12 +824,15 @@ pub async fn kill_subscription_sessions(
     let user_id = match payload.get("user_id").and_then(|v| v.as_i64()) {
         Some(id) => id,
         None => {
-            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-                "ok": false,
-                "error": "missing_user_id",
-                "message": "Request body must contain user_id"
-            })))
-                .into_response()
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "ok": false,
+                    "error": "missing_user_id",
+                    "message": "Request body must contain user_id"
+                })),
+            )
+                .into_response();
         }
     };
 
@@ -817,32 +847,49 @@ pub async fn kill_subscription_sessions(
 
     match owner_check {
         None => {
-            return (StatusCode::NOT_FOUND, Json(serde_json::json!({
-                "ok": false,
-                "error": "subscription_not_found",
-                "message": "Subscription not found"
-            })))
-                .into_response()
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "ok": false,
+                    "error": "subscription_not_found",
+                    "message": "Subscription not found"
+                })),
+            )
+                .into_response();
         }
         Some(owner_id) if owner_id != user_id => {
-            return (StatusCode::FORBIDDEN, Json(serde_json::json!({
-                "ok": false,
-                "error": "forbidden",
-                "message": "Subscription does not belong to this user"
-            })))
-                .into_response()
+            return (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({
+                    "ok": false,
+                    "error": "forbidden",
+                    "message": "Subscription does not belong to this user"
+                })),
+            )
+                .into_response();
         }
         _ => {}
     }
 
     // 1. Drop legacy IP tracking rows so the next connection re-authenticates.
-    if let Err(e) = state.store_service.kill_subscription_connections(sub_id).await {
-        tracing::error!(sub_id, "kill_subscription_sessions (ip tracking) failed: {}", e);
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
-            "ok": false,
-            "error": "internal_error",
-            "message": e.to_string(),
-        })))
+    if let Err(e) = state
+        .store_service
+        .kill_subscription_connections(sub_id)
+        .await
+    {
+        tracing::error!(
+            sub_id,
+            "kill_subscription_sessions (ip tracking) failed: {}",
+            e
+        );
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "ok": false,
+                "error": "internal_error",
+                "message": e.to_string(),
+            })),
+        )
             .into_response();
     }
 
@@ -900,16 +947,16 @@ pub async fn get_sub_config_file(
 
     // Проверка владельца — бот передаёт user_id, мы проверяем соответствие
     if sub.user_id != user_id {
-        return (StatusCode::FORBIDDEN, "Subscription does not belong to this user").into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            "Subscription does not belong to this user",
+        )
+            .into_response();
     }
 
     // Подписка должна быть активной
     if sub.status != "active" {
-        return (
-            StatusCode::FORBIDDEN,
-            "Subscription is not active",
-        )
-            .into_response();
+        return (StatusCode::FORBIDDEN, "Subscription is not active").into_response();
     }
 
     // Получаем ключи пользователя
@@ -939,14 +986,21 @@ pub async fn get_sub_config_file(
         .collect::<Vec<_>>();
 
     if let Some(pinned_node) = sub.node_id {
-        let pinned: Vec<_> = filtered.iter().filter(|n| n.id == pinned_node).cloned().collect();
+        let pinned: Vec<_> = filtered
+            .iter()
+            .filter(|n| n.id == pinned_node)
+            .cloned()
+            .collect();
         if !pinned.is_empty() {
             filtered = pinned;
         }
     }
 
     if filtered.is_empty() {
-        return (StatusCode::SERVICE_UNAVAILABLE, "No servers available for this subscription")
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "No servers available for this subscription",
+        )
             .into_response();
     }
 
@@ -976,10 +1030,12 @@ pub async fn get_sub_config_file(
 
     match client_type {
         "clash" => {
-            match state
-                .subscription_service
-                .generate_clash(&sub, &node_infos, &user_keys, &relay_nodes)
-            {
+            match state.subscription_service.generate_clash(
+                &sub,
+                &node_infos,
+                &user_keys,
+                &relay_nodes,
+            ) {
                 Ok(content) => (
                     StatusCode::OK,
                     [(axum::http::header::CONTENT_TYPE, "text/yaml; charset=utf-8")],
@@ -988,24 +1044,37 @@ pub async fn get_sub_config_file(
                     .into_response(),
                 Err(e) => {
                     tracing::error!(sub_id, "clash generation failed: {}", e);
-                    (StatusCode::INTERNAL_SERVER_ERROR, "Config generation failed").into_response()
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Config generation failed",
+                    )
+                        .into_response()
                 }
             }
         }
         "v2ray" => {
-            match state
-                .subscription_service
-                .generate_v2ray(&sub, &node_infos, &user_keys, &relay_nodes)
-            {
+            match state.subscription_service.generate_v2ray(
+                &sub,
+                &node_infos,
+                &user_keys,
+                &relay_nodes,
+            ) {
                 Ok(content) => (
                     StatusCode::OK,
-                    [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+                    [(
+                        axum::http::header::CONTENT_TYPE,
+                        "text/plain; charset=utf-8",
+                    )],
                     content,
                 )
                     .into_response(),
                 Err(e) => {
                     tracing::error!(sub_id, "v2ray generation failed: {}", e);
-                    (StatusCode::INTERNAL_SERVER_ERROR, "Config generation failed").into_response()
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Config generation failed",
+                    )
+                        .into_response()
                 }
             }
         }
@@ -1020,13 +1089,20 @@ pub async fn get_sub_config_file(
             ) {
                 Ok(content) => (
                     StatusCode::OK,
-                    [(axum::http::header::CONTENT_TYPE, "application/json; charset=utf-8")],
+                    [(
+                        axum::http::header::CONTENT_TYPE,
+                        "application/json; charset=utf-8",
+                    )],
                     content,
                 )
                     .into_response(),
                 Err(e) => {
                     tracing::error!(sub_id, "singbox generation failed: {}", e);
-                    (StatusCode::INTERNAL_SERVER_ERROR, "Config generation failed").into_response()
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Config generation failed",
+                    )
+                        .into_response()
                 }
             }
         }
@@ -1080,13 +1156,12 @@ pub async fn bot_get_ticket(
     match state.tickets_svc.get_ticket(ticket_id, true, None).await {
         Ok((ticket, messages)) => {
             // Получаем данные пользователя для расширенного ответа
-            let user_row: Option<(Option<String>, Option<i64>)> = sqlx::query_as(
-                "SELECT username, tg_id FROM users WHERE id = $1",
-            )
-            .bind(ticket.user_id)
-            .fetch_optional(&state.pool)
-            .await
-            .unwrap_or(None);
+            let user_row: Option<(Option<String>, Option<i64>)> =
+                sqlx::query_as("SELECT username, tg_id FROM users WHERE id = $1")
+                    .bind(ticket.user_id)
+                    .fetch_optional(&state.pool)
+                    .await
+                    .unwrap_or(None);
 
             let (username, tg_id) = user_row.unwrap_or((None, None));
 
@@ -1105,9 +1180,7 @@ pub async fn bot_get_ticket(
                 }
                 // is_admin=true: Forbidden/Closed здесь не возникают, но мапим
                 // на безопасные коды ради полноты match.
-                TicketError::Forbidden => {
-                    (StatusCode::FORBIDDEN, "Access denied").into_response()
-                }
+                TicketError::Forbidden => (StatusCode::FORBIDDEN, "Access denied").into_response(),
                 TicketError::Closed => {
                     (StatusCode::UNPROCESSABLE_ENTITY, "Ticket is closed").into_response()
                 }
@@ -1161,11 +1234,7 @@ pub async fn bot_assign_ticket(
     Path(ticket_id): Path<i64>,
     Json(body): Json<BotAssignReq>,
 ) -> impl IntoResponse {
-    match state
-        .tickets_svc
-        .assign(ticket_id, body.admin_tg_id)
-        .await
-    {
+    match state.tickets_svc.assign(ticket_id, body.admin_tg_id).await {
         Ok(ticket) => Json(ticket).into_response(),
         Err(e) => {
             let msg = e.to_string();

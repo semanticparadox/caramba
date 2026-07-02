@@ -22,11 +22,7 @@ class BrandWordmark extends ConsumerWidget {
   /// Стиль текстового вордмарка (по умолчанию titleLg/textHi).
   final TextStyle? textStyle;
 
-  const BrandWordmark({
-    this.height = 28,
-    this.textStyle,
-    super.key,
-  });
+  const BrandWordmark({this.height = 28, this.textStyle, super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

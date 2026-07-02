@@ -12,9 +12,9 @@ use super::payment::aaio::AaioProvider;
 use super::payment::balance::BalanceProvider;
 use super::payment::btcpay::BtcPayProvider;
 use super::payment::coinbase_commerce::CoinbaseCommerceProvider;
-use super::payment::crystalpay::CrystalPayProvider;
 use super::payment::cryptobot::CryptoBotProvider;
 use super::payment::cryptomus::CryptomusProvider;
+use super::payment::crystalpay::CrystalPayProvider;
 use super::payment::lava::LavaProvider;
 use super::payment::manual::ManualProvider;
 use super::payment::nowpayments::NowPaymentsProvider;
@@ -283,8 +283,8 @@ impl MarketplaceService {
         }
     }
 
-    pub fn get_provider(&self, name: &str) -> Option<&Box<dyn PaymentProvider>> {
-        self.providers.get(name)
+    pub fn get_provider(&self, name: &str) -> Option<&dyn PaymentProvider> {
+        self.providers.get(name).map(|p| p.as_ref())
     }
 
     /// Returns the names of all registered (configured) payment providers, sorted
@@ -324,8 +324,7 @@ impl MarketplaceService {
         // app_billing.rs) debit and refund.
         let discount_pct =
             crate::services::referral_service::ReferralService::referee_first_purchase_discount(
-                &self.pool,
-                user.id,
+                &self.pool, user.id,
             )
             .await
             .unwrap_or(0);
@@ -467,10 +466,10 @@ impl MarketplaceService {
     /// the session UUID there (primary path); we fall back to matching the stored
     /// `external_id` column for providers that key by their own invoice id.
     async fn lookup_session_by_external(&self, external_id: &str) -> Option<PaymentSession> {
-        if let Ok(uuid) = external_id.parse::<uuid::Uuid>() {
-            if let Some(session) = self.session_repo.get_by_id(uuid).await.ok().flatten() {
-                return Some(session);
-            }
+        if let Ok(uuid) = external_id.parse::<uuid::Uuid>()
+            && let Some(session) = self.session_repo.get_by_id(uuid).await.ok().flatten()
+        {
+            return Some(session);
         }
         self.session_repo
             .get_by_external_id(external_id)
@@ -530,26 +529,24 @@ impl MarketplaceService {
             };
 
             match status.as_str() {
-                "paid" | "completed" | "success" => {
-                    match self.fulfill_payment(session.id).await {
-                        Ok(()) => {
-                            fulfilled += 1;
-                            tracing::info!(
-                                provider = %session.provider,
-                                session_id = %session.id,
-                                "Fulfilled payment via polling fallback (webhook likely lost)"
-                            );
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                provider = %session.provider,
-                                session_id = %session.id,
-                                error = %e,
-                                "Polling found a paid session but fulfillment failed"
-                            );
-                        }
+                "paid" | "completed" | "success" => match self.fulfill_payment(session.id).await {
+                    Ok(()) => {
+                        fulfilled += 1;
+                        tracing::info!(
+                            provider = %session.provider,
+                            session_id = %session.id,
+                            "Fulfilled payment via polling fallback (webhook likely lost)"
+                        );
                     }
-                }
+                    Err(e) => {
+                        tracing::error!(
+                            provider = %session.provider,
+                            session_id = %session.id,
+                            error = %e,
+                            "Polling found a paid session but fulfillment failed"
+                        );
+                    }
+                },
                 // "failed" / "pending" / anything else: leave the session as-is.
                 _ => {}
             }
@@ -588,7 +585,11 @@ impl MarketplaceService {
             if self.get_provider(provider).is_none() && status != "expired" && status != "failed" {
                 findings.push(format!(
                     "session {} uses unconfigured provider '{}' (status={}, {} {})",
-                    id, provider, status, *amount as f64 / 100.0, currency
+                    id,
+                    provider,
+                    status,
+                    *amount as f64 / 100.0,
+                    currency
                 ));
             }
 

@@ -12,15 +12,15 @@ import 'package:caramba_client/state/providers.dart';
 
 /// Список подписок пользователя (`GET /app/subscriptions`).
 /// `ref.invalidate(subscriptionsProvider)` перезапрашивает после покупки/семьи.
-final subscriptionsProvider =
-    FutureProvider.autoDispose<List<SubPlan>>((ref) async {
+final subscriptionsProvider = FutureProvider.autoDispose<List<SubPlan>>((
+  ref,
+) async {
   final api = ref.watch(apiClientProvider);
   return api.getSubscriptions();
 });
 
 /// Устройства аккаунта (`GET /app/devices`) с операциями rename/remove.
-class DevicesNotifier
-    extends AutoDisposeAsyncNotifier<List<Device>> {
+class DevicesNotifier extends AutoDisposeAsyncNotifier<List<Device>> {
   @override
   Future<List<Device>> build() async {
     final api = ref.watch(apiClientProvider);
@@ -54,20 +54,21 @@ class DevicesNotifier
 
 final devicesProvider =
     AutoDisposeAsyncNotifierProvider<DevicesNotifier, List<Device>>(
-  DevicesNotifier.new,
-);
+      DevicesNotifier.new,
+    );
 
 /// Реферальная сводка (`GET /app/referrals`).
-final referralProvider =
-    FutureProvider.autoDispose<ReferralInfo>((ref) async {
+final referralProvider = FutureProvider.autoDispose<ReferralInfo>((ref) async {
   final api = ref.watch(apiClientProvider);
   return api.getReferrals();
 });
 
 /// Семья по подписке (`GET /app/family?subscription_id=`). Family-параметр
 /// `.family` Riverpod — ключ по subscription_id (0 = без фильтра).
-final familyProvider =
-    FutureProvider.autoDispose.family<Family, int>((ref, subId) async {
+final familyProvider = FutureProvider.autoDispose.family<Family, int>((
+  ref,
+  subId,
+) async {
   final api = ref.watch(apiClientProvider);
   return api.getFamily(subscriptionId: subId > 0 ? subId : null);
 });
@@ -87,8 +88,7 @@ final apiRelaysProvider = FutureProvider.autoDispose<List<Relay>>((ref) async {
 /// Партнёрская сводка (`GET /app/partner/codes`) с операциями create/delete.
 /// Раздел гейтится `is_partner`: дашборд и пункт входа в профиле показываются
 /// только когда панель подтвердила партнёрскую роль (см. [isPartnerProvider]).
-class PartnerNotifier
-    extends AutoDisposeAsyncNotifier<PartnerOverview> {
+class PartnerNotifier extends AutoDisposeAsyncNotifier<PartnerOverview> {
   @override
   Future<PartnerOverview> build() async {
     final api = ref.watch(apiClientProvider);
@@ -108,11 +108,14 @@ class PartnerNotifier
     final api = ref.read(apiClientProvider);
     final current = state.valueOrNull;
     if (current != null) {
-      state = AsyncData(PartnerOverview(
-        isPartner: current.isPartner,
-        codes:
-            current.codes.where((c) => c.code != code).toList(growable: false),
-      ));
+      state = AsyncData(
+        PartnerOverview(
+          isPartner: current.isPartner,
+          codes: current.codes
+              .where((c) => c.code != code)
+              .toList(growable: false),
+        ),
+      );
     }
     try {
       await api.deletePartnerCode(code);
@@ -124,8 +127,8 @@ class PartnerNotifier
 
 final partnerProvider =
     AutoDisposeAsyncNotifierProvider<PartnerNotifier, PartnerOverview>(
-  PartnerNotifier.new,
-);
+      PartnerNotifier.new,
+    );
 
 /// Гейт партнёрской роли для пункта входа в профиле: `true` только когда сводка
 /// загрузилась и `is_partner == true`. На loading/error/не-партнёра — `false`,
@@ -136,8 +139,9 @@ final isPartnerProvider = Provider.autoDispose<bool>((ref) {
 
 /// Ряд трафика для графика (`GET /app/traffic`, поле `points`). Пусто, если
 /// подневной истории ещё нет — UI рисует «нет данных».
-final trafficHistoryProvider =
-    FutureProvider.autoDispose<List<TrafficPoint>>((ref) async {
+final trafficHistoryProvider = FutureProvider.autoDispose<List<TrafficPoint>>((
+  ref,
+) async {
   final api = ref.watch(apiClientProvider);
   return api.getTraffic();
 });

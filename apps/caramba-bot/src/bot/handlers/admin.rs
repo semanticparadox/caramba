@@ -147,7 +147,7 @@ pub async fn handle_admin_command(
     msg: Message,
     state: AppState,
 ) -> Result<(), teloxide::RequestError> {
-    let tg_id = msg.chat.id.0 as i64;
+    let tg_id = msg.chat.id.0;
 
     if !state.admin_service.is_admin(tg_id).await {
         // Тихий отказ — не отвечаем, не раскрываем команду
@@ -248,24 +248,22 @@ pub async fn send_ticket_list(
 
     if all_tickets.is_empty() {
         let text = t(None, "admin.tickets.empty");
-        let back_kb = InlineKeyboardMarkup::new(vec![vec![
-            InlineKeyboardButton::callback("В меню", "adm:menu"),
-        ]]);
+        let back_kb = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+            "В меню",
+            "adm:menu",
+        )]]);
         if let Some(mid) = msg_id {
             let _ = bot
                 .edit_message_text(chat_id, mid, text)
                 .reply_markup(back_kb)
                 .await;
         } else {
-            let _ = bot
-                .send_message(chat_id, text)
-                .reply_markup(back_kb)
-                .await;
+            let _ = bot.send_message(chat_id, text).reply_markup(back_kb).await;
         }
         return Ok(());
     }
 
-    let total_pages = (all_tickets.len() + PAGE_SIZE - 1) / PAGE_SIZE;
+    let total_pages = all_tickets.len().div_ceil(PAGE_SIZE);
     let page = page.min(total_pages.saturating_sub(1));
     let slice = &all_tickets[page * PAGE_SIZE..((page + 1) * PAGE_SIZE).min(all_tickets.len())];
 
@@ -315,7 +313,10 @@ pub async fn send_ticket_detail(
         Err(e) => {
             error!(ticket_id, error = %e, "Failed to fetch ticket detail");
             let _ = bot
-                .send_message(chat_id, format!("Не удалось загрузить тикет #{}", ticket_id))
+                .send_message(
+                    chat_id,
+                    format!("Не удалось загрузить тикет #{}", ticket_id),
+                )
                 .await;
             return Ok(());
         }
@@ -353,7 +354,11 @@ pub async fn send_ticket_detail(
     // Последние 5 сообщений (в хронологическом порядке)
     let msgs: Vec<_> = detail.messages.iter().rev().take(5).collect();
     for m in msgs.into_iter().rev() {
-        let who = if m.sender_role == "admin" { "Admin" } else { "User" };
+        let who = if m.sender_role == "admin" {
+            "Admin"
+        } else {
+            "User"
+        };
         // Char-count truncation, not byte-slice — Cyrillic/emoji bodies
         // would panic on a non-char-boundary slice.
         let body_short = if m.body.chars().count() > 200 {
@@ -449,10 +454,7 @@ pub async fn handle_admin_text(
                     error!(ticket_id, tg_id, error = %e, "Failed to post admin reply");
                     state.admin_fsm.clear(tg_id).await;
                     let _ = bot
-                        .send_message(
-                            msg.chat.id,
-                            "Не удалось отправить ответ. Попробуйте снова.",
-                        )
+                        .send_message(msg.chat.id, "Не удалось отправить ответ. Попробуйте снова.")
                         .await;
                 }
             }
@@ -509,8 +511,7 @@ pub async fn handle_admin_text(
             severity,
             title,
         }) => {
-            let summary =
-                build_broadcast_summary(&segment, &category, &severity, &title, text);
+            let summary = build_broadcast_summary(&segment, &category, &severity, &title, text);
 
             state
                 .admin_fsm

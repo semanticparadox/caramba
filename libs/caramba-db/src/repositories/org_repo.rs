@@ -79,12 +79,10 @@ impl OrganizationRepository {
     /// Returns every organization in the system. For the admin view —
     /// regular users get filtered list via `get_user_organizations`.
     pub async fn get_all(&self) -> Result<Vec<Organization>> {
-        sqlx::query_as::<_, Organization>(
-            "SELECT * FROM organizations ORDER BY created_at DESC",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .context("Failed to fetch all organizations")
+        sqlx::query_as::<_, Organization>("SELECT * FROM organizations ORDER BY created_at DESC")
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to fetch all organizations")
     }
 
     pub async fn delete(&self, org_id: i64) -> Result<()> {

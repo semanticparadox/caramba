@@ -36,9 +36,9 @@ class PartnerScreen extends ConsumerWidget {
           backgroundColor: c.surface2,
           onRefresh: () async {
             ref.invalidate(partnerProvider);
-            await ref.read(partnerProvider.future).catchError(
-                  (_) => const PartnerOverview(),
-                );
+            await ref
+                .read(partnerProvider.future)
+                .catchError((_) => const PartnerOverview());
           },
           child: ListView(
             padding: const EdgeInsets.fromLTRB(
@@ -164,8 +164,10 @@ class _PartnerBody extends StatelessWidget {
         // ---- Список кодов.
         SectionTitle(
           'Коды',
-          trailing: Text('${codes.length}',
-              style: AppType.monoSm.copyWith(color: c.textLow)),
+          trailing: Text(
+            '${codes.length}',
+            style: AppType.monoSm.copyWith(color: c.textLow),
+          ),
         ),
         if (codes.isEmpty)
           const InlineEmpty(
@@ -174,9 +176,7 @@ class _PartnerBody extends StatelessWidget {
           )
         else
           Column(
-            children: [
-              for (final code in codes) _PartnerCodeCard(code: code),
-            ],
+            children: [for (final code in codes) _PartnerCodeCard(code: code)],
           ),
       ],
     );
@@ -334,13 +334,17 @@ class _PartnerCodeCard extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(code.sourceDisplay,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppType.bodyMd.copyWith(color: c.textHi)),
+                    Text(
+                      code.sourceDisplay,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppType.bodyMd.copyWith(color: c.textHi),
+                    ),
                     const SizedBox(height: 2),
-                    Text(code.code,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppType.monoSm.copyWith(color: c.textMed)),
+                    Text(
+                      code.code,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppType.monoSm.copyWith(color: c.textMed),
+                    ),
                   ],
                 ),
               ),
@@ -385,8 +389,10 @@ class _PartnerCodeCard extends ConsumerWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: c.surface2,
-        title: Text('Удалить код?',
-            style: AppType.titleMd.copyWith(color: c.textHi)),
+        title: Text(
+          'Удалить код?',
+          style: AppType.titleMd.copyWith(color: c.textHi),
+        ),
         content: Text(
           'Код ${code.code} перестанет считать новые переходы и оплаты. '
           'Уже начисленный баланс сохранится.',
@@ -395,13 +401,17 @@ class _PartnerCodeCard extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text('Отмена',
-                style: AppType.label.copyWith(color: c.textMed)),
+            child: Text(
+              'Отмена',
+              style: AppType.label.copyWith(color: c.textMed),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child:
-                Text('Удалить', style: AppType.label.copyWith(color: c.danger)),
+            child: Text(
+              'Удалить',
+              style: AppType.label.copyWith(color: c.danger),
+            ),
           ),
         ],
       ),
@@ -432,8 +442,10 @@ class _StatRow extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: AppType.bodySm.copyWith(color: c.textMed)),
-          Text(value,
-              style: AppType.monoMd.copyWith(color: valueColor ?? c.textHi)),
+          Text(
+            value,
+            style: AppType.monoMd.copyWith(color: valueColor ?? c.textHi),
+          ),
         ],
       ),
     );
