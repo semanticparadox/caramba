@@ -50,6 +50,38 @@ internal class CarambaCore private constructor(
             client.configure(panelUrl, subscriptionId, accessToken)
             return CarambaCore(client)
         }
+
+        /**
+         * Builds the core for the rawSub path: no panel auth (configure) — the raw
+         * subscription [raw] in [format] is imported into a mihomo config directly.
+         *
+         * @param panelUrl base URL (may be empty for a pure raw import; NewClient
+         *        only wires the client, it does not touch the network here).
+         * @param subUrl subscription service URL (empty -> defaults to panelUrl).
+         * @param workDir on-disk dir for the assembled mihomo config + cache.
+         * @param tokenPath token-store file path.
+         * @param raw the raw subscription payload (clash/singbox/v2ray/uri/auto).
+         * @param format the payload format hint ("" / "auto" -> autodetect).
+         *
+         * @throws Exception if the Go core fails to initialize or the import fails.
+         */
+        fun createRaw(
+            panelUrl: String,
+            subUrl: String,
+            workDir: String,
+            tokenPath: String,
+            raw: String,
+            format: String,
+        ): CarambaCore {
+            val client = mobile.Mobile.newClient(panelUrl, subUrl, workDir, tokenPath)
+            // ImportSubscription parses the raw payload into a mihomo config and
+            // stores it as the imported source. gomobile maps Go
+            // `ImportSubscription(raw, format string) (string, error)` to
+            // `importSubscription(raw, format): String` (throws on Go error). The
+            // returned metadata JSON is not needed by the channel contract.
+            client.importSubscription(raw, format)
+            return CarambaCore(client)
+        }
     }
 
     /** Pass the platform TUN fd to the engine BEFORE up(). */

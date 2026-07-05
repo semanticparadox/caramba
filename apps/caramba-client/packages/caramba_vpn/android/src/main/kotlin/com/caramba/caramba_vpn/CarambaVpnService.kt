@@ -61,7 +61,12 @@ class CarambaVpnService : VpnService() {
             CarambaVpnKeys.ACTION_CONNECT -> {
                 val serverId = intent.getStringExtra(CarambaVpnKeys.SERVER_ID) ?: ""
                 val serverName = intent.getStringExtra(CarambaVpnKeys.SERVER_NAME) ?: ""
-                startTunnel(serverId, serverName)
+                // rawSub path: non-empty RAW_MODE means import the raw config
+                // instead of using the panel seam, then raise with an empty serverId.
+                val rawMode = !intent.getStringExtra(CarambaVpnKeys.RAW_MODE).isNullOrEmpty()
+                val rawConfig = intent.getStringExtra(CarambaVpnKeys.RAW_CONFIG) ?: ""
+                val rawFormat = intent.getStringExtra(CarambaVpnKeys.RAW_FORMAT) ?: ""
+                startTunnel(serverId, serverName, rawMode, rawConfig, rawFormat)
             }
         }
         // Do not auto-restart with a null intent: a VPN tunnel must be explicitly
@@ -69,12 +74,18 @@ class CarambaVpnService : VpnService() {
         return START_NOT_STICKY
     }
 
-    private fun startTunnel(serverId: String, serverName: String) {
+    private fun startTunnel(
+        serverId: String,
+        serverName: String,
+        rawMode: Boolean = false,
+        rawConfig: String = "",
+        rawFormat: String = "",
+    ) {
         if (running.get()) {
             // Already up: a second connect replaces the session. Tear down first.
             stopTunnel(CarambaStage.CONNECTING, "Switching server")
         }
-        publishStatus(CarambaStage.CONNECTING, "Securing tunnel")
+        publishStatus(CarambaStage.CONNECTING, if (rawMode) "Importing profile" else "Securing tunnel")
 
         // Foreground BEFORE heavy work so the system does not kill us mid-setup.
         startInForeground(serverName)
@@ -96,24 +107,48 @@ class CarambaVpnService : VpnService() {
 
         // Hand off to the Go core on a background thread (network + handshake).
         running.set(true)
-        pollThread = Thread({ runCore(serverId, fd, seam) }, "caramba-vpn-core").also { it.start() }
+        pollThread = Thread(
+            { runCore(serverId, fd, seam, rawMode, rawConfig, rawFormat) },
+            "caramba-vpn-core",
+        ).also { it.start() }
     }
 
-    private fun runCore(serverId: String, fd: Int, seam: Seam) {
+    private fun runCore(
+        serverId: String,
+        fd: Int,
+        seam: Seam,
+        rawMode: Boolean,
+        rawConfig: String,
+        rawFormat: String,
+    ) {
         try {
-            val c = CarambaCore.create(
-                panelUrl = seam.panelUrl,
-                subUrl = seam.subUrl,
-                workDir = workDir().absolutePath,
-                tokenPath = File(workDir(), "tokens.json").absolutePath,
-                subscriptionId = seam.subscriptionId,
-                accessToken = seam.accessToken,
-            )
+            val c = if (rawMode) {
+                // rawSub path: import the raw config directly (no panel Configure).
+                CarambaCore.createRaw(
+                    panelUrl = seam.panelUrl,
+                    subUrl = seam.subUrl,
+                    workDir = workDir().absolutePath,
+                    tokenPath = File(workDir(), "tokens.json").absolutePath,
+                    raw = rawConfig,
+                    format = rawFormat,
+                )
+            } else {
+                CarambaCore.create(
+                    panelUrl = seam.panelUrl,
+                    subUrl = seam.subUrl,
+                    workDir = workDir().absolutePath,
+                    tokenPath = File(workDir(), "tokens.json").absolutePath,
+                    subscriptionId = seam.subscriptionId,
+                    accessToken = seam.accessToken,
+                )
+            }
             core = c
             // fd MUST be set before up(); on Android the OS owns routing, so the
             // core leaves auto-route off and uses this descriptor as the TUN.
             c.setTunFd(fd)
-            c.up(serverId) // blocks until the tunnel is applied; throws on failure.
+            // Raise the tunnel: panel path uses the selected serverId; the raw path
+            // uses an empty serverId (an imported subscription has no panel node).
+            c.up(if (rawMode) "" else serverId) // blocks until applied; throws on failure.
             connectedSinceMs = System.currentTimeMillis()
             pollLoop(c)
         } catch (t: Throwable) {

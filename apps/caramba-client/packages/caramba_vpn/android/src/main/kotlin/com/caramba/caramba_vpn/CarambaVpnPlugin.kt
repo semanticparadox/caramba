@@ -127,6 +127,24 @@ class CarambaVpnPlugin :
                 connect(args, result)
             }
 
+            "connectRaw" -> {
+                // rawSub path: carry the imported subscription + format + label
+                // through the SAME args map / consent flow / service intent the
+                // connect path uses. RAW_MODE flags the service to import instead of
+                // using the panel seam; serverId stays empty (no subscription node).
+                val args = mapOf(
+                    CarambaVpnKeys.RAW_MODE to "1",
+                    CarambaVpnKeys.RAW_CONFIG to (call.argument<String>(CarambaVpnKeys.RAW_CONFIG) ?: ""),
+                    CarambaVpnKeys.RAW_FORMAT to (call.argument<String>(CarambaVpnKeys.RAW_FORMAT) ?: ""),
+                    CarambaVpnKeys.RAW_LABEL to (call.argument<String>(CarambaVpnKeys.RAW_LABEL) ?: ""),
+                    CarambaVpnKeys.SERVER_ID to "",
+                    // serverName drives the foreground notification / TUN session
+                    // label; reuse the raw profile label there.
+                    CarambaVpnKeys.SERVER_NAME to (call.argument<String>(CarambaVpnKeys.RAW_LABEL) ?: ""),
+                )
+                connect(args, result)
+            }
+
             "disconnect" -> {
                 disconnect()
                 result.success(null)
@@ -191,6 +209,14 @@ class CarambaVpnPlugin :
             putExtra(CarambaVpnKeys.SERVER_ID, args[CarambaVpnKeys.SERVER_ID])
             putExtra(CarambaVpnKeys.SERVER_NAME, args[CarambaVpnKeys.SERVER_NAME])
             putExtra(CarambaVpnKeys.COUNTRY_CODE, args[CarambaVpnKeys.COUNTRY_CODE])
+            // rawSub path extras (present only for connectRaw). RAW_MODE toggles the
+            // service's import branch; the raw payload + format ride the same intent.
+            if (args[CarambaVpnKeys.RAW_MODE] != null) {
+                putExtra(CarambaVpnKeys.RAW_MODE, args[CarambaVpnKeys.RAW_MODE])
+                putExtra(CarambaVpnKeys.RAW_CONFIG, args[CarambaVpnKeys.RAW_CONFIG])
+                putExtra(CarambaVpnKeys.RAW_FORMAT, args[CarambaVpnKeys.RAW_FORMAT])
+                putExtra(CarambaVpnKeys.RAW_LABEL, args[CarambaVpnKeys.RAW_LABEL])
+            }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             appContext.startForegroundService(intent)

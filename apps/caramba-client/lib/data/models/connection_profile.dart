@@ -58,7 +58,7 @@ class ConnectionProfile {
   final String? accessToken;
 
   /// Импортированный mihomo YAML (rawSub), когда хранится локально. Передаётся
-  /// нативной стороне через `importRawProfile` (Build C).
+  /// нативной стороне через `connectRaw` (Build C).
   final String? rawConfig;
 
   /// Кэш брендинга (произвольный JSON). В P1 только хранится, тему не ведёт.

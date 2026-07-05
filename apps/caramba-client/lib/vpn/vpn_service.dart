@@ -166,8 +166,10 @@ class MethodChannelVpnConnection implements VpnConnection {
     // Авторизуем ядро (JWT + UUID подписки + URL панели) до поднятия туннеля.
     // Идемпотентно: повторяется только при смене значений (ротация токена и т.п.).
     await _ensureConfigured();
+    // serverId уходит на провод СТРОКОЙ: нативный мост читает его как String и
+    // молча коерсит не-строку в "" (теряя выбор узла) — отсюда server.id.toString().
     await _method.invokeMethod<void>('connect', {
-      'serverId': server.id,
+      'serverId': server.id.toString(),
       'serverName': server.name,
       'countryCode': server.countryCode,
     });
@@ -185,19 +187,14 @@ class MethodChannelVpnConnection implements VpnConnection {
     // Сбрасываем кэш panelAccount-конфига: переключение на raw-источник означает,
     // что прежний configure() больше не относится к текущему туннелю.
     _appliedConfig = null;
-    // Ядро парсит сырую подписку в mihomo-конфиг и хранит её как импортированный
-    // источник (mobile.ImportSubscription -> SetImportedConfig). Это аддитивный
-    // метод (контракт F); существующие connect/configure не затрагиваются.
-    await _method.invokeMethod<void>('importRawProfile', {
-      'raw': raw,
+    // Единый канонический вызов `connectRaw`: нативный мост импортирует сырую
+    // подписку [rawConfig] в формате [format] (mobile.ImportSubscription /
+    // CarambaImportSubscription), затем поднимает туннель с пустым serverId —
+    // у raw-источника узла подписки нет. [label] лишь для отображения профиля.
+    await _method.invokeMethod<void>('connectRaw', {
+      'rawConfig': raw,
       'format': format,
-    });
-    // Поднимаем туннель с пустым serverId: для raw-источника узла подписки нет,
-    // ядро поднимает импортированный конфиг (api.Core: raw-ветка Up).
-    await _method.invokeMethod<void>('connect', {
-      'serverId': '',
-      'serverName': label,
-      'countryCode': null,
+      'label': label,
     });
   }
 

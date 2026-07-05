@@ -19,6 +19,12 @@ typedef CarambaHandle (*caramba_new_fn)(const char*, const char*, const char*,
 // ({ "error": ... }) on failure, or NULL on success.
 typedef char* (*caramba_configure_fn)(CarambaHandle, const char*, const char*,
                                       const char*);
+// CarambaImportSubscription парсит сырую подписку [raw] формата [format] в
+// mihomo-конфиг и сохраняет её как импортированный источник. Возвращает
+// CarambaFreeString-owned JSON-строку: метаданные при успехе или { "error": ... }
+// при неудаче (parse the "error" field, а не NULL).
+typedef char* (*caramba_import_subscription_fn)(CarambaHandle, const char*,
+                                                const char*);
 typedef char* (*caramba_set_tun_fd_fn)(CarambaHandle, int);
 typedef char* (*caramba_up_fn)(CarambaHandle, const char*);
 typedef char* (*caramba_down_fn)(CarambaHandle);
@@ -31,6 +37,7 @@ typedef struct {
   void* module;
   caramba_new_fn New;
   caramba_configure_fn Configure;
+  caramba_import_subscription_fn ImportSubscription;
   caramba_set_tun_fd_fn SetTunFd;
   caramba_up_fn Up;
   caramba_down_fn Down;
@@ -53,6 +60,8 @@ static inline gboolean caramba_core_ffi_load(CarambaCoreFfi* ffi) {
   }
   ffi->New = (caramba_new_fn)dlsym(ffi->module, "CarambaNew");
   ffi->Configure = (caramba_configure_fn)dlsym(ffi->module, "CarambaConfigure");
+  ffi->ImportSubscription = (caramba_import_subscription_fn)dlsym(
+      ffi->module, "CarambaImportSubscription");
   ffi->SetTunFd = (caramba_set_tun_fd_fn)dlsym(ffi->module, "CarambaSetTunFd");
   ffi->Up = (caramba_up_fn)dlsym(ffi->module, "CarambaUp");
   ffi->Down = (caramba_down_fn)dlsym(ffi->module, "CarambaDown");
@@ -60,7 +69,8 @@ static inline gboolean caramba_core_ffi_load(CarambaCoreFfi* ffi) {
   ffi->Traffic = (caramba_traffic_fn)dlsym(ffi->module, "CarambaTraffic");
   ffi->FreeString =
       (caramba_free_string_fn)dlsym(ffi->module, "CarambaFreeString");
-  return ffi->New != NULL && ffi->Configure != NULL && ffi->SetTunFd != NULL &&
+  return ffi->New != NULL && ffi->Configure != NULL &&
+         ffi->ImportSubscription != NULL && ffi->SetTunFd != NULL &&
          ffi->Up != NULL && ffi->Down != NULL && ffi->Status != NULL &&
          ffi->Traffic != NULL && ffi->FreeString != NULL;
 }

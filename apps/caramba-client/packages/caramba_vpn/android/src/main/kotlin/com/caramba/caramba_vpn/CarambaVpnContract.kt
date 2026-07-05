@@ -36,6 +36,14 @@ internal object CarambaVpnKeys {
     const val SERVER_NAME = "serverName"
     const val COUNTRY_CODE = "countryCode"
 
+    // connectRaw() args (rawSub path). The service imports the raw config
+    // (ImportSubscription) instead of using the panel seam, then raises with an
+    // empty serverId. RAW_MODE marks the CONNECT intent as a raw import.
+    const val RAW_CONFIG = "rawConfig"
+    const val RAW_FORMAT = "format"
+    const val RAW_LABEL = "label"
+    const val RAW_MODE = "rawMode"
+
     // configure() seam (auth/config handed from the app before connect).
     const val PANEL_URL = "panelUrl"
     const val SUB_URL = "subUrl"

@@ -39,6 +39,8 @@ struct _CarambaVpnPlugin {
 
   guint poll_source_id;  // g_timeout source, 0 when stopped.
   gchar* last_stage;     // owned; mirrors the last emitted stage string.
+  gchar* last_detail;    // owned; mirrors the last emitted detail (may be NULL).
+  int64_t last_connected_since_ms;  // mirrors the last emitted connectedSinceMs.
 
   // Auth/config seam captured from configure(); applied in ensure_core. Owned.
   gchar* panel_url;
@@ -92,7 +94,12 @@ static FlValue* build_status_map(const char* stage, const char* detail,
 static void emit_stage(CarambaVpnPlugin* self, const char* stage,
                        const char* detail) {
   g_clear_pointer(&self->last_stage, g_free);
+  g_clear_pointer(&self->last_detail, g_free);
   self->last_stage = g_strdup(stage);
+  self->last_detail = detail != NULL ? g_strdup(detail) : NULL;
+  // Синтетические стадии (connecting/error) не несут connectedSinceMs — обнуляем,
+  // чтобы status()/replay не отдавали устаревшее значение от прежнего сеанса.
+  self->last_connected_since_ms = 0;
   if (self->status_listening && self->status_channel != NULL) {
     g_autoptr(FlValue) map = build_status_map(stage, detail, 0);
     fl_event_channel_send(self->status_channel, map, NULL, NULL);
@@ -173,15 +180,31 @@ static gboolean poll_tick(gpointer user_data) {
     int64_t since = caramba_json_get_int(status_json, "connectedSinceMs", 0);
 
     g_clear_pointer(&self->last_stage, g_free);
+    g_clear_pointer(&self->last_detail, g_free);
     self->last_stage = g_strdup(stage);
+    self->last_detail = detail != NULL ? g_strdup(detail) : NULL;
+    self->last_connected_since_ms = since;
 
     if (self->status_listening && self->status_channel != NULL) {
       g_autoptr(FlValue) map = build_status_map(stage, detail, since);
       fl_event_channel_send(self->status_channel, map, NULL, NULL);
     }
+
+    // Ядро само сообщило терминальную стадию (self-drop / фатальная ошибка) —
+    // останавливаем опрос, иначе poll_tick будет крутиться вечно после разрыва.
+    gboolean terminal = g_strcmp0(stage, "error") == 0 ||
+                        g_strcmp0(stage, "disconnected") == 0;
+
     g_free(stage);
     g_free(detail);
     g_free(status_json);
+
+    if (terminal) {
+      // Возвращаем G_SOURCE_REMOVE — GLib сам снимает источник; лишь обнуляем id,
+      // чтобы stop_polling не сделал двойной g_source_remove по уже мёртвому id.
+      self->poll_source_id = 0;
+      return G_SOURCE_REMOVE;
+    }
   }
 
   // Traffic.
@@ -254,6 +277,58 @@ static void caramba_connect(CarambaVpnPlugin* self, const gchar* server_id) {
   start_polling(self);
 }
 
+// caramba_connect_raw поднимает туннель из сырой подписки (rawSub-путь). Зеркалит
+// caramba_connect, меняя configure->import и serverId->"": ядро парсит raw_config
+// формата format в mihomo-конфиг и держит его как импортированный источник, после
+// чего Up("") поднимает именно его (у raw-источника узла подписки нет).
+static void caramba_connect_raw(CarambaVpnPlugin* self, const gchar* raw_config,
+                                const gchar* format) {
+  emit_stage(self, "connecting", NULL);
+  if (!ensure_core(self)) {
+    return;
+  }
+
+  // CarambaImportSubscription always returns a non-NULL JSON string: import
+  // metadata on success or { "error": ... } on failure. Parse the "error" field
+  // rather than testing for NULL, mirroring CarambaUp's convention.
+  gchar* import_json = take_string(
+      self, self->ffi.ImportSubscription(
+                self->handle, raw_config != NULL ? raw_config : "",
+                format != NULL ? format : ""));
+  gchar* import_error =
+      import_json != NULL ? caramba_json_get_string(import_json, "error") : NULL;
+  if (import_json == NULL || import_error != NULL) {
+    emit_stage(self, "error",
+               import_error != NULL ? import_error
+                                    : "subscription import failed");
+    g_free(import_error);
+    g_free(import_json);
+    return;
+  }
+  // Метаданные импорта нам не нужны — освобождаем строку.
+  g_free(import_json);
+
+  // Desktop: mihomo owns the tun device. Pass -1, never establish an fd here.
+  // SetTunFd returns NULL on success or an FFI-owned error string; drop it.
+  drop_string(self, self->ffi.SetTunFd(self->handle, -1));
+
+  // Up("") поднимает импортированный конфиг. Как и в caramba_connect, результат
+  // всегда non-NULL JSON — проверяем поле "error", а не NULL.
+  gchar* up_json = take_string(self, self->ffi.Up(self->handle, ""));
+  gchar* up_error =
+      up_json != NULL ? caramba_json_get_string(up_json, "error") : NULL;
+  if (up_json == NULL || up_error != NULL) {
+    emit_stage(self, "error",
+               up_error != NULL ? up_error : "tunnel failed to start");
+    g_free(up_error);
+    g_free(up_json);
+    return;
+  }
+  g_free(up_json);
+
+  start_polling(self);
+}
+
 static void caramba_disconnect(CarambaVpnPlugin* self) {
   if (self->handle != 0 && self->ffi.Down != NULL) {
     drop_string(self, self->ffi.Down(self->handle));
@@ -306,12 +381,29 @@ static void method_call_cb(FlMethodChannel* channel, FlMethodCall* method_call,
     }
     caramba_connect(self, server_id);
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(NULL));
+  } else if (g_strcmp0(method, "connectRaw") == 0) {
+    const gchar* raw_config = NULL;
+    const gchar* format = NULL;
+    if (args != NULL && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+      FlValue* v = fl_value_lookup_string(args, "rawConfig");
+      if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_STRING) {
+        raw_config = fl_value_get_string(v);
+      }
+      v = fl_value_lookup_string(args, "format");
+      if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_STRING) {
+        format = fl_value_get_string(v);
+      }
+      // label — только для отображения профиля; ядру не передаётся.
+    }
+    caramba_connect_raw(self, raw_config, format);
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(NULL));
   } else if (g_strcmp0(method, "disconnect") == 0) {
     caramba_disconnect(self);
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(NULL));
   } else if (g_strcmp0(method, "status") == 0) {
     g_autoptr(FlValue) map = build_status_map(
-        self->last_stage != NULL ? self->last_stage : "disconnected", NULL, 0);
+        self->last_stage != NULL ? self->last_stage : "disconnected",
+        self->last_detail, self->last_connected_since_ms);
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(map));
   } else {
     response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
@@ -327,9 +419,11 @@ static FlMethodErrorResponse* status_listen_cb(FlEventChannel* channel,
                                                gpointer user_data) {
   CarambaVpnPlugin* self = CARAMBA_VPN_PLUGIN(user_data);
   self->status_listening = TRUE;
-  // Re-emit the last stage so a fresh subscriber renders immediately.
+  // Re-emit the last stage so a fresh subscriber renders immediately — with the
+  // real detail + connectedSinceMs, not 0/null.
   g_autoptr(FlValue) map = build_status_map(
-      self->last_stage != NULL ? self->last_stage : "disconnected", NULL, 0);
+      self->last_stage != NULL ? self->last_stage : "disconnected",
+      self->last_detail, self->last_connected_since_ms);
   fl_event_channel_send(self->status_channel, map, NULL, NULL);
   return NULL;
 }
@@ -368,6 +462,7 @@ static void caramba_vpn_plugin_dispose(GObject* object) {
   g_clear_object(&self->status_channel);
   g_clear_object(&self->traffic_channel);
   g_clear_pointer(&self->last_stage, g_free);
+  g_clear_pointer(&self->last_detail, g_free);
   g_clear_pointer(&self->panel_url, g_free);
   g_clear_pointer(&self->subscription_id, g_free);
   g_clear_pointer(&self->access_token, g_free);
@@ -385,6 +480,8 @@ static void caramba_vpn_plugin_init(CarambaVpnPlugin* self) {
   self->status_listening = FALSE;
   self->traffic_listening = FALSE;
   self->last_stage = g_strdup("disconnected");
+  self->last_detail = NULL;
+  self->last_connected_since_ms = 0;
   self->panel_url = NULL;
   self->subscription_id = NULL;
   self->access_token = NULL;

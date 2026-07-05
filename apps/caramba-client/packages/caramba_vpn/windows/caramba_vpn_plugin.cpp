@@ -25,6 +25,11 @@ constexpr char kMethodChannel[] = "com.caramba/vpn";
 constexpr char kStatusChannel[] = "com.caramba/vpn/status";
 constexpr char kTrafficChannel[] = "com.caramba/vpn/traffic";
 
+// Window-class name and custom message for the hidden platform-thread task
+// runner. WM_APP-based so it never collides with system messages.
+constexpr wchar_t kTaskWindowClass[] = L"CarambaVpnTaskWindow";
+constexpr UINT kRunTasksMessage = WM_APP + 0x51;
+
 // Reads a string argument from a MethodCall argument map; empty if absent.
 std::string ArgString(const flutter::EncodableMap* args, const char* key) {
   if (args == nullptr) {
@@ -45,6 +50,11 @@ std::string ArgString(const flutter::EncodableMap* args, const char* key) {
 void CarambaVpnPlugin::RegisterWithRegistrar(
     flutter::PluginRegistrarWindows* registrar) {
   auto plugin = std::make_unique<CarambaVpnPlugin>();
+
+  // RegisterWithRegistrar runs on the platform (main) thread; create the hidden
+  // task-runner window here so it is owned by the platform thread's message
+  // loop and can marshal poll-worker sink sends back onto this thread.
+  plugin->InitPlatformThreadRunner();
 
   auto method_channel =
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
@@ -69,13 +79,21 @@ void CarambaVpnPlugin::RegisterWithRegistrar(
                            events)
               -> std::unique_ptr<
                   flutter::StreamHandlerError<flutter::EncodableValue>> {
+            // onListen is dispatched on the platform thread, so touching the
+            // sink directly here is safe. Snapshot last_stage_ under its own
+            // mutex (RACE #2) rather than reading it unlocked.
+            std::string stage;
+            {
+              std::lock_guard<std::mutex> stage_lock(plugin_ptr->stage_mutex_);
+              stage = plugin_ptr->last_stage_;
+            }
             std::lock_guard<std::mutex> lock(plugin_ptr->sink_mutex_);
             plugin_ptr->status_sink_ = std::move(events);
             // Re-emit the last known stage so a fresh subscriber renders now.
             plugin_ptr->status_sink_->Success(flutter::EncodableValue(
                 flutter::EncodableMap{
                     {flutter::EncodableValue("stage"),
-                     flutter::EncodableValue(plugin_ptr->last_stage_)},
+                     flutter::EncodableValue(stage)},
                     {flutter::EncodableValue("detail"),
                      flutter::EncodableValue()},
                     {flutter::EncodableValue("connectedSinceMs"),
@@ -121,9 +139,91 @@ void CarambaVpnPlugin::RegisterWithRegistrar(
 CarambaVpnPlugin::CarambaVpnPlugin() = default;
 
 CarambaVpnPlugin::~CarambaVpnPlugin() {
+  // Stop the poll worker first: it can no longer post tasks after this returns,
+  // so the message window is safe to destroy. The destructor runs on the
+  // platform thread (the embedder tears plugins down there), same thread that
+  // created task_window_, so DestroyWindow is valid here.
   StopPolling();
+  if (task_window_ != nullptr) {
+    DestroyWindow(task_window_);
+    task_window_ = nullptr;
+  }
+  UnregisterClassW(kTaskWindowClass, GetModuleHandle(nullptr));
   if (handle_ != 0 && core_.ok() && core_.Down != nullptr) {
     core_.DropString(core_.Down(handle_));
+  }
+}
+
+void CarambaVpnPlugin::InitPlatformThreadRunner() {
+  WNDCLASSW wc = {};
+  wc.lpfnWndProc = CarambaVpnPlugin::TaskWindowProc;
+  wc.hInstance = GetModuleHandle(nullptr);
+  wc.lpszClassName = kTaskWindowClass;
+  // RegisterClassW fails harmlessly (ERROR_CLASS_ALREADY_EXISTS) if another
+  // instance already registered it; the subsequent CreateWindow still works.
+  RegisterClassW(&wc);
+  task_window_ = CreateWindowExW(0, kTaskWindowClass, L"", 0, 0, 0, 0, 0,
+                                 HWND_MESSAGE, nullptr, GetModuleHandle(nullptr),
+                                 nullptr);
+  if (task_window_ != nullptr) {
+    // Stash `this` so the WndProc can reach the plugin instance.
+    SetWindowLongPtr(task_window_, GWLP_USERDATA,
+                     reinterpret_cast<LONG_PTR>(this));
+  }
+}
+
+LRESULT CALLBACK CarambaVpnPlugin::TaskWindowProc(HWND hwnd, UINT msg,
+                                                  WPARAM wparam,
+                                                  LPARAM lparam) {
+  if (msg == kRunTasksMessage) {
+    auto* self = reinterpret_cast<CarambaVpnPlugin*>(
+        GetWindowLongPtr(hwnd, GWLP_USERDATA));
+    if (self != nullptr) {
+      self->DrainPlatformTasks();
+    }
+    return 0;
+  }
+  return DefWindowProc(hwnd, msg, wparam, lparam);
+}
+
+void CarambaVpnPlugin::PostToPlatformThread(std::function<void()> task) {
+  HWND window = task_window_;
+  if (window == nullptr) {
+    return;  // Runner not initialized (or already torn down): drop the send.
+  }
+  {
+    std::lock_guard<std::mutex> lock(tasks_mutex_);
+    pending_tasks_.push_back(std::move(task));
+  }
+  // Coalesced wake: PostMessage is thread-safe and enqueues onto the platform
+  // thread's message loop, which invokes TaskWindowProc -> DrainPlatformTasks.
+  PostMessage(window, kRunTasksMessage, 0, 0);
+}
+
+void CarambaVpnPlugin::DrainPlatformTasks() {
+  // Runs on the platform thread. Move the queue out under the lock, then run
+  // the closures unlocked so a task may itself post further work.
+  std::deque<std::function<void()>> tasks;
+  {
+    std::lock_guard<std::mutex> lock(tasks_mutex_);
+    tasks.swap(pending_tasks_);
+  }
+  for (auto& task : tasks) {
+    task();
+  }
+}
+
+void CarambaVpnPlugin::SendStatusOnPlatformThread(flutter::EncodableMap map) {
+  std::lock_guard<std::mutex> lock(sink_mutex_);
+  if (status_sink_) {
+    status_sink_->Success(flutter::EncodableValue(std::move(map)));
+  }
+}
+
+void CarambaVpnPlugin::SendTrafficOnPlatformThread(flutter::EncodableMap map) {
+  std::lock_guard<std::mutex> lock(sink_mutex_);
+  if (traffic_sink_) {
+    traffic_sink_->Success(flutter::EncodableValue(std::move(map)));
   }
 }
 
@@ -152,15 +252,28 @@ void CarambaVpnPlugin::HandleMethodCall(
     result->Success();
     return;
   }
+  if (method == "connectRaw") {
+    const std::string raw_config = ArgString(args, "rawConfig");
+    const std::string format = ArgString(args, "format");
+    // "label" is display-only (profile name); the tunnel has no subscription
+    // node, so it is not forwarded to the core here.
+    ConnectRaw(raw_config, format);
+    result->Success();
+    return;
+  }
   if (method == "disconnect") {
     Disconnect();
     result->Success();
     return;
   }
   if (method == "status") {
+    std::string stage;
+    {
+      std::lock_guard<std::mutex> lock(stage_mutex_);
+      stage = last_stage_;
+    }
     flutter::EncodableMap map{
-        {flutter::EncodableValue("stage"),
-         flutter::EncodableValue(last_stage_)},
+        {flutter::EncodableValue("stage"), flutter::EncodableValue(stage)},
         {flutter::EncodableValue("detail"), flutter::EncodableValue()},
         {flutter::EncodableValue("connectedSinceMs"),
          flutter::EncodableValue(static_cast<int64_t>(0))},
@@ -242,6 +355,47 @@ void CarambaVpnPlugin::Connect(const std::string& server_id) {
   }
 }
 
+void CarambaVpnPlugin::ConnectRaw(const std::string& raw_config,
+                                  const std::string& format) {
+  EmitStage("connecting", "");
+
+  if (!EnsureCore()) {
+    return;
+  }
+
+  // rawSub path: import the raw subscription into the core instead of relying on
+  // the panel session. CarambaImportSubscription returns a non-NULL,
+  // FFI-owned JSON string; a present "error" field means failure.
+  std::string import_json = core_.TakeString(
+      core_.ImportSubscription(handle_, raw_config.c_str(), format.c_str()));
+  std::string import_error;
+  if (import_json.empty() ||
+      json::GetString(import_json, "error", &import_error)) {
+    EmitStage("error",
+              import_error.empty() ? "failed to import subscription"
+                                   : import_error);
+    return;
+  }
+
+  // Desktop: mihomo owns the TUN (wintun). Pass -1, never establish an fd here.
+  core_.DropString(core_.SetTunFd(handle_, -1));
+
+  // Empty serverID: the imported config has no subscription node; the core
+  // raises the imported source. CarambaUp always returns non-NULL JSON.
+  std::string up_json = core_.TakeString(core_.Up(handle_, ""));
+  std::string up_error;
+  if (up_json.empty() || json::GetString(up_json, "error", &up_error)) {
+    EmitStage("error", up_error.empty() ? "tunnel failed to start" : up_error);
+    return;
+  }
+
+  // Stage transitions and traffic are driven by the poll loop reading the FFI.
+  if (!polling_.load()) {
+    polling_.store(true);
+    poll_thread_ = std::thread(&CarambaVpnPlugin::PollLoop, this);
+  }
+}
+
 void CarambaVpnPlugin::Disconnect() {
   if (handle_ != 0 && core_.Down != nullptr) {
     core_.DropString(core_.Down(handle_));
@@ -259,19 +413,21 @@ void CarambaVpnPlugin::StopPolling() {
 
 void CarambaVpnPlugin::PollLoop() {
   // Runs on a worker thread: the FFI Status/Traffic calls may block, so we keep
-  // them off the platform thread. The EventSink sends are guarded by
-  // sink_mutex_; the sink itself dispatches the encoded message through the
-  // BinaryMessenger, matching the pattern used by the standard Windows plugins
-  // (connectivity_plus, battery_plus) that emit periodic events from a polling
-  // thread.
+  // them off the platform thread. flutter::EventSink is NOT thread-safe, so the
+  // actual Success() sends are marshaled onto the platform thread via
+  // PostToPlatformThread (RACE #1). last_stage_ is written here under
+  // stage_mutex_ (RACE #2).
   while (polling_.load()) {
     if (handle_ != 0 && core_.ok()) {
       // Status: forward the FFI's channel-contract JSON verbatim.
       std::string status_json = core_.TakeString(core_.Status(handle_));
+      std::string stage = "connecting";
       if (!status_json.empty()) {
-        std::string stage = "connecting";
         json::GetString(status_json, "stage", &stage);
-        last_stage_ = stage;
+        {
+          std::lock_guard<std::mutex> stage_lock(stage_mutex_);
+          last_stage_ = stage;
+        }
 
         std::string detail;
         bool has_detail = json::GetString(status_json, "detail", &detail);
@@ -285,29 +441,35 @@ void CarambaVpnPlugin::PollLoop() {
             {flutter::EncodableValue("connectedSinceMs"),
              flutter::EncodableValue(since)},
         };
-        std::lock_guard<std::mutex> lock(sink_mutex_);
-        if (status_sink_) {
-          status_sink_->Success(flutter::EncodableValue(map));
-        }
+        PostToPlatformThread(
+            [this, map = std::move(map)]() mutable {
+              SendStatusOnPlatformThread(std::move(map));
+            });
       }
 
-      // Traffic: forward the FFI's channel-contract JSON verbatim.
-      std::string traffic_json = core_.TakeString(core_.Traffic(handle_));
-      if (!traffic_json.empty()) {
-        flutter::EncodableMap map{
-            {flutter::EncodableValue("downBps"),
-             flutter::EncodableValue(json::GetInt(traffic_json, "downBps", 0))},
-            {flutter::EncodableValue("upBps"),
-             flutter::EncodableValue(json::GetInt(traffic_json, "upBps", 0))},
-            {flutter::EncodableValue("downTotal"),
-             flutter::EncodableValue(
-                 json::GetInt(traffic_json, "downTotal", 0))},
-            {flutter::EncodableValue("upTotal"),
-             flutter::EncodableValue(json::GetInt(traffic_json, "upTotal", 0))},
-        };
-        std::lock_guard<std::mutex> lock(sink_mutex_);
-        if (traffic_sink_) {
-          traffic_sink_->Success(flutter::EncodableValue(map));
+      // Traffic: forward the FFI's channel-contract JSON verbatim. Only emit
+      // while the tunnel is up — no point pushing traffic ticks when not
+      // connected (the stage machine drives the UI otherwise).
+      if (stage == "connected") {
+        std::string traffic_json = core_.TakeString(core_.Traffic(handle_));
+        if (!traffic_json.empty()) {
+          flutter::EncodableMap map{
+              {flutter::EncodableValue("downBps"),
+               flutter::EncodableValue(
+                   json::GetInt(traffic_json, "downBps", 0))},
+              {flutter::EncodableValue("upBps"),
+               flutter::EncodableValue(json::GetInt(traffic_json, "upBps", 0))},
+              {flutter::EncodableValue("downTotal"),
+               flutter::EncodableValue(
+                   json::GetInt(traffic_json, "downTotal", 0))},
+              {flutter::EncodableValue("upTotal"),
+               flutter::EncodableValue(
+                   json::GetInt(traffic_json, "upTotal", 0))},
+          };
+          PostToPlatformThread(
+              [this, map = std::move(map)]() mutable {
+                SendTrafficOnPlatformThread(std::move(map));
+              });
         }
       }
     }
@@ -317,7 +479,10 @@ void CarambaVpnPlugin::PollLoop() {
 
 void CarambaVpnPlugin::EmitStage(const std::string& stage,
                                  const std::string& detail) {
-  last_stage_ = stage;
+  {
+    std::lock_guard<std::mutex> stage_lock(stage_mutex_);
+    last_stage_ = stage;
+  }
   flutter::EncodableMap map{
       {flutter::EncodableValue("stage"), flutter::EncodableValue(stage)},
       {flutter::EncodableValue("detail"),
@@ -326,10 +491,14 @@ void CarambaVpnPlugin::EmitStage(const std::string& stage,
       {flutter::EncodableValue("connectedSinceMs"),
        flutter::EncodableValue(static_cast<int64_t>(0))},
   };
-  std::lock_guard<std::mutex> lock(sink_mutex_);
-  if (status_sink_) {
-    status_sink_->Success(flutter::EncodableValue(map));
-  }
+  // EmitStage is invoked both from the platform thread (method-call handlers:
+  // Connect/ConnectRaw/Disconnect) and, indirectly, only from those — never
+  // from the poll worker. Marshal anyway so the sink is always touched on the
+  // platform thread regardless of caller, which keeps the contract uniform.
+  PostToPlatformThread(
+      [this, map = std::move(map)]() mutable {
+        SendStatusOnPlatformThread(std::move(map));
+      });
 }
 
 }  // namespace caramba_vpn

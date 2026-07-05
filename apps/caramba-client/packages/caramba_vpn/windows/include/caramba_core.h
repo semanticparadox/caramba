@@ -59,6 +59,15 @@ CARAMBA_API char* CarambaConfigure(CarambaHandle h,
 // JSON error string on failure.
 CARAMBA_API char* CarambaSetTunFd(CarambaHandle h, int fd);
 
+// CarambaImportSubscription parses a raw subscription (raw, in the given format:
+// auto|clash|singbox|v2ray|uri) into a mihomo config and stores it as the
+// imported source, so a subsequent CarambaUp(h, "") raises that config without
+// touching the panel. Always returns a non-NULL, CarambaFreeString-owned JSON
+// string; on failure it carries an "error" field (parse it, do NOT test NULL).
+CARAMBA_API char* CarambaImportSubscription(CarambaHandle h,
+                                            const char* raw,
+                                            const char* format);
+
 // CarambaUp raises the tunnel to serverID (may be empty for panel/auto choice).
 // Always returns a non-NULL, CarambaFreeString-owned JSON string: api.UpResult
 // on success, or { "error": ... } on failure. Parse the "error" field to detect

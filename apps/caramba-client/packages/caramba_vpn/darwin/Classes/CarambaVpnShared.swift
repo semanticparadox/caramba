@@ -49,6 +49,16 @@ enum CarambaVpnKeys {
     static let protocolName = "protocol"
     static let relayCountry = "relay"
     static let presetId = "preset"
+
+    // rawSub path (connectRaw): the imported subscription payload + its format and
+    // a display label. Carried on the same providerConfiguration the connect path
+    // uses; the extension imports the raw config instead of calling configure.
+    // `rawMode` marks the provider profile as a raw import so the extension picks
+    // the ImportSubscription path over the panel Configure path.
+    static let rawConfig = "rawConfig"
+    static let rawFormat = "format"
+    static let rawLabel = "label"
+    static let rawMode = "rawMode"
 }
 
 /// Tunnel stage strings. These MUST stay identical to the Dart `VpnStage` names

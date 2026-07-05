@@ -52,11 +52,20 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     ) {
         let conf = providerConfiguration()
         let serverId = conf[CarambaVpnKeys.serverId] as? String ?? ""
+        // rawMode selects the imported-subscription path (connectRaw): the extension
+        // imports the raw config instead of calling Configure, then raises with an
+        // empty serverId. Any non-empty rawMode flag means raw.
+        let rawMode = !((conf[CarambaVpnKeys.rawMode] as? String) ?? "").isEmpty
 
-        publish(stage: CarambaStage.connecting, detail: "Securing tunnel")
+        publish(stage: CarambaStage.connecting,
+                detail: rawMode ? "Importing profile" : "Securing tunnel")
 
-        // 1. Apply network settings so the system hands packets to packetFlow.
-        let settings = makeNetworkSettings(remoteAddress: conf[CarambaVpnKeys.serverName] as? String)
+        // 1. Apply network settings so the system hands packets to packetFlow. For a
+        // raw import there is no panel serverName; use the display label if present.
+        let remote = rawMode
+            ? (conf[CarambaVpnKeys.rawLabel] as? String)
+            : (conf[CarambaVpnKeys.serverName] as? String)
+        let settings = makeNetworkSettings(remoteAddress: remote)
         setTunnelNetworkSettings(settings) { [weak self] settingsError in
             guard let self = self else { return }
             if let settingsError = settingsError {
@@ -70,7 +79,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             // 2. Build and start the Go core off the completion thread.
             self.pollQueue.async {
                 do {
-                    try self.startCore(serverId: serverId, conf: conf)
+                    try self.startCore(serverId: serverId, rawMode: rawMode, conf: conf)
                     self.connectedSinceMs = Int64(Date().timeIntervalSince1970 * 1000)
                     self.publish(stage: CarambaStage.connected, detail: nil)
                     self.startPolling()
@@ -116,7 +125,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     // MARK: - Core lifecycle
 
-    private func startCore(serverId: String, conf: [String: Any]) throws {
+    private func startCore(serverId: String, rawMode: Bool, conf: [String: Any]) throws {
         #if canImport(Caramba)
         let panelUrl = conf[CarambaVpnKeys.panelUrl] as? String ?? ""
         let subUuid = conf[CarambaVpnKeys.subscriptionUuid] as? String ?? ""
@@ -133,18 +142,31 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         var initError: NSError?
         // gomobile maps Go `NewClient(panelURL,subURL,workDir,tokenPath) (*Client, error)`
         // to `CarambaNewClient(_,_,_,_, error:) -> CarambaClient?`. subURL is left
-        // empty so the core uses the panel default.
+        // empty so the core uses the panel default. For a raw import panelUrl is
+        // empty; NewClient still succeeds (it only wires the client, no network).
         guard let client = CarambaNewClient(panelUrl, "", workDir, tokenPath, &initError) else {
             throw initError ?? carambaError("core init failed")
         }
         self.core = client
 
-        // Configure(panelURL, subscriptionID, accessToken): the binding's single
-        // auth entry point. The extension runs in its own process, so the app
-        // hands it the JWT + subscription uuid here rather than re-running login.
-        try client.configure(panelUrl, subscriptionID: subUuid, accessToken: accessToken)
+        if rawMode {
+            // rawSub path: import the raw subscription into a mihomo config instead
+            // of calling Configure. gomobile maps Go
+            // `ImportSubscription(raw, format string) (string, error)` to
+            // `importSubscription(_ raw: String, format: String) throws -> String`
+            // (a Go error surfaces as a thrown Swift error). We ignore the returned
+            // metadata JSON here; a throw aborts to the error stage.
+            let raw = conf[CarambaVpnKeys.rawConfig] as? String ?? ""
+            let format = conf[CarambaVpnKeys.rawFormat] as? String ?? ""
+            _ = try client.importSubscription(raw, format: format)
+        } else {
+            // Configure(panelURL, subscriptionID, accessToken): the binding's single
+            // auth entry point. The extension runs in its own process, so the app
+            // hands it the JWT + subscription uuid here rather than re-running login.
+            try client.configure(panelUrl, subscriptionID: subUuid, accessToken: accessToken)
+        }
 
-        // Optional routing policy.
+        // Optional routing policy (applies to both paths).
         if let proto = conf[CarambaVpnKeys.protocolName] as? String, !proto.isEmpty {
             client.setProtocol(proto)
         }
@@ -157,19 +179,21 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
         // Hand mihomo the tunnel file descriptor. packetFlow's underlying utun
         // socket is the same fd mihomo's TUN inbound reads/writes, so once Up()
-        // applies the panel's clash config (which carries amnezia-wg), packets
-        // flow end to end.
+        // applies the (panel or imported) clash config, packets flow end to end.
         let fd = tunnelFileDescriptor()
         guard fd >= 0 else { throw carambaError("no tunnel file descriptor") }
         // gomobile maps Go `SetTunFd(fd int) error` to `setTunFd(_ fd: Int) throws`.
         try client.setTunFd(Int(fd))
 
-        // Up fetches the panel mihomo/clash config itself; we pass serverId + policy.
-        // gomobile maps `Up(serverID string) (string, error)` to a throwing Swift
-        // method returning the UpResult JSON; we only need its success/throw.
-        _ = try client.up(serverId)
+        // Up raises the tunnel from the active config. On the panel path we pass the
+        // selected serverId; on the raw path serverId is empty ("") since an
+        // imported subscription has no panel node. gomobile maps
+        // `Up(serverID string) (string, error)` to a throwing Swift method returning
+        // the UpResult JSON; we only need its success/throw.
+        _ = try client.up(rawMode ? "" : serverId)
         #else
         _ = serverId
+        _ = rawMode
         _ = conf
         throw carambaError("exarobot.xcframework not linked")
         #endif

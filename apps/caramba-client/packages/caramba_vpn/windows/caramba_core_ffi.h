@@ -29,6 +29,11 @@ class CarambaCoreFfi {
   using ConfigureFn = char* (*)(CarambaHandle, const char*, const char*,
                                 const char*);
   using SetTunFdFn = char* (*)(CarambaHandle, int);
+  // ImportSubscription parses a raw subscription (rawConfig in the given format)
+  // into a mihomo config and stores it as the imported source. Returns a
+  // CarambaFreeString-owned JSON string; on failure it carries an "error" field.
+  using ImportSubscriptionFn = char* (*)(CarambaHandle, const char*,
+                                         const char*);
   using UpFn = char* (*)(CarambaHandle, const char*);
   using DownFn = char* (*)(CarambaHandle);
   using StatusFn = char* (*)(CarambaHandle);
@@ -58,6 +63,8 @@ class CarambaCoreFfi {
         GetProcAddress(module_, "CarambaConfigure"));
     SetTunFd =
         reinterpret_cast<SetTunFdFn>(GetProcAddress(module_, "CarambaSetTunFd"));
+    ImportSubscription = reinterpret_cast<ImportSubscriptionFn>(
+        GetProcAddress(module_, "CarambaImportSubscription"));
     Up = reinterpret_cast<UpFn>(GetProcAddress(module_, "CarambaUp"));
     Down = reinterpret_cast<DownFn>(GetProcAddress(module_, "CarambaDown"));
     Status =
@@ -71,8 +78,8 @@ class CarambaCoreFfi {
 
   bool ok() const {
     return New != nullptr && Configure != nullptr && SetTunFd != nullptr &&
-           Up != nullptr && Down != nullptr && Status != nullptr &&
-           Traffic != nullptr && FreeString != nullptr;
+           ImportSubscription != nullptr && Up != nullptr && Down != nullptr &&
+           Status != nullptr && Traffic != nullptr && FreeString != nullptr;
   }
 
   // TakeString copies an FFI-owned string and frees it via CarambaFreeString.
@@ -98,6 +105,7 @@ class CarambaCoreFfi {
   NewFn New = nullptr;
   ConfigureFn Configure = nullptr;
   SetTunFdFn SetTunFd = nullptr;
+  ImportSubscriptionFn ImportSubscription = nullptr;
   UpFn Up = nullptr;
   DownFn Down = nullptr;
   StatusFn Status = nullptr;

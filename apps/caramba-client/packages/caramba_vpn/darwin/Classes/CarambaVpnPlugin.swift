@@ -80,6 +80,10 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
             let args = call.arguments as? [String: Any] ?? [:]
             connect(args: args, result: result)
 
+        case "connectRaw":
+            let args = call.arguments as? [String: Any] ?? [:]
+            connectRaw(args: args, result: result)
+
         case "disconnect":
             disconnect(result: result)
 
@@ -124,6 +128,79 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
             // Required non-empty server address; the real endpoint is selected by
             // the panel's clash config inside the extension.
             proto.serverAddress = (args["serverName"] as? String) ?? "exarobot"
+            proto.providerConfiguration = providerConf
+            mgr.protocolConfiguration = proto
+            mgr.localizedDescription = "exarobot"
+            mgr.isEnabled = true
+
+            mgr.saveToPreferences { saveErr in
+                if let saveErr = saveErr {
+                    self.emitStatus(CarambaStatusSnapshot(stage: CarambaStage.error,
+                                                          detail: saveErr.localizedDescription,
+                                                          connectedSinceMs: 0))
+                    result(FlutterError(code: "save", message: saveErr.localizedDescription, details: nil))
+                    return
+                }
+                // Reload to pick up the saved configuration before starting.
+                mgr.loadFromPreferences { _ in
+                    do {
+                        try mgr.connection.startVPNTunnel()
+                        self.observeConnection(mgr)
+                        self.startPolling()
+                        result(nil)
+                    } catch {
+                        self.emitStatus(CarambaStatusSnapshot(stage: CarambaStage.error,
+                                                              detail: error.localizedDescription,
+                                                              connectedSinceMs: 0))
+                        result(FlutterError(code: "start", message: error.localizedDescription, details: nil))
+                    }
+                }
+            }
+        }
+    }
+
+    /// rawSub path: mirror `connect` but carry an imported subscription instead of
+    /// a panelAccount server. The extension imports the raw config
+    /// (ImportSubscription) instead of calling Configure, then raises the tunnel
+    /// with an empty serverId. Everything downstream (save provider profile, start
+    /// the tunnel, observe, poll) is identical to the connect path.
+    private func connectRaw(args: [String: Any], result: @escaping FlutterResult) {
+        // Optimistic connecting frame so the UI reacts immediately.
+        emitStatus(CarambaStatusSnapshot(stage: CarambaStage.connecting,
+                                         detail: "Importing profile", connectedSinceMs: 0))
+
+        loadOrCreateManager { [weak self] mgr, err in
+            guard let self = self else { return }
+            if let err = err {
+                self.emitStatus(CarambaStatusSnapshot(stage: CarambaStage.error,
+                                                      detail: err.localizedDescription,
+                                                      connectedSinceMs: 0))
+                result(FlutterError(code: "manager", message: err.localizedDescription, details: nil))
+                return
+            }
+            guard let mgr = mgr else {
+                result(FlutterError(code: "manager", message: "no tunnel manager", details: nil))
+                return
+            }
+
+            // Build providerConfiguration for the raw path. We intentionally do NOT
+            // include pendingConfig's panel/sub/token seam: a raw import raises the
+            // tunnel from the imported config alone (no panel Configure). rawMode
+            // flags the extension to take the ImportSubscription branch, and
+            // serverId stays empty (a raw source has no subscription node).
+            let label = args[CarambaVpnKeys.rawLabel] as? String ?? ""
+            var providerConf: [String: Any] = [:]
+            providerConf[CarambaVpnKeys.rawMode] = "1"
+            providerConf[CarambaVpnKeys.rawConfig] = args[CarambaVpnKeys.rawConfig] as? String ?? ""
+            providerConf[CarambaVpnKeys.rawFormat] = args[CarambaVpnKeys.rawFormat] as? String ?? ""
+            providerConf[CarambaVpnKeys.rawLabel] = label
+            providerConf[CarambaVpnKeys.serverId] = ""
+
+            let proto = (mgr.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
+            proto.providerBundleIdentifier = self.extensionBundleIdentifier()
+            // Required non-empty server address; the real endpoint is selected by
+            // the imported clash config inside the extension.
+            proto.serverAddress = label.isEmpty ? "exarobot" : label
             proto.providerConfiguration = providerConf
             mgr.protocolConfiguration = proto
             mgr.localizedDescription = "exarobot"

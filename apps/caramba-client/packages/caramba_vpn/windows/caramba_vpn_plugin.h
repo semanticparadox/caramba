@@ -12,12 +12,17 @@
 #ifndef FLUTTER_PLUGIN_CARAMBA_VPN_PLUGIN_H_
 #define FLUTTER_PLUGIN_CARAMBA_VPN_PLUGIN_H_
 
+#include <windows.h>
+
+#include <flutter/encodable_value.h>
 #include <flutter/event_channel.h>
 #include <flutter/event_sink.h>
 #include <flutter/method_channel.h>
 #include <flutter/plugin_registrar_windows.h>
 
 #include <atomic>
+#include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -34,6 +39,11 @@ class CarambaVpnPlugin : public flutter::Plugin {
 
   CarambaVpnPlugin();
   ~CarambaVpnPlugin() override;
+
+  // Creates the hidden message-only window used to marshal work back onto the
+  // platform thread. Must be called on the platform thread (from
+  // RegisterWithRegistrar).
+  void InitPlatformThreadRunner();
 
   // Non-copyable.
   CarambaVpnPlugin(const CarambaVpnPlugin&) = delete;
@@ -54,6 +64,10 @@ class CarambaVpnPlugin : public flutter::Plugin {
   // connect(serverId, serverName, countryCode): ensure the core handle, set
   // tunFd = -1, bring the tunnel up, and start the poll loop.
   void Connect(const std::string& server_id);
+  // connectRaw(rawConfig, format, label): ensure the core handle, import the
+  // raw subscription, set tunFd = -1, bring the tunnel up with an empty
+  // serverId, and start the poll loop. Mirrors Connect for the rawSub path.
+  void ConnectRaw(const std::string& raw_config, const std::string& format);
   // disconnect(): bring the tunnel down and stop the poll loop.
   void Disconnect();
 
@@ -70,6 +84,25 @@ class CarambaVpnPlugin : public flutter::Plugin {
   // on success; on failure emits an error stage and returns false.
   bool EnsureCore();
 
+  // Platform-thread marshaling. flutter::EventSink and MethodChannel objects
+  // are NOT thread-safe and must only be touched on the platform (main) thread.
+  // The poll worker and any non-platform-thread caller must funnel sink sends
+  // through PostToPlatformThread, which queues the closure and wakes the hidden
+  // message window so its WndProc runs the closure on the platform thread.
+  void PostToPlatformThread(std::function<void()> task);
+  // Drains the pending-task queue; invoked only from the platform thread
+  // (message-window WndProc).
+  void DrainPlatformTasks();
+  // Sends a status/traffic map to the corresponding sink. MUST run on the
+  // platform thread (call only via PostToPlatformThread or from a method-call
+  // handler, which the embedder already dispatches on the platform thread).
+  void SendStatusOnPlatformThread(flutter::EncodableMap map);
+  void SendTrafficOnPlatformThread(flutter::EncodableMap map);
+
+  // WndProc for the hidden message-only task-runner window.
+  static LRESULT CALLBACK TaskWindowProc(HWND hwnd, UINT msg, WPARAM wparam,
+                                         LPARAM lparam);
+
   CarambaCoreFfi core_;
   CarambaHandle handle_ = 0;
 
@@ -79,7 +112,20 @@ class CarambaVpnPlugin : public flutter::Plugin {
 
   std::thread poll_thread_;
   std::atomic<bool> polling_{false};
+
+  // last_stage_ is read/written from both the platform thread (status(),
+  // onListen, EmitStage) and the poll worker; every access is guarded by
+  // stage_mutex_. Do NOT reuse sink_mutex_ (which guards the sinks) for this.
   std::string last_stage_ = "disconnected";
+  std::mutex stage_mutex_;
+
+  // Hidden message-only window + task queue used to run closures on the
+  // platform thread (see PostToPlatformThread). The window is created on the
+  // platform thread in InitPlatformThreadRunner and destroyed in the
+  // destructor (which also runs on the platform thread).
+  HWND task_window_ = nullptr;
+  std::deque<std::function<void()>> pending_tasks_;
+  std::mutex tasks_mutex_;
 
   // Auth/config seam captured from configure(); applied in EnsureCore.
   std::string panel_url_;

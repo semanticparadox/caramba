@@ -209,7 +209,7 @@ final connectionProfilesProvider =
 
 /// Текущий активный [ConnectionProfile] или `null` (нет профилей / ещё грузим).
 /// Build C ветвится по `profile.type`: panelAccount -> configure+connect;
-/// rawSub -> importRawProfile+connect.
+/// rawSub -> connectRaw.
 final activeConnectionProfileProvider = Provider<ConnectionProfile?>(
   (ref) => ref.watch(connectionProfilesProvider).active,
 );
