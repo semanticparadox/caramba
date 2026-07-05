@@ -22,6 +22,7 @@ func newUpCommand(g *globalFlags) *cobra.Command {
 	var bypassDomains []string
 	var apps []string
 	var appMode string
+	var foreground bool
 	cmd := &cobra.Command{
 		Use:   "up [server]",
 		Short: "Поднять VPN-туннель",
@@ -79,6 +80,14 @@ func newUpCommand(g *globalFlags) *cobra.Command {
 			if res.Engine.ActiveProxy != "" {
 				kv("прокси", res.Engine.ActiveProxy, 8)
 			}
+
+			// Фоновый режим удерживает процесс открытым: Up возвращается сразу, а
+			// одноразовый CLI-процесс, завершившись, разрушил бы OS-уровневый utun
+			// вместе с собой (см. комментарий вверху файла). --foreground держит
+			// туннель живым и опрашивает движок ~1 Гц до Ctrl-C.
+			if foreground {
+				return runForeground(core)
+			}
 			return nil
 		},
 	}
@@ -88,6 +97,7 @@ func newUpCommand(g *globalFlags) *cobra.Command {
 	cmd.Flags().StringSliceVar(&bypassDomains, "bypass-domain", nil, "домен мимо туннеля (DIRECT), можно повторять")
 	cmd.Flags().StringSliceVar(&apps, "app", nil, "приложение/процесс для split-tunnel, можно повторять")
 	cmd.Flags().StringVar(&appMode, "app-mode", "bypass", "режим --app: bypass (эти мимо туннеля) или allow (только эти в туннель)")
+	cmd.Flags().BoolVarP(&foreground, "foreground", "f", false, "не завершаться: держать туннель открытым и опрашивать состояние до Ctrl-C")
 	return cmd
 }
 
