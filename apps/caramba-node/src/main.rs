@@ -54,11 +54,7 @@ fn is_newer_version(target: &str, current: &str) -> bool {
             .take_while(|p| !p.is_empty() && p.chars().next().is_some_and(|c| c.is_ascii_digit()))
             .filter_map(|p| p.parse::<u32>().ok())
             .collect();
-        if nums.len() >= 3 {
-            Some(nums)
-        } else {
-            None
-        }
+        if nums.len() >= 3 { Some(nums) } else { None }
     }
     match (parse(target), parse(current)) {
         (Some(t), Some(c)) => t > c,
@@ -363,9 +359,7 @@ async fn main() -> anyhow::Result<()> {
                     // check was a string equality test — it happily triggered
                     // "updates" to OLDER versions, then SIGTERM on the post-update
                     // restart bricked the node via systemd's start-limit-hit.
-                    if is_newer_version(&target_ver, current_version)
-                        && target_ver != "0.0.0"
-                    {
+                    if is_newer_version(&target_ver, current_version) && target_ver != "0.0.0" {
                         info!(
                             "📣 New version available: {} (Current: {})",
                             target_ver, current_version
