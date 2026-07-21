@@ -133,3 +133,92 @@ For more details, see README.md and docs/QUICKSTART.md.
 - If push fails, resolve and retry until it succeeds
 
 <!-- END BEADS INTEGRATION -->
+
+---
+
+## Post-incident runbook (added 2026-07-21, after the v0.9.48 sing-box outage)
+
+Patterns discovered while fixing the 2026-07-21 incident. Read this if you're
+touching `apps/caramba-node`, `sing-box` config generation, the panel's
+`MarketplaceService`, or the installer's upgrade flow.
+
+### 1. `sing-box` runs as a system user, not root
+
+The systemd unit on every node is `User=sing-box` (`Group=sing-box`). The
+package's `/etc/sing-box/` is owned by root with mode 0755 and cannot be
+written by `sing-box`. Anything that needs a writable path (cache files,
+runtime state, generated TLS material) MUST live under `StateDirectory=`
+(`/var/lib/sing-box/`), NOT under `/etc/sing-box/`. The 0.9.48 bug was
+`experimental.cache_file.path = /etc/sing-box/cache.db` — fix is to point at
+`/var/lib/sing-box/cache.db`. When generating sing-box config, default any
+new writable path to `/var/lib/sing-box/<thing>`; never reintroduce
+`/etc/sing-box` for state.
+
+### 2. Per-node reload-all trigger
+
+The panel regenerates configs on heartbeat (every ~30s per node). The admin
+"Reload all" button is a force-flush of the cache for nodes that haven't
+checked in yet — use it after a panel-side config change that needs to
+land fast, but expect a 30s lag without it. Do NOT call
+`/admino4ka/nodes/reload-all` from curl/CLI: auth is cookie+CSRF and you
+won't have credentials. The heartbeat regeneration is the safe path for
+the agent anyway.
+
+### 3. `caramba-node` self-update version comparison
+
+`is_newer_version(target, current)` in `apps/caramba-node/src/main.rs`
+parses `vX.Y.Z` and compares the first three numeric components. A
+string-equality fallback used to be in the same call site and caused
+the agent to "update" to older versions, then SIGTERM itself on restart
+and trip `systemd`'s `StartLimitBurst` — leaving the node dark. The fix
+is the semver-style compare. If you change the version comparison, keep
+the unit-test coverage (`is_newer_version_*` cases in the same file) and
+verify the 3-segment minimum guard. Do NOT use a lexicographic compare
+(`"0.10.0" < "0.9.0"` in lexicographic order — the seg-fault path of
+this whole incident class).
+
+### 4. Panel-side `sing-box` validation gate (added 0.9.50)
+
+`apps/caramba-panel/src/singbox/generator.rs::validate_config` used to
+`warn!` and skip validation if the panel couldn't run `sing-box check`.
+After 0.9.50 it `error!`s and returns Err — the panel must have the
+`sing-box` binary installed (same version as the nodes) so a broken
+config is caught on the panel BEFORE it ships. On a fresh panel host,
+install `sing-box` from the same package source as the nodes, then
+verify with `sing-box version`. Don't ship a release that disables
+this gate.
+
+### 5. Installer rollback / version pinning
+
+`caramba upgrade --to v0.9.49` (alias of `--version`) is the supported
+rollback path. The flow downloads the older release asset from GitHub,
+writes the binary, and restarts — same as a forward upgrade. The
+version marker at `<install_dir>/.caramba-version` is updated on
+success, so `caramba diagnose` always shows the actual version. If a
+release ships broken, the playbook is: `sudo caramba upgrade --to
+<last-good-tag>`, then file the post-mortem.
+
+### 6. Payment provider add checklist (use for new providers)
+
+When adding a new PSP to `apps/caramba-panel/src/services/payment/`:
+
+1. New file `<provider>.rs` implementing `PaymentProvider`
+   (`create_invoice`, `verify_webhook`, `handle_webhook`, `check_status`,
+   `supports_polling` if off-chain).
+2. `pub mod <provider>;` in `mod.rs`.
+3. Add to `MarketplaceService::new` signature + provider registration in
+   `services/marketplace_service.rs` (add the env-var fields, plumb them
+   through, and register the provider with a `if !key.is_empty()` guard).
+4. Add a case in `handlers/admin/payments.rs::invoke_provider_test` so
+   the admin "Test connection" button covers it.
+5. Add a `provider_label` entry in `api/client.rs` (with emoji + suffix).
+6. Add a `provider_enable_setting` entry in `marketplace_service.rs`
+   (default off for opt-in RU providers, default on for legacy).
+7. Add a `header(...)` case in `api/webhooks.rs::handle_payment_webhook`
+   for the provider's signature header (or empty string if signed in
+   body — see Cryptomus, AAIO).
+8. Document the env vars in `.env.example`.
+9. Run `cargo check --workspace` and `cargo test --workspace`.
+
+The 0.9.50 cycle added `paypalych` as a worked example; cross-check
+against that file if the list above is ambiguous.
