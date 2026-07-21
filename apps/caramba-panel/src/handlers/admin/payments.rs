@@ -18,8 +18,8 @@ use crate::services::payment::{
     aaio::AaioProvider, btcpay::BtcPayProvider, coinbase_commerce::CoinbaseCommerceProvider,
     cryptobot::CryptoBotProvider, cryptomus::CryptomusProvider, crystalpay::CrystalPayProvider,
     lava::LavaProvider, nowpayments::NowPaymentsProvider, oxapay::OxaPayProvider,
-    plisio::PlisioProvider, provider::PaymentProvider, tribute::TributeProvider,
-    wata::WataProvider,
+    paypalych::PaypalychProvider, plisio::PlisioProvider, provider::PaymentProvider,
+    tribute::TributeProvider, wata::WataProvider,
 };
 use caramba_db::models::store::{PaymentSession, User};
 
@@ -347,6 +347,29 @@ async fn invoke_provider_test(provider_name: &str, state: &AppState) -> Result<S
                 .create_invoice(&session, &user, &client)
                 .await
                 .map_err(|e| format!("Plisio API error: {}", e))
+        }
+
+        // ── Paypalych (pal24.pro) — SBP + USDT TRC20 ─────────────────────────
+        "paypalych" => {
+            let api_token = s.get_or_default("paypalych_api_token", "").await;
+            if api_token.trim().is_empty() {
+                return Err("Paypalych API token is not configured".to_string());
+            }
+            let shop_id = s.get_or_default("paypalych_shop_id", "").await;
+            let webhook_secret = s.get_or_default("paypalych_webhook_secret", "").await;
+            let panel_url = s.get_or_default("panel_url", "").await;
+            let bot_username = s.get_or_default("bot_username", "").await;
+            let provider = PaypalychProvider {
+                api_token,
+                shop_id,
+                webhook_secret,
+                api_domain: panel_url,
+                bot_username,
+            };
+            provider
+                .create_invoice(&session, &user, &client)
+                .await
+                .map_err(|e| format!("Paypalych API error: {}", e))
         }
 
         _ => Err(format!("Unknown provider: {}", provider_name)),

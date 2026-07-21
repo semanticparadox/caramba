@@ -522,6 +522,14 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     let coinbase_webhook_secret = settings.get_or_default("coinbase_webhook_secret", "").await;
     let plisio_api_key = settings.get_or_default("plisio_api_key", "").await;
 
+    // Paypalych (pal24.pro): SBP + USDT TRC20 для RU-аудитории. api_token
+    // обязателен; shop_id и webhook_secret опциональны.
+    let paypalych_api_token = settings.get_or_default("paypalych_api_token", "").await;
+    let paypalych_shop_id = settings.get_or_default("paypalych_shop_id", "").await;
+    let paypalych_webhook_secret = settings
+        .get_or_default("paypalych_webhook_secret", "")
+        .await;
+
     let is_testnet: String = settings.get_or_default("payment_testnet", "true").await;
     let panel_url = settings.get_or_default("panel_url", "").await;
     let api_domain = settings
@@ -592,6 +600,9 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         coinbase_api_key,
         coinbase_webhook_secret,
         plisio_api_key,
+        paypalych_api_token,
+        paypalych_shop_id,
+        paypalych_webhook_secret,
         marketplace_api_domain,
         marketplace_bot_username,
         (*store_service).clone(),
@@ -888,12 +899,10 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         // New Bot Page
         .route("/bot", axum::routing::get(handlers::admin::bot_logs_page))
         // Tools Logic (Page removed, actions preserved)
-        // .route("/tools", axum::routing::get(handlers::admin::get_tools_page)) // Removed
         .route(
             "/tools/export",
             axum::routing::get(handlers::admin::export_database),
         )
-        // .route("/traffic", axum::routing::get(handlers::admin::get_traffic_analytics)) // Merged into /analytics
         .route(
             "/logs",
             axum::routing::get(handlers::admin::get_system_logs_page),
@@ -1176,12 +1185,12 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::get(handlers::admin::bot_logs_tail),
         )
         .route(
-            "/api-keys",
+            "/enrollment-keys",
             axum::routing::get(handlers::admin::list_api_keys)
                 .post(handlers::admin::create_api_key),
         )
         .route(
-            "/api-keys/delete/{id}",
+            "/enrollment-keys/delete/{id}",
             axum::routing::post(handlers::admin::delete_api_key),
         )
         // SNI Pool Management
@@ -1263,6 +1272,13 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         .route(
             "/groups/{id}/rotate",
             axum::routing::post(handlers::admin_groups::rotate_group_inbounds),
+        )
+        // Config Builder — unified landing page for Config Profiles + Inbound
+        // Templates (added in 0.9.50; deep links to /profiles and /templates
+        // still work for the existing edit flows).
+        .route(
+            "/config-builder",
+            axum::routing::get(handlers::admin_config_builder::get_config_builder_page),
         )
         // Config Profiles (centralized DNS policy)
         .route(

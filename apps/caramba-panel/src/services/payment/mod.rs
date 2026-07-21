@@ -33,6 +33,7 @@ pub mod crystalpay;
 pub mod manual;
 pub mod nowpayments;
 pub mod oxapay;
+pub mod paypalych;
 pub mod plisio;
 pub mod provider;
 pub mod stripe;

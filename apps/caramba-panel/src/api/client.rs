@@ -1821,6 +1821,7 @@ pub fn provider_label(name: &str) -> String {
         "oxapay" => "🪙 OxaPay",
         "coinbase_commerce" => "🪙 Coinbase Commerce",
         "plisio" => "🪙 Plisio",
+        "paypalych" => "🇷🇺 Paypalych (СБП / USDT)",
         other => other,
     }
     .to_string()

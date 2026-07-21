@@ -19,6 +19,7 @@ use super::payment::lava::LavaProvider;
 use super::payment::manual::ManualProvider;
 use super::payment::nowpayments::NowPaymentsProvider;
 use super::payment::oxapay::OxaPayProvider;
+use super::payment::paypalych::PaypalychProvider;
 use super::payment::plisio::PlisioProvider;
 use super::payment::provider::{PaymentProvider, PaymentWebhookAction};
 use super::payment::stripe::StripeProvider;
@@ -52,9 +53,8 @@ pub struct MarketplaceService {
 pub fn provider_enable_setting(name: &str) -> (String, bool) {
     match name {
         "coinbase_commerce" => ("coinbase_enabled".to_string(), false),
-        "wata" | "crystalpay" | "tribute" | "btcpay" | "oxapay" | "plisio" | "manual" => {
-            (format!("{name}_enabled"), false)
-        }
+        "wata" | "crystalpay" | "tribute" | "btcpay" | "oxapay" | "plisio" | "paypalych"
+        | "manual" => (format!("{name}_enabled"), false),
         // nowpayments / cryptobot / cryptomus / lava / aaio / stripe: shown when
         // configured unless the admin explicitly turns them off.
         _ => (format!("{name}_enabled"), true),
@@ -98,6 +98,10 @@ impl MarketplaceService {
         coinbase_webhook_secret: String,
         // Plisio (мировая крипта)
         plisio_api_key: String,
+        // Paypalych (RU: SBP + USDT TRC20, pal24.pro / pally.info)
+        paypalych_api_token: String,
+        paypalych_shop_id: String,
+        paypalych_webhook_secret: String,
         api_domain: String,
         bot_username: String,
         store_service: StoreService,
@@ -265,6 +269,21 @@ impl MarketplaceService {
                 "plisio".to_string(),
                 Box::new(PlisioProvider {
                     api_key: plisio_api_key,
+                    api_domain: api_domain.clone(),
+                    bot_username: bot_username.clone(),
+                }),
+            );
+        }
+
+        // Paypalych (pal24.pro): SBP + USDT TRC20 для RU-аудитории. Достаточно
+        // api_token; shop_id и webhook_secret опциональны (с предупреждением).
+        if !paypalych_api_token.is_empty() {
+            providers.insert(
+                "paypalych".to_string(),
+                Box::new(PaypalychProvider {
+                    api_token: paypalych_api_token,
+                    shop_id: paypalych_shop_id,
+                    webhook_secret: paypalych_webhook_secret,
                     api_domain: api_domain.clone(),
                     bot_username: bot_username.clone(),
                 }),
