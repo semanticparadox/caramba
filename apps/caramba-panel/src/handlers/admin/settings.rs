@@ -387,6 +387,11 @@ pub struct SettingsTemplate {
     pub wata_enabled: bool,
     pub masked_wata_jwt_token: String,
     pub masked_wata_webhook_secret: String,
+    // Paypalych (pal24.pro / pally.info — SBP + USDT TRC20)
+    pub paypalych_enabled: bool,
+    pub masked_paypalych_api_token: String,
+    pub masked_paypalych_shop_id: String,
+    pub masked_paypalych_webhook_secret: String,
     // CrystalPay
     pub crystalpay_enabled: bool,
     pub masked_crystalpay_login: String,
@@ -532,6 +537,11 @@ pub struct SaveSettingsForm {
     pub wata_enabled: Option<String>,
     pub wata_jwt_token: Option<String>,
     pub wata_webhook_secret: Option<String>,
+    // Paypalych
+    pub paypalych_enabled: Option<String>,
+    pub paypalych_api_token: Option<String>,
+    pub paypalych_shop_id: Option<String>,
+    pub paypalych_webhook_secret: Option<String>,
     // CrystalPay
     pub crystalpay_enabled: Option<String>,
     pub crystalpay_login: Option<String>,
@@ -944,6 +954,34 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         mask_key(&wata_webhook_secret_raw)
     };
 
+    // ── Paypalych (pal24.pro) ──────────────────────────────────────────────────
+    let paypalych_enabled = state
+        .settings
+        .get_or_default("paypalych_enabled", "false")
+        .await
+        == "true";
+    let paypalych_api_token_raw = state
+        .settings
+        .get_or_default("paypalych_api_token", "")
+        .await;
+    let paypalych_shop_id_raw = state.settings.get_or_default("paypalych_shop_id", "").await;
+    let paypalych_webhook_secret_raw = state
+        .settings
+        .get_or_default("paypalych_webhook_secret", "")
+        .await;
+    let masked_paypalych_api_token = if paypalych_api_token_raw.is_empty() {
+        "".to_string()
+    } else {
+        mask_key(&paypalych_api_token_raw)
+    };
+    // shop_id is not a secret, so we don't mask it — show it verbatim.
+    let masked_paypalych_shop_id = paypalych_shop_id_raw;
+    let masked_paypalych_webhook_secret = if paypalych_webhook_secret_raw.is_empty() {
+        "".to_string()
+    } else {
+        mask_key(&paypalych_webhook_secret_raw)
+    };
+
     let crystalpay_enabled = state
         .settings
         .get_or_default("crystalpay_enabled", "false")
@@ -1161,6 +1199,11 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         wata_enabled,
         masked_wata_jwt_token,
         masked_wata_webhook_secret,
+        // Paypalych
+        paypalych_enabled,
+        masked_paypalych_api_token,
+        masked_paypalych_shop_id,
+        masked_paypalych_webhook_secret,
         // CrystalPay
         crystalpay_enabled,
         masked_crystalpay_login,
@@ -1591,6 +1634,55 @@ pub async fn save_settings(
             && v != masked
         {
             settings.insert("wata_webhook_secret".to_string(), v);
+        }
+    }
+
+    // ── Paypalych — сохранение ────────────────────────────────────────────────
+    settings.insert(
+        "paypalych_enabled".to_string(),
+        if is_checkbox_enabled(form.paypalych_enabled.as_deref()) {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
+    );
+    {
+        let cur = state
+            .settings
+            .get_or_default("paypalych_api_token", "")
+            .await;
+        let masked = if cur.is_empty() {
+            "".to_string()
+        } else {
+            mask_key(&cur)
+        };
+        if let Some(v) = form.paypalych_api_token
+            && !v.is_empty()
+            && v != masked
+        {
+            settings.insert("paypalych_api_token".to_string(), v);
+        }
+        // shop_id is a non-secret identifier — always save as-is when supplied.
+        if let Some(v) = form.paypalych_shop_id {
+            let trimmed = v.trim().to_string();
+            if !trimmed.is_empty() {
+                settings.insert("paypalych_shop_id".to_string(), trimmed);
+            }
+        }
+        let cur = state
+            .settings
+            .get_or_default("paypalych_webhook_secret", "")
+            .await;
+        let masked = if cur.is_empty() {
+            "".to_string()
+        } else {
+            mask_key(&cur)
+        };
+        if let Some(v) = form.paypalych_webhook_secret
+            && !v.is_empty()
+            && v != masked
+        {
+            settings.insert("paypalych_webhook_secret".to_string(), v);
         }
     }
 

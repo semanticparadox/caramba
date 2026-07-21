@@ -315,6 +315,75 @@
                         </details>
                     </div>
 
+                    <!-- Paypalych (pal24.pro) — SBP + USDT TRC20 -->
+                    <div class="payment-provider-card {% if !paypalych_enabled %}payment-card-disabled{% endif %}" id="card-paypalych">
+                        <div class="ppc-header">
+                            <div class="ppc-enable-toggle">
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" form="main-settings-form" name="paypalych_enabled" value="true"
+                                        class="sr-only peer" {% if paypalych_enabled %}checked{% endif %}
+                                        onchange="toggleCardEnabled(this, 'card-paypalych')">
+                                    <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+                                </label>
+                            </div>
+                            <div class="ppc-title-block">
+                                <span class="ppc-name">Paypalych</span>
+                                <span class="ppc-desc">СБП · USDT TRC20 · для РФ-аудитории</span>
+                            </div>
+                            <span class="ppc-tag ppc-tag-ru">РФ</span>
+                        </div>
+                        <div class="ppc-body">
+                            <div class="ppc-webhook-row">
+                                <span class="ppc-webhook-label">Webhook URL</span>
+                                <div class="ppc-webhook-value-wrap">
+                                    <code class="ppc-webhook-url" id="wh-paypalych">{{ panel_url }}/api/webhooks/payment/paypalych</code>
+                                    <button type="button" class="ppc-copy-btn" onclick="copyWebhook('wh-paypalych', this)" title="Скопировать">
+                                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="ppc-fields">
+                                <div>
+                                    <label class="ppc-label">API Token</label>
+                                    <div class="relative">
+                                        <input id="paypalych_api_token" type="password" form="main-settings-form" name="paypalych_api_token"
+                                            value="{{ masked_paypalych_api_token }}" placeholder="72|xxxxxx..." class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'paypalych_api_token')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="ppc-label">Shop ID <span class="text-slate-500 text-xs font-normal">(опционально)</span></label>
+                                    <input type="text" form="main-settings-form" name="paypalych_shop_id"
+                                        value="{{ masked_paypalych_shop_id }}" placeholder="оставь пустым если один магазин" class="input-field font-mono text-sm">
+                                </div>
+                                <div>
+                                    <label class="ppc-label">Webhook Secret <span class="text-slate-500 text-xs font-normal">(опционально, для подписи)</span></label>
+                                    <div class="relative">
+                                        <input id="paypalych_webhook_secret" type="password" form="main-settings-form" name="paypalych_webhook_secret"
+                                            value="{{ masked_paypalych_webhook_secret }}" placeholder="Secret" class="input-field input-secret font-mono text-sm">
+                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
+                                            onclick="toggleSecretVisibility(this, 'paypalych_webhook_secret')" aria-label="Show secret">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ppc-footer">
+                                <button type="button" class="ppc-test-btn" onclick="testProvider('paypalych', this)">
+                                    <i data-lucide="plug-zap" class="w-3.5 h-3.5"></i> Проверить подключение
+                                </button>
+                                <span class="ppc-test-result" id="test-result-paypalych"></span>
+                            </div>
+                        </div>
+                        <details class="ppc-docs">
+                            <summary class="ppc-docs-summary"><i data-lucide="book-open" class="w-3.5 h-3.5"></i> Инструкция по настройке</summary>
+                            <div class="ppc-docs-body">{% include "payment_docs/paypalych.html" %}</div>
+                        </details>
+                    </div>
+
                     <!-- Lava -->
                     <div class="payment-provider-card {% if masked_lava_project_id == "" && masked_lava_secret_key == "" %}payment-card-disabled{% endif %}" id="card-lava">
                         <div class="ppc-header">

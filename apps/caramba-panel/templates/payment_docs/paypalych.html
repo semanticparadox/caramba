@@ -1,0 +1,80 @@
+<section class="payment-doc" id="doc-paypalych">
+  <h3>Paypalych (pal24.pro / pally.info) — СБП и USDT TRC20</h3>
+  <p class="doc-lead">Российский платёжный сервис, заточенный под RU-аудиторию: СБП (Система быстрых платежей) и USDT TRC20. Удобен тем, что умеет оба канала в одной интеграции — вы выдаёте клиенту ссылку, он выбирает способ оплаты. Аутентификация — Bearer-токен, webhook подписывается HMAC-SHA256 (опционально).</p>
+
+  <div class="doc-tags">
+    <span class="tag tag-ru">Для РФ</span>
+    <span class="tag tag-kyc-light">KYC: лёгкий</span>
+    <span class="tag">Комиссия: СБП 6.5% · USDT 3%</span>
+    <span class="tag">СБП · USDT TRC20</span>
+  </div>
+
+  <h4>Когда подойдёт</h4>
+  <ul>
+    <li>Большая часть ваших клиентов в РФ и платит в рублях через СБП — это основной канал, дешевле карт.</li>
+    <li>Хотите принимать и крипту (USDT TRC20) через тот же API — удобно, если часть аудитории в крипте.</li>
+    <li>Не хотите возиться с разными провайдерами на каждый канал — Pal24 закрывает оба.</li>
+  </ul>
+
+  <h4>Тарифы (на момент интеграции)</h4>
+  <ul>
+    <li>СБП: <strong>6.5% + 2 ₽</strong>, минимум 10 ₽, максимум 50 000 ₽ за инвойс.</li>
+    <li>USDT TRC20 в ₽: <strong>3% + 1 USDT</strong>, минимум 400 ₽, максимум 1 000 000 ₽ за инвойс.</li>
+  </ul>
+
+  <h4>Регистрация</h4>
+  <ol>
+    <li>Откройте <a href="https://pally.info" target="_blank" rel="noopener">pally.info</a> и зарегистрируйтесь (email, телефон).</li>
+    <li>Подтвердите email.</li>
+    <li>В личном кабинете создайте проект: <strong>Проекты → Создать</strong>. Заполните анкету: название, тип деятельности, описание, язык, URL магазина, Success URL, Fail URL, Result URL, Refund URL, Chargeback URL. Все три webhook-URL укажите одинаковые — обработчик один, разруливает по полю <code>status</code> в теле.</li>
+    <li>Дождитесь модерации (обычно 1–3 рабочих дня).</li>
+  </ol>
+
+  <h4>Где взять ключи</h4>
+  <ol>
+    <li>После одобрения проекта перейдите: <strong>Проекты → ваш проект → API интеграция</strong>.</li>
+    <li>Скопируйте <strong>API Token</strong> — выглядит как <code>72|xxxxxx...</code> (формат Laravel Sanctum).</li>
+    <li>Shop ID (числовой идентификатор проекта) — виден в URL проекта: <code>/projects/&lt;shop_id&gt;</code>. Опционально: если у вас один проект на этот токен, можно оставить поле пустым.</li>
+    <li>Вставьте <strong>API Token</strong> в поле <strong>«Paypalych API Token»</strong> (<code>paypalych_api_token</code>) в настройках панели.</li>
+    <li>Вставьте <strong>Shop ID</strong> (число) в поле <strong>«Paypalych Shop ID»</strong> (<code>paypalych_shop_id</code>) — если он у вас есть.</li>
+  </ol>
+
+  <h4>Webhook URL</h4>
+  <p>При создании проекта вы указали Result/Refund/Chargeback URL. Все три должны вести на:</p>
+  <pre><code>{{ panel_url }}/api/webhooks/payment/paypalych</code></pre>
+  <p>Один обработчик обслуживает все три типа нотификаций. Если уже создали проект с другими URL — отредактируйте в кабинете Pal24.</p>
+
+  <h4>Подпись webhook (опционально, но рекомендуется для прода)</h4>
+  <p>Pal24 подписывает RAW-тело webhook-запроса через HMAC-SHA256, hex-результат приходит в заголовке <code>Sign</code> (fallback: <code>Signature</code>, <code>X-Sign</code>). Чтобы включить проверку на панели:</p>
+  <ol>
+    <li>В кабинете Pal24 возьмите (или сгенерируйте) <strong>webhook secret</strong>.</li>
+    <li>Вставьте его в поле <strong>«Paypalych Webhook Secret»</strong> (<code>paypalych_webhook_secret</code>) в настройках панели.</li>
+    <li>Сохраните настройки — с этого момента панель будет отклонять любые webhook без валидной подписи.</li>
+  </ol>
+  <p>Если поле пустое — webhook принимается без проверки подписи (с warning-логом). Удобно для тестов и стейджа, в проде обязательно заполните.</p>
+
+  <h4>Особенности</h4>
+  <ul>
+    <li>Все инвойсы создаются в валюте RUB — Pal24 сам делает конвертацию в USDT, если клиент выбрал крипту.</li>
+    <li>Время жизни инвойса — 60 минут (настраивается параметром <code>expire</code> в коде провайдера).</li>
+    <li>Клиент после оплаты возвращается на Telegram-бот (<code>https://t.me/&lt;bot_username&gt;</code>) — параметры <code>success_url</code>/<code>fail_url</code> в коде.</li>
+    <li>Статусы webhook: <code>paid</code> (успех), <code>canceled</code>/<code>expired</code> (неуспех), <code>new</code> (открыт). Панель маппит их на свои <code>Completed</code>/<code>Failed</code>/<code>Pending</code>.</li>
+    <li>Polling-fallback (<code>check_status</code>) пока не реализован — webhook-loss полагается на 1-2 ретрая от провайдера + ручное подтверждение через админку. Если станет проблемой, добавим <code>GET /bill/status</code> отдельным тикетом.</li>
+  </ul>
+
+  <h4>Тестирование</h4>
+  <ol>
+    <li>После сохранения токена нажмите кнопку <strong>«Проверить подключение»</strong> на карточке Paypalych — панель попробует создать тестовый инвойс на 0.01 ₽ через Pal24 API. Успех = креды валидные.</li>
+    <li>Создайте реальный тестовый инвойс в Mini App на минимальную сумму (10 ₽ через СБП или 400 ₽ через USDT).</li>
+    <li>Оплатите его сами, проверьте что webhook дошёл до панели (раздел <strong>Logs</strong> в админке) и подписка активировалась.</li>
+  </ol>
+
+  <h4>Возможные проблемы</h4>
+  <ul>
+    <li><strong>«Authentication failed»</strong> → токен скопирован не полностью, или проект ещё не одобрен модерацией. Проверьте кабинет Pal24.</li>
+    <li><strong>«Shop not found»</strong> → Shop ID указан неверно, либо для этого токена он не нужен (оставьте поле пустым).</li>
+    <li><strong>Webhook не приходит</strong> → URL в кабинете Pal24 должен указывать на <code>{{ panel_url }}/api/webhooks/payment/paypalych</code> дословно. Панель должна быть доступна снаружи по HTTPS.</li>
+    <li><strong>Подпись не совпадает</strong> → webhook secret в Pal24 и в настройках панели должны быть идентичны, без лишних пробелов. Учтите, что Pal24 передаёт подпись в нижнем регистре hex.</li>
+    <li><strong>Проект на модерации</strong> → токен уже виден в кабинете, но реальные платежи не пройдут. Дождитесь подтверждения.</li>
+  </ul>
+</section>
