@@ -314,9 +314,62 @@
                 {% block content %}{% endblock %}
             </div>
 
-            <!-- Bottom OS-style dock removed in 0.9.50: the contextual sub-nav
-                 above already surfaces the same 6 sections per active page,
-                 so the duplicate bottom bar was pure noise. -->
+            <!-- OS Style Bottom Dock -->
+            <div class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50">
+                <div class="dock-wrap">
+
+                    <!-- Overview -->
+                    <a href="{{ admin_path }}/dashboard"
+                        class="dock-item {% if active_page == "dashboard" || active_page == "analytics" || active_page == "logs" %}active{% endif %}"
+                        title="Overview">
+                        <i data-lucide="activity" class="dock-item-icon"></i>
+                        <span class="dock-item-label">Overview</span>
+                    </a>
+
+                    <!-- Servers -->
+                    <a href="{{ admin_path }}/nodes/exit"
+                        class="dock-item {% if active_page == "nodes" || active_page == "nodes_exit" || active_page == "nodes_relay" || active_page == "groups" || active_page == "config_builder" || active_page == "profiles" || active_page == "frontends" || active_page == "templates" || active_page == "sni" %}active{% endif %}"
+                        title="Servers">
+                        <i data-lucide="server" class="dock-item-icon"></i>
+                        <span class="dock-item-label">Servers</span>
+                    </a>
+
+                    <!-- Users -->
+                    <a href="{{ admin_path }}/users"
+                        class="dock-item {% if active_page == "users" || active_page == "api_keys" || active_page == "enrollment_keys" || active_page == "promo" || active_page == "notifications" || active_page == "orgs" %}active{% endif %}"
+                        title="Users">
+                        <i data-lucide="users" class="dock-item-icon"></i>
+                        <span class="dock-item-label">Users</span>
+                    </a>
+
+                    <!-- Tickets -->
+                    <a href="{{ admin_path }}/tickets"
+                        class="dock-item {% if active_page == "tickets" %}active{% endif %}"
+                        title="Tickets">
+                        <i data-lucide="message-circle" class="dock-item-icon"></i>
+                        <span class="dock-item-label">Tickets</span>
+                    </a>
+
+                    <!-- Commerce -->
+                    <a href="{{ admin_path }}/plans"
+                        class="dock-item {% if active_page == "plans" || active_page == "products" || active_page == "categories" || active_page == "transactions" || active_page == "marketplace" %}active{% endif %}"
+                        title="Commerce">
+                        <i data-lucide="shopping-bag" class="dock-item-icon"></i>
+                        <span class="dock-item-label">Commerce</span>
+                    </a>
+
+                    <!-- System -->
+                    <a href="{{ admin_path }}/settings"
+                        class="dock-item {% if active_page == "settings" || active_page == "bot_logs" || active_page == "backups" || active_page == "updates" %}active{% endif %}"
+                        title="System">
+                        <i data-lucide="settings" class="dock-item-icon"></i>
+                        <span class="dock-item-label">System</span>
+                    </a>
+
+                </div>
+            </div>
+
+            <!-- We moved the statusbar into the top header (macOS style) -->
         </main>
     </div>
     {% else %}
