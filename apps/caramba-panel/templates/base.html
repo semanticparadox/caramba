@@ -253,19 +253,17 @@
                     class="nav-pill {% if active_page == "logs" %}active{% endif %}">System Logs</a>
                 {% endif %}
 
-                {% if active_page == "nodes" || active_page == "nodes_exit" || active_page == "nodes_relay" || active_page == "groups" || active_page == "profiles" || active_page == "frontends" || active_page == "templates" || active_page == "sni" %}
+                {% if active_page == "nodes" || active_page == "nodes_exit" || active_page == "nodes_relay" || active_page == "groups" || active_page == "config_builder" || active_page == "profiles" || active_page == "templates" || active_page == "frontends" || active_page == "sni" %}
                 <a href="{{ admin_path }}/nodes/exit"
                     class="nav-pill {% if active_page == "nodes_exit" || active_page == "nodes" %}active{% endif %}">Exit Nodes</a>
                 <a href="{{ admin_path }}/nodes/relay"
                     class="nav-pill {% if active_page == "nodes_relay" %}active{% endif %}">Relay Nodes</a>
                 <a href="{{ admin_path }}/groups"
                     class="nav-pill {% if active_page == "groups" %}active{% endif %}">Groups</a>
-                <a href="{{ admin_path }}/profiles"
-                    class="nav-pill {% if active_page == "profiles" %}active{% endif %}">Config Profiles</a>
+                <a href="{{ admin_path }}/config-builder"
+                    class="nav-pill {% if active_page == "config_builder" || active_page == "profiles" || active_page == "templates" %}active{% endif %}">Config Builder</a>
                 <a href="{{ admin_path }}/frontends"
                     class="nav-pill {% if active_page == "frontends" %}active{% endif %}">Frontends</a>
-                <a href="{{ admin_path }}/templates"
-                    class="nav-pill {% if active_page == "templates" %}active{% endif %}">Inbound Templates</a>
                 <a href="{{ admin_path }}/sni"
                     class="nav-pill {% if active_page == "sni" %}active{% endif %}">SNI Pool</a>
                 {% endif %}
@@ -277,7 +275,7 @@
                     class="nav-pill {% if active_page == "orgs" %}active{% endif %}">Organizations</a>
                 <a href="{{ admin_path }}/tickets"
                     class="nav-pill {% if active_page == "tickets" %}active{% endif %}">Tickets</a>
-                <a href="{{ admin_path }}/api-keys"
+                <a href="{{ admin_path }}/enrollment-keys"
                     class="nav-pill {% if active_page == "api_keys" %}active{% endif %}">Enrollment Keys</a>
                 <a href="{{ admin_path }}/promo"
                     class="nav-pill {% if active_page == "promo" %}active{% endif %}">Promo Center</a>
@@ -285,7 +283,7 @@
                     class="nav-pill {% if active_page == "notifications" %}active{% endif %}">Notifications</a>
                 {% endif %}
 
-                {% if active_page == "plans" || active_page == "products" || active_page == "categories" || active_page == "transactions" %}
+                {% if active_page == "plans" || active_page == "products" || active_page == "categories" || active_page == "transactions" || active_page == "marketplace" %}
                 <a href="{{ admin_path }}/plans"
                     class="nav-pill {% if active_page == "plans" %}active{% endif %}">Plans</a>
                 <a href="{{ admin_path }}/store/products"
@@ -294,6 +292,8 @@
                     class="nav-pill {% if active_page == "categories" %}active{% endif %}">Categories</a>
                 <a href="{{ admin_path }}/transactions"
                     class="nav-pill {% if active_page == "transactions" %}active{% endif %}">Transactions</a>
+                <a href="{{ admin_path }}/marketplace"
+                    class="nav-pill {% if active_page == "marketplace" %}active{% endif %}">Manual Payments</a>
                 {% endif %}
 
                 {% if active_page == "settings" || active_page == "bot_logs" || active_page == "backups" || active_page == "updates" %}
@@ -314,62 +314,9 @@
                 {% block content %}{% endblock %}
             </div>
 
-            <!-- OS Style Bottom Dock -->
-            <div class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50">
-                <div class="dock-wrap">
-
-                    <!-- Overview -->
-                    <a href="{{ admin_path }}/dashboard"
-                        class="dock-item {% if active_page == "dashboard" || active_page == "analytics" || active_page == "logs" %}active{% endif %}"
-                        title="Overview">
-                        <i data-lucide="activity" class="dock-item-icon"></i>
-                        <span class="dock-item-label">Overview</span>
-                    </a>
-
-                    <!-- Servers -->
-                    <a href="{{ admin_path }}/nodes/exit"
-                        class="dock-item {% if active_page == "nodes" || active_page == "nodes_exit" || active_page == "nodes_relay" || active_page == "groups" || active_page == "profiles" || active_page == "frontends" || active_page == "templates" || active_page == "sni" %}active{% endif %}"
-                        title="Servers">
-                        <i data-lucide="server" class="dock-item-icon"></i>
-                        <span class="dock-item-label">Servers</span>
-                    </a>
-
-                    <!-- Users -->
-                    <a href="{{ admin_path }}/users"
-                        class="dock-item {% if active_page == "users" || active_page == "api_keys" || active_page == "promo" || active_page == "notifications" || active_page == "orgs" %}active{% endif %}"
-                        title="Users">
-                        <i data-lucide="users" class="dock-item-icon"></i>
-                        <span class="dock-item-label">Users</span>
-                    </a>
-
-                    <!-- Tickets -->
-                    <a href="{{ admin_path }}/tickets"
-                        class="dock-item {% if active_page == "tickets" %}active{% endif %}"
-                        title="Tickets">
-                        <i data-lucide="message-circle" class="dock-item-icon"></i>
-                        <span class="dock-item-label">Tickets</span>
-                    </a>
-
-                    <!-- Commerce -->
-                    <a href="{{ admin_path }}/plans"
-                        class="dock-item {% if active_page == "plans" || active_page == "products" || active_page == "categories" || active_page == "transactions" %}active{% endif %}"
-                        title="Commerce">
-                        <i data-lucide="shopping-bag" class="dock-item-icon"></i>
-                        <span class="dock-item-label">Commerce</span>
-                    </a>
-
-                    <!-- System -->
-                    <a href="{{ admin_path }}/settings"
-                        class="dock-item {% if active_page == "settings" || active_page == "bot_logs" || active_page == "backups" || active_page == "updates" %}active{% endif %}"
-                        title="System">
-                        <i data-lucide="settings" class="dock-item-icon"></i>
-                        <span class="dock-item-label">System</span>
-                    </a>
-
-                </div>
-            </div>
-
-            <!-- We moved the statusbar into the top header (macOS style) -->
+            <!-- Bottom OS-style dock removed in 0.9.50: the contextual sub-nav
+                 above already surfaces the same 6 sections per active page,
+                 so the duplicate bottom bar was pure noise. -->
         </main>
     </div>
     {% else %}

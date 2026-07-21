@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}Config Builder - CARAMBA{% endblock %}
+{% block header_title %}Config Builder{% endblock %}
+
+{% block content %}
+<div class="space-y-10">
+
+    <!-- Config Profiles (DNS / log policies) -->
+    <section class="space-y-4">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+                <h2 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">DNS &amp; Config Profiles</h2>
+                <p class="text-slate-600 dark:text-slate-400 text-sm mt-1">
+                    Reusable sing-box policies (DNS over HTTPS/TLS, log level, RU-direct) assigned to groups or single nodes.
+                </p>
+            </div>
+            <a href="{{ admin_path }}/profiles/new"
+                class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 px-5 rounded-xl transition-all shadow-lg shadow-indigo-500/30 border border-transparent dark:border-white/10">
+                <i data-lucide="plus-circle" class="w-5 h-5"></i>
+                <span>New Profile</span>
+            </a>
+        </div>
+
+        <div class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden glass">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-white/5 bg-slate-50/50 dark:bg-slate-900/30">
+                            <th class="px-6 py-4">Profile</th>
+                            <th class="px-6 py-4">DNS</th>
+                            <th class="px-6 py-4">Log</th>
+                            <th class="px-6 py-4 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-white/5 text-sm">
+                        {% if profiles.is_empty() %}
+                        <tr>
+                            <td colspan="4" class="px-6 py-12 text-center text-slate-500">
+                                <div class="flex flex-col items-center justify-center">
+                                    <i data-lucide="shield" class="w-8 h-8 mb-3 opacity-50"></i>
+                                    <p class="text-base font-medium text-slate-800 dark:text-white mb-1">No Profiles</p>
+                                    <p class="text-sm">Nodes without a profile keep the default DNS (8.8.8.8).</p>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        {% for p in profiles %}
+                        <tr class="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors">
+                            <td class="px-6 py-4">
+                                <div class="flex items-center gap-3">
+                                    <div class="p-2 bg-indigo-500/10 rounded-lg text-indigo-500 dark:text-indigo-400">
+                                        <i data-lucide="shield" class="w-4 h-4"></i>
+                                    </div>
+                                    <div>
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-slate-900 dark:text-white font-medium">{{ p.name }}</span>
+                                            {% if p.is_default %}
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">DEFAULT</span>
+                                            {% endif %}
+                                        </div>
+                                        <code class="text-xs font-mono text-slate-500">{{ p.slug }}</code>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4">
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                                    <i data-lucide="globe" class="w-3 h-3"></i> {{ p.dns_summary }}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-slate-600 dark:text-slate-400 font-mono text-xs">{{ p.log_summary }}</td>
+                            <td class="px-6 py-4 text-right">
+                                <a href="{{ admin_path }}/profiles/{{ p.id }}" title="Edit Profile"
+                                    class="p-2 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg transition-colors inline-flex">
+                                    <i data-lucide="settings" class="w-4 h-4"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- Inbound Templates -->
+    <section class="space-y-4">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+                <h2 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Inbound Templates</h2>
+                <p class="text-slate-600 dark:text-slate-400 text-sm mt-1">
+                    Reusable inbound configurations. Sync templates to deploy inbounds across all nodes in a group.
+                </p>
+            </div>
+            <a href="{{ admin_path }}/templates"
+                class="flex items-center gap-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-medium py-2.5 px-5 rounded-xl transition-all border border-slate-300 dark:border-white/10">
+                <i data-lucide="file-json" class="w-5 h-5"></i>
+                <span>Manage Templates</span>
+            </a>
+        </div>
+
+        <div class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden glass">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-white/5 bg-slate-50/50 dark:bg-slate-900/30">
+                            <th class="px-6 py-4">Name</th>
+                            <th class="px-6 py-4">Protocol</th>
+                            <th class="px-6 py-4">Target Group</th>
+                            <th class="px-6 py-4">Port Range</th>
+                            <th class="px-6 py-4">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-white/5 text-sm">
+                        {% if templates.is_empty() %}
+                        <tr>
+                            <td colspan="5" class="px-6 py-12 text-center text-slate-500">
+                                <div class="flex flex-col items-center justify-center">
+                                    <i data-lucide="file-json" class="w-8 h-8 mb-3 opacity-50"></i>
+                                    <p class="text-base font-medium text-slate-800 dark:text-white mb-1">No Templates Yet</p>
+                                    <p class="text-sm">Open the full Templates page to create one.</p>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        {% for item in templates %}
+                        <tr class="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors">
+                            <td class="px-6 py-4">
+                                <a href="{{ admin_path }}/templates/{{ item.tpl.id }}" class="text-slate-900 dark:text-white font-medium hover:text-indigo-600 dark:hover:text-indigo-400">
+                                    {{ item.tpl.name }}
+                                </a>
+                            </td>
+                            <td class="px-6 py-4">
+                                <span class="px-2.5 py-1 rounded-md text-xs font-medium border border-white/10 bg-slate-800 text-slate-300 uppercase">{{ item.tpl.protocol }}</span>
+                            </td>
+                            <td class="px-6 py-4">
+                                {% if let Some(gname) = item.group_name %}
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                                    <i data-lucide="layers" class="w-3 h-3"></i> {{ gname }}
+                                </span>
+                                {% else %}
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                    All Groups
+                                </span>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4">
+                                <code class="text-xs font-mono text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-white/5 px-2 py-1 rounded border border-slate-200 dark:border-white/5">
+                                    {{ item.tpl.port_range_start }} – {{ item.tpl.port_range_end }}
+                                </code>
+                            </td>
+                            <td class="px-6 py-4">
+                                {% if item.tpl.is_active %}
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>Active
+                                </span>
+                                {% else %}
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-500/10 text-slate-400 border border-slate-500/20">
+                                    Disabled
+                                </span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+</div>
+
+<script>
+    document.body.addEventListener('htmx:afterSwap', () => lucide.createIcons());
+</script>
+{% endblock %}

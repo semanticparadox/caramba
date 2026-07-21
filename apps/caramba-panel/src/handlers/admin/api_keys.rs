@@ -77,7 +77,7 @@ pub async fn create_api_key(
     }
 
     let admin_path = state.admin_path.clone();
-    Redirect::to(&format!("{}/api-keys", admin_path)).into_response()
+    Redirect::to(&format!("{}/enrollment-keys", admin_path)).into_response()
 }
 
 pub async fn delete_api_key(
@@ -94,5 +94,5 @@ pub async fn delete_api_key(
     }
 
     let admin_path = state.admin_path.clone();
-    Redirect::to(&format!("{}/api-keys", admin_path)).into_response()
+    Redirect::to(&format!("{}/enrollment-keys", admin_path)).into_response()
 }

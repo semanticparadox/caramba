@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod admin_config_builder;
 pub mod admin_groups;
 pub mod admin_network;
 pub mod admin_orgs;
