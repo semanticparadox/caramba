@@ -39,25 +39,11 @@ fn ensure_validation_stub() -> std::io::Result<ValidationStub> {
         // sing-box only needs a valid PEM; the content is irrelevant for
         // structural validation of the rest of the config.
         let status = std::process::Command::new("openssl")
-            .args([
-                "req",
-                "-x509",
-                "-newkey",
-                "rsa:2048",
-                "-nodes",
-                "-keyout",
-            ])
+            .args(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout"])
             .arg(&key_path)
-            .args([
-                "-out",
-            ])
+            .args(["-out"])
             .arg(&cert_path)
-            .args([
-                "-days",
-                "365",
-                "-subj",
-                "/CN=caramba-validation-stub",
-            ])
+            .args(["-days", "365", "-subj", "/CN=caramba-validation-stub"])
             .status()?;
         if !status.success() {
             return Err(std::io::Error::new(
@@ -1405,11 +1391,8 @@ impl ConfigGenerator {
                 e
             )
         })?;
-        let config_json = substitute_cert_paths(
-            &config_json,
-            &stub_dir.cert_path,
-            &stub_dir.key_path,
-        );
+        let config_json =
+            substitute_cert_paths(&config_json, &stub_dir.cert_path, &stub_dir.key_path);
 
         // Create temp file
         let mut temp_path = std::env::temp_dir();
