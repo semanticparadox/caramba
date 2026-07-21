@@ -46,10 +46,10 @@ fn ensure_validation_stub() -> std::io::Result<ValidationStub> {
             .args(["-days", "365", "-subj", "/CN=caramba-validation-stub"])
             .status()?;
         if !status.success() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("openssl exited with status {:?}", status.code()),
-            ));
+            return Err(std::io::Error::other(format!(
+                "openssl exited with status {:?}",
+                status.code()
+            )));
         }
         tracing::info!(
             "Generated validation stub cert at {} (panel-local, never shipped to nodes)",
