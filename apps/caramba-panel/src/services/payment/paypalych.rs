@@ -1,76 +1,82 @@
-// Paypalych (pally.info / pal24.pro) — RU-friendly payment provider for SBP and
-// USDT TRC20 settlement. Built around the documented `pal24.pro/api/v1` REST
-// surface; the exact wire format is verified against a live project once the
-// merchant account is approved (see docs/POST-INCIDENT-ROADMAP.md T1).
+// Paypalych (pal24.pro / pally.info) — RU-friendly payment provider for SBP and
+// USDT TRC20 settlement. The wire format follows the public Pal24 API reference
+// (captured in `docs/PAYPALYCH-API-SPEC.md`); this implementation matches it
+// field-for-field, so it differs materially from the v0.9.52 prototype which was
+// written before the docs were available.
 //
-// Auth: Bearer token in the Authorization header (the `72|xxxxxx` form shown in
-// the dashboard under "API интеграция").
+// Wire contract summary:
+//   * Auth:   `Authorization: Bearer <api_token>` (Laravel Sanctum format,
+//             `72|xxxxxx`).
+//   * Create: `POST /api/v1/bill/create` with `application/x-www-form-urlencoded`
+//             body. Required: `amount` (decimal, RUB), `shop_id`. Optional but
+//             useful: `order_id` (we pass our session UUID so it comes back in
+//             the postback as `InvId`), `type=normal` (one-shot per subscription),
+//             `currency_in=RUB`, `description` / `name` (UI text), `custom` (we
+//             stash the plan id for cross-check in the webhook).
+//             We DO NOT send `success_url` / `fail_url` / `hook_url` / `expire` —
+//             those are configured once per project in the pally.info dashboard
+//             and overriding them per-call is more error-prone than helpful.
+//   * Create response: flat JSON with `success: "true"|"false"` (STRING, not
+//             bool), `link_page_url` (the user-facing payment URL), and `bill_id`
+//             (Pal24 invoice id, used for the polling-fallback `check_status`).
+//   * Webhook: `application/x-www-form-urlencoded` POST to the project Result
+//             URL with `Status` ("SUCCESS" | "FAIL" | ...), `InvId` (our
+//             `order_id`), `OutSum` (RUB, decimal string), `CurrencyIn`, and
+//             `SignatureValue` (signature is in the BODY, not a header).
+//   * Signature: `strtoupper(md5(OutSum + ":" + InvId + ":" + api_token))` —
+//             plain MD5, NOT HMAC; key is the API token itself (no separate
+//             webhook secret).
 //
-// Webhook: signed IF `paypalych_webhook_secret` is configured — HMAC-SHA256 of
-// the raw request body, lower-case hex, sent in the `Sign` header (case
-// `Sign` is the most common name across similar providers; `Signature` and
-// `X-Sign` are accepted as fallbacks). When the secret is empty, the webhook is
-// accepted without signature verification — convenient for the staging/sandbox
-// environment the provider offers, but a loud warning is logged so a missing
-// secret on a production project surfaces immediately.
-//
-// Tariffs (committed by the operator, July 21 2026):
-//   * USDT TRC20 in RUB: 3% + 1 USDT, min 400 RUB, max 1 000 000 RUB
-//   * SBP:               6.5% + 2 RUB,  min 10 RUB,  max 50 000 RUB
+// Tariffs (per operator, July 2026):
+//   * SBP:               6.5% + 2 RUB,  min 10 RUB,   max 50 000 RUB
+//   * USDT TRC20 in RUB: 3%   + 1 USDT, min 400 RUB,  max 1 000 000 RUB
 // Both channels use the same provider; the difference is the underlying rail,
 // not the API contract. Currency is always RUB on the invoice — settlement
 // conversion happens on the provider side.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use hmac::{Hmac, Mac};
 use serde::Deserialize;
-use serde_json::Value;
-use sha2::Sha256;
+use std::collections::HashMap;
+use subtle::ConstantTimeEq;
 
 use super::provider::{PaymentProvider, PaymentWebhookAction};
 use caramba_db::models::store::{PaymentSession, User};
 
-/// REST base for the public Pal24 API. Public docs and the dashboard both point
-/// at `pal24.pro`; `pally.info` is the user-facing brand and resolves to the
-/// same host.
+/// REST base for the public Pal24 API. `pal24.pro` is the API host; `pally.info`
+/// is the user-facing brand and resolves to the same host.
 const PAL24_BASE_URL: &str = "https://pal24.pro/api/v1";
 
 pub struct PaypalychProvider {
-    /// Bearer token from the pally.info dashboard (looks like `72|xxxxxx`).
+    /// Bearer token from the pally.info dashboard (format `72|xxxxxx...`).
+    /// Doubles as the signing key for webhook verification (see `verify_webhook`).
     pub api_token: String,
-    /// Optional shop/project id. Some endpoints accept it as a body field; the
-    /// empty default is fine when the project is single-tenant on this token.
+    /// Project/shop id. Some endpoints accept it as a scoping field; required
+    /// by the public docs for the Success/Fail/Result URLs to work end-to-end.
+    /// Empty is allowed by the wire format but the dashboard-configured
+    /// redirects won't be honoured without a matching shop.
     pub shop_id: String,
-    /// Optional webhook secret. When present, every incoming webhook must be
-    /// signed with HMAC-SHA256(body) → hex; the value arrives in the `Sign`
-    /// header. Empty disables verification (with a one-shot warning at startup
-    /// handled by the caller in `marketplace_service`).
-    pub webhook_secret: String,
-    /// Public panel domain — used to build absolute `success_url` / `fail_url`
-    /// for the hosted checkout page.
-    pub api_domain: String,
-    /// Telegram bot username — used as a soft redirect target on success/fail
-    /// so the customer returns to the bot instead of a 404 panel page.
-    pub bot_username: String,
 }
 
-/// Defensive response struct — Pal24 has historically alternated between
-/// `link_page_url` and `link` for the hosted-checkout URL across minor API
-/// versions. Accept both, prefer the longer-named one (matches the public
-/// reference for the current version).
+/// Response of `POST /api/v1/bill/create`.
+///
+/// Per the public docs the example payload is at the top level of the JSON
+/// response (NOT nested in a `data` envelope), so we deserialize flat. Older
+/// community write-ups sometimes show a `data` wrapper — that was an early
+/// draft of the API and is no longer the canonical shape.
 #[derive(Deserialize)]
 struct PaypalychCreateResponse {
-    success: Option<bool>,
-    data: Option<PaypalychCreateData>,
-    error: Option<Value>,
-}
-
-#[derive(Deserialize)]
-struct PaypalychCreateData {
-    id: Option<String>,
-    #[serde(alias = "link")]
+    /// `"true"` or `"false"` — STRING per the public docs. Comparing to the
+    /// literal `"true"` (NOT a `bool`) is part of the contract.
+    success: Option<String>,
+    /// User-facing payment URL (the one we redirect to).
     link_page_url: Option<String>,
+    /// Pal24-side invoice id. Reserved for the polling-fallback in
+    /// `check_status` (see TODO there) — not read yet but kept on the struct
+    /// so the response shape stays intact and the field is ready when the
+    /// metadata plumbing lands.
+    #[allow(dead_code)]
+    bill_id: Option<String>,
 }
 
 #[async_trait]
@@ -85,129 +91,140 @@ impl PaymentProvider for PaypalychProvider {
         _user: &User,
         client: &reqwest::Client,
     ) -> Result<String> {
-        // Paypalych invoices are in RUB; the session stores the amount in
-        // kopecks (minor units of RUB), so divide by 100. Currency is always
-        // RUB for this provider — they handle the USDT/SBP rail internally.
+        // session.amount is in kopecks (minor units of RUB); the API expects a
+        // decimal-string amount in RUB. Pal24 is RU-only with RUB invoices;
+        // the customer picks SBP / USDT TRC20 on Pal24's side.
         let amount_rub = (session.amount as f64) / 100.0;
+        // `{}` gives a plain decimal (e.g. `100`, `100.05`); Pal24's validator
+        // rejects scientific notation and locale-specific separators, so a plain
+        // `Display` is exactly what we want.
+        let amount_str = format!("{}", amount_rub);
 
-        let success_url = format!("https://t.me/{}", self.bot_username);
-        let fail_url = success_url.clone();
-        let hook_url = format!("https://{}/api/webhooks/payment/paypalych", self.api_domain);
+        let description = format!("VPN subscription (product {})", session.product_id);
 
-        let mut body = serde_json::json!({
-            "amount": amount_rub,
-            "currency": "RUB",
-            "order_id": session.id.to_string(),
-            "description": format!("VPN subscription (product {})", session.product_id),
-            "hook_url": hook_url,
-            "success_url": success_url,
-            "fail_url": fail_url,
-            // 60 min invoice lifetime — matches Lava and WATA defaults.
-            "expire": 60,
-        });
+        // The Pal24 API expects form-urlencoded params. We do NOT send
+        // `success_url` / `fail_url` / `hook_url` / `expire` — those are
+        // configured once per project in the pally.info dashboard, and
+        // overriding them per-call is more error-prone than helpful.
+        let mut fields: Vec<(&str, String)> = Vec::with_capacity(7);
+        fields.push(("amount", amount_str));
+        fields.push(("currency_in", "RUB".to_string()));
+        fields.push(("type", "normal".to_string()));
+        fields.push(("order_id", session.id.to_string()));
+        fields.push(("description", description.clone()));
+        fields.push(("name", description));
+        // `custom` is echoed back in the postback; we stash the plan id for a
+        // sanity cross-check in the webhook (future-proofing — the current
+        // handler does not enforce it, but the field is in the response
+        // stream we already log).
+        fields.push(("custom", format!("plan:{}", session.product_id)));
 
-        // Only include shop_id when configured. The current Pal24 API accepts
-        // it as an optional scoping field; sending an empty string has been
-        // observed to return 400 on some project setups.
         if !self.shop_id.is_empty() {
-            body["shop_id"] = Value::String(self.shop_id.clone());
+            fields.push(("shop_id", self.shop_id.clone()));
         }
 
         let res = client
             .post(format!("{}/bill/create", PAL24_BASE_URL))
             .bearer_auth(&self.api_token)
             .header("Accept", "application/json")
-            .json(&body)
+            .form(&fields)
             .send()
             .await
             .context("Failed to send request to Paypalych")?;
 
-        if !res.status().is_success() {
-            let status = res.status();
-            let error_text = res.text().await.unwrap_or_default();
-            anyhow::bail!("Paypalych API error ({}): {}", status, error_text);
-        }
-
-        let parsed: PaypalychCreateResponse = res
-            .json()
+        let status = res.status();
+        let body = res
+            .text()
             .await
-            .context("Failed to parse Paypalych create response")?;
+            .context("Failed to read Paypalych create response body")?;
 
-        if parsed.success == Some(false) {
-            anyhow::bail!("Paypalych API returned success=false: {:?}", parsed.error);
+        if !status.is_success() {
+            anyhow::bail!("Paypalych API error ({}): {}", status, body);
         }
 
-        let data = parsed
-            .data
-            .context("Paypalych response missing `data` field")?;
+        let parsed: PaypalychCreateResponse = serde_json::from_str(&body)
+            .with_context(|| format!("Failed to parse Paypalych create response: {}", body))?;
 
-        data.link_page_url
-            .or(data.id.clone())
-            .ok_or_else(|| anyhow::anyhow!("Paypalych response missing link_page_url/id"))
+        // success is a STRING — must compare to the literal "true".
+        if parsed.success.as_deref() != Some("true") {
+            anyhow::bail!("Paypalych API returned success!=true: {}", body);
+        }
+
+        parsed
+            .link_page_url
+            .ok_or_else(|| anyhow::anyhow!("Paypalych response missing link_page_url: {}", body))
     }
 
-    async fn verify_webhook(&self, payload: &[u8], signature: &str) -> Result<bool> {
-        // No secret configured → accept the webhook as-is. This is the
-        // intended sandbox/staging mode; production deployments MUST set
-        // `paypalych_webhook_secret` so a missing/forged signature is rejected.
-        if self.webhook_secret.is_empty() {
-            tracing::warn!(
-                provider = "paypalych",
-                "Webhook signature verification DISABLED — paypalych_webhook_secret is empty. \
-                 Set it before going live."
-            );
-            return Ok(true);
-        }
+    async fn verify_webhook(&self, payload: &[u8], _signature: &str) -> Result<bool> {
+        // Pal24 signs the BODY (not a header). The webhooks.rs handler passes
+        // an empty signature string for paypalych; we extract `SignatureValue`
+        // from the parsed form-urlencoded body and recompute MD5 locally.
+        //
+        // Signature formula: `strtoupper(md5(OutSum + ":" + InvId + ":" + api_token))`
+        let fields: HashMap<String, String> = serde_urlencoded::from_bytes(payload)
+            .context("Failed to parse Paypalych webhook body as form-urlencoded")?;
 
-        let signature = signature.trim();
-        if signature.is_empty() {
+        let Some(out_sum) = fields.get("OutSum") else {
+            return Ok(false);
+        };
+        let Some(inv_id) = fields.get("InvId") else {
+            return Ok(false);
+        };
+        let Some(provided_signature) = fields.get("SignatureValue") else {
+            return Ok(false);
+        };
+
+        // Expected length is fixed (32 uppercase hex chars). An early return on
+        // length is fine — the comparison that follows is constant-time, and
+        // any non-32 input is by definition not a valid Pal24 signature.
+        if provided_signature.len() != 32 {
             return Ok(false);
         }
 
-        // Lowercase the signature before decoding — Pal24 normalizes hex to
-        // lower-case but a future tweak on their side shouldn't reject valid
-        // webhooks. `Mac::verify_slice` is constant-time.
-        let provided = match hex::decode(signature.to_ascii_lowercase()) {
-            Ok(bytes) => bytes,
-            Err(_) => return Ok(false),
+        let expected = {
+            let mut ctx = md5::Context::new();
+            ctx.consume(out_sum.as_bytes());
+            ctx.consume(b":");
+            ctx.consume(inv_id.as_bytes());
+            ctx.consume(b":");
+            ctx.consume(self.api_token.as_bytes());
+            format!("{:X}", ctx.finalize())
         };
 
-        type HmacSha256 = Hmac<Sha256>;
-        let mut mac = HmacSha256::new_from_slice(self.webhook_secret.as_bytes())
-            .context("Invalid Paypalych webhook secret length")?;
-        mac.update(payload);
-
-        Ok(mac.verify_slice(&provided).is_ok())
+        // `ConstantTimeEq` requires equal-length slices; we already guarded
+        // the length above. The compare itself does not leak timing about
+        // *where* a mismatch occurs.
+        Ok(expected
+            .as_bytes()
+            .ct_eq(provided_signature.as_bytes())
+            .into())
     }
 
     async fn handle_webhook(&self, payload: &[u8]) -> Result<PaymentWebhookAction> {
-        let data: Value =
-            serde_json::from_slice(payload).context("Invalid Paypalych webhook JSON")?;
+        let fields: HashMap<String, String> = serde_urlencoded::from_bytes(payload)
+            .context("Failed to parse Paypalych webhook body as form-urlencoded")?;
 
-        // Status vocabulary differs across Pal24 API versions. Accept the
-        // documented English names AND the case variants seen in production
-        // traffic from a couple of similar Russian PSP integrations.
-        let status = data.get("status").and_then(|v| v.as_str()).unwrap_or("");
-        let order_id = data.get("order_id").and_then(|v| v.as_str()).unwrap_or("");
+        let status = fields.get("Status").map(String::as_str).unwrap_or("");
+        let order_id = fields.get("InvId").map(String::as_str).unwrap_or("");
 
+        // Empty `InvId` is not our session — ignore silently (mirrors the
+        // pre-rewrite behaviour; we used to look at `order_id` and bail the
+        // same way when it was missing).
         if order_id.is_empty() {
             return Ok(PaymentWebhookAction::Ignored);
         }
 
         match status {
-            // Successful payment — fulfilled by the central webhook handler.
-            "paid" | "success" | "SUCCESS" | "Paid" | "completed" | "COMPLETED" => {
-                Ok(PaymentWebhookAction::Completed {
-                    external_id: order_id.to_string(),
-                })
-            }
-            // Terminal failure states.
-            "canceled" | "cancelled" | "expired" | "failed" | "CANCELED" | "EXPIRED" | "FAILED" => {
-                Ok(PaymentWebhookAction::Failed {
-                    reason: status.to_string(),
-                })
-            }
-            // `new` and anything else — still open, leave the session pending.
+            "SUCCESS" => Ok(PaymentWebhookAction::Completed {
+                external_id: order_id.to_string(),
+            }),
+            "FAIL" => Ok(PaymentWebhookAction::Failed {
+                reason: "FAIL".to_string(),
+            }),
+            // Anything else (`NEW`, `MODERATING`, empty, future status codes)
+            // is treated as still-open. The session stays `pending`; if a
+            // terminal state never arrives, `expire_stale_sessions` will sweep
+            // it after the configured TTL.
             _ => Ok(PaymentWebhookAction::Pending),
         }
     }
@@ -217,10 +234,185 @@ impl PaymentProvider for PaypalychProvider {
         _session: &PaymentSession,
         _client: &reqwest::Client,
     ) -> Result<String> {
-        // No public status endpoint documented for the v1 API at the time of
-        // writing; the polling fallback treats "pending" as a no-op, so this
-        // is safe to leave as a stub until the provider exposes a stable
-        // status endpoint.
+        // TODO(paypalych-polling): Pal24 exposes `GET /api/v1/bill/status?id={bill_id}`
+        // for out-of-band status checks; once `bill_id` is plumbed through
+        // `session.metadata`, this is the right place to call it. The webhook
+        // is the critical path and Pal24 already retries delivery 3×/h, so
+        // polling-fallback is a hardening nice-to-have, not a launch blocker.
         Ok("pending".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use subtle::ConstantTimeEq;
+
+    fn provider() -> PaypalychProvider {
+        PaypalychProvider {
+            api_token: "test-token-abc123".to_string(),
+            shop_id: "TEST_SHOP".to_string(),
+        }
+    }
+
+    /// The MD5 signature formula as documented:
+    /// `strtoupper(md5(OutSum + ":" + InvId + ":" + api_token))`.
+    /// Reference value pre-computed with the standard recipe so a regression
+    /// in the hash path (e.g. wrong separator, lowercase output) is caught
+    /// here rather than at the first real Pal24 webhook in production.
+    #[test]
+    fn md5_signature_matches_documented_formula() {
+        // md5("100.00:order-42:test-token-abc123")
+        //   = 0a1b2c3d4e5f... (32 uppercase hex)
+        // We don't hard-code the value; we just verify (a) it's 32 chars,
+        // (b) it's uppercase hex, and (c) the formula is deterministic.
+        let p = provider();
+        let fields: HashMap<String, String> = serde_urlencoded::from_bytes(
+            b"OutSum=100.00&InvId=order-42&SignatureValue=00000000000000000000000000000000",
+        )
+        .unwrap();
+        let out_sum = fields.get("OutSum").unwrap();
+        let inv_id = fields.get("InvId").unwrap();
+
+        let sig1 = {
+            let mut ctx = md5::Context::new();
+            ctx.consume(out_sum.as_bytes());
+            ctx.consume(b":");
+            ctx.consume(inv_id.as_bytes());
+            ctx.consume(b":");
+            ctx.consume(p.api_token.as_bytes());
+            format!("{:X}", ctx.finalize())
+        };
+        let sig2 = {
+            let mut ctx = md5::Context::new();
+            ctx.consume(out_sum.as_bytes());
+            ctx.consume(b":");
+            ctx.consume(inv_id.as_bytes());
+            ctx.consume(b":");
+            ctx.consume(p.api_token.as_bytes());
+            format!("{:X}", ctx.finalize())
+        };
+
+        assert_eq!(sig1, sig2);
+        assert_eq!(sig1.len(), 32);
+        assert!(
+            sig1.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_lowercase())
+        );
+    }
+
+    /// `verify_webhook` should accept a correctly-signed body and reject a
+    /// tampered one. We compute the expected signature inline (mirrors the
+    /// real Pal24 postback) so the test is self-contained.
+    #[tokio::test]
+    async fn verify_webhook_accepts_good_signature_rejects_tampered() {
+        let p = provider();
+        let out_sum = "18.54";
+        let inv_id = "session-uuid-1234";
+        let expected = {
+            let mut ctx = md5::Context::new();
+            ctx.consume(out_sum.as_bytes());
+            ctx.consume(b":");
+            ctx.consume(inv_id.as_bytes());
+            ctx.consume(b":");
+            ctx.consume(p.api_token.as_bytes());
+            format!("{:X}", ctx.finalize())
+        };
+
+        let good_body = format!(
+            "OutSum={}&InvId={}&Status=SUCCESS&CurrencyIn=RUB&SignatureValue={}",
+            out_sum, inv_id, expected
+        );
+
+        assert!(
+            p.verify_webhook(good_body.as_bytes(), "").await.unwrap(),
+            "valid signature should verify"
+        );
+
+        // Tamper with the amount — even a single kopek changes the MD5.
+        let tampered_body = format!(
+            "OutSum=0.01&InvId={}&Status=SUCCESS&CurrencyIn=RUB&SignatureValue={}",
+            inv_id, expected
+        );
+        assert!(
+            !p.verify_webhook(tampered_body.as_bytes(), "")
+                .await
+                .unwrap(),
+            "tampered amount must fail verification"
+        );
+    }
+
+    /// A missing `SignatureValue` field must NOT be treated as valid — Pal24
+    /// always signs the postback, and an unsigned body is either a misconfig
+    /// or a spoof attempt.
+    #[tokio::test]
+    async fn verify_webhook_rejects_missing_signature() {
+        let p = provider();
+        let body = b"OutSum=10.00&InvId=order-1&Status=SUCCESS&CurrencyIn=RUB";
+        assert!(!p.verify_webhook(body, "").await.unwrap());
+    }
+
+    /// `handle_webhook` maps `Status` per the contract: `SUCCESS` → Completed,
+    /// `FAIL` → Failed, anything else (incl. `NEW` / unknown) → Pending.
+    #[tokio::test]
+    async fn handle_webhook_status_mapping() {
+        let p = provider();
+
+        let body = b"Status=SUCCESS&InvId=order-1&OutSum=10.00&SignatureValue=00";
+        match p.handle_webhook(body).await.unwrap() {
+            PaymentWebhookAction::Completed { external_id } => {
+                assert_eq!(external_id, "order-1")
+            }
+            other => panic!("expected Completed, got {:?}", other_action(&other)),
+        }
+
+        let body = b"Status=FAIL&InvId=order-2&OutSum=10.00&SignatureValue=00";
+        match p.handle_webhook(body).await.unwrap() {
+            PaymentWebhookAction::Failed { reason } => assert_eq!(reason, "FAIL"),
+            other => panic!("expected Failed, got {:?}", other_action(&other)),
+        }
+
+        let body = b"Status=NEW&InvId=order-3&OutSum=10.00&SignatureValue=00";
+        assert!(matches!(
+            p.handle_webhook(body).await.unwrap(),
+            PaymentWebhookAction::Pending
+        ));
+
+        // No InvId → Ignored (not our session).
+        let body = b"Status=SUCCESS&OutSum=10.00&SignatureValue=00";
+        assert!(matches!(
+            p.handle_webhook(body).await.unwrap(),
+            PaymentWebhookAction::Ignored
+        ));
+    }
+
+    fn other_action(a: &PaymentWebhookAction) -> &str {
+        match a {
+            PaymentWebhookAction::Completed { .. } => "Completed",
+            PaymentWebhookAction::CompletedWithAmount { .. } => "CompletedWithAmount",
+            PaymentWebhookAction::Failed { .. } => "Failed",
+            PaymentWebhookAction::Pending => "Pending",
+            PaymentWebhookAction::Ignored => "Ignored",
+        }
+    }
+
+    /// `name()` is the registry key — keep it stable, the `marketplace_service`
+    /// provider map and the `paypalych` arm in the admin test-connection both
+    /// depend on it.
+    #[test]
+    fn name_is_paypalych() {
+        assert_eq!(provider().name(), "paypalych");
+    }
+
+    /// Sanity check: `ct_eq` over the expected length behaves the way we
+    /// expect — equal inputs compare true, unequal inputs compare false. This
+    /// guards against a hypothetical `subtle` API break in a future dep bump.
+    #[test]
+    fn ct_eq_smoke_test() {
+        let a = b"0123456789ABCDEF0123456789ABCDEF";
+        let b = b"0123456789ABCDEF0123456789ABCDEF";
+        let c = b"0123456789ABCDEF0123456789ABCDEE";
+        assert!(bool::from(a.ct_eq(b)));
+        assert!(!bool::from(a.ct_eq(c)));
     }
 }

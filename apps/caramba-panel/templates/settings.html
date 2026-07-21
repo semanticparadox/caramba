@@ -359,16 +359,17 @@
                                     <input type="text" form="main-settings-form" name="paypalych_shop_id"
                                         value="{{ masked_paypalych_shop_id }}" placeholder="оставь пустым если один магазин" class="input-field font-mono text-sm">
                                 </div>
-                                <div>
-                                    <label class="ppc-label">Webhook Secret <span class="text-slate-500 text-xs font-normal">(опционально, для подписи)</span></label>
-                                    <div class="relative">
-                                        <input id="paypalych_webhook_secret" type="password" form="main-settings-form" name="paypalych_webhook_secret"
-                                            value="{{ masked_paypalych_webhook_secret }}" placeholder="Secret" class="input-field input-secret font-mono text-sm">
-                                        <button type="button" class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8"
-                                            onclick="toggleSecretVisibility(this, 'paypalych_webhook_secret')" aria-label="Show secret">
-                                            <i data-lucide="eye" class="w-4 h-4"></i>
-                                        </button>
-                                    </div>
+                                <!--
+                                    Paypalych does NOT use a separate webhook secret.
+                                    The body is signed with `strtoupper(md5(OutSum:InvId:api_token))`
+                                    and the API token from the field above is the signing key.
+                                    We render a help note instead of an input; the
+                                    `paypalych_webhook_secret` key in the DB (if any was
+                                    saved in v0.9.52) is silently ignored.
+                                -->
+                                <div class="text-xs text-slate-400 leading-relaxed -mt-1">
+                                    <i data-lucide="info" class="w-3.5 h-3.5 inline-block -mt-0.5 mr-1"></i>
+                                    Подпись webhook использует <strong>API-токен</strong> (тот же, что выше) — отдельного секрета нет. Поле «Webhook Secret» в v0.9.52 было ошибкой и игнорируется начиная с v0.9.53.
                                 </div>
                             </div>
                             <div class="ppc-footer">

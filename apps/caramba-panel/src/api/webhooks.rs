@@ -61,10 +61,13 @@ async fn handle_payment_webhook(
         "btcpay" => header(&["BTCPay-Sig", "btcpay-sig"]),
         "oxapay" => header(&["HMAC", "hmac"]),
         "coinbase_commerce" => header(&["X-CC-Webhook-Signature", "x-cc-webhook-signature"]),
-        // Paypalych (pal24.pro): HMAC-SHA256 hex of the raw body, sent in the
-        // `Sign` header on the documented API; `Signature` / `X-Sign` accepted
-        // as fallbacks for API variants seen in the wild.
-        "paypalych" => header(&["Sign", "sign", "Signature", "X-Sign", "x-sign"]),
+        // Paypalych (pal24.pro) signs the BODY (form-urlencoded postback),
+        // not a header. The signature is in the parsed body field
+        // `SignatureValue` and is verified inside PaypalychProvider::verify_webhook
+        // by recomputing `strtoupper(md5(OutSum + ":" + InvId + ":" + api_token))`.
+        // Pass an empty string from here; the provider reads SignatureValue
+        // from the body itself.
+        "paypalych" => String::new(),
         // CrystalPay and Plisio embed the signature in the body — provider reads it directly.
         // AAIO does the same. manual/balance/stars don't use webhooks.
         _ => String::new(),

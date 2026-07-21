@@ -356,16 +356,10 @@ async fn invoke_provider_test(provider_name: &str, state: &AppState) -> Result<S
                 return Err("Paypalych API token is not configured".to_string());
             }
             let shop_id = s.get_or_default("paypalych_shop_id", "").await;
-            let webhook_secret = s.get_or_default("paypalych_webhook_secret", "").await;
-            let panel_url = s.get_or_default("panel_url", "").await;
-            let bot_username = s.get_or_default("bot_username", "").await;
-            let provider = PaypalychProvider {
-                api_token,
-                shop_id,
-                webhook_secret,
-                api_domain: panel_url,
-                bot_username,
-            };
+            // The provider no longer reads `paypalych_webhook_secret` (the API
+            // token itself signs the webhook); the setting is left in the DB
+            // for back-compat with v0.9.52 installations.
+            let provider = PaypalychProvider { api_token, shop_id };
             provider
                 .create_invoice(&session, &user, &client)
                 .await

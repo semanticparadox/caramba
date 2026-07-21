@@ -101,7 +101,10 @@ impl MarketplaceService {
         // Paypalych (RU: SBP + USDT TRC20, pal24.pro / pally.info)
         paypalych_api_token: String,
         paypalych_shop_id: String,
-        paypalych_webhook_secret: String,
+        // Accepted for back-compat with v0.9.52 installations that still set
+        // it in the env / DB. Ignored by `PaypalychProvider` since v0.9.53 —
+        // the API token itself signs the webhook (no separate secret).
+        _paypalych_webhook_secret: String,
         api_domain: String,
         bot_username: String,
         store_service: StoreService,
@@ -275,17 +278,18 @@ impl MarketplaceService {
             );
         }
 
-        // Paypalych (pal24.pro): SBP + USDT TRC20 для RU-аудитории. Достаточно
-        // api_token; shop_id и webhook_secret опциональны (с предупреждением).
+        // Paypalych (pal24.pro): SBP + USDT TRC20 для RU-аудитории.
+        // `api_token` doubles as the webhook signing key (no separate secret);
+        // `shop_id` is required by the dashboard-configured Success/Fail/Result
+        // URLs to be honoured. The `_paypalych_webhook_secret` parameter is
+        // accepted for backward-compat (some installations still have it set
+        // from v0.9.52) but is ignored by the provider since v0.9.53.
         if !paypalych_api_token.is_empty() {
             providers.insert(
                 "paypalych".to_string(),
                 Box::new(PaypalychProvider {
                     api_token: paypalych_api_token,
                     shop_id: paypalych_shop_id,
-                    webhook_secret: paypalych_webhook_secret,
-                    api_domain: api_domain.clone(),
-                    bot_username: bot_username.clone(),
                 }),
             );
         }
