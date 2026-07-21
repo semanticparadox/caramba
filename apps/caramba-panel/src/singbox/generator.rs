@@ -1277,9 +1277,18 @@ impl ConfigGenerator {
                 // Persist remote rule-sets, selected outbound and rejected-DNS
                 // results across restarts: faster startup and resilience to
                 // GitHub/rule-set source outages (experimental/cache-file.md).
+                //
+                // IMPORTANT: path must be writable by the user sing-box runs as.
+                // The official sing-box systemd unit uses `User=sing-box` and
+                // `StateDirectory=sing-box` (= /var/lib/sing-box) as the working
+                // dir, and `/etc/sing-box/` is owned by root with mode 0755.
+                // Writing the cache under /etc was causing
+                // `FATAL: open /etc/sing-box/cache.db: permission denied` and
+                // taking down the whole node. See caramba fix: cache_file path
+                // must live under the service's StateDirectory.
                 cache_file: Some(CacheFileConfig {
                     enabled: true,
-                    path: Some("/etc/sing-box/cache.db".to_string()),
+                    path: Some("/var/lib/sing-box/cache.db".to_string()),
                     store_rdrc: Some(true),
                 }),
             }),

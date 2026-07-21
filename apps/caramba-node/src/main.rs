@@ -36,6 +36,36 @@ const SNI_MAX_ROTATIONS_PER_HOUR: u32 = 3;
 /// из пула, не упираясь сразу в обычный консервативный лимит.
 const SNI_MAX_ROTATIONS_PER_HOUR_UNDER_BLOCK: u32 = 6;
 
+/// Semver-aware "is `target` strictly newer than `current`?" comparison.
+/// The previous `target_normalized != current_normalized` check is a
+/// STRING-EQUALITY test: an agent running v0.9.48 would happily try to
+/// "update" itself to v0.9.46 (older), then SIGTERM on the post-update
+/// restart would trip systemd's `Restart=` limit and brick the node.
+///
+/// Parses `vX.Y.Z[-pre]` and compares `[major, minor, patch]` numerically;
+/// returns false on any parse failure (defensive — never auto-update on
+/// unparseable version strings).
+fn is_newer_version(target: &str, current: &str) -> bool {
+    fn parse(v: &str) -> Option<Vec<u32>> {
+        let core = v.trim().trim_start_matches('v');
+        let mut parts = core.split(['.', '-', '+']);
+        let nums: Vec<u32> = parts
+            .by_ref()
+            .take_while(|p| !p.is_empty() && p.chars().next().is_some_and(|c| c.is_ascii_digit()))
+            .filter_map(|p| p.parse::<u32>().ok())
+            .collect();
+        if nums.len() >= 3 {
+            Some(nums)
+        } else {
+            None
+        }
+    }
+    match (parse(target), parse(current)) {
+        (Some(t), Some(c)) => t > c,
+        _ => false,
+    }
+}
+
 /// Current Clash API secret, parsed from the active sing-box config.
 /// The panel now emits `experimental.clash_api.secret`, so all local Clash
 /// queries (:9090) must send it as a Bearer token (caramba-4cs).
@@ -327,14 +357,15 @@ async fn main() -> anyhow::Result<()> {
                 }
                 // Check for Agent Update
                 if let Some(target_ver) = resp.latest_version {
-                    // Simple string comparison for now, or use semver crate if added
-                    // Assuming versions are "x.y.z"
                     let current_version = env!("CARGO_PKG_VERSION");
-                    // Нормализуем оба значения: убираем 'v' префикс и пробелы.
-                    // Без нормализации "v0.9.47" != "0.9.47" — бесконечный цикл обновления.
-                    let target_normalized = target_ver.trim().trim_start_matches('v');
-                    let current_normalized = current_version.trim().trim_start_matches('v');
-                    if target_normalized != current_normalized && target_ver != "0.0.0" {
+                    // CRITICAL: only update if target is STRICTLY NEWER than
+                    // current. The previous `target_normalized != current_normalized`
+                    // check was a string equality test — it happily triggered
+                    // "updates" to OLDER versions, then SIGTERM on the post-update
+                    // restart bricked the node via systemd's start-limit-hit.
+                    if is_newer_version(&target_ver, current_version)
+                        && target_ver != "0.0.0"
+                    {
                         info!(
                             "📣 New version available: {} (Current: {})",
                             target_ver, current_version
