@@ -100,7 +100,9 @@ enum Commands {
         #[arg(long)]
         install_dir: Option<String>,
         /// Target version tag (e.g. v0.3.24). Defaults to latest stable release.
-        #[arg(long)]
+        /// Also accepts the `--to` alias for the rollback use case
+        /// (`caramba upgrade --to v0.9.49` after a bad release).
+        #[arg(long, alias = "to")]
         version: Option<String>,
         /// Do not restart services after upgrade
         #[arg(long)]
