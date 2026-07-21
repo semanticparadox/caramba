@@ -14,6 +14,94 @@ fn parse_shadowsocks_method(settings_raw: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Paths to the self-signed stub certificate that the panel keeps at a
+/// well-known location so `sing-box check` can resolve cert fields on the
+/// panel host. The stub is only used for validation; the real cert is
+/// deployed to the node and the panel never ships the stub.
+struct ValidationStub {
+    cert_path: String,
+    key_path: String,
+}
+
+/// Materialize the validation stub cert (once, lazily). Idempotent: returns
+/// the existing paths on every subsequent call. We use `openssl req` because
+/// the panel already depends on the openssl binary (it's a runtime
+/// requirement for several other features), and shelling out keeps this code
+/// dependency-free at the cargo level.
+fn ensure_validation_stub() -> std::io::Result<ValidationStub> {
+    let base = std::path::PathBuf::from("/opt/caramba/validation-stub");
+    std::fs::create_dir_all(&base)?;
+    let cert_path = base.join("cert.pem");
+    let key_path = base.join("key.pem");
+
+    if !cert_path.exists() || !key_path.exists() {
+        // 1-year self-signed cert, CN=caramba-validation-stub, no passphrase.
+        // sing-box only needs a valid PEM; the content is irrelevant for
+        // structural validation of the rest of the config.
+        let status = std::process::Command::new("openssl")
+            .args([
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-nodes",
+                "-keyout",
+            ])
+            .arg(&key_path)
+            .args([
+                "-out",
+            ])
+            .arg(&cert_path)
+            .args([
+                "-days",
+                "365",
+                "-subj",
+                "/CN=caramba-validation-stub",
+            ])
+            .status()?;
+        if !status.success() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("openssl exited with status {:?}", status.code()),
+            ));
+        }
+        tracing::info!(
+            "Generated validation stub cert at {} (panel-local, never shipped to nodes)",
+            cert_path.display()
+        );
+    }
+
+    Ok(ValidationStub {
+        cert_path: cert_path.to_string_lossy().to_string(),
+        key_path: key_path.to_string_lossy().to_string(),
+    })
+}
+
+/// Replace any literal cert/key path in `config_json` with the panel-local
+/// stub paths. We do this on the JSON string (not the parsed struct) so we
+/// can guarantee a 1:1 round-trip — the original config struct is NEVER
+/// modified, only the copy we feed to `sing-box check`.
+fn substitute_cert_paths(config_json: &str, cert_path: &str, key_path: &str) -> String {
+    // Hardcoded paths in generator.rs::generate_inbound_settings etc. — keep
+    // this list in sync with generator.rs's emit sites.
+    const CERT_PATHS: &[&str] = &[
+        "/etc/sing-box/certs/cert.pem",
+        "/etc/sing-box/certs/fullchain.pem",
+    ];
+    const KEY_PATHS: &[&str] = &[
+        "/etc/sing-box/certs/key.pem",
+        "/etc/sing-box/certs/private.key",
+    ];
+    let mut out = config_json.to_string();
+    for p in CERT_PATHS {
+        out = out.replace(p, cert_path);
+    }
+    for p in KEY_PATHS {
+        out = out.replace(p, key_path);
+    }
+    out
+}
+
 fn derive_relay_password(join_token: &str, target_node_id: i64) -> String {
     let mut hasher = Sha256::new();
     hasher.update(join_token.trim().as_bytes());
@@ -1302,6 +1390,26 @@ impl ConfigGenerator {
 
         // Serialize to JSON
         let config_json = serde_json::to_string_pretty(config)?;
+
+        // The generated config references certificate/key paths that live on the
+        // NODES, not the panel (e.g. /etc/sing-box/certs/cert.pem). For
+        // validation we substitute them with paths to a self-signed stub that
+        // the panel materializes once at startup — sing-box check needs the
+        // file to exist + be a valid PEM, but the actual certificate content
+        // is validated by the node when sing-box starts there. The original
+        // config is NEVER modified, only the temp copy used for `sing-box check`.
+        let stub_dir = ensure_validation_stub().map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to materialize validation stub cert at panel: {}. \
+                 See AGENTS.md runbook #4 (install sing-box + stub cert).",
+                e
+            )
+        })?;
+        let config_json = substitute_cert_paths(
+            &config_json,
+            &stub_dir.cert_path,
+            &stub_dir.key_path,
+        );
 
         // Create temp file
         let mut temp_path = std::env::temp_dir();
