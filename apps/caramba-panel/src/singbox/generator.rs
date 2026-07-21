@@ -1311,8 +1311,12 @@ impl ConfigGenerator {
         let mut file = std::fs::File::create(&temp_path)?;
         file.write_all(config_json.as_bytes())?;
 
-        // Run sing-box check
-        // We assume sing-box is in PATH. If not, we skip validation to allow running on servers without sing-box installed.
+        // Run sing-box check. The panel MUST have a `sing-box` binary available
+        // so a broken config is caught HERE (before it ships to nodes) rather
+        // than on every node simultaneously — that was the failure mode in the
+        // 0.9.48 outage (`experimental.cache_file.path` pointing to a path
+        // `User=sing-box` couldn't write). The check runs `sing-box check -c`
+        // against a temp copy of the rendered config.
         let output_result = Command::new("sing-box")
             .arg("check")
             .arg("-c")
@@ -1330,12 +1334,21 @@ impl ConfigGenerator {
                 }
             }
             Err(e) => {
-                // If the binary is missing or execution fails, we log a warning but DO NOT fail the request.
-                // This enables the panel to run on environments where sing-box is not installed.
-                warn!(
-                    "⚠️ Skipping Sing-box config validation (binary execution failed: {}). Proceeding blindly.",
+                // sing-box binary is not available on the panel. This is a
+                // misconfiguration — the panel needs sing-box installed to
+                // validate configs before pushing them to nodes. Failing loud
+                // here (instead of the old `warn!` + proceed-blindly) is the
+                // post-incident fix that closes the same bug class as 0.9.48.
+                error!(
+                    "❌ sing-box binary not available on the PANEL host — config validation SKIPPED. \
+                     Install sing-box on the panel server (same version as the nodes) so broken \
+                     configs are caught here instead of crashing every node. Original error: {}",
                     e
                 );
+                return Err(anyhow::anyhow!(
+                    "sing-box binary not available on panel — install it to enable pre-push \
+                     validation. See error log for details."
+                ));
             }
         }
 
