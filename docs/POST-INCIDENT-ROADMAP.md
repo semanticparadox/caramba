@@ -21,8 +21,8 @@
   - `apps/caramba-bot` — Teloxide Telegram bot
   - `apps/caramba-installer` — `caramba` CLI (install/upgrade/doctor/backup/uninstall)
   - `apps/caramba-app` — Telegram Mini App (TS)
-  - `apps/caramba-cli` / `apps/caramba-client` / `apps/caramba-license` — side projects, lower priority
-  - `libs/caramba-db`, `libs/caramba-shared`, `libs/caramba-core`
+  - `apps/caramba-client` — Flutter super-app client (WIP, kept locally; lives outside the Rust release)
+  - `libs/caramba-db`, `libs/caramba-shared`
 - **Ship flow** (NEVER build locally + scp — that's not how this project ships):
   1. Edit code on a branch.
   2. `cargo check --workspace` must be clean locally.
@@ -179,8 +179,9 @@ can't bisect or roll back cleanly.
 - Staging environment — needs separate VM, billing decision.
 - Canary deploy — design discussion, not a code change.
 - sing-box AmneziaWG support — needs a fork or removal from UI.
-- Caramba Connect (B2B pivot) — separate workstream, see
-  `docs/CARAMBA-CONNECT-PLAN.md` and `docs/CARAMBA-CONNECT-STATUS.md`.
+- Caramba Connect / exa_robot (B2B pivot, native client, license server) —
+  lives in a separate repo; this repo only ships the core Rust stack and the
+  Telegram Mini App.
 
 ---
 

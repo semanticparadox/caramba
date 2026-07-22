@@ -1,31 +1,32 @@
 name: CI
 
-# Сквозной CI на три слоя монорепозитория: Rust workspace (panel/bot/node/sub/
-# installer + libs), Go core/CLI и Flutter-клиент. Гоняет проверки на каждый
-# push и PR. Релизный воркфлоу release.yml не затрагивается.
+# End-to-end CI for the Caramba monorepo:
+#   - Rust workspace: panel / bot / node / sub / installer + libs
+#   - Flutter client: apps/caramba-client
 #
-# Этот файл — ЕДИНСТВЕННЫЙ владелец Go-контура (по умолчанию для обоих модулей
-# + go-mihomo с continue-on-error). Прежний go-core.yml удалён, чтобы один и тот
-# же go build/test не запускался дважды параллельно в двух воркфлоу.
+# Release build is its own workflow (release.yml); it only runs on `v*` tags.
 #
-# Примечания по слоям:
-#   - Rust: panel использует sqlx в РАНТАЙМЕ (sqlx::query / sqlx::query_as), а не
-#     compile-time макросы query!/query_as!. caramba-db применяет sqlx::migrate!
-#     ("./migrations"), который лишь встраивает .sql-файлы во время компиляции и
-#     НЕ требует подключения к БД. Значит `cargo check`/`cargo test` собираются
-#     БЕЗ живого Postgres. SQLX_OFFLINE выставлен на всякий случай (no-op без
-#     query!-макросов и без .sqlx-кэша) и безвреден.
-#   - Go: матрица по двум модулям. Контур по умолчанию (без -tags mihomo) чистый,
-#     CGO не нужен. Сборка с -tags mihomo тянет неполный go.sum + большой граф +
-#     CGO и вынесена в отдельный continue-on-error job (см. go-mihomo).
-#   - Flutter: ядро ещё не привязано (gomobile), тестов пока может не быть —
-#     flutter test помечен allow-failure, чтобы не блокировать PR.
+# Caramba Connect / exa_robot code lives in a separate repo, so its Go core,
+# Go CLI and standalone license server are no longer built here.
+#
+# Rust notes:
+#   - `caramba-panel` uses sqlx at runtime (sqlx::query / sqlx::query_as), not
+#     the compile-time `query!` / `query_as!` macros. `caramba-db` uses
+#     sqlx::migrate!("./migrations") which only embeds .sql at build time and
+#     does NOT need a live DB. So `cargo check` / `cargo test` build WITHOUT
+#     Postgres. SQLX_OFFLINE is set just in case (no-op without `query!`
+#     macros / .sqlx cache) and harmless.
+#
+# Flutter notes:
+#   - Native VPN core is not yet wired in CI; the client runs on Mock and the
+#     real tunnel path is behind a dart-define. `flutter analyze` and
+#     `flutter test` are allow-failure until the first real end-to-end tunnel.
 
 on:
   push:
   pull_request:
 
-# Отменяем устаревшие прогоны на том же ref при новом пуше.
+# Cancel in-flight runs on the same ref when a new push lands.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -38,11 +39,12 @@ jobs:
   # Rust workspace
   # ---------------------------------------------------------------------------
   rust:
-    name: Rust (check + test)
+    name: Rust (fmt + check + clippy + test)
     runs-on: ubuntu-latest
     env:
-      # panel не использует compile-time sqlx-макросы; флаг безвреден и страхует
-      # от случайного добавления query!-макроса без живой БД в CI.
+      # Belt-and-suspenders: caramba-panel does not use compile-time sqlx
+      # macros today, but if someone adds a `query!` macro without a live DB
+      # the build will fail. Setting SQLX_OFFLINE keeps the build hermetic.
       SQLX_OFFLINE: "true"
     steps:
       - name: Checkout
@@ -53,7 +55,7 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      # Кэш реестра, индекса и target по содержимому Cargo.lock.
+      # Cache cargo registry, index, git db, and target by Cargo.lock hash.
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -66,7 +68,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      # Системные зависимости panel/node (openssl/pkg-config), как в release.yml.
+      # System deps for panel/node (openssl, pkg-config), same as release.yml.
       - name: Install system deps
         run: |
           sudo apt-get update
@@ -83,79 +85,6 @@ jobs:
 
       - name: cargo test
         run: cargo test --workspace
-
-  # ---------------------------------------------------------------------------
-  # Go core / CLI — контур по умолчанию (без нативного ядра mihomo)
-  # ---------------------------------------------------------------------------
-  go:
-    name: Go ${{ matrix.module }} (default)
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        module:
-          - libs/caramba-core
-          - apps/caramba-cli
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
-          cache-dependency-path: ${{ matrix.module }}/go.sum
-
-      - name: go vet
-        working-directory: ${{ matrix.module }}
-        run: go vet ./...
-
-      - name: go build
-        working-directory: ${{ matrix.module }}
-        run: go build ./...
-
-      - name: go test
-        working-directory: ${{ matrix.module }}
-        run: go test ./...
-
-  # ---------------------------------------------------------------------------
-  # Go core — контур с нативным ядром (-tags mihomo). Allow-failure: требует CGO,
-  # `go mod tidy` (go.sum в репозитории намеренно неполный) и доступ к прокси
-  # модулей. Тянет большой транзитивный граф (sing-tun/sing-box/gvisor/quic-go/
-  # utls). Ловит дрейф сигнатур mihomo API v1.19.27 (adapter.ParseProxy,
-  # Proxy.URLTest, utils.NewUnsignedRanges[uint16]), невидимый в сборке по
-  # умолчанию.
-  # ---------------------------------------------------------------------------
-  go-mihomo:
-    name: Go core (-tags mihomo, allow-failure)
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    env:
-      CGO_ENABLED: "1"
-      GOFLAGS: "-mod=mod"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
-          cache-dependency-path: libs/caramba-core/go.sum
-
-      # go.sum в репозитории содержит только yaml.v3; tidy дописывает контрольные
-      # суммы mihomo и его транзитива, иначе сборка с тегом падает.
-      - name: Resolve mihomo deps (go mod tidy)
-        working-directory: libs/caramba-core
-        run: go mod tidy
-
-      - name: go build (-tags mihomo)
-        working-directory: libs/caramba-core
-        run: go build -tags mihomo ./...
-
-      - name: go test (-tags mihomo)
-        working-directory: libs/caramba-core
-        run: go test -tags mihomo ./...
 
   # ---------------------------------------------------------------------------
   # Flutter client
@@ -179,11 +108,10 @@ jobs:
       - name: flutter pub get
         run: flutter pub get
 
-      # Caramba Connect клиент — WIP: нативное ядро (gomobile-биндинги) ещё не
-      # привязано, часть экранов на моках. Весь Flutter-контур помечен
-      # allow-failure до «первой реальной сборки» Connect — как go-mihomo.
-      # dart format тоже allow-failure: версия форматтера в CI (bundled Flutter
-      # stable) может расходиться с локальной и давать ложные диффы на WIP-коде.
+      # Allow-failure while the client is WIP: the native VPN core is not yet
+      # wired, some screens still on mocks, and the bundled Flutter stable
+      # version in CI can drift from the local one (false-positive `dart format`
+      # diffs on WIP code).
       - name: dart format check (allow-failure, WIP client)
         continue-on-error: true
         run: dart format --output=none --set-exit-if-changed .
@@ -192,7 +120,6 @@ jobs:
         continue-on-error: true
         run: flutter analyze
 
-      # Тестов может ещё не быть (ядро не привязано) — не блокируем PR.
       - name: flutter test (allow-failure)
         continue-on-error: true
         run: flutter test

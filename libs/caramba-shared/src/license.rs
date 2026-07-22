@@ -1,7 +1,7 @@
-//! Shared license types and ed25519 activation crypto (P4 contract B).
+//! Shared license types and ed25519 activation crypto.
 //!
 //! These types are the FROZEN wire contract between the license control plane
-//! (`apps/caramba-license`, the signer) and the panel (`apps/caramba-panel`,
+//! (the platform owner-hosted signer) and the panel (`apps/caramba-panel`,
 //! the verifier). The canonical message layout below is a stable byte encoding:
 //! once shipped it must never be reordered or re-encoded, or every signature
 //! already issued to a live instance would stop verifying.

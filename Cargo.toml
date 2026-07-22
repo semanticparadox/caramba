@@ -1,9 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["apps/caramba-node",
-    "apps/caramba-panel", "libs/caramba-db", "libs/caramba-shared",
-    "apps/caramba-sub", "apps/caramba-installer", "apps/caramba-bot",
-    "apps/caramba-license",
+members = [
+    "apps/caramba-bot",
+    "apps/caramba-installer",
+    "apps/caramba-node",
+    "apps/caramba-panel",
+    "apps/caramba-sub",
+    "libs/caramba-db",
+    "libs/caramba-shared",
 ]
 
 [profile.release]

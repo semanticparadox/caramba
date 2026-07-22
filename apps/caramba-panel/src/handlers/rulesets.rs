@@ -1,16 +1,15 @@
-//! Публичная отдача rule-set списков для routing-пресетов Go-ядра.
+//! Публичная отдача rule-set списков для клиентских routing-пресетов.
 //!
-//! Go-ядро (libs/caramba-core/routing) генерирует mihomo RULE-PROVIDER'ы,
-//! указывающие на `{BASE}/rulesets/NAME` с `behavior=domain|ipcidr, format=text`
-//! (один элемент на строку, без бинарного .mrs-тулинга). Панель — это зеркало:
-//! отдаёт текстовый файл за обычным HTTP, доступный даже там, где GitHub
-//! заблокирован.
+//! Клиенты (sing-box / mihomo) указывают на `{BASE}/rulesets/NAME` с
+//! `behavior=domain|ipcidr, format=text` (один элемент на строку, без
+//! бинарного .mrs-тулинга). Панель — это зеркало: отдаёт текстовый файл
+//! за обычным HTTP, доступный даже там, где GitHub заблокирован.
 //!
-//! Имена rule-set'ов и их апстримы — контракт с Go-стороной
-//! (routing.RecommendedUpstreams): ru-blocked, ru-blocked-ip, ir-blocked,
-//! by-blocked. Файлы лежат в каталоге RULESETS_DIR (по умолчанию ./rulesets) и
-//! периодически обновляются `sync_rulesets` (вызывается на старте сервера и по
-//! таймеру; см. main.rs).
+//! Имена rule-set'ов (`ru-blocked`, `ru-blocked-ip`, `ir-blocked`, `by-blocked`)
+//! — стабильный контракт с sing-box-конфигами, которые генерирует панель и
+//! которыми пользуются Hiddify / sing-box клиенты. Файлы лежат в каталоге
+//! RULESETS_DIR (по умолчанию ./rulesets) и периодически обновляются
+//! `sync_rulesets` (вызывается на старте сервера и по таймеру; см. main.rs).
 
 use axum::{
     extract::Path,
@@ -31,8 +30,8 @@ struct RulesetSpec {
     upstreams: &'static [&'static str],
 }
 
-/// Реестр зеркалируемых rule-set'ов. Должен совпадать по именам с
-/// routing.RecommendedUpstreams в Go-ядре.
+/// Реестр зеркалируемых rule-set'ов. Имена стабильны и используются в
+/// sing-box-конфигах, которые генерирует панель.
 const RULESETS: &[RulesetSpec] = &[
     // РФ: заблокированные/внутри-РФ домены. itdoginfo/allow-domains — текстовые
     // списки доменов; russia-v2ray-rules-dat отдаёт geosite-производные .lst.

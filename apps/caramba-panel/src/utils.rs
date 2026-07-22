@@ -47,7 +47,7 @@ pub fn amneziawg_enabled() -> bool {
 /// mihomo CLIENT, by contrast, speaks AmneziaWG natively and can consume a
 /// `wireguard` proxy with the `amnezia-wg-option` block — provided a real
 /// AmneziaWG-capable WireGuard server is actually listening on the node (plain
-/// sing-box cannot serve it; see docs/AMNEZIAWG.md).
+/// sing-box cannot serve it; deployment needs an AmneziaWG-capable sing-box fork).
 ///
 /// Decoupling lets an operator hand a working AmneziaWG proxy to the mihomo
 /// client WITHOUT also un-gating the node-breaking sing-box inbound. The clash

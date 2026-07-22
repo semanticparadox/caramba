@@ -11,8 +11,7 @@ pub const DEFAULT_LICENSE_SERVER_URL: &str = "https://license.carambaconnect.com
 /// Baked ed25519 public key (base64) used to verify activation signatures.
 /// This is the root of trust for license verification against a third party who
 /// does not hold the signing key. It is NOT a control against the self-hoster,
-/// who owns this value and the whole .env; see the trust model in
-/// apps/caramba-license/README.md.
+/// who owns this value and the whole .env.
 ///
 /// Replace with the real platform owner public key before shipping. While this
 /// is empty, every fresh install is unverifiable and fails safe to the Free

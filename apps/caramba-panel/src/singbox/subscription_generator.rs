@@ -1169,7 +1169,7 @@ pub fn generate_clash_config(
                 // sing-box `amneziawg_enabled()` gate that protects node configs. This
                 // only adds a `wireguard` proxy to the subscription; it never writes an
                 // AmneziaWG inbound to a sing-box node. The proxy is inert unless a real
-                // AmneziaWG server runs on the node (see docs/AMNEZIAWG.md).
+                // AmneziaWG server runs on the node (see AmneziaWG helper notes).
                 if inbound.protocol.eq_ignore_ascii_case("amneziawg")
                     && !crate::utils::amneziawg_client_enabled()
                 {
