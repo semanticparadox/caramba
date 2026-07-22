@@ -110,6 +110,12 @@ check_braces.py
 AGENTS.md
 GEMINI.md
 
+# Local-only runbooks / drafts with private infra info (server IPs, emails,
+# admin path, billing-account email). Kept on disk for the maintainer's
+# own sessions; never published.
+docs/POST-INCIDENT-ROADMAP.md
+docs/PAYPALYCH-MODERATION.md
+
 # Agent/IDE config — never commit
 .claude/
 .codex/
