@@ -914,9 +914,26 @@ impl MarketplaceService {
                 days_to_add
             );
 
-            if let Some(active_sub) = subs.first() {
+            // Продлеваем ТОЛЬКО подписку оплаченного плана (product_id =
+            // plan_id). admin_extend сбрасывает used_traffic и снимает
+            // 'expired'/'throttled' — применённый к первой попавшейся строке
+            // (например, к авто-созданной бесплатной подписке) он обнулял бы
+            // чужую квоту, а оплаченный план так и не активировался бы.
+            // Предпочитаем 'active', затем квотно-заблокированную строку того
+            // же плана; иначе — выдаём новую подписку оплаченного плана.
+            let target_sub = subs
+                .iter()
+                .find(|s| s.sub.plan_id == session.product_id && s.sub.status == "active")
+                .or_else(|| {
+                    subs.iter().find(|s| {
+                        s.sub.plan_id == session.product_id
+                            && matches!(s.sub.status.as_str(), "expired" | "throttled")
+                    })
+                });
+
+            if let Some(plan_sub) = target_sub {
                 self.sub_service
-                    .admin_extend(active_sub.sub.id, days_to_add)
+                    .admin_extend(plan_sub.sub.id, days_to_add)
                     .await?;
             } else {
                 let _ = self
