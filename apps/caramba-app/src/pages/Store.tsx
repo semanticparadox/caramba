@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { apiUrl } from '../config'
 import { useAuth } from '../context/AuthContext'
+import BotPaymentPanel from '../components/BotPaymentPanel'
 import DrawerModal from '../components/DrawerModal'
 import { mapProviderCards } from '../lib/paymentProviders'
+import { useBotPayment } from '../lib/useBotPayment'
 import './Store.css'
 
 interface Category {
@@ -37,7 +40,8 @@ interface PaymentProvider {
 
 export default function Store() {
     const navigate = useNavigate()
-    const { token, error } = useAuth()
+    const { t } = useTranslation()
+    const { token, error, userStats, refreshData } = useAuth()
     const [categories, setCategories] = useState<Category[]>([])
     const [products, setProducts] = useState<Product[]>([])
     const [cart, setCart] = useState<CartItem[]>([])
@@ -48,7 +52,15 @@ export default function Store() {
     const [showPayModal, setShowPayModal] = useState(false)
     const [pendingOrderId, setPendingOrderId] = useState<number | null>(null)
     const [checkoutMsg, setCheckoutMsg] = useState('')
+    // Ручная оплата: ссылка на завершение оплаты (рендерится тапабельной, не текстом).
+    const [manualUrl, setManualUrl] = useState<string | null>(null)
     const [addedId, setAddedId] = useState<number | null>(null)
+
+    // Внешний чекаут: ссылка ушла в чат бота, статус сессии поллится до completed.
+    const { botPayment, startBotPayment, clearBotPayment } = useBotPayment({
+        token,
+        onRefresh: refreshData,
+    })
 
     const providerCards = mapProviderCards(providers)
 
@@ -156,10 +168,19 @@ export default function Store() {
             if (res.ok) {
                 const data = await res.json()
                 if (data.invoice_url) {
+                    const url = String(data.invoice_url)
                     if (providerId === 'manual') {
-                        setCheckoutMsg(`Заказ создан. Завершите оплату по ссылке: ${data.invoice_url}`)
+                        setManualUrl(url)
+                    } else if (/^https?:\/\//i.test(url)) {
+                        // Внешний чекаут: сервер уже отправил ссылку в чат бота
+                        // (delivered_via: "bot") — показываем панель и поллим
+                        // статус сессии. Никакого window.location.href.
+                        startBotPayment(url, data.session_id ? String(data.session_id) : null)
                     } else {
-                        window.location.href = data.invoice_url
+                        // Мгновенное завершение (например, balance возвращает
+                        // сентинел "SUCCESS") — оплата уже проведена сервером.
+                        setCheckoutMsg(t('payment.confirmed'))
+                        void refreshData()
                     }
                 }
                 setShowPayModal(false)
@@ -191,6 +212,26 @@ export default function Store() {
                     Корзина {cart.length > 0 && <span className="cart-count">{cart.length}</span>}
                 </button>
             </header>
+
+            {/* Ссылка на оплату ушла в чат бота — панель со статусом и кнопками */}
+            {botPayment && (
+                <BotPaymentPanel
+                    payment={botPayment}
+                    botUsername={userStats?.bot_username}
+                    onClose={clearBotPayment}
+                />
+            )}
+
+            {/* Ручная оплата: тапабельная ссылка на завершение оплаты */}
+            {manualUrl && (
+                <div className="checkout-floating-msg success">
+                    <span>
+                        {t('payment.manualInvoice')}{' '}
+                        <a href={manualUrl} target="_blank" rel="noopener noreferrer">{manualUrl}</a>
+                    </span>
+                    <button onClick={() => setManualUrl(null)}>X</button>
+                </div>
+            )}
 
             {!token && (
                 <div className="empty-state">

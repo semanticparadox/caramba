@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
+import BotPaymentPanel from '../components/BotPaymentPanel'
 import DrawerModal from '../components/DrawerModal'
 import ProviderPicker from '../components/ProviderPicker'
 import { apiUrl } from '../config'
@@ -93,7 +94,7 @@ export default function Home() {
     const [qrSubId, setQrSubId] = useState<number | null>(null)
 
     // Централизованная логика покупки счёта — общая с Plans (lib/usePurchase).
-    const { purchasing: invoicePurchasingId, purchasingProvider, purchase } = usePurchase({
+    const { purchasing: invoicePurchasingId, purchasingProvider, purchase, botPayment, clearBotPayment } = usePurchase({
         token,
         onRefresh: refreshData,
     })
@@ -408,7 +409,13 @@ export default function Home() {
                 // Модал остаётся открытым — пользователь может выбрать другой способ.
                 break
             case 'redirect':
-                // UI передан Stars SDK / внешнему checkout.
+                // UI передан Stars SDK.
+                setShowPayModal(false)
+                setSelectedDuration(null)
+                break
+            case 'bot_link':
+                // Ссылка на оплату отправлена в чат бота — панель BotPaymentPanel
+                // (рендерится по botPayment) показывает кнопки и ждёт completed.
                 setShowPayModal(false)
                 setSelectedDuration(null)
                 break
@@ -454,6 +461,15 @@ export default function Home() {
                 <div className={`home-banner ${banner.type}`}>
                     {banner.text}
                 </div>
+            )}
+
+            {/* Ссылка на оплату ушла в чат бота — панель со статусом и кнопками */}
+            {botPayment && (
+                <BotPaymentPanel
+                    payment={botPayment}
+                    botUsername={stats?.bot_username}
+                    onClose={clearBotPayment}
+                />
             )}
 
             {!token && (

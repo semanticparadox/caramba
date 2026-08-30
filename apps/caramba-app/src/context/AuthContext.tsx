@@ -14,6 +14,8 @@ export interface UserStats {
     brand_name?: string;
     // URL поддержки из настроек сервера (устанавливается в панели администратора)
     support_url?: string;
+    // Username бота (без @) — для кнопки «Открыть чат» после отправки платёжной ссылки
+    bot_username?: string;
 }
 
 export interface UserSubscription {

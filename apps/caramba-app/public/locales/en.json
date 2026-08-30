@@ -15,6 +15,12 @@
     "groupOther": "Other methods",
     "recommended": "Recommended",
     "recommendedHint": "Works reliably for users in Russia — no card or acquiring blocks.",
+    "botLinkSent": "The payment link has been sent to your bot chat",
+    "waitingConfirmation": "Waiting for payment confirmation — the status will update automatically.",
+    "openChat": "Open chat",
+    "payInBrowser": "Pay in browser",
+    "confirmed": "✅ Payment received.",
+    "manualInvoice": "Order created — finish the payment via the link:",
     "creatingInvoice": "Creating invoice...",
     "redirecting": "Opening payment page..."
   },
