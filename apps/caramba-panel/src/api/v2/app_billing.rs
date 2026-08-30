@@ -338,6 +338,13 @@ pub async fn purchase(
                 "absolute_url"
             };
 
+            // Внешний http(s)-чекаут: дублируем ссылку на оплату в личку бота
+            // (fire-and-forget, как в api/client.rs::create_payment_invoice).
+            // Не-http payload (relative_path и т.п.) хелпер отбрасывает сам.
+            state
+                .marketplace_service
+                .notify_invoice_created(&user, &session, &invoice_payload);
+
             Json(PurchaseResponse {
                 pay_url: invoice_payload,
                 pay_url_kind,

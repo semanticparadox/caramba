@@ -39,6 +39,12 @@ pub struct MarketplaceService {
     pub http_client: reqwest::Client,
     pub store_service: StoreService,
     pub sub_service: SubscriptionService,
+    /// DM-канал для платёжных уведомлений (счёт создан / оплата получена).
+    /// Все отправки — fire-and-forget: сбой доставки не должен ломать checkout.
+    bot_manager: Arc<crate::bot_manager::BotManager>,
+    /// Снимок `bot_username` на момент старта — фолбэк, если у BotManager ещё
+    /// нет живого username (бот не запущен). Может быть пустым.
+    bot_username: String,
 }
 
 /// Returns the settings key controlling whether a payment provider is offered in
@@ -107,6 +113,7 @@ impl MarketplaceService {
         _paypalych_webhook_secret: String,
         api_domain: String,
         bot_username: String,
+        bot_manager: Arc<crate::bot_manager::BotManager>,
         store_service: StoreService,
         sub_service: SubscriptionService,
     ) -> Self {
@@ -303,6 +310,8 @@ impl MarketplaceService {
             http_client,
             store_service,
             sub_service,
+            bot_manager,
+            bot_username,
         }
     }
 
@@ -721,6 +730,11 @@ impl MarketplaceService {
                     );
                 }
 
+                // Успешное подтверждение оплаты — единственное на сессию (атомарный
+                // claim выше гарантирует ровно один проход этой ветки), поэтому DM
+                // «оплата получена» не задублируется даже при повторных вебхуках.
+                self.notify_payment_success(&session);
+
                 Ok(())
             }
             Err(error) => {
@@ -728,6 +742,129 @@ impl MarketplaceService {
                 Err(error)
             }
         }
+    }
+
+    /// Человекочитаемая метка оплачиваемого ресурса для DM со счётом:
+    /// план — его имя из БД (фолбэк — «подписка»), заказ — «заказ №N».
+    async fn payment_product_label(&self, session: &PaymentSession, lang: Option<&str>) -> String {
+        use crate::bot::translations::{t, tf};
+
+        match payment_resource_type(session.metadata.as_ref()) {
+            "order" => tf(lang, "label_order", &[&session.product_id.to_string()]),
+            _ => {
+                let name: Option<String> =
+                    sqlx::query_scalar("SELECT name FROM plans WHERE id = $1")
+                        .bind(session.product_id)
+                        .fetch_optional(&self.pool)
+                        .await
+                        .unwrap_or(None);
+                name.unwrap_or_else(|| t(lang, "label_subscription").to_string())
+            }
+        }
+    }
+
+    /// Username бота для кнопок в DM: живое значение из BotManager, иначе
+    /// снимок из настроек на момент старта. Пустая строка = username неизвестен.
+    async fn resolve_bot_username(&self) -> String {
+        let name = match self.bot_manager.get_username().await {
+            Some(u) if !u.trim().is_empty() => u,
+            _ => self.bot_username.clone(),
+        };
+        name.trim().trim_start_matches('@').to_string()
+    }
+
+    /// Fire-and-forget DM пользователю со ссылкой на оплату созданного счёта.
+    /// Отправляется ТОЛЬКО для внешних http(s)-чекаутов — stars/manual/balance
+    /// имеют собственный UX внутри приложения/бота. Ошибки доставки логируются
+    /// и не влияют на ответ API (Mini App уже получил invoice_url).
+    pub fn notify_invoice_created(&self, user: &User, session: &PaymentSession, invoice_url: &str) {
+        use crate::bot::translations::{t, tf};
+
+        if !invoice_url.starts_with("http://") && !invoice_url.starts_with("https://") {
+            return;
+        }
+
+        let svc = self.clone();
+        let session = session.clone();
+        let tg_id = user.tg_id;
+        let lang = user.language_code.clone();
+        let invoice_url = invoice_url.to_string();
+        tokio::spawn(async move {
+            let lang = lang.as_deref();
+            let label = svc.payment_product_label(&session, lang).await;
+            let amount = format!("{:.2}", session.amount as f64 / 100.0);
+            let text = tf(
+                lang,
+                "invoice_created",
+                &[&label, &amount, &session.currency],
+            );
+            let mut payload = crate::bot_manager::NotificationPayload::plain(text);
+            payload
+                .buttons
+                .push((t(lang, "pay_button").to_string(), invoice_url));
+            if let Err(e) = svc.bot_manager.send_rich_notification(tg_id, payload).await {
+                tracing::warn!(
+                    session_id = %session.id,
+                    tg_id,
+                    error = %e,
+                    "Invoice DM delivery failed (non-fatal)"
+                );
+            }
+        });
+    }
+
+    /// Fire-and-forget DM «оплата получена» после успешного fulfillment'а.
+    /// Вызывается ровно один раз на сессию (см. atomic claim в fulfill_payment).
+    fn notify_payment_success(&self, session: &PaymentSession) {
+        use crate::bot::translations::t;
+
+        let svc = self.clone();
+        let session = session.clone();
+        tokio::spawn(async move {
+            // session.user_id — внутренний id БД; для DM нужен tg_id чата.
+            // (тот же паттерн, что в pay_service.rs при активационных DM)
+            let row: Option<(i64, Option<String>)> =
+                sqlx::query_as("SELECT tg_id, language_code FROM users WHERE id = $1")
+                    .bind(session.user_id)
+                    .fetch_optional(&svc.pool)
+                    .await
+                    .unwrap_or(None);
+            let Some((tg_id, lang)) = row else {
+                tracing::warn!(
+                    session_id = %session.id,
+                    user_id = session.user_id,
+                    "Payment success DM skipped: user not found"
+                );
+                return;
+            };
+            let lang = lang.as_deref();
+
+            let key = match payment_resource_type(session.metadata.as_ref()) {
+                "order" => "payment_success_order",
+                // "plan" и каталожные продукты, продлевающие подписку
+                _ => "payment_success_sub",
+            };
+            let mut payload = crate::bot_manager::NotificationPayload::plain(t(lang, key));
+
+            // Кнопка возврата в Mini App. `?startapp` открывает главный Mini App
+            // бота (deep link Telegram); без username кнопку не показываем.
+            let username = svc.resolve_bot_username().await;
+            if !username.is_empty() {
+                payload.buttons.push((
+                    t(lang, "open_app_button").to_string(),
+                    format!("https://t.me/{}?startapp", username),
+                ));
+            }
+
+            if let Err(e) = svc.bot_manager.send_rich_notification(tg_id, payload).await {
+                tracing::warn!(
+                    session_id = %session.id,
+                    tg_id,
+                    error = %e,
+                    "Payment success DM delivery failed (non-fatal)"
+                );
+            }
+        });
     }
 
     /// Credits the referrer of `user_id` with the first-purchase money reward.

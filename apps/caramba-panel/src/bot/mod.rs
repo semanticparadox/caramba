@@ -3,6 +3,7 @@ use tracing::{error, info};
 
 pub mod handlers;
 pub mod keyboards;
+pub mod translations;
 pub mod utils;
 
 pub async fn run_bot(
