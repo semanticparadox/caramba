@@ -783,6 +783,12 @@ impl MarketplaceService {
         if !invoice_url.starts_with("http://") && !invoice_url.starts_with("https://") {
             return;
         }
+        // Stars-инвойсы (t.me/invoice/...) открываются нативно внутри Telegram —
+        // дублировать их в чат бессмысленно (защитная проверка: StarsProvider в
+        // MarketplaceService не зарегистрирован, но ссылка могла прийти извне).
+        if invoice_url.contains("t.me/invoice") {
+            return;
+        }
 
         let svc = self.clone();
         let session = session.clone();

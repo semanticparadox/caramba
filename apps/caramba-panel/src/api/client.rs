@@ -2144,8 +2144,9 @@ async fn create_payment_invoice(
             // stars/manual/balance сюда не попадают: у них invoice_url не http(s)
             // либо ветка выше. `delivered_via: bot` сообщает приложению, что
             // ссылка отправлена в чат и редирект не нужен.
-            let delivered_via_bot =
-                invoice_payload.starts_with("http://") || invoice_payload.starts_with("https://");
+            let delivered_via_bot = (invoice_payload.starts_with("http://")
+                || invoice_payload.starts_with("https://"))
+                && !invoice_payload.contains("t.me/invoice");
             if delivered_via_bot {
                 state
                     .marketplace_service
