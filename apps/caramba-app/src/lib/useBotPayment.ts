@@ -3,10 +3,15 @@ import { apiUrl } from '../config'
 
 /** Интервал поллинга статуса платёжной сессии. */
 const POLL_INTERVAL_MS = 5000
-/** Максимум попыток: 120 × 5с = 10 минут, дальше сдаёмся молча. */
+/** Максимум попыток: 120 × 5с = 10 минут, дальше переходим в 'timeout'. */
 const POLL_MAX_ATTEMPTS = 120
 
-export type BotPaymentStatus = 'pending' | 'completed'
+/**
+ * 'failed' | 'expired' — терминальный неуспех от сервера;
+ * 'timeout' — 10 минут без подтверждения: поллинг остановлен, оплата могла
+ * пройти позже (итог придёт в чат бота).
+ */
+export type BotPaymentStatus = 'pending' | 'completed' | 'failed' | 'expired' | 'timeout'
 
 export type BotPaymentState = {
   /** Абсолютный URL внешнего чекаута — для кнопки «Оплатить в браузере». */
@@ -55,10 +60,18 @@ export function useBotPayment({ token, onRefresh }: UseBotPaymentOptions) {
     let attempts = 0
     let cancelled = false
 
+    // Единая точка выхода из pending: остановить поллинг И показать
+    // пользователю терминальное состояние — иначе панель вечно врала бы
+    // «статус обновится автоматически», хотя обновлять его уже некому.
+    const finish = (timer: number, status: BotPaymentStatus) => {
+      window.clearInterval(timer)
+      setBotPayment((prev) => (prev && prev.sessionId === sessionId ? { ...prev, status } : prev))
+    }
+
     const timer = window.setInterval(async () => {
       attempts += 1
       if (attempts > POLL_MAX_ATTEMPTS) {
-        window.clearInterval(timer)
+        finish(timer, 'timeout')
         return
       }
       const authToken = tokenRef.current
@@ -71,15 +84,12 @@ export function useBotPayment({ token, onRefresh }: UseBotPaymentOptions) {
         const data = await res.json()
         if (cancelled) return
         if (data.status === 'completed') {
-          window.clearInterval(timer)
-          setBotPayment((prev) =>
-            prev && prev.sessionId === sessionId ? { ...prev, status: 'completed' } : prev,
-          )
+          finish(timer, 'completed')
           void onRefreshRef.current()
         } else if (data.status === 'failed' || data.status === 'expired') {
           // Терминальный неуспех — поллить дальше бессмысленно. Кнопки
           // «Открыть чат» / «Оплатить в браузере» остаются доступны.
-          window.clearInterval(timer)
+          finish(timer, data.status)
         }
       } catch {
         // Сетевая ошибка — молча пробуем в следующем тике.

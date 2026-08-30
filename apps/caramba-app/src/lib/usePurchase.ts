@@ -1,5 +1,5 @@
-import { useState } from 'react'
 import WebApp from '@twa-dev/sdk'
+import { useState } from 'react'
 import { apiUrl } from '../config'
 import { useBotPayment } from './useBotPayment'
 
@@ -97,9 +97,7 @@ export function usePurchase({ token, onRefresh }: UsePurchaseOptions) {
 
       // Telegram Stars — нативный invoice внутри Telegram.
       const isStars =
-        provider === 'telegram_stars' ||
-        provider === 'stars' ||
-        invoiceUrl.includes('t.me/invoice')
+        provider === 'telegram_stars' || provider === 'stars' || invoiceUrl.includes('t.me/invoice')
 
       if (isStars) {
         WebApp.openInvoice(data.invoice_url, (status) => {

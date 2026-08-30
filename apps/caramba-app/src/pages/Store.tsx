@@ -170,7 +170,10 @@ export default function Store() {
                 if (data.invoice_url) {
                     const url = String(data.invoice_url)
                     if (providerId === 'manual') {
-                        setManualUrl(url)
+                        // Сервер отдаёт относительный путь ("/manual-upload") —
+                        // резолвим его против origin панели (apiUrl), иначе при
+                        // деплое Mini App на другом origin ссылка вела бы в 404.
+                        setManualUrl(/^https?:\/\//i.test(url) ? url : apiUrl(url.startsWith('/') ? url : `/${url}`))
                     } else if (/^https?:\/\//i.test(url)) {
                         // Внешний чекаут: сервер уже отправил ссылку в чат бота
                         // (delivered_via: "bot") — показываем панель и поллим
@@ -229,7 +232,7 @@ export default function Store() {
                         {t('payment.manualInvoice')}{' '}
                         <a href={manualUrl} target="_blank" rel="noopener noreferrer">{manualUrl}</a>
                     </span>
-                    <button onClick={() => setManualUrl(null)}>X</button>
+                    <button type="button" onClick={() => setManualUrl(null)}>X</button>
                 </div>
             )}
 

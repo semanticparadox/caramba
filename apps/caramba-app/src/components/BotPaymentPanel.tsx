@@ -1,5 +1,5 @@
-import { useTranslation } from 'react-i18next'
 import WebApp from '@twa-dev/sdk'
+import { useTranslation } from 'react-i18next'
 import type { BotPaymentState } from '../lib/useBotPayment'
 import './BotPaymentPanel.css'
 
@@ -43,7 +43,7 @@ export default function BotPaymentPanel({ payment, botUsername, onClose }: BotPa
       <div className="bot-payment glass-card completed" role="status" aria-live="polite">
         <p className="bot-payment-text">{t('payment.confirmed')}</p>
         <div className="bot-payment-actions">
-          <button className="bot-payment-btn" onClick={onClose}>
+          <button type="button" className="bot-payment-btn" onClick={onClose}>
             {t('common.close')}
           </button>
         </div>
@@ -51,20 +51,45 @@ export default function BotPaymentPanel({ payment, botUsername, onClose }: BotPa
     )
   }
 
+  // Поллинг завершился без успеха: 'failed'/'expired' — сессия мертва,
+  // 'timeout' — 10 минут без подтверждения (итог, если оплата всё же пройдёт,
+  // придёт в чат бота). Панель обязана сказать это явно, а не вечно обещать
+  // «статус обновится автоматически».
+  const isTerminalFailure = payment.status === 'failed' || payment.status === 'expired'
+  const isTimeout = payment.status === 'timeout'
+
   return (
     <div className="bot-payment glass-card" role="status" aria-live="polite">
-      <p className="bot-payment-text">{t('payment.botLinkSent')}</p>
-      <p className="bot-payment-hint">{t('payment.waitingConfirmation')}</p>
+      <p className="bot-payment-text">
+        {isTerminalFailure ? t('payment.sessionFailed') : t('payment.botLinkSent')}
+      </p>
+      <p className="bot-payment-hint">
+        {isTerminalFailure
+          ? t('payment.sessionFailedHint')
+          : isTimeout
+            ? t('payment.pollTimeout')
+            : t('payment.waitingConfirmation')}
+      </p>
       <div className="bot-payment-actions">
         {botUsername && (
-          <button className="bot-payment-btn primary" onClick={() => openBotChat(botUsername)}>
+          <button
+            type="button"
+            className="bot-payment-btn primary"
+            onClick={() => openBotChat(botUsername)}
+          >
             {t('payment.openChat')}
           </button>
         )}
-        <button className="bot-payment-btn" onClick={() => openExternalLink(payment.invoiceUrl)}>
-          {t('payment.payInBrowser')}
-        </button>
-        <button className="bot-payment-btn ghost" onClick={onClose}>
+        {!isTerminalFailure && (
+          <button
+            type="button"
+            className="bot-payment-btn"
+            onClick={() => openExternalLink(payment.invoiceUrl)}
+          >
+            {t('payment.payInBrowser')}
+          </button>
+        )}
+        <button type="button" className="bot-payment-btn ghost" onClick={onClose}>
           {t('common.close')}
         </button>
       </div>

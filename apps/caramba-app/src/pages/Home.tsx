@@ -64,8 +64,11 @@ export default function Home() {
 
     const usage = getUsageSnapshot(stats, subscriptions)
 
+    // 'throttled' — суточная квота бесплатного плана исчерпана (пополнится
+    // завтра): подписка должна остаться на главном экране, а не исчезать,
+    // будто её нет.
     const activeSubscriptions = useMemo(
-        () => subscriptions.filter((sub) => sub.status === 'active'),
+        () => subscriptions.filter((sub) => sub.status === 'active' || sub.status === 'throttled'),
         [subscriptions],
     )
     const pendingSubscriptions = useMemo(
@@ -495,7 +498,9 @@ export default function Home() {
                             <div className="sub-card-info">
                                 <span className="sub-card-name">{sub.plan_name}</span>
                                 <span className="sub-card-days">
-                                    {sub.is_free
+                                    {sub.status === 'throttled'
+                                        ? t('home.throttledNotice')
+                                        : sub.is_free
                                         ? t('home.freePlanLabel')
                                         : sub.days_left > 0
                                         ? t('home.daysLeft', { count: sub.days_left })

@@ -22,7 +22,10 @@
     "confirmed": "✅ Payment received.",
     "manualInvoice": "Order created — finish the payment via the link:",
     "creatingInvoice": "Creating invoice...",
-    "redirecting": "Opening payment page..."
+    "redirecting": "Opening payment page...",
+    "sessionFailed": "Payment was not completed.",
+    "sessionFailedHint": "The payment session failed or expired. You can start a new payment from the plan or order page.",
+    "pollTimeout": "No confirmation yet. If you have paid, the receipt will arrive in the bot chat — check it there."
   },
   "nav": {
     "center": "Home",
@@ -116,7 +119,8 @@
     "notificationsBell": "Notifications",
     "supportCardTitle": "Support tickets",
     "supportCardDesc": "Open a ticket to get help from our team.",
-    "supportCardBtn": "My tickets"
+    "supportCardBtn": "My tickets",
+    "throttledNotice": "Daily limit reached — resets tomorrow"
   },
   "servers": {
     "title": "Route configuration",
@@ -436,6 +440,7 @@
     "autoRenewOn": "On",
     "autoRenewOff": "Off",
     "autoRenewHint": "When enabled, the subscription renews automatically from your balance before it expires.",
-    "autoRenewManageBot": "Manage auto-renew in the bot for now."
+    "autoRenewManageBot": "Manage auto-renew in the bot for now.",
+    "statusThrottled": "Daily limit reached"
   }
 }
