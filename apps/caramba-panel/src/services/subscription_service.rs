@@ -521,10 +521,15 @@ impl SubscriptionService {
         // paying user whose subscription quota-expired would stay excluded
         // from node configs even after the renewal. Other statuses (e.g.
         // 'pending' awaiting admin approval) are left untouched.
+        //
+        // Base time is GREATEST(now, expires_at): extending a long-expired
+        // subscription from its old expires_at could leave it 'active' with a
+        // past expiry, which check_expirations would immediately flip back to
+        // 'expired' (status flapping + wasted config regens).
         let plan_id: Option<i64> = sqlx::query_scalar(
             r#"
             UPDATE subscriptions
-            SET expires_at = expires_at + ($1 * interval '1 day'),
+            SET expires_at = GREATEST(expires_at, CURRENT_TIMESTAMP) + ($1 * interval '1 day'),
                 used_traffic = 0,
                 status = CASE WHEN status IN ('expired', 'throttled') THEN 'active' ELSE status END
             WHERE id = $2
@@ -1193,6 +1198,31 @@ impl SubscriptionService {
         .context("Failed to resolve subscription connection identity")
     }
 
+    /// Есть ли у владельца подписки ДРУГАЯ активная подписка. Нужно
+    /// enforcement'у: sing-box тегирует соединения per-user (`user_{tg_id}`),
+    /// поэтому «убить соединения подписки» по тегу означает убить ВСЕ
+    /// соединения пользователя — включая обслуживаемые другой, легитимно
+    /// активной (например, платной) подпиской.
+    pub async fn user_has_other_active_subscription(&self, subscription_id: i64) -> Result<bool> {
+        let exists: Option<bool> = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1
+                FROM subscriptions other
+                JOIN subscriptions target ON target.id = $1
+                WHERE other.user_id = target.user_id
+                  AND other.id <> target.id
+                  AND other.status = 'active'
+            )
+            "#,
+        )
+        .bind(subscription_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to check for other active subscriptions")?;
+        Ok(exists.unwrap_or(false))
+    }
+
     pub async fn get_subscription_device_limit(&self, subscription_id: i64) -> Result<i32> {
         let limit: Option<i32> = sqlx::query_scalar(
             "SELECT p.device_limit FROM subscriptions s JOIN plans p ON s.plan_id = p.id WHERE s.id = $1"
@@ -1205,13 +1235,14 @@ impl SubscriptionService {
     }
 
     pub async fn ensure_subscription_within_quota(&self, subscription_id: i64) -> Result<bool> {
-        let usage_row: Option<(i64, i32, String, bool)> = sqlx::query_as(
+        let usage_row: Option<(i64, i32, String, bool, i32)> = sqlx::query_as(
             r#"
             SELECT
                 COALESCE(s.used_traffic, 0)::BIGINT AS used_traffic,
                 COALESCE(p.traffic_limit_gb, 0)::INT AS traffic_limit_gb,
                 COALESCE(s.status, 'pending') AS status,
-                COALESCE(p.is_free, FALSE) AS is_free
+                COALESCE(p.is_free, FALSE) AS is_free,
+                COALESCE(p.daily_traffic_mb, 0)::INT AS daily_traffic_mb
             FROM subscriptions s
             JOIN plans p ON p.id = s.plan_id
             WHERE s.id = $1
@@ -1222,7 +1253,8 @@ impl SubscriptionService {
         .await
         .context("Failed to fetch subscription quota")?;
 
-        let Some((used_traffic, traffic_limit_gb, status, is_free)) = usage_row else {
+        let Some((used_traffic, traffic_limit_gb, status, is_free, daily_traffic_mb)) = usage_row
+        else {
             return Ok(false);
         };
 
@@ -1241,7 +1273,14 @@ impl SubscriptionService {
 
         // Бесплатные планы не «истекают» по трафику: 'throttled' снимается
         // суточным пополнением, 'expired' пришлось бы чинить руками.
-        let over_quota_status = if is_free { "throttled" } else { "expired" };
+        // 'throttled' допустим только при daily_traffic_mb > 0 — без суточного
+        // пополнения из него нет автоматического выхода, поэтому бесплатный
+        // план без пополнения истекает как платный (админ снимет через extend).
+        let over_quota_status = if is_free && daily_traffic_mb > 0 {
+            "throttled"
+        } else {
+            "expired"
+        };
         let _ = sqlx::query("UPDATE subscriptions SET status = $1 WHERE id = $2")
             .bind(over_quota_status)
             .bind(subscription_id)
@@ -1279,6 +1318,11 @@ impl SubscriptionService {
     /// исключается из конфигов нод (get_active_subs_by_plans отбирает только
     /// 'active'), а суточное пополнение (daily_traffic_topup) вернёт её в
     /// 'active', как только used_traffic снова окажется ниже лимита.
+    ///
+    /// Троттлим ТОЛЬКО планы с daily_traffic_mb > 0: единственный
+    /// автоматический путь назад — суточное пополнение, и бесплатный план без
+    /// него (daily_traffic_mb = 0/NULL) застрял бы в 'throttled' навсегда.
+    /// Такие планы остаются 'active' (как до введения троттлинга).
     pub async fn throttle_free_quota_subscriptions(
         &self,
     ) -> Result<Vec<ExpiredQuotaSubscription>> {
@@ -1290,6 +1334,7 @@ impl SubscriptionService {
             WHERE s.plan_id = p.id
               AND s.status = 'active'
               AND COALESCE(p.is_free, FALSE) = TRUE
+              AND COALESCE(p.daily_traffic_mb, 0) > 0
               AND COALESCE(p.traffic_limit_gb, 0) > 0
               AND COALESCE(s.used_traffic, 0) >= (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)
             RETURNING s.id AS subscription_id, s.user_id, s.node_id, s.plan_id

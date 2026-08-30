@@ -471,6 +471,36 @@ impl ConnectionService {
             return Ok(());
         };
 
+        // The per-user tag cannot distinguish WHICH subscription a connection
+        // belongs to. If the user still has another active subscription (e.g.
+        // a paid plan alongside a throttled free one), a tag-based kill would
+        // also drop the sessions that other subscription legitimately serves —
+        // so in that case only match by the vless UUID specific to this
+        // subscription and skip the tag.
+        let match_by_tag = match self
+            .subscription
+            .user_has_other_active_subscription(sub_id)
+            .await
+        {
+            Ok(has_other) => {
+                if has_other {
+                    info!(
+                        "Sub {} owner has another active subscription — skipping tag-based kill, matching by vless UUID only",
+                        sub_id
+                    );
+                }
+                !has_other
+            }
+            // On lookup failure err on the side of enforcement (old behavior).
+            Err(e) => {
+                warn!(
+                    "Could not check other active subscriptions for sub {}: {} — falling back to tag-based kill",
+                    sub_id, e
+                );
+                true
+            }
+        };
+
         let nodes: Vec<caramba_db::models::node::Node> =
             self.orchestration.node_repo.get_all_nodes().await?;
         let target_user = crate::services::user_tag::user_tag(tg_id);
@@ -484,7 +514,8 @@ impl ConnectionService {
                     for conn in connections {
                         // Check metadata.user against the tg_id tag
                         let mut match_found = false;
-                        if let Some(user) = &conn.metadata.user
+                        if match_by_tag
+                            && let Some(user) = &conn.metadata.user
                             && user == &target_user
                         {
                             match_found = true;

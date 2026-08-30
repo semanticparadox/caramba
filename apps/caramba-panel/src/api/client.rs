@@ -819,7 +819,7 @@ async fn get_user_stats(
         JOIN plans p ON s.plan_id = p.id
         JOIN users u ON s.user_id = u.id
         WHERE u.tg_id = $1
-          AND s.status = 'active'
+          AND s.status IN ('active', 'throttled')
         "#,
     )
     .bind(tg_id)

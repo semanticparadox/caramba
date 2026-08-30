@@ -70,8 +70,10 @@ pub async fn get_me(
 
     let balance: i64 = r.try_get("balance").unwrap_or(0);
 
+    // 'throttled' — временная суточная блокировка бесплатного плана; для
+    // пользователя такая подписка всё ещё «его тариф», а не отсутствие оного.
     let active_subs: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM subscriptions WHERE user_id = $1 AND status = 'active'",
+        "SELECT COUNT(*) FROM subscriptions WHERE user_id = $1 AND status IN ('active', 'throttled')",
     )
     .bind(auth.user_id)
     .fetch_one(&state.pool)
@@ -81,7 +83,7 @@ pub async fn get_me(
     // Имя текущего плана (самая поздняя по сроку активная подписка).
     let plan_name: Option<String> = sqlx::query_scalar(
         "SELECT p.name FROM subscriptions s JOIN plans p ON s.plan_id = p.id \
-         WHERE s.user_id = $1 AND s.status = 'active' \
+         WHERE s.user_id = $1 AND s.status IN ('active', 'throttled') \
          ORDER BY s.expires_at DESC LIMIT 1",
     )
     .bind(auth.user_id)
