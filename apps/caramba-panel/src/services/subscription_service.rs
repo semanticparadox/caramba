@@ -32,6 +32,10 @@ pub struct ExpiredQuotaSubscription {
     pub subscription_id: i64,
     pub user_id: i64,
     pub node_id: Option<i64>,
+    /// Plan of the subscription — quota enforcement fans node notifications
+    /// out by plan, because `node_id` can be NULL or cover only one of the
+    /// nodes serving the user.
+    pub plan_id: i64,
 }
 
 impl SubscriptionService {
@@ -511,12 +515,27 @@ impl SubscriptionService {
     }
 
     pub async fn admin_extend(&self, sub_id: i64, days: i32) -> Result<()> {
-        sqlx::query("UPDATE subscriptions SET expires_at = expires_at + ($1 * interval '1 day'), used_traffic = 0 WHERE id = $2")
-            .bind(days)
-            .bind(sub_id)
-            .execute(&self.pool)
-            .await
-            .context("Failed to extend subscription")?;
+        // Renewal semantics: extending a subscription starts a fresh traffic
+        // period, so reset used_traffic AND lift a quota-driven block
+        // ('expired'/'throttled') back to 'active'. Without the status flip a
+        // paying user whose subscription quota-expired would stay excluded
+        // from node configs even after the renewal. Other statuses (e.g.
+        // 'pending' awaiting admin approval) are left untouched.
+        let plan_id: Option<i64> = sqlx::query_scalar(
+            r#"
+            UPDATE subscriptions
+            SET expires_at = expires_at + ($1 * interval '1 day'),
+                used_traffic = 0,
+                status = CASE WHEN status IN ('expired', 'throttled') THEN 'active' ELSE status END
+            WHERE id = $2
+            RETURNING plan_id
+            "#,
+        )
+        .bind(days)
+        .bind(sub_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to extend subscription")?;
 
         let _ = ActivityService::log(
             &self.pool,
@@ -525,17 +544,11 @@ impl SubscriptionService {
         )
         .await;
 
-        // Notify node to regenerate config with extended subscription
-        let node_id: Option<i64> =
-            sqlx::query_scalar("SELECT node_id FROM subscriptions WHERE id = $1")
-                .bind(sub_id)
-                .fetch_optional(&self.pool)
-                .await
-                .ok()
-                .flatten();
-
-        if let (Some(orch), Some(nid)) = (&self.orchestration_service, node_id) {
-            let _ = orch.notify_node_update(nid).await;
+        // Notify every node serving the plan so the (possibly reactivated)
+        // subscription reappears in configs — node_id alone can be NULL or
+        // cover only one of the plan's nodes.
+        if let (Some(orch), Some(pid)) = (&self.orchestration_service, plan_id) {
+            let _ = orch.notify_nodes_for_plans(&[pid]).await;
         }
 
         Ok(())
@@ -1138,6 +1151,48 @@ impl SubscriptionService {
         Ok(links)
     }
 
+    /// Разрешает Telegram id (из тега соединения `user_{tg_id}`) в id активной
+    /// подписки пользователя. Зеркалит цепочку tg_id → user → active
+    /// subscription из учёта трафика (`api/v2/node.rs::heartbeat`): sing-box
+    /// тегирует соединения Telegram id, а не id подписки.
+    pub async fn get_active_subscription_id_by_tg_id(&self, tg_id: i64) -> Result<Option<i64>> {
+        sqlx::query_scalar(
+            r#"
+            SELECT s.id
+            FROM subscriptions s
+            JOIN users u ON u.id = s.user_id
+            WHERE u.tg_id = $1 AND s.status = 'active'
+            ORDER BY COALESCE(s.expires_at, s.created_at) DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(tg_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to resolve active subscription by tg_id")
+    }
+
+    /// Возвращает tg_id владельца и vless_uuid подписки — для матчинга живых
+    /// соединений: sing-box помечает их тегом `user_{tg_id}`, а в chains может
+    /// присутствовать vless UUID (легаси-путь).
+    pub async fn get_subscription_connection_identity(
+        &self,
+        subscription_id: i64,
+    ) -> Result<Option<(i64, Option<String>)>> {
+        sqlx::query_as(
+            r#"
+            SELECT u.tg_id, s.vless_uuid
+            FROM subscriptions s
+            JOIN users u ON u.id = s.user_id
+            WHERE s.id = $1
+            "#,
+        )
+        .bind(subscription_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to resolve subscription connection identity")
+    }
+
     pub async fn get_subscription_device_limit(&self, subscription_id: i64) -> Result<i32> {
         let limit: Option<i32> = sqlx::query_scalar(
             "SELECT p.device_limit FROM subscriptions s JOIN plans p ON s.plan_id = p.id WHERE s.id = $1"
@@ -1150,12 +1205,13 @@ impl SubscriptionService {
     }
 
     pub async fn ensure_subscription_within_quota(&self, subscription_id: i64) -> Result<bool> {
-        let usage_row: Option<(i64, i32, String)> = sqlx::query_as(
+        let usage_row: Option<(i64, i32, String, bool)> = sqlx::query_as(
             r#"
             SELECT
                 COALESCE(s.used_traffic, 0)::BIGINT AS used_traffic,
                 COALESCE(p.traffic_limit_gb, 0)::INT AS traffic_limit_gb,
-                COALESCE(s.status, 'pending') AS status
+                COALESCE(s.status, 'pending') AS status,
+                COALESCE(p.is_free, FALSE) AS is_free
             FROM subscriptions s
             JOIN plans p ON p.id = s.plan_id
             WHERE s.id = $1
@@ -1166,7 +1222,7 @@ impl SubscriptionService {
         .await
         .context("Failed to fetch subscription quota")?;
 
-        let Some((used_traffic, traffic_limit_gb, status)) = usage_row else {
+        let Some((used_traffic, traffic_limit_gb, status, is_free)) = usage_row else {
             return Ok(false);
         };
 
@@ -1183,7 +1239,11 @@ impl SubscriptionService {
             return Ok(true);
         }
 
-        let _ = sqlx::query("UPDATE subscriptions SET status = 'expired' WHERE id = $1")
+        // Бесплатные планы не «истекают» по трафику: 'throttled' снимается
+        // суточным пополнением, 'expired' пришлось бы чинить руками.
+        let over_quota_status = if is_free { "throttled" } else { "expired" };
+        let _ = sqlx::query("UPDATE subscriptions SET status = $1 WHERE id = $2")
+            .bind(over_quota_status)
             .bind(subscription_id)
             .execute(&self.pool)
             .await;
@@ -1204,7 +1264,7 @@ impl SubscriptionService {
               AND COALESCE(p.is_free, FALSE) = FALSE
               AND COALESCE(p.traffic_limit_gb, 0) > 0
               AND COALESCE(s.used_traffic, 0) >= (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)
-            RETURNING s.id AS subscription_id, s.user_id, s.node_id
+            RETURNING s.id AS subscription_id, s.user_id, s.node_id, s.plan_id
             "#,
         )
         .fetch_all(&self.pool)
@@ -1214,25 +1274,30 @@ impl SubscriptionService {
         Ok(rows)
     }
 
-    /// Возвращает подписки бесплатных планов, исчерпавших трафик, без смены статуса.
-    /// Используется для принудительного обрыва соединений без истечения подписки.
-    pub async fn throttled_free_quota_subscriptions(
+    /// Переводит подписки бесплатных планов, исчерпавшие трафик, в статус
+    /// 'throttled'. В отличие от 'expired', это временная блокировка: подписка
+    /// исключается из конфигов нод (get_active_subs_by_plans отбирает только
+    /// 'active'), а суточное пополнение (daily_traffic_topup) вернёт её в
+    /// 'active', как только used_traffic снова окажется ниже лимита.
+    pub async fn throttle_free_quota_subscriptions(
         &self,
     ) -> Result<Vec<ExpiredQuotaSubscription>> {
         let rows = sqlx::query_as::<_, ExpiredQuotaSubscription>(
             r#"
-            SELECT s.id AS subscription_id, s.user_id, s.node_id
-            FROM subscriptions s
-            JOIN plans p ON s.plan_id = p.id
-            WHERE s.status = 'active'
+            UPDATE subscriptions s
+            SET status = 'throttled'
+            FROM plans p
+            WHERE s.plan_id = p.id
+              AND s.status = 'active'
               AND COALESCE(p.is_free, FALSE) = TRUE
               AND COALESCE(p.traffic_limit_gb, 0) > 0
               AND COALESCE(s.used_traffic, 0) >= (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)
+            RETURNING s.id AS subscription_id, s.user_id, s.node_id, s.plan_id
             "#,
         )
         .fetch_all(&self.pool)
         .await
-        .context("Failed to query throttled free subscriptions")?;
+        .context("Failed to throttle free subscriptions over quota")?;
 
         Ok(rows)
     }
@@ -1257,7 +1322,7 @@ impl SubscriptionService {
               AND COALESCE(p.is_free, FALSE) = FALSE
               AND COALESCE(p.traffic_limit_gb, 0) > 0
               AND COALESCE(s.used_traffic, 0) >= (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)
-            RETURNING s.id AS subscription_id, s.user_id, s.node_id
+            RETURNING s.id AS subscription_id, s.user_id, s.node_id, s.plan_id
             "#,
         )
         .bind(subscription_ids)

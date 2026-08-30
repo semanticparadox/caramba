@@ -152,7 +152,21 @@ impl MonitoringService {
             // пользователям бесплатного плана, исчерпавшим дневной лимит.
             if minute_counter % 60 == 0 {
                 match daily_traffic_topup(&self.state.pool).await {
-                    Ok(_) => {
+                    Ok(reactivated_plans) => {
+                        // Возвращённые из 'throttled' подписки снова должны
+                        // попасть в конфиги — регенерируем ноды этих планов.
+                        if !reactivated_plans.is_empty()
+                            && let Err(e) = self
+                                .state
+                                .orchestration_service
+                                .notify_nodes_for_plans(&reactivated_plans)
+                                .await
+                        {
+                            error!(
+                                "Failed to notify nodes after daily top-up reactivation (plans {:?}): {}",
+                                reactivated_plans, e
+                            );
+                        }
                         self.state
                             .task_health
                             .record_success("daily_traffic_topup")
@@ -1021,7 +1035,12 @@ fn escape_md(s: &str) -> String {
 ///
 /// Функция вынесена за impl чтобы её можно было вызывать из мониторинга по пулу
 /// без копирования AppState.
-async fn daily_traffic_topup(pool: &PgPool) -> anyhow::Result<()> {
+/// Возвращает plan_id подписок, возвращённых из 'throttled' в 'active' — по
+/// ним вызывающая сторона должна разослать регенерацию конфигов нод.
+async fn daily_traffic_topup(pool: &PgPool) -> anyhow::Result<Vec<i64>> {
+    // 'throttled' — временная блокировка бесплатного плана за исчерпание
+    // суточного трафика (см. traffic_service::enforce_quotas): такие подписки
+    // обязаны получать пополнение, иначе они не восстановятся никогда.
     let rows = sqlx::query(
         r#"
         UPDATE subscriptions s
@@ -1032,7 +1051,7 @@ async fn daily_traffic_topup(pool: &PgPool) -> anyhow::Result<()> {
             last_daily_topup_at = CURRENT_DATE::TIMESTAMPTZ
         FROM plans p
         WHERE s.plan_id = p.id
-          AND s.status = 'active'
+          AND s.status IN ('active', 'throttled')
           AND COALESCE(p.daily_traffic_mb, 0) > 0
           AND (
               s.last_daily_topup_at IS NULL
@@ -1050,5 +1069,35 @@ async fn daily_traffic_topup(pool: &PgPool) -> anyhow::Result<()> {
         );
     }
 
-    Ok(())
+    // Снимаем троттлинг с подписок, чей used_traffic после пополнения снова
+    // ниже лимита плана (лимит 0 = безлимит). Возвращаем их plan_id, чтобы
+    // ноды перегенерировали конфиги и вернули пользователей в строй.
+    let reactivated_plan_ids: Vec<i64> = sqlx::query_scalar(
+        r#"
+        UPDATE subscriptions s
+        SET status = 'active'
+        FROM plans p
+        WHERE s.plan_id = p.id
+          AND s.status = 'throttled'
+          AND (
+              COALESCE(p.traffic_limit_gb, 0) = 0
+              OR COALESCE(s.used_traffic, 0) < (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)
+          )
+        RETURNING s.plan_id
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    if !reactivated_plan_ids.is_empty() {
+        info!(
+            "Суточное пополнение: {} подписок возвращено из 'throttled' в 'active'",
+            reactivated_plan_ids.len()
+        );
+    }
+
+    let mut plan_ids = reactivated_plan_ids;
+    plan_ids.sort_unstable();
+    plan_ids.dedup();
+    Ok(plan_ids)
 }

@@ -64,7 +64,9 @@ impl TrafficService {
             .expire_over_quota_subscriptions()
             .await?;
 
-        let mut nodes_to_notify = HashSet::new();
+        // Уведомляем по планам, а не по subscriptions.node_id: node_id бывает
+        // NULL, а подписка может обслуживаться несколькими нодами.
+        let mut plans_to_regen: HashSet<i64> = HashSet::new();
 
         if !expired.is_empty() {
             info!(
@@ -73,9 +75,7 @@ impl TrafficService {
             );
 
             for row in expired {
-                if let Some(node_id) = row.node_id {
-                    nodes_to_notify.insert(node_id);
-                }
+                plans_to_regen.insert(row.plan_id);
 
                 info!(
                     "Subscription {} for user {} expired (traffic quota reached)",
@@ -96,21 +96,25 @@ impl TrafficService {
             }
         }
 
-        // --- Бесплатные планы: статус не меняем, но обрываем соединения ---
-        // Трафик восстановится при суточном пополнении (daily_traffic_topup).
+        // --- Бесплатные планы: переводим в 'throttled' и обрываем соединения ---
+        // 'throttled' исключает подписку из конфигов нод (config generation
+        // отбирает только 'active'); суточное пополнение (daily_traffic_topup)
+        // вернёт статус 'active' и снова разошлёт конфиги.
         let throttled = self
             .state
             .subscription_service
-            .throttled_free_quota_subscriptions()
+            .throttle_free_quota_subscriptions()
             .await?;
 
         if !throttled.is_empty() {
             info!(
-                "Found {} free-plan subscriptions exceeding daily quota. Throttling connections...",
+                "Throttled {} free-plan subscriptions exceeding daily quota",
                 throttled.len()
             );
 
             for row in throttled {
+                plans_to_regen.insert(row.plan_id);
+
                 if let Err(e) = self
                     .state
                     .connection_service
@@ -125,16 +129,17 @@ impl TrafficService {
             }
         }
 
-        for node_id in nodes_to_notify {
+        if !plans_to_regen.is_empty() {
+            let plan_ids: Vec<i64> = plans_to_regen.into_iter().collect();
             if let Err(e) = self
                 .state
                 .orchestration_service
-                .notify_node_update(node_id)
+                .notify_nodes_for_plans(&plan_ids)
                 .await
             {
                 error!(
-                    "Failed to trigger config refresh after quota enforcement for node {}: {}",
-                    node_id, e
+                    "Failed to trigger config refresh after quota enforcement for plans {:?}: {}",
+                    plan_ids, e
                 );
             }
         }

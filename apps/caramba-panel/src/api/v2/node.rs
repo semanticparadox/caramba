@@ -180,9 +180,7 @@ pub async fn heartbeat(
         // Собираем пары (tg_id, bytes) для пользователей и отдельно relay_legacy
         let mut tg_id_bytes: Vec<(i64, u64)> = Vec::new();
         for (tag, bytes) in usage_map {
-            if tag.starts_with("user_")
-                && let Ok(tg_id) = tag[5..].parse::<i64>()
-            {
+            if let Some(tg_id) = crate::services::user_tag::parse_user_tag(tag) {
                 tg_id_bytes.push((tg_id, *bytes));
             }
             if tag.starts_with("relay_") && tag.ends_with("_legacy") {
@@ -320,11 +318,13 @@ pub async fn heartbeat(
                 let connection_service = state.connection_service.clone();
                 let orchestration_service = state.orchestration_service.clone();
                 tokio::spawn(async move {
-                    let mut nodes_to_notify: HashSet<i64> = HashSet::new();
+                    // Fan node notifications out by plan: subscriptions.node_id
+                    // can be NULL (or cover only one of several nodes serving
+                    // the plan), which would leave expired users in the other
+                    // nodes' configs.
+                    let mut plans_to_regen: HashSet<i64> = HashSet::new();
                     for row in expired_rows {
-                        if let Some(nid) = row.node_id {
-                            nodes_to_notify.insert(nid);
-                        }
+                        plans_to_regen.insert(row.plan_id);
                         if let Err(e) = connection_service
                             .kill_subscription_connections(row.subscription_id)
                             .await
@@ -336,13 +336,12 @@ pub async fn heartbeat(
                         }
                     }
 
-                    for nid in nodes_to_notify {
-                        if let Err(e) = orchestration_service.notify_node_update(nid).await {
-                            error!(
-                                "Failed to notify node {} after quota expiration update: {}",
-                                nid, e
-                            );
-                        }
+                    let plan_ids: Vec<i64> = plans_to_regen.into_iter().collect();
+                    if let Err(e) = orchestration_service.notify_nodes_for_plans(&plan_ids).await {
+                        error!(
+                            "Failed to notify nodes after quota expiration update for plans {:?}: {}",
+                            plan_ids, e
+                        );
                     }
                 });
             }

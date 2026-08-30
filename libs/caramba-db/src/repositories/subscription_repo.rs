@@ -191,11 +191,16 @@ impl SubscriptionRepository {
         id: i64,
         new_expiry: DateTime<Utc>,
     ) -> Result<()> {
-        sqlx::query("UPDATE subscriptions SET expires_at = $1, status = 'active' WHERE id = $2")
-            .bind(new_expiry)
-            .bind(id)
-            .execute(&mut **tx)
-            .await?;
+        // Продление = новый расчётный период: сбрасываем used_traffic, иначе
+        // оплативший продление пользователь, уже упершийся в квоту, будет
+        // мгновенно снова заблокирован квота-энфорсментом.
+        sqlx::query(
+            "UPDATE subscriptions SET expires_at = $1, status = 'active', used_traffic = 0 WHERE id = $2",
+        )
+        .bind(new_expiry)
+        .bind(id)
+        .execute(&mut **tx)
+        .await?;
         Ok(())
     }
 
