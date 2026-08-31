@@ -48,6 +48,21 @@ impl NotificationPayload {
         }
     }
 
+    /// Уведомление с HTML-разметкой. Предпочтительный вариант для нового текста:
+    /// в HTML экранируются только `& < >`, тогда как MarkdownV2 требует
+    /// экранировать `.`, `!`, `-` и ещё десяток символов, которые в русском
+    /// тексте встречаются в каждом предложении.
+    pub fn html(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            parse_mode: NotificationParseMode::Html,
+            media_type: NotificationMediaType::None,
+            media_url: None,
+            buttons: Vec::new(),
+            disable_link_preview: false,
+        }
+    }
+
     pub fn legacy_markdown_v2(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),

@@ -13,7 +13,7 @@ interface Payment {
 }
 
 export default function Billing() {
-    const { t } = useTranslation()
+    const { t, i18n } = useTranslation()
     const { user, userStats: stats, token, error } = useAuth()
     const navigate = useNavigate()
     const [payments, setPayments] = useState<Payment[]>([])
@@ -65,9 +65,11 @@ export default function Billing() {
         }
     }
 
-    const formatDate = (ts: number) => new Date(ts * 1000).toLocaleDateString()
+    // Формат даты/валюты следует выбранному языку, а не жёсткому 'ru-RU'.
+    const locale = i18n.resolvedLanguage === 'en' ? 'en-US' : 'ru-RU'
+    const formatDate = (ts: number) => new Date(ts * 1000).toLocaleDateString(locale)
     const formatCurrency = (amount: number) =>
-        new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'USD' }).format(amount)
+        new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD' }).format(amount)
 
     const balance = user?.balance ?? stats?.balance ?? 0
 

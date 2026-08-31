@@ -71,8 +71,15 @@ export default function ProviderPicker({
                                     aria-busy={busy}
                                 >
                                     <span className="provider-card-copy">
-                                        <strong>{card.title}</strong>
-                                        <small>{descriptionOverride ?? card.description}</small>
+                                        <strong>
+                                            {card.titleKey ? t(card.titleKey) : card.titleFallback}
+                                        </strong>
+                                        <small>
+                                            {descriptionOverride ??
+                                                (card.descriptionKey
+                                                    ? t(card.descriptionKey)
+                                                    : card.descriptionFallback)}
+                                        </small>
                                     </span>
                                     <span className="provider-card-meta">
                                         {price && <span className="provider-price">{price}</span>}
@@ -81,7 +88,9 @@ export default function ProviderPicker({
                                                 {t('payment.recommended')}
                                             </span>
                                         )}
-                                        {card.badge && <span className="provider-pill">{card.badge}</span>}
+                                        {card.badgeKey && (
+                                            <span className="provider-pill">{t(card.badgeKey)}</span>
+                                        )}
                                         <span className="provider-arrow">
                                             <Icon name="chevron-right" size={14} />
                                         </span>

@@ -110,6 +110,19 @@
 
                         <div>
                             <label
+                                class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-3 ml-1">Default
+                                Language</label>
+                            <select form="main-settings-form" name="default_language" class="input-field">
+                                <option value="ru" {% if default_language=="ru" %}selected{% endif %}>Русский (default)
+                                </option>
+                                <option value="en" {% if default_language=="en" %}selected{% endif %}>English</option>
+                            </select>
+                            <p class="text-[10px] text-slate-500 mt-2 ml-1">Used for users who have not picked a
+                                language yet.</p>
+                        </div>
+
+                        <div>
+                            <label
                                 class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-3 ml-1">Support
                                 Button</label>
                             <div

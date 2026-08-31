@@ -813,7 +813,11 @@ impl MarketplaceService {
 
     /// Человекочитаемая метка оплачиваемого ресурса для DM со счётом:
     /// план — его имя из БД (фолбэк — «подписка»), заказ — «заказ №N».
-    async fn payment_product_label(&self, session: &PaymentSession, lang: Option<&str>) -> String {
+    async fn payment_product_label(
+        &self,
+        session: &PaymentSession,
+        lang: crate::bot::translations::Lang,
+    ) -> String {
         use crate::bot::translations::{t, tf};
 
         match payment_resource_type(session.metadata.as_ref()) {
@@ -864,8 +868,10 @@ impl MarketplaceService {
         let tg_id = user.tg_id;
         let lang = user.language_code.clone();
         let invoice_url = invoice_url.to_string();
+        let settings = self.settings.clone();
         tokio::spawn(async move {
-            let lang = lang.as_deref();
+            // Единый порядок разрешения языка: language_code → default_language → ru.
+            let lang = crate::bot::translations::lang_for(&settings, lang.as_deref()).await;
             let label = svc.payment_product_label(&session, lang).await;
             let amount = format!("{:.2}", session.amount as f64 / 100.0);
             let text = tf(
@@ -912,7 +918,7 @@ impl MarketplaceService {
                 );
                 return;
             };
-            let lang = lang.as_deref();
+            let lang = crate::bot::translations::lang_for(&svc.settings, lang.as_deref()).await;
 
             let key = match payment_resource_type(session.metadata.as_ref()) {
                 "order" => "payment_success_order",

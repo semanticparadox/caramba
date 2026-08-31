@@ -125,7 +125,11 @@ export default function ConnectGuide() {
                                 <p>{entry.description}</p>
                             </div>
                             <div className="app-meta">
-                                {entry.badge && <span className="app-badge">{entry.badge}</span>}
+                                {(entry.badgeKey || entry.badgeText) && (
+                                    <span className="app-badge">
+                                        {entry.badgeKey ? t(entry.badgeKey) : entry.badgeText}
+                                    </span>
+                                )}
                                 <span className="confidence-tag">{confidenceLabel[entry.confidence]}</span>
                             </div>
                         </div>

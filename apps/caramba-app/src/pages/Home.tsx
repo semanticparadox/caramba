@@ -370,12 +370,12 @@ export default function Home() {
                 <article className="bento-transfer glass-card">
                     <div className="transfer-item">
                         <p>↓ {t('home.incoming')}</p>
-                        <strong>{formatBytes(totalDownload)}</strong>
+                        <strong>{formatBytes(totalDownload, t)}</strong>
                     </div>
                     <div className="transfer-divider" />
                     <div className="transfer-item">
                         <p>↑ {t('home.outgoing')}</p>
-                        <strong>{formatBytes(totalUpload)}</strong>
+                        <strong>{formatBytes(totalUpload, t)}</strong>
                     </div>
                 </article>
             </section>

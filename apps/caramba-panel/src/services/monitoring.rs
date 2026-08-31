@@ -1,4 +1,6 @@
 use crate::AppState;
+use crate::bot::translations::{lang_for, t, tf};
+use crate::bot::utils::escape_html;
 use chrono::Utc;
 use sqlx::PgPool;
 use tokio::time::{Duration, interval};
@@ -401,6 +403,7 @@ impl MonitoringService {
                 .await
                 .unwrap_or(None);
             if let Some(tg_id) = tg_id {
+                let lang = crate::bot::utils::lang_by_tg_id(&self.state, tg_id).await;
                 let plan_name: String = sqlx::query_scalar(
                     "SELECT COALESCE(p.name, 'Subscription') FROM subscriptions s JOIN plans p ON s.plan_id = p.id WHERE s.id = $1"
                 )
@@ -408,11 +411,18 @@ impl MonitoringService {
                 .fetch_optional(&self.state.pool)
                 .await
                 .unwrap_or(None)
-                .unwrap_or_else(|| "Subscription".to_string());
-                let _ = self.state.bot_manager.send_notification(
-                    tg_id,
-                    &format!("⏰ Your subscription \"{}\" has expired. Renew to keep your VPN access.", plan_name),
-                ).await;
+                .unwrap_or_else(|| t(lang, "label_subscription").to_string());
+                // Plain text — без разметки, поэтому имя тарифа не экранируем.
+                let payload = crate::bot_manager::NotificationPayload::plain(tf(
+                    lang,
+                    "notify.expired",
+                    &[&plan_name],
+                ));
+                let _ = self
+                    .state
+                    .bot_manager
+                    .send_rich_notification(tg_id, payload)
+                    .await;
                 let _ = self
                     .state
                     .notifications_svc
@@ -538,31 +548,28 @@ impl MonitoringService {
                             .map(|dt| dt.format("%Y-%m-%d").to_string())
                             .unwrap_or_else(|| "N/A".to_string());
 
-                        let lang_ref = lang.as_deref();
+                        let lang = lang_for(&self.state.settings, lang.as_deref()).await;
                         let amount_str = format!("{:.2}", amount as f64 / 100.0);
-                        let is_ru = lang_ref.is_none_or(|l| l.starts_with("ru"));
 
-                        // Экранируем символы для MarkdownV2
-                        let plan_escaped = escape_md(&plan_name);
-                        let expires_escaped = escape_md(&expires_str);
+                        // Сообщение уходит в HTML parse mode — экранируем под HTML.
+                        let msg = tf(
+                            lang,
+                            "notify.renewed",
+                            &[
+                                &escape_html(&plan_name),
+                                &escape_html(&expires_str),
+                                &amount_str,
+                            ],
+                        );
 
-                        let msg = if is_ru {
-                            format!(
-                                "✅ *Подписка автоматически продлена*\n\n\
-                                 💎 Тариф: *{plan_escaped}*\n\
-                                 📅 Действует до: *{expires_escaped}*\n\
-                                 💳 Списано: *${amount_str}*"
+                        let _ = self
+                            .state
+                            .bot_manager
+                            .send_rich_notification(
+                                tg_id,
+                                crate::bot_manager::NotificationPayload::html(msg),
                             )
-                        } else {
-                            format!(
-                                "✅ *Subscription Auto\\-Renewed*\n\n\
-                                 💎 Plan: *{plan_escaped}*\n\
-                                 📅 Valid until: *{expires_escaped}*\n\
-                                 💳 Charged: *${amount_str}*"
-                            )
-                        };
-
-                        let _ = self.state.bot_manager.send_notification(tg_id, &msg).await;
+                            .await;
                         let _ = self
                             .state
                             .notifications_svc
@@ -570,17 +577,12 @@ impl MonitoringService {
                                 user_id,
                                 "subscription",
                                 "info",
-                                if is_ru {
-                                    "Подписка автопродлена"
-                                } else {
-                                    "Subscription auto-renewed"
-                                },
-                                &format!(
-                                    "{} \"{}\" — ${} · до {}",
-                                    if is_ru { "Тариф" } else { "Plan" },
-                                    plan_name,
-                                    amount_str,
-                                    expires_str
+                                t(lang, "notify.renewed_title"),
+                                // Инбокс Mini App показывает текст как есть — без разметки.
+                                &tf(
+                                    lang,
+                                    "notify.renewed_body",
+                                    &[&plan_name, &amount_str, &expires_str],
                                 ),
                                 Some(serde_json::json!({"sub_id": sub_id, "url": "/subscription"})),
                             )
@@ -620,31 +622,29 @@ impl MonitoringService {
                         .unwrap_or(None)
                         .unwrap_or_else(|| "Subscription".to_string());
 
-                        let lang_ref = lang.as_deref();
-                        let is_ru = lang_ref.is_none_or(|l| l.starts_with("ru"));
-                        let plan_escaped = escape_md(&plan_name);
+                        let lang = lang_for(&self.state.settings, lang.as_deref()).await;
+                        let plan_name = if plan_name == "Subscription" {
+                            t(lang, "label_subscription").to_string()
+                        } else {
+                            plan_name
+                        };
                         let avail_str = format!("{:.2}", available as f64 / 100.0);
                         let req_str = format!("{:.2}", required as f64 / 100.0);
 
-                        let msg = if is_ru {
-                            format!(
-                                "⚠️ *Автопродление не выполнено*\n\n\
-                                 💎 Тариф: *{plan_escaped}*\n\
-                                 💰 Баланс: *${avail_str}*\n\
-                                 💳 Требуется: *${req_str}*\n\n\
-                                 Пополните баланс, чтобы продолжить пользоваться VPN\\."
-                            )
-                        } else {
-                            format!(
-                                "⚠️ *Auto\\-Renewal Failed*\n\n\
-                                 💎 Plan: *{plan_escaped}*\n\
-                                 💰 Balance: *${avail_str}*\n\
-                                 💳 Required: *${req_str}*\n\n\
-                                 Please top up your account to keep your VPN access\\."
-                            )
-                        };
+                        let msg = tf(
+                            lang,
+                            "notify.renew_failed",
+                            &[&escape_html(&plan_name), &avail_str, &req_str],
+                        );
 
-                        let _ = self.state.bot_manager.send_notification(tg_id, &msg).await;
+                        let _ = self
+                            .state
+                            .bot_manager
+                            .send_rich_notification(
+                                tg_id,
+                                crate::bot_manager::NotificationPayload::html(msg),
+                            )
+                            .await;
                         let _ = self
                             .state
                             .notifications_svc
@@ -652,23 +652,11 @@ impl MonitoringService {
                                 user_id,
                                 "subscription",
                                 "error",
-                                if is_ru {
-                                    "Автопродление не выполнено"
-                                } else {
-                                    "Auto-renewal failed"
-                                },
-                                &format!(
-                                    "{} \"{}\" — {} ${} / {} ${}",
-                                    if is_ru { "Тариф" } else { "Plan" },
-                                    plan_name,
-                                    if is_ru { "баланс" } else { "balance" },
-                                    avail_str,
-                                    if is_ru {
-                                        "требуется"
-                                    } else {
-                                        "required"
-                                    },
-                                    req_str,
+                                t(lang, "notify.renew_failed_title"),
+                                &tf(
+                                    lang,
+                                    "notify.renew_failed_body",
+                                    &[&plan_name, &avail_str, &req_str],
                                 ),
                                 Some(serde_json::json!({"sub_id": sub_id, "url": "/billing"})),
                             )
@@ -734,27 +722,19 @@ impl MonitoringService {
                 .unwrap_or(0);
 
             let balance_str = format!("{:.2}", balance as f64 / 100.0);
-            let plan_escaped = escape_md(&plan_name);
-            let lang_ref = lang.as_deref();
-            let is_ru = lang_ref.is_none_or(|l| l.starts_with("ru"));
+            let lang = lang_for(&self.state.settings, lang.as_deref()).await;
 
-            let msg = if is_ru {
-                format!(
-                    "⚠️ *Баланс заканчивается*\n\n\
-                     Ваш текущий баланс: *${balance_str}*\n\n\
-                     Для автопродления подписки «{plan_escaped}» необходимо пополнить счёт\\. \
-                     Пополните баланс заранее, чтобы не потерять доступ\\."
-                )
-            } else {
-                format!(
-                    "⚠️ *Balance Running Low*\n\n\
-                     Your current balance: *${balance_str}*\n\n\
-                     Top up to ensure auto\\-renewal of your «{plan_escaped}» subscription \
-                     and avoid losing access\\."
-                )
-            };
+            let msg = tf(
+                lang,
+                "notify.low_balance",
+                &[&balance_str, &escape_html(&plan_name)],
+            );
 
-            let _ = self.state.bot_manager.send_notification(tg_id, &msg).await;
+            let _ = self
+                .state
+                .bot_manager
+                .send_rich_notification(tg_id, crate::bot_manager::NotificationPayload::html(msg))
+                .await;
             let _ = self
                 .state
                 .notifications_svc
@@ -762,26 +742,8 @@ impl MonitoringService {
                     user_db_id,
                     "payment",
                     "warning",
-                    if is_ru {
-                        "Баланс заканчивается"
-                    } else {
-                        "Balance running low"
-                    },
-                    &format!(
-                        "{} ${} · {} «{}»",
-                        if is_ru {
-                            "Текущий баланс"
-                        } else {
-                            "Current balance"
-                        },
-                        balance_str,
-                        if is_ru {
-                            "автопродление"
-                        } else {
-                            "auto-renewal of"
-                        },
-                        plan_name,
-                    ),
+                    t(lang, "notify.low_balance_title"),
+                    &tf(lang, "notify.low_balance_body", &[&balance_str, &plan_name]),
                     Some(serde_json::json!({"url": "/billing"})),
                 )
                 .await;
@@ -821,52 +783,33 @@ impl MonitoringService {
         info!("Sending {} traffic alerts", alerts.len());
 
         for (user_id, alert_type) in alerts {
-            if let Ok(Some(user)) =
-                sqlx::query_as::<_, (i64,)>("SELECT tg_id FROM users WHERE id = $1")
-                    .bind(user_id)
-                    .fetch_optional(&self.state.pool)
-                    .await
+            if let Ok(Some(user)) = sqlx::query_as::<_, (i64, Option<String>)>(
+                "SELECT tg_id, language_code FROM users WHERE id = $1",
+            )
+            .bind(user_id)
+            .fetch_optional(&self.state.pool)
+            .await
             {
-                let (msg, inbox_title, inbox_body, severity, category) = match alert_type {
-                    AlertType::Traffic80 => (
-                        "⚠️ *Traffic Warning*\n\n\
-                         You've used *80%* of your monthly traffic\\.\n\
-                         Consider upgrading your plan to avoid interruption\\.",
-                        "Traffic warning",
-                        "You've used 80% of your monthly traffic. Consider upgrading your plan.",
-                        "warning",
-                        "subscription",
-                    ),
-                    AlertType::Traffic90 => (
-                        "🔶 *Traffic Critical*\n\n\
-                         You've used *90%* of your traffic\\.\n\
-                         _Access will be paused when the limit is reached\\._",
-                        "Traffic critical",
-                        "You've used 90% of your traffic. Access will be paused at 100%.",
-                        "warning",
-                        "subscription",
-                    ),
-                    AlertType::TrafficExceeded => (
-                        "🔴 *Traffic Limit Reached*\n\n\
-                         Your traffic quota is exhausted\\.\n\
-                         Access has been paused\\. Upgrade or wait for the daily top\\-up to resume\\.",
-                        "Traffic limit reached",
-                        "Your traffic quota is exhausted and access has been paused. Upgrade or wait for the daily top-up.",
-                        "error",
-                        "subscription",
-                    ),
-                    AlertType::Expiry3Days => (
-                        "⏰ *Expiry Alert*\n\n\
-                         Your subscription expires in *3 days*\\.\n\
-                         Renew now to avoid interruption\\.",
-                        "Subscription expires in 3 days",
-                        "Renew now to avoid interruption.",
-                        "warning",
-                        "subscription",
-                    ),
+                let lang = lang_for(&self.state.settings, user.1.as_deref()).await;
+
+                // Ключи одинаковой формы: <base>, <base>_title, <base>_body.
+                let (base, severity, category) = match alert_type {
+                    AlertType::Traffic80 => ("notify.traffic80", "warning", "subscription"),
+                    AlertType::Traffic90 => ("notify.traffic90", "warning", "subscription"),
+                    AlertType::TrafficExceeded => {
+                        ("notify.traffic_exceeded", "error", "subscription")
+                    }
+                    AlertType::Expiry3Days => ("notify.expiry3", "warning", "subscription"),
                 };
 
-                let _ = self.state.bot_manager.send_notification(user.0, msg).await;
+                let _ = self
+                    .state
+                    .bot_manager
+                    .send_rich_notification(
+                        user.0,
+                        crate::bot_manager::NotificationPayload::html(t(lang, base)),
+                    )
+                    .await;
                 let _ = self
                     .state
                     .notifications_svc
@@ -874,8 +817,8 @@ impl MonitoringService {
                         user_id,
                         category,
                         severity,
-                        inbox_title,
-                        inbox_body,
+                        t(lang, &format!("{base}_title")),
+                        t(lang, &format!("{base}_body")),
                         Some(serde_json::json!({"url": "/subscription"})),
                     )
                     .await;

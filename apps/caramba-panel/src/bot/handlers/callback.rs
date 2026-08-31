@@ -1,13 +1,320 @@
 use crate::AppState;
+use crate::bot::handlers::command::money;
 use crate::bot::keyboards::{main_menu, terms_keyboard};
-use crate::bot::utils::escape_md;
+use crate::bot::translations::{Lang, t, tf};
+use crate::bot::utils::escape_html;
 use caramba_db::models::payment::PaymentType;
+use caramba_db::models::store::{Plan, SubscriptionWithDetails};
 use teloxide::prelude::*;
 use teloxide::types::{
     CallbackQuery, ChatId, ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice,
     ParseMode,
 };
 use tracing::{error, info};
+
+/// Карточка тарифа со стрелками навигации.
+///
+/// Общая для меню «Купить подписку» и для листания инлайн-кнопками — иначе
+/// подписи кнопок и текст расходятся при каждой правке.
+pub fn render_plan_page(
+    lang: Lang,
+    plans: &[Plan],
+    index: usize,
+) -> (String, Vec<Vec<InlineKeyboardButton>>) {
+    let total_plans = plans.len();
+    let index = if index >= total_plans { 0 } else { index };
+    let plan = &plans[index];
+
+    let mut text = tf(
+        lang,
+        "plans.header",
+        &[
+            &escape_html(&plan.name),
+            &(index + 1).to_string(),
+            &total_plans.to_string(),
+        ],
+    );
+    text.push_str("\n\n");
+    if let Some(desc) = &plan.description {
+        text.push_str(&format!("<i>{}</i>\n", escape_html(desc)));
+    }
+
+    let mut buttons = Vec::new();
+
+    let mut duration_row = Vec::new();
+    for dur in &plan.durations {
+        let price = money(dur.price);
+        let label = if dur.duration_days == 0 {
+            tf(lang, "plans.traffic_label", &[&price])
+        } else {
+            tf(
+                lang,
+                "plans.duration_label",
+                &[&dur.duration_days.to_string(), &price],
+            )
+        };
+        duration_row.push(InlineKeyboardButton::callback(
+            label,
+            format!("buy_dur_{}", dur.id),
+        ));
+    }
+    if !duration_row.is_empty() {
+        buttons.push(duration_row);
+    }
+
+    if total_plans > 1 {
+        let next_idx = if index + 1 < total_plans {
+            index + 1
+        } else {
+            0
+        };
+        let prev_idx = if index > 0 {
+            index - 1
+        } else {
+            total_plans - 1
+        };
+        buttons.push(vec![
+            InlineKeyboardButton::callback("⬅️", format!("buy_plan_idx_{}", prev_idx)),
+            InlineKeyboardButton::callback(format!("{}/{}", index + 1, total_plans), "noop"),
+            InlineKeyboardButton::callback("➡️", format!("buy_plan_idx_{}", next_idx)),
+        ]);
+    }
+
+    (text, buttons)
+}
+
+/// Карточка одной подписки + навигация. Раньше этот блок был скопирован в
+/// command.rs и callback.rs с разными наборами кнопок; теперь один рендер, и
+/// набор кнопок одинаков независимо от того, как пользователь сюда попал.
+pub fn render_services_page(
+    lang: Lang,
+    subs: &[SubscriptionWithDetails],
+    page: usize,
+) -> (String, Vec<Vec<InlineKeyboardButton>>) {
+    let total_pages = subs.len();
+    let page = if page >= total_pages { 0 } else { page };
+    let sub = &subs[page];
+    let is_active = sub.sub.status == "active";
+
+    let mut response = format!("{}\n\n", t(lang, "services.title"));
+    response.push_str(&tf(
+        lang,
+        "services.item_header",
+        &[&(page + 1).to_string(), &total_pages.to_string()],
+    ));
+    response.push('\n');
+    response.push_str(&format!(
+        "   💎 <b>{}:</b> {}\n",
+        t(lang, "services.plan"),
+        escape_html(&sub.plan_name)
+    ));
+    if let Some(desc) = &sub.plan_description {
+        response.push_str(&format!("   <i>{}</i>\n", escape_html(desc)));
+    }
+    let status_icon = if is_active { "✅" } else { "⏳" };
+    let status_text = if is_active {
+        t(lang, "services.status_active")
+    } else {
+        t(lang, "services.status_pending")
+    };
+    response.push_str(&format!(
+        "   🔑 <b>{}:</b> {} {}\n",
+        t(lang, "services.status"),
+        status_icon,
+        status_text
+    ));
+
+    // Traffic
+    let used_gb = sub.sub.used_traffic as f64 / 1024.0 / 1024.0 / 1024.0;
+    match sub.traffic_limit_gb {
+        Some(0) => response.push_str(&format!(
+            "   📊 <b>{}:</b> <code>{:.2} GB / ∞</code>\n",
+            t(lang, "services.traffic"),
+            used_gb
+        )),
+        Some(limit) => response.push_str(&format!(
+            "   📊 <b>{}:</b> <code>{:.2} GB / {} GB</code>\n",
+            t(lang, "services.traffic"),
+            used_gb,
+            limit
+        )),
+        None => response.push_str(&format!(
+            "   📊 <b>{}:</b> <code>{:.2} GB</code>\n",
+            t(lang, "services.traffic_used"),
+            used_gb
+        )),
+    }
+
+    let duration = sub.sub.expires_at - sub.sub.created_at;
+    if is_active {
+        if duration.num_days() == 0 {
+            response.push_str(&format!(
+                "   ⌛ <b>{}:</b> {}\n",
+                t(lang, "services.expires"),
+                t(lang, "services.no_expiry")
+            ));
+        } else {
+            response.push_str(&format!(
+                "   ⌛ <b>{}:</b> <code>{}</code>\n",
+                t(lang, "services.expires"),
+                sub.sub.expires_at.format("%Y-%m-%d")
+            ));
+        }
+    } else if duration.num_days() == 0 {
+        response.push_str(&format!(
+            "   ⏱ <b>{}:</b> {}\n",
+            t(lang, "services.duration"),
+            t(lang, "services.no_expiry")
+        ));
+    } else {
+        response.push_str(&format!(
+            "   ⏱ <b>{}:</b> {}\n",
+            t(lang, "services.duration"),
+            tf(
+                lang,
+                "services.days_on_activation",
+                &[&duration.num_days().to_string()]
+            )
+        ));
+    }
+
+    response.push('\n');
+    if let Some(note) = &sub.sub.note {
+        response.push_str(&format!(
+            "📝 <b>{}:</b> {}\n\n",
+            t(lang, "services.note"),
+            escape_html(note)
+        ));
+    }
+
+    let mut buttons = vec![vec![InlineKeyboardButton::callback(
+        t(lang, "services.edit_note"),
+        format!("edit_note_{}", sub.sub.id),
+    )]];
+
+    if is_active {
+        buttons.push(vec![InlineKeyboardButton::callback(
+            t(lang, "services.devices_btn"),
+            format!("devices_{}", sub.sub.id),
+        )]);
+        buttons.push(vec![
+            InlineKeyboardButton::callback(
+                t(lang, "services.get_links"),
+                format!("get_links_{}", sub.sub.id),
+            ),
+            InlineKeyboardButton::callback(
+                t(lang, "services.json_profile"),
+                format!("get_config_{}", sub.sub.id),
+            ),
+            InlineKeyboardButton::callback(
+                t(lang, "services.extend"),
+                format!("extend_sub_{}", sub.sub.id),
+            ),
+        ]);
+    } else if sub.sub.status == "pending" {
+        buttons.push(vec![
+            InlineKeyboardButton::callback(
+                t(lang, "services.activate"),
+                format!("activate_{}", sub.sub.id),
+            ),
+            InlineKeyboardButton::callback(
+                t(lang, "services.make_gift"),
+                format!("gift_init_{}", sub.sub.id),
+            ),
+        ]);
+    }
+
+    if total_pages > 1 {
+        let prev_page = if page > 0 { page - 1 } else { total_pages - 1 };
+        let next_page = if page < total_pages - 1 { page + 1 } else { 0 };
+        buttons.push(vec![
+            InlineKeyboardButton::callback(
+                t(lang, "services.prev"),
+                format!("myservices_page_{}", prev_page),
+            ),
+            InlineKeyboardButton::callback(format!("{}/{}", page + 1, total_pages), "ignore"),
+            InlineKeyboardButton::callback(
+                t(lang, "services.next"),
+                format!("myservices_page_{}", next_page),
+            ),
+        ]);
+    }
+
+    buttons.push(vec![InlineKeyboardButton::callback(
+        t(lang, "services.my_gifts"),
+        "my_gifts",
+    )]);
+
+    (response, buttons)
+}
+
+/// Список активных устройств подписки.
+///
+/// `back` — callback_data кнопки «назад» (None — кнопку не показывать; так
+/// вызывается из команды /devices, где возвращаться некуда).
+pub fn render_devices_page(
+    lang: Lang,
+    sub_id: i64,
+    ips: &[caramba_db::models::store::SubscriptionIpTracking],
+    limit: i64,
+    back: Option<&str>,
+) -> (String, Vec<Vec<InlineKeyboardButton>>) {
+    let mut text = tf(lang, "devices.header", &[&sub_id.to_string()]);
+    text.push('\n');
+    text.push_str(&tf(
+        lang,
+        "devices.limit_line",
+        &[
+            &ips.len().to_string(),
+            &if limit == 0 {
+                "∞".to_string()
+            } else {
+                limit.to_string()
+            },
+        ],
+    ));
+    text.push_str("\n\n");
+
+    if ips.is_empty() {
+        text.push_str(t(lang, "devices.none_recent"));
+    } else {
+        for ip in ips {
+            let mins = (chrono::Utc::now() - ip.last_seen_at).num_minutes();
+            let ago = if mins < 1 {
+                t(lang, "devices.just_now").to_string()
+            } else if mins < 60 {
+                tf(lang, "devices.mins_ago", &[&mins.to_string()])
+            } else {
+                tf(lang, "devices.hours_ago", &[&(mins / 60).to_string()])
+            };
+            text.push_str(&format!(
+                "• <code>{}</code> <i>({})</i>\n",
+                escape_html(&ip.client_ip),
+                ago
+            ));
+        }
+        if limit > 0 && ips.len() > limit as usize {
+            text.push('\n');
+            text.push_str(t(lang, "devices.over_limit"));
+        }
+    }
+
+    let mut buttons = Vec::new();
+    if !ips.is_empty() {
+        buttons.push(vec![InlineKeyboardButton::callback(
+            t(lang, "devices.reset"),
+            format!("kill_sessions_{}", sub_id),
+        )]);
+    }
+    if let Some(back) = back {
+        buttons.push(vec![InlineKeyboardButton::callback(
+            t(lang, "devices.back"),
+            back.to_string(),
+        )]);
+    }
+
+    (text, buttons)
+}
 
 pub async fn callback_handler(
     bot: Bot,
@@ -18,6 +325,9 @@ pub async fn callback_handler(
     let callback_id = q.id.clone();
     let user_tg = q.from;
     let tg_id = user_tg.id.0 as i64;
+    // Язык для всех ответов этого колбэка: users.language_code → настройка
+    // `default_language` → ru.
+    let lang = crate::bot::utils::lang_by_tg_id(&state, tg_id).await;
 
     if let Some(data) = q.data {
         match data.as_str() {
@@ -35,7 +345,12 @@ pub async fn callback_handler(
             }
 
             "set_lang_en" | "set_lang_ru" => {
-                let lang = if data.contains("en") { "en" } else { "ru" };
+                // Выбор пользователя перекрывает всё, что мы разрешили выше.
+                let chosen = if data.contains("en") {
+                    Lang::En
+                } else {
+                    Lang::Ru
+                };
                 let _ = bot.answer_callback_query(callback_id).await;
 
                 // Fetch user to get ID
@@ -46,24 +361,36 @@ pub async fn callback_handler(
                     .ok()
                     .flatten();
                 if let Some(u) = user_db {
-                    let _ = state.store_service.update_user_language(u.id, lang).await;
+                    let _ = state
+                        .store_service
+                        .update_user_language(u.id, chosen.as_str())
+                        .await;
 
-                    // Immediately show terms
+                    // Immediately show terms — уже на только что выбранном языке.
                     let terms_text = state
                         .store_service
                         .get_setting("terms_of_service")
                         .await
                         .ok()
                         .flatten()
-                        .unwrap_or_else(|| "Terms of Service...".to_string());
+                        .unwrap_or_else(|| t(chosen, "terms.placeholder").to_string());
 
                     // Delete prev message (lang selection) or edit it
                     if let Some(msg) = q.message {
                         let _ = bot.delete_message(msg.chat().id, msg.id()).await;
 
-                        let _ = bot.send_message(msg.chat().id, format!("📜 <b>Terms of Service</b>\n\n{}\n\nPlease accept the terms to continue.", terms_text))
+                        let _ = bot
+                            .send_message(
+                                msg.chat().id,
+                                format!(
+                                    "{}\n\n{}\n\n{}",
+                                    t(chosen, "terms.title"),
+                                    terms_text,
+                                    t(chosen, "terms.prompt")
+                                ),
+                            )
                             .parse_mode(ParseMode::Html)
-                            .reply_markup(terms_keyboard())
+                            .reply_markup(terms_keyboard(chosen))
                             .await
                             .map_err(|e| error!("Failed to send terms after lang choice: {}", e));
                     }
@@ -84,13 +411,11 @@ pub async fn callback_handler(
                     if let Some(msg) = q.message {
                         let _ = bot.delete_message(msg.chat().id, msg.id()).await;
 
-                        let welcome_text = "👋 <b>Welcome!</b>\n\n\
-                            Use the menu below to manage your VPN subscriptions and digital goods."
-                            .to_string();
                         let _ = bot
-                            .send_message(msg.chat().id, welcome_text)
+                            .send_message(msg.chat().id, t(lang, "welcome.after_terms"))
                             .parse_mode(ParseMode::Html)
                             .reply_markup(main_menu(
+                                lang,
                                 state
                                     .settings
                                     .get_or_default("bot_buttons_mode", "full")
@@ -120,7 +445,7 @@ pub async fn callback_handler(
             "decline_terms" => {
                 let _ = bot
                     .answer_callback_query(callback_id)
-                    .text("You must accept terms to proceed.")
+                    .text(t(lang, "terms.must_accept"))
                     .show_alert(true)
                     .await;
                 // Optional: Ban user or just ignore
@@ -137,28 +462,31 @@ pub async fn callback_handler(
                 if plans.is_empty() {
                     let _ = bot
                         .answer_callback_query(callback_id)
-                        .text("❌ No active plans available at the moment.")
+                        .text(t(lang, "plans.none"))
                         .await;
                 } else {
                     let _ = bot.answer_callback_query(callback_id).await;
-                    let mut response = "💎 *Choose Plan to Extend:*\n\n".to_string();
+                    let mut response = format!("{}\n\n", t(lang, "plans.extend_header"));
                     let mut buttons = Vec::new();
 
                     for plan in plans {
                         response.push_str(&format!(
-                            "💎 *{}*\n_{}_\n\n",
-                            escape_md(&plan.name),
-                            escape_md(plan.description.as_deref().unwrap_or("Premium access"))
+                            "💎 <b>{}</b>\n<i>{}</i>\n\n",
+                            escape_html(&plan.name),
+                            escape_html(
+                                plan.description
+                                    .as_deref()
+                                    .unwrap_or(t(lang, "plans.default_description"))
+                            )
                         ));
 
                         let mut duration_row = Vec::new();
                         for dur in plan.durations {
-                            let price_major = dur.price / 100;
-                            let price_minor = dur.price % 100;
                             duration_row.push(InlineKeyboardButton::callback(
-                                format!(
-                                    "{}d - ${}.{:02}",
-                                    dur.duration_days, price_major, price_minor
+                                tf(
+                                    lang,
+                                    "plans.duration_label",
+                                    &[&dur.duration_days.to_string(), &money(dur.price)],
                                 ),
                                 format!("ext_dur_{}", dur.id),
                             ));
@@ -169,7 +497,7 @@ pub async fn callback_handler(
                     if let Some(msg) = q.message {
                         let _ = bot
                             .send_message(msg.chat().id, response)
-                            .parse_mode(ParseMode::MarkdownV2)
+                            .parse_mode(ParseMode::Html)
                             .reply_markup(InlineKeyboardMarkup::new(buttons))
                             .await;
                     }
@@ -180,40 +508,46 @@ pub async fn callback_handler(
                 let _ = bot.answer_callback_query(callback_id).await;
                 if let Some(msg) = q.message {
                     let _ = bot
-                        .send_message(msg.chat().id, "🎟 Enter your Gift Code below:")
+                        .send_message(
+                            msg.chat().id,
+                            tf(
+                                lang,
+                                "promo.redeem_prompt_short",
+                                &[t(lang, "promo.redeem_marker")],
+                            ),
+                        )
                         .reply_markup(ForceReply::new().selective())
                         .await;
                 }
             }
 
             "topup_menu" => {
-                let response = "💳 *Choose Top-up Method:*";
                 let buttons = vec![
                     vec![InlineKeyboardButton::callback(
-                        "🪙 Crypto (USDT/TON)",
+                        t(lang, "topup.method_cryptobot"),
                         "pay_cryptobot",
                     )],
                     vec![InlineKeyboardButton::callback(
-                        "⚡ Crypto (Altcoins)",
+                        t(lang, "topup.method_nowpayments"),
                         "pay_nowpayments",
                     )],
                     vec![InlineKeyboardButton::callback(
-                        "🇷🇺 Cards (RUB/SBP)",
+                        t(lang, "topup.method_crystal"),
                         "pay_crystal",
                     )],
                     vec![InlineKeyboardButton::callback(
-                        "🌍 Global Cards (USD)",
+                        t(lang, "topup.method_stripe"),
                         "pay_stripe",
                     )],
                     vec![InlineKeyboardButton::callback(
-                        "⭐️ Telegram Stars",
+                        t(lang, "topup.method_stars"),
                         "pay_stars",
                     )],
                 ];
                 if let Some(msg) = q.message {
                     let _ = bot
-                        .edit_message_text(msg.chat().id, msg.id(), response)
-                        .parse_mode(ParseMode::MarkdownV2)
+                        .edit_message_text(msg.chat().id, msg.id(), t(lang, "topup.choose_method"))
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(InlineKeyboardMarkup::new(buttons))
                         .await;
                 }
@@ -221,67 +555,59 @@ pub async fn callback_handler(
 
             // Amount Selection Menus
             "pay_cryptobot" => {
-                let buttons = make_amount_keyboard("cb");
+                let buttons = make_amount_keyboard(lang, "cb");
                 if let Some(msg) = q.message {
                     let _ = bot
                         .edit_message_text(
                             msg.chat().id,
                             msg.id(),
-                            "🔹 *Select amount for CryptoBot:*",
+                            t(lang, "topup.amount_cryptobot"),
                         )
-                        .parse_mode(ParseMode::MarkdownV2)
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(buttons)
                         .await;
                 }
             }
             "pay_nowpayments" => {
-                let buttons = make_amount_keyboard("np");
+                let buttons = make_amount_keyboard(lang, "np");
                 if let Some(msg) = q.message {
                     let _ = bot
                         .edit_message_text(
                             msg.chat().id,
                             msg.id(),
-                            "🔹 *Select amount for NOWPayments:*",
+                            t(lang, "topup.amount_nowpayments"),
                         )
-                        .parse_mode(ParseMode::MarkdownV2)
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(buttons)
                         .await;
                 }
             }
             "pay_crystal" => {
-                let buttons = make_amount_keyboard("cp");
+                let buttons = make_amount_keyboard(lang, "cp");
                 if let Some(msg) = q.message {
                     let _ = bot
-                        .edit_message_text(
-                            msg.chat().id,
-                            msg.id(),
-                            "🔹 *Select amount for CrystalPay (Cards/SBP):*",
-                        )
-                        .parse_mode(ParseMode::MarkdownV2)
+                        .edit_message_text(msg.chat().id, msg.id(), t(lang, "topup.amount_crystal"))
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(buttons)
                         .await;
                 }
             }
             "pay_stripe" => {
-                let buttons = make_amount_keyboard("str");
+                let buttons = make_amount_keyboard(lang, "str");
                 if let Some(msg) = q.message {
                     let _ = bot
-                        .edit_message_text(
-                            msg.chat().id,
-                            msg.id(),
-                            "🔹 *Select amount for Stripe:*",
-                        )
-                        .parse_mode(ParseMode::MarkdownV2)
+                        .edit_message_text(msg.chat().id, msg.id(), t(lang, "topup.amount_stripe"))
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(buttons)
                         .await;
                 }
             }
             "pay_stars" => {
-                let buttons = make_amount_keyboard("star");
+                let buttons = make_amount_keyboard(lang, "star");
                 if let Some(msg) = q.message {
                     let _ = bot
-                        .edit_message_text(msg.chat().id, msg.id(), "🔹 *Select amount via Stars:*")
-                        .parse_mode(ParseMode::MarkdownV2)
+                        .edit_message_text(msg.chat().id, msg.id(), t(lang, "topup.amount_stars"))
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(buttons)
                         .await;
                 }
@@ -308,7 +634,7 @@ pub async fn callback_handler(
                     {
                         Ok(url) => {
                             let buttons = vec![vec![InlineKeyboardButton::url(
-                                "🔗 Pay with CryptoBot",
+                                t(lang, "topup.pay_cryptobot"),
                                 url.parse().unwrap(),
                             )]];
                             let _ = bot.answer_callback_query(callback_id).await;
@@ -316,9 +642,13 @@ pub async fn callback_handler(
                                 let _ = bot
                                     .send_message(
                                         msg.chat().id,
-                                        format!("💳 Invoice for *${:.2}* created\\!", amount),
+                                        tf(
+                                            lang,
+                                            "topup.invoice_created",
+                                            &[&format!("{:.2}", amount)],
+                                        ),
                                     )
-                                    .parse_mode(ParseMode::MarkdownV2)
+                                    .parse_mode(ParseMode::Html)
                                     .reply_markup(InlineKeyboardMarkup::new(buttons))
                                     .await;
                             }
@@ -326,7 +656,7 @@ pub async fn callback_handler(
                         Err(e) => {
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("Error: {}", e))
+                                .text(tf(lang, "checkout.failed", &[&e.to_string()]))
                                 .show_alert(true)
                                 .await;
                         }
@@ -353,7 +683,7 @@ pub async fn callback_handler(
                     {
                         Ok(url) => {
                             let buttons = vec![vec![InlineKeyboardButton::url(
-                                "🔗 Pay with NOWPayments",
+                                t(lang, "topup.pay_nowpayments"),
                                 url.parse().unwrap(),
                             )]];
                             let _ = bot.answer_callback_query(callback_id).await;
@@ -361,9 +691,13 @@ pub async fn callback_handler(
                                 let _ = bot
                                     .send_message(
                                         msg.chat().id,
-                                        format!("💳 Invoice for *${:.2}* created\\!", amount),
+                                        tf(
+                                            lang,
+                                            "topup.invoice_created",
+                                            &[&format!("{:.2}", amount)],
+                                        ),
                                     )
-                                    .parse_mode(ParseMode::MarkdownV2)
+                                    .parse_mode(ParseMode::Html)
                                     .reply_markup(InlineKeyboardMarkup::new(buttons))
                                     .await;
                             }
@@ -371,7 +705,7 @@ pub async fn callback_handler(
                         Err(e) => {
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("Error: {}", e))
+                                .text(tf(lang, "checkout.failed", &[&e.to_string()]))
                                 .show_alert(true)
                                 .await;
                         }
@@ -398,7 +732,7 @@ pub async fn callback_handler(
                     {
                         Ok(url) => {
                             let buttons = vec![vec![InlineKeyboardButton::url(
-                                "🔗 Pay with Card (CrystalPay)",
+                                t(lang, "topup.pay_crystal"),
                                 url.parse().unwrap(),
                             )]];
                             let _ = bot.answer_callback_query(callback_id).await;
@@ -406,9 +740,13 @@ pub async fn callback_handler(
                                 let _ = bot
                                     .send_message(
                                         msg.chat().id,
-                                        format!("💳 Invoice for *${:.2}* created\\!", amount),
+                                        tf(
+                                            lang,
+                                            "topup.invoice_created",
+                                            &[&format!("{:.2}", amount)],
+                                        ),
                                     )
-                                    .parse_mode(ParseMode::MarkdownV2)
+                                    .parse_mode(ParseMode::Html)
                                     .reply_markup(InlineKeyboardMarkup::new(buttons))
                                     .await;
                             }
@@ -416,7 +754,7 @@ pub async fn callback_handler(
                         Err(e) => {
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("Error: {}", e))
+                                .text(tf(lang, "checkout.failed", &[&e.to_string()]))
                                 .show_alert(true)
                                 .await;
                         }
@@ -443,7 +781,7 @@ pub async fn callback_handler(
                     {
                         Ok(url) => {
                             let buttons = vec![vec![InlineKeyboardButton::url(
-                                "🔗 Pay with Stripe",
+                                t(lang, "topup.pay_stripe"),
                                 url.parse().unwrap(),
                             )]];
                             let _ = bot.answer_callback_query(callback_id).await;
@@ -451,9 +789,13 @@ pub async fn callback_handler(
                                 let _ = bot
                                     .send_message(
                                         msg.chat().id,
-                                        format!("💳 Invoice for *${:.2}* created\\!", amount),
+                                        tf(
+                                            lang,
+                                            "topup.invoice_created",
+                                            &[&format!("{:.2}", amount)],
+                                        ),
                                     )
-                                    .parse_mode(ParseMode::MarkdownV2)
+                                    .parse_mode(ParseMode::Html)
                                     .reply_markup(InlineKeyboardMarkup::new(buttons))
                                     .await;
                             }
@@ -461,7 +803,7 @@ pub async fn callback_handler(
                         Err(e) => {
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("Error: {}", e))
+                                .text(tf(lang, "checkout.failed", &[&e.to_string()]))
                                 .show_alert(true)
                                 .await;
                         }
@@ -484,7 +826,7 @@ pub async fn callback_handler(
                 if parts.len() != 2 {
                     let _ = bot
                         .answer_callback_query(callback_id)
-                        .text("❌ Invalid plan selection.")
+                        .text(t(lang, "checkout.invalid_plan"))
                         .show_alert(true)
                         .await;
                     return Ok(());
@@ -512,7 +854,7 @@ pub async fn callback_handler(
                         _ => {
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text("❌ Invalid plan duration.")
+                                .text(t(lang, "checkout.invalid_duration"))
                                 .show_alert(true)
                                 .await;
                             return Ok(());
@@ -527,7 +869,7 @@ pub async fn callback_handler(
                     if xtr_amount == 0 {
                         let _ = bot
                             .answer_callback_query(callback_id)
-                            .text("❌ This plan cannot be paid with Stars.")
+                            .text(t(lang, "checkout.stars_unavailable"))
                             .show_alert(true)
                             .await;
                         return Ok(());
@@ -537,7 +879,7 @@ pub async fn callback_handler(
                     let payload =
                         PaymentType::SubscriptionPurchase(plan_id).to_payload_string(u.id);
                     let prices = vec![LabeledPrice {
-                        label: "Subscription".to_string(),
+                        label: t(lang, "checkout.stars_line_item").to_string(),
                         amount: xtr_amount,
                     }];
 
@@ -549,8 +891,12 @@ pub async fn callback_handler(
                         let _ = bot
                             .send_invoice(
                                 msg.chat().id,
-                                "VPN Subscription",
-                                format!("Subscription plan for ${:.2}", amount_usd),
+                                t(lang, "checkout.stars_invoice_title"),
+                                tf(
+                                    lang,
+                                    "checkout.stars_invoice_desc",
+                                    &[&format!("{:.2}", amount_usd)],
+                                ),
                                 payload,
                                 "XTR",
                                 prices,
@@ -580,7 +926,7 @@ pub async fn callback_handler(
                 if let Some(u) = user_db {
                     let payload = PaymentType::BalanceTopup.to_payload_string(u.id);
                     let prices = vec![LabeledPrice {
-                        label: "Top-up".to_string(),
+                        label: t(lang, "topup.title").to_string(),
                         amount: xtr_amount,
                     }];
 
@@ -591,8 +937,8 @@ pub async fn callback_handler(
                         let _ = bot
                             .send_invoice(
                                 msg.chat().id,
-                                "Balance Top-up",
-                                format!("Top-up balance by ${}", amount_usd),
+                                t(lang, "topup.title"),
+                                tf(lang, "topup.invoice_desc", &[&format!("{:.2}", amount_usd)]),
                                 payload,
                                 "XTR",
                                 prices,
@@ -624,10 +970,15 @@ pub async fn callback_handler(
                             match state.store_service.get_subscription_links(sub_id).await {
                                 Ok(links) => {
                                     if links.is_empty() {
-                                        let _ = bot.send_message(ChatId(user_tg.tg_id), "❌ No connection links available for your subscription yet.").await;
+                                        let _ = bot
+                                            .send_message(
+                                                ChatId(user_tg.tg_id),
+                                                t(lang, "services.links_none"),
+                                            )
+                                            .await;
                                     } else {
                                         let mut response =
-                                            "🔗 *Your Connection Links:*\n\n".to_string();
+                                            format!("{}\n\n", t(lang, "services.links_header"));
 
                                         // Add Subscription Page Link
                                         let sub_domain = state
@@ -663,22 +1014,28 @@ pub async fn callback_handler(
                                         );
 
                                         response.push_str(&format!(
-                                            "🌍 *Subscription Page:*\n`{}`\n",
-                                            escape_md(&sub_url)
+                                            "{}\n<code>{}</code>\n",
+                                            t(lang, "services.links_page"),
+                                            escape_html(&sub_url)
                                         ));
                                         if is_localhost {
-                                            response.push_str("⚠️ _Admin: Set PANEL_URL or subscription_domain setting\\!_\n\n");
+                                            // Только для админа: PANEL_URL не задан.
+                                            // Намеренно английский — это не текст
+                                            // для покупателя.
+                                            response.push_str("⚠️ <i>Admin: set PANEL_URL or the subscription_domain setting.</i>\n\n");
                                         } else {
                                             response.push('\n');
                                         }
 
                                         for link in links {
-                                            response
-                                                .push_str(&format!("`{}`\n\n", escape_md(&link)));
+                                            response.push_str(&format!(
+                                                "<code>{}</code>\n\n",
+                                                escape_html(&link)
+                                            ));
                                         }
                                         let _ = bot
                                             .send_message(ChatId(user_tg.tg_id), response)
-                                            .parse_mode(ParseMode::MarkdownV2)
+                                            .parse_mode(ParseMode::Html)
                                             .await;
                                     }
                                 }
@@ -687,7 +1044,7 @@ pub async fn callback_handler(
                                     let _ = bot
                                         .send_message(
                                             ChatId(user_tg.tg_id),
-                                            "❌ Failed to generate connection links.",
+                                            t(lang, "services.links_failed"),
                                         )
                                         .await;
                                 }
@@ -695,7 +1052,7 @@ pub async fn callback_handler(
                         } else {
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text("❌ Subscription not found")
+                                .text(t(lang, "services.not_found"))
                                 .await;
                         }
                     }
@@ -706,7 +1063,7 @@ pub async fn callback_handler(
                 let _sub_id = get_config.strip_prefix("get_config_").unwrap_or("0");
                 let _ = bot
                     .answer_callback_query(callback_id)
-                    .text("Generating profile...")
+                    .text(t(lang, "services.profile_generating"))
                     .await;
 
                 let user_db: Option<caramba_db::models::store::User> = state
@@ -723,8 +1080,9 @@ pub async fn callback_handler(
                                 .file_name("caramba_v2_profile.json");
 
                             if let Some(msg) = q.message {
-                                let _ = bot.send_document(msg.chat().id, input_file)
-                                    .caption("📂 <b>Your CARAMBA Profile</b>\n\nImport this file into Sing-box, Nekobox, or Hiddify.\nIt contains automatic server selection and failover.")
+                                let _ = bot
+                                    .send_document(msg.chat().id, input_file)
+                                    .caption(t(lang, "services.profile_caption"))
                                     .parse_mode(ParseMode::Html)
                                     .await;
                             }
@@ -732,7 +1090,7 @@ pub async fn callback_handler(
                         Err(e) => {
                             error!("Failed to generate config: {}", e);
                             let _ = bot
-                                .send_message(ChatId(tg_id), "❌ Failed to generate profile file.")
+                                .send_message(ChatId(tg_id), t(lang, "services.profile_failed"))
                                 .await;
                         }
                     }
@@ -761,7 +1119,7 @@ pub async fn callback_handler(
                         Ok(sub) => {
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text("✅ Activated!")
+                                .text(t(lang, "services.activated_toast"))
                                 .await;
 
                             // Trigger instant config update for ALL nodes serving this plan
@@ -810,12 +1168,13 @@ pub async fn callback_handler(
                                 let _ = bot
                                     .send_message(
                                         msg.chat().id,
-                                        format!(
-                                            "🚀 *Subscription Activated!*\nExpires: `{}`",
-                                            sub.expires_at.format("%Y-%m-%d")
+                                        tf(
+                                            lang,
+                                            "services.activated",
+                                            &[&sub.expires_at.format("%Y-%m-%d").to_string()],
                                         ),
                                     )
-                                    .parse_mode(ParseMode::MarkdownV2)
+                                    .parse_mode(ParseMode::Html)
                                     .await;
                             }
                         }
@@ -823,7 +1182,7 @@ pub async fn callback_handler(
                             error!("Activation failed: {}", e);
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("❌ Error: {}", e))
+                                .text(tf(lang, "checkout.failed", &[&e.to_string()]))
                                 .show_alert(true)
                                 .await;
                         }
@@ -844,27 +1203,23 @@ pub async fn callback_handler(
                         Ok(codes) => {
                             if codes.is_empty() {
                                 if let Some(msg) = q.message {
-                                    let _ = bot
-                                        .send_message(
-                                            msg.chat().id,
-                                            "🎁 You have no unredeemed gift codes.",
-                                        )
-                                        .await;
+                                    let _ =
+                                        bot.send_message(msg.chat().id, t(lang, "gift.none")).await;
                                 }
                             } else {
-                                let mut response =
-                                    "🎁 *My Gift Codes* \\(Unredeemed\\):\n\n".to_string();
+                                let mut response = format!("{}\n\n", t(lang, "gift.list_header"));
                                 for code in codes {
                                     response.push_str(&format!(
-                                        "🎟 `{}`\n   Days: {}\n\n",
-                                        code.code,
+                                        "🎟 <code>{}</code>\n   {}: {}\n\n",
+                                        escape_html(&code.code),
+                                        t(lang, "gift.days"),
                                         code.duration_days.unwrap_or(0)
                                     ));
                                 }
                                 if let Some(msg) = q.message
                                     && let Err(e) = bot
                                         .send_message(msg.chat().id, response)
-                                        .parse_mode(ParseMode::MarkdownV2)
+                                        .parse_mode(ParseMode::Html)
                                         .await
                                 {
                                     error!("Failed to send gift codes: {}", e);
@@ -875,10 +1230,7 @@ pub async fn callback_handler(
                             error!("Fetch gifts error: {}", e);
                             if let Some(msg) = q.message {
                                 let _ = bot
-                                    .send_message(
-                                        msg.chat().id,
-                                        "❌ Error: Failed to fetch your gift codes.",
-                                    )
+                                    .send_message(msg.chat().id, t(lang, "gift.fetch_failed"))
                                     .await;
                             }
                         }
@@ -895,9 +1247,10 @@ pub async fn callback_handler(
                     let _ = bot
                         .send_message(
                             msg.chat().id,
-                            format!(
-                                "Reply to this message with your note for Subscription #{}.",
-                                sub_id
+                            tf(
+                                lang,
+                                "services.note_prompt",
+                                &[t(lang, "services.note_prompt_marker"), sub_id],
                             ),
                         )
                         .reply_markup(ForceReply::new().selective())
@@ -914,70 +1267,50 @@ pub async fn callback_handler(
                 let _ = bot.answer_callback_query(callback_id).await;
 
                 if let Some(msg) = q.message {
-                    // Get device limit + plan info
-                    let device_limit = state
+                    // Владение проверяем до показа: иначе любой мог бы прочитать
+                    // чужие адреса, подставив id в callback_data.
+                    let owns = match state.store_service.get_user_by_tg_id(tg_id).await {
+                        Ok(Some(u)) => state
+                            .store_service
+                            .get_user_subscriptions(u.id)
+                            .await
+                            .unwrap_or_default()
+                            .iter()
+                            .any(|s| s.sub.id == sub_id),
+                        _ => false,
+                    };
+
+                    if !owns {
+                        let _ = bot
+                            .send_message(msg.chat().id, t(lang, "services.not_found"))
+                            .await;
+                        return Ok(());
+                    }
+
+                    let limit: i64 = state
                         .store_service
                         .get_subscription_device_limit(sub_id)
                         .await
-                        .unwrap_or(3);
-
-                    // Get active IPs (last 15 minutes)
+                        .unwrap_or(0)
+                        .into();
                     let active_ips = state
                         .store_service
                         .get_subscription_active_ips(sub_id)
                         .await
                         .unwrap_or_default();
 
-                    let mut response = "📱 *CONNECTED DEVICES*\\n\\n".to_string();
-                    response.push_str(&format!("🔢 *Device Limit:* `{}`\\n", device_limit));
-                    response.push_str(&format!(
-                        "✅ *Active Devices:* `{}`\\n\\n",
-                        active_ips.len()
-                    ));
-
-                    if active_ips.is_empty() {
-                        response.push_str("_No devices currently connected\\._\\n\\n");
-                        response
-                            .push_str("_Devices will appear here when you connect to the VPN\\._");
-                    } else {
-                        response.push_str("🌐 *Recent Connections:*\\n");
-                        for (idx, ip_record) in active_ips.iter().take(10).enumerate() {
-                            let time_ago = chrono::Utc::now() - ip_record.last_seen_at;
-                            let minutes_ago = time_ago.num_minutes();
-
-                            let time_str = if minutes_ago < 1 {
-                                "just now".to_string()
-                            } else if minutes_ago < 60 {
-                                format!("{} min ago", minutes_ago)
-                            } else {
-                                format!("{} hr ago", minutes_ago / 60)
-                            };
-
-                            response.push_str(&format!(
-                                "{}\\. `{}` _{}_\\n",
-                                idx + 1,
-                                escape_md(&ip_record.client_ip),
-                                time_str
-                            ));
-                        }
-
-                        if active_ips.len() > device_limit as usize {
-                            response.push_str(
-                                "\\n⚠️ *Warning:* You have exceeded your device limit\\!",
-                            );
-                        }
-                    }
-
-                    let keyboard =
-                        InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
-                            "« Back to Services",
-                            "myservices_page_0".to_string(),
-                        )]]);
+                    let (text, buttons) = render_devices_page(
+                        lang,
+                        sub_id,
+                        &active_ips,
+                        limit,
+                        Some("myservices_page_0"),
+                    );
 
                     let _ = bot
-                        .send_message(msg.chat().id, response)
-                        .parse_mode(ParseMode::MarkdownV2)
-                        .reply_markup(keyboard)
+                        .send_message(msg.chat().id, text)
+                        .parse_mode(ParseMode::Html)
+                        .reply_markup(InlineKeyboardMarkup::new(buttons))
                         .await;
                 }
             }
@@ -997,82 +1330,16 @@ pub async fn callback_handler(
                 if plans.is_empty() {
                     let _ = bot
                         .answer_callback_query(callback_id)
-                        .text("❌ No active plans available.")
+                        .text(t(lang, "plans.none"))
                         .await;
                 } else {
                     let _ = bot.answer_callback_query(callback_id).await;
-                    let total_plans = plans.len();
-                    // Safety check
-                    let index = if index >= total_plans { 0 } else { index };
-                    let plan = &plans[index];
-
-                    let mut text = format!(
-                        "💎 *{}* \\({}/{}\\)\n\n",
-                        escape_md(&plan.name),
-                        index + 1,
-                        total_plans
-                    );
-                    if let Some(desc) = &plan.description {
-                        text.push_str(&format!("_{}_\n", escape_md(desc)));
-                    }
-
-                    let mut buttons = Vec::new();
-
-                    // Duration Buttons
-                    let mut duration_row = Vec::new();
-                    for dur in &plan.durations {
-                        let price_major = dur.price / 100;
-                        let price_minor = dur.price % 100;
-                        let label = if dur.duration_days == 0 {
-                            format!("🚀 Traffic Plan - ${}.{:02}", price_major, price_minor)
-                        } else {
-                            format!(
-                                "{}d - ${}.{:02}",
-                                dur.duration_days, price_major, price_minor
-                            )
-                        };
-                        duration_row.push(InlineKeyboardButton::callback(
-                            label,
-                            format!("buy_dur_{}", dur.id),
-                        ));
-                    }
-                    if !duration_row.is_empty() {
-                        buttons.push(duration_row);
-                    }
-
-                    // Navigation
-                    if total_plans > 1 {
-                        let mut nav_row = Vec::new();
-                        let next_idx = if index + 1 < total_plans {
-                            index + 1
-                        } else {
-                            0
-                        };
-                        let prev_idx = if index > 0 {
-                            index - 1
-                        } else {
-                            total_plans - 1
-                        };
-
-                        nav_row.push(InlineKeyboardButton::callback(
-                            "⬅️",
-                            format!("buy_plan_idx_{}", prev_idx),
-                        ));
-                        nav_row.push(InlineKeyboardButton::callback(
-                            format!("{}/{}", index + 1, total_plans),
-                            "noop",
-                        ));
-                        nav_row.push(InlineKeyboardButton::callback(
-                            "➡️",
-                            format!("buy_plan_idx_{}", next_idx),
-                        ));
-                        buttons.push(nav_row);
-                    }
+                    let (text, buttons) = render_plan_page(lang, &plans, index);
 
                     if let Some(msg) = q.message {
                         let _ = bot
                             .edit_message_text(msg.chat().id, msg.id(), text)
-                            .parse_mode(ParseMode::MarkdownV2)
+                            .parse_mode(ParseMode::Html)
                             .reply_markup(InlineKeyboardMarkup::new(buttons))
                             .await;
                     }
@@ -1095,7 +1362,7 @@ pub async fn callback_handler(
                 if let Some(user) = user_db
                     && let Ok(subs) = state.store_service.get_user_subscriptions(user.id).await
                 {
-                    // Sort subs (same logic as main handler)
+                    // Sort subs (same logic as the menu handler)
                     let mut sorted_subs = subs.clone();
                     sorted_subs.sort_by(|a, b| {
                         match (a.sub.status.as_str(), b.sub.status.as_str()) {
@@ -1106,140 +1373,12 @@ pub async fn callback_handler(
                     });
 
                     if !sorted_subs.is_empty() {
-                        let total_pages = sorted_subs.len();
-                        // Ensure page is valid
-                        let page = if page >= total_pages { 0 } else { page };
-                        let sub = &sorted_subs[page];
+                        let (response, buttons) = render_services_page(lang, &sorted_subs, page);
 
-                        let mut response = "🔐 *MY SERVICES*\n\n".to_string();
-                        let status_icon = if sub.sub.status == "active" {
-                            "✅"
-                        } else {
-                            "⏳"
-                        };
-                        response.push_str(&format!(
-                            "🔹 *Subscription \\#{}/{:}*\n",
-                            page + 1,
-                            total_pages
-                        ));
-                        response
-                            .push_str(&format!("   💎 *Plan:* {}\n", escape_md(&sub.plan_name)));
-                        if let Some(desc) = &sub.plan_description {
-                            response.push_str(&format!("   _{}_\n", escape_md(desc)));
-                        }
-                        response.push_str(&format!(
-                            "   🔑 *Status:* {} `{}`\n",
-                            status_icon, sub.sub.status
-                        ));
-
-                        // Traffic
-                        let used_gb = sub.sub.used_traffic as f64 / 1024.0 / 1024.0 / 1024.0;
-                        if let Some(limit) = sub.traffic_limit_gb {
-                            if limit == 0 {
-                                response.push_str(&format!(
-                                    "   📊 *Traffic:* `{:.2} GB / ∞`\n",
-                                    used_gb
-                                ));
-                            } else {
-                                response.push_str(&format!(
-                                    "   📊 *Traffic:* `{:.2} GB / {} GB`\n",
-                                    used_gb, limit
-                                ));
-                            }
-                        } else {
-                            response
-                                .push_str(&format!("   📊 *Traffic Used:* `{:.2} GB`\n", used_gb));
-                        }
-
-                        if sub.sub.status == "active" {
-                            response.push_str(&format!(
-                                "   ⌛ *Expires:* `{}`\n",
-                                sub.sub.expires_at.format("%Y-%m-%d")
-                            ));
-                        } else {
-                            let duration = sub.sub.expires_at - sub.sub.created_at;
-                            response.push_str(&format!(
-                                "   ⏱ *Duration:* `{} days` \\(starts on activation\\)\n",
-                                duration.num_days()
-                            ));
-                        }
-                        response.push('\n');
-                        if let Some(note) = &sub.sub.note {
-                            response.push_str(&format!("📝 *Note:* {}\n\n", escape_md(note)));
-                        }
-
-                        // Navigation & Actions
-                        let mut buttons = Vec::new();
-
-                        // Edit Note Button
-                        buttons.push(vec![InlineKeyboardButton::callback(
-                            "📝 Edit Note",
-                            format!("edit_note_{}", sub.sub.id),
-                        )]);
-
-                        // Action Buttons
-                        if sub.sub.status == "active" {
-                            buttons.push(vec![
-                                InlineKeyboardButton::callback(
-                                    "🔗 Get Links",
-                                    format!("get_links_{}", sub.sub.id),
-                                ),
-                                InlineKeyboardButton::callback(
-                                    "📄 JSON Profile",
-                                    format!("get_config_{}", sub.sub.id),
-                                ),
-                                InlineKeyboardButton::callback(
-                                    "⏳ Extend",
-                                    format!("extend_sub_{}", sub.sub.id),
-                                ),
-                            ]);
-                        } else if sub.sub.status == "pending" {
-                            buttons.push(vec![
-                                InlineKeyboardButton::callback(
-                                    "▶️ Activate",
-                                    format!("activate_{}", sub.sub.id),
-                                ),
-                                InlineKeyboardButton::callback(
-                                    "🎁 Make Gift Code",
-                                    format!("gift_init_{}", sub.sub.id),
-                                ),
-                            ]);
-                        }
-
-                        // Navigation Row
-                        let mut nav_row = Vec::new();
-                        if total_pages > 1 {
-                            let prev_page = if page > 0 { page - 1 } else { total_pages - 1 };
-                            let next_page = if page < total_pages - 1 { page + 1 } else { 0 };
-
-                            nav_row.push(InlineKeyboardButton::callback(
-                                "⬅️ Prev",
-                                format!("myservices_page_{}", prev_page),
-                            ));
-                            nav_row.push(InlineKeyboardButton::callback(
-                                format!("{}/{}", page + 1, total_pages),
-                                "ignore",
-                            ));
-                            nav_row.push(InlineKeyboardButton::callback(
-                                "Next ➡️",
-                                format!("myservices_page_{}", next_page),
-                            ));
-                        }
-                        if !nav_row.is_empty() {
-                            buttons.push(nav_row);
-                        }
-
-                        // My Gifts Link
-                        buttons.push(vec![InlineKeyboardButton::callback(
-                            "🎁 My Gift Codes",
-                            "my_gifts",
-                        )]);
-
-                        // Edit the message
                         if let Some(msg) = q.message {
                             let _ = bot
                                 .edit_message_text(msg.chat().id, msg.id(), response)
-                                .parse_mode(ParseMode::MarkdownV2)
+                                .parse_mode(ParseMode::Html)
                                 .reply_markup(InlineKeyboardMarkup::new(buttons))
                                 .await;
                         }
@@ -1268,25 +1407,22 @@ pub async fn callback_handler(
                         .await
                     {
                         Ok(code) => {
-                            let response = format!(
-                                "🎁 *Gift Code Created!*\n\nCode: `{}`\n\nShare this code with anyone. They can redeem it by sending it to the bot.",
-                                code
-                            );
+                            let response = tf(lang, "gift.created", &[&escape_html(&code)]);
                             if let Some(msg) = q.message {
                                 let _ = bot
                                     .send_message(msg.chat().id, response)
-                                    .parse_mode(ParseMode::MarkdownV2)
+                                    .parse_mode(ParseMode::Html)
                                     .await;
                             }
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text("✅ Code Generated!")
+                                .text(t(lang, "gift.created_toast"))
                                 .await;
                         }
                         Err(e) => {
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("❌ Error: {}", e))
+                                .text(tf(lang, "checkout.failed", &[&e.to_string()]))
                                 .show_alert(true)
                                 .await;
                         }
@@ -1297,10 +1433,18 @@ pub async fn callback_handler(
             transfer if transfer.starts_with("transfer_init_") => {
                 let sub_id = transfer.strip_prefix("transfer_init_").unwrap_or("0");
                 if let Some(msg) = q.message {
-                    let _ = bot.send_message(msg.chat().id, format!("➡️ *Transfer Subscription*\n\nPlease reply to this message with the *Username* of the user you want to transfer Subscription \\#{} to (e.g., @username).", sub_id))
-                            .parse_mode(ParseMode::MarkdownV2)
-                            .reply_markup(ForceReply::new().selective())
-                            .await;
+                    let _ = bot
+                        .send_message(
+                            msg.chat().id,
+                            tf(
+                                lang,
+                                "transfer.prompt",
+                                &[t(lang, "transfer.marker"), sub_id],
+                            ),
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .reply_markup(ForceReply::new().selective())
+                        .await;
                 }
             }
 
@@ -1319,7 +1463,7 @@ pub async fn callback_handler(
                         // Balance Payment Option
                         if u.balance > 0 {
                             buttons.push(vec![InlineKeyboardButton::callback(
-                                format!("💰 Pay with Balance (${:.2})", u.balance as f64 / 100.0),
+                                tf(lang, "checkout.pay_balance", &[&money(u.balance)]),
                                 format!("pay_dur_balance_{}", duration_id),
                             )]);
                         }
@@ -1331,7 +1475,7 @@ pub async fn callback_handler(
                             == "true"
                         {
                             buttons.push(vec![InlineKeyboardButton::callback(
-                                "💳 Pay with Card/Manual",
+                                t(lang, "checkout.pay_manual"),
                                 format!("pay_dur_manual_{}", duration_id),
                             )]);
                         }
@@ -1343,7 +1487,7 @@ pub async fn callback_handler(
                             == "true"
                         {
                             buttons.push(vec![InlineKeyboardButton::callback(
-                                "⭐️ Pay with Telegram Stars",
+                                t(lang, "checkout.pay_stars"),
                                 format!("pay_dur_stars_{}", duration_id),
                             )]);
                         }
@@ -1355,7 +1499,7 @@ pub async fn callback_handler(
                             .is_empty()
                         {
                             buttons.push(vec![InlineKeyboardButton::callback(
-                                "🪙 Pay with CryptoBot",
+                                t(lang, "checkout.pay_cryptobot"),
                                 format!("pay_dur_cryptobot_{}", duration_id),
                             )]);
                         }
@@ -1367,25 +1511,30 @@ pub async fn callback_handler(
                             .is_empty()
                         {
                             buttons.push(vec![InlineKeyboardButton::callback(
-                                "🪙 Pay with NowPayments",
+                                t(lang, "checkout.pay_nowpayments"),
                                 format!("pay_dur_nowpayments_{}", duration_id),
                             )]);
                         }
 
                         // Always add a Back button to prevent empty keyboards and allow navigation
                         buttons.push(vec![InlineKeyboardButton::callback(
-                            "⬅️ Back to Plans",
+                            t(lang, "checkout.back_to_plans"),
                             "buy_subscription",
                         )]);
 
                         let _ = bot
                             .answer_callback_query(callback_id)
-                            .text("Please select a payment method.")
+                            .text(t(lang, "checkout.choose_method_toast"))
                             .await;
 
                         if let Some(msg) = q.message {
-                            let _ = bot.edit_message_text(msg.chat().id, msg.id(), "💳 *Select Payment Method*\n\nPlease choose how you would like to pay for your VPN Subscription:")
-                                .parse_mode(ParseMode::MarkdownV2)
+                            let _ = bot
+                                .edit_message_text(
+                                    msg.chat().id,
+                                    msg.id(),
+                                    t(lang, "checkout.choose_method"),
+                                )
+                                .parse_mode(ParseMode::Html)
                                 .reply_markup(InlineKeyboardMarkup::new(buttons))
                                 .await;
                         }
@@ -1424,7 +1573,7 @@ pub async fn callback_handler(
                             None => {
                                 let _ = bot
                                     .answer_callback_query(callback_id)
-                                    .text("❌ Invalid duration.")
+                                    .text(t(lang, "checkout.invalid_duration"))
                                     .show_alert(true)
                                     .await;
                                 return Ok(());
@@ -1451,7 +1600,7 @@ pub async fn callback_handler(
                             if xtr_amount == 0 {
                                 let _ = bot
                                     .answer_callback_query(callback_id)
-                                    .text("❌ This plan cannot be paid with Stars.")
+                                    .text(t(lang, "checkout.stars_unavailable"))
                                     .show_alert(true)
                                     .await;
                                 return Ok(());
@@ -1460,7 +1609,7 @@ pub async fn callback_handler(
                             let payload = PaymentType::SubscriptionPurchase(duration.plan_id)
                                 .to_payload_string(u.id);
                             let prices = vec![LabeledPrice {
-                                label: "Subscription".to_string(),
+                                label: t(lang, "checkout.stars_line_item").to_string(),
                                 amount: xtr_amount,
                             }];
 
@@ -1470,8 +1619,12 @@ pub async fn callback_handler(
                                 let _ = bot
                                     .send_invoice(
                                         msg.chat().id,
-                                        "VPN Subscription",
-                                        format!("Subscription plan for ${:.2}", amount_usd),
+                                        t(lang, "checkout.stars_invoice_title"),
+                                        tf(
+                                            lang,
+                                            "checkout.stars_invoice_desc",
+                                            &[&format!("{:.2}", amount_usd)],
+                                        ),
                                         payload,
                                         "XTR",
                                         prices,
@@ -1527,7 +1680,7 @@ pub async fn callback_handler(
                                                 .await;
                                             let _ = bot
                                                 .answer_callback_query(callback_id)
-                                                .text("❌ Insufficient balance")
+                                                .text(t(lang, "checkout.insufficient_balance"))
                                                 .show_alert(true)
                                                 .await;
                                             return Ok(());
@@ -1539,7 +1692,7 @@ pub async fn callback_handler(
                                                 .await;
                                             let _ = bot
                                                 .answer_callback_query(callback_id)
-                                                .text("❌ Balance charge failed, please try again")
+                                                .text(t(lang, "checkout.charge_failed"))
                                                 .show_alert(true)
                                                 .await;
                                             return Ok(());
@@ -1559,7 +1712,11 @@ pub async fn callback_handler(
                                         .await;
                                         let _ = bot
                                             .answer_callback_query(callback_id)
-                                            .text(format!("❌ Fulfillment failed: {}", e))
+                                            .text(tf(
+                                                lang,
+                                                "checkout.fulfillment_failed",
+                                                &[&e.to_string()],
+                                            ))
                                             .show_alert(true)
                                             .await;
                                         return Ok(());
@@ -1567,33 +1724,51 @@ pub async fn callback_handler(
 
                                     let _ = bot
                                         .answer_callback_query(callback_id)
-                                        .text("✅ Payment successful!")
+                                        .text(t(lang, "checkout.paid_toast"))
                                         .await;
                                     if let Some(msg) = q.message {
-                                        let _ = bot.send_message(msg.chat().id, "✅ *Subscription Activated!*\n\nYour payment via account balance was successful. Your subscription is now active.").parse_mode(ParseMode::MarkdownV2).await;
+                                        let _ = bot
+                                            .send_message(
+                                                msg.chat().id,
+                                                t(lang, "checkout.balance_paid"),
+                                            )
+                                            .parse_mode(ParseMode::Html)
+                                            .await;
                                     }
                                     return Ok(());
                                 }
 
                                 let _ = bot
                                     .answer_callback_query(callback_id)
-                                    .text("Invoice generated!")
+                                    .text(t(lang, "checkout.invoice_toast"))
                                     .await;
 
                                 if let Some(msg) = q.message {
                                     if provider == "manual" {
-                                        let _ = bot.send_message(msg.chat().id, format!("💳 *Manual Payment*\n\nPlease send your payment to our details and upload a screenshot to {}", invoice_payload))
-                                            .parse_mode(ParseMode::MarkdownV2)
+                                        let _ = bot
+                                            .send_message(
+                                                msg.chat().id,
+                                                tf(
+                                                    lang,
+                                                    "checkout.manual",
+                                                    &[&escape_html(&invoice_payload)],
+                                                ),
+                                            )
+                                            .parse_mode(ParseMode::Html)
                                             .await;
                                     } else {
                                         let buttons = vec![vec![InlineKeyboardButton::url(
-                                            "🔗 Pay Now",
+                                            t(lang, "checkout.pay_now"),
                                             invoice_payload
                                                 .parse()
                                                 .unwrap_or("https://example.com".parse().unwrap()),
                                         )]];
-                                        let _ = bot.send_message(msg.chat().id, "🧾 *Invoice Generated*\n\nPlease click the button below to complete your payment.")
-                                            .parse_mode(ParseMode::MarkdownV2)
+                                        let _ = bot
+                                            .send_message(
+                                                msg.chat().id,
+                                                t(lang, "checkout.invoice_ready"),
+                                            )
+                                            .parse_mode(ParseMode::Html)
                                             .reply_markup(InlineKeyboardMarkup::new(buttons))
                                             .await;
                                     }
@@ -1602,7 +1777,7 @@ pub async fn callback_handler(
                             Err(e) => {
                                 let _ = bot
                                     .answer_callback_query(callback_id)
-                                    .text(format!("❌ Failed: {}", e))
+                                    .text(tf(lang, "checkout.failed", &[&e.to_string()]))
                                     .show_alert(true)
                                     .await;
                             }
@@ -1629,7 +1804,7 @@ pub async fn callback_handler(
                             Ok(sub) => {
                                 let _ = bot
                                     .answer_callback_query(callback_id)
-                                    .text("✅ Extension successful!")
+                                    .text(t(lang, "services.extended_toast"))
                                     .await;
                                 // Agents pull config automatically - no sync needed
 
@@ -1637,12 +1812,13 @@ pub async fn callback_handler(
                                     let _ = bot
                                         .send_message(
                                             msg.chat().id,
-                                            format!(
-                                                "✅ *Subscription Extended!*\nNew Expiry: `{}`",
-                                                sub.expires_at.format("%Y-%m-%d")
+                                            tf(
+                                                lang,
+                                                "services.extended",
+                                                &[&sub.expires_at.format("%Y-%m-%d").to_string()],
                                             ),
                                         )
-                                        .parse_mode(ParseMode::MarkdownV2)
+                                        .parse_mode(ParseMode::Html)
                                         .await;
                                 }
                             }
@@ -1650,7 +1826,7 @@ pub async fn callback_handler(
                                 error!("Extension failed for user {}: {}", u.id, e);
                                 let _ = bot
                                     .answer_callback_query(callback_id)
-                                    .text(format!("❌ Error: {}", e))
+                                    .text(tf(lang, "checkout.failed", &[&e.to_string()]))
                                     .show_alert(true)
                                     .await;
                             }
@@ -1684,24 +1860,31 @@ pub async fn callback_handler(
                         Ok(product) => {
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text("✅ Paid!")
+                                .text(t(lang, "store.purchase_ok_toast"))
                                 .await;
                             if let Some(msg) = q.message {
-                                if let Some(content) = product.content {
-                                    let _ = bot.send_message(msg.chat().id, format!("✅ *Purchase Successful!*\n\n📦 *{}*\n\n📋 *Content:*\n`{}`", escape_md(&product.name), escape_md(&content)))
-                                            .parse_mode(ParseMode::MarkdownV2)
-                                            .await;
-                                } else {
-                                    let _ = bot.send_message(msg.chat().id, format!("✅ *Purchase Successful!*\n\n📦 *{}*\n\n(No digital content attached, contact support if expected)", escape_md(&product.name)))
-                                            .parse_mode(ParseMode::MarkdownV2)
-                                            .await;
-                                }
+                                let text = match product.content {
+                                    Some(content) => tf(
+                                        lang,
+                                        "store.purchase_ok",
+                                        &[&escape_html(&product.name), &escape_html(&content)],
+                                    ),
+                                    None => tf(
+                                        lang,
+                                        "store.purchase_ok_no_content",
+                                        &[&escape_html(&product.name)],
+                                    ),
+                                };
+                                let _ = bot
+                                    .send_message(msg.chat().id, text)
+                                    .parse_mode(ParseMode::Html)
+                                    .await;
                             }
                         }
                         Err(e) => {
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("❌ Failed: {}", e))
+                                .text(tf(lang, "checkout.failed", &[&e.to_string()]))
                                 .show_alert(true)
                                 .await;
                         }
@@ -1829,20 +2012,23 @@ pub async fn callback_handler(
                             Ok(_) => {
                                 let _ = bot
                                     .answer_callback_query(callback_id)
-                                    .text("✅ Sessions reset successfully!")
+                                    .text(t(lang, "devices.reset_toast"))
                                     .show_alert(true)
                                     .await;
                                 // Update the message to remove "Kill" button or showing refreshed list
                                 if let Some(msg) = q.message {
                                     // Trigger refresh by sending "devices_" callback essentially?
                                     // Easier to just edit text.
-                                    let _ = bot.send_message(msg.chat().id, "✅ *Sessions Reset*\\n\\nPlease wait a few moments for connections to close\\.").parse_mode(ParseMode::MarkdownV2).await;
+                                    let _ = bot
+                                        .send_message(msg.chat().id, t(lang, "devices.reset_done"))
+                                        .parse_mode(ParseMode::Html)
+                                        .await;
                                 }
                             }
                             Err(e) => {
                                 let _ = bot
                                     .answer_callback_query(callback_id)
-                                    .text(format!("❌ Error: {}", e))
+                                    .text(tf(lang, "checkout.failed", &[&e.to_string()]))
                                     .show_alert(true)
                                     .await;
                             }
@@ -1866,28 +2052,31 @@ pub async fn callback_handler(
                         if products.is_empty() {
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text("Category is empty")
+                                .text(t(lang, "store.category_empty"))
                                 .await;
                         } else {
                             let _ = bot.answer_callback_query(callback_id).await;
                             // Showcase style: separate message per product
                             for product in products {
-                                let price = product.price as f64 / 100.0;
                                 let text = format!(
-                                    "📦 *{}*\n\n{}\n\n💰 Price: *${:.2}*",
-                                    escape_md(&product.name),
-                                    escape_md(
-                                        product.description.as_deref().unwrap_or("No description")
+                                    "📦 <b>{}</b>\n\n{}\n\n{} <b>${}</b>",
+                                    escape_html(&product.name),
+                                    escape_html(
+                                        product
+                                            .description
+                                            .as_deref()
+                                            .unwrap_or(t(lang, "store.no_description"))
                                     ),
-                                    price
+                                    t(lang, "store.price"),
+                                    money(product.price)
                                 );
                                 let buttons = vec![
                                     vec![InlineKeyboardButton::callback(
-                                        format!("💳 Buy Now (${:.2})", price),
+                                        tf(lang, "store.buy_now", &[&money(product.price)]),
                                         format!("buyprod_{}", product.id),
                                     )],
                                     vec![InlineKeyboardButton::callback(
-                                        "🛒 Add to Cart",
+                                        t(lang, "store.add_to_cart"),
                                         format!("add_cart_prod_{}", product.id),
                                     )],
                                 ];
@@ -1900,10 +2089,13 @@ pub async fn callback_handler(
                             // Add back button and cart button
                             let nav = vec![
                                 vec![InlineKeyboardButton::callback(
-                                    "🔙 Back to Categories",
+                                    t(lang, "store.back_to_categories"),
                                     "store_home",
                                 )],
-                                vec![InlineKeyboardButton::callback("🛒 View Cart", "view_cart")],
+                                vec![InlineKeyboardButton::callback(
+                                    t(lang, "cart.view"),
+                                    "view_cart",
+                                )],
                             ];
                             let _ = bot
                                 .send_message(chat_id, "---")
@@ -1915,27 +2107,30 @@ pub async fn callback_handler(
                     if let Ok(prod_id) = prod_id_str.parse::<i64>() {
                         if let Ok(product) = state.store_service.get_product(prod_id).await {
                             let _ = bot.answer_callback_query(callback_id).await;
-                            let price = product.price as f64 / 100.0;
                             let text = format!(
-                                "📦 *{}*\n\n{}\n\n💰 Price: *${:.2}*",
-                                escape_md(&product.name),
-                                escape_md(
-                                    product.description.as_deref().unwrap_or("No description")
+                                "📦 <b>{}</b>\n\n{}\n\n{} <b>${}</b>",
+                                escape_html(&product.name),
+                                escape_html(
+                                    product
+                                        .description
+                                        .as_deref()
+                                        .unwrap_or(t(lang, "store.no_description"))
                                 ),
-                                price
+                                t(lang, "store.price"),
+                                money(product.price)
                             );
 
                             let buttons = vec![
                                 vec![InlineKeyboardButton::callback(
-                                    format!("💳 Buy Now (${:.2})", price),
+                                    tf(lang, "store.buy_now", &[&money(product.price)]),
                                     format!("buyprod_{}", product.id),
                                 )],
                                 vec![InlineKeyboardButton::callback(
-                                    "🛒 Add to Cart",
+                                    t(lang, "store.add_to_cart"),
                                     format!("add_cart_prod_{}", product.id),
                                 )],
                                 vec![InlineKeyboardButton::callback(
-                                    "🔙 Back",
+                                    t(lang, "store.back"),
                                     format!("store_cat_{}", product.category_id.unwrap_or(0)),
                                 )],
                             ];
@@ -1948,7 +2143,7 @@ pub async fn callback_handler(
                         } else {
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text("Product not found")
+                                .text(t(lang, "store.product_not_found"))
                                 .await;
                         }
                     }
@@ -1967,7 +2162,7 @@ pub async fn callback_handler(
                     }
                     // View Cart
                     buttons.push(vec![InlineKeyboardButton::callback(
-                        "🛒 View Cart",
+                        t(lang, "cart.view"),
                         "view_cart",
                     )]);
 
@@ -1976,9 +2171,9 @@ pub async fn callback_handler(
                         .edit_message_text(
                             chat_id,
                             q.message.unwrap().id(),
-                            "📦 *Digital Store Categories:*",
+                            t(lang, "store.categories"),
                         )
-                        .parse_mode(ParseMode::MarkdownV2)
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(kb)
                         .await;
                 }
@@ -2001,50 +2196,43 @@ pub async fn callback_handler(
                         .unwrap_or_default();
 
                     let text = if cart_items.is_empty() {
-                        "🛒 Your cart is empty.".to_string()
+                        t(lang, "cart.empty").to_string()
                     } else {
                         let mut total_price: i64 = 0;
-                        let mut t = "🛒 *YOUR SHOPPING CART*\n\n".to_string();
+                        let mut body = format!("{}\n\n", t(lang, "cart.title"));
 
                         for item in &cart_items {
-                            let price_major = item.price / 100;
-                            let price_minor = item.price % 100;
-                            t.push_str(&format!(
-                                "• *{}* \\(x{}\\) - ${}.{:02}\n",
-                                escape_md(&item.product_name),
+                            body.push_str(&format!(
+                                "• <b>{}</b> (x{}) — ${}\n",
+                                escape_html(&item.product_name),
                                 item.quantity,
-                                price_major,
-                                price_minor
+                                money(item.price)
                             ));
                             total_price += item.price * item.quantity;
                         }
 
-                        let total_major = total_price / 100;
-                        let total_minor = total_price % 100;
-                        t.push_str(&format!(
-                            "\n💰 *TOTAL: ${}.{:02}*",
-                            total_major, total_minor
-                        ));
-                        t
+                        body.push('\n');
+                        body.push_str(&tf(lang, "cart.total", &[&money(total_price)]));
+                        body
                     };
 
                     let buttons = if cart_items.is_empty() {
                         vec![vec![InlineKeyboardButton::callback(
-                            "📦 Return to Store",
+                            t(lang, "cart.return_to_store"),
                             "store_home",
                         )]]
                     } else {
                         vec![
                             vec![InlineKeyboardButton::callback(
-                                "✅ Checkout",
+                                t(lang, "cart.checkout"),
                                 "cart_checkout",
                             )],
                             vec![InlineKeyboardButton::callback(
-                                "🗑️ Clear Cart",
+                                t(lang, "cart.clear"),
                                 "cart_clear",
                             )],
                             vec![InlineKeyboardButton::callback(
-                                "📦 Continue Shopping",
+                                t(lang, "cart.continue_shopping"),
                                 "store_home",
                             )],
                         ]
@@ -2053,7 +2241,7 @@ pub async fn callback_handler(
                     if let Some(msg) = q.message {
                         let _ = bot
                             .send_message(msg.chat().id, text)
-                            .parse_mode(ParseMode::MarkdownV2)
+                            .parse_mode(ParseMode::Html)
                             .reply_markup(InlineKeyboardMarkup::new(buttons))
                             .await;
                     }
@@ -2071,13 +2259,16 @@ pub async fn callback_handler(
                     let _ = state.store_service.clear_cart(user.id).await;
                     let _ = bot
                         .answer_callback_query(callback_id)
-                        .text("🗑️ Cart cleared")
+                        .text(t(lang, "cart.cleared_toast"))
                         .await;
                     if let Some(msg) = q.message {
                         let _ = bot
-                            .edit_message_text(msg.chat().id, msg.id(), "🛒 Your cart is empty.")
+                            .edit_message_text(msg.chat().id, msg.id(), t(lang, "cart.empty"))
                             .reply_markup(InlineKeyboardMarkup::new(vec![vec![
-                                InlineKeyboardButton::callback("📦 Return to Store", "store_home"),
+                                InlineKeyboardButton::callback(
+                                    t(lang, "cart.return_to_store"),
+                                    "store_home",
+                                ),
                             ]]))
                             .await;
                     }
@@ -2096,17 +2287,16 @@ pub async fn callback_handler(
                         Ok(notes) => {
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text("✅ Checkout successful!")
+                                .text(t(lang, "cart.checkout_ok_toast"))
                                 .await;
-                            let mut response =
-                                "✅ *Order Processed Successfully\\!*\n\n".to_string();
+                            let mut response = format!("{}\n\n", t(lang, "cart.checkout_ok"));
                             for note in notes {
-                                response.push_str(&format!("{}\n", escape_md(&note)));
+                                response.push_str(&format!("{}\n", escape_html(&note)));
                             }
                             if let Some(msg) = q.message {
                                 let _ = bot
                                     .send_message(msg.chat().id, response)
-                                    .parse_mode(ParseMode::MarkdownV2)
+                                    .parse_mode(ParseMode::Html)
                                     .await;
                                 let _ = bot.delete_message(msg.chat().id, msg.id()).await;
                                 // Delete cart msg
@@ -2115,7 +2305,7 @@ pub async fn callback_handler(
                         Err(e) => {
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("❌ Failed: {}", e))
+                                .text(tf(lang, "checkout.failed", &[&e.to_string()]))
                                 .show_alert(true)
                                 .await;
                         }
@@ -2140,13 +2330,13 @@ pub async fn callback_handler(
                         Ok(_) => {
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text("🛒 Added to cart!")
+                                .text(t(lang, "cart.added_toast"))
                                 .await;
                         }
                         Err(e) => {
                             let _ = bot
                                 .answer_callback_query(callback_id)
-                                .text(format!("❌ Error: {}", e))
+                                .text(tf(lang, "checkout.failed", &[&e.to_string()]))
                                 .await;
                         }
                     }
@@ -2155,16 +2345,15 @@ pub async fn callback_handler(
             "edit_ref_code" => {
                 let _ = bot.answer_callback_query(callback_id).await;
                 if let Some(msg) = q.message {
-                    let text = "🔗 *EDIT REFERRAL ALIAS*\n\n\
-                        Please reply to this message with your new referral code \\(alias\\)\\.\n\n\
-                        *Requirements:*\n\
-                        \\- Unique across all users\n\
-                        \\- Only letters, numbers, and underscores\n\
-                        \\- 3 to 32 characters";
+                    let text = tf(
+                        lang,
+                        "referral.alias_prompt",
+                        &[t(lang, "referral.alias_marker")],
+                    );
 
                     if let Err(e) = bot
                         .send_message(msg.chat().id, text)
-                        .parse_mode(ParseMode::MarkdownV2)
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(ForceReply::new().selective())
                         .await
                     {
@@ -2176,12 +2365,15 @@ pub async fn callback_handler(
             "enter_referrer" => {
                 let _ = bot.answer_callback_query(callback_id).await;
                 if let Some(msg) = q.message {
-                    let text = "🎁 *Enter Referrer Code*\n\n\
-                        Please reply to this message with the referral code of the person who invited you\\.";
+                    let text = tf(
+                        lang,
+                        "referral.referrer_prompt",
+                        &[t(lang, "referral.referrer_marker")],
+                    );
 
                     if let Err(e) = bot
                         .send_message(msg.chat().id, text)
-                        .parse_mode(ParseMode::MarkdownV2)
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(ForceReply::new().selective())
                         .await
                     {
@@ -2201,15 +2393,15 @@ pub async fn callback_handler(
                 match state.store_service.toggle_auto_renewal(sub_id).await {
                     Ok(new_state) => {
                         let status_text = if new_state {
-                            "✅ *Auto\\-Renewal Enabled*\n\nYour subscription will automatically renew 24h before expiration if you have sufficient balance\\."
+                            t(lang, "renew.enabled")
                         } else {
-                            "🔴 *Auto\\-Renewal Disabled*\n\nYou'll need to manually renew your subscription when it expires\\."
+                            t(lang, "renew.disabled")
                         };
 
                         if let Some(msg) = q.message {
                             let _ = bot
                                 .send_message(msg.chat().id, status_text)
-                                .parse_mode(ParseMode::MarkdownV2)
+                                .parse_mode(ParseMode::Html)
                                 .await;
                         }
                     }
@@ -2217,11 +2409,8 @@ pub async fn callback_handler(
                         error!("Failed to toggle auto-renewal: {}", e);
                         if let Some(msg) = q.message {
                             let _ = bot
-                                .send_message(
-                                    msg.chat().id,
-                                    "❌ Failed to update setting\\. Please try again\\.",
-                                )
-                                .parse_mode(ParseMode::MarkdownV2)
+                                .send_message(msg.chat().id, t(lang, "renew.toggle_failed"))
+                                .parse_mode(ParseMode::Html)
                                 .await;
                         }
                     }
@@ -2231,7 +2420,7 @@ pub async fn callback_handler(
             _ => {
                 let _ = bot
                     .answer_callback_query(callback_id)
-                    .text("Feature not yet implemented.")
+                    .text(t(lang, "error.not_implemented"))
                     .await;
             }
         }
@@ -2239,7 +2428,7 @@ pub async fn callback_handler(
     Ok::<_, teloxide::RequestError>(())
 }
 
-fn make_amount_keyboard(prefix: &str) -> InlineKeyboardMarkup {
+fn make_amount_keyboard(lang: Lang, prefix: &str) -> InlineKeyboardMarkup {
     let amounts = [5, 10, 20, 50];
     let mut buttons = Vec::new();
 
@@ -2254,6 +2443,9 @@ fn make_amount_keyboard(prefix: &str) -> InlineKeyboardMarkup {
         }
         buttons.push(row);
     }
-    buttons.push(vec![InlineKeyboardButton::callback("« Back", "topup_menu")]);
+    buttons.push(vec![InlineKeyboardButton::callback(
+        t(lang, "topup.back"),
+        "topup_menu",
+    )]);
     InlineKeyboardMarkup::new(buttons)
 }

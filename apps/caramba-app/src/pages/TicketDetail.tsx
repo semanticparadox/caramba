@@ -268,7 +268,7 @@ export default function TicketDetail() {
                                                         <img
                                                             className="ticket-attach-img"
                                                             src={att.url}
-                                                            alt={att.filename ?? 'attachment'}
+                                                            alt={att.filename ?? t('tickets.attachmentAlt')}
                                                         />
                                                     </a>
                                                 )

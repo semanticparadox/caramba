@@ -17,9 +17,15 @@ export type PaymentProviderApiItem = {
 }
 
 export type PaymentProviderCard = PaymentProviderApiItem & {
-  title: string
-  description: string
-  badge?: string
+  /**
+   * i18n-ключи; резолвит их ProviderPicker — у lib-слоя нет доступа к `t`.
+   * У неизвестного провайдера ключей нет, показываем `*Fallback`.
+   */
+  titleKey?: string
+  titleFallback: string
+  descriptionKey?: string
+  descriptionFallback: string
+  badgeKey?: string
   accent: 'violet' | 'lime' | 'cyan' | 'amber' | 'rose'
   /** Секция для группировки в drawer выбора оплаты. */
   group: PaymentProviderGroup
@@ -45,8 +51,8 @@ export const mapProviderCards = (
       // подбираем группу эвристикой по id, оставляем нейтральный accent.
       return {
         ...provider,
-        title: provider.label,
-        description: fallbackDescription || provider.label,
+        titleFallback: provider.label,
+        descriptionFallback: fallbackDescription || provider.label,
         accent: 'violet' as const,
         group: inferProviderGroup(provider.id),
       }
@@ -54,9 +60,11 @@ export const mapProviderCards = (
 
     return {
       ...provider,
-      title: meta.title,
-      description: meta.description,
-      badge: meta.badge,
+      titleKey: meta.titleKey,
+      titleFallback: provider.label,
+      descriptionKey: meta.descriptionKey,
+      descriptionFallback: fallbackDescription || provider.label,
+      badgeKey: meta.badgeKey,
       accent: meta.accent,
       group: meta.group,
       recommended: meta.recommended,

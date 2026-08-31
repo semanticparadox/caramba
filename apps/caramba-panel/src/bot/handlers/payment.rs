@@ -2,18 +2,22 @@ use teloxide::prelude::*;
 use teloxide::types::{PreCheckoutQuery, PreCheckoutQueryId};
 
 use crate::AppState;
+use crate::bot::translations::{Lang, t};
 use crate::services::payment::stars::{
     MAX_STARS_PER_INVOICE, expected_session_star_amount, parse_session_invoice_payload,
     stars_per_usd,
 };
 
+/// Отклоняет платёж с причиной, которую Telegram покажет пользователю во
+/// всплывающем окне. Текст — plain, без разметки: parse mode тут не бывает.
 async fn reject(
     bot: &Bot,
     id: PreCheckoutQueryId,
-    reason: &str,
+    lang: Lang,
+    key: &str,
 ) -> Result<(), teloxide::RequestError> {
     bot.answer_pre_checkout_query(id, false)
-        .error_message(reason.to_string())
+        .error_message(t(lang, key).to_string())
         .await?;
     Ok(())
 }
@@ -31,14 +35,12 @@ pub async fn pre_checkout_handler(
     q: PreCheckoutQuery,
     state: AppState,
 ) -> Result<(), teloxide::RequestError> {
+    // Язык плательщика: если аккаунта ещё нет, отработает default_language → ru.
+    let lang = crate::bot::utils::lang_by_tg_id(&state, q.from.id.0 as i64).await;
+
     // 1. Amount sanity.
     if q.total_amount == 0 || i64::from(q.total_amount) > MAX_STARS_PER_INVOICE {
-        return reject(
-            &bot,
-            q.id.clone(),
-            "Invalid payment amount. Please try again.",
-        )
-        .await;
+        return reject(&bot, q.id.clone(), lang, "precheckout.bad_amount").await;
     }
 
     // 1b. Mini App / marketplace invoices carry `sess:{uuid}` (StarsProvider).
@@ -59,12 +61,7 @@ pub async fn pre_checkout_handler(
     let payload_user_id = match raw_uid.parse::<i64>() {
         Ok(id) if id > 0 => id,
         _ => {
-            return reject(
-                &bot,
-                q.id.clone(),
-                "Malformed payment session. Please start over.",
-            )
-            .await;
+            return reject(&bot, q.id.clone(), lang, "precheckout.bad_payload").await;
         }
     };
 
@@ -75,32 +72,17 @@ pub async fn pre_checkout_handler(
     match state.store_service.get_user_by_tg_id(tg_id).await {
         Ok(Some(user)) => {
             if user.id != payload_user_id {
-                return reject(
-                    &bot,
-                    q.id.clone(),
-                    "Payment session does not match your account.",
-                )
-                .await;
+                return reject(&bot, q.id.clone(), lang, "precheckout.session_foreign").await;
             }
             if user.is_banned {
-                return reject(&bot, q.id.clone(), "Your account is restricted.").await;
+                return reject(&bot, q.id.clone(), lang, "precheckout.restricted").await;
             }
         }
         Ok(None) => {
-            return reject(
-                &bot,
-                q.id.clone(),
-                "Account not found. Send /start and try again.",
-            )
-            .await;
+            return reject(&bot, q.id.clone(), lang, "precheckout.no_account").await;
         }
         Err(_) => {
-            return reject(
-                &bot,
-                q.id.clone(),
-                "Service temporarily unavailable. Please try again.",
-            )
-            .await;
+            return reject(&bot, q.id.clone(), lang, "precheckout.unavailable").await;
         }
     }
 
@@ -121,6 +103,8 @@ async fn pre_checkout_session(
     state: AppState,
     session_id: uuid::Uuid,
 ) -> Result<(), teloxide::RequestError> {
+    let lang = crate::bot::utils::lang_by_tg_id(&state, q.from.id.0 as i64).await;
+
     let session = match state
         .marketplace_service
         .session_repo
@@ -129,68 +113,38 @@ async fn pre_checkout_session(
     {
         Ok(Some(session)) => session,
         Ok(None) => {
-            return reject(
-                bot,
-                q.id.clone(),
-                "Payment session not found. Please start over.",
-            )
-            .await;
+            return reject(bot, q.id.clone(), lang, "precheckout.session_missing").await;
         }
         Err(_) => {
-            return reject(
-                bot,
-                q.id.clone(),
-                "Service temporarily unavailable. Please try again.",
-            )
-            .await;
+            return reject(bot, q.id.clone(), lang, "precheckout.unavailable").await;
         }
     };
 
     if session.provider != "stars" {
-        return reject(bot, q.id.clone(), "This invoice is not payable with Stars.").await;
+        return reject(bot, q.id.clone(), lang, "precheckout.not_stars").await;
     }
 
     // Already paid / expired / failed: refuse rather than take a charge we would
     // have to refund (fulfill_payment's atomic claim would drop it anyway).
     if session.status != "pending" {
-        return reject(
-            bot,
-            q.id.clone(),
-            "This invoice is no longer payable. Please start over.",
-        )
-        .await;
+        return reject(bot, q.id.clone(), lang, "precheckout.session_closed").await;
     }
 
     let tg_id = q.from.id.0 as i64;
     match state.store_service.get_user_by_tg_id(tg_id).await {
         Ok(Some(user)) => {
             if user.id != session.user_id {
-                return reject(
-                    bot,
-                    q.id.clone(),
-                    "Payment session does not match your account.",
-                )
-                .await;
+                return reject(bot, q.id.clone(), lang, "precheckout.session_foreign").await;
             }
             if user.is_banned {
-                return reject(bot, q.id.clone(), "Your account is restricted.").await;
+                return reject(bot, q.id.clone(), lang, "precheckout.restricted").await;
             }
         }
         Ok(None) => {
-            return reject(
-                bot,
-                q.id.clone(),
-                "Account not found. Send /start and try again.",
-            )
-            .await;
+            return reject(bot, q.id.clone(), lang, "precheckout.no_account").await;
         }
         Err(_) => {
-            return reject(
-                bot,
-                q.id.clone(),
-                "Service temporarily unavailable. Please try again.",
-            )
-            .await;
+            return reject(bot, q.id.clone(), lang, "precheckout.unavailable").await;
         }
     }
 
@@ -203,12 +157,7 @@ async fn pre_checkout_session(
     match expected_session_star_amount(&session, stars_rate) {
         Ok(expected) if i64::from(q.total_amount) >= expected => {}
         _ => {
-            return reject(
-                bot,
-                q.id.clone(),
-                "Invalid payment amount. Please start over.",
-            )
-            .await;
+            return reject(bot, q.id.clone(), lang, "precheckout.amount_mismatch").await;
         }
     }
 

@@ -1,4 +1,6 @@
 import { useTranslation } from 'react-i18next'
+import { useAuth } from '../context/AuthContext'
+import { apiUrl } from '../config'
 import { LANGUAGE_STORAGE_KEY, triggerSelectionHaptic } from '../lib/telegram'
 import './LanguageSwitch.css'
 
@@ -9,17 +11,38 @@ const LANGUAGES = [
 
 export default function LanguageSwitch() {
     const { t, i18n } = useTranslation()
+    const { token } = useAuth()
     const current = i18n.resolvedLanguage === 'en' ? 'en' : 'ru'
 
     const select = (code: string) => {
         if (code === current) return
         triggerSelectionHaptic()
+
+        // Локально переключаемся сразу — интерфейс не должен ждать сеть.
         void i18n.changeLanguage(code)
         try {
             localStorage.setItem(LANGUAGE_STORAGE_KEY, code)
         } catch {
             // choice just won't survive a restart — not worth surfacing
         }
+
+        // И сообщаем серверу: users.language_code — единственный источник
+        // правды для языка уведомлений бота. Без этого переключатель менял бы
+        // только приложение, а DM'ки продолжали бы приходить на старом языке.
+        // Сбой запроса намеренно не откатывает локальный выбор и ничего не
+        // показывает — язык приложения уже переключился, а сервер догонит при
+        // следующем переключении.
+        if (!token) return
+        void fetch(apiUrl('/api/client/user/language'), {
+            method: 'PUT',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ language: code }),
+        }).catch(() => {
+            // сеть недоступна — локальный выбор остаётся в силе
+        })
     }
 
     return (
