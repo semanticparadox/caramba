@@ -3,6 +3,9 @@ use sqlx::PgPool;
 use teloxide::prelude::*;
 use tracing::{info, warn};
 
+use crate::bot::translations::{Lang, default_language_setting, resolve_lang, tf};
+use crate::bot::utils::escape_html;
+
 /// Service for sending notifications to users via Telegram bot
 pub struct NotificationService {
     pool: PgPool,
@@ -43,11 +46,15 @@ impl NotificationService {
             node_id
         );
 
+        // Настройку читаем один раз на всю рассылку, а не на каждого адресата.
+        let default_language = default_language_setting(&self.pool).await;
+
         let mut notified_count = 0;
         let mut failed_count = 0;
 
         for user in &users {
-            let message = self.format_rotation_message(old_sni, new_sni, rotation_id);
+            let lang = resolve_lang(user.language_code.as_deref(), default_language.as_deref());
+            let message = self.format_rotation_message(lang, old_sni, new_sni, rotation_id);
 
             match bot
                 .send_message(ChatId(user.tg_id), message)
@@ -86,6 +93,7 @@ impl NotificationService {
                 u.id, 
                 u.tg_id, 
                 COALESCE(u.username, 'User') as username
+                ,u.language_code
              FROM users u
              INNER JOIN subscriptions s ON u.id = s.user_id
              WHERE s.node_id = $1
@@ -101,20 +109,23 @@ impl NotificationService {
         Ok(users)
     }
 
-    fn format_rotation_message(&self, old_sni: &str, new_sni: &str, rotation_id: i64) -> String {
-        format!(
-            "⚠️ <b>Connection Update Required</b>\n\n\
-              Your VPN configuration has been automatically updated for improved stability.\n\n\
-              <b>Previous domain:</b> <code>{}</code>\n\
-              <b>New domain:</b> <code>{}</code>\n\n\
-              <b>📱 Action Required:</b>\n\
-              Please reconnect to apply the changes:\n\
-              1️⃣ Disconnect from VPN\n\
-              2️⃣ Wait 10 seconds\n\
-              3️⃣ Reconnect to VPN\n\n\
-              Your new configuration is ready. No need to re-download.\n\n\
-              <i>Rotation ID: #{}</i>",
-            old_sni, new_sni, rotation_id
+    /// Сообщение отправляется в HTML parse mode (см. вызов выше), поэтому
+    /// подставляемые домены экранируются под HTML.
+    fn format_rotation_message(
+        &self,
+        lang: Lang,
+        old_sni: &str,
+        new_sni: &str,
+        rotation_id: i64,
+    ) -> String {
+        tf(
+            lang,
+            "notify.sni_rotation",
+            &[
+                &escape_html(old_sni),
+                &escape_html(new_sni),
+                &rotation_id.to_string(),
+            ],
         )
     }
 }
@@ -126,6 +137,7 @@ struct AffectedUser {
     id: i64,
     tg_id: i64,
     username: String,
+    language_code: Option<String>,
 }
 
 #[cfg(test)]
@@ -139,11 +151,30 @@ mod tests {
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap();
         let service = NotificationService::new(pool);
 
-        let message = service.format_rotation_message("www.google.com", "www.cloudflare.com", 42);
+        // По умолчанию — русский.
+        let ru =
+            service.format_rotation_message(Lang::Ru, "www.google.com", "www.cloudflare.com", 42);
+        assert!(ru.contains("www.google.com"));
+        assert!(ru.contains("www.cloudflare.com"));
+        assert!(ru.contains("ID ротации: #42"));
+        assert!(ru.contains("Отключите VPN"));
 
-        assert!(message.contains("www.google.com"));
-        assert!(message.contains("www.cloudflare.com"));
-        assert!(message.contains("Rotation ID: #42"));
-        assert!(message.contains("Disconnect from VPN"));
+        // Английский — только по явному выбору пользователя.
+        let en =
+            service.format_rotation_message(Lang::En, "www.google.com", "www.cloudflare.com", 42);
+        assert!(en.contains("Rotation ID: #42"));
+        assert!(en.contains("Disconnect from VPN"));
+    }
+
+    /// Домены попадают в HTML-сообщение, поэтому `<` и `&` обязаны быть
+    /// экранированы — иначе Telegram отклонит всё сообщение как битый HTML.
+    #[tokio::test]
+    async fn rotation_message_escapes_html() {
+        let pool = sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap();
+        let service = NotificationService::new(pool);
+
+        let msg = service.format_rotation_message(Lang::Ru, "a<b&c", "d>e", 1);
+        assert!(msg.contains("a&lt;b&amp;c"));
+        assert!(msg.contains("d&gt;e"));
     }
 }

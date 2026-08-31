@@ -241,14 +241,22 @@ pub async fn subscription_handler(
                         .unwrap_or(None);
 
                 if let Some(tg_id) = tg_id {
-                    let msg = format!(
-                        "📵 *Device Limit Reached*\n\n\
-                         A new device \\(`{current_ip}`\\) tried to connect to your \
-                         subscription but was blocked\\.\n\
-                         Limit: *{device_limit}* device\\(s\\)\\.\n\n\
-                         Remove an existing device in the Mini App to connect a new one\\."
+                    let lang = crate::bot::utils::lang_by_tg_id(&state, tg_id).await;
+                    let msg = crate::bot::translations::tf(
+                        lang,
+                        "devices.blocked_dm",
+                        &[
+                            &crate::bot::utils::escape_html(current_ip),
+                            &device_limit.to_string(),
+                        ],
                     );
-                    let _ = state.bot_manager.send_notification(tg_id, &msg).await;
+                    let _ = state
+                        .bot_manager
+                        .send_rich_notification(
+                            tg_id,
+                            crate::bot_manager::NotificationPayload::html(msg),
+                        )
+                        .await;
                 }
             }
 

@@ -342,6 +342,8 @@ pub struct SettingsTemplate {
     pub admin_notification_tg_ids: String,
     pub terms_of_service: String,
     pub bot_buttons_mode: String,
+    /// Язык для пользователей без выбранного `users.language_code`: "ru" | "en".
+    pub default_language: String,
     pub bot_support_button_always_on: bool,
     pub decoy_enabled: bool,
     pub decoy_urls: String,
@@ -525,6 +527,7 @@ pub struct SaveSettingsForm {
     pub admin_notification_tg_ids: Option<String>,
     pub terms_of_service: Option<String>,
     pub bot_buttons_mode: Option<String>,
+    pub default_language: Option<String>,
     pub bot_support_button_always_on: Option<String>,
     pub decoy_enabled: Option<String>,
     pub decoy_urls: Option<String>,
@@ -691,6 +694,13 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     let bot_buttons_mode = state
         .settings
         .get_or_default("bot_buttons_mode", "full")
+        .await;
+    let default_language = state
+        .settings
+        .get_or_default(
+            crate::bot::translations::DEFAULT_LANGUAGE_SETTING,
+            crate::bot::translations::Lang::DEFAULT.as_str(),
+        )
         .await;
     let bot_support_button_always_on = state
         .settings
@@ -1181,6 +1191,7 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         admin_notification_tg_ids,
         terms_of_service,
         bot_buttons_mode,
+        default_language,
         bot_support_button_always_on,
         decoy_enabled,
         decoy_urls,
@@ -1565,6 +1576,18 @@ pub async fn save_settings(
     }
     if let Some(v) = form.bot_buttons_mode {
         settings.insert("bot_buttons_mode".to_string(), v);
+    }
+    // Пишем только распознанный код — резолвер должен уметь его прочитать,
+    // мусор в этой настройке молча вернул бы всех к русскому.
+    if let Some(lang) = form
+        .default_language
+        .as_deref()
+        .and_then(crate::bot::translations::Lang::parse)
+    {
+        settings.insert(
+            crate::bot::translations::DEFAULT_LANGUAGE_SETTING.to_string(),
+            lang.as_str().to_string(),
+        );
     }
     settings.insert(
         "bot_support_button_always_on".to_string(),

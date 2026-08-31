@@ -81,24 +81,16 @@ pub async fn upsert_user(
                     .or_else(|| user.username.clone())
                     .unwrap_or_else(|| "there".to_string());
                 let user_id = user.id;
-                let lang = user.language_code.clone().unwrap_or_default();
-                let is_ru = lang.starts_with("ru");
-                let title = if is_ru {
-                    "Добро пожаловать в Caramba VPN!".to_string()
-                } else {
-                    "Welcome to Caramba VPN!".to_string()
-                };
-                let body = if is_ru {
-                    format!(
-                        "Здравствуйте, {}!\n\nВыберите тариф во вкладке «Подписка», подключите устройство в «Устройствах» — и трафик пойдёт. Если что-то не работает — откройте тикет в поддержке, мы быстро отвечаем.",
-                        display_name
-                    )
-                } else {
-                    format!(
-                        "Hi {}!\n\nPick a plan in Subscription, connect a device in Devices, and you're online. If anything's off, open a support ticket — we reply fast.",
-                        display_name
-                    )
-                };
+                // Раньше пустой language_code давал английский; теперь работает
+                // общий порядок: language_code → default_language → ru.
+                let lang = crate::bot::translations::lang_for(
+                    &state.settings,
+                    user.language_code.as_deref(),
+                )
+                .await;
+                let title = crate::bot::translations::t(lang, "welcome.notif_title").to_string();
+                let body =
+                    crate::bot::translations::tf(lang, "welcome.notif_body", &[&display_name]);
                 tokio::spawn(async move {
                     let _ = svc
                         .create(
@@ -677,12 +669,16 @@ pub async fn referral_signup_bonus(
                         .await
                         .unwrap_or(None);
                 if let Some(tid) = tg_id {
+                    let lang = crate::bot::utils::lang_by_tg_id(&state, tid).await;
                     let amount = format!("{:.2}", referrer_bonus as f64 / 100.0);
-                    let msg = format!(
-                        "🎉 *Referral Bonus*\n\nYour friend joined via your referral link\\! \\+*${}* added to your balance\\.",
-                        amount
-                    );
-                    let _ = state.bot_manager.send_notification(tid, &msg).await;
+                    let msg = crate::bot::translations::tf(lang, "referral.bonus_dm", &[&amount]);
+                    let _ = state
+                        .bot_manager
+                        .send_rich_notification(
+                            tid,
+                            crate::bot_manager::NotificationPayload::html(msg),
+                        )
+                        .await;
                 }
             }
 
@@ -695,12 +691,17 @@ pub async fn referral_signup_bonus(
                         .await
                         .unwrap_or(None);
                 if let Some(tid) = tg_id {
+                    let lang = crate::bot::utils::lang_by_tg_id(&state, tid).await;
                     let amount = format!("{:.2}", referred_bonus as f64 / 100.0);
-                    let msg = format!(
-                        "🎁 *Welcome Bonus*\n\n\\+*${}* has been added to your balance as a referral welcome gift\\!",
-                        amount
-                    );
-                    let _ = state.bot_manager.send_notification(tid, &msg).await;
+                    let msg =
+                        crate::bot::translations::tf(lang, "referral.welcome_bonus_dm", &[&amount]);
+                    let _ = state
+                        .bot_manager
+                        .send_rich_notification(
+                            tid,
+                            crate::bot_manager::NotificationPayload::html(msg),
+                        )
+                        .await;
                 }
             }
 

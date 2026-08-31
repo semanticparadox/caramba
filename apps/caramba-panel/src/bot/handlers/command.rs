@@ -1,10 +1,115 @@
 use crate::AppState;
 use crate::bot::keyboards::{language_keyboard, main_menu, terms_keyboard};
-use crate::bot::utils::{escape_md, register_bot_message};
+use crate::bot::translations::{Lang, contains_any_lang, lang_for, matches_any_lang, t, tf};
+use crate::bot::utils::{escape_html, register_bot_message};
 use crate::services::logging_service::LoggingService;
 use teloxide::prelude::*;
 use teloxide::types::{ChatId, ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
 use tracing::{error, info};
+
+/// Пункт меню, к которому свелось входящее сообщение.
+///
+/// Reply-клавиатура присылает подпись кнопки обычным текстом, а подписи теперь
+/// локализованы — значит распознавать надо и русский, и английский вариант.
+/// Плюс старые английские подписи: у пользователей, открывших бота до
+/// локализации, клавиатура остаётся отрисованной со старым текстом, пока они не
+/// нажмут /start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MenuAction {
+    Store,
+    Cart,
+    RedeemCode,
+    BuyPlans,
+    Profile,
+    Services,
+    Referral,
+    Support,
+    Devices,
+    Leaderboard,
+    Login,
+}
+
+fn menu_action(text: &str) -> Option<MenuAction> {
+    use MenuAction::*;
+
+    // Слэш-команды — язык не важен.
+    match text {
+        "/cart" => return Some(Cart),
+        "/enter_promo" => return Some(RedeemCode),
+        "/plans" => return Some(BuyPlans),
+        "/profile" => return Some(Profile),
+        "/services" => return Some(Services),
+        "/referral" => return Some(Referral),
+        "/devices" => return Some(Devices),
+        "/leaderboard" => return Some(Leaderboard),
+        "/login" => return Some(Login),
+        _ => {}
+    }
+
+    // Устаревшие английские подписи с уже отрисованных клавиатур.
+    match text {
+        "📦 Digital Store" => return Some(Store),
+        "🛒 My Cart" => return Some(Cart),
+        "🎁 Redeem Code" => return Some(RedeemCode),
+        "🛍 Buy Subscription" => return Some(BuyPlans),
+        "👤 My Profile" => return Some(Profile),
+        "🔐 My Services" => return Some(Services),
+        "🎁 Bonuses / Referral" => return Some(Referral),
+        "❓ Support" => return Some(Support),
+        "📱 My Devices" => return Some(Devices),
+        "🏆 Leaderboard" => return Some(Leaderboard),
+        "🔑 Open in app" | "🔑 Войти в приложение" => return Some(Login),
+        _ => {}
+    }
+
+    // Актуальные подписи — на любом поддерживаемом языке.
+    for (key, action) in [
+        ("menu.store", Store),
+        ("cart.view", Cart),
+        ("promo.enter_code_btn", RedeemCode),
+        ("menu.buy", BuyPlans),
+        ("menu.profile", Profile),
+        ("menu.services", Services),
+        ("menu.referral", Referral),
+        ("menu.support", Support),
+        ("menu.open_app", Login),
+    ] {
+        if matches_any_lang(text, key) {
+            return Some(action);
+        }
+    }
+
+    None
+}
+
+/// Форматирует сумму в минорных единицах (центах) как "12.34".
+pub fn money(cents: i64) -> String {
+    format!("{}.{:02}", cents / 100, (cents % 100).abs())
+}
+
+/// Главное меню с текущими настройками отображения.
+async fn menu_markup(state: &AppState, lang: Lang) -> teloxide::types::KeyboardMarkup {
+    let app_mode = state
+        .settings
+        .get_or_default("bot_buttons_mode", "full")
+        .await
+        == "app_only";
+    let always_support = state
+        .settings
+        .get_bool_or_default("bot_support_button_always_on", true)
+        .await;
+    main_menu(lang, app_mode, always_support)
+}
+
+/// Первое число после `#` в тексте — id подписки из нашей же подсказки.
+///
+/// Язык подсказки на разбор не влияет: `#42` выглядит одинаково на всех языках,
+/// поэтому парсер не привязан к английской фразе «Subscription #».
+fn first_hash_id(text: &str) -> Option<i64> {
+    let rest = text.split_once('#')?.1;
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse::<i64>().ok()
+}
 
 /// Fulfil a Telegram Stars charge that belongs to a `payment_sessions` row
 /// (invoice payload `sess:{uuid}`, produced by `StarsProvider`).
@@ -29,6 +134,7 @@ async fn fulfill_stars_session_payment(
     charge_id: &str,
 ) {
     let tg_id = chat_id.0;
+    let lang = crate::bot::utils::lang_by_tg_id(state, tg_id).await;
 
     let session = match state
         .marketplace_service
@@ -49,12 +155,7 @@ async fn fulfill_stars_session_payment(
                     session_id, charge_id, paid_stars, tg_id
                 ),
             );
-            let _ = bot
-                .send_message(
-                    chat_id,
-                    "❌ We received your payment but could not match it to an order. Please contact support.",
-                )
-                .await;
+            let _ = bot.send_message(chat_id, t(lang, "pay.unmatched")).await;
             return;
         }
         Err(e) => {
@@ -63,10 +164,7 @@ async fn fulfill_stars_session_payment(
                 session_id, charge_id, e
             );
             let _ = bot
-                .send_message(
-                    chat_id,
-                    "❌ Error processing payment. Please contact support.",
-                )
+                .send_message(chat_id, t(lang, "pay.error_contact_support"))
                 .await;
             return;
         }
@@ -89,10 +187,7 @@ async fn fulfill_stars_session_payment(
                     session_id, charge_id, e
                 );
                 let _ = bot
-                    .send_message(
-                        chat_id,
-                        "❌ Error processing payment. Please contact support.",
-                    )
+                    .send_message(chat_id, t(lang, "pay.error_contact_support"))
                     .await;
                 return;
             }
@@ -116,10 +211,7 @@ async fn fulfill_stars_session_payment(
             ),
         );
         let _ = bot
-            .send_message(
-                chat_id,
-                "❌ The paid amount does not match the invoice. Your order was not activated — please contact support.",
-            )
+            .send_message(chat_id, t(lang, "pay.amount_mismatch"))
             .await;
         return;
     }
@@ -155,10 +247,7 @@ async fn fulfill_stars_session_payment(
                 ),
             );
             let _ = bot
-                .send_message(
-                    chat_id,
-                    "❌ Error processing payment. Please contact support.",
-                )
+                .send_message(chat_id, t(lang, "pay.error_contact_support"))
                 .await;
         }
     }
@@ -183,6 +272,7 @@ pub async fn message_handler(
     let tg_id = msg.chat.id.0;
 
     if let Some(payment) = msg.successful_payment() {
+        let lang = crate::bot::utils::lang_by_tg_id(&state, tg_id).await;
         // Two payload dialects arrive here:
         //   * `sess:{uuid}`  — Mini App / marketplace checkout (StarsProvider).
         //                      Fulfilled through MarketplaceService so plan
@@ -249,16 +339,13 @@ pub async fn message_handler(
                 .await;
 
                 let _ = bot
-                    .send_message(msg.chat.id, "✅ Payment successful! Balance updated.")
+                    .send_message(msg.chat.id, t(lang, "pay.topup_success"))
                     .await;
             }
             Err(e) => {
                 error!("Stars payment processing failed: {}", e);
                 let _ = bot
-                    .send_message(
-                        msg.chat.id,
-                        "❌ Error processing payment. Please contact support.",
-                    )
+                    .send_message(msg.chat.id, t(lang, "pay.error_contact_support"))
                     .await;
             }
         }
@@ -338,9 +425,17 @@ pub async fn message_handler(
                                 .await
                                 .unwrap_or(None);
                         if let Some(ref_tg_id) = referrer_tg_id {
-                            let msg =
-                                "👤 Новый реферал\\! Пользователь присоединился по вашей ссылке\\.";
-                            let _ = state.bot_manager.send_notification(ref_tg_id, msg).await;
+                            // Язык РЕФЕРРЕРА, а не того, кто только что нажал /start.
+                            let ref_lang =
+                                crate::bot::utils::lang_by_tg_id(&state, ref_tg_id).await;
+                            let payload = crate::bot_manager::NotificationPayload::plain(t(
+                                ref_lang,
+                                "referral.new_referral_dm",
+                            ));
+                            let _ = state
+                                .bot_manager
+                                .send_rich_notification(ref_tg_id, payload)
+                                .await;
                         }
                     }
 
@@ -361,20 +456,27 @@ pub async fn message_handler(
             user
         };
 
+        // Язык для всех ответов ниже: users.language_code → настройка
+        // `default_language` → ru (см. bot::translations::resolve_lang).
+        let lang = lang_for(
+            &state.settings,
+            user_res.as_ref().and_then(|u| u.language_code.as_deref()),
+        )
+        .await;
+
         // 2. State Machine Checks
         if let Some(user) = user_res {
             if user.is_banned {
                 let _ = bot
-                    .send_message(
-                        msg.chat.id,
-                        "🚫 *Access Denied*\n\nYour account has been banned\\.",
-                    )
-                    .parse_mode(ParseMode::MarkdownV2)
+                    .send_message(msg.chat.id, t(lang, "error.banned"))
+                    .parse_mode(ParseMode::Html)
                     .await;
                 return Ok(());
             }
 
             if user.language_code.is_none() {
+                // НАМЕРЕННО двуязычно: язык ещё не выбран, и это единственное
+                // сообщение, которое пользователь обязан понять на любом языке.
                 let _ = bot
                     .send_message(
                         msg.chat.id,
@@ -394,34 +496,46 @@ pub async fn message_handler(
                     if user.warning_count >= 5 {
                         let _ = state.store_service.ban_user(user.id).await;
                         let _ = bot
-                            .send_message(
-                                msg.chat.id,
-                                "🚫 <b>Account Banned</b> due to spam/botting.",
-                            )
+                            .send_message(msg.chat.id, t(lang, "error.banned_spam"))
                             .parse_mode(ParseMode::Html)
                             .await;
                         return Ok(());
                     }
                 }
+                // Текст соглашения задаёт оператор — переводить его мы не можем.
+                // Отдаём БЕЗ экранирования, как и раньше: в текущих настройках
+                // там может лежать размеченный HTML, и экранирование сломало бы
+                // вёрстку у действующих операторов. Локализуем только обвязку.
+                // (Обратная сторона: голый `&` или `<` в соглашении уронит
+                //  отправку — это давняя особенность, не трогаем её здесь.)
                 let terms_text: String = state
                     .store_service
                     .get_setting("terms_of_service")
                     .await
                     .ok()
                     .flatten()
-                    .unwrap_or_else(|| "Terms of Service...".to_string());
+                    .unwrap_or_else(|| t(lang, "terms.placeholder").to_string());
 
-                let _ = bot.send_message(msg.chat.id, format!("📜 <b>Terms of Service</b>\n\n{}\n\nPlease accept the terms to continue.", terms_text))
+                let _ = bot
+                    .send_message(
+                        msg.chat.id,
+                        format!(
+                            "{}\n\n{}\n\n{}",
+                            t(lang, "terms.title"),
+                            terms_text,
+                            t(lang, "terms.prompt")
+                        ),
+                    )
                     .parse_mode(ParseMode::Html)
-                    .reply_markup(terms_keyboard())
+                    .reply_markup(terms_keyboard(lang))
                     .await
                     .map(move |m| {
-                         let state = state.clone();
-                         let bot = bot.clone();
-                         let uid = user.id;
-                         tokio::spawn(async move {
-                             register_bot_message(bot, &state, uid, &m).await;
-                         });
+                        let state = state.clone();
+                        let bot = bot.clone();
+                        let uid = user.id;
+                        tokio::spawn(async move {
+                            register_bot_message(bot, &state, uid, &m).await;
+                        });
                     })
                     .map_err(|e| error!("Failed to send terms: {}", e));
                 return Ok(());
@@ -456,26 +570,7 @@ pub async fn message_handler(
                     .as_ref()
                     .map(|u| u.full_name())
                     .unwrap_or_else(|| "User".to_string());
-                let welcome_text = format!(
-                    "👋 <b>Привет, {}!</b>\n\n\
-                    Добро пожаловать в EXA ROBOT — ваш персональный VPN-сервис.\n\n\
-                    📱 <b>Как подключиться:</b>\n\
-                    1. Откройте Mini App кнопкой «Запустить» ниже\n\
-                    2. Выберите и оплатите подходящий тариф\n\
-                    3. Нажмите «Подключить в Hiddify» или «Подключить в Happ» — конфигурация импортируется автоматически\n\
-                    4. Также вы можете нажать «Скопировать ссылку» и вставить её вручную в любое совместимое VPN-приложение (Hiddify, Happ, Streisand, V2rayNG, Koala Clash и др.)\n\n\
-                    🌍 <b>Обход блокировок (Relay):</b>\n\
-                    Если в вашей стране действуют интернет-блокировки или белые списки — \
-                    откройте раздел «Выбрать сервер» и включите Relay для вашей страны. \
-                    Relay направит трафик через промежуточный сервер в вашем регионе, \
-                    что позволяет обойти ограничения.\n\
-                    После любых изменений настроек обновите подписку в VPN-приложении \
-                    (потяните вниз или удалите и добавьте профиль заново).\n\n\
-                    📲 <b>Скачать приложение:</b>\n\
-                    • Android/iOS — <a href=\"https://hiddify.com\">Hiddify</a>\n\
-                    • Windows/macOS/Linux — <a href=\"https://github.com/coolcoala/koala-clash\">Koala Clash</a>",
-                    user_name
-                );
+                let welcome_text = tf(lang, "welcome.start", &[&escape_html(&user_name)]);
                 let bot_for_task = bot.clone();
                 let state_for_task = state.clone();
                 let bot_buttons_mode = state
@@ -491,7 +586,7 @@ pub async fn message_handler(
                 let _ = bot
                     .send_message(msg.chat.id, welcome_text)
                     .parse_mode(ParseMode::Html)
-                    .reply_markup(main_menu(app_mode, always_support))
+                    .reply_markup(main_menu(lang, app_mode, always_support))
                     .await
                     .map(move |m| {
                         let uid = user.id;
@@ -508,7 +603,7 @@ pub async fn message_handler(
                         .set_chat_menu_button()
                         .chat_id(msg.chat.id)
                         .menu_button(teloxide::types::MenuButton::WebApp {
-                            text: "🚀 Запустить".to_string(),
+                            text: t(lang, "menu.launch_app").to_string(),
                             web_app: teloxide::types::WebAppInfo {
                                 url: web_app_url.parse().unwrap(),
                             },
@@ -524,33 +619,22 @@ pub async fn message_handler(
         }
 
         // 3. Normal Message Processing (User is verified)
-        // Check for Reply to Transfer or Note
+        //
+        // Ответы на наши подсказки распознаются по КОРОТКОМУ МАРКЕРУ, который мы
+        // сами вставили в текст подсказки, и проверяются на обоих языках: юзер
+        // мог получить подсказку по-русски, переключить язык и ответить.
+        // Маркеры не содержат разметки, поэтому совпадают с тем, что Telegram
+        // реально отрисовал в чате.
         if let Some(reply) = msg.reply_to_message()
             && let Some(reply_text) = reply.text()
         {
             info!("Processing reply to message with text: [{}]", reply_text);
             info!("User reply body: [{}]", text);
-            // Note Update
-            if let Some(start_idx) = reply_text.find('#') {
-                let id_part = &reply_text[start_idx + 1..];
-                let id_str = id_part.trim_end_matches('.');
-                if let Ok(sub_id) = id_str.parse::<i64>() {
-                    let _ = state
-                        .store_service
-                        .update_subscription_note(sub_id, text.to_string())
-                        .await;
-                    let _ = bot.send_message(msg.chat.id, "✅ Note updated!").await;
-                    return Ok(());
-                }
-            }
-            // Transfer
-            if reply_text.contains("Transfer Subscription")
-                && reply_text.contains("Subscription #")
-                && let Some(start) = reply_text.find("Subscription #")
-            {
-                let rest = &reply_text[start + "Subscription #".len()..];
-                let id_str = rest.split_whitespace().next().unwrap_or("0");
-                if let Ok(sub_id) = id_str.parse::<i64>() {
+
+            // Transfer — проверяем ПЕРЕД заметкой: обе подсказки содержат "#id",
+            // и общая проверка по '#' раньше перехватывала переносы.
+            if contains_any_lang(reply_text, "transfer.marker") {
+                if let Some(sub_id) = first_hash_id(reply_text) {
                     let user_db: Option<caramba_db::models::store::User> = state
                         .store_service
                         .get_user_by_tg_id(tg_id)
@@ -564,30 +648,53 @@ pub async fn message_handler(
                             .await
                         {
                             Ok(_) => {
-                                let _ = bot.send_message(msg.chat.id, format!("✅ Subscription \\#{} transferred to {} successfully\\!", sub_id, escape_md(text))).parse_mode(ParseMode::MarkdownV2).await;
+                                let _ = bot
+                                    .send_message(
+                                        msg.chat.id,
+                                        tf(
+                                            lang,
+                                            "transfer.ok",
+                                            &[&sub_id.to_string(), &escape_html(text)],
+                                        ),
+                                    )
+                                    .parse_mode(ParseMode::Html)
+                                    .await;
                             }
                             Err(e) => {
                                 let _ = bot
                                     .send_message(
                                         msg.chat.id,
-                                        format!(
-                                            "❌ Transfer failed: {}",
-                                            escape_md(&e.to_string())
+                                        tf(
+                                            lang,
+                                            "transfer.failed",
+                                            &[&escape_html(&e.to_string())],
                                         ),
                                     )
-                                    .parse_mode(ParseMode::MarkdownV2)
+                                    .parse_mode(ParseMode::Html)
                                     .await;
                             }
                         }
                     }
-                    return Ok(());
                 }
+                return Ok(());
             }
 
-            // Gift Code
-            if reply_text.contains("🎟 Enter your Gift Code")
-                || reply_text.contains("🎟 Enter your Promo Code")
+            // Note Update
+            if contains_any_lang(reply_text, "services.note_prompt_marker")
+                && let Some(sub_id) = first_hash_id(reply_text)
             {
+                let _ = state
+                    .store_service
+                    .update_subscription_note(sub_id, text.to_string())
+                    .await;
+                let _ = bot
+                    .send_message(msg.chat.id, t(lang, "services.note_updated"))
+                    .await;
+                return Ok(());
+            }
+
+            // Gift / Promo Code
+            if contains_any_lang(reply_text, "promo.redeem_marker") {
                 let code = text.trim();
                 let user_db: Option<caramba_db::models::store::User> = state
                     .store_service
@@ -601,18 +708,22 @@ pub async fn message_handler(
                             let _ = bot
                                 .send_message(
                                     msg.chat.id,
-                                    format!("✅ *Success\\!*\n\n{}", escape_md(&res_msg)),
+                                    tf(lang, "promo.redeem_ok", &[&escape_html(&res_msg)]),
                                 )
-                                .parse_mode(ParseMode::MarkdownV2)
+                                .parse_mode(ParseMode::Html)
                                 .await;
                         }
                         Err(e) => {
                             let _ = bot
                                 .send_message(
                                     msg.chat.id,
-                                    format!("❌ Redemption Failed: {}", escape_md(&e.to_string())),
+                                    tf(
+                                        lang,
+                                        "promo.redeem_failed",
+                                        &[&escape_html(&e.to_string())],
+                                    ),
                                 )
-                                .parse_mode(ParseMode::MarkdownV2)
+                                .parse_mode(ParseMode::Html)
                                 .await;
                         }
                     }
@@ -621,17 +732,23 @@ pub async fn message_handler(
             }
 
             // Edit Referral Code Alias
-            if reply_text.contains("EDIT REFERRAL ALIAS") {
+            if contains_any_lang(reply_text, "referral.alias_marker") {
                 let new_code = text.trim();
 
                 // Basic validation
                 if new_code.len() < 3 || new_code.len() > 32 {
-                    let _ = bot.send_message(msg.chat.id, "❌ *Invalid Length*\n\nReferral alias must be between 3 and 32 characters\\.").parse_mode(ParseMode::MarkdownV2).await;
+                    let _ = bot
+                        .send_message(msg.chat.id, t(lang, "referral.alias_bad_length"))
+                        .parse_mode(ParseMode::Html)
+                        .await;
                     return Ok(());
                 }
 
                 if !new_code.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                    let _ = bot.send_message(msg.chat.id, "❌ *Invalid Characters*\n\nReferral alias can only contain letters, numbers, and underscores\\.").parse_mode(ParseMode::MarkdownV2).await;
+                    let _ = bot
+                        .send_message(msg.chat.id, t(lang, "referral.alias_bad_chars"))
+                        .parse_mode(ParseMode::Html)
+                        .await;
                     return Ok(());
                 }
 
@@ -655,24 +772,24 @@ pub async fn message_handler(
                             let new_link =
                                 format!("https://t.me/{}?start={}", bot_username, new_code);
 
-                            let response = format!(
-                                "✅ *Referral Alias Updated\\!*\n\n\
-                                        Your new data:\n\
-                                        Code: `{}`\n\
-                                        Link: `{}`",
-                                new_code.replace("`", "\\`").replace("\\", "\\\\"),
-                                new_link.replace("`", "\\`").replace("\\", "\\\\")
+                            let response = tf(
+                                lang,
+                                "referral.alias_updated",
+                                &[&escape_html(new_code), &escape_html(&new_link)],
                             );
                             if let Err(e) = bot
                                 .send_message(msg.chat.id, response)
-                                .parse_mode(ParseMode::MarkdownV2)
+                                .parse_mode(ParseMode::Html)
                                 .await
                             {
                                 error!("Failed to send alias update confirmation: {}", e);
                             }
                         }
                         Err(_e) => {
-                            let _ = bot.send_message(msg.chat.id, "❌ *Update Failed*\n\nThis alias might already be taken or invalid\\.").parse_mode(ParseMode::MarkdownV2).await;
+                            let _ = bot
+                                .send_message(msg.chat.id, t(lang, "referral.alias_update_failed"))
+                                .parse_mode(ParseMode::Html)
+                                .await;
                         }
                     }
                 }
@@ -680,7 +797,7 @@ pub async fn message_handler(
             }
 
             // Enter Referrer Code
-            if reply_text.contains("Enter Referrer Code") {
+            if contains_any_lang(reply_text, "referral.referrer_marker") {
                 let ref_code = text.trim();
                 let user_db: Option<caramba_db::models::store::User> = state
                     .store_service
@@ -691,7 +808,10 @@ pub async fn message_handler(
                 if let Some(u) = user_db {
                     match state.store_service.set_user_referrer(u.id, ref_code).await {
                         Ok(_) => {
-                            let _ = bot.send_message(msg.chat.id, "✅ *Referrer Linked\\!*\n\nYou've successfully set your referrer\\.").parse_mode(ParseMode::MarkdownV2).await;
+                            let _ = bot
+                                .send_message(msg.chat.id, t(lang, "referral.referrer_linked"))
+                                .parse_mode(ParseMode::Html)
+                                .await;
 
                             // Notify referrer about new referral
                             let referrer_tg_id: Option<i64> = sqlx::query_scalar(
@@ -702,10 +822,16 @@ pub async fn message_handler(
                                 .await
                                 .unwrap_or(None);
                             if let Some(ref_tg_id) = referrer_tg_id {
-                                let notify_msg = "👤 Новый реферал\\! Пользователь присоединился по вашей ссылке\\.";
+                                // Язык реферрера, а не текущего пользователя.
+                                let ref_lang =
+                                    crate::bot::utils::lang_by_tg_id(&state, ref_tg_id).await;
+                                let payload = crate::bot_manager::NotificationPayload::plain(t(
+                                    ref_lang,
+                                    "referral.new_referral_dm",
+                                ));
                                 let _ = state
                                     .bot_manager
-                                    .send_notification(ref_tg_id, notify_msg)
+                                    .send_rich_notification(ref_tg_id, payload)
                                     .await;
                             }
                         }
@@ -713,9 +839,13 @@ pub async fn message_handler(
                             let _ = bot
                                 .send_message(
                                     msg.chat.id,
-                                    format!("❌ Linking Failed: {}", escape_md(&e.to_string())),
+                                    tf(
+                                        lang,
+                                        "referral.referrer_link_failed",
+                                        &[&escape_html(&e.to_string())],
+                                    ),
                                 )
-                                .parse_mode(ParseMode::MarkdownV2)
+                                .parse_mode(ParseMode::Html)
                                 .await;
                         }
                     }
@@ -825,10 +955,16 @@ pub async fn message_handler(
             }
         }
 
-        // Commands and Menus
-        match text {
-            // /start is already handled above in flow
-            "📦 Digital Store" => {
+        // Commands and Menus.
+        // Подписи reply-кнопок приходят обычным текстом, поэтому сводим их к
+        // MenuAction (распознаётся на обоих языках + старые английские подписи).
+        let Some(action) = menu_action(text) else {
+            // Неизвестный текст — молча игнорируем (как и раньше).
+            return Ok(());
+        };
+
+        match action {
+            MenuAction::Store => {
                 let categories: Vec<caramba_db::models::store::StoreCategory> = state
                     .catalog_service
                     .get_categories()
@@ -836,18 +972,8 @@ pub async fn message_handler(
                     .unwrap_or_default();
                 if categories.is_empty() {
                     let _ = bot
-                        .send_message(msg.chat.id, "❌ The store is currently empty.")
-                        .reply_markup(main_menu(
-                            state
-                                .settings
-                                .get_or_default("bot_buttons_mode", "full")
-                                .await
-                                == "app_only",
-                            state
-                                .settings
-                                .get_bool_or_default("bot_support_button_always_on", true)
-                                .await,
-                        ))
+                        .send_message(msg.chat.id, t(lang, "store.empty"))
+                        .reply_markup(menu_markup(&state, lang).await)
                         .await;
                 } else {
                     let mut buttons = Vec::new();
@@ -860,22 +986,20 @@ pub async fn message_handler(
 
                     // Add "View Cart" button to store menu
                     buttons.push(vec![InlineKeyboardButton::callback(
-                        "🛒 View Cart",
+                        t(lang, "cart.view"),
                         "view_cart",
                     )]);
 
                     let kb = InlineKeyboardMarkup::new(buttons);
                     let _ = bot
-                        .send_message(
-                            msg.chat.id,
-                            "📦 *Welcome to the Digital Store*\\nSelect a category to browse:",
-                        )
-                        .parse_mode(ParseMode::MarkdownV2)
+                        .send_message(msg.chat.id, t(lang, "store.welcome"))
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(kb)
                         .await;
                 }
             }
-            "🛒 My Cart" | "/cart" => {
+
+            MenuAction::Cart => {
                 if let Ok(Some(user)) = state.store_service.get_user_by_tg_id(tg_id).await {
                     let cart_items: Vec<caramba_db::models::store::CartItem> = state
                         .store_service
@@ -884,46 +1008,37 @@ pub async fn message_handler(
                         .unwrap_or_default();
 
                     if cart_items.is_empty() {
-                        let _ = bot
-                            .send_message(msg.chat.id, "🛒 Your cart is empty.")
-                            .await;
+                        let _ = bot.send_message(msg.chat.id, t(lang, "cart.empty")).await;
                     } else {
                         let mut total_price: i64 = 0;
-                        let mut text = "🛒 *YOUR SHOPPING CART*\n\n".to_string();
+                        let mut text = format!("{}\n\n", t(lang, "cart.title"));
 
                         for item in &cart_items {
-                            let price_major = item.price / 100;
-                            let price_minor = item.price % 100;
                             text.push_str(&format!(
-                                "• *{}* - ${}.{:02}\n",
-                                escape_md(&item.product_name),
-                                price_major,
-                                price_minor
+                                "• <b>{}</b> — ${}\n",
+                                escape_html(&item.product_name),
+                                money(item.price)
                             ));
                             total_price += item.price * item.quantity;
                         }
 
-                        let total_major = total_price / 100;
-                        let total_minor = total_price % 100;
-                        text.push_str(&format!(
-                            "\n💰 *TOTAL: ${}.{:02}*",
-                            total_major, total_minor
-                        ));
+                        text.push('\n');
+                        text.push_str(&tf(lang, "cart.total", &[&money(total_price)]));
 
                         let buttons = vec![
                             vec![InlineKeyboardButton::callback(
-                                "✅ Checkout",
+                                t(lang, "cart.checkout"),
                                 "cart_checkout",
                             )],
                             vec![InlineKeyboardButton::callback(
-                                "🗑️ Clear Cart",
+                                t(lang, "cart.clear"),
                                 "cart_clear",
                             )],
                         ];
 
                         let _ = bot
                             .send_message(msg.chat.id, text)
-                            .parse_mode(ParseMode::MarkdownV2)
+                            .parse_mode(ParseMode::Html)
                             .reply_markup(InlineKeyboardMarkup::new(buttons))
                             .await
                             .map(move |m| {
@@ -937,14 +1052,23 @@ pub async fn message_handler(
                     }
                 }
             }
-            "/enter_promo" | "🎁 Redeem Code" => {
-                let _ = bot.send_message(msg.chat.id, "🎟 *Redeem Gift Code*\n\nPlease reply to this message with your code (e.g., `EXA-GIFT-XYZ`).")
-                    .parse_mode(ParseMode::MarkdownV2)
+
+            MenuAction::RedeemCode => {
+                let _ = bot
+                    .send_message(
+                        msg.chat.id,
+                        tf(
+                            lang,
+                            "promo.redeem_prompt",
+                            &[t(lang, "promo.redeem_marker")],
+                        ),
+                    )
+                    .parse_mode(ParseMode::Html)
                     .reply_markup(ForceReply::new().selective())
                     .await;
             }
 
-            "🛍 Buy Subscription" | "/plans" => {
+            MenuAction::BuyPlans => {
                 let user_db: Option<caramba_db::models::store::User> = state
                     .store_service
                     .get_user_by_tg_id(tg_id)
@@ -959,90 +1083,16 @@ pub async fn message_handler(
 
                 if plans.is_empty() {
                     let _ = bot
-                        .send_message(msg.chat.id, "❌ No active plans available at the moment.")
-                        .reply_markup(main_menu(
-                            state
-                                .settings
-                                .get_or_default("bot_buttons_mode", "full")
-                                .await
-                                == "app_only",
-                            state
-                                .settings
-                                .get_bool_or_default("bot_support_button_always_on", true)
-                                .await,
-                        ))
+                        .send_message(msg.chat.id, t(lang, "plans.none"))
+                        .reply_markup(menu_markup(&state, lang).await)
                         .await;
                 } else {
-                    let total_plans = plans.len();
-                    let index = 0;
-                    let plan = &plans[index];
-
-                    let mut text = format!(
-                        "💎 *{}* \\({}/{}\\)\n\n",
-                        escape_md(&plan.name),
-                        index + 1,
-                        total_plans
-                    );
-                    if let Some(desc) = &plan.description {
-                        text.push_str(&format!("_{}_\n", escape_md(desc)));
-                    }
-
-                    let mut buttons = Vec::new();
-
-                    // Duration Buttons
-                    let mut duration_row = Vec::new();
-                    for dur in &plan.durations {
-                        let price_major = dur.price / 100;
-                        let price_minor = dur.price % 100;
-                        let label = if dur.duration_days == 0 {
-                            format!("🚀 Traffic Plan - ${}.{:02}", price_major, price_minor)
-                        } else {
-                            format!(
-                                "{}d - ${}.{:02}",
-                                dur.duration_days, price_major, price_minor
-                            )
-                        };
-                        duration_row.push(InlineKeyboardButton::callback(
-                            label,
-                            format!("buy_dur_{}", dur.id),
-                        ));
-                    }
-                    if !duration_row.is_empty() {
-                        buttons.push(duration_row);
-                    }
-
-                    // Navigation
-                    if total_plans > 1 {
-                        let mut nav_row = Vec::new();
-                        let next_idx = if index + 1 < total_plans {
-                            index + 1
-                        } else {
-                            0
-                        };
-                        let prev_idx = if index > 0 {
-                            index - 1
-                        } else {
-                            total_plans - 1
-                        };
-
-                        nav_row.push(InlineKeyboardButton::callback(
-                            "⬅️",
-                            format!("buy_plan_idx_{}", prev_idx),
-                        ));
-                        nav_row.push(InlineKeyboardButton::callback(
-                            format!("{}/{}", index + 1, total_plans),
-                            "noop",
-                        ));
-                        nav_row.push(InlineKeyboardButton::callback(
-                            "➡️",
-                            format!("buy_plan_idx_{}", next_idx),
-                        ));
-                        buttons.push(nav_row);
-                    }
+                    let (text, buttons) =
+                        crate::bot::handlers::callback::render_plan_page(lang, &plans, 0);
 
                     let _ = bot
                         .send_message(msg.chat.id, text)
-                        .parse_mode(ParseMode::MarkdownV2)
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(InlineKeyboardMarkup::new(buttons))
                         .await
                         .map(move |m| {
@@ -1058,27 +1108,22 @@ pub async fn message_handler(
                 }
             }
 
-            "👤 My Profile" | "/profile" => {
+            MenuAction::Profile => {
                 if let Ok(Some(user)) = state.store_service.get_user_by_tg_id(tg_id).await {
-                    let price_major = user.balance / 100;
-                    let price_minor = user.balance % 100;
-
-                    let response = format!(
-                        "👤 *USER PROFILE*\n\n\
-                        🆔 ID: `{}`\n\
-                        💰 Balance: `${}.{:02}`\n\n\
-                        _Use 'My Services' to manage subscriptions and products\\._",
-                        user.tg_id, price_major, price_minor
+                    let response = tf(
+                        lang,
+                        "profile.card",
+                        &[&user.tg_id.to_string(), &money(user.balance)],
                     );
 
                     let buttons = vec![vec![InlineKeyboardButton::callback(
-                        "💳 Top-up Balance",
+                        t(lang, "profile.topup_btn"),
                         "topup_menu",
                     )]];
 
                     let _ = bot
                         .send_message(msg.chat.id, response)
-                        .parse_mode(ParseMode::MarkdownV2)
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(InlineKeyboardMarkup::new(buttons))
                         .await
                         .map(move |m| {
@@ -1092,11 +1137,8 @@ pub async fn message_handler(
                 }
             }
 
-            "🔐 My Services" | "/services" => {
+            MenuAction::Services => {
                 if let Ok(Some(user)) = state.store_service.get_user_by_tg_id(tg_id).await {
-                    let mut response = "🔐 *MY SERVICES*\n\n".to_string();
-
-                    // 1. Subscriptions
                     let subs = match state.store_service.get_user_subscriptions(user.id).await {
                         Ok(s) => s,
                         Err(e) => {
@@ -1116,10 +1158,14 @@ pub async fn message_handler(
                     });
 
                     if sorted_subs.is_empty() {
-                        response.push_str("📡 VPN Status: ❌ *No Subscriptions*\n\n");
+                        let response = format!(
+                            "{}\n\n{}",
+                            t(lang, "services.title"),
+                            t(lang, "services.none")
+                        );
                         let _ = bot
                             .send_message(msg.chat.id, response)
-                            .parse_mode(ParseMode::MarkdownV2)
+                            .parse_mode(ParseMode::Html)
                             .await
                             .map(move |m| {
                                 let state = state.clone();
@@ -1130,154 +1176,16 @@ pub async fn message_handler(
                                 });
                             });
                     } else {
-                        // Default to page 0
-                        let page = 0;
-                        let total_pages = sorted_subs.len();
-                        let sub = &sorted_subs[page];
-
-                        let status_icon = if sub.sub.status == "active" {
-                            "✅"
-                        } else {
-                            "⏳"
-                        };
-                        response.push_str(&format!(
-                            "🔹 *Subscription \\#{}/{:}*\n",
-                            page + 1,
-                            total_pages
-                        ));
-                        response
-                            .push_str(&format!("   💎 *Plan:* {}\n", escape_md(&sub.plan_name)));
-                        if let Some(desc) = &sub.plan_description {
-                            response.push_str(&format!("   _{}_\n", escape_md(desc)));
-                        }
-                        response.push_str(&format!(
-                            "   🔑 *Status:* {} `{}`\n",
-                            status_icon, sub.sub.status
-                        ));
-
-                        // Traffic
-                        let used_gb = sub.sub.used_traffic as f64 / 1024.0 / 1024.0 / 1024.0;
-                        if let Some(limit) = sub.traffic_limit_gb {
-                            if limit == 0 {
-                                response.push_str(&format!(
-                                    "   📊 *Traffic:* `{:.2} GB / ∞`\n",
-                                    used_gb
-                                ));
-                            } else {
-                                response.push_str(&format!(
-                                    "   📊 *Traffic:* `{:.2} GB / {} GB`\n",
-                                    used_gb, limit
-                                ));
-                            }
-                        } else {
-                            response
-                                .push_str(&format!("   📊 *Traffic Used:* `{:.2} GB`\n", used_gb));
-                        }
-
-                        if sub.sub.status == "active" {
-                            let duration = sub.sub.expires_at - sub.sub.created_at;
-                            if duration.num_days() == 0 {
-                                response.push_str(
-                                    "   ⌛ *Expires:* `No expiration` \\(Traffic Plan\\)\n",
-                                );
-                            } else {
-                                response.push_str(&format!(
-                                    "   ⌛ *Expires:* `{}`\n",
-                                    sub.sub.expires_at.format("%Y-%m-%d")
-                                ));
-                            }
-                        } else {
-                            let duration = sub.sub.expires_at - sub.sub.created_at;
-                            if duration.num_days() == 0 {
-                                response.push_str(
-                                    "   ⏱ *Duration:* `No expiration` \\(Traffic Plan\\)\n",
-                                );
-                            } else {
-                                response.push_str(&format!(
-                                    "   ⏱ *Duration:* `{} days` \\(starts on activation\\)\n",
-                                    duration.num_days()
-                                ));
-                            }
-                        }
-                        response.push('\n');
-                        if let Some(note) = &sub.sub.note {
-                            response.push_str(&format!("📝 *Note:* {}\n\n", escape_md(note)));
-                        }
-
-                        // Navigation & Actions
-                        let mut buttons = Vec::new();
-
-                        // Edit Note Button
-                        buttons.push(vec![InlineKeyboardButton::callback(
-                            "📝 Edit Note",
-                            format!("edit_note_{}", sub.sub.id),
-                        )]);
-
-                        // Connected Devices Button (for active subscriptions)
-                        if sub.sub.status == "active" {
-                            buttons.push(vec![InlineKeyboardButton::callback(
-                                "📱 Connected Devices",
-                                format!("devices_{}", sub.sub.id),
-                            )]);
-                        }
-
-                        // Action Buttons
-                        if sub.sub.status == "active" {
-                            buttons.push(vec![
-                                InlineKeyboardButton::callback(
-                                    "🔗 Get Config",
-                                    format!("get_links_{}", sub.sub.id),
-                                ),
-                                InlineKeyboardButton::callback(
-                                    "⏳ Extend",
-                                    format!("extend_sub_{}", sub.sub.id),
-                                ),
-                            ]);
-                        } else if sub.sub.status == "pending" {
-                            buttons.push(vec![
-                                InlineKeyboardButton::callback(
-                                    "▶️ Activate",
-                                    format!("activate_{}", sub.sub.id),
-                                ),
-                                InlineKeyboardButton::callback(
-                                    "🎁 Make Gift Code",
-                                    format!("gift_init_{}", sub.sub.id),
-                                ),
-                            ]);
-                        }
-
-                        // Navigation Row
-                        let mut nav_row = Vec::new();
-                        if total_pages > 1 {
-                            let prev_page = if page > 0 { page - 1 } else { total_pages - 1 };
-                            let next_page = if page < total_pages - 1 { page + 1 } else { 0 };
-
-                            nav_row.push(InlineKeyboardButton::callback(
-                                "⬅️ Prev",
-                                format!("myservices_page_{}", prev_page),
-                            ));
-                            nav_row.push(InlineKeyboardButton::callback(
-                                format!("{}/{}", page + 1, total_pages),
-                                "ignore",
-                            ));
-                            nav_row.push(InlineKeyboardButton::callback(
-                                "Next ➡️",
-                                format!("myservices_page_{}", next_page),
-                            ));
-                        }
-                        if !nav_row.is_empty() {
-                            buttons.push(nav_row);
-                        }
-
-                        // My Gifts Link
-                        buttons.push(vec![InlineKeyboardButton::callback(
-                            "🎁 My Gift Codes",
-                            "my_gifts",
-                        )]);
+                        let (response, buttons) =
+                            crate::bot::handlers::callback::render_services_page(
+                                lang,
+                                &sorted_subs,
+                                0,
+                            );
 
                         let _ = bot
                             .send_message(msg.chat.id, response)
-                            .parse_mode(ParseMode::MarkdownV2)
+                            .parse_mode(ParseMode::Html)
                             .reply_markup(InlineKeyboardMarkup::new(buttons))
                             .await
                             .map(move |m| {
@@ -1292,7 +1200,7 @@ pub async fn message_handler(
                 }
             }
 
-            "🎁 Bonuses / Referral" | "/referral" => {
+            MenuAction::Referral => {
                 if let Ok(Some(user)) = state.store_service.get_user_by_tg_id(tg_id).await {
                     let bot_me = bot.get_me().await.ok();
                     let bot_username = bot_me
@@ -1316,48 +1224,38 @@ pub async fn message_handler(
                         .get_user_referral_earnings(user.id)
                         .await
                         .unwrap_or(0);
-                    let earnings_major = ref_earnings / 100;
-                    let earnings_minor = ref_earnings % 100;
 
-                    let response = format!(
-                        "🎁 *BONUS PROGRAM*\n\n\
-                        🤝 *Invite friends and earn money\\!*\n\
-                        You get *10%* from *EVERY* purchase your friends make\\.\n\n\
-                        📊 *Your Statistics:*\n\
-                        👥 Referrals joined: *{}*\n\
-                        💰 Total earned: *${}\\.{:02}*\n\n\
-                        🔗 *Your Promo Data:*\n\
-                        Code: `{}`\n\
-                        Link: `{}`\n\n\
-                        _Share your link or code to start earning\\!_",
-                        ref_count,
-                        earnings_major,
-                        earnings_minor,
-                        ref_code.replace("`", "\\`").replace("\\", "\\\\"),
-                        ref_link.replace("`", "\\`").replace("\\", "\\\\")
+                    let response = tf(
+                        lang,
+                        "referral.card",
+                        &[
+                            &ref_count.to_string(),
+                            &money(ref_earnings),
+                            &escape_html(&ref_code),
+                            &escape_html(&ref_link),
+                        ],
                     );
 
-                    let mut buttons = Vec::new();
-                    buttons.push(vec![InlineKeyboardButton::callback(
-                        "🎟 Enter Promo Code",
-                        "enter_promo",
-                    )]);
-
-                    // Add Referral Management Buttons
-                    buttons.push(vec![InlineKeyboardButton::callback(
-                        "🔗 Edit My Code (Alias)",
-                        "edit_ref_code",
-                    )]);
+                    let mut buttons = vec![
+                        vec![InlineKeyboardButton::callback(
+                            t(lang, "promo.enter_code_btn"),
+                            "enter_promo",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            t(lang, "referral.edit_alias_btn"),
+                            "edit_ref_code",
+                        )],
+                    ];
                     if user.referrer_id.is_none() {
                         buttons.push(vec![InlineKeyboardButton::callback(
-                            "🎁 Enter Referrer Code",
+                            t(lang, "referral.enter_referrer_btn"),
                             "enter_referrer",
                         )]);
                     }
 
                     let _ = bot
                         .send_message(msg.chat.id, response)
-                        .parse_mode(ParseMode::MarkdownV2)
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(InlineKeyboardMarkup::new(buttons))
                         .await
                         .map(move |m| {
@@ -1371,23 +1269,13 @@ pub async fn message_handler(
                 }
             }
 
-            "❓ Support" => {
+            MenuAction::Support => {
                 let support_username = state.settings.get_or_default("support_url", "").await;
-
-                let bot_buttons_mode = state
-                    .settings
-                    .get_or_default("bot_buttons_mode", "full")
-                    .await;
-                let app_mode = bot_buttons_mode == "app_only";
-                let always_support = state
-                    .settings
-                    .get_bool_or_default("bot_support_button_always_on", true)
-                    .await;
 
                 if support_username.is_empty() {
                     let _ = bot
-                        .send_message(msg.chat.id, "❌ Support contact is not configured yet.")
-                        .reply_markup(main_menu(app_mode, always_support))
+                        .send_message(msg.chat.id, t(lang, "support.not_configured"))
+                        .reply_markup(menu_markup(&state, lang).await)
                         .await;
                 } else {
                     // Sanitize username (remove @ if present)
@@ -1395,149 +1283,97 @@ pub async fn message_handler(
                     let url = format!("https://t.me/{}", clean_username);
 
                     let kb = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::url(
-                        "💬 Contact Support",
+                        t(lang, "support.contact_btn"),
                         url.parse().unwrap(),
                     )]]);
 
                     let _ = bot
-                        .send_message(
-                            msg.chat.id,
-                            "Need help? Click the button below to contact support:",
-                        )
+                        .send_message(msg.chat.id, t(lang, "support.prompt"))
                         .reply_markup(kb)
                         .await;
                 }
             }
 
-            "/devices" | "📱 My Devices" => {
-                if let Ok(Some(u)) = state.store_service.get_user_by_tg_id(tg_id).await {
-                    // Get all subs
-                    if let Ok(subs) = state.store_service.get_user_subscriptions(u.id).await {
-                        let active_subs: Vec<caramba_db::models::store::SubscriptionWithDetails> =
-                            subs.into_iter()
-                                .filter(|s| s.sub.status == "active")
-                                .collect();
+            MenuAction::Devices => {
+                if let Ok(Some(u)) = state.store_service.get_user_by_tg_id(tg_id).await
+                    && let Ok(subs) = state.store_service.get_user_subscriptions(u.id).await
+                {
+                    let active_subs: Vec<caramba_db::models::store::SubscriptionWithDetails> = subs
+                        .into_iter()
+                        .filter(|s| s.sub.status == "active")
+                        .collect();
 
-                        if active_subs.is_empty() {
-                            let _ = bot
-                                .send_message(msg.chat.id, "❌ You have no active subscriptions.")
-                                .reply_markup(main_menu(
-                                    state
-                                        .settings
-                                        .get_or_default("bot_buttons_mode", "full")
-                                        .await
-                                        == "app_only",
-                                    state
-                                        .settings
-                                        .get_bool_or_default("bot_support_button_always_on", true)
-                                        .await,
-                                ))
-                                .await;
-                        } else if active_subs.len() == 1 {
-                            // Auto-show active devices for the only subscription
-                            let sub = &active_subs[0];
-                            // Delegate to callback logic? No, just replicate code or trigger callback.
-                            // Simpler to just send message with "View Devices" button or replicate logic.
-                            // Replicating logic is cleaner here to avoid hacking callback structure.
+                    if active_subs.is_empty() {
+                        let _ = bot
+                            .send_message(msg.chat.id, t(lang, "services.no_active"))
+                            .reply_markup(menu_markup(&state, lang).await)
+                            .await;
+                    } else if active_subs.len() == 1 {
+                        // Auto-show active devices for the only subscription
+                        let sub = &active_subs[0];
 
-                            let active_ips = state
-                                .store_service
-                                .get_subscription_active_ips(sub.sub.id)
-                                .await
-                                .unwrap_or_default();
-                            let limit: i64 = state
-                                .store_service
-                                .get_subscription_device_limit(sub.sub.id)
-                                .await
-                                .unwrap_or(0)
-                                .into();
+                        let active_ips = state
+                            .store_service
+                            .get_subscription_active_ips(sub.sub.id)
+                            .await
+                            .unwrap_or_default();
+                        let limit: i64 = state
+                            .store_service
+                            .get_subscription_device_limit(sub.sub.id)
+                            .await
+                            .unwrap_or(0)
+                            .into();
 
-                            let mut text = format!(
-                                "📱 *Active Devices for Subscription \\#{:?}*\n",
-                                sub.sub.id
-                            );
-                            text.push_str(&format!(
-                                "Limit: `{}/{}` devices\n\n",
-                                active_ips.len(),
-                                if limit == 0 {
-                                    "∞".to_string()
-                                } else {
-                                    limit.to_string()
-                                }
-                            ));
+                        let (text, buttons) = crate::bot::handlers::callback::render_devices_page(
+                            lang,
+                            sub.sub.id,
+                            &active_ips,
+                            limit,
+                            None,
+                        );
 
-                            if active_ips.is_empty() {
-                                text.push_str(
-                                    "No active sessions detected in the last 15 minutes\\.",
-                                );
-                            } else {
-                                for ip in &active_ips {
-                                    let time_ago = chrono::Utc::now() - ip.last_seen_at;
-                                    let mins = time_ago.num_minutes();
-                                    text.push_str(&format!(
-                                        "• `{}` \\({} mins ago\\)\n",
-                                        ip.client_ip.replace(".", "\\."),
-                                        mins
-                                    ));
-                                }
-                            }
-
-                            let mut buttons = Vec::new();
-                            if !active_ips.is_empty() {
-                                buttons.push(vec![InlineKeyboardButton::callback(
-                                    "☠️ Reset Sessions",
-                                    format!("kill_sessions_{}", sub.sub.id),
-                                )]);
-                            }
-                            // No back button needed if command
-
-                            let _ = bot
-                                .send_message(msg.chat.id, text)
-                                .parse_mode(ParseMode::MarkdownV2)
-                                .reply_markup(InlineKeyboardMarkup::new(buttons))
-                                .await
-                                .map(move |m| {
-                                    let state = state.clone();
-                                    let bot = bot.clone();
-                                    let uid = u.id;
-                                    tokio::spawn(async move {
-                                        register_bot_message(bot, &state, uid, &m).await;
-                                    });
+                        let _ = bot
+                            .send_message(msg.chat.id, text)
+                            .parse_mode(ParseMode::Html)
+                            .reply_markup(InlineKeyboardMarkup::new(buttons))
+                            .await
+                            .map(move |m| {
+                                let state = state.clone();
+                                let bot = bot.clone();
+                                let uid = u.id;
+                                tokio::spawn(async move {
+                                    register_bot_message(bot, &state, uid, &m).await;
                                 });
-                        } else {
-                            // Multiple subs, show selection
-                            let mut buttons = Vec::new();
-                            for sub in active_subs {
-                                let label = format!("{} (#{})", sub.plan_name, sub.sub.id);
-                                buttons.push(vec![InlineKeyboardButton::callback(
-                                    label,
-                                    format!("devices_{}", sub.sub.id),
-                                )]);
-                            }
-
-                            let _ = bot
-                                .send_message(
-                                    msg.chat.id,
-                                    "📱 *Select a subscription to manage active sessions:*",
-                                )
-                                .parse_mode(ParseMode::MarkdownV2)
-                                .reply_markup(InlineKeyboardMarkup::new(buttons))
-                                .await
-                                .map(move |m| {
-                                    let state = state.clone();
-                                    let bot = bot.clone();
-                                    let uid = u.id;
-                                    tokio::spawn(async move {
-                                        register_bot_message(bot, &state, uid, &m).await;
-                                    });
-                                });
+                            });
+                    } else {
+                        // Multiple subs, show selection
+                        let mut buttons = Vec::new();
+                        for sub in active_subs {
+                            let label = format!("{} (#{})", sub.plan_name, sub.sub.id);
+                            buttons.push(vec![InlineKeyboardButton::callback(
+                                label,
+                                format!("devices_{}", sub.sub.id),
+                            )]);
                         }
+
+                        let _ = bot
+                            .send_message(msg.chat.id, t(lang, "devices.select_subscription"))
+                            .parse_mode(ParseMode::Html)
+                            .reply_markup(InlineKeyboardMarkup::new(buttons))
+                            .await
+                            .map(move |m| {
+                                let state = state.clone();
+                                let bot = bot.clone();
+                                let uid = u.id;
+                                tokio::spawn(async move {
+                                    register_bot_message(bot, &state, uid, &m).await;
+                                });
+                            });
                     }
                 }
             }
 
-            "/leaderboard" | "🏆 Leaderboard" => {
-                // Delete command message to keep chat clean
+            MenuAction::Leaderboard => {
                 use crate::services::referral_service::ReferralService;
 
                 let leaderboard = ReferralService::get_leaderboard(&state.pool, 10)
@@ -1546,39 +1382,34 @@ pub async fn message_handler(
 
                 if leaderboard.is_empty() {
                     let _ = bot
-                        .send_message(msg.chat.id, "🏆 *Leaderboard is empty*")
-                        .parse_mode(ParseMode::MarkdownV2)
+                        .send_message(msg.chat.id, t(lang, "leaderboard.empty"))
+                        .parse_mode(ParseMode::Html)
                         .await;
                 } else {
-                    let mut text = "🏆 *Top Referrers*\n\n".to_string();
+                    let mut text = format!("{}\n\n", t(lang, "leaderboard.header"));
                     for entry in leaderboard {
                         let medal = entry.medal.unwrap_or_else(|| "👤".to_string());
-                        // Escape username to avoid MarkdownV2 errors
                         text.push_str(&format!(
-                            "{} *{}* \\- {} refs\n",
+                            "{} <b>{}</b> — {} {}\n",
                             medal,
-                            escape_md(&entry.username),
-                            entry.referral_count
+                            escape_html(&entry.username),
+                            entry.referral_count,
+                            t(lang, "leaderboard.refs_suffix")
                         ));
                     }
-                    text.push_str("\n_Invite friends to climb the ranks\\!_");
+                    text.push('\n');
+                    text.push_str(t(lang, "leaderboard.footer"));
 
                     let _ = bot
                         .send_message(msg.chat.id, text)
-                        .parse_mode(ParseMode::MarkdownV2)
+                        .parse_mode(ParseMode::Html)
                         .await;
                 }
             }
 
-            // "🔑 Войти в приложение" kept so reply keyboards already rendered on
-            // existing clients (pre-relabel) still resolve until they refresh.
-            "/login" | "🔑 Open in app" | "🔑 Войти в приложение" => {
+            MenuAction::Login => {
                 // Одноразовый код для входа в standalone-приложение (Flutter + Go-ядро).
                 send_login_code(&bot, &state, msg.chat.id, tg_id).await;
-            }
-
-            _ => {
-                // Fallback or handle promo code input if we implement state
             }
         }
     }
@@ -1592,6 +1423,8 @@ pub async fn message_handler(
 /// Общая логика для команды /login и инлайн-кнопки «Получить код для входа».
 pub async fn send_login_code(bot: &Bot, state: &AppState, chat_id: ChatId, tg_id: i64) {
     use rand::Rng;
+
+    let lang = crate::bot::utils::lang_by_tg_id(state, tg_id).await;
 
     // Перетираем предыдущий активный код пользователя, чтобы валидным был только
     // один. Ключ обратного индекса tg_id -> code хранит текущий код юзера.
@@ -1611,26 +1444,18 @@ pub async fn send_login_code(bot: &Bot, state: &AppState, chat_id: ChatId, tg_id
     if let Err(e) = state.redis.set(&code_key, &tg_id.to_string(), 300).await {
         error!("Failed to store login code in Redis: {}", e);
         let _ = bot
-            .send_message(
-                chat_id,
-                "⚠️ Could not generate a code. Please try again later.",
-            )
+            .send_message(chat_id, t(lang, "login.code_failed"))
             .await;
         return;
     }
     // Обратный индекс с тем же TTL — чтобы при следующем /login перетереть код.
     let _ = state.redis.set(&user_index_key, &code, 300).await;
 
-    let text = format!(
-        "🔑 <b>Your login code</b>\n\n\
-        <code>{}</code>\n\n\
-        Enter it in the app. The code is valid for 5 minutes and works once.",
-        code
-    );
+    let text = tf(lang, "login.code", &[&code]);
     let _ = bot
         .send_message(chat_id, text)
         .parse_mode(ParseMode::Html)
-        .reply_markup(crate::bot::keyboards::login_code_keyboard())
+        .reply_markup(crate::bot::keyboards::login_code_keyboard(lang))
         .await
         .map_err(|e| error!("Failed to send login code: {}", e));
 }

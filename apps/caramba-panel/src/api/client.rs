@@ -353,6 +353,12 @@ pub fn routes(state: AppState) -> Router<AppState> {
                     auth_middleware,
                 )),
         )
+        .route(
+            "/user/language",
+            get(client_get_language).put(client_set_language).layer(
+                middleware::from_fn_with_state(state.clone(), auth_middleware),
+            ),
+        )
         // ----------------------------------------------------------------
         // Тикеты поддержки
         // ----------------------------------------------------------------
@@ -2935,8 +2941,15 @@ async fn set_referrer_code(
             .await
             .unwrap_or(None);
             if let Some(ref_tg_id) = referrer_tg_id {
-                let msg = "👤 Новый реферал\\! Пользователь присоединился по вашей ссылке\\.";
-                let _ = state.bot_manager.send_notification(ref_tg_id, msg).await;
+                // Язык реферрера, а не того, кто ввёл код.
+                let lang = crate::bot::utils::lang_by_tg_id(&state, ref_tg_id).await;
+                let payload = crate::bot_manager::NotificationPayload::plain(
+                    crate::bot::translations::t(lang, "referral.new_referral_dm"),
+                );
+                let _ = state
+                    .bot_manager
+                    .send_rich_notification(ref_tg_id, payload)
+                    .await;
             }
 
             Json(serde_json::json!({
@@ -3411,6 +3424,81 @@ async fn extend_subscription(
         Err(e) => {
             tracing::warn!(user_id, sub_id, error = %e, "extend_subscription failed");
             (StatusCode::BAD_REQUEST, e.to_string()).into_response()
+        }
+    }
+}
+
+// ============================================================================
+// Язык интерфейса
+//
+// Переключатель RU/EN в Mini App меняет только свой i18n и localStorage — то
+// есть уведомления бота остались бы на прежнем языке. Эти два ручки
+// синхронизируют выбор с сервером: `users.language_code` — единственный
+// источник правды для бота, уведомлений и Mini App.
+// ============================================================================
+
+#[derive(Serialize, Deserialize)]
+struct LanguagePref {
+    /// "ru" | "en"
+    language: String,
+}
+
+/// GET /api/client/user/language
+///
+/// Отдаёт РАЗРЕШЁННЫЙ язык (`users.language_code` → настройка
+/// `default_language` → "ru"), а не сырое поле: приложению нужен тот же ответ,
+/// который получит бот, иначе переключатель и уведомления разъедутся.
+async fn client_get_language(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT language_code FROM users WHERE tg_id = $1")
+            .bind(tg_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None)
+            .flatten();
+
+    let lang = crate::bot::translations::lang_for(&state.settings, stored.as_deref()).await;
+    Json(LanguagePref {
+        language: lang.as_str().to_string(),
+    })
+    .into_response()
+}
+
+/// PUT /api/client/user/language — тело `{"language":"ru"|"en"}`.
+///
+/// Неподдерживаемый код отклоняется (400), а не молча сохраняется: в
+/// `language_code` должно лежать значение, которое резолвер точно понимает.
+async fn client_set_language(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Json(body): Json<LanguagePref>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+
+    let Some(lang) = crate::bot::translations::Lang::parse(&body.language) else {
+        return (StatusCode::BAD_REQUEST, "Unsupported language").into_response();
+    };
+
+    let updated = sqlx::query("UPDATE users SET language_code = $1 WHERE tg_id = $2")
+        .bind(lang.as_str())
+        .bind(tg_id)
+        .execute(&state.pool)
+        .await;
+
+    match updated {
+        Ok(res) if res.rows_affected() == 1 => Json(LanguagePref {
+            language: lang.as_str().to_string(),
+        })
+        .into_response(),
+        Ok(_) => (StatusCode::NOT_FOUND, "User not found").into_response(),
+        Err(e) => {
+            tracing::error!(err = %e, tg_id, "Failed to persist user language");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to save language").into_response()
         }
     }
 }
