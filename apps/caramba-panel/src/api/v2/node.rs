@@ -337,7 +337,10 @@ pub async fn heartbeat(
                     }
 
                     let plan_ids: Vec<i64> = plans_to_regen.into_iter().collect();
-                    if let Err(e) = orchestration_service.notify_nodes_for_plans(&plan_ids).await {
+                    if let Err(e) = orchestration_service
+                        .notify_nodes_for_plans(&plan_ids)
+                        .await
+                    {
                         error!(
                             "Failed to notify nodes after quota expiration update for plans {:?}: {}",
                             plan_ids, e

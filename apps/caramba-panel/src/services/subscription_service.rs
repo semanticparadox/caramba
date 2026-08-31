@@ -1323,9 +1323,7 @@ impl SubscriptionService {
     /// автоматический путь назад — суточное пополнение, и бесплатный план без
     /// него (daily_traffic_mb = 0/NULL) застрял бы в 'throttled' навсегда.
     /// Такие планы остаются 'active' (как до введения троттлинга).
-    pub async fn throttle_free_quota_subscriptions(
-        &self,
-    ) -> Result<Vec<ExpiredQuotaSubscription>> {
+    pub async fn throttle_free_quota_subscriptions(&self) -> Result<Vec<ExpiredQuotaSubscription>> {
         let rows = sqlx::query_as::<_, ExpiredQuotaSubscription>(
             r#"
             UPDATE subscriptions s

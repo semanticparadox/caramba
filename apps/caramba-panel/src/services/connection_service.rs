@@ -159,8 +159,7 @@ impl ConnectionService {
                         let mut sub_id_opt = None;
 
                         if let Some(user_tag) = &conn.metadata.user
-                            && let Some(tg_id) =
-                                crate::services::user_tag::parse_user_tag(user_tag)
+                            && let Some(tg_id) = crate::services::user_tag::parse_user_tag(user_tag)
                         {
                             sub_id_opt = match tg_id_cache.get(&tg_id) {
                                 Some(cached) => *cached,

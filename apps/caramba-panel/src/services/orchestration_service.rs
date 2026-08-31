@@ -1341,7 +1341,8 @@ impl OrchestrationService {
                         InboundType::Shadowtls(stls) => {
                             use caramba_db::models::network::ShadowtlsUser;
                             for sub in &active_subs {
-                                if let (_sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
+                                if let (_sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3)
+                                {
                                     // Assuming ShadowTLS uses password/uuid for auth
                                     stls.users.push(ShadowtlsUser {
                                         password: uuid.replace("-", ""),
