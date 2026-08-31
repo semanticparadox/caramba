@@ -1,0 +1,141 @@
+/* ============================================================
+   EXA ROBOT — design tokens
+   Single source of truth for color, type, spacing, radii,
+   shadows and motion. Component CSS consumes ONLY these vars —
+   no magic hex values in per-component files.
+
+   Layers:
+   1. Primitives  (raw palette, scales)
+   2. Semantic    (what the color MEANS)
+   3. Compat      (legacy var names kept alive so older CSS
+                   keeps working while it migrates)
+   ============================================================ */
+
+:root {
+    /* ---------- 1. Primitives ---------- */
+
+    /* Ink — the dark game base */
+    --ink-950: #07080d;
+    --ink-900: #0b0d14;
+    --ink-850: #0e111b;
+    --ink-800: #131725;
+    --ink-700: #1a1f31;
+    --ink-600: #232a41;
+
+    /* Electric accent: acid lime (dominant) */
+    --lime-rgb: 182, 255, 46;
+    --lime: #b6ff2e;
+    --lime-bright: #c9ff5e;
+    --lime-deep: #8fd414;
+    /* On-lime ink (text on top of the accent) */
+    --on-lime: #101802;
+
+    /* Secondary neon: cyan (sparingly — gradients & glows) */
+    --cyan-rgb: 62, 232, 255;
+    --cyan: #3ee8ff;
+
+    /* Paper (light text) */
+    --paper: #f4f7ee;
+    --paper-rgb: 244, 247, 238;
+
+    /* Semantic raw colors (separate from accents) */
+    --green: #3ce58c;
+    --green-rgb: 60, 229, 140;
+    --amber: #ffc53d;
+    --amber-rgb: 255, 197, 61;
+    --red: #ff5c7a;
+    --red-rgb: 255, 92, 122;
+
+    /* Type scale */
+    --font-display: 'Unbounded Variable', 'Golos Text', 'Segoe UI', system-ui, sans-serif;
+    --font-body: 'Golos Text', 'Segoe UI', system-ui, sans-serif;
+    --text-2xs: 0.66rem;
+    --text-xs: 0.74rem;
+    --text-sm: 0.84rem;
+    --text-md: 0.94rem;
+    --text-lg: 1.08rem;
+    --text-xl: 1.3rem;
+    --text-2xl: 1.65rem;
+    --text-3xl: 2.1rem;
+
+    /* Spacing scale */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-7: 28px;
+    --space-8: 32px;
+    --space-9: 40px;
+
+    /* Radii — chunky rounded geometry */
+    --radius-sm: 12px;
+    --radius-md: 16px;
+    --radius-lg: 20px;
+    --radius-xl: 24px;
+    --radius-2xl: 28px;
+    --radius-round: 9999px;
+
+    /* ---------- 2. Semantic ---------- */
+
+    --bg-core: var(--ink-950);
+    --bg-canvas: var(--ink-900);
+    --bg-elevated: var(--ink-800);
+    --bg-surface: rgba(255, 255, 255, 0.04);
+    --bg-glass: rgba(255, 255, 255, 0.05);
+    --bg-glass-hover: rgba(255, 255, 255, 0.08);
+    --bg-glass-strong: rgba(255, 255, 255, 0.11);
+
+    --text-primary: var(--paper);
+    --text-secondary: rgba(var(--paper-rgb), 0.72);
+    --text-muted: rgba(var(--paper-rgb), 0.55);
+
+    --accent-rgb: var(--lime-rgb);
+    --accent-primary: var(--lime);
+    --accent-secondary: var(--cyan);
+    --accent-gradient: linear-gradient(133deg, var(--lime-bright) 0%, var(--lime) 46%, #7fe83c 100%);
+    --accent-soft-gradient: linear-gradient(133deg, rgba(var(--lime-rgb), 0.16) 0%, rgba(var(--cyan-rgb), 0.10) 100%);
+    --neon-gradient: linear-gradient(133deg, var(--lime) 0%, var(--cyan) 100%);
+    --neon-soft-gradient: linear-gradient(133deg, rgba(var(--lime-rgb), 0.22) 0%, rgba(var(--cyan-rgb), 0.18) 100%);
+
+    /* Status / semantic UI colors (green/amber/red — NOT the accent) */
+    --color-success: var(--green);
+    --color-warning: var(--amber);
+    --color-danger: var(--red);
+    --color-accent: var(--lime);
+    --color-info: var(--cyan);
+
+    --border-subtle: rgba(255, 255, 255, 0.09);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --border-accent: rgba(var(--lime-rgb), 0.35);
+
+    /* Shadows & glows */
+    --shadow-sm: 0 8px 20px rgba(0, 0, 0, 0.28);
+    --shadow-md: 0 16px 42px rgba(0, 0, 0, 0.4);
+    --glow-accent: 0 0 0 1px rgba(var(--lime-rgb), 0.22), 0 10px 30px rgba(var(--lime-rgb), 0.22);
+    --glow-accent-soft: 0 0 0 1px rgba(var(--lime-rgb), 0.12), 0 8px 24px rgba(var(--lime-rgb), 0.12);
+    --glow-cyan: 0 0 0 1px rgba(var(--cyan-rgb), 0.2), 0 10px 30px rgba(var(--cyan-rgb), 0.18);
+
+    --blur-glass: 14px;
+
+    /* Motion */
+    --ease-default: 200ms cubic-bezier(0.2, 0.7, 0, 1);
+    --ease-spring: 320ms cubic-bezier(0.34, 1.4, 0.4, 1);
+
+    /* ---------- 3. Compat aliases (legacy names) ---------- */
+    --bg-primary: var(--bg-core);
+    --bg-secondary: var(--bg-elevated);
+    --bg-glass-border: var(--border-subtle);
+    --accent-purple: var(--accent-primary);
+    --text-tertiary: var(--text-muted);
+    --status-online: var(--color-success);
+    --status-warning: var(--color-warning);
+    --status-error: var(--color-danger);
+    --shadow-glow: var(--glow-accent);
+    --space-xs: var(--space-1);
+    --space-sm: var(--space-2);
+    --space-md: var(--space-4);
+    --space-lg: var(--space-6);
+    --space-xl: var(--space-8);
+}

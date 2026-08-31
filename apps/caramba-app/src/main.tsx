@@ -2,6 +2,13 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
 import './i18n'
+// Самохостинг шрифтов (@fontsource): без обращений к Google Fonts — РФ-аудитория.
+import '@fontsource-variable/unbounded/index.css'
+import '@fontsource/golos-text/400.css'
+import '@fontsource/golos-text/500.css'
+import '@fontsource/golos-text/600.css'
+import '@fontsource/golos-text/700.css'
+import '@fontsource/golos-text/800.css'
 import './index.css'
 import { runTelegramReady } from './lib/telegram'
 
@@ -12,7 +19,7 @@ if (!tg?.initData && !isEnvDev) {
     ReactDOM.createRoot(document.getElementById('root')!).render(
         <div className="tg-denied-screen">
             <div className="tg-denied-card glass-card">
-                <div className="tg-denied-emblem" aria-hidden="true">TG</div>
+                <div className="tg-denied-emblem" aria-hidden="true">🤖</div>
                 <h2>Откройте через Telegram</h2>
                 <p>Этот интерфейс доступен только при запуске из Telegram Mini App.</p>
             </div>
