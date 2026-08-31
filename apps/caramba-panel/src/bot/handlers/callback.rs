@@ -1437,9 +1437,12 @@ pub async fn callback_handler(
                         // payload so successful_payment -> process_any_payment activates the plan.
                         if provider == "stars" {
                             let amount_usd = duration.price as f64 / 100.0;
-                            // 50 XTR per $1 USD — same rate as the balance-topup Stars path and
-                            // command.rs (which converts back via amount_xtr / 50.0).
-                            let xtr_amount = (amount_usd * 50.0).ceil() as u32;
+                            // Shared rate helper (services::payment::stars) — the single
+                            // source of truth for USD↔XTR across every Stars path.
+                            let xtr_amount =
+                                crate::services::payment::stars::usd_cents_to_stars(duration.price)
+                                    .clamp(0, u32::MAX as i64)
+                                    as u32;
                             if xtr_amount == 0 {
                                 let _ = bot
                                     .answer_callback_query(callback_id)

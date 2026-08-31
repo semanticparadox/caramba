@@ -22,12 +22,16 @@ use super::payment::oxapay::OxaPayProvider;
 use super::payment::paypalych::PaypalychProvider;
 use super::payment::plisio::PlisioProvider;
 use super::payment::provider::{PaymentProvider, PaymentWebhookAction};
+// Telegram Stars — полноценный провайдер (с v0.9.54). `StarsProvider` получает
+// bot_token из настроек через `MarketplaceService::new`, создаёт XTR-инвойс через
+// Bot API `createInvoiceLink` и кладёт в payload id сессии (`sess:{uuid}`), по
+// которому бот в `successful_payment` вызывает `fulfill_payment`. Отдельный путь
+// `PayService::create_stars_invoice` остаётся только для нативных сценариев бота
+// (пополнение баланса) с legacy-payload `{user}:bal|ord|sub:{id}`.
+use super::payment::stars::StarsProvider;
 use super::payment::stripe::StripeProvider;
 use super::payment::tribute::TributeProvider;
 use super::payment::wata::WataProvider;
-// StarsProvider намеренно исключён из MarketplaceService: интерфейс PaymentProvider
-// не имеет доступа к bot_token и tg_id, которые требуются Bot API для createInvoiceLink.
-// Рабочий путь для Stars — PayService::create_stars_invoice (вызывается из бота).
 use super::store_service::StoreService;
 use super::subscription_service::SubscriptionService;
 
@@ -59,6 +63,11 @@ pub struct MarketplaceService {
 pub fn provider_enable_setting(name: &str) -> (String, bool) {
     match name {
         "coinbase_commerce" => ("coinbase_enabled".to_string(), false),
+        // Telegram Stars uses the historical `telegram_stars_enabled` key (written
+        // by the main settings form) — the SAME key `MarketplaceService::new` gates
+        // registration on, so the listing and the registry can never disagree.
+        // Defaults to on: if the provider is registered at all, the flag was true.
+        "stars" => ("telegram_stars_enabled".to_string(), true),
         "wata" | "crystalpay" | "tribute" | "btcpay" | "oxapay" | "plisio" | "paypalych"
         | "manual" => (format!("{name}_enabled"), false),
         // nowpayments / cryptobot / cryptomus / lava / aaio / stripe: shown when
@@ -111,6 +120,11 @@ impl MarketplaceService {
         // it in the env / DB. Ignored by `PaypalychProvider` since v0.9.53 —
         // the API token itself signs the webhook (no separate secret).
         _paypalych_webhook_secret: String,
+        // Telegram Stars (XTR): нативный платёж внутри Telegram. Регистрируется
+        // только если админ включил `telegram_stars_enabled` И задан bot_token —
+        // без токена вызвать Bot API `createInvoiceLink` невозможно.
+        telegram_stars_enabled: bool,
+        bot_token: String,
         api_domain: String,
         bot_username: String,
         bot_manager: Arc<crate::bot_manager::BotManager>,
@@ -124,8 +138,25 @@ impl MarketplaceService {
             .expect("Failed to create HTTP client for MarketplaceService");
         let mut providers: HashMap<String, Box<dyn PaymentProvider>> = HashMap::new();
 
-        // "stars" намеренно отсутствует — см. комментарий к импортам выше.
         providers.insert("manual".to_string(), Box::new(ManualProvider));
+
+        // Telegram Stars. Регистрация здесь — ЕДИНСТВЕННЫЙ источник правды о том,
+        // покупаемы ли Stars: `GET /api/client/payment/providers` перечисляет
+        // только зарегистрированные провайдеры, поэтому Mini App больше не может
+        // показать способ оплаты, который гарантированно упадёт.
+        if telegram_stars_enabled && !bot_token.trim().is_empty() {
+            providers.insert(
+                "stars".to_string(),
+                Box::new(StarsProvider {
+                    bot_token: bot_token.trim().to_string(),
+                }),
+            );
+        } else if telegram_stars_enabled {
+            tracing::warn!(
+                "telegram_stars_enabled=true but bot_token is empty — Telegram Stars will NOT be \
+                 offered (createInvoiceLink requires a bot token)"
+            );
+        }
 
         if !nowpayments_key.is_empty() && !nowpayments_ipn_secret.is_empty() {
             providers.insert(
@@ -783,10 +814,12 @@ impl MarketplaceService {
         if !invoice_url.starts_with("http://") && !invoice_url.starts_with("https://") {
             return;
         }
-        // Stars-инвойсы (t.me/invoice/...) открываются нативно внутри Telegram —
-        // дублировать их в чат бессмысленно (защитная проверка: StarsProvider в
-        // MarketplaceService не зарегистрирован, но ссылка могла прийти извне).
-        if invoice_url.contains("t.me/invoice") {
+        // Stars-инвойсы открываются нативно внутри Telegram через
+        // `WebApp.openInvoice` — дублировать их в чат бессмысленно. Проверяем
+        // ИМЕННО провайдера, а не форму ссылки: `createInvoiceLink` отдаёт
+        // `https://t.me/$<slug>`, а не `t.me/invoice/...`, так что проверка по
+        // подстроке пропускала бы Stars дальше.
+        if session.provider == "stars" || invoice_url.contains("t.me/invoice") {
             return;
         }
 

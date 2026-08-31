@@ -72,8 +72,8 @@ pub trait PaymentProvider: Send + Sync {
     /// returns `"pending"` (every provider except `cryptomus` today), so leaving
     /// the default in place never fulfills anything spuriously. Override to
     /// `false` only to suppress the (cheap) poll attempt entirely — e.g. for
-    /// purely off-chain methods like `manual`/`balance`/`telegram_stars` that
-    /// can never be confirmed by an HTTP poll.
+    /// purely off-chain methods like `manual`/`balance`/`stars` that can never
+    /// be confirmed by an HTTP poll.
     fn supports_polling(&self) -> bool {
         true
     }

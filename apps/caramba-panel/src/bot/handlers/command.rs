@@ -6,6 +6,167 @@ use teloxide::prelude::*;
 use teloxide::types::{ChatId, ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
 use tracing::{error, info};
 
+/// Fulfil a Telegram Stars charge that belongs to a `payment_sessions` row
+/// (invoice payload `sess:{uuid}`, produced by `StarsProvider`).
+///
+/// Stars have no HTTP webhook, so this handler is the Stars equivalent of
+/// `MarketplaceService::handle_webhook` — including its amount gate: we compare
+/// the Stars Telegram says were actually paid against the Stars the session was
+/// priced at, using the SAME conversion the invoice was built with (so there is
+/// no rounding drift), and refuse to fulfil an underpayment. A refusal leaves
+/// the session `pending` (never mutates it) so the operator can inspect or
+/// refund, exactly like the `CompletedWithAmount` gate for other providers.
+///
+/// On success we do NOT send our own confirmation: `fulfill_payment` already
+/// DMs the user a localized "payment received" message with an Open-App button,
+/// and duplicating it here would double-message every Mini App purchase.
+async fn fulfill_stars_session_payment(
+    bot: &Bot,
+    chat_id: ChatId,
+    state: &AppState,
+    session_id: uuid::Uuid,
+    paid_stars: i64,
+    charge_id: &str,
+) {
+    let tg_id = chat_id.0;
+
+    let session = match state
+        .marketplace_service
+        .session_repo
+        .get_by_id(session_id)
+        .await
+    {
+        Ok(Some(session)) => session,
+        Ok(None) => {
+            error!(
+                "Stars payment for unknown session {} (charge {}, {} XTR, tg_id {})",
+                session_id, charge_id, paid_stars, tg_id
+            );
+            alert_admins_stars(
+                state,
+                &format!(
+                    "🚨 *Stars payment for an unknown session*\n\nSession: `{}`\nCharge: `{}`\nPaid: `{}` XTR\nUser: `{}`\n\nThe user was charged but no payment session exists — refund manually\\.",
+                    session_id, charge_id, paid_stars, tg_id
+                ),
+            );
+            let _ = bot
+                .send_message(
+                    chat_id,
+                    "❌ We received your payment but could not match it to an order. Please contact support.",
+                )
+                .await;
+            return;
+        }
+        Err(e) => {
+            error!(
+                "Failed to load payment session {} for Stars charge {}: {}",
+                session_id, charge_id, e
+            );
+            let _ = bot
+                .send_message(
+                    chat_id,
+                    "❌ Error processing payment. Please contact support.",
+                )
+                .await;
+            return;
+        }
+    };
+
+    // Amount gate — mirrors MarketplaceService's CompletedWithAmount check.
+    // Exact-or-over is accepted; only genuine underpayment is refused.
+    let expected_stars = match crate::services::payment::stars::session_star_amount(&session) {
+        Ok(stars) => stars,
+        Err(e) => {
+            error!(
+                "Cannot price session {} in Stars (charge {}): {}",
+                session_id, charge_id, e
+            );
+            let _ = bot
+                .send_message(
+                    chat_id,
+                    "❌ Error processing payment. Please contact support.",
+                )
+                .await;
+            return;
+        }
+    };
+
+    if paid_stars < expected_stars {
+        error!(
+            session_id = %session_id,
+            charge_id,
+            paid_stars,
+            expected_stars,
+            expected_amount = session.amount,
+            expected_currency = %session.currency,
+            "Rejecting Stars fulfillment: underpaid invoice (possible tampering)"
+        );
+        alert_admins_stars(
+            state,
+            &format!(
+                "🚨 *Stars payment amount mismatch*\n\nSession: `{}`\nCharge: `{}`\nPaid: `{}` XTR\nExpected: `{}` XTR\nUser: `{}`\n\nFulfillment was refused and the session left pending — inspect or refund manually\\.",
+                session_id, charge_id, paid_stars, expected_stars, tg_id
+            ),
+        );
+        let _ = bot
+            .send_message(
+                chat_id,
+                "❌ The paid amount does not match the invoice. Your order was not activated — please contact support.",
+            )
+            .await;
+        return;
+    }
+
+    match state.marketplace_service.fulfill_payment(session_id).await {
+        Ok(()) => {
+            info!(
+                "Fulfilled Stars payment: session {} ({} XTR, charge {}, tg_id {})",
+                session_id, paid_stars, charge_id, tg_id
+            );
+            let _ = LoggingService::log_user(
+                &state.pool,
+                Some(tg_id),
+                "payment_stars",
+                &format!(
+                    "Stars payment fulfilled: {} XTR, session {}",
+                    paid_stars, session_id
+                ),
+                None,
+            )
+            .await;
+        }
+        Err(e) => {
+            error!(
+                "Stars fulfillment failed for session {} (charge {}): {}",
+                session_id, charge_id, e
+            );
+            alert_admins_stars(
+                state,
+                &format!(
+                    "🚨 *Stars fulfillment failed*\n\nSession: `{}`\nCharge: `{}`\nUser: `{}`\n\nThe user paid but the resource was not granted\\.",
+                    session_id, charge_id, tg_id
+                ),
+            );
+            let _ = bot
+                .send_message(
+                    chat_id,
+                    "❌ Error processing payment. Please contact support.",
+                )
+                .await;
+        }
+    }
+}
+
+/// Fire-and-forget admin alert; never blocks the payment handler.
+fn alert_admins_stars(state: &AppState, message: &str) {
+    let pool = state.pool.clone();
+    let bot_manager = state.bot_manager.clone();
+    let message = message.to_string();
+    tokio::spawn(async move {
+        bot_manager.notify_admins(&pool, &message).await;
+    });
+}
+
 pub async fn message_handler(
     bot: Bot,
     msg: Message,
@@ -15,9 +176,37 @@ pub async fn message_handler(
     let tg_id = msg.chat.id.0;
 
     if let Some(payment) = msg.successful_payment() {
+        // Two payload dialects arrive here:
+        //   * `sess:{uuid}`  — Mini App / marketplace checkout (StarsProvider).
+        //                      Fulfilled through MarketplaceService so plan
+        //                      DURATIONS, referral rewards, the atomic
+        //                      pending→completed claim and the success DM all
+        //                      behave exactly as for every other provider.
+        //   * `{user}:bal|ord|sub:{id}` — legacy bot-native flows (balance
+        //                      top-up keyboard, /buy). Unchanged.
+        // The two can never be confused: the legacy form always starts with a
+        // decimal user id, never with `sess:`.
+        if let Some(session_id) =
+            crate::services::payment::stars::parse_session_invoice_payload(&payment.invoice_payload)
+        {
+            fulfill_stars_session_payment(
+                &bot,
+                msg.chat.id,
+                &state,
+                session_id,
+                payment.total_amount as i64,
+                &payment.provider_payment_charge_id,
+            )
+            .await;
+            return Ok(());
+        }
+
         let amount_xtr = payment.total_amount as f64;
-        // 1 USD approx 50 XTR
-        let amount_usd = amount_xtr / 50.0;
+        // Same rate as the invoice side, via the shared helper (exact integer
+        // cents rather than a float division by a hardcoded 50.0).
+        let amount_usd =
+            crate::services::payment::stars::stars_to_usd_cents(payment.total_amount as i64) as f64
+                / 100.0;
         info!(
             "Processing Stars Payment: {} XTR (${:.2})",
             amount_xtr, amount_usd

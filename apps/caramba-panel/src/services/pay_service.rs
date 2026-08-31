@@ -643,7 +643,11 @@ impl PayService {
             user_id, amount_usd
         );
 
-        let stars_amount = (amount_usd * 50.0).ceil() as i64;
+        // Rate lives in ONE place — `services::payment::stars` — so the bot-native
+        // path, the marketplace StarsProvider and the successful_payment amount
+        // gate can never drift apart.
+        let stars_amount =
+            crate::services::payment::stars::usd_cents_to_stars((amount_usd * 100.0).ceil() as i64);
         let payload = payment_type.to_payload_string(user_id);
 
         let client = self.http_client.clone();

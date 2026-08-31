@@ -96,8 +96,16 @@ export function usePurchase({ token, onRefresh }: UsePurchaseOptions) {
       }
 
       // Telegram Stars — нативный invoice внутри Telegram.
+      // Провайдер бэкенда называется 'stars'; проверка по форме ссылки —
+      // защитный фолбэк. Bot API `createInvoiceLink` отдаёт `https://t.me/$<slug>`,
+      // именованные ссылки — `t.me/invoice/<slug>`; поддерживаем обе формы, иначе
+      // Stars-ссылка ушла бы в ветку внешнего http-чекаута.
       const isStars =
-        provider === 'telegram_stars' || provider === 'stars' || invoiceUrl.includes('t.me/invoice')
+        provider === 'telegram_stars' ||
+        provider === 'stars' ||
+        data.provider === 'stars' ||
+        invoiceUrl.includes('t.me/invoice') ||
+        /^https?:\/\/t\.me\/\$/i.test(invoiceUrl)
 
       if (isStars) {
         WebApp.openInvoice(data.invoice_url, (status) => {
