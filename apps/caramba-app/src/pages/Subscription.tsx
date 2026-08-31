@@ -272,15 +272,16 @@ export default function Subscription() {
                 const isBalance =
                     errText.toLowerCase().includes('balance') ||
                     errText.toLowerCase().includes('insufficient')
+                // Модал НЕ закрываем: ошибка показывается внутри него — иначе
+                // пользователь видит «ничего не произошло» (сообщение на
+                // странице остаётся за пределами экрана под модалом).
                 setMessage({
                     type: 'error',
                     text: isBalance ? t('subscription.insufficientBalance') : errText,
                 })
-                setExtendTargetSub(null)
             }
         } catch {
             setMessage({ type: 'error', text: t('subscription.networkActivationError') })
-            setExtendTargetSub(null)
         } finally {
             setExtendingDurationId(null)
         }
@@ -648,6 +649,9 @@ export default function Subscription() {
                     </button>
                 }
             >
+                {message?.type === 'error' && (
+                    <div className="purchase-msg error">{message.text}</div>
+                )}
                 {extendDurations.length === 0 ? (
                     <div className="empty-state drawer-empty">
                         <div className="empty-icon">PL</div>

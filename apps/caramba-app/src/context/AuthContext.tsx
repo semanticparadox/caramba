@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import WebApp from '@twa-dev/sdk';
 
 export interface UserStats {
@@ -115,6 +115,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     };
 
+    // Обменять свежий Telegram initData на новый JWT. Используется и при первом
+    // входе, и для тихой переавторизации, когда сохранённый токен протух:
+    // initData у нас всегда под рукой, показывать «Session expired» незачем.
+    const reauthInFlight = useRef(false);
+    const exchangeInitData = async (): Promise<string | null> => {
+        const initData = (WebApp.initData || '').trim();
+        if (!initData) return null;
+        try {
+            const response = await fetchWithTimeout('/api/client/auth/telegram', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ init_data: initData }),
+            });
+            if (!response.ok) return null;
+            const data = await response.json();
+            setUser(data.user);
+            localStorage.setItem('jwt_token', data.token);
+            setToken(data.token);
+            return data.token;
+        } catch {
+            return null;
+        }
+    };
+
     // Initial Auth — выполняется один раз при монтировании если нет токена в localStorage
     useEffect(() => {
         if (token) return; // токен уже есть — пропускаем, следующий эффект займётся данными
@@ -191,12 +215,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             if (statsRes.status === 401 || subsRes.status === 401) {
                 localStorage.removeItem('jwt_token');
+                // Токен протух — тихо меняем initData на новый JWT. setToken
+                // перезапустит refreshData через эффект [token]; reauthInFlight
+                // страхует от цикла, если сервер отвергает и свежие токены.
+                if (!reauthInFlight.current) {
+                    reauthInFlight.current = true;
+                    const fresh = await exchangeInitData();
+                    if (fresh) return; // эффект по token перезапросит данные
+                }
                 setToken(null);
                 setSubscriptions([]);
                 setUserStats(null);
                 setError('Session expired. Reopen Mini App from bot.');
                 return;
             }
+            reauthInFlight.current = false;
 
             if (statsRes.ok) {
                 const s = await statsRes.json();

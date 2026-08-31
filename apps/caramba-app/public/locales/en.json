@@ -435,7 +435,7 @@
     "extend": "Extend",
     "extendSuccess": "Subscription extended until {{date}}",
     "selectDuration": "Select extension period",
-    "insufficientBalance": "Insufficient balance",
+    "insufficientBalance": "Insufficient balance. To extend, purchase the same plan on the Home screen — the time will be added to your current subscription.",
     "autoRenew": "Auto-renew",
     "autoRenewOn": "On",
     "autoRenewOff": "Off",

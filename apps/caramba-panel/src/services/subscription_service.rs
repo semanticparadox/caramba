@@ -726,11 +726,21 @@ impl SubscriptionService {
             return Ok(Vec::new());
         }
 
-        let plans = match self.get_active_plans().await {
-            Ok(plans) => plans,
+        // Resolve plan names by id regardless of plan status: a subscription
+        // bought on a since-disabled plan must still show its real name, not
+        // "Unknown Plan" (which also leaks into the extend dialog subtitle).
+        let plan_ids: Vec<i64> = subs.iter().map(|s| s.plan_id).collect();
+        let plans: Vec<(i64, String, Option<String>, i32)> = match sqlx::query_as(
+            "SELECT id, name, description, traffic_limit_gb FROM plans WHERE id = ANY($1)",
+        )
+        .bind(&plan_ids)
+        .fetch_all(&self.pool)
+        .await
+        {
+            Ok(rows) => rows,
             Err(e) => {
                 warn!(
-                    "Failed to fetch active plans while building user subscriptions for {}: {}",
+                    "Failed to fetch plans while building user subscriptions for {}: {}",
                     user_id, e
                 );
                 Vec::new()
@@ -739,13 +749,9 @@ impl SubscriptionService {
         let mut result = Vec::new();
 
         for sub in subs {
-            let plan = plans.iter().find(|p| p.id == sub.plan_id);
+            let plan = plans.iter().find(|p| p.0 == sub.plan_id);
             let (name, desc, limit) = if let Some(p) = plan {
-                (
-                    p.name.clone(),
-                    p.description.clone(),
-                    Some(p.traffic_limit_gb),
-                )
+                (p.1.clone(), p.2.clone(), Some(p.3))
             } else {
                 ("Unknown Plan".to_string(), None, None)
             };
