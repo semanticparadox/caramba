@@ -126,7 +126,9 @@ async fn invoke_provider_test(provider_name: &str, state: &AppState) -> Result<S
                 return Err("NOWPayments API key is not configured".to_string());
             }
             let ipn_secret = s.get_or_default("nowpayments_ipn_secret", "").await;
-            let panel_url = s.get_or_default("panel_url", "").await;
+            let panel_url = crate::services::api_domain::normalize_api_domain(
+                &s.get_or_default("panel_url", "").await,
+            );
             let bot_username = s.get_or_default("bot_username", "").await;
             let provider = NowPaymentsProvider {
                 api_key,
@@ -150,7 +152,9 @@ async fn invoke_provider_test(provider_name: &str, state: &AppState) -> Result<S
                     "Cryptomus merchant_id or payment_api_key is not configured".to_string()
                 );
             }
-            let panel_url = s.get_or_default("panel_url", "").await;
+            let panel_url = crate::services::api_domain::normalize_api_domain(
+                &s.get_or_default("panel_url", "").await,
+            );
             let bot_username = s.get_or_default("bot_username", "").await;
             let provider = CryptomusProvider {
                 merchant_id,
@@ -171,7 +175,9 @@ async fn invoke_provider_test(provider_name: &str, state: &AppState) -> Result<S
             if project_id.trim().is_empty() || secret_key.trim().is_empty() {
                 return Err("Lava project_id or secret_key is not configured".to_string());
             }
-            let panel_url = s.get_or_default("panel_url", "").await;
+            let panel_url = crate::services::api_domain::normalize_api_domain(
+                &s.get_or_default("panel_url", "").await,
+            );
             let provider = LavaProvider {
                 project_id,
                 secret_key,
@@ -210,7 +216,9 @@ async fn invoke_provider_test(provider_name: &str, state: &AppState) -> Result<S
             if jwt_token.trim().is_empty() {
                 return Err("WATA JWT token is not configured".to_string());
             }
-            let panel_url = s.get_or_default("panel_url", "").await;
+            let panel_url = crate::services::api_domain::normalize_api_domain(
+                &s.get_or_default("panel_url", "").await,
+            );
             let bot_username = s.get_or_default("bot_username", "").await;
             let provider = WataProvider {
                 jwt_token,
@@ -232,7 +240,9 @@ async fn invoke_provider_test(provider_name: &str, state: &AppState) -> Result<S
             if login.trim().is_empty() || secret.trim().is_empty() {
                 return Err("CrystalPay login or secret is not configured".to_string());
             }
-            let panel_url = s.get_or_default("panel_url", "").await;
+            let panel_url = crate::services::api_domain::normalize_api_domain(
+                &s.get_or_default("panel_url", "").await,
+            );
             let bot_username = s.get_or_default("bot_username", "").await;
             let provider = CrystalPayProvider {
                 login,
@@ -298,7 +308,9 @@ async fn invoke_provider_test(provider_name: &str, state: &AppState) -> Result<S
             if merchant_key.trim().is_empty() {
                 return Err("OxaPay merchant key is not configured".to_string());
             }
-            let panel_url = s.get_or_default("panel_url", "").await;
+            let panel_url = crate::services::api_domain::normalize_api_domain(
+                &s.get_or_default("panel_url", "").await,
+            );
             let bot_username = s.get_or_default("bot_username", "").await;
             let provider = OxaPayProvider {
                 merchant_key,
@@ -336,7 +348,9 @@ async fn invoke_provider_test(provider_name: &str, state: &AppState) -> Result<S
             if api_key.trim().is_empty() {
                 return Err("Plisio API key is not configured".to_string());
             }
-            let panel_url = s.get_or_default("panel_url", "").await;
+            let panel_url = crate::services::api_domain::normalize_api_domain(
+                &s.get_or_default("panel_url", "").await,
+            );
             let bot_username = s.get_or_default("bot_username", "").await;
             let provider = PlisioProvider {
                 api_key,

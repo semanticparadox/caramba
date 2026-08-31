@@ -1,5 +1,6 @@
 pub mod activity_service; // Legacy, to be replaced by logging_service
 pub mod analytics_service;
+pub mod api_domain;
 pub mod backup_service;
 pub mod connection_service;
 pub mod export_service; // NEW: Database and settings export/backup

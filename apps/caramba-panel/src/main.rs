@@ -532,6 +532,10 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
 
     let is_testnet: String = settings.get_or_default("payment_testnet", "true").await;
     let panel_url = settings.get_or_default("panel_url", "").await;
+    // Every consumer formats this as `https://{api_domain}/...`, so it must be a
+    // BARE host. `panel_url` is commonly stored with a scheme (and sometimes a
+    // trailing slash), which would yield `https://https://host/...` and silently
+    // lose every payment webhook — strip both.
     let api_domain = settings
         .get_or_default(
             "api_domain",
@@ -542,6 +546,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             },
         )
         .await;
+    let api_domain = services::api_domain::normalize_api_domain(&api_domain);
     // Читаем имя бота из настроек — сохраняется при первом запуске бота через get_me()
     let marketplace_bot_username = settings.get_or_default("bot_username", "").await;
     let marketplace_api_domain = api_domain.clone();
