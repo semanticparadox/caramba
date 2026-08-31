@@ -80,7 +80,7 @@ export default function Billing() {
 
             {!token && (
                 <div className="empty-state">
-                    <div className="empty-icon">AU</div>
+                    <div className="empty-icon">🔐</div>
                     <h3>{t('billing.authRequired')}</h3>
                     <p>{error || t('billing.authNote')}</p>
                 </div>
@@ -118,7 +118,7 @@ export default function Billing() {
                     </div>
                 ) : (
                     <div className="empty-state">
-                        <div className="empty-icon">TX</div>
+                        <div className="empty-icon">🧾</div>
                         <p>{t('billing.noPayments')}</p>
                     </div>
                 )}

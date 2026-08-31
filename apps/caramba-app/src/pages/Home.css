@@ -86,7 +86,7 @@
     padding: 0 4px;
     border-radius: var(--radius-round);
     background: var(--color-danger);
-    color: #fff;
+    color: var(--paper);
     font-size: 0.6rem;
     font-weight: 800;
     display: grid;

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import Icon from '../components/Icon'
 import { useNavigate } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import WebApp from '@twa-dev/sdk'
@@ -319,11 +320,11 @@ export default function Subscription() {
         return (
             <div className="page sub-page">
                 <header className="page-header">
-                    <button className="back-button" onClick={() => navigate('/')}>{'<'}</button>
+                    <button className="back-button" onClick={() => navigate('/')}><Icon name="chevron-left" /></button>
                     <h2>{t('subscription.title')}</h2>
                 </header>
                 <div className="empty-state">
-                    <div className="empty-icon">AU</div>
+                    <div className="empty-icon">🔐</div>
                     <h3>{t('subscription.authRequired')}</h3>
                     <p>{error || t('subscription.authNote')}</p>
                 </div>
@@ -334,7 +335,7 @@ export default function Subscription() {
     return (
         <div className="page sub-page">
             <header className="page-header">
-                <button className="back-button" onClick={() => navigate('/')}>{'<'}</button>
+                <button className="back-button" onClick={() => navigate('/')}><Icon name="chevron-left" /></button>
                 <h2>{t('subscription.myServices')}</h2>
                 {subscriptions.length > 0 && (
                     <span className="badge badge-success">
@@ -371,7 +372,7 @@ export default function Subscription() {
 
             {sorted.length === 0 ? (
                 <div className="empty-state">
-                    <div className="empty-icon">SV</div>
+                    <div className="empty-icon">📦</div>
                     <h3>{t('subscription.noSubscriptions')}</h3>
                     <p>{t('subscription.noSubscriptionsDesc')}</p>
                     <button className="btn-primary" onClick={() => navigate('/plans')}>
@@ -392,7 +393,7 @@ export default function Subscription() {
                                         </span>
                                     </div>
                                 </div>
-                                <span className="expand-arrow">{expandedId === sub.id ? '^' : 'v'}</span>
+                                <span className="expand-arrow"><Icon name={expandedId === sub.id ? 'chevron-down' : 'chevron-right'} size={14} /></span>
                             </div>
 
                             <div className="sub-traffic">
@@ -654,7 +655,7 @@ export default function Subscription() {
                 )}
                 {extendDurations.length === 0 ? (
                     <div className="empty-state drawer-empty">
-                        <div className="empty-icon">PL</div>
+                        <div className="empty-icon">⚡</div>
                         <p>{t('home.noDurations')}</p>
                     </div>
                 ) : (

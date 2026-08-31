@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import Icon from '../components/Icon'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { PLATFORM_DIRECTORY, PlatformKey } from '../data/appDirectory'
@@ -46,7 +47,7 @@ export default function ConnectGuide() {
     return (
         <div className="page connect-guide-page">
             <header className="page-header">
-                <button className="back-button" onClick={() => navigate('/support')}>{'<'}</button>
+                <button className="back-button" onClick={() => navigate('/support')}><Icon name="chevron-left" /></button>
                 <h2>{t('connectGuide.title')}</h2>
             </header>
 

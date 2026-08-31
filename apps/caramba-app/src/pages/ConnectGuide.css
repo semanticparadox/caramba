@@ -101,7 +101,7 @@
 }
 
 .platform-chip.active {
-    color: #041217;
+    color: var(--on-lime);
     border-color: rgba(var(--accent-rgb), 0.35);
     background: var(--accent-gradient);
 }

@@ -386,6 +386,58 @@ input[type='number']:focus {
     }
 }
 
+/* Сетка выбора срока — общий паттерн покупки/продления
+   (PurchaseFlow на /plans и extend-модал на /subscription). */
+.duration-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: var(--space-2);
+}
+
+.duration-btn {
+    position: relative;
+    display: grid;
+    gap: 3px;
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    text-align: left;
+}
+
+.duration-btn:hover:not(:disabled),
+.duration-btn:focus-visible {
+    border-color: var(--border-accent);
+    background: rgba(var(--lime-rgb), 0.07);
+    box-shadow: var(--glow-accent-soft);
+    transform: translateY(-1px);
+}
+
+.duration-btn:active:not(:disabled) {
+    transform: scale(0.97);
+}
+
+.dur-label {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.dur-price {
+    font-family: var(--font-display);
+    font-size: var(--text-lg);
+    font-weight: 800;
+    color: var(--accent-primary);
+}
+
+.dur-spinner {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-3);
+    color: var(--text-muted);
+}
+
 ::-webkit-scrollbar {
     width: 4px;
     height: 4px;

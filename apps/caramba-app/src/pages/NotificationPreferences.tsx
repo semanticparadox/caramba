@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import Icon from '../components/Icon'
 import { useNavigate } from 'react-router-dom'
 import { apiUrl } from '../config'
 import { useAuth } from '../context/AuthContext'
@@ -140,7 +141,7 @@ export default function NotificationPreferences() {
         <div className="page notifications-page">
             <header className="page-header">
                 <button className="back-button" onClick={() => navigate('/notifications')} aria-label={t('common.cancel')}>
-                    {'<'}
+                    <Icon name="chevron-left" />
                 </button>
                 <h2>{t('notifications.prefsTitle')}</h2>
                 <div style={{ width: 38 }} />

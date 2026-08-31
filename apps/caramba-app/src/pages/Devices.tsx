@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import Icon from '../components/Icon'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import './Devices.css'
@@ -231,7 +232,7 @@ export default function Devices() {
         return (
             <div className="page devices-page">
                 <header className="page-header">
-                    <button className="back-button" onClick={() => navigate('/')}>{'<'}</button>
+                    <button className="back-button" onClick={() => navigate('/')}><Icon name="chevron-left" /></button>
                     <h2>{t('devices.title')}</h2>
                 </header>
                 <div className="devices-empty">
@@ -245,7 +246,7 @@ export default function Devices() {
     return (
         <div className="page devices-page">
             <header className="page-header">
-                <button className="back-button" onClick={() => navigate('/')}>{'<'}</button>
+                <button className="back-button" onClick={() => navigate('/')}><Icon name="chevron-left" /></button>
                 <h2>{t('devices.title')}</h2>
                 <span className="badge badge-success">{planName}</span>
             </header>

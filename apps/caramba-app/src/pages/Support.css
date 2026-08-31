@@ -17,13 +17,13 @@
 }
 
 .support-notice.success {
-    color: #10b981;
+    color: var(--color-success);
     border-color: rgba(16, 185, 129, 0.35);
     background: rgba(16, 185, 129, 0.12);
 }
 
 .support-notice.error {
-    color: #fb7185;
+    color: var(--color-danger);
     border-color: rgba(251, 113, 133, 0.35);
     background: rgba(251, 113, 133, 0.12);
 }
@@ -148,7 +148,7 @@
 }
 
 .security-badge.enabled {
-    color: #10b981;
+    color: var(--color-success);
     background: rgba(16, 185, 129, 0.16);
     border: 1px solid rgba(16, 185, 129, 0.35);
 }
@@ -172,7 +172,7 @@
 
 .btn-danger-outline {
     border: 1px solid rgba(251, 113, 133, 0.35);
-    color: #fb7185;
+    color: var(--color-danger);
     background: rgba(251, 113, 133, 0.08);
 }
 

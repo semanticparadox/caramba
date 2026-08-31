@@ -181,12 +181,12 @@
 
 .variant-feedback.success {
     border-color: rgba(16, 185, 129, 0.35);
-    color: #86efac;
+    color: var(--color-success);
 }
 
 .variant-feedback.danger {
     border-color: rgba(248, 113, 113, 0.35);
-    color: #fca5a5;
+    color: var(--color-danger);
 }
 
 .variant-list {
@@ -290,17 +290,17 @@
 
 .variant-chip.vless {
     background: rgba(59, 130, 246, 0.16);
-    color: #93c5fd;
+    color: var(--color-info);
 }
 
 .variant-chip.recommended {
     background: rgba(245, 158, 11, 0.18);
-    color: #fcd34d;
+    color: var(--color-warning);
 }
 
 .variant-chip.grpc {
     background: rgba(16, 185, 129, 0.16);
-    color: #86efac;
+    color: var(--color-success);
 }
 
 .close-btn {

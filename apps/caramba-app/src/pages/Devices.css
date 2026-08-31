@@ -26,11 +26,11 @@
 }
 
 .devices-summary .count--at-limit {
-    color: var(--color-warning, #f57c00);
+    color: var(--color-warning);
 }
 
 .devices-summary .count--over-limit {
-    color: var(--color-danger, #e53935);
+    color: var(--color-danger);
 }
 
 /* Баннер при достижении/превышении лимита устройств */
@@ -45,13 +45,13 @@
 .devices-limit-banner--at-limit {
     background: rgba(245, 124, 0, 0.12);
     border: 1px solid rgba(245, 124, 0, 0.35);
-    color: var(--color-warning, #f57c00);
+    color: var(--color-warning);
 }
 
 .devices-limit-banner--over-limit {
     background: rgba(229, 57, 53, 0.12);
     border: 1px solid rgba(229, 57, 53, 0.35);
-    color: var(--color-danger, #e53935);
+    color: var(--color-danger);
 }
 
 .devices-list {
@@ -114,7 +114,7 @@
     padding: 2px 8px;
     border-radius: 10px;
     background: rgba(16, 185, 129, 0.15);
-    color: #10b981;
+    color: var(--color-success);
     font-weight: 600;
     white-space: nowrap;
 }
@@ -125,7 +125,7 @@
     border-radius: var(--radius-sm);
     border: 1px solid rgba(239, 68, 68, 0.3);
     background: rgba(239, 68, 68, 0.08);
-    color: #ef4444;
+    color: var(--color-danger);
     cursor: pointer;
     white-space: nowrap;
     transition: background 0.15s;
@@ -182,7 +182,7 @@
 }
 
 .device-name-input:focus {
-    border-color: var(--color-accent, #1976d2);
+    border-color: var(--color-accent);
 }
 
 /* Иконка-карандаш рядом с именем устройства */
@@ -216,7 +216,7 @@
     border-radius: var(--radius-md);
     border: 1px solid rgba(239, 68, 68, 0.3);
     background: rgba(239, 68, 68, 0.06);
-    color: #ef4444;
+    color: var(--color-danger);
     cursor: pointer;
     width: 100%;
     transition: background 0.15s;
@@ -257,7 +257,7 @@
     border-radius: var(--radius-md);
     border: 1px solid rgba(239, 68, 68, 0.3);
     background: rgba(239, 68, 68, 0.08);
-    color: #ef4444;
+    color: var(--color-danger);
     font-size: 14px;
     display: flex;
     flex-direction: column;
