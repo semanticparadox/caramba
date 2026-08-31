@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import WebApp from '@twa-dev/sdk';
+import { useTranslation } from 'react-i18next';
 
 export interface UserStats {
     traffic_used: number;
@@ -102,6 +103,9 @@ const AuthContext = createContext<AuthContextType>({
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    // Ошибки авторизации/загрузки видит пользователь в баннере на Home,
+    // Billing и Promo — поэтому они переводятся здесь, а не хранятся кодами.
+    const { t } = useTranslation();
     const [user, setUser] = useState<User | null>(null);
     const [token, setToken] = useState<string | null>(localStorage.getItem('jwt_token'));
     const [userStats, setUserStats] = useState<UserStats | null>(null);
@@ -176,18 +180,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         localStorage.setItem('jwt_token', data.token);
                         setError(null);
                     } else {
+                        // Текст сервера пропускаем мимо перевода только если он
+                        // есть: это диагностика для поддержки, а не строка для юзера.
                         const errText = await response.text();
-                        setError(errText || `Auth failed (${response.status})`);
+                        setError(errText || t('errors.authFailed', { status: response.status }));
                     }
                 } else if (!import.meta.env.DEV) {
-                    setError('Telegram auth data is missing. Reopen Mini App from bot.');
+                    setError(t('errors.authMissing'));
                 } else {
                     // Dev-режим — данных Telegram нет, показываем предупреждение
-                    setError('Dev mode: no Telegram initData');
+                    setError(t('errors.devNoInitData'));
                 }
             } catch (e: any) {
                 if (e?.name === 'AbortError') return; // компонент размонтирован — игнорируем
-                setError(e?.name === 'AbortError' ? 'Auth request timed out' : (e.message ?? 'Unknown auth error'));
+                setError(e?.name === 'AbortError' ? t('errors.authTimeout') : t('errors.authUnknown'));
             }
         };
 
@@ -236,7 +242,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setToken(null);
                 setSubscriptions([]);
                 setUserStats(null);
-                setError('Session expired. Reopen Mini App from bot.');
+                setError(t('errors.sessionExpired'));
                 return;
             }
             reauthInFlight.current = false;
@@ -260,7 +266,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
         } catch (e: any) {
             if (e?.name !== 'AbortError') {
-                setError(e?.name === 'AbortError' ? 'Data request timed out' : (e.message ?? 'Data fetch error'));
+                setError(e?.name === 'AbortError' ? t('errors.dataTimeout') : t('errors.dataFetch'));
             }
         } finally {
             setIsLoading(false);

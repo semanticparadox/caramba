@@ -32,13 +32,15 @@ interface Notification {
 }
 
 // Аббревиатуры-иконки для категорий (без внешних зависимостей)
-const CATEGORY_ABBR: Record<NotifCategory, string> = {
-    payment: 'PAY',
-    subscription: 'SUB',
-    device: 'DEV',
-    referral: 'REF',
-    support_ticket: 'TKT',
-    system_maintenance: 'SYS',
+// Ключи, а не готовые метки: «PAY»/«SUB» ничего не говорят русскому
+// пользователю, а сокращения в кружке должны читаться на его языке.
+const CATEGORY_ABBR_KEY: Record<NotifCategory, string> = {
+    payment: 'notifications.abbrPayment',
+    subscription: 'notifications.abbrSubscription',
+    device: 'notifications.abbrDevice',
+    referral: 'notifications.abbrReferral',
+    support_ticket: 'notifications.abbrTicket',
+    system_maintenance: 'notifications.abbrSystem',
 }
 
 function relativeTime(iso: string, t: (key: string, opts?: object) => string): string {
@@ -231,7 +233,9 @@ export default function Notifications() {
                                 onClick={() => void handleMarkRead(notif)}
                             >
                                 <div className="notif-cat-icon">
-                                    {CATEGORY_ABBR[notif.category] ?? notif.category.slice(0, 3).toUpperCase()}
+                                    {CATEGORY_ABBR_KEY[notif.category]
+                                        ? t(CATEGORY_ABBR_KEY[notif.category])
+                                        : notif.category.slice(0, 3).toUpperCase()}
                                 </div>
                                 <div className="notif-content">
                                     <span className="notif-title">{notif.title}</span>

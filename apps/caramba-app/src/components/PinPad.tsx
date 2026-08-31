@@ -1,4 +1,5 @@
 import { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import './PinPad.css';
 
 type PinPadProps = {
@@ -26,6 +27,7 @@ export default function PinPad({
     onClear,
     footer,
 }: PinPadProps) {
+    const { t } = useTranslation();
     const handleKey = (key: string) => {
         if (busy) return;
         if (key === 'clear') {
@@ -46,7 +48,7 @@ export default function PinPad({
                 {subtitle && <p>{subtitle}</p>}
             </div>
 
-            <div className="pinpad-dots" aria-label={`${valueLength} of 4 digits entered`}>
+            <div className="pinpad-dots" aria-label={t('applock.digitsEntered', { count: valueLength })}>
                 {[0, 1, 2, 3].map((idx) => (
                     <span
                         key={idx}
@@ -57,7 +59,7 @@ export default function PinPad({
 
             {error && <div className="pinpad-error">{error}</div>}
 
-            <div className="pinpad-grid" role="group" aria-label="PIN keypad">
+            <div className="pinpad-grid" role="group" aria-label={t('applock.keypad')}>
                 {KEYS.map((key) => (
                     <button
                         key={key}
@@ -66,7 +68,7 @@ export default function PinPad({
                         onClick={() => handleKey(key)}
                         disabled={busy}
                     >
-                        {key === 'clear' ? 'Clear' : key === 'back' ? '⌫' : key}
+                        {key === 'clear' ? t('applock.clear') : key === 'back' ? '⌫' : key}
                     </button>
                 ))}
             </div>

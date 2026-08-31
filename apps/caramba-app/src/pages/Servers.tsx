@@ -353,7 +353,7 @@ export default function Servers() {
                                 <span className="server-name">{server.name}</span>
                                 <span className="server-meta">
                                     {server.country_code}
-                                    {server.distance_km !== undefined && ` · ${server.distance_km} km`}
+                                    {server.distance_km !== undefined && ` · ${server.distance_km} ${t('common.unitKm')}`}
                                 </span>
                             </div>
                             <div className="server-right">

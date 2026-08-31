@@ -6,7 +6,13 @@
     "close": "Close",
     "copy": "Copy",
     "copied": "Copied",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "unitB": "B",
+    "unitKB": "KB",
+    "unitMB": "MB",
+    "unitGB": "GB",
+    "unitTB": "TB",
+    "unitKm": "km"
   },
   "payment": {
     "groupStars": "Telegram Stars",
@@ -25,7 +31,85 @@
     "redirecting": "Opening payment page...",
     "sessionFailed": "Payment was not completed.",
     "sessionFailedHint": "The payment session failed or expired. You can start a new payment from the plan or order page.",
-    "pollTimeout": "No confirmation yet. If you have paid, the receipt will arrive in the bot chat — check it there."
+    "pollTimeout": "No confirmation yet. If you have paid, the receipt will arrive in the bot chat — check it there.",
+    "providers": {
+      "balance": {
+        "title": "Account balance",
+        "description": "Instant payment, no external redirect.",
+        "badge": "Fast"
+      },
+      "manual": {
+        "title": "Card / manual payment",
+        "description": "For manual confirmation and non-standard cases.",
+        "badge": "Manual"
+      },
+      "stars": {
+        "title": "Telegram Stars",
+        "description": "Native checkout inside Telegram.",
+        "badge": "Telegram"
+      },
+      "cryptobot": {
+        "title": "CryptoBot",
+        "description": "Fast crypto checkout inside the Telegram ecosystem.",
+        "badge": "Crypto"
+      },
+      "nowpayments": {
+        "title": "NowPayments",
+        "description": "Wide choice of crypto assets, external payment page."
+      },
+      "cryptomus": {
+        "title": "Cryptomus",
+        "description": "Crypto acquiring with an external checkout flow."
+      },
+      "lava": {
+        "title": "Lava",
+        "description": "Alternative checkout for external payment."
+      },
+      "aaio": {
+        "title": "AAIO",
+        "description": "Multi-method checkout with a redirect to an external flow."
+      },
+      "stripe": {
+        "title": "Stripe",
+        "description": "International card payments via an external page.",
+        "badge": "Cards"
+      },
+      "wata": {
+        "title": "WATA",
+        "description": "Card payments in roubles, settled via RU acquiring.",
+        "badge": "RUB"
+      },
+      "crystalpay": {
+        "title": "CrystalPay",
+        "description": "RU aggregator: cards and SBP in roubles.",
+        "badge": "RUB"
+      },
+      "tribute": {
+        "title": "Tribute",
+        "description": "Pay by RU card in roubles, payouts in crypto.",
+        "badge": "RUB → Crypto"
+      },
+      "btcpay": {
+        "title": "BTCPay Server",
+        "description": "Self-hosted bitcoin and altcoin payments, no middlemen.",
+        "badge": "Self-hosted"
+      },
+      "oxapay": {
+        "title": "OxaPay",
+        "description": "Crypto acquiring supporting many coins.",
+        "badge": "Crypto"
+      },
+      "coinbase_commerce": {
+        "title": "Coinbase Commerce",
+        "description": "Crypto payments via Coinbase Commerce.",
+        "badge": "Crypto"
+      },
+      "plisio": {
+        "title": "Plisio",
+        "description": "Crypto checkout supporting popular coins.",
+        "badge": "Crypto"
+      }
+    }
   },
   "nav": {
     "center": "Hub",
@@ -321,7 +405,8 @@
     "releases": "Releases",
     "confidenceHigh": "Verified",
     "confidenceMediumHigh": "Verified with caveats",
-    "confidenceMedium": "Needs additional testing"
+    "confidenceMedium": "Needs additional testing",
+    "recommended": "Recommended"
   },
   "applock": {
     "locked": "Mini App Locked",
@@ -331,7 +416,10 @@
     "errorIncorrect": "Incorrect PIN. Try again.",
     "errorEnableFailed": "Failed to enable PIN. Try again.",
     "errorChangeFailed": "Failed to change PIN. Try again.",
-    "errorDisableFailed": "Failed to disable PIN. Try again."
+    "errorDisableFailed": "Failed to disable PIN. Try again.",
+    "clear": "Clear",
+    "keypad": "PIN keypad",
+    "digitsEntered": "{{count}} of 4 digits entered"
   },
   "notifications": {
     "title": "Notifications",
@@ -363,7 +451,13 @@
     "channel_mini_app": "App",
     "severity_info": "Info",
     "severity_warning": "Warning",
-    "severity_error": "Error"
+    "severity_error": "Error",
+    "abbrPayment": "PAY",
+    "abbrSubscription": "SUB",
+    "abbrDevice": "DEV",
+    "abbrReferral": "REF",
+    "abbrTicket": "TKT",
+    "abbrSystem": "SYS"
   },
   "tickets": {
     "title": "Support tickets",
@@ -378,7 +472,6 @@
     "attachSizeError": "File is too large. Maximum size is 10 MB.",
     "attachUploadError": "Failed to upload file.",
     "attachment": "Attachment",
-    "attachFile": "Attach file",
     "replyPlaceholder": "Write a message...",
     "closedNote": "This ticket is closed. Create a new one if you need further assistance.",
     "fieldCategory": "Category",
@@ -402,7 +495,9 @@
     "timeJustNow": "just now",
     "timeMinutes": "{{count}} min. ago",
     "timeHours": "{{count}} hr. ago",
-    "timeDays": "{{count}} day(s) ago"
+    "timeDays": "{{count}} day(s) ago",
+    "attachmentAlt": "Attachment",
+    "attachFile": "Attach file"
   },
   "subscription": {
     "loading": "Loading subscriptions...",
@@ -459,5 +554,15 @@
     "autoRenewHint": "When enabled, the subscription renews automatically from your balance before it expires.",
     "autoRenewManageBot": "Manage auto-renew in the bot for now.",
     "statusThrottled": "Daily limit reached"
+  },
+  "errors": {
+    "authFailed": "Sign-in failed ({{status}}). Try reopening the app.",
+    "authMissing": "Telegram auth data is missing. Reopen the Mini App from the bot.",
+    "devNoInitData": "Dev mode: no Telegram initData.",
+    "authTimeout": "Sign-in timed out. Please try again.",
+    "authUnknown": "Could not sign in. Please try again.",
+    "sessionExpired": "Session expired. Reopen the Mini App from the bot.",
+    "dataTimeout": "Loading timed out. Pull down to refresh.",
+    "dataFetch": "Could not load your data. Try refreshing."
   }
 }

@@ -33,13 +33,33 @@ export const subscriptionLimitBytes = (sub: UserSubscription): number => {
   return Math.max(0, sub.traffic_limit_gb || 0) * BYTES_IN_GB
 }
 
-export const formatBytes = (bytes: number, decimals = 2): string => {
-  if (!bytes || bytes <= 0) return '0 B'
+const BYTE_UNIT_KEYS = [
+  'common.unitB',
+  'common.unitKB',
+  'common.unitMB',
+  'common.unitGB',
+  'common.unitTB',
+]
+const BYTE_UNIT_FALLBACK = ['B', 'KB', 'MB', 'GB', 'TB']
+
+/**
+ * `t` необязателен: у lib-слоя своего i18n нет, а вызывать formatBytes могут и
+ * из мест без React-контекста. Без него остаются латинские сокращения.
+ */
+export const formatBytes = (
+  bytes: number,
+  t?: (key: string) => string,
+  decimals = 2,
+): string => {
+  const unit = (i: number) => (t ? t(BYTE_UNIT_KEYS[i]) : BYTE_UNIT_FALLBACK[i])
+  if (!bytes || bytes <= 0) return `0 ${unit(0)}`
   const k = 1024
   const dm = decimals < 0 ? 0 : decimals
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i]
+  const i = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(k)),
+    BYTE_UNIT_FALLBACK.length - 1,
+  )
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + unit(i)
 }
 
 export const getUsageSnapshot = (

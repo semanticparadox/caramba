@@ -943,6 +943,118 @@ mod tests {
         }
     }
 
+    // ----- корректность разметки --------------------------------------------
+
+    /// Строки уходят в Telegram с `parse_mode=HTML`, а Telegram отклоняет
+    /// СООБЩЕНИЕ ЦЕЛИКОМ при неизвестном или незакрытом теге. Непоказанное
+    /// сообщение хуже английского, поэтому разметку проверяем тестом:
+    /// каждый `<...>` — тег из белого списка, все теги закрыты и вложены.
+    #[test]
+    fn html_markup_is_well_formed() {
+        // Теги, которые Telegram понимает в HTML parse mode и которые мы
+        // реально используем.
+        const ALLOWED: &[&str] = &["b", "i", "u", "s", "code", "pre", "a"];
+
+        for key in KEYS {
+            for lang in [Lang::Ru, Lang::En] {
+                let text = t(lang, key);
+                let mut stack: Vec<String> = Vec::new();
+                let mut rest = text;
+
+                while let Some(open_at) = rest.find('<') {
+                    let after = &rest[open_at + 1..];
+                    let close_at = after.find('>').unwrap_or_else(|| {
+                        panic!("key `{key}` ({lang:?}): unterminated `<` in: {text}")
+                    });
+                    let raw = &after[..close_at];
+                    rest = &after[close_at + 1..];
+
+                    let (is_closing, body) = match raw.strip_prefix('/') {
+                        Some(b) => (true, b),
+                        None => (false, raw),
+                    };
+                    // `<a href="...">` — имя тега до первого пробела.
+                    let name = body.split_whitespace().next().unwrap_or("").to_string();
+
+                    assert!(
+                        ALLOWED.contains(&name.as_str()),
+                        "key `{key}` ({lang:?}): tag `<{name}>` is not allowed by Telegram HTML: {text}"
+                    );
+
+                    if is_closing {
+                        let top = stack.pop().unwrap_or_else(|| {
+                            panic!(
+                                "key `{key}` ({lang:?}): `</{name}>` with no opening tag: {text}"
+                            )
+                        });
+                        assert_eq!(
+                            top, name,
+                            "key `{key}` ({lang:?}): `</{name}>` closes `<{top}>`: {text}"
+                        );
+                    } else {
+                        stack.push(name);
+                    }
+                }
+
+                assert!(
+                    stack.is_empty(),
+                    "key `{key}` ({lang:?}): unclosed tag(s) {stack:?} in: {text}"
+                );
+            }
+        }
+    }
+
+    /// Тексты для `answer_callback_query` и pre-checkout Telegram показывает
+    /// во всплывающем окне БЕЗ parse mode — разметка там протекла бы как есть.
+    #[test]
+    fn plain_text_keys_carry_no_markup() {
+        const PLAIN: &[&str] = &[
+            "precheckout.bad_amount",
+            "precheckout.bad_payload",
+            "precheckout.session_missing",
+            "precheckout.session_foreign",
+            "precheckout.session_closed",
+            "precheckout.not_stars",
+            "precheckout.amount_mismatch",
+            "precheckout.restricted",
+            "precheckout.no_account",
+            "precheckout.unavailable",
+            "checkout.failed",
+            "checkout.fulfillment_failed",
+            "checkout.insufficient_balance",
+            "checkout.charge_failed",
+            "checkout.paid_toast",
+            "checkout.invoice_toast",
+            "checkout.choose_method_toast",
+            "checkout.invalid_plan",
+            "checkout.invalid_duration",
+            "checkout.stars_unavailable",
+            "services.activated_toast",
+            "services.extended_toast",
+            "services.not_found",
+            "services.note_updated",
+            "gift.created_toast",
+            "cart.added_toast",
+            "cart.cleared_toast",
+            "cart.checkout_ok_toast",
+            "store.purchase_ok_toast",
+            "devices.reset_toast",
+            "terms.must_accept",
+            "error.not_implemented",
+            "referral.new_referral_dm",
+        ];
+        for key in PLAIN {
+            for lang in [Lang::Ru, Lang::En] {
+                let text = t(lang, key);
+                assert_ne!(text, MISSING, "key `{key}` is missing for {lang:?}");
+                assert!(
+                    !text.contains('<') && !text.contains('>'),
+                    "key `{key}` ({lang:?}) is sent as plain text but contains markup: {text}"
+                );
+            }
+        }
+    }
+
     // ----- форматирование ---------------------------------------------------
 
     #[test]

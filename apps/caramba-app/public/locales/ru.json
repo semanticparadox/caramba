@@ -6,7 +6,13 @@
     "close": "Закрыть",
     "copy": "Скопировать",
     "copied": "Скопировано",
-    "refresh": "Обновить"
+    "refresh": "Обновить",
+    "unitB": "Б",
+    "unitKB": "КБ",
+    "unitMB": "МБ",
+    "unitGB": "ГБ",
+    "unitTB": "ТБ",
+    "unitKm": "км"
   },
   "payment": {
     "groupStars": "Telegram Stars",
@@ -25,7 +31,85 @@
     "redirecting": "Открываем страницу оплаты...",
     "sessionFailed": "Оплата не была завершена.",
     "sessionFailedHint": "Платёжная сессия завершилась неудачей или истекла. Начните новую оплату со страницы тарифа или заказа.",
-    "pollTimeout": "Подтверждение пока не пришло. Если вы оплатили — итог придёт в чат бота, проверьте его там."
+    "pollTimeout": "Подтверждение пока не пришло. Если вы оплатили — итог придёт в чат бота, проверьте его там.",
+    "providers": {
+      "balance": {
+        "title": "Баланс аккаунта",
+        "description": "Мгновенная оплата без внешнего редиректа.",
+        "badge": "Быстро"
+      },
+      "manual": {
+        "title": "Карта / ручная оплата",
+        "description": "Подходит для ручного подтверждения и нестандартных кейсов.",
+        "badge": "Вручную"
+      },
+      "stars": {
+        "title": "Telegram Stars",
+        "description": "Нативный сценарий оплаты внутри Telegram.",
+        "badge": "Telegram"
+      },
+      "cryptobot": {
+        "title": "CryptoBot",
+        "description": "Быстрый крипто-чекаут в экосистеме Telegram.",
+        "badge": "Крипта"
+      },
+      "nowpayments": {
+        "title": "NowPayments",
+        "description": "Широкий выбор криптоактивов и внешняя платёжная страница."
+      },
+      "cryptomus": {
+        "title": "Cryptomus",
+        "description": "Крипто-эквайринг с внешним чекаутом."
+      },
+      "lava": {
+        "title": "Lava",
+        "description": "Альтернативный чекаут для внешней оплаты."
+      },
+      "aaio": {
+        "title": "AAIO",
+        "description": "Мульти-методный чекаут с редиректом на внешнюю оплату."
+      },
+      "stripe": {
+        "title": "Stripe",
+        "description": "Международный приём карт через внешнюю платёжную страницу.",
+        "badge": "Карты"
+      },
+      "wata": {
+        "title": "WATA",
+        "description": "Приём карт в рублях, расчёты в РФ-эквайринге.",
+        "badge": "Рубли"
+      },
+      "crystalpay": {
+        "title": "CrystalPay",
+        "description": "РФ-агрегатор: карты и СБП в рублях.",
+        "badge": "Рубли"
+      },
+      "tribute": {
+        "title": "Tribute",
+        "description": "Оплата картой РФ в рублях, вывод средств в крипте.",
+        "badge": "Рубли → крипта"
+      },
+      "btcpay": {
+        "title": "BTCPay Server",
+        "description": "Самостоятельный приём биткоина и альткоинов без посредников.",
+        "badge": "Свой сервер"
+      },
+      "oxapay": {
+        "title": "OxaPay",
+        "description": "Крипто-эквайринг с поддержкой множества монет.",
+        "badge": "Крипта"
+      },
+      "coinbase_commerce": {
+        "title": "Coinbase Commerce",
+        "description": "Приём криптовалют через Coinbase Commerce.",
+        "badge": "Крипта"
+      },
+      "plisio": {
+        "title": "Plisio",
+        "description": "Крипто-чекаут с поддержкой популярных монет.",
+        "badge": "Крипта"
+      }
+    }
   },
   "nav": {
     "center": "Хаб",
@@ -321,7 +405,8 @@
     "releases": "Релизы",
     "confidenceHigh": "Проверено",
     "confidenceMediumHigh": "Проверено с оговорками",
-    "confidenceMedium": "Нужна дополнительная проверка"
+    "confidenceMedium": "Нужна дополнительная проверка",
+    "recommended": "Рекомендуем"
   },
   "applock": {
     "locked": "Mini App заблокирован",
@@ -331,7 +416,10 @@
     "errorIncorrect": "Неверный PIN. Попробуйте снова.",
     "errorEnableFailed": "Не удалось включить PIN. Попробуйте снова.",
     "errorChangeFailed": "Не удалось изменить PIN. Попробуйте снова.",
-    "errorDisableFailed": "Не удалось отключить PIN. Попробуйте снова."
+    "errorDisableFailed": "Не удалось отключить PIN. Попробуйте снова.",
+    "clear": "Стереть",
+    "keypad": "Клавиатура для ввода PIN",
+    "digitsEntered": "Введено {{count}} из 4 цифр"
   },
   "notifications": {
     "title": "Уведомления",
@@ -363,7 +451,13 @@
     "channel_mini_app": "Приложение",
     "severity_info": "Инфо",
     "severity_warning": "Предупреждение",
-    "severity_error": "Ошибка"
+    "severity_error": "Ошибка",
+    "abbrPayment": "ОПЛ",
+    "abbrSubscription": "ПОД",
+    "abbrDevice": "УСТР",
+    "abbrReferral": "РЕФ",
+    "abbrTicket": "ТКТ",
+    "abbrSystem": "СИС"
   },
   "tickets": {
     "title": "Тикеты поддержки",
@@ -378,7 +472,6 @@
     "attachSizeError": "Файл слишком большой. Максимальный размер — 10 МБ.",
     "attachUploadError": "Не удалось загрузить файл.",
     "attachment": "Вложение",
-    "attachFile": "Прикрепить файл",
     "replyPlaceholder": "Написать сообщение...",
     "closedNote": "Этот тикет закрыт. Создайте новый, если нужна дополнительная помощь.",
     "fieldCategory": "Категория",
@@ -402,7 +495,9 @@
     "timeJustNow": "только что",
     "timeMinutes": "{{count}} мин. назад",
     "timeHours": "{{count}} ч. назад",
-    "timeDays": "{{count}} дн. назад"
+    "timeDays": "{{count}} дн. назад",
+    "attachmentAlt": "Вложение",
+    "attachFile": "Прикрепить файл"
   },
   "subscription": {
     "loading": "Загрузка подписок...",
@@ -459,5 +554,15 @@
     "autoRenewHint": "Когда включено, подписка продлевается автоматически с баланса перед истечением срока.",
     "autoRenewManageBot": "Пока управлять автопродлением можно в боте.",
     "statusThrottled": "Дневной лимит исчерпан"
+  },
+  "errors": {
+    "authFailed": "Не удалось войти (код {{status}}). Попробуйте открыть приложение заново.",
+    "authMissing": "Нет данных Telegram. Откройте приложение из бота.",
+    "devNoInitData": "Dev-режим: данных Telegram нет.",
+    "authTimeout": "Вход занял слишком много времени. Попробуйте ещё раз.",
+    "authUnknown": "Не удалось войти. Попробуйте ещё раз.",
+    "sessionExpired": "Сессия истекла. Откройте приложение из бота заново.",
+    "dataTimeout": "Данные не загрузились вовремя. Потяните вниз, чтобы обновить.",
+    "dataFetch": "Не удалось загрузить данные. Попробуйте обновить."
   }
 }

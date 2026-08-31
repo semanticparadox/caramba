@@ -3,7 +3,12 @@ export type PlatformKey = 'ios' | 'android' | 'windows' | 'macos' | 'linux' | 't
 export type AppDirectoryEntry = {
   id: string
   name: string
-  badge?: string
+  /**
+   * i18n-ключ бейджа («Рекомендуем»). Цена вроде «$2.99» — не перевод,
+   * поэтому лежит в `badgeText` и печатается как есть.
+   */
+  badgeKey?: string
+  badgeText?: string
   description: string
   officialUrl: string
   fallbackUrl?: string
@@ -29,7 +34,7 @@ export const PLATFORM_DIRECTORY: PlatformDirectory[] = [
       {
         id: 'hiddify-ios',
         name: 'Hiddify',
-        badge: 'Рекомендуем',
+        badgeKey: 'connectGuide.recommended',
         description: 'Универсальный клиент, автоматический импорт. Бесплатно.',
         officialUrl: HIDDIFY_SITE,
         fallbackUrl: HIDDIFY_RELEASES,
@@ -52,7 +57,7 @@ export const PLATFORM_DIRECTORY: PlatformDirectory[] = [
       {
         id: 'shadowrocket-ios',
         name: 'Shadowrocket',
-        badge: '$2.99',
+        badgeText: '$2.99',
         description: 'Популярный платный клиент. Поддерживает все протоколы.',
         officialUrl: 'https://apps.apple.com/app/shadowrocket/id932747118',
         confidence: 'high',
@@ -75,7 +80,7 @@ export const PLATFORM_DIRECTORY: PlatformDirectory[] = [
       {
         id: 'hiddify-android',
         name: 'Hiddify',
-        badge: 'Рекомендуем',
+        badgeKey: 'connectGuide.recommended',
         description: 'Универсальный клиент с автоимпортом. Бесплатно.',
         officialUrl: HIDDIFY_SITE,
         fallbackUrl: HIDDIFY_RELEASES,
@@ -121,7 +126,7 @@ export const PLATFORM_DIRECTORY: PlatformDirectory[] = [
       {
         id: 'hiddify-windows',
         name: 'Hiddify',
-        badge: 'Рекомендуем',
+        badgeKey: 'connectGuide.recommended',
         description: 'Универсальный GUI-клиент для Windows.',
         officialUrl: HIDDIFY_SITE,
         fallbackUrl: HIDDIFY_RELEASES,
@@ -151,7 +156,7 @@ export const PLATFORM_DIRECTORY: PlatformDirectory[] = [
       {
         id: 'hiddify-macos',
         name: 'Hiddify',
-        badge: 'Рекомендуем',
+        badgeKey: 'connectGuide.recommended',
         description: 'Универсальный GUI-клиент для macOS.',
         officialUrl: HIDDIFY_SITE,
         fallbackUrl: HIDDIFY_RELEASES,
@@ -182,7 +187,7 @@ export const PLATFORM_DIRECTORY: PlatformDirectory[] = [
       {
         id: 'hiddify-linux',
         name: 'Hiddify',
-        badge: 'Рекомендуем',
+        badgeKey: 'connectGuide.recommended',
         description: 'GUI-клиент для Linux (AppImage/deb).',
         officialUrl: HIDDIFY_SITE,
         fallbackUrl: HIDDIFY_RELEASES,
@@ -212,7 +217,7 @@ export const PLATFORM_DIRECTORY: PlatformDirectory[] = [
       {
         id: 'hiddify-tv',
         name: 'Hiddify',
-        badge: 'Рекомендуем',
+        badgeKey: 'connectGuide.recommended',
         description: 'Клиент для Android TV и TV Box.',
         officialUrl: HIDDIFY_SITE,
         fallbackUrl: HIDDIFY_RELEASES,
