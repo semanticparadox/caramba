@@ -856,7 +856,7 @@ pub fn generate_v2ray_config(
                 match inbound.protocol.as_str() {
                     "vless" => {
                         let mut params = vec![
-                            format!("encryption=none"),
+                            "encryption=none".to_string(),
                             format!("type={}", si.network),
                             format!("security={}", si.security),
                             format!("sni={}", si.sni),
@@ -1002,7 +1002,7 @@ pub fn generate_v2ray_config(
                         ));
                     }
                     "hysteria2" | "hy2" => {
-                        let mut params = vec![format!("sni={}", si.sni), format!("insecure=1")];
+                        let mut params = vec![format!("sni={}", si.sni), "insecure=1".to_string()];
                         if let Some(ports) = &si.hy2_ports {
                             params.push(format!("mport={}", ports));
                         }

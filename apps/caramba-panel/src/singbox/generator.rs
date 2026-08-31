@@ -1196,7 +1196,6 @@ impl ConfigGenerator {
 
         let dns_servers: Vec<DnsServer>;
         let dns_strategy: Option<String>;
-        let default_domain_resolver: String;
 
         // RU-direct shares the same geosite ruleset + DNS rule across modes.
         let push_ru_direct = |rule_sets: &mut Vec<RuleSet>, dns_rules: &mut Vec<DnsRule>| {
@@ -1217,7 +1216,7 @@ impl ConfigGenerator {
             });
         };
 
-        match policy.dns.as_ref() {
+        let default_domain_resolver: String = match policy.dns.as_ref() {
             Some(dns) if matches!(dns.mode, DnsMode::Doh | DnsMode::Dot) => {
                 dns_strategy = dns.strategy.clone();
                 if dns.ru_direct {
@@ -1259,7 +1258,7 @@ impl ConfigGenerator {
                     clash_mode: None,
                     rule_set: None,
                 });
-                default_domain_resolver = "local".to_string();
+                "local".to_string()
             }
             Some(dns) => {
                 // DnsMode::System — local resolver only.
@@ -1279,7 +1278,7 @@ impl ConfigGenerator {
                     clash_mode: None,
                     rule_set: None,
                 });
-                default_domain_resolver = "local".to_string();
+                "local".to_string()
             }
             None => {
                 // Legacy: byte-identical to the historical hard-coded output.
@@ -1303,9 +1302,9 @@ impl ConfigGenerator {
                     clash_mode: None,
                     rule_set: None,
                 });
-                default_domain_resolver = "google".to_string();
+                "google".to_string()
             }
-        }
+        };
 
         SingBoxConfig {
             log: LogConfig {
