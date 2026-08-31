@@ -53,6 +53,29 @@ struct PlanEditModalTemplate {
 // Route Handlers
 // ============================================================================
 
+
+/// Нарушение `plans_single_active_free_idx` — попытка завести второй активный
+/// бесплатный план.
+///
+/// Индекс частичный и живёт в миграции 20260831120000: все три места, которые
+/// ищут бесплатный план, делают `WHERE is_free AND is_active LIMIT 1`, поэтому
+/// при двух таких планах победитель произволен и бесплатный тариф отличался бы
+/// между регистрацией и откатом после истечения. Ловим по имени индекса, чтобы
+/// админ увидел причину, а не 500.
+fn is_duplicate_free_plan(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<sqlx::Error>()
+            .and_then(|e| e.as_database_error())
+            .and_then(|db| db.constraint())
+            .is_some_and(|c| c == "plans_single_active_free_idx")
+    })
+}
+
+const DUPLICATE_FREE_PLAN_MSG: &str =
+    "Бесплатный план может быть только один. Снимите флаг с текущего бесплатного плана \
+     или деактивируйте его, прежде чем назначать новый.";
+
 pub async fn get_plans(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {
     let plans = match state.catalog_service.get_plans_admin().await {
         Ok(p) => {
@@ -182,6 +205,9 @@ pub async fn add_plan(
         .await
     {
         Ok(id) => info!("Created plan with ID: {}", id),
+        Err(e) if is_duplicate_free_plan(&e) => {
+            return (axum::http::StatusCode::CONFLICT, DUPLICATE_FREE_PLAN_MSG).into_response();
+        }
         Err(e) => {
             error!("Failed to create plan: {}", e);
             return (
@@ -366,6 +392,9 @@ pub async fn update_plan(
         )
         .await
     {
+        if is_duplicate_free_plan(&e) {
+            return (axum::http::StatusCode::CONFLICT, DUPLICATE_FREE_PLAN_MSG).into_response();
+        }
         error!("Failed to update plan: {}", e);
         return (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,

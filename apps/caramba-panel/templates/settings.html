@@ -222,21 +222,12 @@
                     <div>
                         <h3 class="text-xl font-bold text-slate-900 dark:text-white">Бонусный трафик</h3>
                         <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Разовые
-                            начисления трафика сверх лимита тарифа · 0 = выключено</p>
+                            начисления сверх лимита плана · 0 = выключено · стартовый трафик задаётся
+                            на самом плане</p>
                     </div>
                 </header>
 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div>
-                        <label
-                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Бонус
-                            за регистрацию (МБ)</label>
-                        <input type="number" form="main-settings-form" name="signup_bonus_traffic_mb"
-                            value="{{ signup_bonus_traffic_mb }}" min="0" placeholder="0" class="input-field font-mono">
-                        <p class="text-[10px] text-slate-500 mt-2 ml-1">Начисляется один раз каждому новому
-                            пользователю при регистрации. 1024 = 1 ГБ.</p>
-                    </div>
-
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                         <label
                             class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Рефереру

@@ -463,7 +463,6 @@ pub async fn register_email(
         // создаётся, клиент может повторить (email ещё свободен). Между пред-
         // валидацией и этим вызовом код мог исчерпаться гонкой — тогда Ok(None) и
         // мы так же отдаём 400 без созданного аккаунта.
-        let onboarding_mb = read_onboarding_traffic_mb(&state).await;
         match state
             .store_service
             .register_email_with_enroll(
@@ -472,7 +471,6 @@ pub async fn register_email(
                 payload.full_name.as_deref(),
                 &referral_code,
                 code,
-                onboarding_mb,
             )
             .await
         {
@@ -537,19 +535,6 @@ pub async fn register_email(
         Json(token_pair(access, refresh, user.id)),
     )
         .into_response()
-}
-
-/// Читает настройку onboarding_traffic_mb (МБ). '0' = выключено. Мягкий парсинг:
-/// мусор -> 0. Общий хелпер для register/login_telegram.
-async fn read_onboarding_traffic_mb(state: &AppState) -> i64 {
-    state
-        .settings
-        .get_or_default("onboarding_traffic_mb", "0")
-        .await
-        .trim()
-        .parse::<i64>()
-        .unwrap_or(0)
-        .max(0)
 }
 
 /// POST /api/v2/app/login/email — вход по email/password.
@@ -768,10 +753,9 @@ pub async fn login_telegram(
     if was_new && let Some(raw_code) = payload.enroll_code.as_deref() {
         let code = raw_code.trim();
         if !code.is_empty() {
-            let onboarding_mb = read_onboarding_traffic_mb(&state).await;
             match state
                 .store_service
-                .redeem_enrollment_code(user.id, code, onboarding_mb)
+                .redeem_enrollment_code(user.id, code)
                 .await
             {
                 Ok(true) => {}

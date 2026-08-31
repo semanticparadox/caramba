@@ -36,6 +36,32 @@
                     (GB)</label>
                 <input type="number" name="traffic_limit_gb" value="{{ plan.traffic_limit_gb }}" min="0" required
                     class="input-field">
+                <p class="text-[10px] text-slate-500 mt-1.5 font-medium italic">Потолок: за ним подписка уходит в
+                    throttle</p>
+            </div>
+
+            <div>
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Daily Traffic
+                    (MB)</label>
+                <input type="number" name="daily_traffic_mb" value="{{ plan.daily_traffic_mb }}" min="0"
+                    class="input-field">
+                <p class="text-[10px] text-slate-500 mt-1.5 font-medium italic">Возвращается каждые сутки. 0 —
+                    пополнения нет</p>
+            </div>
+
+            <div class="md:col-span-2">
+                <label
+                    class="flex items-start gap-3.5 p-4 rounded-2xl bg-slate-950/40 border border-white/5 cursor-pointer">
+                    <input type="checkbox" name="is_free" value="true" onchange="toggleFreePlan(this, 'edit')" {% if
+                        plan.is_free %}checked{% endif %}
+                        class="mt-0.5 w-4.5 h-4.5 rounded border-border-default bg-slate-900 text-brand focus:ring-brand/20">
+                    <span class="min-w-0">
+                        <span class="block text-sm text-slate-200 font-semibold">Бесплатный план</span>
+                        <span class="block text-[11px] text-slate-500 mt-1 leading-relaxed">Выдаётся автоматически при
+                            регистрации и когда платная подписка заканчивается. Такой план один на панель, цена и срок
+                            ему не нужны.</span>
+                    </span>
+                </label>
             </div>
         </div>
 
@@ -55,7 +81,7 @@
             </div>
         </div>
 
-        <div class="space-y-4">
+        <div class="space-y-4" id="edit-pricing">
             <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest">Pricing Options</label>
             <div id="edit-durations-container" class="space-y-3">
                 {% for dur in plan.durations %}
@@ -113,4 +139,28 @@
         lucide.createIcons();
     }
     lucide.createIcons();
+</script>
+
+<script>
+    // Тот же переключатель, что и в форме создания: бесплатный план не требует
+    // цены и срока, а оставленные `required` заблокировали бы сохранение.
+    function toggleFreePlan(checkbox, scope) {
+        const pricing = document.getElementById(scope + '-pricing');
+        if (!pricing) return;
+        const free = checkbox.checked;
+        pricing.hidden = free;
+        pricing.querySelectorAll('input').forEach((input) => {
+            if (free) {
+                input.dataset.wasRequired = input.required ? '1' : '';
+                input.required = false;
+            } else if (input.dataset.wasRequired === '1') {
+                input.required = true;
+            }
+        });
+    }
+    // Открыли модалку у уже бесплатного плана — свернуть цены сразу.
+    (function () {
+        const cb = document.querySelector('#edit-plan-modal input[name="is_free"]');
+        if (cb && cb.checked) toggleFreePlan(cb, 'edit');
+    })();
 </script>

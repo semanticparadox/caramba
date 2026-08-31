@@ -417,9 +417,8 @@ impl StoreService {
     ///      проверяем rows_affected == 1 (защита от гонки на max_uses).
     ///   3. Если inviter_user_id задан и у юзера ещё нет referrer_id — проставляем
     ///      его (immutable, set-once), как в signup-source семантике.
-    ///   4. Если onboarding_traffic_mb > 0 И аккаунт не имеет платной подписки —
-    ///      гарантируем наличие бесплатной подписки и единожды уменьшаем
-    ///      used_traffic на onboarding_traffic_mb*1024*1024 (GREATEST(0,...)).
+    ///   4. Безусловно гарантируем подписку на бесплатном плане — трафик в этой
+    ///      системе приходит только от плана.
     ///
     /// Возвращает Ok(true) если код успешно списан, Ok(false) если код невалиден
     /// (не существует / истёк / исчерпан). Никогда не падает на отсутствии
@@ -427,16 +426,11 @@ impl StoreService {
     ///
     /// `apply_signup_bonus` (как в bot /start) запускается best-effort ПОСЛЕ
     /// commit, чтобы сбой бонуса не откатывал списание кода.
-    pub async fn redeem_enrollment_code(
-        &self,
-        user_id: i64,
-        code: &str,
-        onboarding_traffic_mb: i64,
-    ) -> Result<bool> {
+    pub async fn redeem_enrollment_code(&self, user_id: i64, code: &str) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
 
         let outcome = self
-            .redeem_enrollment_code_in_tx(&mut tx, user_id, code, onboarding_traffic_mb)
+            .redeem_enrollment_code_in_tx(&mut tx, user_id, code)
             .await?;
 
         let inviter = match outcome {
@@ -475,7 +469,6 @@ impl StoreService {
         full_name: Option<&str>,
         referral_code: &str,
         code: &str,
-        onboarding_traffic_mb: i64,
     ) -> Result<Option<User>> {
         let mut tx = self.pool.begin().await?;
 
@@ -499,7 +492,7 @@ impl StoreService {
         // 2. Списываем код в той же tx. None => невалиден: откатываем всё, аккаунт
         //    не создаётся (клиент повторит с верным кодом — email ещё свободен).
         let outcome = self
-            .redeem_enrollment_code_in_tx(&mut tx, user_id, code, onboarding_traffic_mb)
+            .redeem_enrollment_code_in_tx(&mut tx, user_id, code)
             .await?;
         let inviter = match outcome {
             Some(inv) => inv,
@@ -537,7 +530,6 @@ impl StoreService {
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         user_id: i64,
         code: &str,
-        onboarding_traffic_mb: i64,
     ) -> Result<Option<Option<i64>>> {
         // 1. Лочим строку кода под предикатом валидности (нуллабельный expires_at).
         let enroll = sqlx::query_as::<_, caramba_db::models::store::EnrollmentCode>(
@@ -585,35 +577,22 @@ impl StoreService {
             .await?;
         }
 
-        // 4. Одноразовый онбординг-грант для неоплаченного аккаунта (headroom).
-        if onboarding_traffic_mb > 0 {
-            self.grant_onboarding_traffic_tx(tx, user_id, onboarding_traffic_mb)
-                .await?;
-        }
+        // 4. Бесплатная подписка — БЕЗУСЛОВНО.
+        //
+        //    Трафик в этой системе приходит только от плана, поэтому регистрация
+        //    обязана посадить человека на план с `is_free`. Раньше здесь стоял
+        //    одноразовый headroom за настройкой `onboarding_traffic_mb`, а рядом
+        //    — плоский бонус за регистрацию; вместе они выдавали трафик человеку
+        //    вообще без подписки, то есть в обход той самой сущности, которая
+        //    трафиком управляет. Обоих больше нет.
+        //
+        //    Идемпотентно (живая подписка на бесплатном плане — no-op) и мягко
+        //    деградирует: бесплатный план не настроен — warn и пропуск, но
+        //    регистрация не откатывается. Внутри транзакции намеренно: падение
+        //    между commit и post-commit шагом оставило бы человека без доступа.
+        self.ensure_free_plan_subscription_tx(tx, user_id).await?;
 
-        // 5. Бонус за регистрацию (signup_bonus_traffic_mb). Отдельный от
-        //    онбординг-headroom механизм: это полноценный бонусный трафик на
-        //    пользователе, который учитывают ВСЕ квотные гейты (bonus_traffic.rs).
-        //    0 = выключено. Один грант на пользователя — ключ идемпотентности
-        //    (user_id, 'signup', 'once'), поэтому повтор enroll не удвоит его.
-        let signup_bonus_mb = crate::services::bonus_traffic::setting_mb_tx(
-            tx,
-            crate::services::bonus_traffic::SETTING_SIGNUP_BONUS_MB,
-        )
-        .await?;
-        if signup_bonus_mb > 0 {
-            crate::services::bonus_traffic::grant_tx(
-                tx,
-                user_id,
-                crate::services::bonus_traffic::SOURCE_SIGNUP,
-                crate::services::bonus_traffic::REFERENCE_ONCE_PER_USER,
-                signup_bonus_mb,
-                Some("registration bonus"),
-            )
-            .await?;
-        }
-
-        // 6. Реферальный бонус трафиком для ПРИГЛАШЁННОГО (referee). Независим от
+        // 5. Реферальный бонус трафиком для ПРИГЛАШЁННОГО (referee). Независим от
         //    денежной модели (скидка на первую покупку) — 0 = выключено.
         //    Сторона пригласившего начисляется позже, в момент первой оплаты
         //    (referral_service::apply_first_purchase_reward).
@@ -659,154 +638,16 @@ impl StoreService {
         }
     }
 
-    /// Выдаёт одноразовый онбординг-трафик ВНУТРИ переданной транзакции.
-    ///
-    /// Грант применяется только к НЕОПЛАЧЕННОМУ аккаунту: если у пользователя есть
-    /// активная платная подписка (на плане с is_free = FALSE), грант пропускается.
-    /// Для бесплатного аккаунта гарантируем наличие активной бесплатной подписки
-    /// (как create_free_subscription, идемпотентно).
-    ///
-    /// Грант УВЕЛИЧИВАЕТ доступную квоту, а не уменьшает used_traffic. Все проверки
-    /// лимита в системе имеют вид `used_traffic >= traffic_limit_gb*1GB` (expire/
-    /// throttle в subscription_service.rs, заголовок подписки в subscription.rs/
-    /// client.rs). У свежего аккаунта used_traffic = 0, поэтому GREATEST(0, 0 - X)
-    /// = 0 был бы no-op и не давал бы НИЧЕГО (см. major-2). Вместо этого засеваем
-    /// used_traffic = -bonus (отрицательный headroom): сравнение `-bonus >= limit`
-    /// = false, что даёт ровно `bonus` лишних байт до отсечки, а учёт трафика с
-    /// узла (used_traffic = used_traffic + bytes) сначала съедает этот headroom.
-    /// Параллельно пишем onboarding_bonus_bytes, чтобы суточное пополнение
-    /// (monitoring.rs) опускало пол до -onboarding_bonus_bytes, а не до 0, и
-    /// никогда не стирало одноразовый онбординг-headroom.
-    ///
-    /// Идемпотентность гранта обеспечивается вызывающей транзакцией (used_count
-    /// инкрементится ровно один раз). Сверх того сам UPDATE условный
-    /// (onboarding_bonus_bytes = 0), поэтому повторный вызов в рамках того же
-    /// аккаунта не может удвоить headroom.
-    ///
-    /// Отсутствие настроенного бесплатного плана НЕ является ошибкой — грант
-    /// просто пропускается (мягкая деградация, без rollback всей регистрации).
-    async fn grant_onboarding_traffic_tx(
-        &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        user_id: i64,
-        onboarding_traffic_mb: i64,
-    ) -> Result<()> {
-        // Неоплаченность: нет ни одной активной подписки на платном плане.
-        let has_paid: bool = sqlx::query_scalar(
-            "SELECT EXISTS( \
-               SELECT 1 FROM subscriptions s \
-               JOIN plans p ON p.id = s.plan_id \
-               WHERE s.user_id = $1 AND s.status = 'active' \
-                 AND COALESCE(p.is_free, FALSE) = FALSE)",
-        )
-        .bind(user_id)
-        .fetch_one(&mut **tx)
-        .await?;
-        if has_paid {
-            tracing::info!(
-                user_id,
-                "enrollment: account is paid, skipping onboarding grant"
-            );
-            return Ok(());
-        }
-
-        // Бесплатный план (как в create_free_subscription).
-        let free_plan_id: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM plans WHERE is_free = TRUE AND is_active = TRUE LIMIT 1",
-        )
-        .fetch_optional(&mut **tx)
-        .await?;
-        let plan_id = match free_plan_id {
-            Some(id) => id,
-            None => {
-                // Нет настроенного бесплатного плана — некуда применять грант.
-                tracing::warn!(
-                    user_id,
-                    "enrollment: no active free plan configured, onboarding grant skipped"
-                );
-                return Ok(());
-            }
-        };
-
-        let grant_bytes = onboarding_traffic_mb.saturating_mul(1024 * 1024);
-
-        // Гарантируем бесплатную подписку (идемпотентно на user+plan).
-        // 'throttled'/'pending' тоже считаются существующей — иначе
-        // затроттленная бесплатная подписка дублировалась бы новой строкой
-        // со свежей квотой (см. create_free_subscription).
-        let existing_sub: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM subscriptions \
-             WHERE user_id = $1 AND plan_id = $2 AND status IN ('active', 'pending', 'throttled') LIMIT 1",
-        )
-        .bind(user_id)
-        .bind(plan_id)
-        .fetch_optional(&mut **tx)
-        .await?;
-
-        match existing_sub {
-            // Новая подписка: засеваем used_traffic отрицательным headroom и
-            // фиксируем bonus прямо в INSERT — одна запись, гранта не удвоить.
-            None => {
-                let sub_id = sqlx::query_scalar::<_, i64>(
-                    "INSERT INTO subscriptions \
-                     (user_id, plan_id, status, expires_at, subscription_uuid, used_traffic, onboarding_bonus_bytes, activated_at) \
-                     VALUES ($1, $2, 'active', '9999-12-31 23:59:59+00', gen_random_uuid()::TEXT, $3, $4, CURRENT_TIMESTAMP) \
-                     RETURNING id",
-                )
-                .bind(user_id)
-                .bind(plan_id)
-                .bind(-grant_bytes)
-                .bind(grant_bytes)
-                .fetch_one(&mut **tx)
-                .await?;
-                tracing::info!(
-                    user_id,
-                    subscription_id = sub_id,
-                    onboarding_traffic_mb,
-                    "enrollment: one-time onboarding traffic granted (fresh subscription)"
-                );
-            }
-            // Уже была бесплатная подписка: добавляем headroom условно, только
-            // если онбординг ещё не выдавался (onboarding_bonus_bytes = 0).
-            // rows_affected == 0 => бонус уже был, повтор не удваиваем.
-            Some(sub_id) => {
-                let res = sqlx::query(
-                    "UPDATE subscriptions \
-                     SET used_traffic = used_traffic - $1, \
-                         onboarding_bonus_bytes = $1 \
-                     WHERE id = $2 AND COALESCE(onboarding_bonus_bytes, 0) = 0",
-                )
-                .bind(grant_bytes)
-                .bind(sub_id)
-                .execute(&mut **tx)
-                .await?;
-                if res.rows_affected() == 1 {
-                    tracing::info!(
-                        user_id,
-                        subscription_id = sub_id,
-                        onboarding_traffic_mb,
-                        "enrollment: one-time onboarding traffic granted (existing subscription)"
-                    );
-                } else {
-                    tracing::info!(
-                        user_id,
-                        subscription_id = sub_id,
-                        "enrollment: onboarding bonus already present, skipping (idempotent)"
-                    );
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     /// Гарантирует, что у пользователя есть подписка на бесплатном плане.
     ///
-    /// Вызывается, когда ПЛАТНАЯ подписка только что истекла (по сроку или по
-    /// трафику). До этого такой пользователь оставался вообще без подписки: его
-    /// не было ни в одном конфиге ноды, он не мог подключиться — и, значит, не
-    /// мог дойти до экрана оплаты. Бесплатный план и существует в первую
-    /// очередь ради этого сценария.
+    /// Два вызывающих сценария, и оба про одно: человек не должен оставаться без
+    /// подписки, потому что без неё его нет ни в одном конфиге ноды — он не может
+    /// подключиться и, значит, не может дойти до экрана оплаты.
+    ///
+    ///   * РЕГИСТРАЦИЯ (`redeem_enrollment_code_in_tx`) — трафик приходит только
+    ///     от плана, поэтому новый аккаунт сразу садится на бесплатный.
+    ///   * ИСТЕЧЕНИЕ платной подписки (по сроку или по трафику) — откат на
+    ///     бесплатный, ради чего этот план в первую очередь и существует.
     ///
     /// Идемпотентно и безопасно к гонкам по смыслу операций:
     ///   * есть активная ПЛАТНАЯ подписка (например, вторая) — не трогаем;
@@ -822,7 +663,11 @@ impl StoreService {
     ///
     /// Возвращает `Some(plan_id)`, если после вызова подписка есть и её нужно
     /// раскатить по нодам (создали или реактивировали), иначе `None`.
-    pub async fn ensure_free_plan_subscription(&self, user_id: i64) -> Result<Option<i64>> {
+    pub async fn ensure_free_plan_subscription_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: i64,
+    ) -> Result<Option<i64>> {
         let has_paid: bool = sqlx::query_scalar(
             "SELECT EXISTS( \
                SELECT 1 FROM subscriptions s \
@@ -831,7 +676,7 @@ impl StoreService {
                  AND COALESCE(p.is_free, FALSE) = FALSE)",
         )
         .bind(user_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut **tx)
         .await?;
         if has_paid {
             return Ok(None);
@@ -840,12 +685,12 @@ impl StoreService {
         let free_plan_id: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM plans WHERE is_free = TRUE AND is_active = TRUE LIMIT 1",
         )
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut **tx)
         .await?;
         let Some(plan_id) = free_plan_id else {
             tracing::warn!(
                 user_id,
-                "expiry fallback: no active free plan configured, user is left without access"
+                "free plan: none configured and active, user is left without access"
             );
             return Ok(None);
         };
@@ -858,7 +703,7 @@ impl StoreService {
         )
         .bind(user_id)
         .bind(plan_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut **tx)
         .await?;
         if live.is_some() {
             return Ok(None);
@@ -873,14 +718,14 @@ impl StoreService {
         )
         .bind(user_id)
         .bind(plan_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut **tx)
         .await?;
         if let Some(sub_id) = reactivated {
             tracing::info!(
                 user_id,
                 plan_id,
                 subscription_id = sub_id,
-                "expiry fallback: restored the free-plan subscription"
+                "free plan: restored the subscription"
             );
             return Ok(Some(plan_id));
         }
@@ -897,15 +742,27 @@ impl StoreService {
         )
         .bind(user_id)
         .bind(plan_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut **tx)
         .await?;
         tracing::info!(
             user_id,
             plan_id,
             subscription_id = sub_id,
-            "expiry fallback: granted the free-plan subscription"
+            "free plan: granted the subscription"
         );
         Ok(Some(plan_id))
+    }
+
+    /// Версия на собственной транзакции — для путей истечения и мониторинга,
+    /// которым нечего разделять с вызывающим кодом. Вся логика живёт в
+    /// `ensure_free_plan_subscription_tx`; здесь только рамка транзакции, чтобы
+    /// решение «что считается живой бесплатной подпиской» существовало в одном
+    /// месте и не разъезжалось между регистрацией и откатом после истечения.
+    pub async fn ensure_free_plan_subscription(&self, user_id: i64) -> Result<Option<i64>> {
+        let mut tx = self.pool.begin().await?;
+        let outcome = self.ensure_free_plan_subscription_tx(&mut tx, user_id).await?;
+        tx.commit().await?;
+        Ok(outcome)
     }
 
     pub async fn get_family_members(&self, parent_id: i64) -> Result<Vec<User>> {
