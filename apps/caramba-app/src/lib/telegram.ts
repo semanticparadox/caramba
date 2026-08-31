@@ -19,6 +19,28 @@ export const getTelegramLanguage = (): string => {
   return raw.toLowerCase().startsWith('ru') ? 'ru' : 'en'
 }
 
+/** Screens a notification button can point at.
+ *
+ *  A notification links in as `https://t.me/<bot>/<app>?startapp=<slug>`, and
+ *  Telegram hands the slug to the Mini App as `start_param`. Without this map
+ *  the parameter is inert and every button lands on the home screen — which is
+ *  what "top up your balance" used to mean in practice: two more taps for the
+ *  person to find on their own. Slugs mirror `ButtonTarget::slug()` on the
+ *  panel side; an unknown one is ignored rather than guessed at. */
+const START_PARAM_ROUTES: Record<string, string> = {
+  billing: '/billing',
+  topup: '/billing',
+  plans: '/plans',
+  subscription: '/subscription',
+}
+
+/** Route the launch parameter asks for, or null when there is none we know. */
+export const getStartRoute = (): string | null => {
+  const raw = WebApp.initDataUnsafe?.start_param
+  if (typeof raw !== 'string') return null
+  return START_PARAM_ROUTES[raw.trim().toLowerCase()] ?? null
+}
+
 export const triggerSelectionHaptic = () => {
   WebApp.HapticFeedback?.selectionChanged?.()
 }

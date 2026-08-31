@@ -148,6 +148,98 @@
         <div id="broadcast-result" class="text-xs text-slate-600 dark:text-slate-400"></div>
     </div>
 
+    <!-- Шаблоны системных уведомлений -->
+    <div
+        class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 p-6 rounded-2xl">
+        <header class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 rounded-xl bg-sky-500/10 flex items-center justify-center text-sky-400">
+                <i data-lucide="message-square-text" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Шаблоны уведомлений</h3>
+                <p class="text-xs text-slate-500 dark:text-slate-500">Текст, который система шлёт сама.
+                    Пустое поле — используется встроенный текст из кода.</p>
+            </div>
+        </header>
+
+        {% if !mini_app_configured %}
+        <div class="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-600 dark:text-amber-400">
+            Не заполнена настройка <code>mini_app_short_name</code>: кнопки будут вести на чат бота,
+            а не на нужный экран приложения.
+        </div>
+        {% endif %}
+
+        <div class="space-y-3">
+            {% for tpl in templates %}
+            <details class="rounded-xl border border-slate-200 dark:border-white/5 bg-slate-50/60 dark:bg-slate-950/40">
+                <summary class="cursor-pointer select-none px-4 py-3 flex items-center justify-between gap-3">
+                    <span class="text-sm font-medium text-slate-900 dark:text-slate-100">{{ tpl.label }}</span>
+                    <span class="flex items-center gap-2">
+                        {% if tpl.customised %}
+                        <span class="text-[10px] uppercase tracking-widest font-bold text-sky-500">изменён</span>
+                        {% endif %}
+                        <code class="text-[10px] text-slate-400">{{ tpl.key }}</code>
+                    </span>
+                </summary>
+
+                <div class="px-4 pb-4 space-y-4">
+                    {% if !tpl.args_hint.is_empty() %}
+                    <p class="text-[11px] text-slate-500">Подстановки: <code>{{ tpl.args_hint }}</code></p>
+                    {% endif %}
+                    {% if tpl.supports_payload && !tpl.button_url.is_empty() %}
+                    <p class="text-[11px] text-slate-500">Кнопка по умолчанию: <b>{{ tpl.button_label }}</b> →
+                        <code>{{ tpl.button_url }}</code></p>
+                    {% else if !tpl.supports_payload %}
+                    <p class="text-[11px] text-slate-500">Это уведомление уходит без кнопки и медиа — редактируется
+                        только текст.</p>
+                    {% endif %}
+
+                    {% for lang in tpl.langs %}
+                    <form method="post" action="{{ admin_path }}/notification-templates/{{ tpl.key }}/{{ lang.code }}"
+                        class="space-y-2 border-t border-slate-200 dark:border-white/5 pt-3">
+                        <label class="block text-[10px] uppercase tracking-widest font-bold text-slate-500">
+                            Текст · {{ lang.code }}
+                        </label>
+                        <textarea name="text" rows="4" class="input-field font-mono text-xs w-full"
+                            placeholder="{{ lang.default_text }}">{{ lang.text }}</textarea>
+
+                        {% if tpl.supports_payload %}
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            <input type="text" name="button_text" placeholder="Подпись кнопки — пусто = по умолчанию"
+                                class="input-field text-xs">
+                            <select name="button_target" class="input-field text-xs">
+                                <option value="billing">Экран пополнения</option>
+                                <option value="plans">Витрина тарифов</option>
+                                <option value="subscription">Текущая подписка</option>
+                                <option value="custom">Своя ссылка →</option>
+                            </select>
+                            <input type="url" name="button_url" placeholder="https://… (только для «своя ссылка»)"
+                                class="input-field text-xs md:col-span-2">
+                        </div>
+                        <input type="hidden" name="parse_mode" value="html">
+                        {% else %}
+                        <input type="hidden" name="parse_mode" value="html">
+                        {% endif %}
+
+                        <div class="flex flex-wrap gap-2 pt-1">
+                            <button type="submit" class="btn btn-primary py-1.5 px-3 text-xs">Сохранить</button>
+                            <button type="submit" class="btn btn-secondary py-1.5 px-3 text-xs"
+                                formaction="{{ admin_path }}/notification-templates/{{ tpl.key }}/{{ lang.code }}/test">
+                                Отправить тест себе
+                            </button>
+                            <button type="submit" class="btn btn-secondary py-1.5 px-3 text-xs"
+                                formaction="{{ admin_path }}/notification-templates/{{ tpl.key }}/{{ lang.code }}/reset">
+                                Вернуть исходный
+                            </button>
+                        </div>
+                    </form>
+                    {% endfor %}
+                </div>
+            </details>
+            {% endfor %}
+        </div>
+    </div>
+
     <!-- Expiry Reminder Settings -->
     <div
         class="bg-white/80 dark:bg-slate-900/50 shadow-sm dark:shadow-none backdrop-blur-md border border-slate-200 dark:border-white/5 p-6 rounded-2xl">

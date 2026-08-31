@@ -9,6 +9,7 @@ pub mod infrastructure_service;
 pub mod logging_service; // NEW
 pub mod monitoring;
 pub mod notification_service;
+pub mod notification_templates; // Editable per-event notification templates
 pub mod notifications_service;
 pub mod orchestration_service;
 pub mod pay_service;

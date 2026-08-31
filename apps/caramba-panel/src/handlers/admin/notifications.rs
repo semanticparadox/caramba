@@ -24,12 +24,51 @@ use crate::AppState;
 #[template(path = "notifications.html")]
 pub struct NotificationsTemplate {
     pub campaigns: Vec<NotificationCampaignHistory>,
+    /// Девять системных уведомлений с их текущим состоянием — см. [`TemplateRow`].
+    pub templates: Vec<TemplateRow>,
+    /// Заполнена ли настройка, из которой собираются ссылки кнопок. Пустая —
+    /// кнопки ведут на чат бота, и об этом честнее сказать прямо на экране.
+    pub mini_app_configured: bool,
     pub expiry_reminders_enabled: bool,
     pub expiry_hours_threshold: i64,
     pub is_auth: bool,
     pub username: String,
     pub admin_path: String,
     pub active_page: String,
+}
+
+/// Одна строка редактора: событие, его подстановки и то, что сейчас уходит
+/// пользователю на каждом языке.
+///
+/// Дефолт держим рядом с переопределением намеренно: оператор должен видеть,
+/// от чего он отклоняется, и понимать, что пустое поле — это не «пусто», а
+/// «как в коде».
+pub struct TemplateLangRow {
+    /// `ru` | `en` — уходит в адрес формы.
+    pub code: String,
+    /// Встроенный текст: показывается placeholder-ом, чтобы было видно, от чего
+    /// отклоняется правка.
+    pub default_text: String,
+    /// Текущее переопределение или пусто.
+    pub text: String,
+}
+
+pub struct TemplateRow {
+    pub key: String,
+    pub label: String,
+    /// «{0} — название тарифа, {1} — баланс» или пусто, если подстановок нет.
+    pub args_hint: String,
+    /// Есть ли у события кнопка и медиа. У `notify.sni_rotation` нет: оно
+    /// уходит другим путём, и показывать эти поля значило бы обещать несделанное.
+    pub supports_payload: bool,
+    /// По одной записи на язык. Список, а не пары полей `ru_*`/`en_*`: шаблон
+    /// тогда обходит его циклом и не сравнивает строки, чтобы понять, что
+    /// показывает — а именно на этом сравнении askama и спотыкается.
+    pub langs: Vec<TemplateLangRow>,
+    pub customised: bool,
+    /// Подпись кнопки по умолчанию и ссылка, которую она получит.
+    pub button_label: String,
+    pub button_url: String,
 }
 
 // ============================================================================
@@ -63,8 +102,18 @@ pub async fn get_notifications_page(
         .parse()
         .unwrap_or(72);
 
+    let templates = build_template_rows(&state).await;
+    let mini_app_configured = !state
+        .settings
+        .get_or_default("mini_app_short_name", "")
+        .await
+        .trim()
+        .is_empty();
+
     let template = NotificationsTemplate {
         campaigns,
+        templates,
+        mini_app_configured,
         expiry_reminders_enabled,
         expiry_hours_threshold,
         is_auth: true,
@@ -222,4 +271,62 @@ async fn send_expiry_reminders(
         campaign_id
     );
     Ok(())
+}
+
+/// Собирает строки редактора: реестр событий × два языка × текущее состояние БД.
+async fn build_template_rows(state: &AppState) -> Vec<TemplateRow> {
+    use crate::bot::translations::{Lang, t};
+    use crate::services::notification_templates::{REGISTRY, deep_link};
+
+    let bot = state.settings.get("bot_username").await;
+    let short = state
+        .settings
+        .get_or_default("mini_app_short_name", "")
+        .await;
+
+    let mut rows = Vec::with_capacity(REGISTRY.len());
+    for ev in REGISTRY {
+        let ru = state.notification_templates.get(ev.key, Lang::Ru).await;
+        let en = state.notification_templates.get(ev.key, Lang::En).await;
+
+        let args_hint = ev
+            .args
+            .iter()
+            .enumerate()
+            .map(|(i, label)| format!("{{{i}}} — {label}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let (button_label, button_url) = match ev.default_button {
+            Some((ru_label, _, target)) => (
+                ru_label.to_string(),
+                deep_link(bot.as_deref(), &short, target).unwrap_or_default(),
+            ),
+            None => (String::new(), String::new()),
+        };
+
+        rows.push(TemplateRow {
+            key: ev.key.to_string(),
+            label: ev.label_ru.to_string(),
+            args_hint,
+            supports_payload: ev.supports_payload,
+            langs: vec![
+                TemplateLangRow {
+                    code: "ru".to_string(),
+                    default_text: t(Lang::Ru, ev.key).to_string(),
+                    text: ru.as_ref().and_then(|o| o.text.clone()).unwrap_or_default(),
+                },
+                TemplateLangRow {
+                    code: "en".to_string(),
+                    default_text: t(Lang::En, ev.key).to_string(),
+                    text: en.as_ref().and_then(|o| o.text.clone()).unwrap_or_default(),
+                },
+            ],
+            customised: ru.as_ref().and_then(|o| o.text.as_ref()).is_some()
+                || en.as_ref().and_then(|o| o.text.as_ref()).is_some(),
+            button_label,
+            button_url,
+        });
+    }
+    rows
 }

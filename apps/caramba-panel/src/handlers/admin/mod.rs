@@ -7,6 +7,7 @@ pub mod dashboard;
 pub mod frontends;
 pub mod marketplace;
 pub mod nodes;
+pub mod notification_templates;
 pub mod notifications;
 pub mod payment_pricing;
 pub mod payments;
@@ -31,6 +32,7 @@ pub use nodes::{
     get_node_logs, get_node_manage, get_node_raw_install_script, get_node_rescue, get_nodes,
     install_node, pin_sni, sync_node, toggle_node_enable, trigger_scan, unpin_sni, update_node,
 };
+pub use notification_templates::{reset_template, save_template, test_template};
 pub use notifications::{get_notifications_page, run_expiry_reminder_loop};
 pub use plans::{add_plan, delete_plan, get_plan_edit, get_plans, update_plan};
 pub use promo::{add_promo, delete_promo, get_promos};
