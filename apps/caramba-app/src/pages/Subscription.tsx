@@ -374,7 +374,7 @@ export default function Subscription() {
                     <div className="empty-icon">SV</div>
                     <h3>{t('subscription.noSubscriptions')}</h3>
                     <p>{t('subscription.noSubscriptionsDesc')}</p>
-                    <button className="btn-primary" onClick={() => navigate('/')}>
+                    <button className="btn-primary" onClick={() => navigate('/plans')}>
                         {t('subscription.openPlans')}
                     </button>
                 </div>
