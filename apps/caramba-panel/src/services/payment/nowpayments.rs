@@ -14,7 +14,6 @@ use caramba_db::models::store::{PaymentSession, User};
 struct NowPaymentsInvoiceReq {
     price_amount: f64,
     price_currency: String,
-    pay_currency: String,
     order_id: String,
     order_description: String,
     ipn_callback_url: String,
@@ -46,10 +45,13 @@ impl PaymentProvider for NowPaymentsProvider {
         _user: &User,
         client: &reqwest::Client,
     ) -> Result<String> {
+        // No `pay_currency`: omitting it lets the customer pick any coin/network on
+        // the NOWPayments hosted page, which hides coins whose per-network minimum
+        // exceeds the order amount. Pinning a single network (the old USDTTRC20
+        // hardcode) priced low-ticket CIS subscriptions out of viable networks.
         let req_body = NowPaymentsInvoiceReq {
             price_amount: (session.amount as f64) / 100.0, // Amount is in cents
             price_currency: session.currency.to_uppercase(),
-            pay_currency: "USDTTRC20".to_string(), // Or could be empty for full selection
             order_id: session.id.to_string(),
             order_description: format!("VPN Subscription (Product: {})", session.product_id),
             ipn_callback_url: format!(
