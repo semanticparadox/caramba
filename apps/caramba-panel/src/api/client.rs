@@ -270,6 +270,13 @@ pub fn routes(state: AppState) -> Router<AppState> {
             )),
         )
         .route(
+            "/payment/session/{id}",
+            get(get_payment_session_status).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
             "/subscription/{id}/devices",
             get(get_subscription_devices).layer(middleware::from_fn_with_state(
                 state.clone(),
@@ -767,6 +774,9 @@ async fn get_user_stats(
         brand_name: String,
         // URL поддержки — берётся из настроек, чтобы Mini App не хардкодил его
         support_url: String,
+        // Username бота (без @) — Mini App строит по нему кнопку «Открыть чат»
+        // после отправки платёжной ссылки в личку. Пустая строка = не настроен.
+        bot_username: String,
     }
 
     let balance_opt: Option<i64> = sqlx::query_scalar("SELECT balance FROM users WHERE tg_id = $1")
@@ -809,7 +819,7 @@ async fn get_user_stats(
         JOIN plans p ON s.plan_id = p.id
         JOIN users u ON s.user_id = u.id
         WHERE u.tg_id = $1
-          AND s.status = 'active'
+          AND s.status IN ('active', 'throttled')
         "#,
     )
     .bind(tg_id)
@@ -853,6 +863,13 @@ async fn get_user_stats(
             .settings
             .get_or_default("support_url", "https://t.me/")
             .await,
+        bot_username: state
+            .settings
+            .get_or_default("bot_username", "")
+            .await
+            .trim()
+            .trim_start_matches('@')
+            .to_string(),
     })
     .into_response()
 }
@@ -2116,21 +2133,81 @@ async fn create_payment_invoice(
                     "ok": true,
                     "invoice_url": "SUCCESS",
                     "provider": "balance",
+                    "session_id": session.id,
                     "fulfilled": true
                 }))
                 .into_response();
+            }
+
+            // Внешний http(s)-чекаут: дублируем ссылку на оплату в личку бота
+            // (fire-and-forget) — из Mini App удобнее оплачивать по кнопке в чате.
+            // stars/manual/balance сюда не попадают: у них invoice_url не http(s)
+            // либо ветка выше. `delivered_via: bot` сообщает приложению, что
+            // ссылка отправлена в чат и редирект не нужен.
+            let delivered_via_bot = (invoice_payload.starts_with("http://")
+                || invoice_payload.starts_with("https://"))
+                && !invoice_payload.contains("t.me/invoice");
+            if delivered_via_bot {
+                state
+                    .marketplace_service
+                    .notify_invoice_created(&u, &session, &invoice_payload);
             }
 
             Json(serde_json::json!({
                 "ok": true,
                 "invoice_url": invoice_payload,
                 "provider": body.provider,
+                "session_id": session.id,
+                "delivered_via": if delivered_via_bot { Some("bot") } else { None },
             }))
             .into_response()
         }
         Err(e) => {
             tracing::error!("Invoice generation failed for user {}: {}", u.id, e);
             (StatusCode::INTERNAL_SERVER_ERROR, format!("{}", e)).into_response()
+        }
+    }
+}
+
+/// GET /api/client/payment/session/{id} — статус платёжной сессии текущего
+/// пользователя. Mini App поллит его после того, как ссылка на оплату ушла в
+/// чат бота, чтобы показать успех без ручного обновления. Чужие/несуществующие
+/// сессии (и кривые UUID) отвечают 404, не раскрывая, существует ли сессия.
+async fn get_payment_session_status(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let tg_id: i64 = claims.sub.parse().unwrap_or(0);
+
+    let session_id = match uuid::Uuid::parse_str(&id) {
+        Ok(v) => v,
+        Err(_) => return (StatusCode::NOT_FOUND, "Session not found").into_response(),
+    };
+
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE tg_id = $1")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+    let user_id = match user_id {
+        Some(v) => v,
+        None => return (StatusCode::NOT_FOUND, "Session not found").into_response(),
+    };
+
+    match state
+        .marketplace_service
+        .session_repo
+        .get_by_id(session_id)
+        .await
+    {
+        Ok(Some(session)) if session.user_id == user_id => {
+            Json(serde_json::json!({ "status": session.status })).into_response()
+        }
+        Ok(_) => (StatusCode::NOT_FOUND, "Session not found").into_response(),
+        Err(e) => {
+            tracing::error!("Payment session status lookup failed: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "Session lookup failed").into_response()
         }
     }
 }

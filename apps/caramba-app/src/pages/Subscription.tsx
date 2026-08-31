@@ -272,15 +272,16 @@ export default function Subscription() {
                 const isBalance =
                     errText.toLowerCase().includes('balance') ||
                     errText.toLowerCase().includes('insufficient')
+                // Модал НЕ закрываем: ошибка показывается внутри него — иначе
+                // пользователь видит «ничего не произошло» (сообщение на
+                // странице остаётся за пределами экрана под модалом).
                 setMessage({
                     type: 'error',
                     text: isBalance ? t('subscription.insufficientBalance') : errText,
                 })
-                setExtendTargetSub(null)
             }
         } catch {
             setMessage({ type: 'error', text: t('subscription.networkActivationError') })
-            setExtendTargetSub(null)
         } finally {
             setExtendingDurationId(null)
         }
@@ -306,6 +307,9 @@ export default function Subscription() {
     const statusBadgeLabel = (status: string): string => {
         if (status === 'active') return t('subscription.statusActive')
         if (status === 'pending') return t('subscription.statusPending')
+        // 'throttled' — суточная квота бесплатного плана исчерпана, завтра
+        // пополнится сама; называть это «Истекла» значит врать пользователю.
+        if (status === 'throttled') return t('subscription.statusThrottled')
         return t('subscription.statusExpired')
     }
 
@@ -383,7 +387,7 @@ export default function Subscription() {
                                     <span className="sub-number">#{index + 1}</span>
                                     <div className="sub-plan-info">
                                         <span className="sub-plan-name">{sub.plan_name}</span>
-                                        <span className={`badge badge-${sub.status === 'active' ? 'success' : sub.status === 'pending' ? 'warning' : 'error'}`}>
+                                        <span className={`badge badge-${sub.status === 'active' ? 'success' : sub.status === 'pending' || sub.status === 'throttled' ? 'warning' : 'error'}`}>
                                             {statusBadgeLabel(sub.status)}
                                         </span>
                                     </div>
@@ -645,6 +649,9 @@ export default function Subscription() {
                     </button>
                 }
             >
+                {message?.type === 'error' && (
+                    <div className="purchase-msg error">{message.text}</div>
+                )}
                 {extendDurations.length === 0 ? (
                     <div className="empty-state drawer-empty">
                         <div className="empty-icon">PL</div>

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { apiUrl } from '../config'
 import { useAuth } from '../context/AuthContext'
+import BotPaymentPanel from '../components/BotPaymentPanel'
 import DrawerModal from '../components/DrawerModal'
 import ProviderPicker from '../components/ProviderPicker'
 import { mapProviderCards } from '../lib/paymentProviders'
@@ -35,7 +36,7 @@ interface PaymentProvider {
 export default function Plans() {
     const { t } = useTranslation()
     const navigate = useNavigate()
-    const { token, refreshData, user, error } = useAuth()
+    const { token, refreshData, user, userStats, error } = useAuth()
 
     useEffect(() => {
         const handleFocus = () => {
@@ -57,7 +58,7 @@ export default function Plans() {
     const headers = { Authorization: `Bearer ${token}` }
 
     // Централизованная логика покупки — общая с Home (lib/usePurchase).
-    const { purchasing, purchasingProvider, purchase } = usePurchase({ token, onRefresh: refreshData })
+    const { purchasing, purchasingProvider, purchase, botPayment, clearBotPayment } = usePurchase({ token, onRefresh: refreshData })
 
     useEffect(() => {
         if (!token) {
@@ -169,7 +170,13 @@ export default function Plans() {
                 // Оставляем модал открытым, чтобы пользователь мог выбрать другой способ.
                 break
             case 'redirect':
-                // UI передан Stars SDK / внешнему checkout — закрываем модал.
+                // UI передан Stars SDK — закрываем модал.
+                setShowPayModal(false)
+                setSelectedDuration(null)
+                break
+            case 'bot_link':
+                // Ссылка на оплату отправлена в чат бота — панель BotPaymentPanel
+                // (рендерится по botPayment) показывает кнопки и ждёт completed.
                 setShowPayModal(false)
                 setSelectedDuration(null)
                 break
@@ -213,6 +220,15 @@ export default function Plans() {
                 <div className={`purchase-msg ${message.type}`} role="status" aria-live="polite">
                     {message.text}
                 </div>
+            )}
+
+            {/* Ссылка на оплату ушла в чат бота — панель со статусом и кнопками */}
+            {botPayment && (
+                <BotPaymentPanel
+                    payment={botPayment}
+                    botUsername={userStats?.bot_username}
+                    onClose={clearBotPayment}
+                />
             )}
 
             {plans.length === 0 ? (

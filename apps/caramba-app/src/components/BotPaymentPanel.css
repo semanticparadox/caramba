@@ -1,0 +1,53 @@
+/* Панель «ссылка на оплату отправлена в чат бота».
+   Базовая поверхность приходит из .glass-card; здесь — только раскладка,
+   кнопки и success-акцент. */
+.bot-payment {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.bot-payment.completed {
+  border-color: rgba(64, 200, 120, 0.45);
+}
+
+.bot-payment-text {
+  margin: 0;
+  font-weight: 600;
+}
+
+.bot-payment-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted, var(--text-secondary));
+}
+
+.bot-payment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.bot-payment-btn {
+  flex: 1 1 auto;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
+  background: transparent;
+  color: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.bot-payment-btn.primary {
+  background: var(--accent-gradient);
+  border-color: transparent;
+  color: #fff;
+}
+
+.bot-payment-btn.ghost {
+  border-color: transparent;
+  color: var(--text-muted, var(--text-secondary));
+  flex: 0 0 auto;
+}

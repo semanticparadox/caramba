@@ -683,10 +683,13 @@ impl StoreService {
 
         let grant_bytes = onboarding_traffic_mb.saturating_mul(1024 * 1024);
 
-        // Гарантируем активную бесплатную подписку (идемпотентно на user+plan).
+        // Гарантируем бесплатную подписку (идемпотентно на user+plan).
+        // 'throttled'/'pending' тоже считаются существующей — иначе
+        // затроттленная бесплатная подписка дублировалась бы новой строкой
+        // со свежей квотой (см. create_free_subscription).
         let existing_sub: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM subscriptions \
-             WHERE user_id = $1 AND plan_id = $2 AND status = 'active' LIMIT 1",
+             WHERE user_id = $1 AND plan_id = $2 AND status IN ('active', 'pending', 'throttled') LIMIT 1",
         )
         .bind(user_id)
         .bind(plan_id)

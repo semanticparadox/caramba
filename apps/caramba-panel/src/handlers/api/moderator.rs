@@ -57,6 +57,9 @@ async fn resolve_staff(state: &AppState, jar: &CookieJar) -> Option<(String, i64
 
 /// Gate: requires a valid admin session AND a staff role. Returns the resolved
 /// (role, admin_tg_id) on success, or an HTTP response to return on failure.
+// Err = the ready-to-return axum Response so callers can just `?` — its size
+// is the cost of that idiom, not an accident.
+#[allow(clippy::result_large_err)]
 async fn require_staff(
     state: &AppState,
     jar: &CookieJar,

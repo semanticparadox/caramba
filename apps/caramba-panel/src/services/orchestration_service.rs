@@ -81,6 +81,72 @@ impl OrchestrationService {
         info!("✅ PubSub: Published update signal to {}", channel);
         Ok(())
     }
+
+    /// Notify every active node that serves any of the given plans.
+    ///
+    /// Mirrors the plan→node linkage used at config-generation time
+    /// (`NodeRepository::get_linked_plans`): direct `plan_nodes`, per-inbound
+    /// `plan_inbounds`, and group-based `plan_groups` links. Subscriptions may
+    /// have `node_id = NULL` or span multiple nodes, so quota/status changes
+    /// must fan out by plan — notifying only `subscriptions.node_id` leaves
+    /// stale users in the other nodes' configs.
+    ///
+    /// If the plans resolve to no linked nodes (legacy data without any
+    /// linkage rows), falls back to notifying all active nodes — an extra
+    /// config regen is harmless, a missed one is not.
+    pub async fn notify_nodes_for_plans(&self, plan_ids: &[i64]) -> anyhow::Result<()> {
+        if plan_ids.is_empty() {
+            return Ok(());
+        }
+
+        let mut node_ids: Vec<i64> = sqlx::query_scalar(
+            r#"
+            SELECT DISTINCT n.id
+            FROM nodes n
+            WHERE n.status = 'active'
+              AND (
+                    EXISTS (
+                        SELECT 1 FROM plan_nodes pn
+                        WHERE pn.node_id = n.id AND pn.plan_id = ANY($1)
+                    )
+                 OR EXISTS (
+                        SELECT 1
+                        FROM plan_inbounds pi
+                        JOIN inbounds i ON i.id = pi.inbound_id
+                        WHERE i.node_id = n.id AND pi.plan_id = ANY($1)
+                    )
+                 OR EXISTS (
+                        SELECT 1
+                        FROM node_group_members ngm
+                        JOIN plan_groups pg ON pg.group_id = ngm.group_id
+                        WHERE ngm.node_id = n.id AND pg.plan_id = ANY($1)
+                    )
+              )
+            "#,
+        )
+        .bind(plan_ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        if node_ids.is_empty() {
+            node_ids = self
+                .node_repo
+                .get_active_node_ids()
+                .await
+                .unwrap_or_default();
+        }
+
+        for node_id in node_ids {
+            if let Err(e) = self.notify_node_update(node_id).await {
+                error!(
+                    "Failed to notify node {} for plans {:?}: {}",
+                    node_id, plan_ids, e
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// Initializes default inbounds by applying Group Templates
     pub async fn init_default_inbounds(&self, node_id: i64) -> anyhow::Result<()> {
         info!("Initializing inbounds for node {} via templates", node_id);
@@ -1112,7 +1178,7 @@ impl OrchestrationService {
                                     }
 
                                     // Use user_{tg_id} for consistent identification
-                                    let auth_name = format!("user_{}", tg_id);
+                                    let auth_name = crate::services::user_tag::user_tag(tg_id);
 
                                     info!(
                                         "🔑 Injecting VLESS user: {} (UUID: {})",
@@ -1152,7 +1218,7 @@ impl OrchestrationService {
                                     if !visited_users.insert(tg_id) {
                                         continue;
                                     }
-                                    let auth_name = format!("user_{}", tg_id);
+                                    let auth_name = crate::services::user_tag::user_tag(tg_id);
 
                                     info!(
                                         "🔑 Injecting HYSTERIA user: {} (Pass: {})",
@@ -1175,7 +1241,7 @@ impl OrchestrationService {
                                     if !visited_users.insert(tg_id) {
                                         continue;
                                     }
-                                    let auth_name = format!("user_{}", tg_id);
+                                    let auth_name = crate::services::user_tag::user_tag(tg_id);
 
                                     let client_priv = self.derive_awg_key(uuid);
                                     let client_pub = self.priv_to_pub(&client_priv);
@@ -1203,7 +1269,7 @@ impl OrchestrationService {
                                     if !visited_users.insert(tg_id) {
                                         continue;
                                     }
-                                    let auth_name = format!("user_{}", tg_id);
+                                    let auth_name = crate::services::user_tag::user_tag(tg_id);
                                     trojan.clients.push(TrojanClient {
                                         password: uuid.clone(),
                                         email: Some(auth_name),
@@ -1219,7 +1285,7 @@ impl OrchestrationService {
                                     if !visited_users.insert(tg_id) {
                                         continue;
                                     }
-                                    let auth_name = format!("user_{}", tg_id);
+                                    let auth_name = crate::services::user_tag::user_tag(tg_id);
 
                                     info!("🔑 Injecting TUIC user: {} (UUID: {})", auth_name, uuid);
                                     tuic.users.push(caramba_db::models::network::TuicUser {
@@ -1238,7 +1304,7 @@ impl OrchestrationService {
                                     if !visited_users.insert(tg_id) {
                                         continue;
                                     }
-                                    let auth_name = format!("user_{}", tg_id);
+                                    let auth_name = crate::services::user_tag::user_tag(tg_id);
 
                                     info!(
                                         "🔑 Injecting NAIVE user: {} (Pass: {})",
@@ -1259,7 +1325,7 @@ impl OrchestrationService {
                                     if !visited_users.insert(tg_id) {
                                         continue;
                                     }
-                                    let auth_name = format!("user_{}", tg_id);
+                                    let auth_name = crate::services::user_tag::user_tag(tg_id);
 
                                     info!(
                                         "🔑 Injecting SHADOWSOCKS user: {} (Pass: {})",
@@ -1275,8 +1341,8 @@ impl OrchestrationService {
                         InboundType::Shadowtls(stls) => {
                             use caramba_db::models::network::ShadowtlsUser;
                             for sub in &active_subs {
-                                if let (sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3) {
-                                    let _auth_name = format!("user_{}", sub_id);
+                                if let (_sub_id, Some(uuid), _, _) = (sub.0, &sub.1, sub.2, &sub.3)
+                                {
                                     // Assuming ShadowTLS uses password/uuid for auth
                                     stls.users.push(ShadowtlsUser {
                                         password: uuid.replace("-", ""),

@@ -1941,14 +1941,13 @@ pub async fn save_settings(
 
 pub async fn toggle_bot(State(state): State<AppState>) -> impl IntoResponse {
     let is_running = state.bot_manager.is_running().await;
-    let new_status;
 
-    if is_running {
+    let new_status = if is_running {
         info!("Stopping bot via toggle");
         state.bot_manager.stop_bot().await;
         // Try to stop external worker if running on Linux with systemd
         let _ = run_systemctl_action(&["stop", "caramba-bot"]);
-        new_status = "stopped".to_string();
+        "stopped".to_string()
     } else {
         info!("Starting bot via toggle");
         let token = state.settings.get_or_default("bot_token", "").await;
@@ -1964,8 +1963,8 @@ pub async fn toggle_bot(State(state): State<AppState>) -> impl IntoResponse {
         }
         // Try to start external worker
         let _ = run_systemctl_action(&["start", "caramba-bot"]);
-        new_status = "running".to_string();
-    }
+        "running".to_string()
+    };
 
     let _ = state.settings.set("bot_status", &new_status).await;
 

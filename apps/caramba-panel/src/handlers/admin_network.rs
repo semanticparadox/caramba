@@ -553,11 +553,14 @@ pub async fn preview_node_config(
                 .unwrap_or_default();
 
         if !linked_plans.is_empty() {
-            let active_subs: Vec<caramba_db::models::store::Subscription> = sqlx::query_as::<
-                _,
-                caramba_db::models::store::Subscription,
-            >(
-                "SELECT * FROM subscriptions WHERE status = 'active' AND plan_id = ANY($1) LIMIT 5",
+            // (vless_uuid, tg_id): auth tags are per-Telegram-id (see
+            // services::user_tag), NOT per internal user id — the preview must
+            // mirror the real config generation or the shown tags would parse
+            // as bogus Telegram ids.
+            let active_subs: Vec<(Option<String>, Option<i64>)> = sqlx::query_as(
+                "SELECT s.vless_uuid, u.tg_id FROM subscriptions s \
+                 JOIN users u ON u.id = s.user_id \
+                 WHERE s.status = 'active' AND s.plan_id = ANY($1) LIMIT 5",
             )
             .bind(&linked_plans)
             .fetch_all(&state.pool)
@@ -580,11 +583,11 @@ pub async fn preview_node_config(
                         .unwrap_or("tcp");
                     let use_flow = security == "reality" && network == "tcp";
 
-                    for sub in &active_subs {
-                        if let Some(uuid) = &sub.vless_uuid {
+                    for (vless_uuid, tg_id) in &active_subs {
+                        if let (Some(uuid), Some(tg_id)) = (vless_uuid, tg_id) {
                             vless.clients.push(VlessClient {
                                 id: uuid.clone(),
-                                email: format!("user_{}", sub.user_id),
+                                email: crate::services::user_tag::user_tag(*tg_id),
                                 flow: if use_flow {
                                     "xtls-rprx-vision".to_string()
                                 } else {

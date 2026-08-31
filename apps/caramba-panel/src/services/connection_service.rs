@@ -129,6 +129,10 @@ impl ConnectionService {
 
         // Separate cache for resolving UUID -> SubID to avoid repeatedly DB hitting if using chains
         let mut uuid_cache: HashMap<String, i64> = HashMap::new();
+        // Cache for resolving tg_id -> active subscription id (Strategy 1).
+        // None is cached too: a tag whose user has no active subscription
+        // shouldn't be re-queried for every connection in the cycle.
+        let mut tg_id_cache: HashMap<i64, Option<i64>> = HashMap::new();
 
         for node in nodes {
             if node.status != "active" {
@@ -146,14 +150,38 @@ impl ConnectionService {
                     );
 
                     for conn in connections {
-                        // Strategy 1: Check metadata.user (e.g. "user_123")
+                        // Strategy 1: metadata.user carries "user_{tg_id}" —
+                        // the Telegram id, NOT a subscription id (sing-box
+                        // configs are generated that way, see
+                        // services::user_tag). Resolve tg_id -> user ->
+                        // active subscription, mirroring the traffic
+                        // accounting path in api/v2/node.rs::heartbeat.
                         let mut sub_id_opt = None;
 
                         if let Some(user_tag) = &conn.metadata.user
-                            && user_tag.starts_with("user_")
-                            && let Ok(id) = user_tag[5..].parse::<i64>()
+                            && let Some(tg_id) = crate::services::user_tag::parse_user_tag(user_tag)
                         {
-                            sub_id_opt = Some(id);
+                            sub_id_opt = match tg_id_cache.get(&tg_id) {
+                                Some(cached) => *cached,
+                                None => {
+                                    let resolved = match self
+                                        .subscription
+                                        .get_active_subscription_id_by_tg_id(tg_id)
+                                        .await
+                                    {
+                                        Ok(id) => id,
+                                        Err(e) => {
+                                            warn!(
+                                                "Failed to resolve tg_id {} to a subscription: {:#}",
+                                                tg_id, e
+                                            );
+                                            None
+                                        }
+                                    };
+                                    tg_id_cache.insert(tg_id, resolved);
+                                    resolved
+                                }
+                            };
                         }
 
                         // Strategy 2: Check chains for UUID if Strategy 1 failed
@@ -427,9 +455,54 @@ impl ConnectionService {
 
     /// Kill all active connections for a specific subscription across all nodes
     pub async fn kill_subscription_connections(&self, sub_id: i64) -> Result<()> {
+        // sing-box tags connections "user_{tg_id}" (Telegram id), never
+        // "user_{sub_id}" — resolve the subscription's owner first, otherwise
+        // the target tag matches nothing and enforcement is a silent no-op.
+        let Some((tg_id, vless_uuid)) = self
+            .subscription
+            .get_subscription_connection_identity(sub_id)
+            .await?
+        else {
+            warn!(
+                "Cannot kill connections for subscription {}: no such subscription",
+                sub_id
+            );
+            return Ok(());
+        };
+
+        // The per-user tag cannot distinguish WHICH subscription a connection
+        // belongs to. If the user still has another active subscription (e.g.
+        // a paid plan alongside a throttled free one), a tag-based kill would
+        // also drop the sessions that other subscription legitimately serves —
+        // so in that case only match by the vless UUID specific to this
+        // subscription and skip the tag.
+        let match_by_tag = match self
+            .subscription
+            .user_has_other_active_subscription(sub_id)
+            .await
+        {
+            Ok(has_other) => {
+                if has_other {
+                    info!(
+                        "Sub {} owner has another active subscription — skipping tag-based kill, matching by vless UUID only",
+                        sub_id
+                    );
+                }
+                !has_other
+            }
+            // On lookup failure err on the side of enforcement (old behavior).
+            Err(e) => {
+                warn!(
+                    "Could not check other active subscriptions for sub {}: {} — falling back to tag-based kill",
+                    sub_id, e
+                );
+                true
+            }
+        };
+
         let nodes: Vec<caramba_db::models::node::Node> =
             self.orchestration.node_repo.get_all_nodes().await?;
-        let target_user = format!("user_{}", sub_id);
+        let target_user = crate::services::user_tag::user_tag(tg_id);
 
         for node in nodes {
             match self
@@ -438,10 +511,20 @@ impl ConnectionService {
             {
                 Ok(connections) => {
                     for conn in connections {
-                        // Check metadata.user
+                        // Check metadata.user against the tg_id tag
                         let mut match_found = false;
-                        if let Some(user) = &conn.metadata.user
+                        if match_by_tag
+                            && let Some(user) = &conn.metadata.user
                             && user == &target_user
+                        {
+                            match_found = true;
+                        }
+
+                        // Legacy fallback: connections whose chains carry the
+                        // subscription's vless UUID.
+                        if !match_found
+                            && let Some(uuid) = &vless_uuid
+                            && conn.chains.iter().any(|chain| chain == uuid)
                         {
                             match_found = true;
                         }

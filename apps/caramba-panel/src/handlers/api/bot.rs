@@ -420,9 +420,12 @@ pub async fn create_free_subscription(
         None => return (StatusCode::NOT_FOUND, "No active free plan configured").into_response(),
     };
 
-    // Проверяем: уже есть активная подписка на этот план?
+    // Проверяем: уже есть подписка на этот план? 'throttled' (суточная
+    // квота исчерпана) и 'pending' (ждёт одобрения) тоже считаются —
+    // иначе затроттленный юзер повторным нажатием кнопки получал бы
+    // свежую бесплатную подписку в обход суточного лимита.
     let existing_id: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM subscriptions WHERE user_id = $1 AND plan_id = $2 AND status = 'active' LIMIT 1",
+        "SELECT id FROM subscriptions WHERE user_id = $1 AND plan_id = $2 AND status IN ('active', 'pending', 'throttled') LIMIT 1",
     )
     .bind(user_id)
     .bind(plan_id)

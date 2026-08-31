@@ -1,6 +1,7 @@
-import { useState } from 'react'
 import WebApp from '@twa-dev/sdk'
+import { useState } from 'react'
 import { apiUrl } from '../config'
+import { useBotPayment } from './useBotPayment'
 
 /**
  * Результат попытки покупки, который вызывающий код использует для
@@ -10,11 +11,15 @@ import { apiUrl } from '../config'
 export type PurchaseResult =
   | { outcome: 'success'; messageKey: string; messageParams?: Record<string, unknown> }
   | { outcome: 'error'; message?: string; messageKey?: string }
-  // Платёж продолжается во внешнем потоке (Stars invoice / редирект на checkout).
+  // Платёж продолжается во внешнем потоке (Stars invoice внутри Telegram).
   // UI не должен показывать success — итог придёт через refreshData/webhook.
   | { outcome: 'redirect' }
   // Ручная оплата: создан счёт, нужно показать ссылку на загрузку чека.
   | { outcome: 'manual'; invoiceUrl: string }
+  // Внешний http(s)-чекаут: сервер продублировал ссылку в чат бота.
+  // UI показывает панель «ссылка отправлена в чат» (см. botPayment в хуке),
+  // статус сессии поллится до completed. Никаких window.location.href.
+  | { outcome: 'bot_link'; invoiceUrl: string; sessionId: string | null }
 
 export type PurchaseParams = {
   durationId: number
@@ -40,6 +45,8 @@ export function usePurchase({ token, onRefresh }: UsePurchaseOptions) {
   const [purchasingDurationId, setPurchasingDurationId] = useState<number | null>(null)
   // Способ оплаты, по которому сейчас идёт запрос — для busy-состояния кнопки.
   const [purchasingProvider, setPurchasingProvider] = useState<string | null>(null)
+  // Состояние «ссылка на оплату отправлена в чат бота» + поллинг статуса сессии.
+  const { botPayment, startBotPayment, clearBotPayment } = useBotPayment({ token, onRefresh })
 
   const isPurchasing = purchasingDurationId !== null
 
@@ -74,6 +81,7 @@ export function usePurchase({ token, onRefresh }: UsePurchaseOptions) {
       }
 
       const data = await res.json()
+      const invoiceUrl = String(data.invoice_url ?? '')
 
       // Нет invoice_url — оплата завершена сервером сразу (например, balance).
       if (!data.invoice_url) {
@@ -89,9 +97,7 @@ export function usePurchase({ token, onRefresh }: UsePurchaseOptions) {
 
       // Telegram Stars — нативный invoice внутри Telegram.
       const isStars =
-        provider === 'telegram_stars' ||
-        provider === 'stars' ||
-        String(data.invoice_url).includes('t.me/invoice')
+        provider === 'telegram_stars' || provider === 'stars' || invoiceUrl.includes('t.me/invoice')
 
       if (isStars) {
         WebApp.openInvoice(data.invoice_url, (status) => {
@@ -102,9 +108,21 @@ export function usePurchase({ token, onRefresh }: UsePurchaseOptions) {
         return { outcome: 'redirect' }
       }
 
-      // Внешний checkout — редирект на платёжную страницу провайдера.
-      window.location.href = data.invoice_url
-      return { outcome: 'redirect' }
+      // Balance (сервер отвечает сентинелом invoice_url: "SUCCESS") и любой
+      // другой не-http payload мгновенного провайдера: покупка уже завершена
+      // на сервере — показываем успех, НИКОГДА не уходим в location.href
+      // (раньше приложение редиректило на буквальную строку "SUCCESS").
+      const isBalance = provider === 'balance' || data.provider === 'balance'
+      if (isBalance || !/^https?:\/\//i.test(invoiceUrl)) {
+        await onRefresh()
+        return { outcome: 'success', messageKey: 'home.paymentSuccess' }
+      }
+
+      // Внешний http(s)-чекаут: сервер уже отправил ссылку в чат бота
+      // (delivered_via: "bot"). Показываем in-app панель и поллим статус
+      // сессии до completed — вместо прежнего window.location.href.
+      startBotPayment(invoiceUrl, data.session_id ? String(data.session_id) : null)
+      return { outcome: 'bot_link', invoiceUrl, sessionId: data.session_id ?? null }
     } catch {
       return { outcome: 'error', messageKey: 'home.networkInvoiceError' }
     } finally {
@@ -115,5 +133,12 @@ export function usePurchase({ token, onRefresh }: UsePurchaseOptions) {
     }
   }
 
-  return { purchasing: purchasingDurationId, purchasingProvider, isPurchasing, purchase }
+  return {
+    purchasing: purchasingDurationId,
+    purchasingProvider,
+    isPurchasing,
+    purchase,
+    botPayment,
+    clearBotPayment,
+  }
 }

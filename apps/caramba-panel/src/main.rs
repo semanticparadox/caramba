@@ -605,6 +605,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         paypalych_webhook_secret,
         marketplace_api_domain,
         marketplace_bot_username,
+        bot_manager.clone(),
         (*store_service).clone(),
         (*subscription_service).clone(),
     ));
