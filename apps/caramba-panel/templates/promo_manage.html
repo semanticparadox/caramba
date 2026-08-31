@@ -21,6 +21,7 @@
                     class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-white/10 rounded-xl px-3 py-2 text-slate-900 dark:text-white">
                     <option value="balance">Balance</option>
                     <option value="subscription">Subscription</option>
+                    <option value="traffic">Traffic (бонусный трафик)</option>
                 </select>
             </div>
             <div>
@@ -128,10 +129,13 @@
     function togglePromoFields() {
         const type = document.getElementById('promo_type')?.value || 'balance';
         const showPlan = type === 'subscription';
+        // 'traffic' промокод начисляет бонусный трафик и не требует плана:
+        // ему нужно только поле Traffic GB.
+        const showTraffic = showPlan || type === 'traffic';
         document.getElementById('plan_id_group')?.classList.toggle('hidden', !showPlan);
         document.getElementById('duration_group')?.classList.toggle('hidden', !showPlan);
-        document.getElementById('traffic_group')?.classList.toggle('hidden', !showPlan);
-        document.getElementById('balance_amount_group')?.classList.toggle('hidden', showPlan);
+        document.getElementById('traffic_group')?.classList.toggle('hidden', !showTraffic);
+        document.getElementById('balance_amount_group')?.classList.toggle('hidden', type !== 'balance');
     }
     togglePromoFields();
 </script>

@@ -295,6 +295,28 @@ impl ReferralService {
             .execute(&mut **tx)
             .await?;
 
+        // Traffic side of the same reward, independent of the money above:
+        // `referral_bonus_traffic_mb_referrer` MB of bonus traffic for the
+        // inviter, keyed on this referee so a re-delivered webhook cannot grant
+        // twice. 0 = off, which is the default, so the money model is unchanged
+        // for operators who never turn this on.
+        let referrer_traffic_mb = crate::services::bonus_traffic::setting_mb_tx(
+            tx,
+            crate::services::bonus_traffic::SETTING_REFERRAL_BONUS_MB_REFERRER,
+        )
+        .await?;
+        if referrer_traffic_mb > 0 {
+            crate::services::bonus_traffic::grant_tx(
+                tx,
+                referrer_id,
+                crate::services::bonus_traffic::SOURCE_REFERRAL_REFERRER,
+                &user_id.to_string(),
+                referrer_traffic_mb,
+                Some("referral: referee first purchase"),
+            )
+            .await?;
+        }
+
         tracing::info!(
             referrer_id,
             referred_user_id = user_id,
@@ -370,6 +392,40 @@ impl ReferralService {
         referrer_id: i64,
         referred_user_id: i64,
     ) -> Result<(i64, i64)> {
+        // Бонусный ТРАФИК приглашённому — до денежных гардов ниже: он включается
+        // отдельной настройкой и должен работать даже когда денежные signup-бонусы
+        // выключены (оба нуля => ранний return). Идемпотентность своя, по ключу
+        // (referred_user_id, 'referral_referee', referrer_id), поэтому повторный
+        // вызов ничего не удвоит. Сбой не должен ронять регистрацию — логируем.
+        if referrer_id != referred_user_id {
+            let referee_mb =
+                sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = $1")
+                    .bind(crate::services::bonus_traffic::SETTING_REFERRAL_BONUS_MB_REFEREE)
+                    .fetch_optional(pool)
+                    .await
+                    .ok()
+                    .flatten();
+            let referee_mb = crate::services::bonus_traffic::parse_bonus_mb(referee_mb.as_deref());
+            if referee_mb > 0
+                && let Err(e) = crate::services::bonus_traffic::grant(
+                    pool,
+                    referred_user_id,
+                    crate::services::bonus_traffic::SOURCE_REFERRAL_REFEREE,
+                    &referrer_id.to_string(),
+                    referee_mb,
+                    Some("referral: signed up via invite"),
+                )
+                .await
+            {
+                tracing::warn!(
+                    referred_user_id,
+                    referrer_id,
+                    error = %e,
+                    "failed to grant referee bonus traffic (non-fatal)"
+                );
+            }
+        }
+
         // Проверяем идемпотентность — не начисляем дважды
         let already: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM referral_bonuses WHERE user_id = $1 AND referred_user_id = $2 AND bonus_type = 'signup' LIMIT 1",

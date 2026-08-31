@@ -83,7 +83,7 @@ pub async fn add_promo(
 ) -> impl IntoResponse {
     use axum::http::StatusCode;
     let promo_type = form.promo_type.trim().to_ascii_lowercase();
-    if !matches!(promo_type.as_str(), "balance" | "subscription") {
+    if !matches!(promo_type.as_str(), "balance" | "subscription" | "traffic") {
         return (StatusCode::BAD_REQUEST, "Invalid promo type").into_response();
     }
     if form.max_uses <= 0 {
@@ -93,6 +93,15 @@ pub async fn add_promo(
         return (
             StatusCode::BAD_REQUEST,
             "plan_id is required for subscription promo",
+        )
+            .into_response();
+    }
+    // A traffic promo whose amount is missing or zero would redeem into a
+    // "success" message that grants nothing — reject it at creation instead.
+    if promo_type == "traffic" && form.traffic_gb.unwrap_or(0) <= 0 {
+        return (
+            StatusCode::BAD_REQUEST,
+            "traffic_gb must be greater than 0 for traffic promo",
         )
             .into_response();
     }

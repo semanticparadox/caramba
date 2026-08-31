@@ -166,10 +166,6 @@ impl PromoService {
         .await?
         .ok_or_else(|| anyhow::anyhow!("Promo code no longer active"))?;
 
-        if locked.current_uses >= locked.max_uses {
-            return Err(anyhow::anyhow!("Promo code reached maximum uses"));
-        }
-
         let usage_exists: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM promo_code_usage WHERE promo_code_id = $1 AND user_id = $2)"
         )
@@ -178,8 +174,17 @@ impl PromoService {
         .fetch_one(&mut *tx)
         .await?;
 
-        if usage_exists {
-            return Err(anyhow::anyhow!("You have already used this promo code"));
+        // Все "можно ли гасить" проверки собраны в одну чистую функцию, чтобы
+        // граничные случаи (последнее использование / исчерпан / повтор) можно
+        // было закрепить тестами без БД. Порядок отказов зафиксирован там же.
+        if let Err(denial) = check_promo_redeemable(
+            locked.current_uses,
+            locked.max_uses,
+            usage_exists,
+            locked.expires_at,
+            Utc::now(),
+        ) {
+            return Err(anyhow::anyhow!(denial.message()));
         }
 
         sqlx::query("UPDATE promo_codes SET current_uses = current_uses + 1 WHERE id = $1")
@@ -268,6 +273,28 @@ impl PromoService {
                 }
 
                 format!("Promo activated! New subscription for {} days.", duration)
+            }
+            // Бонусный трафик. max_uses / expiry / одно погашение на пользователя
+            // уже обеспечены общим кодом выше (FOR UPDATE на промокоде +
+            // promo_code_usage), поэтому здесь остаётся только начисление.
+            // Идемпотентность гранта — по (user_id, 'promo', promo_code_id):
+            // даже если общий гард когда-нибудь пропустит повтор, трафик
+            // начислится ровно один раз.
+            "traffic" => {
+                let traffic_gb = locked.traffic_gb.unwrap_or(0);
+                let Some(amount_mb) = promo_traffic_grant_mb(locked.traffic_gb) else {
+                    return Err(anyhow::anyhow!("Missing traffic amount for traffic promo"));
+                };
+                crate::services::bonus_traffic::grant_tx(
+                    &mut tx,
+                    user_id,
+                    crate::services::bonus_traffic::SOURCE_PROMO,
+                    &locked.id.to_string(),
+                    amount_mb,
+                    Some(&format!("promo {}", locked.code)),
+                )
+                .await?;
+                format!("Промокод активирован! Начислено {} ГБ трафика.", traffic_gb)
             }
             _ => return Err(anyhow::anyhow!("Unknown promo type")),
         };
@@ -498,4 +525,177 @@ pub struct PartnerCodeStats {
     pub signups: i64,
     pub conversions: i64,
     pub balance_earned: i64,
+}
+
+// ============================================================================
+// Redemption decisions (pure — the SQL around them is what makes them atomic,
+// but the decisions themselves are testable without a database)
+// ============================================================================
+
+/// Why a promo code cannot be redeemed right now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromoDenial {
+    /// `expires_at` is in the past.
+    Expired,
+    /// `current_uses` has reached `max_uses` — the "first N users" cap.
+    Exhausted,
+    /// This user already has a `promo_code_usage` row for this code.
+    AlreadyUsed,
+}
+
+impl PromoDenial {
+    /// The user-facing reason, unchanged from the messages this code has always
+    /// returned (they are surfaced verbatim by the bot and the Mini App).
+    pub fn message(self) -> &'static str {
+        match self {
+            PromoDenial::Expired => "Promo code has expired",
+            PromoDenial::Exhausted => "Promo code reached maximum uses",
+            PromoDenial::AlreadyUsed => "You have already used this promo code",
+        }
+    }
+}
+
+/// Whether a promo code may be redeemed by this user right now.
+///
+/// Evaluated under the row's `FOR UPDATE` lock, which is what makes the
+/// `current_uses < max_uses` test safe against a concurrent burst: two
+/// redemptions of the last remaining use serialize, and the second one sees the
+/// incremented counter.
+///
+/// Denial order is deliberate and fixed: expiry, then the global cap, then the
+/// per-user check — so an exhausted code reports "reached maximum uses" rather
+/// than leaking whether this particular user had used it.
+pub fn check_promo_redeemable(
+    current_uses: i32,
+    max_uses: i32,
+    already_used_by_user: bool,
+    expires_at: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> Result<(), PromoDenial> {
+    if let Some(expiry) = expires_at
+        && expiry < now
+    {
+        return Err(PromoDenial::Expired);
+    }
+    if current_uses >= max_uses {
+        return Err(PromoDenial::Exhausted);
+    }
+    if already_used_by_user {
+        return Err(PromoDenial::AlreadyUsed);
+    }
+    Ok(())
+}
+
+/// MB of bonus traffic a `traffic` promo grants, or `None` when the code
+/// carries no usable amount (which is a misconfigured code, not a free win).
+pub fn promo_traffic_grant_mb(traffic_gb: Option<i32>) -> Option<i64> {
+    match traffic_gb {
+        Some(gb) if gb > 0 => Some((gb as i64).saturating_mul(1024)),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn now() -> DateTime<Utc> {
+        DateTime::from_timestamp(1_800_000_000, 0).unwrap()
+    }
+
+    // ---- max_uses boundary -------------------------------------------------
+
+    #[test]
+    fn a_code_with_uses_left_is_redeemable() {
+        // One use short of the cap: the last user through still gets it.
+        assert_eq!(check_promo_redeemable(99, 100, false, None, now()), Ok(()));
+        assert_eq!(check_promo_redeemable(0, 1, false, None, now()), Ok(()));
+    }
+
+    #[test]
+    fn a_code_at_max_uses_is_exhausted() {
+        assert_eq!(
+            check_promo_redeemable(100, 100, false, None, now()),
+            Err(PromoDenial::Exhausted)
+        );
+        assert_eq!(
+            check_promo_redeemable(1, 1, false, None, now()),
+            Err(PromoDenial::Exhausted)
+        );
+    }
+
+    #[test]
+    fn a_code_past_max_uses_stays_exhausted() {
+        // Can only happen if max_uses was lowered after the fact; must not
+        // wrap around into "redeemable".
+        assert_eq!(
+            check_promo_redeemable(150, 100, false, None, now()),
+            Err(PromoDenial::Exhausted)
+        );
+    }
+
+    #[test]
+    fn one_redemption_per_user_is_enforced() {
+        assert_eq!(
+            check_promo_redeemable(5, 100, true, None, now()),
+            Err(PromoDenial::AlreadyUsed)
+        );
+    }
+
+    #[test]
+    fn expiry_is_checked_before_the_cap() {
+        let expired = now() - chrono::Duration::seconds(1);
+        assert_eq!(
+            check_promo_redeemable(0, 100, false, Some(expired), now()),
+            Err(PromoDenial::Expired)
+        );
+        // An exhausted AND expired code reports expiry first.
+        assert_eq!(
+            check_promo_redeemable(100, 100, true, Some(expired), now()),
+            Err(PromoDenial::Expired)
+        );
+        // Not yet expired => fine.
+        let future = now() + chrono::Duration::seconds(1);
+        assert_eq!(
+            check_promo_redeemable(0, 100, false, Some(future), now()),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn the_cap_is_reported_before_the_per_user_check() {
+        assert_eq!(
+            check_promo_redeemable(100, 100, true, None, now()),
+            Err(PromoDenial::Exhausted)
+        );
+    }
+
+    // ---- the traffic branch's amount ---------------------------------------
+
+    #[test]
+    fn a_traffic_promo_grants_gigabytes_as_megabytes() {
+        assert_eq!(promo_traffic_grant_mb(Some(1)), Some(1024));
+        assert_eq!(promo_traffic_grant_mb(Some(5)), Some(5 * 1024));
+        assert_eq!(promo_traffic_grant_mb(Some(100)), Some(100 * 1024));
+    }
+
+    #[test]
+    fn a_traffic_promo_without_an_amount_is_a_misconfiguration() {
+        // Never "succeed" while granting nothing — the caller turns None into
+        // an error rather than a cheerful message.
+        assert_eq!(promo_traffic_grant_mb(None), None);
+        assert_eq!(promo_traffic_grant_mb(Some(0)), None);
+        assert_eq!(promo_traffic_grant_mb(Some(-5)), None);
+    }
+
+    #[test]
+    fn a_traffic_promo_amount_survives_the_grant_clamp() {
+        use crate::services::bonus_traffic::{MAX_GRANT_MB, normalize_grant_mb};
+        // A realistic code passes through untouched…
+        let mb = promo_traffic_grant_mb(Some(50)).unwrap();
+        assert_eq!(normalize_grant_mb(mb), mb);
+        // …and an absurd one is clamped rather than rejected mid-redemption.
+        let absurd = promo_traffic_grant_mb(Some(i32::MAX)).unwrap();
+        assert_eq!(normalize_grant_mb(absurd), MAX_GRANT_MB);
+    }
 }
