@@ -68,15 +68,23 @@ impl PaymentSessionRepository {
         Ok(())
     }
 
-    /// Atomically claim a `pending` session for fulfillment. Exactly one caller
-    /// wins the `pending` -> `completed` transition; concurrent callers (a
-    /// duplicate provider webhook, a webhook retry, or a race with the
-    /// lost-webhook poller) get `rows_affected == 0` and must bail WITHOUT any
-    /// side effect. Returns `true` only for the caller that won the claim.
+    /// Atomically claim a session for fulfillment. Exactly one caller wins the
+    /// transition to `completed`; concurrent callers (a duplicate provider
+    /// webhook, a webhook retry, or a race with the lost-webhook poller) get
+    /// `rows_affected == 0` and must bail WITHOUT any side effect. Returns
+    /// `true` only for the caller that won the claim.
+    ///
+    /// `expired` is claimable on purpose. That status is OUR bookkeeping guess
+    /// (a daily sweep ages out abandoned checkouts after 24h), while crypto
+    /// providers keep an invoice payable far longer — NOWPayments tracks a
+    /// payment for 7 days. A customer who pays on day two produces a genuine
+    /// paid webhook against a session we already swept; refusing it would take
+    /// the money and grant nothing. Only `completed` is final, which is what
+    /// keeps fulfillment idempotent.
     pub async fn claim_for_fulfillment(&self, id: Uuid) -> Result<bool> {
         let res = sqlx::query(
             "UPDATE payment_sessions SET status = 'completed', updated_at = CURRENT_TIMESTAMP \
-             WHERE id = $1 AND status = 'pending'",
+             WHERE id = $1 AND status IN ('pending', 'expired')",
         )
         .bind(id)
         .execute(&self.pool)

@@ -42,7 +42,7 @@ impl PaymentProvider for NowPaymentsProvider {
     async fn create_invoice(
         &self,
         session: &PaymentSession,
-        _user: &User,
+        user: &User,
         client: &reqwest::Client,
     ) -> Result<String> {
         // No `pay_currency`: omitting it lets the customer pick any coin/network on
@@ -53,7 +53,7 @@ impl PaymentProvider for NowPaymentsProvider {
             price_amount: (session.amount as f64) / 100.0, // Amount is in cents
             price_currency: session.currency.to_uppercase(),
             order_id: session.id.to_string(),
-            order_description: format!("VPN Subscription (Product: {})", session.product_id),
+            order_description: invoice_description(session, user),
             ipn_callback_url: format!(
                 "https://{}/api/webhooks/payment/nowpayments",
                 self.api_domain
@@ -203,6 +203,39 @@ impl PaymentProvider for NowPaymentsProvider {
     }
 }
 
+/// Build the text the customer sees on the hosted payment page and the operator
+/// sees in the NOWPayments dashboard. The dashboard shows only `order_id` (an
+/// opaque uuid) and this line, so it has to carry enough to reconcile a late or
+/// disputed payment without a database lookup: what was bought, for how long,
+/// and by whom.
+fn invoice_description(session: &PaymentSession, user: &User) -> String {
+    let plan = session
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("resource_label"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or("VPN subscription");
+
+    let days = session
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("duration_days"))
+        .and_then(|v| v.as_i64());
+
+    // Telegram handle when we have one; the numeric id always resolves in the
+    // admin panel, so support is never left guessing which account paid.
+    let who = match user.username.as_deref().filter(|u| !u.is_empty()) {
+        Some(handle) => format!("@{}", handle),
+        None => format!("id{}", user.tg_id),
+    };
+
+    match days {
+        Some(d) => format!("{} — {} days · {}", plan, d, who),
+        None => format!("{} · {}", plan, who),
+    }
+}
+
 /// Parse a JSON amount (string like `"10.00"` or a JSON number) into MINOR units
 /// (×100, rounded) for the U18 amount-verification gate. Returns `None` on absent
 /// or unparseable input so the caller falls back to the legacy `Completed` path
@@ -217,4 +250,91 @@ fn parse_decimal_to_minor(v: &Value) -> Option<i64> {
         return None;
     }
     Some((major * 100.0).round() as i64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::invoice_description;
+    use caramba_db::models::store::{PaymentSession, User};
+    use chrono::Utc;
+    use serde_json::json;
+    use uuid::Uuid;
+
+    fn user(username: Option<&str>) -> User {
+        User {
+            id: 1,
+            tg_id: 316766484,
+            username: username.map(str::to_string),
+            full_name: None,
+            balance: 0,
+            referral_code: None,
+            referrer_id: None,
+            referred_by: None,
+            is_banned: false,
+            language_code: None,
+            terms_accepted_at: None,
+            warning_count: 0,
+            trial_used: None,
+            trial_used_at: None,
+            last_bot_msg_id: None,
+            created_at: Utc::now(),
+            parent_id: None,
+        }
+    }
+
+    fn session(metadata: Option<serde_json::Value>) -> PaymentSession {
+        PaymentSession {
+            id: Uuid::nil(),
+            user_id: 1,
+            product_id: 1,
+            provider: "nowpayments".to_string(),
+            external_id: None,
+            amount: 1500,
+            currency: "USD".to_string(),
+            status: "pending".to_string(),
+            metadata,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn description_names_the_plan_the_duration_and_the_buyer() {
+        let s = session(Some(
+            json!({"type": "plan", "resource_label": "Gold", "duration_days": 180}),
+        ));
+        assert_eq!(
+            invoice_description(&s, &user(Some("art"))),
+            "Gold — 180 days · @art"
+        );
+    }
+
+    #[test]
+    fn description_falls_back_to_the_numeric_id_without_a_handle() {
+        let s = session(Some(
+            json!({"resource_label": "Gold", "duration_days": 360}),
+        ));
+        assert_eq!(
+            invoice_description(&s, &user(None)),
+            "Gold — 360 days · id316766484"
+        );
+    }
+
+    #[test]
+    fn description_survives_missing_metadata() {
+        // Older sessions carry no label; the line must still identify the buyer
+        // rather than degrade to the useless "Product: 1" of the old format.
+        let out = invoice_description(&session(None), &user(Some("art")));
+        assert_eq!(out, "VPN subscription · @art");
+        assert!(!out.contains("Product:"));
+    }
+
+    #[test]
+    fn description_ignores_a_blank_label() {
+        let s = session(Some(json!({"resource_label": "   ", "duration_days": 30})));
+        assert_eq!(
+            invoice_description(&s, &user(Some("art"))),
+            "VPN subscription — 30 days · @art"
+        );
+    }
 }

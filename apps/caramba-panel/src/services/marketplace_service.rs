@@ -409,6 +409,12 @@ impl MarketplaceService {
             amount
         };
 
+        // Stamp the human-readable resource name into the session so providers
+        // can put something meaningful in their invoice description. Without it
+        // every payment in a provider dashboard reads "Product: 1", which makes
+        // reconciling a disputed or late payment guesswork.
+        let metadata = self.stamp_resource_label(metadata, product_id).await;
+
         // Telegram Stars: freeze the expected XTR amount into the session at
         // CREATION time, computed from the final (post-discount) price at the
         // rate in force right now. The pre-checkout and successful_payment gates
@@ -1101,6 +1107,42 @@ impl MarketplaceService {
         .unwrap_or(None);
 
         Ok(duration_row.map(|(days,)| days).unwrap_or(30))
+    }
+
+    /// Add `resource_label` (the plan or order name) to the session metadata.
+    /// Best-effort: a lookup failure leaves the metadata untouched rather than
+    /// failing a checkout over a cosmetic field.
+    async fn stamp_resource_label(
+        &self,
+        metadata: Option<Value>,
+        product_id: i64,
+    ) -> Option<Value> {
+        let label: Option<String> = match payment_resource_type(metadata.as_ref()) {
+            "order" => {
+                sqlx::query_scalar("SELECT title FROM orders WHERE id = $1")
+                    .bind(product_id)
+                    .fetch_optional(&self.pool)
+                    .await
+            }
+            _ => {
+                sqlx::query_scalar("SELECT name FROM plans WHERE id = $1")
+                    .bind(product_id)
+                    .fetch_optional(&self.pool)
+                    .await
+            }
+        }
+        .unwrap_or(None);
+
+        let Some(label) = label.filter(|l| !l.trim().is_empty()) else {
+            return metadata;
+        };
+
+        let mut map = match metadata {
+            Some(Value::Object(map)) => map,
+            _ => serde_json::Map::new(),
+        };
+        map.insert("resource_label".to_string(), Value::String(label));
+        Some(Value::Object(map))
     }
 
     async fn validate_session_resource(
