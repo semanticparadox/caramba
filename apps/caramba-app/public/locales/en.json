@@ -266,7 +266,8 @@
         "q": "Which apps are supported?",
         "a": "Currently the Mini App supports only Hiddify. Current links and import steps are in the Hiddify guide."
       }
-    ]
+    ],
+    "language": "Interface language"
   },
   "promo": {
     "title": "Promo & Referrals",
