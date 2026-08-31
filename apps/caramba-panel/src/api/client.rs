@@ -1839,6 +1839,7 @@ pub fn provider_label(name: &str) -> String {
         "coinbase_commerce" => "🪙 Coinbase Commerce",
         "plisio" => "🪙 Plisio",
         "paypalych" => "🇷🇺 Paypalych (СБП / USDT)",
+        "stars" => "⭐️ Telegram Stars",
         other => other,
     }
     .to_string()
@@ -1918,20 +1919,13 @@ async fn get_payment_providers(
         });
     }
 
-    // Telegram Stars: handled by PayService, not registered in MarketplaceService.
-    if state
-        .settings
-        .get_or_default("telegram_stars_enabled", "false")
-        .await
-        == "true"
-    {
-        providers.push(PaymentProviderInfo {
-            id: "stars".to_string(),
-            label: "⭐️ Pay with Telegram Stars".to_string(),
-            amount: None,
-            currency: None,
-        });
-    }
+    // NOTE: Telegram Stars is NOT special-cased here any more. It used to be
+    // listed off the `telegram_stars_enabled` setting alone while
+    // MarketplaceService had no "stars" provider, so every Stars purchase from
+    // the Mini App died with "Payment provider not found or disabled". Stars is
+    // now a real registered provider and flows through the loop below, which
+    // makes registration (credentials actually present) the source of truth for
+    // what the app may advertise.
 
     // ---- Registered providers (source of truth = MarketplaceService) ----
     for name in state.marketplace_service.provider_names() {
@@ -2141,11 +2135,16 @@ async fn create_payment_invoice(
 
             // Внешний http(s)-чекаут: дублируем ссылку на оплату в личку бота
             // (fire-and-forget) — из Mini App удобнее оплачивать по кнопке в чате.
-            // stars/manual/balance сюда не попадают: у них invoice_url не http(s)
-            // либо ветка выше. `delivered_via: bot` сообщает приложению, что
-            // ссылка отправлена в чат и редирект не нужен.
-            let delivered_via_bot = (invoice_payload.starts_with("http://")
-                || invoice_payload.starts_with("https://"))
+            // manual/balance сюда не попадают: у них invoice_url не http(s) либо
+            // ветка выше. Stars исключаем ЯВНО по имени провайдера: их ссылка
+            // (`https://t.me/$<slug>` из createInvoiceLink) выглядит как обычный
+            // http(s)-чекаут, но открывается нативно через `WebApp.openInvoice`,
+            // поэтому дубль в чат только сбивал бы с толку.
+            // `delivered_via: bot` сообщает приложению, что ссылка отправлена в
+            // чат и редирект не нужен.
+            let delivered_via_bot = body.provider != "stars"
+                && (invoice_payload.starts_with("http://")
+                    || invoice_payload.starts_with("https://"))
                 && !invoice_payload.contains("t.me/invoice");
             if delivered_via_bot {
                 state

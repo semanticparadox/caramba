@@ -549,6 +549,13 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     let api_domain = services::api_domain::normalize_api_domain(&api_domain);
     // Читаем имя бота из настроек — сохраняется при первом запуске бота через get_me()
     let marketplace_bot_username = settings.get_or_default("bot_username", "").await;
+    // Telegram Stars: тот же ключ, что читает `provider_enable_setting("stars")`,
+    // поэтому регистрация провайдера и выдача его в `GET .../payment/providers`
+    // не могут разойтись.
+    let telegram_stars_enabled = settings
+        .get_or_default("telegram_stars_enabled", "false")
+        .await
+        == "true";
     let marketplace_api_domain = api_domain.clone();
 
     let pay_service = Arc::new(services::pay_service::PayService::new(
@@ -556,7 +563,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         store_service.clone(),
         catalog_service.clone(),
         bot_manager.clone(),
-        bot_token,
+        bot_token.clone(),
         pay_token,
         nowpayments_key.clone(),
         crystalpay_login.clone(),
@@ -608,6 +615,8 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         paypalych_api_token,
         paypalych_shop_id,
         paypalych_webhook_secret,
+        telegram_stars_enabled,
+        bot_token,
         marketplace_api_domain,
         marketplace_bot_username,
         bot_manager.clone(),

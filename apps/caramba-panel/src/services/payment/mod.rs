@@ -36,8 +36,8 @@ pub mod oxapay;
 pub mod paypalych;
 pub mod plisio;
 pub mod provider;
+pub mod stars;
 pub mod stripe;
-pub mod telegram_stars;
 pub mod tribute;
 pub mod wata;
 
