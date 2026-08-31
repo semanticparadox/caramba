@@ -1,15 +1,16 @@
-import { BrowserRouter as Router, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { AuthProvider } from './context/AuthContext'
 import { AppLockProvider } from './context/AppLockContext'
 import { NotificationProvider } from './context/NotificationContext'
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect, useRef } from 'react'
 import Home from './pages/Home'
 import Promo from './pages/Promo'
 import Support from './pages/Support'
 import ConnectGuide from './pages/ConnectGuide'
 import AppLockGate from './components/AppLockGate'
 import { hapticSelect } from './lib/haptics'
+import { getStartRoute } from './lib/telegram'
 
 const Plans = lazy(() => import('./pages/Plans'))
 const Servers = lazy(() => import('./pages/Servers'))
@@ -99,8 +100,27 @@ function BottomTabBar() {
     )
 }
 
+/** Honour `?startapp=` once, on the first render of the session.
+ *
+ *  `replace` so the intended screen is where Telegram's back button leads out
+ *  of, not a home screen the person never asked for; the ref so that navigating
+ *  away and back does not yank them to the deep link a second time. */
+function useStartParamRedirect() {
+    const navigate = useNavigate()
+    const location = useLocation()
+    const handled = useRef(false)
+
+    useEffect(() => {
+        if (handled.current) return
+        handled.current = true
+        const route = getStartRoute()
+        if (route && route !== location.pathname) navigate(route, { replace: true })
+    }, [navigate, location.pathname])
+}
+
 function AppShell() {
     const { t } = useTranslation()
+    useStartParamRedirect()
 
     return (
         <div className="app-container app-shell">

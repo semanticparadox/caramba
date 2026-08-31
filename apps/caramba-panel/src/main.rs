@@ -63,6 +63,8 @@ pub struct AppState {
     pub pay_service: Arc<services::pay_service::PayService>,
     pub export_service: Arc<services::export_service::ExportService>,
     pub notification_service: Arc<services::notification_service::NotificationService>,
+    pub notification_templates:
+        Arc<services::notification_templates::NotificationTemplateService>,
     pub connection_service: Arc<services::connection_service::ConnectionService>,
     pub redis: Arc<services::redis_service::RedisService>,
     pub pubsub: Arc<services::pubsub_service::PubSubService>,
@@ -629,6 +631,22 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         pool.clone(),
     ));
 
+    // Шаблоны уведомлений держим в кэше: рассылка идёт свипами по всем
+    // подходящим пользователям сразу, и запрос за шаблоном на каждого лёг бы на
+    // горячий путь свипа. Неудача загрузки не должна ронять старт — уведомления
+    // тогда просто уходят на встроенных строках, что и есть штатный фолбэк.
+    let notification_templates = Arc::new(
+        match services::notification_templates::NotificationTemplateService::new(pool.clone())
+            .await
+        {
+            Ok(svc) => svc,
+            Err(e) => {
+                tracing::error!(error = %e, "notification templates: cache load failed, falling back to built-in strings");
+                services::notification_templates::NotificationTemplateService::empty(pool.clone())
+            }
+        },
+    );
+
     // Telemetry Service (Phase 3) - Depends on Security, Notification, BotManager
     let telemetry_service = Arc::new(services::telemetry_service::TelemetryService::new(
         pool.clone(),
@@ -705,6 +723,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         pay_service: pay_service.clone(),
         export_service: export_service.clone(),
         notification_service: notification_service.clone(),
+        notification_templates: notification_templates.clone(),
         connection_service: connection_service.clone(),
         redis: redis_service.clone(),
         pubsub: pubsub_service.clone(),
@@ -1124,6 +1143,19 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         .route(
             "/notifications/send",
             post(handlers::admin::notify_all_users),
+        )
+        // Редактор шаблонов системных уведомлений
+        .route(
+            "/notification-templates/{event}/{lang}",
+            post(handlers::admin::save_template),
+        )
+        .route(
+            "/notification-templates/{event}/{lang}/reset",
+            post(handlers::admin::reset_template),
+        )
+        .route(
+            "/notification-templates/{event}/{lang}/test",
+            post(handlers::admin::test_template),
         )
         .route(
             "/notifications/preview",

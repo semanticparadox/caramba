@@ -1,5 +1,5 @@
 use crate::AppState;
-use crate::bot::translations::{lang_for, t, tf};
+use crate::bot::translations::{lang_for, t};
 use crate::bot::utils::escape_html;
 use chrono::Utc;
 use sqlx::PgPool;
@@ -412,16 +412,23 @@ impl MonitoringService {
                 .await
                 .unwrap_or(None)
                 .unwrap_or_else(|| t(lang, "label_subscription").to_string());
-                // Plain text — без разметки, поэтому имя тарифа не экранируем.
-                let payload = crate::bot_manager::NotificationPayload::plain(tf(
-                    lang,
-                    "notify.expired",
-                    &[&plan_name],
-                ));
+                // Шаблон рендерится в HTML, поэтому имя тарифа экранируем: оно
+                // приходит из БД и может содержать «&», «<» или «>», на которых
+                // Telegram отвергнет всё сообщение целиком.
+                let rendered = self
+                    .state
+                    .notification_templates
+                    .render_with(
+                        &self.state.settings,
+                        "notify.expired",
+                        lang,
+                        &[&escape_html(&plan_name)],
+                    )
+                    .await;
                 let _ = self
                     .state
                     .bot_manager
-                    .send_rich_notification(tg_id, payload)
+                    .send_rich_notification(tg_id, rendered.payload)
                     .await;
                 let _ = self
                     .state
@@ -430,11 +437,8 @@ impl MonitoringService {
                         *user_id,
                         "subscription",
                         "warning",
-                        "Subscription expired",
-                        &format!(
-                            "Your \"{}\" subscription has expired. Renew to keep your VPN access.",
-                            plan_name
-                        ),
+                        &rendered.title,
+                        &rendered.body,
                         Some(serde_json::json!({"sub_id": sub_id, "url": "/billing"})),
                     )
                     .await;
@@ -551,24 +555,26 @@ impl MonitoringService {
                         let lang = lang_for(&self.state.settings, lang.as_deref()).await;
                         let amount_str = format!("{:.2}", amount as f64 / 100.0);
 
-                        // Сообщение уходит в HTML parse mode — экранируем под HTML.
-                        let msg = tf(
-                            lang,
-                            "notify.renewed",
-                            &[
-                                &escape_html(&plan_name),
-                                &escape_html(&expires_str),
-                                &amount_str,
-                            ],
-                        );
+                        // Уходит в HTML parse mode — экранируем то, что пришло из БД.
+                        let renewed = self
+                            .state
+                            .notification_templates
+                            .render_with(
+                                &self.state.settings,
+                                "notify.renewed",
+                                lang,
+                                &[
+                                    &escape_html(&plan_name),
+                                    &escape_html(&expires_str),
+                                    &amount_str,
+                                ],
+                            )
+                            .await;
 
                         let _ = self
                             .state
                             .bot_manager
-                            .send_rich_notification(
-                                tg_id,
-                                crate::bot_manager::NotificationPayload::html(msg),
-                            )
+                            .send_rich_notification(tg_id, renewed.payload)
                             .await;
                         let _ = self
                             .state
@@ -577,13 +583,8 @@ impl MonitoringService {
                                 user_id,
                                 "subscription",
                                 "info",
-                                t(lang, "notify.renewed_title"),
-                                // Инбокс Mini App показывает текст как есть — без разметки.
-                                &tf(
-                                    lang,
-                                    "notify.renewed_body",
-                                    &[&plan_name, &amount_str, &expires_str],
-                                ),
+                                &renewed.title,
+                                &renewed.body,
                                 Some(serde_json::json!({"sub_id": sub_id, "url": "/subscription"})),
                             )
                             .await;
@@ -631,19 +632,21 @@ impl MonitoringService {
                         let avail_str = format!("{:.2}", available as f64 / 100.0);
                         let req_str = format!("{:.2}", required as f64 / 100.0);
 
-                        let msg = tf(
-                            lang,
-                            "notify.renew_failed",
-                            &[&escape_html(&plan_name), &avail_str, &req_str],
-                        );
+                        let failed = self
+                            .state
+                            .notification_templates
+                            .render_with(
+                                &self.state.settings,
+                                "notify.renew_failed",
+                                lang,
+                                &[&escape_html(&plan_name), &avail_str, &req_str],
+                            )
+                            .await;
 
                         let _ = self
                             .state
                             .bot_manager
-                            .send_rich_notification(
-                                tg_id,
-                                crate::bot_manager::NotificationPayload::html(msg),
-                            )
+                            .send_rich_notification(tg_id, failed.payload)
                             .await;
                         let _ = self
                             .state
@@ -652,12 +655,8 @@ impl MonitoringService {
                                 user_id,
                                 "subscription",
                                 "error",
-                                t(lang, "notify.renew_failed_title"),
-                                &tf(
-                                    lang,
-                                    "notify.renew_failed_body",
-                                    &[&plan_name, &avail_str, &req_str],
-                                ),
+                                &failed.title,
+                                &failed.body,
                                 Some(serde_json::json!({"sub_id": sub_id, "url": "/billing"})),
                             )
                             .await;
@@ -724,16 +723,21 @@ impl MonitoringService {
             let balance_str = format!("{:.2}", balance as f64 / 100.0);
             let lang = lang_for(&self.state.settings, lang.as_deref()).await;
 
-            let msg = tf(
-                lang,
-                "notify.low_balance",
-                &[&balance_str, &escape_html(&plan_name)],
-            );
+            let low = self
+                .state
+                .notification_templates
+                .render_with(
+                    &self.state.settings,
+                    "notify.low_balance",
+                    lang,
+                    &[&balance_str, &escape_html(&plan_name)],
+                )
+                .await;
 
             let _ = self
                 .state
                 .bot_manager
-                .send_rich_notification(tg_id, crate::bot_manager::NotificationPayload::html(msg))
+                .send_rich_notification(tg_id, low.payload)
                 .await;
             let _ = self
                 .state
@@ -742,8 +746,8 @@ impl MonitoringService {
                     user_db_id,
                     "payment",
                     "warning",
-                    t(lang, "notify.low_balance_title"),
-                    &tf(lang, "notify.low_balance_body", &[&balance_str, &plan_name]),
+                    &low.title,
+                    &low.body,
                     Some(serde_json::json!({"url": "/billing"})),
                 )
                 .await;
@@ -802,13 +806,15 @@ impl MonitoringService {
                     AlertType::Expiry3Days => ("notify.expiry3", "warning", "subscription"),
                 };
 
+                let rendered = self
+                    .state
+                    .notification_templates
+                    .render_with(&self.state.settings, base, lang, &[])
+                    .await;
                 let _ = self
                     .state
                     .bot_manager
-                    .send_rich_notification(
-                        user.0,
-                        crate::bot_manager::NotificationPayload::html(t(lang, base)),
-                    )
+                    .send_rich_notification(user.0, rendered.payload)
                     .await;
                 let _ = self
                     .state
@@ -817,8 +823,8 @@ impl MonitoringService {
                         user_id,
                         category,
                         severity,
-                        t(lang, &format!("{base}_title")),
-                        t(lang, &format!("{base}_body")),
+                        &rendered.title,
+                        &rendered.body,
                         Some(serde_json::json!({"url": "/subscription"})),
                     )
                     .await;

@@ -49,12 +49,28 @@ impl NotificationService {
         // Настройку читаем один раз на всю рассылку, а не на каждого адресата.
         let default_language = default_language_setting(&self.pool).await;
 
+        // То же и для переопределений текста из панели: два запроса на ротацию,
+        // а не по одному на адресата. Эта рассылка идёт сырым ботом, поэтому
+        // кнопка и медиа здесь не поддерживаются — редактор их для этого
+        // события и не показывает.
+        let override_ru =
+            crate::services::notification_templates::text_override(&self.pool, "notify.sni_rotation", Lang::Ru)
+                .await;
+        let override_en =
+            crate::services::notification_templates::text_override(&self.pool, "notify.sni_rotation", Lang::En)
+                .await;
+
         let mut notified_count = 0;
         let mut failed_count = 0;
 
         for user in &users {
             let lang = resolve_lang(user.language_code.as_deref(), default_language.as_deref());
-            let message = self.format_rotation_message(lang, old_sni, new_sni, rotation_id);
+            let custom = match lang {
+                Lang::Ru => override_ru.as_deref(),
+                Lang::En => override_en.as_deref(),
+            };
+            let message =
+                self.format_rotation_message_with(custom, lang, old_sni, new_sni, rotation_id);
 
             match bot
                 .send_message(ChatId(user.tg_id), message)
@@ -118,15 +134,31 @@ impl NotificationService {
         new_sni: &str,
         rotation_id: i64,
     ) -> String {
-        tf(
-            lang,
-            "notify.sni_rotation",
-            &[
-                &escape_html(old_sni),
-                &escape_html(new_sni),
-                &rotation_id.to_string(),
-            ],
-        )
+        self.format_rotation_message_with(None, lang, old_sni, new_sni, rotation_id)
+    }
+
+    /// То же, но поверх текста, отредактированного в панели. `None` —
+    /// переопределения нет, берётся встроенная строка. Подстановка идёт через
+    /// ту же `substitute`, что и у `tf`, поэтому отредактированный текст не
+    /// может подставить иначе, чем встроенный.
+    fn format_rotation_message_with(
+        &self,
+        custom: Option<&str>,
+        lang: Lang,
+        old_sni: &str,
+        new_sni: &str,
+        rotation_id: i64,
+    ) -> String {
+        let args = [
+            escape_html(old_sni),
+            escape_html(new_sni),
+            rotation_id.to_string(),
+        ];
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        match custom {
+            Some(template) => crate::bot::translations::substitute(template, &args),
+            None => tf(lang, "notify.sni_rotation", &args),
+        }
     }
 }
 
