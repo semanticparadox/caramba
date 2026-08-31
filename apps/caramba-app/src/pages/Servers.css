@@ -181,12 +181,12 @@
 
 .variant-feedback.success {
     border-color: rgba(16, 185, 129, 0.35);
-    color: #86efac;
+    color: var(--color-success);
 }
 
 .variant-feedback.danger {
     border-color: rgba(248, 113, 113, 0.35);
-    color: #fca5a5;
+    color: var(--color-danger);
 }
 
 .variant-list {
@@ -290,17 +290,17 @@
 
 .variant-chip.vless {
     background: rgba(59, 130, 246, 0.16);
-    color: #93c5fd;
+    color: var(--color-info);
 }
 
 .variant-chip.recommended {
     background: rgba(245, 158, 11, 0.18);
-    color: #fcd34d;
+    color: var(--color-warning);
 }
 
 .variant-chip.grpc {
     background: rgba(16, 185, 129, 0.16);
-    color: #86efac;
+    color: var(--color-success);
 }
 
 .close-btn {
@@ -332,4 +332,38 @@
 
 .server-actions .pinned {
     opacity: 0.7;
+}
+
+/* Быстрый выбор страны / relay — чипы (раньше классы были без стилей) */
+.country-quick-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: var(--space-2) 0;
+}
+
+.country-chip {
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-round);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    font-weight: 700;
+}
+
+.country-chip:hover,
+.country-chip:focus-visible {
+    border-color: var(--border-accent);
+    color: var(--text-primary);
+}
+
+.country-chip.active {
+    border-color: var(--border-accent);
+    background: rgba(var(--lime-rgb), 0.12);
+    color: var(--accent-primary);
+}
+
+.relay-picker {
+    margin-bottom: var(--space-4);
 }

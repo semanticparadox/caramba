@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import Icon from '../components/Icon'
 import { useNavigate } from 'react-router-dom'
 import { apiUrl } from '../config'
 import { useAuth } from '../context/AuthContext'
@@ -83,7 +84,7 @@ export default function Tickets() {
         <div className="page tickets-page">
             <header className="page-header">
                 <button className="back-button" onClick={() => navigate('/support')} aria-label={t('common.cancel')}>
-                    {'<'}
+                    <Icon name="chevron-left" />
                 </button>
                 <h2>{t('tickets.title')}</h2>
                 <div style={{ width: 38 }} />
@@ -97,7 +98,7 @@ export default function Tickets() {
 
             {!loading && !error && tickets.length === 0 && (
                 <div className="empty-state glass-card">
-                    <div className="empty-icon">TK</div>
+                    <div className="empty-icon">🎫</div>
                     <h3>{t('tickets.emptyTitle')}</h3>
                     <p>{t('tickets.emptyDesc')}</p>
                 </div>

@@ -9,7 +9,7 @@
 }
 
 .bot-payment.completed {
-  border-color: rgba(64, 200, 120, 0.45);
+  border-color: rgba(var(--green-rgb), 0.45);
 }
 
 .bot-payment-text {
@@ -43,7 +43,7 @@
 .bot-payment-btn.primary {
   background: var(--accent-gradient);
   border-color: transparent;
-  color: #fff;
+  color: var(--on-lime);
 }
 
 .bot-payment-btn.ghost {

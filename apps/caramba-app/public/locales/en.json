@@ -1,6 +1,6 @@
 {
   "common": {
-    "appName": "CARAMBA",
+    "appName": "EXA ROBOT",
     "magicOptimize": "Magic Optimize",
     "cancel": "Cancel",
     "close": "Close",
@@ -28,8 +28,9 @@
     "pollTimeout": "No confirmation yet. If you have paid, the receipt will arrive in the bot chat — check it there."
   },
   "nav": {
-    "center": "Home",
-    "promo": "Promo",
+    "center": "Hub",
+    "plans": "Plans",
+    "promo": "Perks",
     "support": "Help"
   },
   "app": {
@@ -47,8 +48,8 @@
     "copyLink": "Copy link",
     "selectServer": "Select server",
     "devices": "Devices",
-    "noSubscription": "You have no active subscriptions",
-    "choosePlan": "Choose and buy a plan",
+    "noSubscription": "No active subscription yet — time to plug in!",
+    "choosePlan": "Pick a plan",
     "promoCode": "Promo code / referral",
     "pendingTitle": "Awaiting activation",
     "pendingSubtitle": "Activate your purchased subscriptions before connecting",
@@ -120,7 +121,22 @@
     "supportCardTitle": "Support tickets",
     "supportCardDesc": "Open a ticket to get help from our team.",
     "supportCardBtn": "My tickets",
-    "throttledNotice": "Daily limit reached — resets tomorrow"
+    "throttledNotice": "Daily limit reached — resets tomorrow",
+    "statusOnline": "Online",
+    "statusWaiting": "Ready to launch",
+    "statusIdle": "No access",
+    "qaPlans": "Plans",
+    "qaServices": "My services",
+    "qaServers": "Servers",
+    "qaDevices": "Devices",
+    "qaBilling": "Balance",
+    "qaGuide": "How to connect",
+    "allSubscriptions": "All subscriptions ({{count}})"
+  },
+  "plans": {
+    "title": "Plans",
+    "subtitle": "Pick a duration — you're online in a minute. Card, crypto, Stars or balance.",
+    "billingLink": "Balance & payment history"
   },
   "servers": {
     "title": "Route configuration",
@@ -202,8 +218,8 @@
     "ticketsTitle": "My tickets",
     "ticketsDesc": "Track your requests and get replies from the team",
     "connectionIssueTitle": "Connection problem?",
-    "connectionIssueDesc": "For a stable start, use the Hiddify guide and connect from the Home tab.",
-    "openCenter": "Open Home",
+    "connectionIssueDesc": "For a stable start, use the Hiddify guide and connect from the Hub tab.",
+    "openCenter": "Open Hub",
     "hiddifyGuide": "Hiddify guide",
     "faqTitle": "FAQ",
     "pinTitle": "Mini App PIN lock",
@@ -236,7 +252,7 @@
     "faqItems": [
       {
         "q": "How do I connect?",
-        "a": "Open the \"Home\" tab, copy the link, and import it into Hiddify. Routes load automatically after import."
+        "a": "Open the Hub tab, tap \"Connect in Hiddify\" or copy the link and import it manually. Routes load automatically after import."
       },
       {
         "q": "Which server is fastest?",
@@ -244,7 +260,7 @@
       },
       {
         "q": "How do I renew my subscription?",
-        "a": "Purchases and renewals are in the \"Home\" tab. If you don't have access yet, choose a plan and pay there."
+        "a": "Purchases live in the Plans tab, renewals in My services. If you don't have access yet, pick a plan and pay the way you like."
       },
       {
         "q": "Which apps are supported?",
@@ -293,7 +309,7 @@
     "heroDesc": "Copy your subscription link, open any compatible client, and import it. We recommend Hiddify — routes load automatically after import.",
     "copyLink": "Copy import link",
     "linkCopied": "Link copied",
-    "openCenter": "Open Home",
+    "openCenter": "Open Hub",
     "alreadyActiveNote": "If you already have an active subscription, one import is enough — manual route selection is usually not needed.",
     "noActiveWarning": "No active subscription yet. Open plans, activate access, and return here for quick import.",
     "chooseDevice": "Choose your device",
@@ -435,7 +451,7 @@
     "extend": "Extend",
     "extendSuccess": "Subscription extended until {{date}}",
     "selectDuration": "Select extension period",
-    "insufficientBalance": "Insufficient balance. To extend, purchase the same plan on the Home screen — the time will be added to your current subscription.",
+    "insufficientBalance": "Insufficient balance. To extend, purchase the same plan in the Plans tab — the time will be added to your current subscription.",
     "autoRenew": "Auto-renew",
     "autoRenewOn": "On",
     "autoRenewOff": "Off",

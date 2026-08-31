@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import Icon from '../components/Icon'
 import { useNavigate } from 'react-router-dom'
 import { useAppLock } from '../context/AppLockContext'
 import { useAuth } from '../context/AuthContext'
@@ -221,22 +222,22 @@ export default function Support() {
             )}
 
             <button className="contact-hero glass-card" onClick={() => window.open(supportUrl, '_blank', 'noopener,noreferrer')}>
-                <span className="contact-icon">TG</span>
+                <span className="contact-icon">💬</span>
                 <div>
                     <span className="contact-title">{t('support.contactTitle')}</span>
                     <span className="contact-desc">{t('support.contactDesc')}</span>
                 </div>
-                <span className="contact-arrow">{'>'}</span>
+                <span className="contact-arrow"><Icon name="chevron-right" size={14} /></span>
             </button>
 
             {/* Быстрый переход к тикетам — прямо в разделе поддержки */}
             <button className="contact-hero glass-card" onClick={() => navigate('/tickets')}>
-                <span className="contact-icon">TK</span>
+                <span className="contact-icon">🎫</span>
                 <div>
                     <span className="contact-title">{t('support.ticketsTitle')}</span>
                     <span className="contact-desc">{t('support.ticketsDesc')}</span>
                 </div>
-                <span className="contact-arrow">{'>'}</span>
+                <span className="contact-arrow"><Icon name="chevron-right" size={14} /></span>
             </button>
 
             <section className="support-connect-card glass-card">

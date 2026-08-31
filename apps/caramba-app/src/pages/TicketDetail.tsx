@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import Icon from '../components/Icon'
 import { useNavigate, useParams } from 'react-router-dom'
 import { apiUrl } from '../config'
 import { useAuth } from '../context/AuthContext'
@@ -225,7 +226,7 @@ export default function TicketDetail() {
         <div className="page ticket-detail-page">
             <header className="page-header">
                 <button className="back-button" onClick={() => navigate('/tickets')} aria-label={t('common.cancel')}>
-                    {'<'}
+                    <Icon name="chevron-left" />
                 </button>
                 <h2 style={{ fontSize: '0.95rem' }}>
                     {ticket ? ticket.subject : t('tickets.title')}
@@ -353,7 +354,7 @@ export default function TicketDetail() {
                             onClick={() => void handleSend()}
                             disabled={!replyBody.trim() || sending}
                         >
-                            {'>'}
+                            <Icon name="chevron-right" size={14} />
                         </button>
                     </div>
 

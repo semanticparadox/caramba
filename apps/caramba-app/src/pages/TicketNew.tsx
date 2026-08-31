@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import Icon from '../components/Icon'
 import { useNavigate } from 'react-router-dom'
 import { apiUrl } from '../config'
 import { useAuth } from '../context/AuthContext'
@@ -76,7 +77,7 @@ export default function TicketNew() {
                     onClick={() => navigate('/tickets')}
                     aria-label={t('common.cancel')}
                 >
-                    {'<'}
+                    <Icon name="chevron-left" />
                 </button>
                 <h2>{t('tickets.newTitle')}</h2>
                 <div style={{ width: 38 }} />

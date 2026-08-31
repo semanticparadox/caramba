@@ -20,7 +20,7 @@
 
 .platform-chip.active {
   background: var(--accent-gradient);
-  color: #041217;
+  color: var(--on-lime);
   border-color: transparent;
   box-shadow: var(--shadow-glow);
 }
