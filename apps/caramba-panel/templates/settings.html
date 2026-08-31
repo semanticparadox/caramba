@@ -235,6 +235,20 @@
                         </div>
                         <p class="text-[10px] text-slate-500 mt-1.5 ml-1">Fixed conversion rate if required.</p>
                     </div>
+                    <div>
+                        <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Telegram Stars за $1 (курс)</label>
+                        <input type="number" form="main-settings-form" name="stars_per_usd" step="1" min="1" max="1000"
+                            value="{{ stars_per_usd }}" placeholder="50" class="input-field font-mono">
+                        <p class="text-[10px] text-slate-500 mt-1.5 ml-1">
+                            Сколько Stars списывается с покупателя за каждый $1 цены. По умолчанию 50.
+                            Экономика Stars асимметрична: покупатель платит в приложении ~$0.02 за Star,
+                            а вы выводите через Fragment ~$0.013 за Star (минус 5% комиссии конвертации) —
+                            при курсе 50 на руки приходит примерно 62–65% от заявленной цены.
+                            Повышение курса увеличивает <b>количество Stars, которое платит покупатель</b>
+                            за ту же цену в долларах (цена в USD не меняется). Допустимо 1–1000;
+                            некорректное значение сбрасывается на 50.
+                        </p>
+                    </div>
                 </div>
             </div>
 

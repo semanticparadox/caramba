@@ -322,6 +322,7 @@ pub struct SettingsTemplate {
     pub masked_stripe_webhook_secret: String,
     pub payment_ipn_url: String,
     pub currency_rate: String,
+    pub stars_per_usd: String,
     pub support_url: String,
     pub panel_url: String,
     pub panel_url_display: String,
@@ -506,6 +507,7 @@ pub struct SaveSettingsForm {
     pub telegram_stars_enabled: Option<String>,
     pub payment_ipn_url: Option<String>,
     pub currency_rate: Option<String>,
+    pub stars_per_usd: Option<String>,
     pub support_url: Option<String>,
     pub panel_url: Option<String>,
     pub bot_username: Option<String>,
@@ -620,6 +622,12 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
 
     let payment_ipn_url = state.settings.get_or_default("payment_ipn_url", "").await;
     let currency_rate = state.settings.get_or_default("currency_rate", "1.0").await;
+    // Rendered through the same parser the payment path uses, so the form always
+    // shows the rate that is actually in force (a stored out-of-range or garbage
+    // value displays as the fallback rather than lying about what buyers pay).
+    let stars_per_usd = crate::services::payment::stars::stars_per_usd(&state.settings)
+        .await
+        .to_string();
     let support_url = state.settings.get_or_default("support_url", "").await;
     let panel_url_setting = state.settings.get_or_default("panel_url", "").await;
     let panel_url_env = std::env::var("PANEL_URL").unwrap_or_default();
@@ -1134,6 +1142,7 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         masked_stripe_webhook_secret,
         payment_ipn_url,
         currency_rate,
+        stars_per_usd,
         support_url,
         panel_url,
         panel_url_display,
@@ -1466,6 +1475,17 @@ pub async fn save_settings(
     }
     if let Some(v) = form.currency_rate {
         settings.insert("currency_rate".to_string(), v);
+    }
+    // Telegram Stars rate. Bounds are enforced here (and again on read) so a
+    // typo can never price a plan at 0 XTR or at an absurd multiple: anything
+    // outside [MIN_STARS_PER_USD, MAX_STARS_PER_USD] is normalized back to the
+    // built-in fallback instead of being stored.
+    if let Some(v) = form.stars_per_usd {
+        let normalized = crate::services::payment::stars::parse_stars_per_usd(Some(&v));
+        settings.insert(
+            crate::services::payment::stars::STARS_PER_USD_SETTING.to_string(),
+            normalized.to_string(),
+        );
     }
     if let Some(v) = form.support_url {
         settings.insert("support_url".to_string(), v);

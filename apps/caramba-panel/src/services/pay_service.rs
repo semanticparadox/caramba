@@ -632,22 +632,31 @@ impl PayService {
         }
     }
 
+    /// Bot-native Stars invoice (balance top-up), legacy `{user}:bal|ord|sub:{id}`
+    /// payload.
+    ///
+    /// `stars_per_usd` is passed in rather than read here: this service has no
+    /// settings handle, and the caller (which does) must resolve the live rate
+    /// via `services::payment::stars::stars_per_usd`. Never hardcode 50.
     pub async fn create_stars_invoice(
         &self,
         user_id: i64,
         amount_usd: f64,
         payment_type: PaymentType,
+        stars_per_usd: i64,
     ) -> Result<String> {
         info!(
             "Creating Telegram Stars invoice for user {}: ${}",
             user_id, amount_usd
         );
 
-        // Rate lives in ONE place — `services::payment::stars` — so the bot-native
-        // path, the marketplace StarsProvider and the successful_payment amount
-        // gate can never drift apart.
-        let stars_amount =
-            crate::services::payment::stars::usd_cents_to_stars((amount_usd * 100.0).ceil() as i64);
+        // Conversion lives in ONE place — `services::payment::stars` — so the
+        // bot-native path, the marketplace StarsProvider and the
+        // successful_payment amount gate can never drift apart.
+        let stars_amount = crate::services::payment::stars::usd_cents_to_stars(
+            (amount_usd * 100.0).ceil() as i64,
+            stars_per_usd,
+        );
         let payload = payment_type.to_payload_string(user_id);
 
         let client = self.http_client.clone();

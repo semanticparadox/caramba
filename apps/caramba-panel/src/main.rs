@@ -622,6 +622,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         bot_manager.clone(),
         (*store_service).clone(),
         (*subscription_service).clone(),
+        settings.clone(),
     ));
 
     let notification_service = Arc::new(services::notification_service::NotificationService::new(
