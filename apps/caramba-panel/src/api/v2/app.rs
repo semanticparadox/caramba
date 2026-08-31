@@ -150,6 +150,15 @@ pub async fn get_subscription(
     let used_gb = sub.sub.used_traffic as f64 / 1024.0 / 1024.0 / 1024.0;
     let days_left = (sub.sub.expires_at - chrono::Utc::now()).num_days().max(0);
 
+    // Тот же потолок, что и в энфорсменте: лимит тарифа + бонусный трафик.
+    let bonus_traffic_mb = crate::services::bonus_traffic::balance_mb(&state.pool, auth.user_id)
+        .await
+        .unwrap_or(0);
+    let traffic_limit_bytes = crate::services::bonus_traffic::quota_limit_bytes(
+        sub.traffic_limit_gb.unwrap_or(0) as i64,
+        bonus_traffic_mb,
+    );
+
     Json(serde_json::json!({
         "id": sub.sub.id,
         "subscription_uuid": uuid,
@@ -158,6 +167,8 @@ pub async fn get_subscription(
         "used_traffic_bytes": sub.sub.used_traffic,
         "used_traffic_gb": format!("{:.2}", used_gb),
         "traffic_limit_gb": sub.traffic_limit_gb,
+        "traffic_limit_bytes": traffic_limit_bytes,
+        "bonus_traffic_mb": bonus_traffic_mb,
         "expires_at": sub.sub.expires_at.to_rfc3339(),
         "days_left": days_left,
         // URL'ы конфигов. Go-ядро (mihomo) использует clash_url.

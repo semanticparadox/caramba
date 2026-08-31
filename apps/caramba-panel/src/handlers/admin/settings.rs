@@ -335,6 +335,10 @@ pub struct SettingsTemplate {
     pub referral_bonus_percent: String,
     pub referral_referrer_signup_bonus_cents: String,
     pub referral_referred_signup_bonus_cents: String,
+    // Бонусный трафик (services/bonus_traffic.rs). 0 = выключено.
+    pub signup_bonus_traffic_mb: String,
+    pub referral_bonus_traffic_mb_referrer: String,
+    pub referral_bonus_traffic_mb_referee: String,
     pub admin_notification_tg_ids: String,
     pub terms_of_service: String,
     pub bot_buttons_mode: String,
@@ -515,6 +519,9 @@ pub struct SaveSettingsForm {
     pub referral_bonus_percent: Option<String>,
     pub referral_referrer_signup_bonus_cents: Option<String>,
     pub referral_referred_signup_bonus_cents: Option<String>,
+    pub signup_bonus_traffic_mb: Option<String>,
+    pub referral_bonus_traffic_mb_referrer: Option<String>,
+    pub referral_bonus_traffic_mb_referee: Option<String>,
     pub admin_notification_tg_ids: Option<String>,
     pub terms_of_service: Option<String>,
     pub bot_buttons_mode: Option<String>,
@@ -660,6 +667,19 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .settings
         .get_or_default("referral_referred_signup_bonus_cents", "0")
         .await;
+    // Бонусный трафик. Отдаём через тот же парсер, что и грант-путь, поэтому
+    // форма всегда показывает действующее значение (мусор => 0 = выключено).
+    let bonus_setting = async |key: &str| {
+        crate::services::bonus_traffic::parse_bonus_mb(state.settings.get(key).await.as_deref())
+            .to_string()
+    };
+    let signup_bonus_traffic_mb =
+        bonus_setting(crate::services::bonus_traffic::SETTING_SIGNUP_BONUS_MB).await;
+    let referral_bonus_traffic_mb_referrer =
+        bonus_setting(crate::services::bonus_traffic::SETTING_REFERRAL_BONUS_MB_REFERRER).await;
+    let referral_bonus_traffic_mb_referee =
+        bonus_setting(crate::services::bonus_traffic::SETTING_REFERRAL_BONUS_MB_REFEREE).await;
+
     let admin_notification_tg_ids = state
         .settings
         .get_or_default("admin_notification_tg_ids", "")
@@ -1153,6 +1173,9 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         bot_username,
         brand_name,
         referral_bonus_percent,
+        signup_bonus_traffic_mb,
+        referral_bonus_traffic_mb_referrer,
+        referral_bonus_traffic_mb_referee,
         referral_referrer_signup_bonus_cents,
         referral_referred_signup_bonus_cents,
         admin_notification_tg_ids,
@@ -1511,6 +1534,28 @@ pub async fn save_settings(
     }
     if let Some(v) = form.referral_referred_signup_bonus_cents {
         settings.insert("referral_referred_signup_bonus_cents".to_string(), v);
+    }
+    // Бонусный трафик: нормализуем на записи тем же парсером, что и на чтении,
+    // чтобы в БД никогда не оказалось значения, которое грант-путь молча
+    // прочитает как 0 (админ бы решил, что фича включена).
+    for (key, raw) in [
+        (
+            crate::services::bonus_traffic::SETTING_SIGNUP_BONUS_MB,
+            form.signup_bonus_traffic_mb,
+        ),
+        (
+            crate::services::bonus_traffic::SETTING_REFERRAL_BONUS_MB_REFERRER,
+            form.referral_bonus_traffic_mb_referrer,
+        ),
+        (
+            crate::services::bonus_traffic::SETTING_REFERRAL_BONUS_MB_REFEREE,
+            form.referral_bonus_traffic_mb_referee,
+        ),
+    ] {
+        if let Some(v) = raw {
+            let normalized = crate::services::bonus_traffic::parse_bonus_mb(Some(&v));
+            settings.insert(key.to_string(), normalized.to_string());
+        }
     }
     if let Some(v) = form.admin_notification_tg_ids {
         settings.insert("admin_notification_tg_ids".to_string(), v);

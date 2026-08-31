@@ -198,6 +198,62 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Bonus Traffic -->
+            <div class="card p-8">
+                <header class="flex items-center gap-4 mb-8">
+                    <div
+                        class="w-12 h-12 rounded-2xl bg-sky-500/10 flex items-center justify-center text-sky-400 border border-sky-500/20">
+                        <i data-lucide="gauge" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-slate-900 dark:text-white">Бонусный трафик</h3>
+                        <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Разовые
+                            начисления трафика сверх лимита тарифа · 0 = выключено</p>
+                    </div>
+                </header>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div>
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Бонус
+                            за регистрацию (МБ)</label>
+                        <input type="number" form="main-settings-form" name="signup_bonus_traffic_mb"
+                            value="{{ signup_bonus_traffic_mb }}" min="0" placeholder="0" class="input-field font-mono">
+                        <p class="text-[10px] text-slate-500 mt-2 ml-1">Начисляется один раз каждому новому
+                            пользователю при регистрации. 1024 = 1 ГБ.</p>
+                    </div>
+
+                    <div>
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Рефереру
+                            за приглашённого (МБ)</label>
+                        <input type="number" form="main-settings-form" name="referral_bonus_traffic_mb_referrer"
+                            value="{{ referral_bonus_traffic_mb_referrer }}" min="0" placeholder="0"
+                            class="input-field font-mono">
+                        <p class="text-[10px] text-slate-500 mt-2 ml-1">Начисляется пригласившему в момент ПЕРВОЙ
+                            оплаты приглашённого — одновременно с денежным вознаграждением, но независимо от него.</p>
+                    </div>
+
+                    <div>
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Приглашённому
+                            (МБ)</label>
+                        <input type="number" form="main-settings-form" name="referral_bonus_traffic_mb_referee"
+                            value="{{ referral_bonus_traffic_mb_referee }}" min="0" placeholder="0"
+                            class="input-field font-mono">
+                        <p class="text-[10px] text-slate-500 mt-2 ml-1">Начисляется тому, кто пришёл по реферальной
+                            ссылке, сразу при регистрации. Не заменяет скидку на первую покупку.</p>
+                    </div>
+                </div>
+
+                <p class="text-[10px] text-slate-500 mt-6 ml-1 leading-relaxed">
+                    Бонусный трафик прибавляется к лимиту тарифа: пользователя не отключат и не затроттлят,
+                    пока не израсходованы и лимит тарифа, и бонус. Третий источник бонуса — промокоды типа
+                    <b>Traffic</b> (страница «Промокоды»). Все начисления идемпотентны: повторная регистрация,
+                    дубль вебхука или повторное применение промокода не начислят трафик дважды.
+                </p>
+            </div>
         </div>
 
 

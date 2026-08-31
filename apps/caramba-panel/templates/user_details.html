@@ -400,6 +400,16 @@
                                                     }}</span></span>
                                         </div>
                                         {% endif %}
+                                        <!-- Трафик: потреблено / потолок (лимит тарифа + бонус) -->
+                                        <div class="flex items-center gap-1.5">
+                                            <i data-lucide="gauge" class="w-3 h-3"></i>
+                                            <span>Traffic: <span class="text-slate-300 font-bold">{{
+                                                    sub.traffic_used_label }}</span> / <span
+                                                    class="text-slate-300 font-bold">{{ sub.traffic_limit_label
+                                                    }}</span>{% if bonus_traffic_mb > 0 %} <span
+                                                    class="text-sky-400">(вкл. бонус {{ bonus_traffic_label
+                                                    }})</span>{% endif %}</span>
+                                        </div>
                                         <!-- Назначение ноды администратором -->
                                         <div class="flex items-center gap-1.5">
                                             <i data-lucide="pin" class="w-3 h-3 text-slate-400"></i>

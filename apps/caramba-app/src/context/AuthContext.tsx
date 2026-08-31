@@ -26,7 +26,17 @@ export interface UserSubscription {
     status: string;
     used_traffic_bytes: number;
     used_traffic_gb: string;
+    /** Лимит ТАРИФА в ГБ (0 = безлимит). Не включает бонусный трафик. */
     traffic_limit_gb: number;
+    /**
+     * Потолок, по которому панель реально отключает/троттлит: лимит тарифа
+     * ПЛЮС бонусный трафик пользователя. `null` = безлимит, `undefined` =
+     * старая панель, которая ещё не отдаёт это поле (тогда фолбэк на
+     * traffic_limit_gb). См. subscriptionLimitBytes().
+     */
+    traffic_limit_bytes?: number | null;
+    /** Бонусный трафик пользователя в МБ (разовые начисления сверх тарифа). */
+    bonus_traffic_mb?: number;
     expires_at: string;
     created_at: string;
     days_left: number;
