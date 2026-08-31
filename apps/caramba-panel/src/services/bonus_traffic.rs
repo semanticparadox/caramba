@@ -4,16 +4,22 @@
 //! # The one grant primitive
 //!
 //! Everything that hands out bonus traffic goes through [`grant_tx`] (or its
-//! own-transaction wrapper [`grant`]). There are three sources today:
+//! own-transaction wrapper [`grant`]). There are two sources today:
 //!
-//!   * **registration** — `signup_bonus_traffic_mb`, granted in the same
-//!     transaction as the enrollment onboarding grant;
 //!   * **promo codes of type `traffic`** — `promo_codes.traffic_gb`, granted
 //!     inside `PromoService::redeem_code`'s transaction;
 //!   * **referral** — `referral_bonus_traffic_mb_referrer` (granted when the
 //!     referee's first purchase is fulfilled, alongside the existing MONEY
 //!     reward) and `referral_bonus_traffic_mb_referee` (granted at enrollment
 //!     to the invited user).
+//!
+//! There was a third source once — a flat `signup_bonus_traffic_mb` handed to
+//! every new account. It is gone: it credited traffic to a user who had no
+//! subscription at all, which put an allowance bump on top of nothing. Traffic
+//! now comes from the plan, and registration puts the user on the free plan
+//! (`store_service::ensure_free_plan_subscription_tx`). What remains here is
+//! genuinely cross-plan — a promo code or a referral legitimately tops up
+//! whatever plan the user is on.
 //!
 //! Each grant is idempotent on `(user_id, source, reference)`: the unique index
 //! on `traffic_bonuses` turns a retry, a duplicate webhook or a double-submitted
@@ -45,9 +51,6 @@ use sqlx::{PgPool, Postgres, Transaction};
 // Settings keys
 // ---------------------------------------------------------------------------
 
-/// MB of bonus traffic granted to every newly enrolled user. `0` = off.
-pub const SETTING_SIGNUP_BONUS_MB: &str = "signup_bonus_traffic_mb";
-
 /// MB of bonus traffic granted to the REFERRER when an invited user's first
 /// purchase is fulfilled. `0` = off. Independent of the money reward
 /// (`referral_reward_percent`), which keeps working untouched.
@@ -61,21 +64,12 @@ pub const SETTING_REFERRAL_BONUS_MB_REFEREE: &str = "referral_bonus_traffic_mb_r
 // Grant sources
 // ---------------------------------------------------------------------------
 
-/// Registration bonus. Once per user, so the reference is a constant.
-pub const SOURCE_SIGNUP: &str = "signup";
 /// Promo code of type `traffic`. Reference = the promo code's id.
 pub const SOURCE_PROMO: &str = "promo";
 /// Referral reward for the inviter. Reference = the referred user's id.
 pub const SOURCE_REFERRAL_REFERRER: &str = "referral_referrer";
 /// Referral reward for the invited user. Reference = the inviter's id.
 pub const SOURCE_REFERRAL_REFEREE: &str = "referral_referee";
-
-/// The `reference` used by once-per-user sources.
-///
-/// `traffic_bonuses.reference` is NOT NULL precisely so the unique index bites:
-/// a NULL reference would make every row distinct in Postgres and silently
-/// disable idempotency.
-pub const REFERENCE_ONCE_PER_USER: &str = "once";
 
 /// Upper bound on a single grant, in MB (1 TB). Guards against an operator
 /// typing an extra three zeros into a setting or a promo code; a grant that
@@ -312,13 +306,13 @@ mod tests {
     fn a_repeated_grant_credits_exactly_once() {
         let mut ledger = FakeLedger::default();
 
-        assert!(ledger.grant(1, SOURCE_SIGNUP, REFERENCE_ONCE_PER_USER, 200));
+        assert!(ledger.grant(1, SOURCE_REFERRAL_REFEREE, "42", 200));
         assert_eq!(ledger.balance_mb, 200);
 
         // Retry / duplicate webhook / double-submitted form.
         for _ in 0..5 {
             assert!(
-                !ledger.grant(1, SOURCE_SIGNUP, REFERENCE_ONCE_PER_USER, 200),
+                !ledger.grant(1, SOURCE_REFERRAL_REFEREE, "42", 200),
                 "a repeat must not grant again"
             );
         }
@@ -363,12 +357,12 @@ mod tests {
     fn a_disabled_source_grants_nothing_even_with_a_fresh_key() {
         let mut ledger = FakeLedger::default();
         // settings = 0 => "feature off": no ledger row, no balance change.
-        assert!(!ledger.grant(1, SOURCE_SIGNUP, REFERENCE_ONCE_PER_USER, 0));
-        assert!(!ledger.grant(1, SOURCE_SIGNUP, REFERENCE_ONCE_PER_USER, -100));
+        assert!(!ledger.grant(1, SOURCE_REFERRAL_REFEREE, "42", 0));
+        assert!(!ledger.grant(1, SOURCE_REFERRAL_REFEREE, "42", -100));
         assert_eq!(ledger.balance_mb, 0);
         assert!(ledger.rows.is_empty());
         // Turning the setting on later still works — the key was never claimed.
-        assert!(ledger.grant(1, SOURCE_SIGNUP, REFERENCE_ONCE_PER_USER, 200));
+        assert!(ledger.grant(1, SOURCE_REFERRAL_REFEREE, "42", 200));
         assert_eq!(ledger.balance_mb, 200);
     }
 
@@ -471,8 +465,11 @@ mod tests {
 
     #[test]
     fn negative_used_traffic_headroom_is_never_over_quota() {
-        // `grant_onboarding_traffic_tx` seeds used_traffic negative; that must
-        // keep reading as "plenty left".
+        // Nothing seeds a negative `used_traffic` any more — the onboarding
+        // headroom that did is gone, and migration 20260831120000 normalised the
+        // rows it left behind. The property is kept as a guard: whatever puts a
+        // negative in front of this function, it must read as "plenty left" and
+        // never as over quota.
         assert!(!is_over_quota(-500 * 1024 * 1024, 1, 0));
         assert!(!is_over_quota(-500 * 1024 * 1024, 1, 200));
     }

@@ -336,7 +336,6 @@ pub struct SettingsTemplate {
     pub referral_referrer_signup_bonus_cents: String,
     pub referral_referred_signup_bonus_cents: String,
     // Бонусный трафик (services/bonus_traffic.rs). 0 = выключено.
-    pub signup_bonus_traffic_mb: String,
     pub referral_bonus_traffic_mb_referrer: String,
     pub referral_bonus_traffic_mb_referee: String,
     pub admin_notification_tg_ids: String,
@@ -521,7 +520,6 @@ pub struct SaveSettingsForm {
     pub referral_bonus_percent: Option<String>,
     pub referral_referrer_signup_bonus_cents: Option<String>,
     pub referral_referred_signup_bonus_cents: Option<String>,
-    pub signup_bonus_traffic_mb: Option<String>,
     pub referral_bonus_traffic_mb_referrer: Option<String>,
     pub referral_bonus_traffic_mb_referee: Option<String>,
     pub admin_notification_tg_ids: Option<String>,
@@ -676,8 +674,6 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         crate::services::bonus_traffic::parse_bonus_mb(state.settings.get(key).await.as_deref())
             .to_string()
     };
-    let signup_bonus_traffic_mb =
-        bonus_setting(crate::services::bonus_traffic::SETTING_SIGNUP_BONUS_MB).await;
     let referral_bonus_traffic_mb_referrer =
         bonus_setting(crate::services::bonus_traffic::SETTING_REFERRAL_BONUS_MB_REFERRER).await;
     let referral_bonus_traffic_mb_referee =
@@ -1183,7 +1179,6 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         bot_username,
         brand_name,
         referral_bonus_percent,
-        signup_bonus_traffic_mb,
         referral_bonus_traffic_mb_referrer,
         referral_bonus_traffic_mb_referee,
         referral_referrer_signup_bonus_cents,
@@ -1550,10 +1545,6 @@ pub async fn save_settings(
     // чтобы в БД никогда не оказалось значения, которое грант-путь молча
     // прочитает как 0 (админ бы решил, что фича включена).
     for (key, raw) in [
-        (
-            crate::services::bonus_traffic::SETTING_SIGNUP_BONUS_MB,
-            form.signup_bonus_traffic_mb,
-        ),
         (
             crate::services::bonus_traffic::SETTING_REFERRAL_BONUS_MB_REFERRER,
             form.referral_bonus_traffic_mb_referrer,

@@ -145,6 +145,25 @@
 </section>
 
 <script>
+    // Бесплатный план не имеет цены и срока: обработчик их не требует
+    // (`if !is_free && (duration_days.is_empty() || price.is_empty())`), но
+    // оставленные в разметке `required` заблокировали бы отправку формы на
+    // пустых полях. Поэтому вместе с блоком снимаем и сам атрибут.
+    function toggleFreePlan(checkbox, scope) {
+        const pricing = document.getElementById(scope + '-pricing');
+        if (!pricing) return;
+        const free = checkbox.checked;
+        pricing.hidden = free;
+        pricing.querySelectorAll('input').forEach((input) => {
+            if (free) {
+                input.dataset.wasRequired = input.required ? '1' : '';
+                input.required = false;
+            } else if (input.dataset.wasRequired === '1') {
+                input.required = true;
+            }
+        });
+    }
+
     function addDurationRow() {
         const container = document.getElementById('durations-container');
         const row = document.createElement('div');
@@ -215,7 +234,35 @@
                             class="block text-[10px] text-slate-500 uppercase tracking-widest font-semibold mb-2 ml-1">Traffic
                             Limit (GB)</label>
                         <input type="number" name="traffic_limit_gb" value="100" min="0" required class="input-field">
+                        <p class="text-[10px] text-slate-500 mt-2 font-medium italic opacity-80">Потолок: за ним
+                            подписка уходит в throttle</p>
                     </div>
+
+                    <div>
+                        <label
+                            class="block text-[10px] text-slate-500 uppercase tracking-widest font-semibold mb-2 ml-1">Daily
+                            Traffic (MB)</label>
+                        <input type="number" name="daily_traffic_mb" value="0" min="0" class="input-field">
+                        <p class="text-[10px] text-slate-500 mt-2 font-medium italic opacity-80">Сколько возвращается
+                            каждые сутки. 0 — пополнения нет, и исчерпавший лимит останется заблокированным навсегда
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Free plan -->
+                <div class="space-y-4">
+                    <label
+                        class="flex items-start gap-3.5 p-4 rounded-2xl border border-border-default bg-black/20 hover:border-brand/20 cursor-pointer transition-all">
+                        <input type="checkbox" name="is_free" value="true" onchange="toggleFreePlan(this, 'add')"
+                            class="mt-0.5 w-4.5 h-4.5 rounded border-border-default bg-slate-900 text-brand focus:ring-brand/20">
+                        <span class="min-w-0">
+                            <span class="block text-sm text-slate-200 font-semibold">Бесплатный план</span>
+                            <span class="block text-[11px] text-slate-500 mt-1 leading-relaxed">Выдаётся автоматически
+                                при регистрации и когда платная подписка заканчивается — чтобы человек не остался без
+                                доступа и мог дойти до оплаты. Такой план один на панель, и цена со сроком ему не
+                                нужны.</span>
+                        </span>
+                    </label>
                 </div>
 
                 <!-- Node Groups -->
@@ -238,7 +285,7 @@
                 </div>
 
                 <!-- Pricing -->
-                <div class="space-y-4">
+                <div class="space-y-4" id="add-pricing">
                     <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-semibold ml-1">Pricing
                         Options</label>
                     <div id="durations-container" class="space-y-3">

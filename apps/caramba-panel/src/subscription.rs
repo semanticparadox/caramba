@@ -285,11 +285,11 @@ pub async fn subscription_handler(
     };
 
     let traffic_limit_gb = plan_details.1;
-    // used_traffic может быть отрицательным у свежего аккаунта с одноразовым
-    // онбординг-headroom (засеяно в -bonus, см. grant_onboarding_traffic_tx).
-    // Серверное отсечение по квоте честно использует отрицательное значение как
-    // доп. квоту; здесь же это лишь заголовок Subscription-Userinfo для клиента —
-    // отрицательный download нестандартен, клампим к 0.
+    // Клампим used_traffic к нулю. Отрицательных значений в базе больше нет —
+    // одноразовый онбординг-headroom засевал used_traffic в минус и был убран
+    // вместе с ним (миграция 20260831120000), — но заголовок
+    // Subscription-Userinfo уходит клиенту, и отрицательный download в нём
+    // нестандартен в любом случае.
     let used_traffic_bytes = (sub.used_traffic as i64).max(0);
     let expire_timestamp = sub.expires_at.timestamp();
 

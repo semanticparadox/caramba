@@ -253,7 +253,6 @@ const BOT_SETTINGS_ALLOWLIST: &[&str] = &[
     "referral_bonus_percent",
     "referral_signup_bonus_cents",
     "referred_signup_bonus_cents",
-    "free_plan_enabled",
     "payment_testnet",
     "bot_status",
     "bot_username",
