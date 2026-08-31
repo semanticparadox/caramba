@@ -797,8 +797,13 @@ async fn get_user_stats(
             COALESCE(
                 SUM(
                     CASE
+                        -- Потолок = лимит тарифа + бонусный трафик пользователя,
+                        -- ровно как в квотных гейтах (services/bonus_traffic.rs).
+                        -- Иначе цифра в приложении расходилась бы с тем, по чему
+                        -- реально отключают.
                         WHEN COALESCE(p.traffic_limit_gb, 0) > 0
                             THEN CAST(p.traffic_limit_gb AS BIGINT) * 1073741824
+                                 + COALESCE(u.bonus_traffic_mb, 0) * 1048576
                         ELSE 0
                     END
                 ),
@@ -913,6 +918,14 @@ async fn get_user_subscriptions(
 
     let base_url = resolve_subscription_base_url(&state, &headers).await;
 
+    // Бонусный трафик пользователя — общий для всех подписок. Отдаём его в
+    // JSON вместе с готовым потолком в байтах, чтобы приложение показывало ту
+    // же цифру, по которой работает энфорсмент (traffic_limit_gb в ГБ не может
+    // выразить бонус в МБ без потери точности).
+    let bonus_traffic_mb = crate::services::bonus_traffic::balance_mb(&state.pool, user_id)
+        .await
+        .unwrap_or(0);
+
     let plan_ids: Vec<i64> = subs.iter().map(|s| s.sub.plan_id).collect();
     let mut device_limits_by_plan: HashMap<i64, i64> = HashMap::new();
     // Мета-данные плана: is_free и daily_traffic_mb для UX бесплатного плана
@@ -1013,6 +1026,13 @@ async fn get_user_subscriptions(
             "used_traffic_bytes": s.sub.used_traffic,
             "used_traffic_gb": format!("{:.2}", used_gb),
             "traffic_limit_gb": traffic_limit_gb,
+            // Потолок энфорсмента в байтах (лимит тарифа + бонус); null =
+            // безлимит. Клиент должен предпочитать его traffic_limit_gb.
+            "traffic_limit_bytes": crate::services::bonus_traffic::quota_limit_bytes(
+                traffic_limit_gb as i64,
+                bonus_traffic_mb,
+            ),
+            "bonus_traffic_mb": bonus_traffic_mb,
             "expires_at": s.sub.expires_at.to_rfc3339(),
             "created_at": s.sub.created_at.to_rfc3339(),
             "days_left": days_left,

@@ -317,6 +317,7 @@ pub async fn heartbeat(
 
                 let connection_service = state.connection_service.clone();
                 let orchestration_service = state.orchestration_service.clone();
+                let store_service = state.store_service.clone();
                 tokio::spawn(async move {
                     // Fan node notifications out by plan: subscriptions.node_id
                     // can be NULL (or cover only one of several nodes serving
@@ -333,6 +334,25 @@ pub async fn heartbeat(
                                 "Failed to terminate sessions for quota-expired subscription {}: {}",
                                 row.subscription_id, e
                             );
+                        }
+
+                        // Fallback to the free plan so the user can still
+                        // connect and reach the payment screen. Its plan id
+                        // joins the regeneration set below, otherwise the
+                        // fallback subscription would exist in the DB but in
+                        // no node config.
+                        match store_service
+                            .ensure_free_plan_subscription(row.user_id)
+                            .await
+                        {
+                            Ok(Some(free_plan_id)) => {
+                                plans_to_regen.insert(free_plan_id);
+                            }
+                            Ok(None) => {}
+                            Err(e) => error!(
+                                "Failed to restore the free plan for user {} after quota expiry: {}",
+                                row.user_id, e
+                            ),
                         }
                     }
 

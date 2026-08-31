@@ -49,6 +49,9 @@ pub struct MarketplaceService {
     /// Снимок `bot_username` на момент старта — фолбэк, если у BotManager ещё
     /// нет живого username (бот не запущен). Может быть пустым.
     bot_username: String,
+    /// Живые настройки. Нужны в `create_session`, чтобы зафиксировать ожидаемую
+    /// сумму в Stars по ТЕКУЩЕМУ курсу `stars_per_usd`.
+    settings: Arc<crate::settings::SettingsService>,
 }
 
 /// Returns the settings key controlling whether a payment provider is offered in
@@ -130,6 +133,10 @@ impl MarketplaceService {
         bot_manager: Arc<crate::bot_manager::BotManager>,
         store_service: StoreService,
         sub_service: SubscriptionService,
+        // Live settings — currently the Telegram Stars rate (`stars_per_usd`),
+        // which must be read per invoice rather than snapshotted at startup so
+        // retuning it in the panel takes effect without a restart.
+        settings: Arc<crate::settings::SettingsService>,
     ) -> Self {
         let session_repo = PaymentSessionRepository::new(pool.clone());
         let http_client = reqwest::Client::builder()
@@ -149,6 +156,7 @@ impl MarketplaceService {
                 "stars".to_string(),
                 Box::new(StarsProvider {
                     bot_token: bot_token.trim().to_string(),
+                    settings: settings.clone(),
                 }),
             );
         } else if telegram_stars_enabled {
@@ -343,6 +351,7 @@ impl MarketplaceService {
             sub_service,
             bot_manager,
             bot_username,
+            settings,
         }
     }
 
@@ -398,6 +407,27 @@ impl MarketplaceService {
             discounted.max(1)
         } else {
             amount
+        };
+
+        // Telegram Stars: freeze the expected XTR amount into the session at
+        // CREATION time, computed from the final (post-discount) price at the
+        // rate in force right now. The pre-checkout and successful_payment gates
+        // both verify against this frozen number, so an operator retuning
+        // `stars_per_usd` while an invoice is open can no longer turn a
+        // legitimately paid invoice into a rejected "underpayment".
+        let metadata = if provider_name == "stars" {
+            let rate = crate::services::payment::stars::stars_per_usd(&self.settings).await;
+            let expected = crate::services::payment::stars::usd_cents_to_stars(amount, rate);
+            if expected > 0 {
+                crate::services::payment::stars::stamp_session_star_amount(metadata, expected)
+            } else {
+                // Unpriceable in Stars (non-USD / zero amount). Leave the
+                // metadata alone; `create_invoice` below fails loudly with the
+                // exact reason instead of us guessing an amount here.
+                metadata
+            }
+        } else {
+            metadata
         };
 
         let session = PaymentSession {

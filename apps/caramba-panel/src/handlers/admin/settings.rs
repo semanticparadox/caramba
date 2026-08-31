@@ -322,6 +322,7 @@ pub struct SettingsTemplate {
     pub masked_stripe_webhook_secret: String,
     pub payment_ipn_url: String,
     pub currency_rate: String,
+    pub stars_per_usd: String,
     pub support_url: String,
     pub panel_url: String,
     pub panel_url_display: String,
@@ -334,6 +335,10 @@ pub struct SettingsTemplate {
     pub referral_bonus_percent: String,
     pub referral_referrer_signup_bonus_cents: String,
     pub referral_referred_signup_bonus_cents: String,
+    // Бонусный трафик (services/bonus_traffic.rs). 0 = выключено.
+    pub signup_bonus_traffic_mb: String,
+    pub referral_bonus_traffic_mb_referrer: String,
+    pub referral_bonus_traffic_mb_referee: String,
     pub admin_notification_tg_ids: String,
     pub terms_of_service: String,
     pub bot_buttons_mode: String,
@@ -506,6 +511,7 @@ pub struct SaveSettingsForm {
     pub telegram_stars_enabled: Option<String>,
     pub payment_ipn_url: Option<String>,
     pub currency_rate: Option<String>,
+    pub stars_per_usd: Option<String>,
     pub support_url: Option<String>,
     pub panel_url: Option<String>,
     pub bot_username: Option<String>,
@@ -513,6 +519,9 @@ pub struct SaveSettingsForm {
     pub referral_bonus_percent: Option<String>,
     pub referral_referrer_signup_bonus_cents: Option<String>,
     pub referral_referred_signup_bonus_cents: Option<String>,
+    pub signup_bonus_traffic_mb: Option<String>,
+    pub referral_bonus_traffic_mb_referrer: Option<String>,
+    pub referral_bonus_traffic_mb_referee: Option<String>,
     pub admin_notification_tg_ids: Option<String>,
     pub terms_of_service: Option<String>,
     pub bot_buttons_mode: Option<String>,
@@ -620,6 +629,12 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
 
     let payment_ipn_url = state.settings.get_or_default("payment_ipn_url", "").await;
     let currency_rate = state.settings.get_or_default("currency_rate", "1.0").await;
+    // Rendered through the same parser the payment path uses, so the form always
+    // shows the rate that is actually in force (a stored out-of-range or garbage
+    // value displays as the fallback rather than lying about what buyers pay).
+    let stars_per_usd = crate::services::payment::stars::stars_per_usd(&state.settings)
+        .await
+        .to_string();
     let support_url = state.settings.get_or_default("support_url", "").await;
     let panel_url_setting = state.settings.get_or_default("panel_url", "").await;
     let panel_url_env = std::env::var("PANEL_URL").unwrap_or_default();
@@ -652,6 +667,19 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .settings
         .get_or_default("referral_referred_signup_bonus_cents", "0")
         .await;
+    // Бонусный трафик. Отдаём через тот же парсер, что и грант-путь, поэтому
+    // форма всегда показывает действующее значение (мусор => 0 = выключено).
+    let bonus_setting = async |key: &str| {
+        crate::services::bonus_traffic::parse_bonus_mb(state.settings.get(key).await.as_deref())
+            .to_string()
+    };
+    let signup_bonus_traffic_mb =
+        bonus_setting(crate::services::bonus_traffic::SETTING_SIGNUP_BONUS_MB).await;
+    let referral_bonus_traffic_mb_referrer =
+        bonus_setting(crate::services::bonus_traffic::SETTING_REFERRAL_BONUS_MB_REFERRER).await;
+    let referral_bonus_traffic_mb_referee =
+        bonus_setting(crate::services::bonus_traffic::SETTING_REFERRAL_BONUS_MB_REFEREE).await;
+
     let admin_notification_tg_ids = state
         .settings
         .get_or_default("admin_notification_tg_ids", "")
@@ -1134,6 +1162,7 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         masked_stripe_webhook_secret,
         payment_ipn_url,
         currency_rate,
+        stars_per_usd,
         support_url,
         panel_url,
         panel_url_display,
@@ -1144,6 +1173,9 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         bot_username,
         brand_name,
         referral_bonus_percent,
+        signup_bonus_traffic_mb,
+        referral_bonus_traffic_mb_referrer,
+        referral_bonus_traffic_mb_referee,
         referral_referrer_signup_bonus_cents,
         referral_referred_signup_bonus_cents,
         admin_notification_tg_ids,
@@ -1467,6 +1499,17 @@ pub async fn save_settings(
     if let Some(v) = form.currency_rate {
         settings.insert("currency_rate".to_string(), v);
     }
+    // Telegram Stars rate. Bounds are enforced here (and again on read) so a
+    // typo can never price a plan at 0 XTR or at an absurd multiple: anything
+    // outside [MIN_STARS_PER_USD, MAX_STARS_PER_USD] is normalized back to the
+    // built-in fallback instead of being stored.
+    if let Some(v) = form.stars_per_usd {
+        let normalized = crate::services::payment::stars::parse_stars_per_usd(Some(&v));
+        settings.insert(
+            crate::services::payment::stars::STARS_PER_USD_SETTING.to_string(),
+            normalized.to_string(),
+        );
+    }
     if let Some(v) = form.support_url {
         settings.insert("support_url".to_string(), v);
     }
@@ -1491,6 +1534,28 @@ pub async fn save_settings(
     }
     if let Some(v) = form.referral_referred_signup_bonus_cents {
         settings.insert("referral_referred_signup_bonus_cents".to_string(), v);
+    }
+    // Бонусный трафик: нормализуем на записи тем же парсером, что и на чтении,
+    // чтобы в БД никогда не оказалось значения, которое грант-путь молча
+    // прочитает как 0 (админ бы решил, что фича включена).
+    for (key, raw) in [
+        (
+            crate::services::bonus_traffic::SETTING_SIGNUP_BONUS_MB,
+            form.signup_bonus_traffic_mb,
+        ),
+        (
+            crate::services::bonus_traffic::SETTING_REFERRAL_BONUS_MB_REFERRER,
+            form.referral_bonus_traffic_mb_referrer,
+        ),
+        (
+            crate::services::bonus_traffic::SETTING_REFERRAL_BONUS_MB_REFEREE,
+            form.referral_bonus_traffic_mb_referee,
+        ),
+    ] {
+        if let Some(v) = raw {
+            let normalized = crate::services::bonus_traffic::parse_bonus_mb(Some(&v));
+            settings.insert(key.to_string(), normalized.to_string());
+        }
     }
     if let Some(v) = form.admin_notification_tg_ids {
         settings.insert("admin_notification_tg_ids".to_string(), v);

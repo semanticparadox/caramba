@@ -74,22 +74,29 @@ async fn fulfill_stars_session_payment(
 
     // Amount gate — mirrors MarketplaceService's CompletedWithAmount check.
     // Exact-or-over is accepted; only genuine underpayment is refused.
-    let expected_stars = match crate::services::payment::stars::session_star_amount(&session) {
-        Ok(stars) => stars,
-        Err(e) => {
-            error!(
-                "Cannot price session {} in Stars (charge {}): {}",
-                session_id, charge_id, e
-            );
-            let _ = bot
-                .send_message(
-                    chat_id,
-                    "❌ Error processing payment. Please contact support.",
-                )
-                .await;
-            return;
-        }
-    };
+    //
+    // The expectation comes from the amount FROZEN into the session when the
+    // invoice was created, so retuning `stars_per_usd` mid-flight cannot make an
+    // honestly paid invoice look underpaid. The live rate is only the fallback
+    // for sessions created before that field existed.
+    let stars_rate = crate::services::payment::stars::stars_per_usd(&state.settings).await;
+    let expected_stars =
+        match crate::services::payment::stars::expected_session_star_amount(&session, stars_rate) {
+            Ok(stars) => stars,
+            Err(e) => {
+                error!(
+                    "Cannot price session {} in Stars (charge {}): {}",
+                    session_id, charge_id, e
+                );
+                let _ = bot
+                    .send_message(
+                        chat_id,
+                        "❌ Error processing payment. Please contact support.",
+                    )
+                    .await;
+                return;
+            }
+        };
 
     if paid_stars < expected_stars {
         error!(
@@ -203,10 +210,15 @@ pub async fn message_handler(
 
         let amount_xtr = payment.total_amount as f64;
         // Same rate as the invoice side, via the shared helper (exact integer
-        // cents rather than a float division by a hardcoded 50.0).
-        let amount_usd =
-            crate::services::payment::stars::stars_to_usd_cents(payment.total_amount as i64) as f64
-                / 100.0;
+        // cents rather than a float division by a hardcoded 50.0). Legacy
+        // bot-native payloads carry no frozen amount, so the live setting is
+        // the only rate available here.
+        let stars_rate = crate::services::payment::stars::stars_per_usd(&state.settings).await;
+        let amount_usd = crate::services::payment::stars::stars_to_usd_cents(
+            payment.total_amount as i64,
+            stars_rate,
+        ) as f64
+            / 100.0;
         info!(
             "Processing Stars Payment: {} XTR (${:.2})",
             amount_xtr, amount_usd

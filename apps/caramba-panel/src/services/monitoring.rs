@@ -381,6 +381,8 @@ impl MonitoringService {
         );
 
         let mut affected_node_ids = std::collections::HashSet::new();
+        let mut free_plans_to_regen: std::collections::HashSet<i64> =
+            std::collections::HashSet::new();
 
         for (sub_id, user_id, node_id) in &expired_subs {
             sqlx::query("UPDATE subscriptions SET status = 'expired' WHERE id = $1")
@@ -432,6 +434,29 @@ impl MonitoringService {
                 "Subscription {} for user {} marked as expired",
                 sub_id, user_id
             );
+
+            // Fallback: leave the user on the free plan so they can still
+            // connect and reach the payment screen. Without this an expiring
+            // paid user drops out of every node config and cannot renew from
+            // inside the app. Best-effort — a failure here must not abort the
+            // expiry sweep for the remaining subscriptions.
+            match self
+                .state
+                .store_service
+                .ensure_free_plan_subscription(*user_id)
+                .await
+            {
+                Ok(Some(plan_id)) => {
+                    free_plans_to_regen.insert(plan_id);
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    error!(
+                        "Failed to restore the free plan for user {} after expiry: {}",
+                        user_id, e
+                    );
+                }
+            }
         }
 
         // Notify affected nodes to regenerate configs (remove expired users)
@@ -441,6 +466,24 @@ impl MonitoringService {
                 .orchestration_service
                 .notify_node_update(node_id)
                 .await;
+        }
+
+        // …and regenerate for the free plan too, otherwise the fallback
+        // subscription exists in the DB but not in any node's config, which
+        // looks to the user exactly like having no access at all.
+        if !free_plans_to_regen.is_empty() {
+            let plan_ids: Vec<i64> = free_plans_to_regen.into_iter().collect();
+            if let Err(e) = self
+                .state
+                .orchestration_service
+                .notify_nodes_for_plans(&plan_ids)
+                .await
+            {
+                error!(
+                    "Failed to publish configs for the free-plan fallback (plans {:?}): {}",
+                    plan_ids, e
+                );
+            }
         }
 
         Ok(())
@@ -1072,22 +1115,27 @@ async fn daily_traffic_topup(pool: &PgPool) -> anyhow::Result<Vec<i64>> {
     // Снимаем троттлинг с подписок, чей used_traffic после пополнения снова
     // ниже лимита плана (лимит 0 = безлимит). Возвращаем их plan_id, чтобы
     // ноды перегенерировали конфиги и вернули пользователей в строй.
-    let reactivated_plan_ids: Vec<i64> = sqlx::query_scalar(
+    // Потолок здесь обязан совпадать с тем, по которому подписку затроттлили
+    // (subscription_service::throttle_free_quota_subscriptions), иначе юзер с
+    // бонусным трафиком либо застрянет в 'throttled', либо будет флапать.
+    let reactivate_sql = format!(
         r#"
         UPDATE subscriptions s
         SET status = 'active'
-        FROM plans p
+        FROM plans p, users u
         WHERE s.plan_id = p.id
+          AND u.id = s.user_id
           AND s.status = 'throttled'
           AND (
               COALESCE(p.traffic_limit_gb, 0) = 0
-              OR COALESCE(s.used_traffic, 0) < (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)
+              OR COALESCE(s.used_traffic, 0) < {limit}
           )
         RETURNING s.plan_id
         "#,
-    )
-    .fetch_all(pool)
-    .await?;
+        limit = crate::services::bonus_traffic::QUOTA_LIMIT_BYTES_SQL,
+    );
+    let reactivated_plan_ids: Vec<i64> =
+        sqlx::query_scalar(&reactivate_sql).fetch_all(pool).await?;
 
     if !reactivated_plan_ids.is_empty() {
         info!(

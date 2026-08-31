@@ -591,6 +591,53 @@ impl StoreService {
                 .await?;
         }
 
+        // 5. Бонус за регистрацию (signup_bonus_traffic_mb). Отдельный от
+        //    онбординг-headroom механизм: это полноценный бонусный трафик на
+        //    пользователе, который учитывают ВСЕ квотные гейты (bonus_traffic.rs).
+        //    0 = выключено. Один грант на пользователя — ключ идемпотентности
+        //    (user_id, 'signup', 'once'), поэтому повтор enroll не удвоит его.
+        let signup_bonus_mb = crate::services::bonus_traffic::setting_mb_tx(
+            tx,
+            crate::services::bonus_traffic::SETTING_SIGNUP_BONUS_MB,
+        )
+        .await?;
+        if signup_bonus_mb > 0 {
+            crate::services::bonus_traffic::grant_tx(
+                tx,
+                user_id,
+                crate::services::bonus_traffic::SOURCE_SIGNUP,
+                crate::services::bonus_traffic::REFERENCE_ONCE_PER_USER,
+                signup_bonus_mb,
+                Some("registration bonus"),
+            )
+            .await?;
+        }
+
+        // 6. Реферальный бонус трафиком для ПРИГЛАШЁННОГО (referee). Независим от
+        //    денежной модели (скидка на первую покупку) — 0 = выключено.
+        //    Сторона пригласившего начисляется позже, в момент первой оплаты
+        //    (referral_service::apply_first_purchase_reward).
+        if let Some(inviter_id) = enroll.inviter_user_id
+            && inviter_id != user_id
+        {
+            let referee_bonus_mb = crate::services::bonus_traffic::setting_mb_tx(
+                tx,
+                crate::services::bonus_traffic::SETTING_REFERRAL_BONUS_MB_REFEREE,
+            )
+            .await?;
+            if referee_bonus_mb > 0 {
+                crate::services::bonus_traffic::grant_tx(
+                    tx,
+                    user_id,
+                    crate::services::bonus_traffic::SOURCE_REFERRAL_REFEREE,
+                    &inviter_id.to_string(),
+                    referee_bonus_mb,
+                    Some("referral: signed up via invite"),
+                )
+                .await?;
+            }
+        }
+
         Ok(Some(enroll.inviter_user_id))
     }
 
@@ -751,6 +798,114 @@ impl StoreService {
         }
 
         Ok(())
+    }
+
+    /// Гарантирует, что у пользователя есть подписка на бесплатном плане.
+    ///
+    /// Вызывается, когда ПЛАТНАЯ подписка только что истекла (по сроку или по
+    /// трафику). До этого такой пользователь оставался вообще без подписки: его
+    /// не было ни в одном конфиге ноды, он не мог подключиться — и, значит, не
+    /// мог дойти до экрана оплаты. Бесплатный план и существует в первую
+    /// очередь ради этого сценария.
+    ///
+    /// Идемпотентно и безопасно к гонкам по смыслу операций:
+    ///   * есть активная ПЛАТНАЯ подписка (например, вторая) — не трогаем;
+    ///   * бесплатный план не настроен — мягкий пропуск с warn;
+    ///   * подписка на бесплатном плане уже активна/pending/throttled — no-op;
+    ///   * строка есть, но 'expired' — реактивируем её, а не плодим дубль
+    ///     (иначе у юзера накапливались бы бесплатные подписки со свежей квотой);
+    ///   * строки нет — создаём с expires_at в 9999 году, как везде.
+    ///
+    /// used_traffic намеренно НЕ обнуляется при реактивации: это был бы подарок
+    /// в обход суточной квоты. Если трафик исчерпан, суточное пополнение
+    /// (monitoring::daily_traffic_topup) вернёт подписку в строй само.
+    ///
+    /// Возвращает `Some(plan_id)`, если после вызова подписка есть и её нужно
+    /// раскатить по нодам (создали или реактивировали), иначе `None`.
+    pub async fn ensure_free_plan_subscription(&self, user_id: i64) -> Result<Option<i64>> {
+        let has_paid: bool = sqlx::query_scalar(
+            "SELECT EXISTS( \
+               SELECT 1 FROM subscriptions s \
+               JOIN plans p ON p.id = s.plan_id \
+               WHERE s.user_id = $1 AND s.status = 'active' \
+                 AND COALESCE(p.is_free, FALSE) = FALSE)",
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+        if has_paid {
+            return Ok(None);
+        }
+
+        let free_plan_id: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM plans WHERE is_free = TRUE AND is_active = TRUE LIMIT 1",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(plan_id) = free_plan_id else {
+            tracing::warn!(
+                user_id,
+                "expiry fallback: no active free plan configured, user is left without access"
+            );
+            return Ok(None);
+        };
+
+        // Уже живая бесплатная подписка — ничего делать не нужно.
+        let live: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM subscriptions \
+             WHERE user_id = $1 AND plan_id = $2 AND status IN ('active', 'pending', 'throttled') \
+             LIMIT 1",
+        )
+        .bind(user_id)
+        .bind(plan_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        if live.is_some() {
+            return Ok(None);
+        }
+
+        // Была, но истекла — поднимаем ту же строку.
+        let reactivated: Option<i64> = sqlx::query_scalar(
+            "UPDATE subscriptions \
+             SET status = 'active', expires_at = '9999-12-31 23:59:59+00' \
+             WHERE user_id = $1 AND plan_id = $2 AND status = 'expired' \
+             RETURNING id",
+        )
+        .bind(user_id)
+        .bind(plan_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        if let Some(sub_id) = reactivated {
+            tracing::info!(
+                user_id,
+                plan_id,
+                subscription_id = sub_id,
+                "expiry fallback: restored the free-plan subscription"
+            );
+            return Ok(Some(plan_id));
+        }
+
+        // Совсем нет — создаём. Конкурентная гонка двух свипов даст в худшем
+        // случае вторую строку на том же плане; последующие вызовы её увидят
+        // как 'active' и остановятся, а сама вторая строка безвредна (квота
+        // считается по плану + бонусу пользователя, а не по числу строк).
+        let sub_id: i64 = sqlx::query_scalar(
+            "INSERT INTO subscriptions \
+             (user_id, plan_id, status, expires_at, subscription_uuid, used_traffic, activated_at) \
+             VALUES ($1, $2, 'active', '9999-12-31 23:59:59+00', gen_random_uuid()::TEXT, 0, CURRENT_TIMESTAMP) \
+             RETURNING id",
+        )
+        .bind(user_id)
+        .bind(plan_id)
+        .fetch_one(&self.pool)
+        .await?;
+        tracing::info!(
+            user_id,
+            plan_id,
+            subscription_id = sub_id,
+            "expiry fallback: granted the free-plan subscription"
+        );
+        Ok(Some(plan_id))
     }
 
     pub async fn get_family_members(&self, parent_id: i64) -> Result<Vec<User>> {

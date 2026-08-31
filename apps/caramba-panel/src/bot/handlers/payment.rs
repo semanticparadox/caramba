@@ -3,7 +3,8 @@ use teloxide::types::{PreCheckoutQuery, PreCheckoutQueryId};
 
 use crate::AppState;
 use crate::services::payment::stars::{
-    MAX_STARS_PER_INVOICE, parse_session_invoice_payload, session_star_amount,
+    MAX_STARS_PER_INVOICE, expected_session_star_amount, parse_session_invoice_payload,
+    stars_per_usd,
 };
 
 async fn reject(
@@ -193,7 +194,13 @@ async fn pre_checkout_session(
         }
     }
 
-    match session_star_amount(&session) {
+    // Verify against the amount FROZEN into the session when the invoice was
+    // created — not against a fresh computation. Otherwise an operator retuning
+    // `stars_per_usd` while this invoice was open would make Telegram's charge
+    // (priced at the OLD rate) fail this gate. The live rate is only the
+    // fallback for sessions created before the frozen field existed.
+    let stars_rate = stars_per_usd(&state.settings).await;
+    match expected_session_star_amount(&session, stars_rate) {
         Ok(expected) if i64::from(q.total_amount) >= expected => {}
         _ => {
             return reject(

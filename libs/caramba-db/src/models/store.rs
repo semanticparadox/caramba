@@ -318,4 +318,10 @@ pub struct SubscriptionWithPlan {
     pub price: i64,
     pub active_devices: i64,
     pub device_limit: i64,
+    /// Потреблённый трафик подписки в байтах (может быть отрицательным —
+    /// онбординг-headroom, см. store_service::grant_onboarding_traffic_tx).
+    pub used_traffic: i64,
+    /// Лимит трафика ТАРИФА в ГБ; 0 = безлимит. Бонусный трафик пользователя
+    /// живёт отдельно (users.bonus_traffic_mb) и прибавляется сверху.
+    pub traffic_limit_gb: i64,
 }

@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import Icon from '../components/Icon'
+import LanguageSwitch from '../components/LanguageSwitch'
 import { useNavigate } from 'react-router-dom'
 import { useAppLock } from '../context/AppLockContext'
 import { useAuth } from '../context/AuthContext'
@@ -214,6 +215,8 @@ export default function Support() {
             <header className="page-header">
                 <h2>{t('support.title')}</h2>
             </header>
+
+            <LanguageSwitch />
 
             {notice && (
                 <div className={`support-notice ${notice.type}`}>

@@ -661,7 +661,9 @@ impl SubscriptionService {
                 COALESCE(s.status, 'pending') as status,
                 0::bigint as price, 
                 0::bigint as active_devices,
-                COALESCE(p.device_limit, 0)::bigint as device_limit
+                COALESCE(p.device_limit, 0)::bigint as device_limit,
+                COALESCE(s.used_traffic, 0)::bigint as used_traffic,
+                COALESCE(p.traffic_limit_gb, 0)::bigint as traffic_limit_gb
             FROM subscriptions s
             JOIN plans p ON s.plan_id = p.id
             WHERE s.user_id = $1
@@ -1241,16 +1243,20 @@ impl SubscriptionService {
     }
 
     pub async fn ensure_subscription_within_quota(&self, subscription_id: i64) -> Result<bool> {
-        let usage_row: Option<(i64, i32, String, bool, i32)> = sqlx::query_as(
+        // `u.bonus_traffic_mb` joins in the user's one-off bonus allowance: the
+        // ceiling is plan + bonus, never plan alone (see services/bonus_traffic.rs).
+        let usage_row: Option<(i64, i32, String, bool, i32, i64)> = sqlx::query_as(
             r#"
             SELECT
                 COALESCE(s.used_traffic, 0)::BIGINT AS used_traffic,
                 COALESCE(p.traffic_limit_gb, 0)::INT AS traffic_limit_gb,
                 COALESCE(s.status, 'pending') AS status,
                 COALESCE(p.is_free, FALSE) AS is_free,
-                COALESCE(p.daily_traffic_mb, 0)::INT AS daily_traffic_mb
+                COALESCE(p.daily_traffic_mb, 0)::INT AS daily_traffic_mb,
+                COALESCE(u.bonus_traffic_mb, 0)::BIGINT AS bonus_traffic_mb
             FROM subscriptions s
             JOIN plans p ON p.id = s.plan_id
+            JOIN users u ON u.id = s.user_id
             WHERE s.id = $1
             "#,
         )
@@ -1259,7 +1265,14 @@ impl SubscriptionService {
         .await
         .context("Failed to fetch subscription quota")?;
 
-        let Some((used_traffic, traffic_limit_gb, status, is_free, daily_traffic_mb)) = usage_row
+        let Some((
+            used_traffic,
+            traffic_limit_gb,
+            status,
+            is_free,
+            daily_traffic_mb,
+            bonus_traffic_mb,
+        )) = usage_row
         else {
             return Ok(false);
         };
@@ -1268,12 +1281,11 @@ impl SubscriptionService {
             return Ok(false);
         }
 
-        if traffic_limit_gb <= 0 {
-            return Ok(true);
-        }
-
-        let limit_bytes = (traffic_limit_gb as i64) * 1024 * 1024 * 1024;
-        if used_traffic < limit_bytes {
+        if !crate::services::bonus_traffic::is_over_quota(
+            used_traffic,
+            traffic_limit_gb as i64,
+            bonus_traffic_mb,
+        ) {
             return Ok(true);
         }
 
@@ -1299,22 +1311,28 @@ impl SubscriptionService {
         // Бесплатные планы (is_free = TRUE) не переводятся в 'expired' при исчерпании трафика.
         // Для них просто убиваем соединения — daily_traffic_topup восстановит трафик на следующий день.
         // Остальные планы переводятся в 'expired' как обычно.
-        let rows = sqlx::query_as::<_, ExpiredQuotaSubscription>(
+        // The ceiling is plan allowance + the user's bonus traffic — see
+        // `bonus_traffic::QUOTA_LIMIT_BYTES_SQL`, which every gate shares so
+        // none of them can forget the bonus term.
+        let sql = format!(
             r#"
             UPDATE subscriptions s
             SET status = 'expired'
-            FROM plans p
+            FROM plans p, users u
             WHERE s.plan_id = p.id
+              AND u.id = s.user_id
               AND s.status = 'active'
               AND COALESCE(p.is_free, FALSE) = FALSE
               AND COALESCE(p.traffic_limit_gb, 0) > 0
-              AND COALESCE(s.used_traffic, 0) >= (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)
+              AND COALESCE(s.used_traffic, 0) >= {limit}
             RETURNING s.id AS subscription_id, s.user_id, s.node_id, s.plan_id
             "#,
-        )
-        .fetch_all(&self.pool)
-        .await
-        .context("Failed to expire subscriptions over traffic quota")?;
+            limit = crate::services::bonus_traffic::QUOTA_LIMIT_BYTES_SQL,
+        );
+        let rows = sqlx::query_as::<_, ExpiredQuotaSubscription>(&sql)
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to expire subscriptions over traffic quota")?;
 
         Ok(rows)
     }
@@ -1330,23 +1348,29 @@ impl SubscriptionService {
     /// него (daily_traffic_mb = 0/NULL) застрял бы в 'throttled' навсегда.
     /// Такие планы остаются 'active' (как до введения троттлинга).
     pub async fn throttle_free_quota_subscriptions(&self) -> Result<Vec<ExpiredQuotaSubscription>> {
-        let rows = sqlx::query_as::<_, ExpiredQuotaSubscription>(
+        // Bonus traffic counts here too: a free-plan user who was given extra
+        // MB must keep connecting until the plan's daily quota AND the bonus
+        // are gone, otherwise the grant would be invisible to them.
+        let sql = format!(
             r#"
             UPDATE subscriptions s
             SET status = 'throttled'
-            FROM plans p
+            FROM plans p, users u
             WHERE s.plan_id = p.id
+              AND u.id = s.user_id
               AND s.status = 'active'
               AND COALESCE(p.is_free, FALSE) = TRUE
               AND COALESCE(p.daily_traffic_mb, 0) > 0
               AND COALESCE(p.traffic_limit_gb, 0) > 0
-              AND COALESCE(s.used_traffic, 0) >= (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)
+              AND COALESCE(s.used_traffic, 0) >= {limit}
             RETURNING s.id AS subscription_id, s.user_id, s.node_id, s.plan_id
             "#,
-        )
-        .fetch_all(&self.pool)
-        .await
-        .context("Failed to throttle free subscriptions over quota")?;
+            limit = crate::services::bonus_traffic::QUOTA_LIMIT_BYTES_SQL,
+        );
+        let rows = sqlx::query_as::<_, ExpiredQuotaSubscription>(&sql)
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to throttle free subscriptions over quota")?;
 
         Ok(rows)
     }
@@ -1359,25 +1383,30 @@ impl SubscriptionService {
             return Ok(Vec::new());
         }
 
-        // Бесплатные планы не истекают по трафику — пропускаем через is_free = FALSE
-        let rows = sqlx::query_as::<_, ExpiredQuotaSubscription>(
+        // Бесплатные планы не истекают по трафику — пропускаем через is_free = FALSE.
+        // Потолок = лимит плана + бонусный трафик пользователя (bonus_traffic.rs);
+        // это тот же путь, которым heartbeat из api/v2/node.rs проверяет квоту.
+        let sql = format!(
             r#"
             UPDATE subscriptions s
             SET status = 'expired'
-            FROM plans p
+            FROM plans p, users u
             WHERE s.plan_id = p.id
+              AND u.id = s.user_id
               AND s.id = ANY($1)
               AND s.status = 'active'
               AND COALESCE(p.is_free, FALSE) = FALSE
               AND COALESCE(p.traffic_limit_gb, 0) > 0
-              AND COALESCE(s.used_traffic, 0) >= (CAST(p.traffic_limit_gb AS BIGINT) * 1024 * 1024 * 1024)
+              AND COALESCE(s.used_traffic, 0) >= {limit}
             RETURNING s.id AS subscription_id, s.user_id, s.node_id, s.plan_id
             "#,
-        )
-        .bind(subscription_ids)
-        .fetch_all(&self.pool)
-        .await
-        .context("Failed to expire candidate subscriptions over traffic quota")?;
+            limit = crate::services::bonus_traffic::QUOTA_LIMIT_BYTES_SQL,
+        );
+        let rows = sqlx::query_as::<_, ExpiredQuotaSubscription>(&sql)
+            .bind(subscription_ids)
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to expire candidate subscriptions over traffic quota")?;
 
         Ok(rows)
     }

@@ -107,6 +107,10 @@ impl UserReferralRates {
 pub struct UserDetailsTemplate {
     pub user: User,
     pub subscriptions: Vec<AdminSubscriptionView>,
+    /// Бонусный трафик пользователя (МБ) — разовые начисления сверх тарифа.
+    pub bonus_traffic_mb: i64,
+    /// Он же в человекочитаемом виде для шапки карточки.
+    pub bonus_traffic_label: String,
     pub orders: Vec<UserOrderDisplay>,
     pub referrals: Vec<caramba_db::models::store::DetailedReferral>,
     pub total_referral_earnings: String,
@@ -160,6 +164,13 @@ pub struct AdminSubscriptionView {
     pub last_sub_access_label: Option<String>,
     /// Текущий закреплённый узел подписки (для предвыбора в дропдауне)
     pub node_id: Option<i64>,
+    /// "12.34 GB" — потреблено.
+    pub traffic_used_label: String,
+    /// "50.00 GB" / "∞" — ПОТОЛОК, по которому реально работает энфорсмент:
+    /// лимит тарифа + бонусный трафик пользователя (services/bonus_traffic.rs).
+    /// Оператор при разборе жалобы должен видеть именно эту цифру, а не лимит
+    /// тарифа, иначе бонус выглядит как «не начислился».
+    pub traffic_limit_label: String,
 }
 
 impl AdminSubscriptionView {
@@ -885,6 +896,21 @@ pub async fn get_user_details(
         format!("https://{}", base_domain)
     };
 
+    // Бонусный трафик пользователя — общий для всех его подписок, поэтому
+    // читаем один раз и используем как в шапке карточки, так и в потолке
+    // каждой подписки ниже.
+    let bonus_traffic_mb = crate::services::bonus_traffic::balance_mb(&state.pool, id)
+        .await
+        .unwrap_or_else(|e| {
+            error!("Failed to read bonus traffic for user {}: {}", id, e);
+            0
+        });
+    let bonus_traffic_label = if bonus_traffic_mb > 0 {
+        format!("{:.2} GB", bonus_traffic_mb as f64 / 1024.0)
+    } else {
+        "—".to_string()
+    };
+
     let mut subscriptions = Vec::with_capacity(raw_subscriptions.len());
     for sub in raw_subscriptions {
         let full_sub = match state.subscription_service.get_by_id(sub.id).await {
@@ -948,6 +974,17 @@ pub async fn get_user_details(
         };
         let assigned_node_id = full_sub.as_ref().and_then(|full| full.node_id);
 
+        const BYTES_IN_GB: f64 = 1024.0 * 1024.0 * 1024.0;
+        let traffic_used_label = format!("{:.2} GB", sub.used_traffic as f64 / BYTES_IN_GB);
+        // Ровно тот потолок, по которому подписку истекают/троттлят.
+        let traffic_limit_label = match crate::services::bonus_traffic::quota_limit_bytes(
+            sub.traffic_limit_gb,
+            bonus_traffic_mb,
+        ) {
+            Some(limit_bytes) => format!("{:.2} GB", limit_bytes as f64 / BYTES_IN_GB),
+            None => "∞".to_string(),
+        };
+
         subscriptions.push(AdminSubscriptionView {
             id: sub.id,
             plan_name: sub.plan_name,
@@ -962,6 +999,8 @@ pub async fn get_user_details(
             last_node_label,
             last_sub_access_label,
             node_id: assigned_node_id,
+            traffic_used_label,
+            traffic_limit_label,
         });
     }
 
@@ -1026,6 +1065,8 @@ pub async fn get_user_details(
     let template = UserDetailsTemplate {
         user,
         subscriptions,
+        bonus_traffic_mb,
+        bonus_traffic_label,
         orders,
         referrals,
         total_referral_earnings: format!("{:.2}", earnings_cents as f64 / 100.0),

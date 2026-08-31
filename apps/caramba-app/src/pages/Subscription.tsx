@@ -8,7 +8,7 @@ import DrawerModal from '../components/DrawerModal'
 import { apiUrl } from '../config'
 import { useAuth, UserSubscription } from '../context/AuthContext'
 import { copyText } from '../lib/copyActions'
-import { usageProgress } from '../lib/subscriptionMetrics'
+import { subscriptionLimitBytes, usageProgress } from '../lib/subscriptionMetrics'
 import './Subscription.css'
 
 // Типы для каталога планов (нужны для выбора длительности при продлении)
@@ -396,32 +396,41 @@ export default function Subscription() {
                                 <span className="expand-arrow"><Icon name={expandedId === sub.id ? 'chevron-down' : 'chevron-right'} size={14} /></span>
                             </div>
 
-                            <div className="sub-traffic">
-                                <div className="traffic-bar-row">
-                                    <span>{t('subscription.traffic')}</span>
-                                    <div className="traffic-bar-right">
-                                        <span>{sub.used_traffic_gb} GB / {sub.traffic_limit_gb > 0 ? formatTraffic(sub.traffic_limit_gb) : '∞'}</span>
-                                        {/* Остаток трафика — только для тарифов с лимитом */}
-                                        {sub.traffic_limit_gb > 0 && (() => {
-                                            const usedGb = parseFloat(sub.used_traffic_gb) || 0
-                                            const remaining = Math.max(0, sub.traffic_limit_gb - usedGb)
-                                            return (
-                                                <span className="traffic-remaining-hint">
-                                                    {t('home.trafficRemaining', { remaining: remaining.toFixed(1) })}
-                                                </span>
-                                            )
-                                        })()}
+                            {/* Потолок берём из subscriptionLimitBytes: он включает
+                                бонусный трафик, т.е. совпадает с тем, по чему
+                                панель реально отключает. */}
+                            {(() => {
+                                const limitBytes = subscriptionLimitBytes(sub)
+                                const limitGb = limitBytes / (1024 * 1024 * 1024)
+                                return (
+                                    <div className="sub-traffic">
+                                        <div className="traffic-bar-row">
+                                            <span>{t('subscription.traffic')}</span>
+                                            <div className="traffic-bar-right">
+                                                <span>{sub.used_traffic_gb} GB / {limitBytes > 0 ? formatTraffic(limitGb) : '∞'}</span>
+                                                {/* Остаток трафика — только для тарифов с лимитом */}
+                                                {limitBytes > 0 && (() => {
+                                                    const usedGb = parseFloat(sub.used_traffic_gb) || 0
+                                                    const remaining = Math.max(0, limitGb - usedGb)
+                                                    return (
+                                                        <span className="traffic-remaining-hint">
+                                                            {t('home.trafficRemaining', { remaining: remaining.toFixed(1) })}
+                                                        </span>
+                                                    )
+                                                })()}
+                                            </div>
+                                        </div>
+                                        {limitBytes > 0 && (
+                                            <div className="progress-bar-mini">
+                                                <div
+                                                    className="progress-fill-mini"
+                                                    style={{ width: `${usageProgress(sub)}%` }}
+                                                />
+                                            </div>
+                                        )}
                                     </div>
-                                </div>
-                                {sub.traffic_limit_gb > 0 && (
-                                    <div className="progress-bar-mini">
-                                        <div
-                                            className="progress-fill-mini"
-                                            style={{ width: `${usageProgress(sub)}%` }}
-                                        />
-                                    </div>
-                                )}
-                            </div>
+                                )
+                            })()}
 
                             <div className="sub-meta-row">
                                 {sub.status === 'active' ? (

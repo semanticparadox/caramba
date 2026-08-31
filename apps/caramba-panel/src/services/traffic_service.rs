@@ -93,6 +93,26 @@ impl TrafficService {
                         row.subscription_id, e
                     );
                 }
+
+                // Same fallback as the time-based expiry sweep: put the user
+                // back on the free plan so they keep a way in to renew.
+                match self
+                    .state
+                    .store_service
+                    .ensure_free_plan_subscription(row.user_id)
+                    .await
+                {
+                    // Regenerate the free plan's configs too — the plan id goes
+                    // into the same set the paid plans use below.
+                    Ok(Some(free_plan_id)) => {
+                        plans_to_regen.insert(free_plan_id);
+                    }
+                    Ok(None) => {}
+                    Err(e) => error!(
+                        "Failed to restore the free plan for user {} after quota expiry: {}",
+                        row.user_id, e
+                    ),
+                }
             }
         }
 
