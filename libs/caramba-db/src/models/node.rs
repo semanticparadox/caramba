@@ -110,6 +110,14 @@ pub struct Node {
     /// panel lazily provisions one on the next config build (caramba-4cs).
     #[sqlx(default)]
     pub clash_api_secret: Option<String>,
+    /// Умеет ли sing-box этого узла отдавать статистику по пользователям
+    /// (собран с `with_v2ray_api`). Выставляется агентом в heartbeat.
+    ///
+    /// Генератор конфига пишет секцию `experimental.v2ray_api` только при
+    /// `true`: сборка без тега отвергает её при старте и узел не поднимается.
+    /// Значение по умолчанию `false` — неизвестность читается как «не умеет».
+    #[serde(default)]
+    pub supports_v2ray_api: bool,
 }
 
 impl Node {

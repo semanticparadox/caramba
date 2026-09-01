@@ -40,6 +40,18 @@ pub mod api {
         pub active_connections: Option<u32>, // Added for Telemetry (Phase 3)
         /// Per-user traffic usage. Key is User Tag (e.g. "user_123"), value is bytes used.
         pub user_usage: Option<std::collections::HashMap<String, u64>>,
+        /// Собран ли sing-box на этом узле с `with_v2ray_api`.
+        ///
+        /// Предохранитель, а не информация. Панель пишет секцию
+        /// `experimental.v2ray_api` ТОЛЬКО тем узлам, которые ответили `true`:
+        /// сборка без этого тега отвергает такую секцию при старте
+        /// («v2ray api is not included in this build») и узел не поднимается
+        /// вовсе. Без флага выкат панели раньше узлов положил бы VPN всем сразу.
+        ///
+        /// `#[serde(default)]` = `None` у старых агентов, которые поле не шлют;
+        /// `None` трактуется как «не умеет», то есть в сторону безопасности.
+        #[serde(default)]
+        pub supports_v2ray_api: Option<bool>,
         pub discovered_snis: Option<Vec<DiscoveredSni>>,
         /// U22 (config versioning/ACK): hash of the config the node has actually
         /// applied AND successfully restarted sing-box with. The panel uses this

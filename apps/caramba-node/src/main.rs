@@ -14,6 +14,39 @@ mod v2rayapi;
 /// gRPC-адрес experimental.v2ray_api sing-box на этом же узле.
 /// Совпадает с тем, что пишет генератор конфига (singbox/generator.rs).
 const V2RAY_API_ENDPOINT: &str = "http://127.0.0.1:8080";
+
+/// Собран ли локальный sing-box с `with_v2ray_api`.
+///
+/// Панель по этому ответу решает, писать ли узлу секцию
+/// `experimental.v2ray_api`. Ошибиться в сторону «умеет» нельзя: сборка без
+/// тега отвергает такую секцию при старте и узел не поднимается совсем.
+/// Поэтому любая неопределённость — «не умеет».
+///
+/// Результат считается один раз за процесс: бинарник под ногами не меняется,
+/// а обновление агента и sing-box идёт с перезапуском.
+fn singbox_supports_v2ray_api() -> bool {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<bool> = OnceLock::new();
+
+    *CACHED.get_or_init(|| {
+        let output = std::process::Command::new("sing-box").arg("version").output();
+        let supported = match output {
+            Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .any(|line| line.starts_with("Tags:") && line.contains("with_v2ray_api")),
+            Ok(_) | Err(_) => false,
+        };
+        if supported {
+            tracing::info!("sing-box собран с with_v2ray_api — учёт по пользователям доступен");
+        } else {
+            tracing::warn!(
+                "sing-box без with_v2ray_api: трафик по пользователям снят не будет, \
+                 панель не станет писать секцию v2ray_api этому узлу"
+            );
+        }
+        supported
+    })
+}
 mod sni_check; // NEW
 
 /// Минимальный интервал между ротациями SNI (секунды).
@@ -805,6 +838,7 @@ async fn send_heartbeat(
         cpu_cores,
         cpu_model,
         user_usage,
+        supports_v2ray_api: Some(singbox_supports_v2ray_api()),
         discovered_snis: {
             let mut lock = state.recent_discoveries.lock().await;
             if lock.is_empty() {

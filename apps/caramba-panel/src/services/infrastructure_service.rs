@@ -146,6 +146,10 @@ impl InfrastructureService {
             sni_renew_interval_hours: None,
             config_profile_id: None,
             clash_api_secret: None,
+            // Новый узел ещё не присылал heartbeat, значит про его сборку
+            // sing-box ничего не известно — а неизвестность здесь читается
+            // как «не умеет». Флаг выставит первый же heartbeat агента.
+            supports_v2ray_api: false,
         };
 
         let id = self.node_repo.create_node(&node).await?;

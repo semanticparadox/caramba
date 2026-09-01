@@ -200,6 +200,12 @@ impl NodeRepository {
                 .try_get::<Option<String>, _>("clash_api_secret")
                 .ok()
                 .flatten(),
+            // FALSE при отсутствии колонки или значения: неизвестность про
+            // возможности узла обязана читаться как «не умеет» — иначе панель
+            // напишет ему секцию, от которой он не стартует.
+            supports_v2ray_api: row
+                .try_get::<bool, _>("supports_v2ray_api")
+                .unwrap_or(false),
         }
     }
 
