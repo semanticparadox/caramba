@@ -173,11 +173,11 @@ pub mod stats_service_client {
             })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/experimental.v2rayapi.StatsService/GetStats",
+                "/v2ray.core.app.stats.command.StatsService/GetStats",
             );
             let mut req = request.into_request();
             req.extensions_mut().insert(GrpcMethod::new(
-                "experimental.v2rayapi.StatsService",
+                "v2ray.core.app.stats.command.StatsService",
                 "GetStats",
             ));
             self.inner.unary(req, path, codec).await
@@ -192,11 +192,11 @@ pub mod stats_service_client {
             })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/experimental.v2rayapi.StatsService/QueryStats",
+                "/v2ray.core.app.stats.command.StatsService/QueryStats",
             );
             let mut req = request.into_request();
             req.extensions_mut().insert(GrpcMethod::new(
-                "experimental.v2rayapi.StatsService",
+                "v2ray.core.app.stats.command.StatsService",
                 "QueryStats",
             ));
             self.inner.unary(req, path, codec).await
@@ -210,11 +210,11 @@ pub mod stats_service_client {
             })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/experimental.v2rayapi.StatsService/GetSysStats",
+                "/v2ray.core.app.stats.command.StatsService/GetSysStats",
             );
             let mut req = request.into_request();
             req.extensions_mut().insert(GrpcMethod::new(
-                "experimental.v2rayapi.StatsService",
+                "v2ray.core.app.stats.command.StatsService",
                 "GetSysStats",
             ));
             self.inner.unary(req, path, codec).await

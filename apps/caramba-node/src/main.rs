@@ -2237,6 +2237,16 @@ async fn report_logs(
 
 #[cfg(test)]
 mod v2ray_stats_tests {
+    /// sing-box регистрирует сервис под именем V2Ray, а не под именем своего
+    /// Go-пакета. Первая версия клиента звала experimental.v2rayapi.StatsService
+    /// и получала Unimplemented — статистика не снималась вовсе.
+    #[test]
+    fn generated_client_targets_the_service_name_sing_box_registers() {
+        let generated = include_str!("v2rayapi.rs");
+        assert!(generated.contains("/v2ray.core.app.stats.command.StatsService/QueryStats"));
+        assert!(!generated.contains("experimental.v2rayapi.StatsService"));
+    }
+
     use super::parse_stat_user;
 
     /// Имя счётчика sing-box: `user>>><имя>>>>traffic>>>uplink`.
