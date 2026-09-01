@@ -76,6 +76,9 @@ async fn main() -> anyhow::Result<()> {
         )
         // Mini App (static files)
         .route("/app", get(handlers::app::serve_app))
+        // `/app/` со слэшем: `{*path}` требует непустой хвост, поэтому без
+        // отдельного маршрута этот адрес падал в 404, минуя обработчик.
+        .route("/app/", get(handlers::app::serve_app))
         .route("/app/{*path}", get(handlers::app::serve_app_assets))
         // API proxy to main panel
         .route(
