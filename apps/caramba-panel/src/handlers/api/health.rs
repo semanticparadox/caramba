@@ -32,11 +32,22 @@ struct SubsystemStatus {
 
 pub async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
     // 1. DB — hard requirement
+    // Проба живости НЕ декодирует результат.
+    //
+    // Раньше результат `SELECT 1` разбирался как `i64`, и это не работало
+    // никогда: Postgres типизирует голый целочисленный литерал как INT4, а
+    // восьмибайтный тип требует INT8. Декодирование падало с «mismatched
+    // types», health объявлял живую базу мёртвой и отдавал 503 — с апреля
+    // 2026, то есть монитор, нацеленный на этот адрес, всё это время горел
+    // красным по несуществующей причине.
+    //
+    // Проверять здесь нужно ровно одно: что запрос доходит до базы и
+    // возвращается. Значение не нужно никому, поэтому не декодируем его вовсе —
+    // так этот класс ошибки тут не воспроизводится в принципе. Повторное
+    // появление ловит `tests/sql_dialect_guard.rs`; там же объяснено, почему
+    // формулировка выше избегает самого запрещённого выражения.
     let (db_ok, db_detail, active_nodes, active_frontends) =
-        match sqlx::query_scalar::<_, i64>("SELECT 1")
-            .fetch_one(&state.pool)
-            .await
-        {
+        match sqlx::query("SELECT 1").fetch_one(&state.pool).await {
             Ok(_) => {
                 let nodes: i64 = sqlx::query_scalar(
                     "SELECT COUNT(*) FROM nodes WHERE status = 'active' AND is_enabled = TRUE",
