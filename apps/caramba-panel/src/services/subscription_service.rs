@@ -117,6 +117,32 @@ impl SubscriptionService {
         Some(ip.to_string())
     }
 
+    /// Не чаще одного предупреждения в 10 минут на подписку: клиенты опрашивают
+    /// подписку постоянно, и без ограничения журнал забьётся одной и той же строкой.
+    fn should_warn_unattributed_ip(sub_id: i64) -> bool {
+        use std::collections::HashMap;
+        use std::sync::{Mutex, OnceLock};
+        use std::time::{Duration, Instant};
+
+        static LAST: OnceLock<Mutex<HashMap<i64, Instant>>> = OnceLock::new();
+        let map = LAST.get_or_init(|| Mutex::new(HashMap::new()));
+        let now = Instant::now();
+        let Ok(mut guard) = map.lock() else {
+            // Отравленный мьютекс: лучше лишняя строка в журнале, чем паника.
+            return true;
+        };
+        if guard.len() > 10_000 {
+            guard.retain(|_, t| now.duration_since(*t) < Duration::from_secs(3600));
+        }
+        match guard.get(&sub_id) {
+            Some(t) if now.duration_since(*t) < Duration::from_secs(600) => false,
+            _ => {
+                guard.insert(sub_id, now);
+                true
+            }
+        }
+    }
+
     async fn infrastructure_ips(&self) -> HashSet<IpAddr> {
         let mut rows: Vec<String> = sqlx::query_scalar("SELECT ip FROM nodes")
             .fetch_all(&self.pool)
@@ -1646,27 +1672,45 @@ impl SubscriptionService {
         ip: &str,
         user_agent: Option<&str>,
     ) -> Result<()> {
-        let Some(normalized_ip) = Self::normalize_client_ip(ip) else {
-            return Ok(());
+        // Адрес годится для учёта устройств только если он вообще разобрался и не
+        // принадлежит нашей же инфраструктуре. Инфраструктурный адрес означает, что
+        // край (Caddy/фронтенд-узел) не проставил X-Forwarded-For и до нас доехал
+        // адрес самого прокси, а не клиента.
+        let attributable_ip = match Self::normalize_client_ip(ip) {
+            Some(candidate) => {
+                let infra_ips = self.infrastructure_ips().await;
+                let is_infra = Self::parse_ip_maybe(&candidate)
+                    .is_some_and(|parsed| infra_ips.contains(&parsed));
+                if is_infra { None } else { Some(candidate) }
+            }
+            None => None,
         };
 
-        let infra_ips = self.infrastructure_ips().await;
-        if Self::parse_ip_maybe(&normalized_ip)
-            .is_some_and(|candidate| infra_ips.contains(&candidate))
-        {
-            // Ignore self/infra requests so they don't pollute device accounting.
-            return Ok(());
+        if attributable_ip.is_none() && Self::should_warn_unattributed_ip(sub_id) {
+            warn!(
+                "Subscription {} fetched from unattributable IP {:?}: the edge did not forward \
+                 the client address (X-Forwarded-For / CF-Connecting-IP). Access time is recorded, \
+                 but device tracking and device limits stay blind for this subscription.",
+                sub_id, ip
+            );
         }
 
+        // Факт обращения фиксируем всегда: подписку действительно скачали. Прежний
+        // last_access_ip сохраняем через COALESCE, чтобы неатрибутируемый запрос не
+        // стирал последний известный адрес клиента.
         sqlx::query(
-            "UPDATE subscriptions SET last_sub_access = $1, last_access_ip = $2, last_access_ua = $3 WHERE id = $4"
+            "UPDATE subscriptions SET last_sub_access = $1, last_access_ip = COALESCE($2, last_access_ip), last_access_ua = $3 WHERE id = $4"
         )
         .bind(Utc::now())
-        .bind(&normalized_ip)
+        .bind(attributable_ip.as_deref())
         .bind(user_agent)
         .bind(sub_id)
         .execute(&self.pool)
         .await?;
+
+        let Some(normalized_ip) = attributable_ip else {
+            return Ok(());
+        };
 
         let ua = user_agent.unwrap_or("");
         let device_name = self.parse_device_name(ua);
