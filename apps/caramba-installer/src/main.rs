@@ -93,6 +93,11 @@ enum Commands {
         /// License public key in base64 (advanced, defaults to baked key)
         #[arg(long = "license-pubkey")]
         license_pubkey: Option<String>,
+        /// Обратные прокси перед панелью через запятую (IP или CIDR), чьему
+        /// X-Forwarded-For Caddy должен верить — например, релей поддомена
+        /// подписок. Также CARAMBA_TRUSTED_PROXIES.
+        #[arg(long = "trusted-proxies")]
+        trusted_proxies: Option<String>,
     },
     /// Upgrade Caramba components
     Upgrade {
@@ -863,6 +868,7 @@ async fn main() {
             license_key,
             license_server_url,
             license_pubkey,
+            trusted_proxies,
         } => {
             let install_dir_env_or_flag = pick_non_empty(install_dir.clone(), "INSTALL_DIR");
             let install_dir_effective = if hub || panel {
@@ -926,6 +932,7 @@ async fn main() {
                     pick_non_empty(license_key.clone(), "CARAMBA_LICENSE_KEY"),
                     pick_non_empty(license_server_url.clone(), "CARAMBA_LICENSE_SERVER_URL"),
                     pick_non_empty(license_pubkey.clone(), "CARAMBA_LICENSE_PUBKEY"),
+                    pick_non_empty(trusted_proxies.clone(), "CARAMBA_TRUSTED_PROXIES"),
                 ) {
                     Ok(c) => c,
                     Err(e) => {
@@ -1039,6 +1046,7 @@ async fn main() {
                     pick_non_empty(license_key, "CARAMBA_LICENSE_KEY"),
                     pick_non_empty(license_server_url, "CARAMBA_LICENSE_SERVER_URL"),
                     pick_non_empty(license_pubkey, "CARAMBA_LICENSE_PUBKEY"),
+                    pick_non_empty(trusted_proxies, "CARAMBA_TRUSTED_PROXIES"),
                 ) {
                     Ok(c) => c,
                     Err(e) => {
