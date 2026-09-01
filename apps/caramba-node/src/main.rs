@@ -9,6 +9,11 @@ use sysinfo::System;
 use tracing::{error, info, warn};
 
 mod scanner;
+mod v2rayapi;
+
+/// gRPC-адрес experimental.v2ray_api sing-box на этом же узле.
+/// Совпадает с тем, что пишет генератор конфига (singbox/generator.rs).
+const V2RAY_API_ENDPOINT: &str = "http://127.0.0.1:8080";
 mod sni_check; // NEW
 
 /// Минимальный интервал между ротациями SNI (секунды).
@@ -756,11 +761,17 @@ async fn send_heartbeat(
 ) -> anyhow::Result<HeartbeatResponse> {
     let url = format!("{}/api/v2/node/heartbeat", panel_url);
 
+    // Трафик снимаем ПЕРВЫМ: из тех же дельт выводится и число активных
+    // пользователей, которое уходит в телеметрию. Раньше это были два
+    // независимых источника, и они расходились — панель показывала ноль
+    // подключённых при растущем трафике.
+    let user_usage = collect_user_usage_delta(client, &mut state.last_user_usage_totals).await;
+    let active_users = user_usage.as_ref().map(|m| m.len()).unwrap_or(0);
+
     // Collect Telemetry
     let (latency, cpu, ram, connections, max_ram, cpu_cores, cpu_model) =
-        collect_telemetry(client, sys).await;
+        collect_telemetry(client, sys, active_users).await;
     let (traffic_up, traffic_down) = collect_total_traffic(client).await.unwrap_or((0, 0));
-    let user_usage = collect_user_usage_delta(client, &mut state.last_user_usage_totals).await;
 
     let status = if state.vpn_stopped_by_kill_switch {
         "kill_switch_active".to_string()
@@ -920,42 +931,34 @@ async fn collect_total_traffic(client: &reqwest::Client) -> Option<(u64, u64)> {
     }
 }
 
+/// Дельта трафика по пользователям с прошлого опроса.
+///
+/// Источник — `experimental.v2ray_api` sing-box, а не Clash API. Clash API имя
+/// пользователя не отдаёт вообще: в метаданных соединения есть network, type,
+/// адреса, порты, host, dnsMode и processPath — и всё
+/// (experimental/clashapi/trafficontrol/tracker.go). Прежняя реализация читала
+/// оттуда `metadata.user`, которого не существует, поэтому не привязала к людям
+/// ни одного байта за всё время работы.
+///
+/// v2ray_api ведёт по счётчику на пользователя и направление:
+/// `user>>><имя>>>>traffic>>>uplink` и `…>>>downlink`. Счётчики
+/// НАКОПИТЕЛЬНЫЕ, поэтому логика дельт с `last_totals` сохранена как была,
+/// включая обработку сброса при перезапуске sing-box.
+///
+/// `reset: false` намеренно: обнулять счётчики на стороне sing-box нельзя —
+/// тогда потеря одного ответа означала бы безвозвратно потерянный трафик.
+/// Считаем дельту у себя, где потерянный опрос лишь откладывает учёт.
 async fn collect_user_usage_delta(
-    client: &reqwest::Client,
+    _client: &reqwest::Client,
     last_totals: &mut std::collections::HashMap<String, u64>,
 ) -> Option<std::collections::HashMap<String, u64>> {
-    let connections = fetch_clash_connections(client).await?;
+    let stats = query_user_traffic_stats().await?;
+
     let mut current_totals: std::collections::HashMap<String, u64> =
         std::collections::HashMap::new();
-
-    let mut identified = 0u32;
-    let mut anonymous = 0u32;
-
-    for conn in &connections {
-        let Some(user) = extract_subscription_identity(conn) else {
-            anonymous += 1;
-            continue;
-        };
-        identified += 1;
-
-        let upload =
-            extract_counter_field(conn, &["upload", "uploadTotal", "uplink", "sent"]).unwrap_or(0);
-        let download =
-            extract_counter_field(conn, &["download", "downloadTotal", "downlink", "received"])
-                .unwrap_or(0);
-
-        let total = upload.saturating_add(download);
+    for (user, bytes) in stats {
         let entry = current_totals.entry(user).or_insert(0);
-        *entry = entry.saturating_add(total);
-    }
-
-    if anonymous > 0 || identified > 0 {
-        tracing::debug!(
-            "Traffic: {} connections total, {} identified (user_*), {} anonymous",
-            identified + anonymous,
-            identified,
-            anonymous
-        );
+        *entry = entry.saturating_add(bytes);
     }
 
     let mut delta_map = std::collections::HashMap::new();
@@ -964,10 +967,10 @@ async fn collect_user_usage_delta(
         let delta = if *current_total >= previous_total {
             current_total.saturating_sub(previous_total)
         } else {
-            // Counter reset (agent restart/sing-box reload) — send the observed value once.
+            // Счётчик уехал вниз — sing-box перезапустили. Отдаём наблюдаемое
+            // значение один раз, иначе трафик после рестарта потерялся бы.
             *current_total
         };
-
         if delta > 0 {
             delta_map.insert(user.clone(), delta);
         }
@@ -982,27 +985,64 @@ async fn collect_user_usage_delta(
     }
 }
 
-fn extract_subscription_identity(conn: &serde_json::Value) -> Option<String> {
-    let user = conn
-        .pointer("/metadata/user")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    if user.starts_with("user_") {
-        return Some(user);
-    }
+/// Суммарные (uplink + downlink) накопительные счётчики по каждому пользователю.
+///
+/// Ошибка соединения — это `None`, а не пустая карта: пустая означала бы
+/// «весь трафик обнулился» и породила бы ложные дельты после восстановления.
+async fn query_user_traffic_stats() -> Option<std::collections::HashMap<String, u64>> {
+    use v2rayapi::stats_service_client::StatsServiceClient;
 
-    if let Some(chains) = conn.get("chains").and_then(|v| v.as_array()) {
-        for chain in chains {
-            let chain = chain.as_str().unwrap_or_default().trim();
-            if chain.starts_with("user_") {
-                return Some(chain.to_string());
-            }
+    let mut client = match StatsServiceClient::connect(V2RAY_API_ENDPOINT).await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::debug!("v2ray_api недоступен ({e}) — трафик за этот цикл не снят");
+            return None;
         }
-    }
+    };
 
-    None
+    let response = match client
+        .query_stats(v2rayapi::QueryStatsRequest {
+            // Один запрос на всех: шаблон отбирает счётчики пользователей и
+            // ничего кроме них.
+            pattern: "user>>>".to_string(),
+            reset: false,
+            patterns: Vec::new(),
+            regexp: false,
+        })
+        .await
+    {
+        Ok(r) => r.into_inner(),
+        Err(e) => {
+            tracing::warn!("v2ray_api QueryStats не отработал: {e}");
+            return None;
+        }
+    };
+
+    let mut totals: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    for stat in response.stat {
+        let Some(user) = parse_stat_user(&stat.name) else {
+            continue;
+        };
+        let value = u64::try_from(stat.value).unwrap_or(0);
+        *totals.entry(user).or_insert(0) += value;
+    }
+    Some(totals)
+}
+
+/// `user>>>user_42>>>traffic>>>uplink` → `user_42`.
+///
+/// Имя пользователя может содержать что угодно кроме разделителя, поэтому
+/// разбираем по позиции, а не поиском подстроки.
+fn parse_stat_user(name: &str) -> Option<String> {
+    let mut parts = name.split(">>>");
+    if parts.next()? != "user" {
+        return None;
+    }
+    let user = parts.next()?.trim();
+    if user.is_empty() {
+        return None;
+    }
+    Some(user.to_string())
 }
 
 async fn check_and_update_config(
@@ -1803,6 +1843,9 @@ async fn fetch_global_settings(
 async fn collect_telemetry(
     client: &reqwest::Client,
     sys: &mut System,
+    // Сколько человек прокачали хоть байт с прошлого опроса — считается
+    // вызывающим кодом из тех же дельт трафика, что уходят в heartbeat.
+    active_users: usize,
 ) -> (
     Option<f64>,
     Option<f64>,
@@ -1837,7 +1880,7 @@ async fn collect_telemetry(
         None
     };
 
-    let connections = count_active_connections(client).await;
+    let connections = count_active_connections(client, active_users).await;
 
     let max_ram = Some(sys.total_memory());
     let cpu_cores = Some(sys.cpus().len() as i32);
@@ -1854,31 +1897,24 @@ async fn collect_telemetry(
     )
 }
 
-async fn count_active_connections(client: &reqwest::Client) -> Option<u32> {
-    // Primary source of truth: sing-box clash-api active connections.
-    // Count unique authenticated identities only (user tags / UUID chains),
-    // so scanner/background sockets do not inflate user counts.
-
-    if let Ok(resp) = with_clash_auth(client.get("http://127.0.0.1:9090/connections"))
-        .timeout(Duration::from_secs(2))
-        .send()
-        .await
-        && resp.status().is_success()
-        && let Ok(value) = resp.json::<serde_json::Value>().await
-        && let Some(items) = value.get("connections").and_then(|v| v.as_array())
-    {
-        let mut unique = HashSet::new();
-        for item in items {
-            if let Some(identity) = extract_subscription_identity(item) {
-                unique.insert(identity);
-            }
-        }
-        return Some(unique.len() as u32);
-    }
-
-    // Do not fallback to raw socket counting by default: it includes scanner/health traffic
-    // and inflates "active users" counters in the panel.
-    None
+/// Сколько человек сейчас пользуется узлом.
+///
+/// Считаем не сокеты, а ЛЮДЕЙ, у которых с прошлого опроса вырос счётчик
+/// трафика. Сокеты для этого не годятся принципиально: в них попадают сканеры,
+/// проверки здоровья и служебный трафик самого узла — именно поэтому прошлая
+/// реализация отказалась их считать и вернула ноль вместо ответа.
+///
+/// Тот же источник, что и у учёта трафика, поэтому «0 подключённых» при
+/// растущем трафике стало невозможным состоянием: обе цифры приходят из одних
+/// счётчиков.
+///
+/// `None` (а не 0) при недоступном API: ноль значил бы «никого нет», а это
+/// другое утверждение, и панель на нём строит показ загрузки узла.
+async fn count_active_connections(
+    _client: &reqwest::Client,
+    active_users: usize,
+) -> Option<u32> {
+    Some(active_users as u32)
 }
 
 async fn run_speed_test(client: &reqwest::Client) -> Option<i32> {
@@ -2039,4 +2075,48 @@ async fn report_logs(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod v2ray_stats_tests {
+    use super::parse_stat_user;
+
+    /// Имя счётчика sing-box: `user>>><имя>>>>traffic>>>uplink`.
+    #[test]
+    fn extracts_the_user_from_a_counter_name() {
+        assert_eq!(
+            parse_stat_user("user>>>user_605098034>>>traffic>>>uplink").as_deref(),
+            Some("user_605098034")
+        );
+        assert_eq!(
+            parse_stat_user("user>>>user_42>>>traffic>>>downlink").as_deref(),
+            Some("user_42")
+        );
+    }
+
+    /// Счётчики не про пользователей (инбаунды, исходящие) обязаны отсеиваться:
+    /// иначе их байты уехали бы в трафик несуществующего человека, а панель
+    /// списала бы их с чужой квоты.
+    #[test]
+    fn ignores_counters_that_are_not_per_user() {
+        assert_eq!(parse_stat_user("inbound>>>vless-in>>>traffic>>>uplink"), None);
+        assert_eq!(parse_stat_user("outbound>>>direct>>>traffic>>>downlink"), None);
+        assert_eq!(parse_stat_user(""), None);
+        assert_eq!(parse_stat_user("user"), None);
+    }
+
+    /// Разбираем по позиции, а не поиском подстроки: имя пользователя может
+    /// содержать что угодно, кроме самого разделителя.
+    #[test]
+    fn a_name_containing_traffic_is_still_parsed_correctly() {
+        assert_eq!(
+            parse_stat_user("user>>>user_traffic_7>>>traffic>>>uplink").as_deref(),
+            Some("user_traffic_7")
+        );
+    }
+
+    #[test]
+    fn a_blank_user_is_not_a_user() {
+        assert_eq!(parse_stat_user("user>>>   >>>traffic>>>uplink"), None);
+    }
 }
