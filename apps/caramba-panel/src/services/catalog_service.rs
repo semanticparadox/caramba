@@ -259,7 +259,7 @@ impl CatalogService {
             base_prices.insert(id, price);
         }
 
-        let mut durations = match sqlx::query_as::<_, PlanDuration>(
+        let durations = match sqlx::query_as::<_, PlanDuration>(
             "SELECT id, plan_id, duration_days, price::bigint AS price, created_at FROM plan_durations WHERE plan_id = ANY($1) ORDER BY duration_days ASC",
         )
         .bind(&plan_ids)

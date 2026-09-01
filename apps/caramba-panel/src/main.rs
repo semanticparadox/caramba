@@ -1279,25 +1279,16 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             axum::routing::get(handlers::admin::get_statusbar),
         ) // NEW
         .route("/logout", axum::routing::post(handlers::admin::logout))
-        // Store Management Routes
-        .route(
-            "/store/categories",
-            axum::routing::get(handlers::admin::get_store_categories_page)
-                .post(handlers::admin::create_category),
-        )
-        .route(
-            "/store/categories/{id}",
-            axum::routing::delete(handlers::admin::delete_category),
-        )
-        .route(
-            "/store/products",
-            axum::routing::get(handlers::admin::get_store_products_page)
-                .post(handlers::admin::create_product),
-        )
-        .route(
-            "/store/products/{id}",
-            axum::routing::delete(handlers::admin::delete_product),
-        )
+        // Магазин товаров снят с маршрутизации целиком — и админские экраны,
+        // и клиентский эндпоинт. Причина не техническая: владелец живёт в США и
+        // не готов торговать товарами, пока не решён вопрос легальности
+        // конкретной номенклатуры. Раздел стоял пустым (0 товаров, 0 категорий
+        // на проде) и был доступен из меню — то есть в него можно было зайти и
+        // что-нибудь завести.
+        //
+        // Обработчики, шаблоны и таблицы БД оставлены на месте: данных в них
+        // нет, а вернуть раздел, когда номенклатура определится, — это снова
+        // зарегистрировать маршруты и вернуть две ссылки в base.html.
         // Groups Management (Phase 1.8)
         .route(
             "/groups",
