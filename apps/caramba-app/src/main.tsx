@@ -1,14 +1,12 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import App from './App.tsx'
+import ExaApp from './exa/ExaApp'
 import './i18n'
 // Самохостинг шрифтов (@fontsource): без обращений к Google Fonts — РФ-аудитория.
-import '@fontsource-variable/unbounded/index.css'
-import '@fontsource/golos-text/400.css'
-import '@fontsource/golos-text/500.css'
-import '@fontsource/golos-text/600.css'
-import '@fontsource/golos-text/700.css'
-import '@fontsource/golos-text/800.css'
+// Tektur — display-шрифт бренда; тело набирается системным стеком.
+import '@fontsource-variable/tektur/index.css'
+import './styles/exa-tokens.css'
+import './exa/exa.css'
 import './index.css'
 import { LANGUAGE_STORAGE_KEY, runTelegramReady } from './lib/telegram'
 
@@ -40,7 +38,7 @@ if (!tg?.initData && !isEnvDev) {
     ReactDOM.createRoot(document.getElementById('root')!).render(
         <div className="tg-denied-screen">
             <div className="tg-denied-card glass-card">
-                <div className="tg-denied-emblem" aria-hidden="true">🤖</div>
+                <div className="tg-denied-emblem" aria-hidden="true">EXA</div>
                 <h2>{deniedCopy.title}</h2>
                 <p>{deniedCopy.hint}</p>
             </div>
@@ -50,7 +48,7 @@ if (!tg?.initData && !isEnvDev) {
     runTelegramReady()
     ReactDOM.createRoot(document.getElementById('root')!).render(
         <React.StrictMode>
-            <App />
+            <ExaApp />
         </React.StrictMode>,
     )
 }

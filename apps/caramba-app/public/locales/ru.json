@@ -566,5 +566,225 @@
     "sessionExpired": "Сессия истекла. Откройте приложение из бота заново.",
     "dataTimeout": "Данные не загрузились вовремя. Потяните вниз, чтобы обновить.",
     "dataFetch": "Не удалось загрузить данные. Попробуйте обновить."
+  },
+  "exa": {
+    "nav": {
+      "connect": "Подключение",
+      "servers": "Серверы",
+      "profile": "Профиль",
+      "aria": "Разделы"
+    },
+    "common": {
+      "loading": "Загрузка…",
+      "error": "Не получилось. Попробуйте ещё раз",
+      "copied": "Скопировано",
+      "copy": "Скопировать",
+      "copyLink": "Скопировать ссылку",
+      "yes": "Да",
+      "no": "Нет",
+      "cancel": "Отмена",
+      "recommended": "Рекомендуем",
+      "unlimited": "Безлимит",
+      "gb": "ГБ",
+      "days_one": "{{count}} день",
+      "days_few": "{{count}} дня",
+      "days_many": "{{count}} дней",
+      "daysWord_one": "день",
+      "daysWord_few": "дня",
+      "daysWord_many": "дней",
+      "back": "Назад",
+      "next": "Далее",
+      "done": "Готово"
+    },
+    "home": {
+      "stateProtected": "Защищено",
+      "stateExpired": "Подписка истекла",
+      "stateExhausted": "Трафик закончился",
+      "stateOff": "Не подключено",
+      "noSubscription": "Нет подписки",
+      "noSubscriptionText": "Выберите тариф — робот проведёт вас через сеть.",
+      "choosePlan": "Выбрать тариф",
+      "enterPromo": "Ввести промокод",
+      "pendingActivation": "Ожидает активации",
+      "activate": "Активировать",
+      "activating": "Активируем…",
+      "until": "до {{date}}",
+      "expiredOn": "истекла {{date}}",
+      "expiredNote": "Устройства и сервер сохранены. После оплаты защита включится сразу.",
+      "renew": "Продлить",
+      "pay": "Оплатить",
+      "upgradeGold": "Перейти на Gold",
+      "trafficMonth": "Трафик за месяц",
+      "limitReached": "Лимит исчерпан",
+      "ofGb": "из {{gb}} ГБ",
+      "exhaustedNote": "Обновится {{date}}. Gold — без лимита трафика.",
+      "serverAuto": "Сервер выбирается автоматически",
+      "serverOff": "не подключено",
+      "serverPaused": "приостановлено",
+      "direct": "прямой",
+      "change": "Сменить",
+      "changeServer": "Сменить сервер",
+      "devices": "Устройства",
+      "devicesOf": "{{n}} из {{of}}",
+      "copyLink": "Скопировать ссылку",
+      "openInApp": "Открыть в приложении",
+      "openInAppHint": "Ссылка подписки импортируется автоматически",
+      "noAppGuide": "Нет приложения — как установить",
+      "copiedOpenManually": "Ссылка скопирована — вставьте её в {{app}}",
+      "qrTitle": "QR подписки",
+      "qrHint": "Отсканируйте камерой на другом устройстве",
+      "notifications": "Уведомления"
+    },
+    "clients": {
+      "hiddify": "iOS, Android, Windows, macOS",
+      "happ": "iOS, Android",
+      "v2raytun": "iOS, Android",
+      "singbox": "все платформы"
+    },
+    "servers": {
+      "title": "Серверы",
+      "online": "{{count}} онлайн",
+      "empty": "Серверов пока нет",
+      "selected": "Выбран",
+      "offline": "недоступен",
+      "ms": "{{ms}} мс",
+      "load": {
+        "low": "низкая нагрузка",
+        "medium": "средняя",
+        "high": "высокая"
+      },
+      "switchTo": "Переключить на {{name}}?",
+      "routerLink": "Ссылка для роутера",
+      "connectionType": "Тип подключения",
+      "route": "Маршрут",
+      "direct": "Прямой",
+      "viaRelay": "Через релей {{code}}",
+      "noLinks": "Для этого сервера ссылок пока нет",
+      "kind": {
+        "reality": {
+          "name": "VLESS Reality",
+          "hint": "лучше всего против блокировок"
+        },
+        "ws": {
+          "name": "VLESS WS",
+          "hint": "через CDN / релей"
+        },
+        "grpc": {
+          "name": "gRPC",
+          "hint": "стабильно на мобильных сетях"
+        },
+        "httpupgrade": {
+          "name": "VLESS HTTPUpgrade",
+          "hint": "через HTTP-прокси и CDN"
+        },
+        "hysteria2": {
+          "name": "Hysteria2",
+          "hint": "максимальная скорость"
+        },
+        "tuic": {
+          "name": "TUIC",
+          "hint": "быстро на плохих сетях"
+        },
+        "trojan": {
+          "name": "Trojan",
+          "hint": "классический TLS"
+        },
+        "tcp": {
+          "name": "VLESS TCP",
+          "hint": "простое соединение"
+        },
+        "other": {
+          "name": "Другое",
+          "hint": ""
+        }
+      }
+    },
+    "profile": {
+      "title": "Профиль",
+      "devices": "Устройства",
+      "payments": "Платежи",
+      "noPayments": "Платежей пока нет",
+      "promo": "Промо",
+      "enterPromo": "Ввести промокод",
+      "promoPlaceholder": "Промокод",
+      "promoApply": "Применить",
+      "promoApplied": "Промокод применён",
+      "invited": "приглашено",
+      "bonusDays": "бонусных дней",
+      "earned": "заработано",
+      "language": "Язык",
+      "support": "Написать в поддержку",
+      "terms": "Условия",
+      "privacy": "Конфиденциальность",
+      "method": {
+        "stars": "Telegram Stars",
+        "nowpayments": "Криптовалюта",
+        "balance": "Баланс",
+        "manual": "Вручную",
+        "other": "{{method}}"
+      },
+      "notifySubscription": "Об окончании подписки",
+      "notifyPayment": "О платежах",
+      "notifyDevice": "О новых устройствах"
+    },
+    "devices": {
+      "title": "Устройства",
+      "thisDevice": "это устройство",
+      "rename": "Переименовать",
+      "disconnect": "Отключить",
+      "killAll": "Отключить все",
+      "killAllConfirm": "Отключить все устройства? Им придётся заново открыть ссылку подписки.",
+      "freeSlot": "Свободный слот. Откройте ссылку подписки на новом устройстве.",
+      "empty": "Активных устройств нет",
+      "note": "Показаны устройства, активные за последние 15 минут.",
+      "unknown": "Устройство",
+      "now": "сейчас",
+      "minutesAgo_one": "{{count}} минуту назад",
+      "minutesAgo_few": "{{count}} минуты назад",
+      "minutesAgo_many": "{{count}} минут назад",
+      "hoursAgo_one": "{{count}} час назад",
+      "hoursAgo_few": "{{count}} часа назад",
+      "hoursAgo_many": "{{count}} часов назад",
+      "daysAgo_one": "{{count}} день назад",
+      "daysAgo_few": "{{count}} дня назад",
+      "daysAgo_many": "{{count}} дней назад"
+    },
+    "pay": {
+      "plan": "Тариф",
+      "method": "Способ оплаты",
+      "step": "шаг {{n}} из 3",
+      "devices_one": "{{count}} устройство",
+      "devices_few": "{{count}} устройства",
+      "devices_many": "{{count}} устройств",
+      "gb": "{{gb}} ГБ",
+      "perMonth": "{{price}}/мес",
+      "tryFree": "Попробовать бесплатно",
+      "freeHint": "{{devices}} · {{traffic}} · {{servers}}",
+      "freeDaily": "{{mb}} МБ в день",
+      "servers_one": "{{count}} сервер",
+      "servers_few": "{{count}} сервера",
+      "servers_many": "{{count}} серверов",
+      "next": "Далее · {{plan}}, {{days}} · {{price}}",
+      "stars": "Telegram Stars",
+      "starsHint": "внутри Telegram, без карты",
+      "crypto": "Криптовалюта",
+      "cryptoHint": "USDT, TON, BTC · NowPayments",
+      "balance": "Баланс",
+      "balanceHint": "списать с баланса",
+      "note": "Подписка активируется сразу после подтверждения платежа. Срок добавится к текущему.",
+      "payNow": "Оплатить",
+      "paying": "Открываем оплату…",
+      "success": "Защищено",
+      "successUntil": "{{plan}} до {{date}}",
+      "successDays": "дней",
+      "successDevices": "устройства",
+      "successTraffic": "трафик",
+      "toHome": "На главную",
+      "waiting": "Ждём подтверждение платежа…",
+      "openBot": "Открыть оплату в боте",
+      "failed": "Оплата не прошла",
+      "noPlans": "Тарифов пока нет",
+      "activated": "Бесплатный тариф активирован"
+    }
   }
 }
