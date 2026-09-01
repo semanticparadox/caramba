@@ -2,6 +2,9 @@
 Description=Caramba VPN Node
 After=network.target
 Before=sing-box.service
+# Агент перезапускает себя после самообновления. Лимит стартов systemd превращал
+# это в start-limit-hit и оставлял узел без агента; для VPN-узла это худший исход.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
