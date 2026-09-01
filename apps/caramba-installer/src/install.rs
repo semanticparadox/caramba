@@ -651,6 +651,57 @@ pub fn install_singbox() -> Result<()> {
     Ok(())
 }
 
+
+/// Кладёт нашу сборку sing-box поверх пакетной.
+///
+/// Официальный пакет SagerNet собран БЕЗ `with_v2ray_api`, а без него нет
+/// статистики по пользователям: Clash API имени пользователя не отдаёт вовсе.
+/// Отсюда неработающие лимиты трафика и нулевой счётчик устройств.
+///
+/// Пакет при этом ставится как раньше и остаётся источником systemd-юнита,
+/// пользователя и каталогов — меняется ТОЛЬКО бинарник. Поэтому откат
+/// умещается в одну команду: `apt install --reinstall sing-box`.
+///
+/// Неудача здесь не должна ронять установку узла: без нашей сборки узел
+/// работает ровно как до сих пор, просто не сообщит панели о поддержке
+/// v2ray_api — и панель не станет писать ему секцию (предохранитель в
+/// singbox/generator.rs). Поэтому все ошибки логируются и глотаются.
+async fn overlay_singbox_with_v2ray_api(version: &str) {
+    let tmp = "/tmp/caramba-sing-box";
+    if let Err(e) = download_file(&release_asset_url(version, "sing-box"), tmp).await {
+        eprintln!("sing-box со статистикой не скачался ({e}); остаётся пакетная сборка");
+        return;
+    }
+
+    // Проверяем, что скачали именно то, ради чего всё затевалось. Молча
+    // положить бинарник без тега — худший исход: узел сообщит о поддержке,
+    // которой нет, и панель напишет ему конфиг, от которого он не стартует.
+    let ok = std::process::Command::new("sh")
+        .args([
+            "-c",
+            &format!("chmod +x {tmp} && {tmp} version | grep -q with_v2ray_api"),
+        ])
+        .status()
+        .map(|st| st.success())
+        .unwrap_or(false);
+    if !ok {
+        eprintln!("скачанный sing-box собран без with_v2ray_api — не подменяю");
+        let _ = std::fs::remove_file(tmp);
+        return;
+    }
+
+    let cmd = format!(
+        "install -m 0755 {tmp} /usr/bin/sing-box && systemctl try-restart sing-box || true"
+    );
+    match std::process::Command::new("sh").args(["-c", &cmd]).status() {
+        Ok(st) if st.success() => {
+            println!("sing-box заменён на сборку со статистикой по пользователям")
+        }
+        _ => eprintln!("подменить sing-box не удалось; остаётся пакетная сборка"),
+    }
+    let _ = std::fs::remove_file(tmp);
+}
+
 pub async fn install_node(
     install_dir: &str,
     version: &str,
@@ -663,6 +714,8 @@ pub async fn install_node(
     let panel_url = normalize_panel_url(panel_url);
     let node_type = normalize_node_type(node_type).to_string();
     let join_token = resolve_node_token(&panel_url, token, &node_type).await?;
+
+    overlay_singbox_with_v2ray_api(version).await;
 
     let binary_path = format!("{}/caramba-node", install_dir.trim_end_matches('/'));
     download_file(&release_asset_url(version, "caramba-node"), &binary_path).await?;
