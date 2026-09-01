@@ -289,17 +289,19 @@ impl NotificationTemplateService {
     }
 
     pub async fn reload_cache(&self) -> Result<()> {
-        let rows: Vec<TemplateOverride> =
-            sqlx::query_as("SELECT * FROM notification_templates")
-                .fetch_all(&self.pool)
-                .await?;
+        let rows: Vec<TemplateOverride> = sqlx::query_as("SELECT * FROM notification_templates")
+            .fetch_all(&self.pool)
+            .await?;
 
         let mut cache = self.cache.write().await;
         cache.clear();
         for row in rows {
             cache.insert((row.event.clone(), row.lang.clone()), row);
         }
-        info!("Notification templates cache reloaded: {} rows", cache.len());
+        info!(
+            "Notification templates cache reloaded: {} rows",
+            cache.len()
+        );
         Ok(())
     }
 
@@ -498,7 +500,10 @@ mod tests {
         let err = ev
             .validate_placeholders("баланс {0}, тариф {1}, лишнее {2}")
             .expect_err("{2} за пределами арности");
-        assert!(err.contains("{2}"), "в тексте ошибки должен быть индекс: {err}");
+        assert!(
+            err.contains("{2}"),
+            "в тексте ошибки должен быть индекс: {err}"
+        );
     }
 
     #[test]

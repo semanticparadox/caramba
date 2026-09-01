@@ -63,8 +63,7 @@ pub struct AppState {
     pub pay_service: Arc<services::pay_service::PayService>,
     pub export_service: Arc<services::export_service::ExportService>,
     pub notification_service: Arc<services::notification_service::NotificationService>,
-    pub notification_templates:
-        Arc<services::notification_templates::NotificationTemplateService>,
+    pub notification_templates: Arc<services::notification_templates::NotificationTemplateService>,
     pub connection_service: Arc<services::connection_service::ConnectionService>,
     pub redis: Arc<services::redis_service::RedisService>,
     pub pubsub: Arc<services::pubsub_service::PubSubService>,
@@ -636,8 +635,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
     // горячий путь свипа. Неудача загрузки не должна ронять старт — уведомления
     // тогда просто уходят на встроенных строках, что и есть штатный фолбэк.
     let notification_templates = Arc::new(
-        match services::notification_templates::NotificationTemplateService::new(pool.clone())
-            .await
+        match services::notification_templates::NotificationTemplateService::new(pool.clone()).await
         {
             Ok(svc) => svc,
             Err(e) => {

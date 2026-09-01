@@ -53,12 +53,18 @@ impl NotificationService {
         // а не по одному на адресата. Эта рассылка идёт сырым ботом, поэтому
         // кнопка и медиа здесь не поддерживаются — редактор их для этого
         // события и не показывает.
-        let override_ru =
-            crate::services::notification_templates::text_override(&self.pool, "notify.sni_rotation", Lang::Ru)
-                .await;
-        let override_en =
-            crate::services::notification_templates::text_override(&self.pool, "notify.sni_rotation", Lang::En)
-                .await;
+        let override_ru = crate::services::notification_templates::text_override(
+            &self.pool,
+            "notify.sni_rotation",
+            Lang::Ru,
+        )
+        .await;
+        let override_en = crate::services::notification_templates::text_override(
+            &self.pool,
+            "notify.sni_rotation",
+            Lang::En,
+        )
+        .await;
 
         let mut notified_count = 0;
         let mut failed_count = 0;
@@ -174,16 +180,26 @@ mod tests {
         let service = NotificationService::new(pool);
 
         // По умолчанию — русский.
-        let ru =
-            service.format_rotation_message_with(None, Lang::Ru, "www.google.com", "www.cloudflare.com", 42);
+        let ru = service.format_rotation_message_with(
+            None,
+            Lang::Ru,
+            "www.google.com",
+            "www.cloudflare.com",
+            42,
+        );
         assert!(ru.contains("www.google.com"));
         assert!(ru.contains("www.cloudflare.com"));
         assert!(ru.contains("ID ротации: #42"));
         assert!(ru.contains("Отключите VPN"));
 
         // Английский — только по явному выбору пользователя.
-        let en =
-            service.format_rotation_message_with(None, Lang::En, "www.google.com", "www.cloudflare.com", 42);
+        let en = service.format_rotation_message_with(
+            None,
+            Lang::En,
+            "www.google.com",
+            "www.cloudflare.com",
+            42,
+        );
         assert!(en.contains("Rotation ID: #42"));
         assert!(en.contains("Disconnect from VPN"));
     }

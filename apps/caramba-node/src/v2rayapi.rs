@@ -81,10 +81,10 @@ pub mod stats_service_client {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value,
+        clippy::let_unit_value
     )]
-    use tonic::codegen::*;
     use tonic::codegen::http::Uri;
+    use tonic::codegen::*;
     #[derive(Debug, Clone)]
     pub struct StatsServiceClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -123,14 +123,13 @@ pub mod stats_service_client {
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
             T: tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-                Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                    http::Request<tonic::body::BoxBody>,
+                    Response = http::Response<
+                        <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                    >,
                 >,
-            >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
+            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
+                Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             StatsServiceClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -168,79 +167,56 @@ pub mod stats_service_client {
         pub async fn get_stats(
             &mut self,
             request: impl tonic::IntoRequest<super::GetStatsRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::GetStatsResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::GetStatsResponse>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/experimental.v2rayapi.StatsService/GetStats",
             );
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("experimental.v2rayapi.StatsService", "GetStats"),
-                );
+            req.extensions_mut().insert(GrpcMethod::new(
+                "experimental.v2rayapi.StatsService",
+                "GetStats",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn query_stats(
             &mut self,
             request: impl tonic::IntoRequest<super::QueryStatsRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::QueryStatsResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::QueryStatsResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/experimental.v2rayapi.StatsService/QueryStats",
             );
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("experimental.v2rayapi.StatsService", "QueryStats"),
-                );
+            req.extensions_mut().insert(GrpcMethod::new(
+                "experimental.v2rayapi.StatsService",
+                "QueryStats",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_sys_stats(
             &mut self,
             request: impl tonic::IntoRequest<super::SysStatsRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::SysStatsResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::SysStatsResponse>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/experimental.v2rayapi.StatsService/GetSysStats",
             );
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("experimental.v2rayapi.StatsService", "GetSysStats"),
-                );
+            req.extensions_mut().insert(GrpcMethod::new(
+                "experimental.v2rayapi.StatsService",
+                "GetSysStats",
+            ));
             self.inner.unary(req, path, codec).await
         }
     }

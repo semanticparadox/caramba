@@ -651,7 +651,6 @@ pub fn install_singbox() -> Result<()> {
     Ok(())
 }
 
-
 /// Кладёт нашу сборку sing-box поверх пакетной.
 ///
 /// Официальный пакет SagerNet собран БЕЗ `with_v2ray_api`, а без него нет

@@ -243,12 +243,11 @@ pub async fn reset_template(
         return Redirect::to(&format!("{redirect}?tpl_error=unknown_event")).into_response();
     };
 
-    if let Err(e) =
-        sqlx::query("DELETE FROM notification_templates WHERE event = $1 AND lang = $2")
-            .bind(&event_key)
-            .bind(lang.as_str())
-            .execute(&state.pool)
-            .await
+    if let Err(e) = sqlx::query("DELETE FROM notification_templates WHERE event = $1 AND lang = $2")
+        .bind(&event_key)
+        .bind(lang.as_str())
+        .execute(&state.pool)
+        .await
     {
         error!(error = %e, event = %event_key, "notification template reset failed");
         return Redirect::to(&format!("{redirect}?tpl_error=save_failed")).into_response();
@@ -287,11 +286,7 @@ pub async fn test_template(
 
     // Примерные значения: тест должен показывать сообщение целиком, а не с
     // дырами на месте подстановок.
-    let samples: Vec<String> = ev
-        .args
-        .iter()
-        .map(|label| format!("‹{label}›"))
-        .collect();
+    let samples: Vec<String> = ev.args.iter().map(|label| format!("‹{label}›")).collect();
     let sample_refs: Vec<&str> = samples.iter().map(String::as_str).collect();
 
     let rendered = state

@@ -760,7 +760,9 @@ impl StoreService {
     /// месте и не разъезжалось между регистрацией и откатом после истечения.
     pub async fn ensure_free_plan_subscription(&self, user_id: i64) -> Result<Option<i64>> {
         let mut tx = self.pool.begin().await?;
-        let outcome = self.ensure_free_plan_subscription_tx(&mut tx, user_id).await?;
+        let outcome = self
+            .ensure_free_plan_subscription_tx(&mut tx, user_id)
+            .await?;
         tx.commit().await?;
         Ok(outcome)
     }

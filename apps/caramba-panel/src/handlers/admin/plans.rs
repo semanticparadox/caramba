@@ -53,7 +53,6 @@ struct PlanEditModalTemplate {
 // Route Handlers
 // ============================================================================
 
-
 /// Нарушение `plans_single_active_free_idx` — попытка завести второй активный
 /// бесплатный план.
 ///
@@ -72,8 +71,7 @@ fn is_duplicate_free_plan(err: &anyhow::Error) -> bool {
     })
 }
 
-const DUPLICATE_FREE_PLAN_MSG: &str =
-    "Бесплатный план может быть только один. Снимите флаг с текущего бесплатного плана \
+const DUPLICATE_FREE_PLAN_MSG: &str = "Бесплатный план может быть только один. Снимите флаг с текущего бесплатного плана \
      или деактивируйте его, прежде чем назначать новый.";
 
 pub async fn get_plans(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {

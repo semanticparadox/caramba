@@ -29,7 +29,9 @@ fn singbox_supports_v2ray_api() -> bool {
     static CACHED: OnceLock<bool> = OnceLock::new();
 
     *CACHED.get_or_init(|| {
-        let output = std::process::Command::new("sing-box").arg("version").output();
+        let output = std::process::Command::new("sing-box")
+            .arg("version")
+            .output();
         let supported = match output {
             Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout)
                 .lines()
@@ -1944,10 +1946,7 @@ async fn collect_telemetry(
 ///
 /// `None` (а не 0) при недоступном API: ноль значил бы «никого нет», а это
 /// другое утверждение, и панель на нём строит показ загрузки узла.
-async fn count_active_connections(
-    _client: &reqwest::Client,
-    active_users: usize,
-) -> Option<u32> {
+async fn count_active_connections(_client: &reqwest::Client, active_users: usize) -> Option<u32> {
     Some(active_users as u32)
 }
 
@@ -2133,8 +2132,14 @@ mod v2ray_stats_tests {
     /// списала бы их с чужой квоты.
     #[test]
     fn ignores_counters_that_are_not_per_user() {
-        assert_eq!(parse_stat_user("inbound>>>vless-in>>>traffic>>>uplink"), None);
-        assert_eq!(parse_stat_user("outbound>>>direct>>>traffic>>>downlink"), None);
+        assert_eq!(
+            parse_stat_user("inbound>>>vless-in>>>traffic>>>uplink"),
+            None
+        );
+        assert_eq!(
+            parse_stat_user("outbound>>>direct>>>traffic>>>downlink"),
+            None
+        );
         assert_eq!(parse_stat_user(""), None);
         assert_eq!(parse_stat_user("user"), None);
     }
