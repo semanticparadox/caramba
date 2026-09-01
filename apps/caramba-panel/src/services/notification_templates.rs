@@ -146,18 +146,28 @@ pub const REGISTRY: &[NotifyEvent] = &[
         default_button: Some(("💳 Продлить", "💳 Renew", ButtonTarget::Plans)),
         supports_payload: true,
     },
+    // Обе кнопки ведут на витрину тарифов, а НЕ на экран баланса.
+    //
+    // Внутренний баланс пополнить нечем: `/billing` показывает сумму и историю,
+    // формы пополнения нет, API пополнения нет, а единственные приходы — это
+    // возвраты при удалении подписки и реферальные начисления. Кнопка «Пополнить»
+    // вела бы на экран, где написано $0.00 и сделать нельзя ничего.
+    //
+    // Лекарство от «денег не хватило» в этом продукте — купить тариф напрямую,
+    // где оплата и правда работает. Если пополнение баланса когда-нибудь
+    // появится, вернуть сюда ButtonTarget::Billing — одна строка.
     NotifyEvent {
         key: "notify.low_balance",
-        label_ru: "Баланс заканчивается",
+        label_ru: "Баланса не хватит на автопродление",
         args: &["баланс", "название тарифа"],
-        default_button: Some(("💳 Пополнить", "💳 Top up", ButtonTarget::Billing)),
+        default_button: Some(("💳 Продлить", "💳 Renew", ButtonTarget::Plans)),
         supports_payload: true,
     },
     NotifyEvent {
         key: "notify.renew_failed",
         label_ru: "Автопродление не выполнено",
         args: &["название тарифа", "баланс", "требуется"],
-        default_button: Some(("💳 Пополнить", "💳 Top up", ButtonTarget::Billing)),
+        default_button: Some(("💳 Продлить", "💳 Renew", ButtonTarget::Plans)),
         supports_payload: true,
     },
     NotifyEvent {

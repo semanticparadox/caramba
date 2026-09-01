@@ -439,7 +439,10 @@ impl MonitoringService {
                         "warning",
                         &rendered.title,
                         &rendered.body,
-                        Some(serde_json::json!({"sub_id": sub_id, "url": "/billing"})),
+                        // Карточка ведёт на витрину тарифов, а не на экран
+                        // баланса: пополнить баланс в продукте нечем, а
+                        // заплатить можно только за тариф.
+                        Some(serde_json::json!({"sub_id": sub_id, "url": "/plans"})),
                     )
                     .await;
             }
@@ -657,7 +660,7 @@ impl MonitoringService {
                                 "error",
                                 &failed.title,
                                 &failed.body,
-                                Some(serde_json::json!({"sub_id": sub_id, "url": "/billing"})),
+                                Some(serde_json::json!({"sub_id": sub_id, "url": "/plans"})),
                             )
                             .await;
 
@@ -748,7 +751,7 @@ impl MonitoringService {
                     "warning",
                     &low.title,
                     &low.body,
-                    Some(serde_json::json!({"url": "/billing"})),
+                    Some(serde_json::json!({"url": "/plans"})),
                 )
                 .await;
 
