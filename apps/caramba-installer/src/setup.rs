@@ -35,6 +35,11 @@ pub struct InstallConfig {
     pub license_server_url: String,
     /// ed25519 public key (base64) used to verify activation signatures.
     pub license_pubkey: String,
+    /// Адреса обратных прокси перед панелью (например, релей поддомена подписок),
+    /// чьему X-Forwarded-For Caddy должен верить. Без этого Caddy выбрасывает
+    /// заголовок недоверенного прокси и подставляет адрес самого прокси — а он
+    /// числится инфраструктурой, и учёт устройств в панели слепнет.
+    pub trusted_proxies: Vec<String>,
 }
 
 #[derive(Debug, Default)]
@@ -314,6 +319,7 @@ pub fn resolve_install_config(
     license_key: Option<String>,
     license_server_url: Option<String>,
     license_pubkey: Option<String>,
+    trusted_proxies: Option<String>,
 ) -> Result<InstallConfig> {
     let existing = load_existing_install_defaults(install_dir.as_deref());
     if existing.existing_install {
@@ -432,6 +438,9 @@ pub fn resolve_install_config(
         .or(existing.license_pubkey.clone())
         .unwrap_or_else(|| DEFAULT_LICENSE_PUBKEY.to_string());
 
+    // Список через запятую, флаг или переменная окружения; в обычном потоке не
+    // спрашивается, как и параметры лицензии.
+    let trusted_proxies = parse_trusted_proxies(trusted_proxies.as_deref());
     Ok(InstallConfig {
         domain,
         sub_domain,
@@ -444,7 +453,34 @@ pub fn resolve_install_config(
         license_key,
         license_server_url,
         license_pubkey,
+        trusted_proxies,
     })
+}
+
+/// Разбирает список прокси через запятую, отбрасывая пустые элементы. Пробелы
+/// вокруг адресов допускаются — так удобнее задавать значение из переменной.
+pub fn parse_trusted_proxies(raw: Option<&str>) -> Vec<String> {
+    raw.unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Глобальный блок Caddyfile. Пустой, если доверенных прокси нет: Caddy тогда
+/// сохраняет поведение по умолчанию и не верит ничьему X-Forwarded-For.
+fn caddy_global_options(trusted_proxies: &[String]) -> String {
+    if trusted_proxies.is_empty() {
+        return String::new();
+    }
+    format!(
+        "# Обратные прокси перед панелью (релей поддомена подписок и т.п.). Их\n\
+         # X-Forwarded-For принимается как есть — иначе Caddy подставил бы адрес\n\
+         # самого прокси, и учёт устройств в панели видел бы только его.\n\
+         {{\n    servers {{\n        trusted_proxies static {}\n    }}\n}}\n\n",
+        trusted_proxies.join(" ")
+    )
 }
 
 pub fn generate_caddyfile(config: &InstallConfig) -> String {
@@ -473,7 +509,8 @@ pub fn generate_caddyfile(config: &InstallConfig) -> String {
     }
 
     let main_paths = main_path_rules.join(" ");
-    let mut caddyfile = format!(
+    let mut caddyfile = caddy_global_options(&config.trusted_proxies);
+    caddyfile.push_str(&format!(
         "{domain} {{
     encode zstd gzip
 
@@ -495,7 +532,7 @@ pub fn generate_caddyfile(config: &InstallConfig) -> String {
             ""
         },
         main_paths = main_paths
-    );
+    ));
 
     if has_external_sub_domain {
         if let Some(sub) = &config.sub_domain {
@@ -506,4 +543,54 @@ pub fn generate_caddyfile(config: &InstallConfig) -> String {
     }
 
     caddyfile
+}
+
+#[cfg(test)]
+mod caddyfile_tests {
+    use super::*;
+
+    fn config(trusted_proxies: Vec<String>) -> InstallConfig {
+        InstallConfig {
+            domain: "panel.example.test".into(),
+            sub_domain: Some("app.example.test".into()),
+            admin_path: "/admin".into(),
+            install_dir: "/opt/caramba".into(),
+            db_pass: "x".into(),
+            admin_username: "admin".into(),
+            admin_password: "x".into(),
+            hub_bot_token: None,
+            license_key: None,
+            license_server_url: String::new(),
+            license_pubkey: String::new(),
+            trusted_proxies,
+        }
+    }
+
+    #[test]
+    fn no_trusted_proxies_means_no_global_block() {
+        let out = generate_caddyfile(&config(vec![]));
+        assert!(!out.contains("trusted_proxies"));
+        assert!(out.starts_with("panel.example.test {"));
+    }
+
+    #[test]
+    fn trusted_proxies_render_as_a_global_block_before_sites() {
+        let out = generate_caddyfile(&config(vec!["141.98.191.214/32".into(), "10.0.0.5".into()]));
+        let global = out
+            .find("trusted_proxies static 141.98.191.214/32 10.0.0.5")
+            .unwrap();
+        let site = out.find("panel.example.test {").unwrap();
+        assert!(global < site, "глобальный блок обязан идти первым");
+        assert!(out.contains("app.example.test {"));
+    }
+
+    #[test]
+    fn parse_trims_and_drops_empty_entries() {
+        assert_eq!(
+            parse_trusted_proxies(Some(" 1.2.3.4 ,, 5.6.7.8/32 ,")),
+            vec!["1.2.3.4".to_string(), "5.6.7.8/32".to_string()]
+        );
+        assert!(parse_trusted_proxies(None).is_empty());
+        assert!(parse_trusted_proxies(Some("  ")).is_empty());
+    }
 }
