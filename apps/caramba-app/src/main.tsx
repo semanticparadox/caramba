@@ -5,9 +5,12 @@ import './i18n'
 // Самохостинг шрифтов (@fontsource): без обращений к Google Fonts — РФ-аудитория.
 // Tektur — display-шрифт бренда; тело набирается системным стеком.
 import '@fontsource-variable/tektur/index.css'
+// Порядок важен: старый слой (index.css → tokens/base) идёт первым, а токены
+// EXA — после него, чтобы переопределить прежнюю семантику для унаследованных
+// экранов (гайд, уведомления, PIN).
+import './index.css'
 import './styles/exa-tokens.css'
 import './exa/exa.css'
-import './index.css'
 import { LANGUAGE_STORAGE_KEY, runTelegramReady } from './lib/telegram'
 
 const tg = (window as any).Telegram?.WebApp;

@@ -75,6 +75,70 @@
     --exa-mark-eye-off: var(--exa-steel-500);
 }
 
+/* Совместимость: гайд по подключению, список уведомлений и PIN-замок ещё
+   собраны на прежних семантических токенах (лайм и «стекло»). Пока они не
+   перенесены, их переменные читают значения бренда — без градиентов и свечений. */
+:root,
+[data-theme='dark'],
+[data-theme='light'] {
+    --bg-core: var(--exa-bg);
+    --bg-canvas: var(--exa-bg);
+    --bg-elevated: var(--exa-elevated);
+    --bg-surface: var(--exa-surface);
+    --bg-glass: var(--exa-surface);
+    --bg-glass-hover: var(--exa-elevated);
+    --bg-glass-strong: var(--exa-elevated);
+    --bg-primary: var(--exa-bg);
+    --bg-secondary: var(--exa-surface);
+    --bg-glass-border: var(--exa-border-strong);
+    --text-primary: var(--exa-text);
+    --text-secondary: var(--exa-text-2);
+    --text-muted: var(--exa-hint);
+    --text-tertiary: var(--exa-hint);
+    --lime: var(--exa-ember);
+    --lime-bright: var(--exa-ember);
+    --lime-deep: var(--exa-ember-press);
+    --lime-rgb: 242, 163, 60;
+    --on-lime: var(--exa-on-ember);
+    --cyan: var(--exa-steel-300);
+    --cyan-rgb: 163, 170, 181;
+    --accent-rgb: 242, 163, 60;
+    --accent-primary: var(--exa-ember);
+    --accent-secondary: var(--exa-steel-300);
+    --accent-gradient: var(--exa-ember);
+    --accent-soft-gradient: var(--exa-accent-soft);
+    --neon-gradient: var(--exa-ember);
+    --neon-soft-gradient: var(--exa-accent-soft);
+    --accent-purple: var(--exa-ember);
+    --color-accent: var(--exa-ember);
+    --color-info: var(--exa-text-2);
+    --color-success: var(--exa-success);
+    --color-warning: var(--exa-warning);
+    --color-danger: var(--exa-danger);
+    --status-online: var(--exa-success);
+    --status-warning: var(--exa-warning);
+    --status-error: var(--exa-danger);
+    --border-subtle: var(--exa-border);
+    --border-strong: var(--exa-border-strong);
+    --border-accent: var(--exa-ember);
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-glow: none;
+    --glow-accent: none;
+    --glow-accent-soft: none;
+    --glow-cyan: none;
+    --blur-glass: none;
+    --font-display: var(--exa-font-display);
+    --font-body: var(--exa-font-body);
+    --radius-sm: var(--exa-radius-sm);
+    --radius-md: var(--exa-radius-md);
+    --radius-lg: var(--exa-radius-lg);
+    --radius-xl: var(--exa-radius-lg);
+    --radius-2xl: var(--exa-radius-sheet);
+    --ease-default: var(--exa-ease);
+    --ease-spring: var(--exa-ease);
+}
+
 /* Светлая — матовая светлая сталь, тот же эмбер */
 [data-theme='light'] {
     color-scheme: light;

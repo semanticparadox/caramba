@@ -233,6 +233,7 @@ export default function Profile() {
                         {t('exa.profile.enterPromo')}
                     </Button>
                 </div>
+                {promoOpen || ref?.referral_link ? (
                 <div style={{ padding: '12px 16px', display: 'grid', gap: 10 }}>
                     {promoOpen ? (
                         <div style={{ display: 'flex', gap: 8 }}>
@@ -283,6 +284,7 @@ export default function Profile() {
                         </>
                     ) : null}
                 </div>
+                ) : null}
             </section>
 
             <section className="exa-card exa-card--list">
