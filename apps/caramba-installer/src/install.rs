@@ -482,6 +482,10 @@ pub async fn install_panel(install_dir: &str, version: &str) -> Result<()> {
     let binary_path = format!("{}/caramba-panel", install_dir.trim_end_matches('/'));
     download_file(&release_asset_url(version, "caramba-panel"), &binary_path).await?;
     try_install_mini_app_assets(version, install_dir).await?;
+    // Панель проверяет каждый сгенерированный конфиг локальным `sing-box check`.
+    // Без сборки с with_v2ray_api валидатор отвергает секцию статистики, и узел,
+    // заявивший поддержку, получает 500 вместо конфига.
+    overlay_singbox_with_v2ray_api(version).await;
     let _ = write_version_marker(install_dir, version);
     install_service("caramba-panel.service", install_dir)?;
     Ok(())
@@ -666,6 +670,9 @@ pub fn install_singbox() -> Result<()> {
 /// v2ray_api — и панель не станет писать ему секцию (предохранитель в
 /// singbox/generator.rs). Поэтому все ошибки логируются и глотаются.
 async fn overlay_singbox_with_v2ray_api(version: &str) {
+    if singbox_has_v2ray_api() {
+        return;
+    }
     let tmp = "/tmp/caramba-sing-box";
     if let Err(e) = download_file(&release_asset_url(version, "sing-box"), tmp).await {
         eprintln!("sing-box со статистикой не скачался ({e}); остаётся пакетная сборка");
@@ -699,6 +706,21 @@ async fn overlay_singbox_with_v2ray_api(version: &str) {
         _ => eprintln!("подменить sing-box не удалось; остаётся пакетная сборка"),
     }
     let _ = std::fs::remove_file(tmp);
+}
+
+/// Есть ли у установленного sing-box тег with_v2ray_api. Нет бинарника — нет тега.
+fn singbox_has_v2ray_api() -> bool {
+    std::process::Command::new("sing-box")
+        .arg("version")
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| {
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .any(|line| line.starts_with("Tags:") && line.contains("with_v2ray_api"))
+        })
+        .unwrap_or(false)
 }
 
 pub async fn install_node(
@@ -922,6 +944,7 @@ pub async fn upgrade_caramba(
     if panel_installed {
         let path = format!("{}/caramba-panel", install_dir);
         download_file(&release_asset_url(version, "caramba-panel"), &path).await?;
+        overlay_singbox_with_v2ray_api(version).await;
         upgraded.push("panel");
     }
     if sub_installed {
@@ -932,6 +955,7 @@ pub async fn upgrade_caramba(
     if node_installed {
         let path = format!("{}/caramba-node", install_dir);
         download_file(&release_asset_url(version, "caramba-node"), &path).await?;
+        overlay_singbox_with_v2ray_api(version).await;
         upgraded.push("node");
     }
     if bot_installed {

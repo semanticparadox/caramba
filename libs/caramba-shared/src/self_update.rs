@@ -74,11 +74,17 @@ pub async fn apply_self_update(
     Ok(())
 }
 
-/// Перезапускает systemd-сервис через `systemctl restart <service_name>`.
+/// Перезапускает systemd-сервис через `systemctl --no-block restart <service_name>`.
 /// Логирует результат через tracing; не паникует при ошибке.
+///
+/// `--no-block` обязателен: вызывающий процесс — это и есть перезапускаемый
+/// сервис. Блокирующий `restart` ждёт завершения задания, а задание начинает с
+/// SIGTERM самому вызывающему — команда «падает» с сигналом 15, а systemd
+/// засчитывает лишний старт. С лимитом по умолчанию (5 за 10 с) это кончалось
+/// `start-limit-hit`, и узел оставался без агента (Canada, 2026-09-01).
 pub fn restart_service(service_name: &str) {
     match Command::new("systemctl")
-        .args(["restart", service_name])
+        .args(["--no-block", "restart", service_name])
         .status()
     {
         Ok(status) if status.success() => {
