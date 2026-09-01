@@ -1397,7 +1397,7 @@ impl ConfigGenerator {
                         None
                     } else {
                         Some(V2RayApiConfig {
-                            listen: "127.0.0.1:8080".to_string(),
+                            listen: caramba_shared::V2RAY_API_LISTEN.to_string(),
                             stats: V2RayStatsConfig {
                                 enabled: true,
                                 users,

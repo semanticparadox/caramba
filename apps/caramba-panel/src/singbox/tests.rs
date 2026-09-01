@@ -1441,6 +1441,13 @@ mod tests {
                 !api.stats.users.is_empty(),
                 "пустой список пользователей — это отсутствие секции, а не пустая секция"
             );
+            // Порт статистики — общая с узлом константа и никогда не 8080: на Canada
+            // он был занят docker-proxy, sing-box не стартовал, VPN лежал.
+            assert_eq!(api.listen, caramba_shared::V2RAY_API_LISTEN);
+            assert!(
+                !api.listen.ends_with(":8080"),
+                "8080 сталкивается с docker на узлах"
+            );
         }
     }
 }
