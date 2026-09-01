@@ -13,7 +13,11 @@ mod v2rayapi;
 
 /// gRPC-адрес experimental.v2ray_api sing-box на этом же узле.
 /// Совпадает с тем, что пишет генератор конфига (singbox/generator.rs).
-const V2RAY_API_ENDPOINT: &str = "http://127.0.0.1:8080";
+/// Адрес gRPC-статистики — из общей с панелью константы, чтобы узел опрашивал
+/// ровно тот порт, который панель прописала в конфиг.
+fn v2ray_api_endpoint() -> String {
+    format!("http://{}", caramba_shared::V2RAY_API_LISTEN)
+}
 
 /// Собран ли локальный sing-box с `with_v2ray_api`.
 ///
@@ -1149,7 +1153,7 @@ async fn collect_user_usage_delta(
 async fn query_user_traffic_stats() -> Option<std::collections::HashMap<String, u64>> {
     use v2rayapi::stats_service_client::StatsServiceClient;
 
-    let mut client = match StatsServiceClient::connect(V2RAY_API_ENDPOINT).await {
+    let mut client = match StatsServiceClient::connect(v2ray_api_endpoint()).await {
         Ok(c) => c,
         Err(e) => {
             tracing::debug!("v2ray_api недоступен ({e}) — трафик за этот цикл не снят");

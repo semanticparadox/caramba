@@ -1,3 +1,10 @@
+/// Адрес gRPC-статистики sing-box (`experimental.v2ray_api.listen`). Панель
+/// пишет его в конфиг узла, узел по нему опрашивает счётчики — поэтому константа
+/// одна на двоих и живёт здесь. Порт намеренно высокий и необычный: первая
+/// версия брала 8080, на узле Canada он был занят docker-proxy, sing-box падал
+/// на старте с «address already in use», и VPN на узле лежал (2026-09-01).
+pub const V2RAY_API_LISTEN: &str = "127.0.0.1:26517";
+
 pub mod geo_service;
 pub use geo_service::{GeoData, GeoService};
 
