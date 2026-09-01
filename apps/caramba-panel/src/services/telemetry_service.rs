@@ -48,6 +48,10 @@ impl TelemetryService {
         max_ram: Option<u64>,
         cpu_cores: Option<i32>,
         cpu_model: Option<String>,
+        // Умеет ли sing-box узла отдавать статистику по пользователям.
+        // None у агента старой версии — тогда уже известное значение
+        // не перетирается (COALESCE в UPDATE ниже).
+        supports_v2ray_api: Option<bool>,
     ) -> Result<()> {
         let node_data: Option<(i64, i64, i64, i64)> = sqlx::query_as(
             "SELECT total_ingress, total_egress, last_session_ingress, last_session_egress FROM nodes WHERE id = $1"
@@ -96,7 +100,10 @@ impl TelemetryService {
                     last_ram = $11,
                     max_ram = COALESCE($12, max_ram),
                     cpu_cores = COALESCE($13, cpu_cores),
-                    cpu_model = COALESCE($14, cpu_model)
+                    cpu_model = COALESCE($14, cpu_model),
+                    -- Возможность узла: NULL от старого агента не должен
+                    -- сбрасывать уже известное значение, поэтому COALESCE.
+                    supports_v2ray_api = COALESCE($16, supports_v2ray_api)
                  WHERE id = $15",
             )
             .bind(active_connections.map(|c| c as i32))
@@ -114,6 +121,7 @@ impl TelemetryService {
             .bind(cpu_cores)
             .bind(cpu_model)
             .bind(node_id)
+            .bind(supports_v2ray_api)
             .execute(&self.pool)
             .await?;
 

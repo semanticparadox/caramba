@@ -400,6 +400,7 @@ pub async fn heartbeat(
                 req_clone.max_ram,
                 req_clone.cpu_cores,
                 req_clone.cpu_model,
+                req_clone.supports_v2ray_api,
             )
             .await
         {

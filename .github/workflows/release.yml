@@ -25,6 +25,11 @@ jobs:
         with:
           targets: x86_64-unknown-linux-musl
 
+      - name: Setup Go (для сборки sing-box)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -57,6 +62,35 @@ jobs:
         run: |
           cargo build --release --target x86_64-unknown-linux-musl --workspace --exclude caramba-app
 
+      # Своя сборка sing-box: официальный пакет SagerNet идёт БЕЗ
+      # `with_v2ray_api`, а без него нет статистики по пользователям — Clash API
+      # имени пользователя не отдаёт вовсе (проверено по исходнику,
+      # experimental/clashapi/trafficontrol/tracker.go). Отсюда и неработающие
+      # лимиты трафика, и «0 подключённых устройств».
+      #
+      # Набор тегов повторяет официальный (`sing-box version` → Tags) плюс
+      # with_v2ray_api: узлы должны получить ровно тот же функционал, что и
+      # раньше, а не урезанный.
+      #
+      # Версия закреплена: обновлять её — отдельное осознанное решение, а не
+      # побочный эффект релиза панели.
+      - name: Build sing-box with v2ray_api
+        env:
+          SING_BOX_VERSION: v1.13.14
+          SING_BOX_TAGS: with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,with_naive_outbound,with_v2ray_api
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$SING_BOX_VERSION" https://github.com/SagerNet/sing-box.git /tmp/sing-box
+          cd /tmp/sing-box
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -tags "$SING_BOX_TAGS" \
+            -trimpath -ldflags "-s -w -X github.com/sagernet/sing-box/constant.Version=${SING_BOX_VERSION#v}" \
+            -o /tmp/sing-box-bin ./cmd/sing-box
+          # Отказ сборки без тега лучше молчаливой раздачи бинарника, который
+          # не умеет того, ради чего он собирается.
+          /tmp/sing-box-bin version | tee /tmp/sb-version.txt
+          grep -q 'with_v2ray_api' /tmp/sb-version.txt
+
       - name: Prepare Artifacts
         run: |
           mkdir release
@@ -65,10 +99,11 @@ jobs:
           cp target/x86_64-unknown-linux-musl/release/caramba-bot release/
           cp target/x86_64-unknown-linux-musl/release/caramba-sub release/
           cp target/x86_64-unknown-linux-musl/release/caramba-installer release/
+          cp /tmp/sing-box-bin release/sing-box
           tar -czf release/caramba-app-dist.tar.gz apps/caramba-app/dist
           # Integrity manifest — install.sh verifies the downloaded installer
           # against this before executing it as root (supply-chain hardening).
-          (cd release && sha256sum caramba-panel caramba-node caramba-bot caramba-sub caramba-installer caramba-app-dist.tar.gz > SHA256SUMS)
+          (cd release && sha256sum caramba-panel caramba-node caramba-bot caramba-sub caramba-installer sing-box caramba-app-dist.tar.gz > SHA256SUMS)
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -83,6 +118,7 @@ jobs:
             release/caramba-bot
             release/caramba-sub
             release/caramba-installer
+            release/sing-box
             release/caramba-app-dist.tar.gz
             release/SHA256SUMS
         env:

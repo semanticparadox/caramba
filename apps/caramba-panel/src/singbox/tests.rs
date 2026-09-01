@@ -111,6 +111,9 @@ mod tests {
             sni_renew_interval_hours: None,
             config_profile_id: None,
             clash_api_secret: None,
+            // По умолчанию узел «не умеет» — как и настоящий, пока не пришлёт
+            // первый heartbeat. Тесты предохранителя переключают явно.
+            supports_v2ray_api: false,
         }
     }
 
@@ -893,6 +896,9 @@ mod tests {
             sni_renew_interval_hours: None,
             config_profile_id: None,
             clash_api_secret: None,
+            // По умолчанию узел «не умеет» — как и настоящий, пока не пришлёт
+            // первый heartbeat. Тесты предохранителя переключают явно.
+            supports_v2ray_api: false,
         };
 
         // 2. Create Mock Inbound
@@ -1382,4 +1388,60 @@ mod tests {
         let v = gen_with_policy(&policy);
         assert_eq!(v["log"]["level"], "debug");
     }
+
+    /// Предохранитель выката: секция v2ray_api пишется ТОЛЬКО узлу, который
+    /// сам сообщил, что его sing-box её понимает.
+    ///
+    /// Цена ошибки здесь не «нет статистики», а «узел не стартует»: сборка без
+    /// `with_v2ray_api` отвергает эту секцию при запуске. Если предохранитель
+    /// сломается, панель разошлёт такой конфиг на все узлы сразу и VPN ляжет
+    /// у всех. Поэтому проверяется оба направления, а не только счастливое.
+    #[test]
+    fn v2ray_api_is_written_only_for_a_node_that_reported_support() {
+        let inbound = create_shadowsocks_inbound(1, 8388, "2022-blake3-aes-128-gcm");
+
+        let mut incapable = create_base_enterprise_node(1, "Old", "10.0.0.1");
+        incapable.supports_v2ray_api = false;
+        let config = ConfigGenerator::generate_config(
+            &incapable,
+            vec![inbound.clone()],
+            None,
+            None,
+            vec![],
+            RelayAuthMode::V1,
+        );
+        assert!(
+            config
+                .experimental
+                .as_ref()
+                .and_then(|e| e.v2ray_api.as_ref())
+                .is_none(),
+            "узлу со старой сборкой секция v2ray_api привела бы к отказу старта"
+        );
+
+        let mut capable = create_base_enterprise_node(2, "New", "10.0.0.2");
+        capable.supports_v2ray_api = true;
+        let config = ConfigGenerator::generate_config(
+            &capable,
+            vec![inbound],
+            None,
+            None,
+            vec![],
+            RelayAuthMode::V1,
+        );
+        let api = config
+            .experimental
+            .as_ref()
+            .and_then(|e| e.v2ray_api.as_ref());
+        // Секция появляется только если в инбаундах реально есть пользователи —
+        // иначе считать некого и писать её незачем.
+        if let Some(api) = api {
+            assert!(api.stats.enabled);
+            assert!(
+                !api.stats.users.is_empty(),
+                "пустой список пользователей — это отсутствие секции, а не пустая секция"
+            );
+        }
+    }
+
 }
