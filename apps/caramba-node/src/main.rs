@@ -24,20 +24,99 @@ const V2RAY_API_ENDPOINT: &str = "http://127.0.0.1:8080";
 ///
 /// Результат считается один раз за процесс: бинарник под ногами не меняется,
 /// а обновление агента и sing-box идёт с перезапуском.
+/// Узлы обновляются сами (`apply_self_update`), а установщик на них после первой
+/// установки больше не запускается. Без этого шага узел получил бы новый
+/// caramba-node, но остался бы со стоковым sing-box без `with_v2ray_api` — и учёт
+/// трафика по пользователям молча не включился бы никогда.
+///
+/// Вызывается один раз при старте, до первой проверки возможностей. Если тег уже
+/// есть — не делает ничего, поэтому повторные перезапуски бесплатны. Любая ошибка
+/// глотается: без нашей сборки узел работает как раньше, просто не сообщает
+/// панели о поддержке, и та не пишет ему секцию статистики.
+async fn ensure_singbox_with_v2ray_api() {
+    if singbox_reports_v2ray_api() {
+        return;
+    }
+
+    let version = format!("v{}", env!("CARGO_PKG_VERSION"));
+    let url = format!(
+        "https://github.com/semanticparadox/caramba/releases/download/{}/sing-box",
+        version
+    );
+    let tmp = "/tmp/caramba-sing-box";
+
+    let bytes = match reqwest::get(&url).await {
+        Ok(resp) if resp.status().is_success() => match resp.bytes().await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!("не удалось прочитать sing-box из релиза {version}: {e}");
+                return;
+            }
+        },
+        Ok(resp) => {
+            tracing::warn!("релиз {version} не отдал sing-box: HTTP {}", resp.status());
+            return;
+        }
+        Err(e) => {
+            tracing::warn!("sing-box из релиза {version} не скачался: {e}");
+            return;
+        }
+    };
+    if let Err(e) = std::fs::write(tmp, &bytes) {
+        tracing::warn!("не удалось сохранить скачанный sing-box: {e}");
+        return;
+    }
+
+    // Проверяем, что скачали именно сборку с тегом. Положить бинарник без него —
+    // худший исход: узел сообщит панели о поддержке, которой нет, и получит
+    // конфиг, от которого не стартует.
+    let verified = std::process::Command::new("sh")
+        .args([
+            "-c",
+            &format!("chmod +x {tmp} && {tmp} version | grep -q with_v2ray_api"),
+        ])
+        .status()
+        .map(|st| st.success())
+        .unwrap_or(false);
+    if !verified {
+        tracing::warn!("скачанный sing-box собран без with_v2ray_api — подмену не делаю");
+        let _ = std::fs::remove_file(tmp);
+        return;
+    }
+
+    let cmd = format!(
+        "install -m 0755 {tmp} /usr/bin/sing-box && systemctl try-restart sing-box || true"
+    );
+    match std::process::Command::new("sh").args(["-c", &cmd]).status() {
+        Ok(st) if st.success() => {
+            tracing::info!("sing-box обновлён на сборку со статистикой по пользователям")
+        }
+        _ => tracing::warn!("подменить sing-box не удалось; остаётся прежняя сборка"),
+    }
+    let _ = std::fs::remove_file(tmp);
+}
+
+/// Разовый опрос бинарника без кеша — нужен до подмены, пока кешировать ответ рано.
+fn singbox_reports_v2ray_api() -> bool {
+    std::process::Command::new("sing-box")
+        .arg("version")
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| {
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .any(|line| line.starts_with("Tags:") && line.contains("with_v2ray_api"))
+        })
+        .unwrap_or(false)
+}
+
 fn singbox_supports_v2ray_api() -> bool {
     use std::sync::OnceLock;
     static CACHED: OnceLock<bool> = OnceLock::new();
 
     *CACHED.get_or_init(|| {
-        let output = std::process::Command::new("sing-box")
-            .arg("version")
-            .output();
-        let supported = match output {
-            Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .any(|line| line.starts_with("Tags:") && line.contains("with_v2ray_api")),
-            Ok(_) | Err(_) => false,
-        };
+        let supported = singbox_reports_v2ray_api();
         if supported {
             tracing::info!("sing-box собран с with_v2ray_api — учёт по пользователям доступен");
         } else {
@@ -217,6 +296,10 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_env_filter("info").init();
 
     info!("🚀 EXA ROBOT Node Agent v0.2.0 Starting...");
+
+    // До первой проверки возможностей: узлы обновляются сами, установщик на них
+    // больше не приходит, поэтому свою сборку sing-box узел дотягивает сам.
+    ensure_singbox_with_v2ray_api().await;
 
     // 2. Load Config
     dotenvy::dotenv().ok();
