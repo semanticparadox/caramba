@@ -1,6 +1,9 @@
 syntax = "proto3";
 
-package experimental.v2rayapi;
+// Пакет обязан совпадать с тем, под которым sing-box регистрирует сервис — это
+// имя V2Ray, сохранённое для совместимости, а не имя Go-пакета. С
+// «experimental.v2rayapi» узел получал Unimplemented: unknown service.
+package v2ray.core.app.stats.command;
 option go_package = "github.com/sagernet/sing-box/experimental/v2rayapi";
 
 message GetStatsRequest {
