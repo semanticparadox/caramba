@@ -147,3 +147,54 @@ fn sqlx_queries_must_not_use_sqlite_specific_syntax() {
         violations.join("\n")
     );
 }
+
+/// Целочисленный литерал нельзя декодировать в `i64`.
+///
+/// Postgres типизирует голый `1` как INT4, а `query_scalar::<_, i64>` требует
+/// INT8, и sqlx падает уже при декодировании: «Rust type `i64` (as SQL type
+/// `INT8`) is not compatible with SQL type `INT4`». Ровно так публичный
+/// `/api/health` с апреля 2026 объявлял живую базу мёртвой и отдавал 503.
+///
+/// Проверка идёт по исходникам, а не по живой базе: тесты этого крейта
+/// намеренно не требуют Postgres, а ошибка целиком видна в коде — тип запрошен
+/// рядом с литералом. Если такая проба снова понадобится, пишите либо
+/// `sqlx::query(...)` без декодирования, либо явное приведение (`SELECT 1::bigint`).
+#[test]
+fn integer_literals_are_not_decoded_as_i64() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    collect_rs_files(&root, &mut files);
+
+    let mut violations = Vec::new();
+    for file in files {
+        let Ok(content) = fs::read_to_string(&file) else {
+            continue;
+        };
+        for (byte_idx, _) in content.match_indices("query_scalar::<_, i64>") {
+            // Литерал этого вызова: интересует только голое число без приведения.
+            let Some((_, sql)) = parse_sql_literal_from_call(&content, byte_idx) else {
+                continue;
+            };
+            let trimmed = sql.trim().trim_end_matches(';').trim();
+            let Some(rest) = trimmed
+                .strip_prefix("SELECT ")
+                .or_else(|| trimmed.strip_prefix("select "))
+            else {
+                continue;
+            };
+            if rest.chars().all(|c| c.is_ascii_digit()) && !rest.is_empty() {
+                violations.push(format!(
+                    "{}:{} декодирует целочисленный литерал как i64 — Postgres отдаёт INT4",
+                    file.display(),
+                    line_number(&content, byte_idx)
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Целочисленный литерал декодируется как i64:\n{}",
+        violations.join("\n")
+    );
+}
