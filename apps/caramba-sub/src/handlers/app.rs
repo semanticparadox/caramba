@@ -64,6 +64,9 @@ pub async fn serve_app() -> Response {
 pub async fn serve_app_assets(Path(path): Path<String>) -> Response {
     let path = path.trim_start_matches('/');
 
+    // `/app/` со слэшем: пустой путь — это тот же index.html, а не 404.
+    let path = if path.is_empty() { "index.html" } else { path };
+
     if let Some(response) = read_asset(path).await {
         return response;
     }

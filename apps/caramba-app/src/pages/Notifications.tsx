@@ -1,3 +1,4 @@
+import { ExaIcon } from '../exa/icons'
 import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import Icon from '../components/Icon'
@@ -217,7 +218,9 @@ export default function Notifications() {
             {/* Пустое состояние */}
             {!loading && !error && displayed.length === 0 && (
                 <div className="empty-state glass-card">
-                    <div className="empty-icon">🔔</div>
+                    <div className="empty-icon" aria-hidden="true">
+                        <ExaIcon name="bell" size={40} />
+                    </div>
                     <h3>{t('notifications.emptyTitle')}</h3>
                     <p>{t('notifications.emptyDesc')}</p>
                 </div>
