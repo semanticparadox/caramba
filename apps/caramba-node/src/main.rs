@@ -115,8 +115,11 @@ async fn ensure_singbox_with_v2ray_api() {
         Ok(st) if st.success() => {
             tracing::info!("sing-box обновлён на сборку со статистикой по пользователям");
             // Сообщаем панели о новой возможности уже на ближайшем heartbeat,
-            // не дожидаясь перезапуска агента.
+            // не дожидаясь перезапуска агента, и просим цикл сразу за ним
+            // перепроверить конфиг — секция статистики появится в нём только
+            // после того, как панель узнает о поддержке.
             refresh_singbox_capability();
+            CONFIG_RECHECK_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         _ => tracing::warn!("подменить sing-box не удалось; остаётся прежняя сборка"),
     }
@@ -143,6 +146,13 @@ fn singbox_reports_v2ray_api() -> bool {
 /// в течение жизни процесса. Иначе узел до самого перезапуска сообщал бы панели
 /// «не поддерживаю», хотя нужная сборка уже стоит.
 static SUPPORTS_V2RAY_API: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Просьба главному циклу проверить конфиг вне расписания. Ставится после
+/// подмены sing-box: панель узнаёт о новой возможности из ближайшего heartbeat
+/// и пишет секцию статистики, но узел без этого флага заметил бы её только на
+/// следующей плановой проверке — на Russia это означало бы минуты простоя учёта.
+static CONFIG_RECHECK_REQUESTED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 fn singbox_supports_v2ray_api() -> bool {
@@ -442,6 +452,11 @@ async fn main() -> anyhow::Result<()> {
     let mut failures = 0;
 
     let start_time = std::time::Instant::now();
+    // Плановая проверка конфига — по времени с последней, а не по остатку
+    // uptime: прежнее `uptime % 100 < 10` при шаге цикла ~30 с попадало в окно
+    // раз в ~10 минут и нерегулярно, хотя комментарий обещал ~100 секунд.
+    let mut last_config_check = std::time::Instant::now();
+    const CONFIG_CHECK_INTERVAL: Duration = Duration::from_secs(120);
 
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .expect("install SIGTERM handler");
@@ -584,8 +599,12 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        // Periodic config check (every 10th heartbeat = ~100 seconds)
-        if uptime % 100 < 10 {
+        // Плановая проверка конфига раз в CONFIG_CHECK_INTERVAL либо по просьбе
+        // (например, сразу после подмены sing-box).
+        let recheck_requested =
+            CONFIG_RECHECK_REQUESTED.swap(false, std::sync::atomic::Ordering::Relaxed);
+        if recheck_requested || last_config_check.elapsed() >= CONFIG_CHECK_INTERVAL {
+            last_config_check = std::time::Instant::now();
             if let Err(e) =
                 check_and_update_config(&client, &panel_url, &token, &args.config_path, &mut state)
                     .await
