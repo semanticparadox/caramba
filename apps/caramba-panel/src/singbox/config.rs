@@ -43,6 +43,35 @@ pub struct ExperimentalConfig {
     pub clash_api: ClashApiConfig,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_file: Option<CacheFileConfig>,
+    /// Счётчики трафика по пользователям.
+    ///
+    /// Единственный способ узнать, сколько прокачал конкретный человек:
+    /// Clash API таких данных не отдаёт вовсе — в его метаданных соединения
+    /// есть network, type, sourceIP, destinationIP, порты, host, dnsMode и
+    /// processPath, и ни одного поля с именем пользователя
+    /// (experimental/clashapi/trafficontrol/tracker.go, sing-box 1.13).
+    ///
+    /// Требует сборки sing-box с `-tags with_v2ray_api`: официальный пакет
+    /// SagerNet собран без него и отвечает на такой конфиг отказом при старте.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v2ray_api: Option<V2RayApiConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct V2RayApiConfig {
+    /// gRPC-слушатель. Только петля: наружу его отдавать незачем, счётчики
+    /// снимает агент, живущий на том же узле.
+    pub listen: String,
+    pub stats: V2RayStatsConfig,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct V2RayStatsConfig {
+    pub enabled: bool,
+    /// Имена пользователей, по которым вести счёт. sing-box заводит счётчики
+    /// `user>>><имя>>>>traffic>>>uplink` и `…>>>downlink` только для
+    /// перечисленных здесь (experimental/v2rayapi/stats.go).
+    pub users: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -550,4 +579,82 @@ pub struct MultiplexConfig {
 
 fn default_mux_protocol_singbox() -> String {
     "smux".to_string()
+}
+
+/// Имена пользователей из уже построенных инбаундов.
+///
+/// Список для `v2ray_api.stats.users` собирается ИЗ КОНФИГА, а не из исходных
+/// данных: так он не может разойтись с тем, что реально попало в инбаунды.
+/// Разойдись они — счётчик молча не завёлся бы для части людей, и это было бы
+/// видно только по нулям в их трафике.
+///
+/// Порядок стабилен, дубликаты убраны: один человек обычно заведён сразу в
+/// нескольких протоколах под одним и тем же именем.
+pub fn stats_user_names(inbounds: &[Inbound]) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    for inbound in inbounds {
+        match inbound {
+            Inbound::Vless(i) => seen.extend(i.users.iter().map(|u| u.name.clone())),
+            Inbound::Shadowsocks(i) => seen.extend(i.users.iter().map(|u| u.name.clone())),
+            Inbound::Hysteria2(i) => seen.extend(i.users.iter().filter_map(|u| u.name.clone())),
+            Inbound::Trojan(i) => seen.extend(i.users.iter().filter_map(|u| u.name.clone())),
+            Inbound::Tuic(i) => seen.extend(i.users.iter().filter_map(|u| u.name.clone())),
+            Inbound::Shadowtls(i) => seen.extend(i.users.iter().filter_map(|u| u.name.clone())),
+            // http/naive называют пользователя username, а wireguard вообще не
+            // имеет пользователей в этом смысле — считать по ним нечего.
+            Inbound::Http(_) | Inbound::Naive(_) | Inbound::AmneziaWg(_) => {}
+        }
+    }
+    seen.retain(|name| !name.trim().is_empty());
+    seen.into_iter().collect()
+}
+
+#[cfg(test)]
+mod stats_user_tests {
+    use super::*;
+
+    fn vless(users: &[&str]) -> Inbound {
+        Inbound::Vless(VlessInbound {
+            tag: "vless-in".into(),
+            listen: "::".into(),
+            listen_port: 443,
+            users: users
+                .iter()
+                .map(|n| VlessUser {
+                    name: (*n).to_string(),
+                    uuid: "00000000-0000-0000-0000-000000000000".into(),
+                    flow: None,
+                })
+                .collect(),
+            tls: None,
+            transport: None,
+            multiplex: None,
+            packet_encoding: None,
+        })
+    }
+
+    /// Один человек заведён сразу в нескольких протоколах под одним именем —
+    /// счётчик ему нужен один, иначе sing-box получит дубликаты в stats.users.
+    #[test]
+    fn duplicates_across_inbounds_collapse() {
+        let names = stats_user_names(&[vless(&["user_1", "user_2"]), vless(&["user_2", "user_3"])]);
+        assert_eq!(names, vec!["user_1", "user_2", "user_3"]);
+    }
+
+    /// Порядок обязан быть устойчивым: конфиг перегенерируется на каждое
+    /// изменение узла, и «тот же список в другом порядке» — это лишняя
+    /// перезапись файла и лишний рестарт sing-box.
+    #[test]
+    fn order_is_stable_regardless_of_input_order() {
+        let a = stats_user_names(&[vless(&["user_9", "user_1"])]);
+        let b = stats_user_names(&[vless(&["user_1", "user_9"])]);
+        assert_eq!(a, b);
+    }
+
+    /// Пустые имена в конфиг попадать не должны: sing-box заведёт счётчик с
+    /// пустым ключом, а привязать его будет не к кому.
+    #[test]
+    fn blank_names_are_dropped() {
+        assert!(stats_user_names(&[vless(&["", "   "])]).is_empty());
+    }
 }

@@ -1306,6 +1306,11 @@ impl ConfigGenerator {
             }
         };
 
+        // Список пользователей для счётчиков — ДО того, как inbounds уедут в
+        // структуру: он выводится из них же, и считать его после перемещения
+        // было бы уже не из чего.
+        let stats_users = stats_user_names(&generated_inbounds);
+
         SingBoxConfig {
             log: LogConfig {
                 level: log_level,
@@ -1364,6 +1369,30 @@ impl ConfigGenerator {
                     path: Some("/var/lib/sing-box/cache.db".to_string()),
                     store_rdrc: Some(true),
                 }),
+                // Счётчики трафика по пользователям. Список имён берётся из уже
+                // собранных инбаундов, поэтому не может разойтись с ними.
+                //
+                // Пустой список означает, что считать некого (на узле нет ни
+                // одного пользователя) — тогда блок не пишем вовсе: узел со
+                // сборкой sing-box без `with_v2ray_api` откажется стартовать с
+                // этой секцией, и незачем ронять пустой узел ради нулей.
+                //
+                // Слушаем только петлю: счётчики снимает агент с того же узла,
+                // наружу порт отдавать нечему и незачем.
+                v2ray_api: {
+                    let users = stats_users;
+                    if users.is_empty() {
+                        None
+                    } else {
+                        Some(V2RayApiConfig {
+                            listen: "127.0.0.1:8080".to_string(),
+                            stats: V2RayStatsConfig {
+                                enabled: true,
+                                users,
+                            },
+                        })
+                    }
+                },
             }),
         }
     }
