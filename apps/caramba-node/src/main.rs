@@ -29,10 +29,15 @@ const V2RAY_API_ENDPOINT: &str = "http://127.0.0.1:8080";
 /// caramba-node, но остался бы со стоковым sing-box без `with_v2ray_api` — и учёт
 /// трафика по пользователям молча не включился бы никогда.
 ///
-/// Вызывается один раз при старте, до первой проверки возможностей. Если тег уже
-/// есть — не делает ничего, поэтому повторные перезапуски бесплатны. Любая ошибка
-/// глотается: без нашей сборки узел работает как раньше, просто не сообщает
-/// панели о поддержке, и та не пишет ему секцию статистики.
+/// Запускается ФОНОМ и только после того, как агент уже начал ходить в панель.
+/// Управляющий контур обязан подниматься первым: пока узел на связи, его можно
+/// откатить и переназначить версию, а всё остальное — работа по возможности.
+/// Первая версия этой функции блокировала старт скачиванием 60 МБ без таймаута
+/// и увела узел Canada в offline на двадцать минут, хотя сам VPN работал.
+///
+/// Если тег уже есть — не делает ничего, поэтому повторные запуски бесплатны.
+/// Любая ошибка глотается: без нашей сборки узел работает как раньше, просто не
+/// сообщает панели о поддержке, и та не пишет ему секцию статистики.
 async fn ensure_singbox_with_v2ray_api() {
     if singbox_reports_v2ray_api() {
         return;
@@ -45,7 +50,20 @@ async fn ensure_singbox_with_v2ray_api() {
     );
     let tmp = "/tmp/caramba-sing-box";
 
-    let bytes = match reqwest::get(&url).await {
+    // Таймауты обязательны: без них зависшая загрузка держала бы задачу вечно.
+    let client = match reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(300))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("не удалось собрать клиент для загрузки sing-box: {e}");
+            return;
+        }
+    };
+
+    let bytes = match client.get(&url).send().await {
         Ok(resp) if resp.status().is_success() => match resp.bytes().await {
             Ok(b) => b,
             Err(e) => {
@@ -73,7 +91,7 @@ async fn ensure_singbox_with_v2ray_api() {
     let verified = std::process::Command::new("sh")
         .args([
             "-c",
-            &format!("chmod +x {tmp} && {tmp} version | grep -q with_v2ray_api"),
+            &format!("chmod +x {tmp} && timeout 30 {tmp} version | grep -q with_v2ray_api"),
         ])
         .status()
         .map(|st| st.success())
@@ -84,12 +102,17 @@ async fn ensure_singbox_with_v2ray_api() {
         return;
     }
 
+    // timeout на systemctl обязателен: команда обращается к systemd из юнита,
+    // который сам сейчас работает, и повиснуть здесь означает потерять узел.
     let cmd = format!(
-        "install -m 0755 {tmp} /usr/bin/sing-box && systemctl try-restart sing-box || true"
+        "install -m 0755 {tmp} /usr/bin/sing-box && timeout 60 systemctl try-restart sing-box || true"
     );
     match std::process::Command::new("sh").args(["-c", &cmd]).status() {
         Ok(st) if st.success() => {
-            tracing::info!("sing-box обновлён на сборку со статистикой по пользователям")
+            tracing::info!("sing-box обновлён на сборку со статистикой по пользователям");
+            // Сообщаем панели о новой возможности уже на ближайшем heartbeat,
+            // не дожидаясь перезапуска агента.
+            refresh_singbox_capability();
         }
         _ => tracing::warn!("подменить sing-box не удалось; остаётся прежняя сборка"),
     }
@@ -111,22 +134,30 @@ fn singbox_reports_v2ray_api() -> bool {
         .unwrap_or(false)
 }
 
-fn singbox_supports_v2ray_api() -> bool {
-    use std::sync::OnceLock;
-    static CACHED: OnceLock<bool> = OnceLock::new();
+/// Возможность больше не кешируется намертво: подмена бинарника идёт фоном и
+/// может завершиться уже после старта, поэтому значение должно уметь измениться
+/// в течение жизни процесса. Иначе узел до самого перезапуска сообщал бы панели
+/// «не поддерживаю», хотя нужная сборка уже стоит.
+static SUPPORTS_V2RAY_API: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
-    *CACHED.get_or_init(|| {
-        let supported = singbox_reports_v2ray_api();
-        if supported {
-            tracing::info!("sing-box собран с with_v2ray_api — учёт по пользователям доступен");
-        } else {
-            tracing::warn!(
-                "sing-box без with_v2ray_api: трафик по пользователям снят не будет, \
-                 панель не станет писать секцию v2ray_api этому узлу"
-            );
-        }
-        supported
-    })
+fn singbox_supports_v2ray_api() -> bool {
+    SUPPORTS_V2RAY_API.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Опрашивает бинарник и запоминает результат. Возвращает true, если поддержка есть.
+fn refresh_singbox_capability() -> bool {
+    let supported = singbox_reports_v2ray_api();
+    SUPPORTS_V2RAY_API.store(supported, std::sync::atomic::Ordering::Relaxed);
+    if supported {
+        tracing::info!("sing-box собран с with_v2ray_api — учёт по пользователям доступен");
+    } else {
+        tracing::warn!(
+            "sing-box без with_v2ray_api: трафик по пользователям снят не будет, \
+             панель не станет писать секцию v2ray_api этому узлу"
+        );
+    }
+    supported
 }
 mod sni_check; // NEW
 
@@ -297,9 +328,9 @@ async fn main() -> anyhow::Result<()> {
 
     info!("🚀 EXA ROBOT Node Agent v0.2.0 Starting...");
 
-    // До первой проверки возможностей: узлы обновляются сами, установщик на них
-    // больше не приходит, поэтому свою сборку sing-box узел дотягивает сам.
-    ensure_singbox_with_v2ray_api().await;
+    // Дешёвый синхронный опрос: один запуск `sing-box version`. Нужен до первого
+    // heartbeat, чтобы панель сразу знала текущее положение дел.
+    refresh_singbox_capability();
 
     // 2. Load Config
     dotenvy::dotenv().ok();
@@ -394,6 +425,13 @@ async fn main() -> anyhow::Result<()> {
     let initial_scan = state.current_hash.is_none(); // Trigger if fresh install
     tokio::spawn(async move {
         start_neighbor_sniper(discoveries, scan_rx, initial_scan).await;
+    });
+
+    // Подмена sing-box — работа по возможности, поэтому уходит в фон и стартует
+    // только сейчас, когда агент уже сходил в панель за конфигом и остаётся
+    // управляемым. Блокировать этим старт нельзя: узел пропадёт со связи.
+    tokio::spawn(async {
+        ensure_singbox_with_v2ray_api().await;
     });
 
     // 6. Main Loop
