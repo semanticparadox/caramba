@@ -39,6 +39,20 @@ pub struct Plan {
     pub created_at: DateTime<Utc>,
     #[sqlx(skip)]
     pub durations: Vec<PlanDuration>,
+
+    // ---- выводимые характеристики витрины ----
+    //
+    // Не колонки: считаются в `catalog_service::get_active_plans` по цепочке
+    // plans → plan_groups → node_group_members → nodes. Витрина показывает их
+    // вместо свободного текста, потому что выведенное из данных не может
+    // соврать и обновляется само, когда добавляется сервер. `description`
+    // остаётся подзаголовком, а не носителем фактов.
+    /// Сколько ВКЛЮЧЁННЫХ и живых узлов доступно на этом плане.
+    #[sqlx(skip)]
+    pub server_count: i64,
+    /// Коды стран этих узлов, для флагов на карточке.
+    #[sqlx(skip)]
+    pub countries: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

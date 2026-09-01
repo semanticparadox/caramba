@@ -17,6 +17,23 @@ export interface Plan {
     durations: PlanDuration[]
     is_free?: boolean
     daily_traffic_mb?: number
+    /** Сколько живых серверов даёт план. Считается на сервере по группам узлов. */
+    server_count?: number
+    /** Коды стран этих серверов — для флагов на карточке. */
+    countries?: string[]
+}
+
+/** Двухбуквенный код страны → флаг.
+ *
+ *  Regional Indicator Symbols: 'DE' → 🇩🇪. Без таблицы соответствий и без
+ *  картинок — работает для любой страны, которая когда-либо появится у узла,
+ *  и не требует правок кода при добавлении новой локации. Мусор на входе
+ *  отдаётся обратно как есть, чтобы на карточке было видно проблему в данных,
+ *  а не пустое место. */
+export function countryFlag(code: string): string {
+    const cc = code.trim().toUpperCase()
+    if (!/^[A-Z]{2}$/.test(cc)) return code
+    return String.fromCodePoint(...[...cc].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65))
 }
 
 export interface PaymentProvider {

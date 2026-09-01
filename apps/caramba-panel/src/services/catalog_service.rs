@@ -294,49 +294,63 @@ impl CatalogService {
             }
         };
 
-        // Self-heal legacy data: if a plan has no durations, derive a default one from plans.price.
-        for plan in &plans {
-            let has_duration = durations.iter().any(|d| d.plan_id == plan.id);
-            if has_duration {
-                continue;
-            }
+        // Здесь раньше стояло «самовосстановление»: у плана нет строк цены —
+        // вставим ему 30 дней по plans.price. Оно удалено, и это не уборка,
+        // а исправление.
+        //
+        // Во-первых, чтение витрины писало в БД. GET, который делает INSERT,
+        // удивителен сам по себе, но хуже другое: он отменял решение
+        // администратора. План без строк цены — это теперь осмысленное
+        // состояние «не продаётся», и ровно так его рисует интерфейс
+        // (PurchaseFlow: durations.length === 0 → карточка без кнопок).
+        // Убрав у тарифа цену, оператор увидел бы её снова после первого же
+        // открытия витрины, без единого следа о том, кто её вернул.
+        //
+        // Во-вторых, для бесплатного плана оно фабриковало строку «30 дней за
+        // $0» — то есть кнопку «купить» на том, что и так выдаётся даром.
+        //
+        // Легаси-план, у которого цена лежит только в plans.price, теперь
+        // показывается как непокупаемый, пока оператор не заведёт срок руками.
+        // Это честнее выдуманного тарифа: неверная цена хуже отсутствующей.
 
-            let default_days = 30;
-            let default_price = *base_prices.get(&plan.id).unwrap_or(&0);
+        // Характеристики, выводимые из инфраструктуры: сколько серверов и в
+        // каких странах даёт этот план. Один запрос на все планы, а не по
+        // одному на карточку — витрина открывается на каждый заход в магазин.
+        //
+        // Считаем только ВКЛЮЧЁННЫЕ и активные узлы: обещать сервер, которого
+        // сейчас нет, — то же самое враньё, что и текст в описании, только
+        // выглядит достовернее.
+        let mut infra: HashMap<i64, (i64, Vec<String>)> = HashMap::new();
+        let infra_rows = sqlx::query(
+            r#"
+            SELECT pg.plan_id,
+                   COUNT(DISTINCT m.node_id) AS servers,
+                   COALESCE(
+                       ARRAY_AGG(DISTINCT n.country_code)
+                           FILTER (WHERE n.country_code IS NOT NULL AND n.country_code <> ''),
+                       '{}'
+                   ) AS countries
+            FROM plan_groups pg
+            JOIN node_group_members m ON m.group_id = pg.group_id
+            JOIN nodes n ON n.id = m.node_id
+                        AND n.is_enabled = TRUE
+                        AND n.status = 'active'
+            WHERE pg.plan_id = ANY($1)
+            GROUP BY pg.plan_id
+            "#,
+        )
+        .bind(&plan_ids)
+        .fetch_all(&self.pool)
+        .await
+        .unwrap_or_default();
 
-            let inserted = match sqlx::query_as::<_, PlanDuration>(
-                r#"
-                INSERT INTO plan_durations (plan_id, duration_days, price, is_default, is_active)
-                VALUES ($1, $2, $3, TRUE, TRUE)
-                RETURNING id, plan_id, duration_days, price::bigint AS price, created_at
-                "#,
-            )
-            .bind(plan.id)
-            .bind(default_days)
-            .bind(default_price)
-            .fetch_one(&self.pool)
-            .await
-            {
-                Ok(duration) => Ok(duration),
-                Err(_) => {
-                    sqlx::query_as::<_, PlanDuration>(
-                        r#"
-                        INSERT INTO plan_durations (plan_id, duration_days, price)
-                        VALUES ($1, $2, $3)
-                        RETURNING id, plan_id, duration_days, price::bigint AS price, created_at
-                        "#,
-                    )
-                    .bind(plan.id)
-                    .bind(default_days)
-                    .bind(default_price)
-                    .fetch_one(&self.pool)
-                    .await
-                }
-            };
-
-            if let Ok(duration) = inserted {
-                durations.push(duration);
-            }
+        for row in infra_rows {
+            let plan_id = row.try_get::<i64, _>("plan_id").unwrap_or_default();
+            let servers = row.try_get::<i64, _>("servers").unwrap_or_default();
+            let countries = row
+                .try_get::<Vec<String>, _>("countries")
+                .unwrap_or_default();
+            infra.insert(plan_id, (servers, countries));
         }
 
         for plan in &mut plans {
@@ -345,6 +359,11 @@ impl CatalogService {
                 .filter(|d| d.plan_id == plan.id)
                 .cloned()
                 .collect();
+
+            if let Some((servers, countries)) = infra.remove(&plan.id) {
+                plan.server_count = servers;
+                plan.countries = countries;
+            }
         }
 
         Ok(plans)

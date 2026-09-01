@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext'
 import { copyText } from '../lib/copyActions'
 import { hapticError, hapticSuccess, hapticTap } from '../lib/haptics'
 import { mapProviderCards } from '../lib/paymentProviders'
-import { formatPrice, useDurationFormatter, type PlanDuration } from '../lib/planFormat'
+import { countryFlag, formatPrice, useDurationFormatter, type PlanDuration } from '../lib/planFormat'
 import { usePlansCatalog } from '../lib/usePlansCatalog'
 import { usePurchase } from '../lib/usePurchase'
 import './PurchaseFlow.css'
@@ -203,12 +203,56 @@ export default function PurchaseFlow() {
                         <article key={plan.id} className="plan-card">
                             <div className="plan-card-head">
                                 <h4>{plan.name}</h4>
-                                <p>{plan.description || t('home.defaultPlanDesc')}</p>
+                                {plan.description && <p>{plan.description}</p>}
                             </div>
-                            <div className="plan-card-meta">
-                                <span>{plan.traffic_limit_gb > 0 ? `${plan.traffic_limit_gb} GB` : t('home.unlimited')}</span>
-                                <span>{plan.device_limit > 0 ? t('home.deviceLimit', { count: plan.device_limit }) : t('home.noDeviceLimit')}</span>
-                            </div>
+                            {/* Характеристики выводятся из данных на сервере
+                                (catalog_service: план → группы узлов → узлы),
+                                поэтому не могут разойтись с реальностью и
+                                обновляются сами, когда добавляется локация.
+                                Описание осталось подзаголовком, а не носителем
+                                фактов — раньше в нём жила проза вроде
+                                «Работает даже на парковке». */}
+                            <ul className="plan-specs">
+                                {(plan.server_count ?? 0) > 0 && (
+                                    <li className="plan-spec">
+                                        <span className="spec-icon" aria-hidden="true">🌍</span>
+                                        <span className="spec-value">
+                                            {t('plans.serverCount', { count: plan.server_count })}
+                                        </span>
+                                        {plan.countries && plan.countries.length > 0 && (
+                                            <span className="spec-flags">
+                                                {plan.countries.map((c) => (
+                                                    <span key={c} title={c}>{countryFlag(c)}</span>
+                                                ))}
+                                            </span>
+                                        )}
+                                    </li>
+                                )}
+                                <li className="plan-spec">
+                                    <span className="spec-icon" aria-hidden="true">📱</span>
+                                    <span className="spec-value">
+                                        {plan.device_limit > 0
+                                            ? t('home.deviceLimit', { count: plan.device_limit })
+                                            : t('home.noDeviceLimit')}
+                                    </span>
+                                </li>
+                                <li className="plan-spec">
+                                    <span className="spec-icon" aria-hidden="true">📊</span>
+                                    <span className="spec-value">
+                                        {plan.traffic_limit_gb > 0
+                                            ? `${plan.traffic_limit_gb} GB`
+                                            : t('home.unlimited')}
+                                    </span>
+                                </li>
+                                {(plan.daily_traffic_mb ?? 0) > 0 && (
+                                    <li className="plan-spec">
+                                        <span className="spec-icon" aria-hidden="true">🔄</span>
+                                        <span className="spec-value">
+                                            {t('plans.dailyTopUp', { mb: plan.daily_traffic_mb })}
+                                        </span>
+                                    </li>
+                                )}
+                            </ul>
                             <div className="duration-grid">
                                 {plan.durations.map((dur) => (
                                     <button
