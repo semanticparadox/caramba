@@ -1,10 +1,11 @@
 use crate::AppState;
 use axum::{
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
+use std::net::{IpAddr, SocketAddr};
 use tracing::{error, info, warn};
 
 #[derive(Deserialize)]
@@ -50,6 +51,7 @@ pub async fn subscription_handler(
     Path(uuid): Path<String>,
     Query(params): Query<SubParams>,
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
 ) -> Response {
     let client_type = match params.client.as_deref() {
@@ -62,7 +64,10 @@ pub async fn subscription_handler(
         None => detect_client_from_ua(&headers),
     };
 
-    let client_ip = get_client_ip(&headers).unwrap_or_else(|| "0.0.0.0".to_string());
+    // Заголовков может не быть, если sub стоит на краю сам, без обратного прокси.
+    // Тогда единственный достоверный источник — адрес самого соединения. Раньше сюда
+    // подставлялся 0.0.0.0, и панель молча выбрасывала такой запрос из учёта.
+    let client_ip = get_client_ip(&headers).unwrap_or_else(|| canonical_ip(peer.ip()).to_string());
     let user_agent = headers
         .get("user-agent")
         .and_then(|h| h.to_str().ok())
@@ -259,16 +264,85 @@ fn split_cached_entry(raw: &[u8]) -> (Option<&str>, &[u8]) {
     }
 }
 
+/// IPv4-mapped IPv6 (`::ffff:1.2.3.4`) приводим к обычному IPv4, иначе один и тот же
+/// клиент попадает в учёт панели под двумя разными адресами.
+fn canonical_ip(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => v6
+            .to_ipv4_mapped()
+            .map(IpAddr::V4)
+            .unwrap_or(IpAddr::V6(v6)),
+        v4 => v4,
+    }
+}
+
+/// Адрес пригоден для передачи панели, только если он разбирается и не является
+/// заглушкой. `0.0.0.0` от кривого прокси не должен побеждать реальный адрес
+/// соединения — иначе учёт устройств слепнет и никак об этом не сообщает.
+fn usable_ip(raw: &str) -> Option<String> {
+    let ip: IpAddr = raw.trim().parse().ok()?;
+    if ip.is_unspecified() || ip.is_loopback() || ip.is_multicast() {
+        return None;
+    }
+    Some(canonical_ip(ip).to_string())
+}
+
 fn get_client_ip(headers: &HeaderMap) -> Option<String> {
-    if let Some(ip) = headers.get("cf-connecting-ip") {
-        return ip.to_str().ok().map(|s| s.to_string());
+    if let Some(ip) = headers
+        .get("cf-connecting-ip")
+        .and_then(|v| v.to_str().ok())
+        .and_then(usable_ip)
+    {
+        return Some(ip);
     }
-    if let Some(ip) = headers.get("x-forwarded-for") {
-        return ip
-            .to_str()
-            .ok()
-            .and_then(|s| s.split(',').next())
-            .map(|s| s.trim().to_string());
+    headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').find_map(usable_ip))
+}
+
+#[cfg(test)]
+mod client_ip_tests {
+    use super::*;
+
+    fn headers_with(name: &'static str, value: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(name, value.parse().unwrap());
+        headers
     }
-    None
+
+    #[test]
+    fn placeholder_address_is_rejected_so_the_peer_address_can_win() {
+        assert_eq!(
+            get_client_ip(&headers_with("x-forwarded-for", "0.0.0.0")),
+            None
+        );
+        assert_eq!(get_client_ip(&HeaderMap::new()), None);
+    }
+
+    #[test]
+    fn first_usable_hop_of_the_chain_is_taken() {
+        assert_eq!(
+            get_client_ip(&headers_with(
+                "x-forwarded-for",
+                "0.0.0.0, 203.0.113.10, 198.51.100.7"
+            )),
+            Some("203.0.113.10".to_string())
+        );
+    }
+
+    #[test]
+    fn cloudflare_header_wins_over_the_forwarded_chain() {
+        let mut headers = headers_with("x-forwarded-for", "203.0.113.10");
+        headers.insert("cf-connecting-ip", "198.51.100.7".parse().unwrap());
+        assert_eq!(get_client_ip(&headers), Some("198.51.100.7".to_string()));
+    }
+
+    #[test]
+    fn mapped_ipv6_collapses_to_ipv4() {
+        assert_eq!(
+            get_client_ip(&headers_with("x-forwarded-for", "::ffff:203.0.113.10")),
+            Some("203.0.113.10".to_string())
+        );
+    }
 }
