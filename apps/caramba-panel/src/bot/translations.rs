@@ -756,26 +756,30 @@ translations! {
     // уведомления был бы ловушкой для того, кто его правит.
     "notify.renewed_body" => { ru: "Тариф «{0}» — ${2} · до {1}", en: "Plan «{0}» — ${2} · until {1}" },
     // {0} = тариф, {1} = баланс, {2} = требуется
+    // Просить пополнить баланс нельзя: пополнить его в этом продукте нечем —
+    // экран баланса только показывает сумму, формы и API пополнения не
+    // существует. Единственное действие, которое человек реально может
+    // совершить, — оплатить тариф напрямую, туда и ведём словами и кнопкой.
     "notify.renew_failed" => {
-        ru: "⚠️ <b>Автопродление не выполнено</b>\n\n💎 Тариф: <b>{0}</b>\n💰 Баланс: <b>${1}</b>\n💳 Нужно: <b>${2}</b>\n\nПополните баланс, чтобы не потерять доступ.",
-        en: "⚠️ <b>Auto-renewal failed</b>\n\n💎 Plan: <b>{0}</b>\n💰 Balance: <b>${1}</b>\n💳 Required: <b>${2}</b>\n\nPlease top up your account to keep your VPN access."
+        ru: "⚠️ <b>Автопродление не выполнено</b>\n\n💎 Тариф: <b>{0}</b>\n💰 На счету: <b>${1}</b>\n💳 Требовалось: <b>${2}</b>\n\nПродлите подписку, чтобы не потерять доступ.",
+        en: "⚠️ <b>Auto-renewal failed</b>\n\n💎 Plan: <b>{0}</b>\n💰 On your account: <b>${1}</b>\n💳 Needed: <b>${2}</b>\n\nRenew your subscription to keep your access."
     },
     "notify.renew_failed_title" => { ru: "Автопродление не выполнено", en: "Auto-renewal failed" },
     // {0} = тариф, {1} = баланс, {2} = требуется
     "notify.renew_failed_body" => {
-        ru: "Тариф «{0}»: баланс ${1}, нужно ${2}",
-        en: "Plan «{0}»: balance ${1}, required ${2}"
+        ru: "Тариф «{0}»: на счету ${1}, требовалось ${2}. Продлите вручную.",
+        en: "Plan «{0}»: ${1} on account, ${2} needed. Renew manually."
     },
     // {0} = баланс, {1} = тариф
     "notify.low_balance" => {
-        ru: "⚠️ <b>Баланс заканчивается</b>\n\nСейчас на счету: <b>${0}</b>\n\nДля автопродления подписки «{1}» нужно пополнить баланс. Лучше сделать это заранее, чтобы не остаться без доступа.",
-        en: "⚠️ <b>Balance running low</b>\n\nYour current balance: <b>${0}</b>\n\nTop up to keep the «{1}» subscription auto-renewing and avoid losing access."
+        ru: "⚠️ <b>Автопродление не сработает</b>\n\nНа счету: <b>${0}</b> — этого не хватит, чтобы продлить «{1}» автоматически.\n\nПродлите подписку вручную, чтобы не остаться без доступа.",
+        en: "⚠️ <b>Auto-renewal won't go through</b>\n\nOn your account: <b>${0}</b> — not enough to renew «{1}» automatically.\n\nRenew manually so you don't lose access."
     },
-    "notify.low_balance_title" => { ru: "Баланс заканчивается", en: "Balance running low" },
+    "notify.low_balance_title" => { ru: "Автопродление не сработает", en: "Auto-renewal won't go through" },
     // {0} = баланс, {1} = тариф
     "notify.low_balance_body" => {
-        ru: "Текущий баланс ${0} · автопродление «{1}»",
-        en: "Current balance ${0} · auto-renewal of «{1}»"
+        ru: "На счету ${0} — не хватит на «{1}». Продлите вручную.",
+        en: "${0} on account — not enough for «{1}». Renew manually."
     },
     "notify.traffic80" => {
         ru: "⚠️ <b>Трафик на исходе</b>\n\nИзрасходовано <b>80%</b> месячного трафика.\nПодумайте о переходе на тариф побольше, чтобы не остаться без связи.",
