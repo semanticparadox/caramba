@@ -1,0 +1,169 @@
+/* EXA — design tokens. Steel & Ember.
+   Источник: Claude Design → exa-tokens.css. Параметры темы Telegram ложатся
+   на семантический слой; вне Telegram работают брендовые значения.
+   Эмбер — единственный акцент: глаза робота, главная кнопка, «Защищено». */
+:root {
+    /* Примитивы — сталь */
+    --exa-steel-950: #0e1013;
+    --exa-steel-900: #15181c;
+    --exa-steel-800: #1a1d22;
+    --exa-steel-700: #262a31;
+    --exa-steel-600: #3a414b;
+    --exa-steel-500: #4a525e;
+    --exa-steel-300: #a3aab5;
+    --exa-steel-100: #e8ecf1;
+    --exa-head: #2a2f37;
+    /* Примитивы — эмбер */
+    --exa-ember: #f2a33c;
+    --exa-ember-press: #d98e2e;
+    --exa-ember-ink: #b86f12;
+    --exa-on-ember: #1a1206;
+    /* Семантика статусов */
+    --exa-success: var(--exa-ember);
+    --exa-warning: #e2c36b;
+    --exa-warning-soft: rgba(226, 195, 107, 0.14);
+    --exa-danger: #e0564f;
+    /* Шрифты — самохостинг, без Google Fonts */
+    --exa-font-display: 'Tektur Variable', 'Tektur', system-ui, sans-serif;
+    --exa-font-body: -apple-system, 'SF Pro Text', Roboto, system-ui, sans-serif;
+    --exa-font-mono: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    --exa-text-xs: 11px;
+    --exa-text-sm: 13px;
+    --exa-text-md: 15px;
+    --exa-text-lg: 17px;
+    --exa-display-sm: 20px;
+    --exa-display-md: 28px;
+    --exa-display-lg: 40px;
+    --exa-display-xl: 56px;
+    /* Форма */
+    --exa-radius-sm: 8px;
+    --exa-radius-md: 12px;
+    --exa-radius-lg: 16px;
+    --exa-radius-sheet: 20px;
+    /* Движение: ничего не подпрыгивает */
+    --exa-ease: 180ms cubic-bezier(0.2, 0.7, 0, 1);
+    --exa-glow-in: 420ms ease-out;
+}
+
+/* Тёмная (основная) — сначала параметры Telegram, потом бренд */
+:root,
+[data-theme='dark'] {
+    color-scheme: dark;
+    --exa-bg: var(--tg-theme-bg-color, var(--exa-steel-950));
+    --exa-surface: var(--tg-theme-secondary-bg-color, var(--exa-steel-800));
+    --exa-elevated: var(--exa-steel-700);
+    --exa-plate: var(--exa-steel-600);
+    --exa-border: rgba(255, 255, 255, 0.07);
+    --exa-border-strong: var(--exa-steel-700);
+    --exa-text: var(--tg-theme-text-color, var(--exa-steel-100));
+    --exa-text-2: var(--exa-steel-300);
+    --exa-hint: var(--tg-theme-hint-color, #6f7784);
+    --exa-link: var(--tg-theme-link-color, var(--exa-ember));
+    --exa-button: var(--exa-ember);
+    --exa-button-press: var(--exa-ember-press);
+    --exa-button-text: var(--exa-on-ember);
+    --exa-accent: var(--exa-ember);
+    --exa-accent-text: var(--exa-ember);
+    --exa-accent-soft: rgba(242, 163, 60, 0.12);
+    --exa-press: rgba(255, 255, 255, 0.06);
+    --exa-tabbar: var(--exa-steel-900);
+    --exa-code-bg: var(--exa-steel-950);
+    --exa-scrim: rgba(8, 9, 11, 0.6);
+    --exa-mark-head: var(--exa-head);
+    --exa-mark-plate: var(--exa-steel-600);
+    --exa-mark-visor: var(--exa-steel-950);
+    --exa-mark-eye-off: var(--exa-steel-500);
+}
+
+/* Совместимость: гайд по подключению, список уведомлений и PIN-замок ещё
+   собраны на прежних семантических токенах (лайм и «стекло»). Пока они не
+   перенесены, их переменные читают значения бренда — без градиентов и свечений. */
+:root,
+[data-theme='dark'],
+[data-theme='light'] {
+    --bg-core: var(--exa-bg);
+    --bg-canvas: var(--exa-bg);
+    --bg-elevated: var(--exa-elevated);
+    --bg-surface: var(--exa-surface);
+    --bg-glass: var(--exa-surface);
+    --bg-glass-hover: var(--exa-elevated);
+    --bg-glass-strong: var(--exa-elevated);
+    --bg-primary: var(--exa-bg);
+    --bg-secondary: var(--exa-surface);
+    --bg-glass-border: var(--exa-border-strong);
+    --text-primary: var(--exa-text);
+    --text-secondary: var(--exa-text-2);
+    --text-muted: var(--exa-hint);
+    --text-tertiary: var(--exa-hint);
+    --lime: var(--exa-ember);
+    --lime-bright: var(--exa-ember);
+    --lime-deep: var(--exa-ember-press);
+    --lime-rgb: 242, 163, 60;
+    --on-lime: var(--exa-on-ember);
+    --cyan: var(--exa-steel-300);
+    --cyan-rgb: 163, 170, 181;
+    --accent-rgb: 242, 163, 60;
+    --accent-primary: var(--exa-ember);
+    --accent-secondary: var(--exa-steel-300);
+    --accent-gradient: var(--exa-ember);
+    --accent-soft-gradient: var(--exa-accent-soft);
+    --neon-gradient: var(--exa-ember);
+    --neon-soft-gradient: var(--exa-accent-soft);
+    --accent-purple: var(--exa-ember);
+    --color-accent: var(--exa-ember);
+    --color-info: var(--exa-text-2);
+    --color-success: var(--exa-success);
+    --color-warning: var(--exa-warning);
+    --color-danger: var(--exa-danger);
+    --status-online: var(--exa-success);
+    --status-warning: var(--exa-warning);
+    --status-error: var(--exa-danger);
+    --border-subtle: var(--exa-border);
+    --border-strong: var(--exa-border-strong);
+    --border-accent: var(--exa-ember);
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-glow: none;
+    --glow-accent: none;
+    --glow-accent-soft: none;
+    --glow-cyan: none;
+    --blur-glass: none;
+    --font-display: var(--exa-font-display);
+    --font-body: var(--exa-font-body);
+    --radius-sm: var(--exa-radius-sm);
+    --radius-md: var(--exa-radius-md);
+    --radius-lg: var(--exa-radius-lg);
+    --radius-xl: var(--exa-radius-lg);
+    --radius-2xl: var(--exa-radius-sheet);
+    --ease-default: var(--exa-ease);
+    --ease-spring: var(--exa-ease);
+}
+
+/* Светлая — матовая светлая сталь, тот же эмбер */
+[data-theme='light'] {
+    color-scheme: light;
+    --exa-bg: var(--tg-theme-bg-color, #e9ecef);
+    --exa-surface: var(--tg-theme-secondary-bg-color, #ffffff);
+    --exa-elevated: #f1f3f6;
+    --exa-plate: #d9dde3;
+    --exa-border: #d9dde3;
+    --exa-border-strong: #c9ced6;
+    --exa-text: var(--tg-theme-text-color, #14171b);
+    --exa-text-2: #4f5763;
+    --exa-hint: var(--tg-theme-hint-color, #7b8390);
+    --exa-link: var(--tg-theme-link-color, var(--exa-ember-ink));
+    --exa-button: var(--exa-ember);
+    --exa-button-press: var(--exa-ember-press);
+    --exa-button-text: var(--exa-on-ember);
+    --exa-accent: var(--exa-ember);
+    --exa-accent-text: var(--exa-ember-ink);
+    --exa-accent-soft: rgba(242, 163, 60, 0.16);
+    --exa-press: rgba(20, 23, 27, 0.06);
+    --exa-tabbar: #f5f6f8;
+    --exa-code-bg: #f1f3f6;
+    --exa-scrim: rgba(20, 23, 27, 0.45);
+    --exa-mark-head: #c3c9d2;
+    --exa-mark-plate: #a9b1bc;
+    --exa-mark-visor: #1c2026;
+    --exa-mark-eye-off: #6b7380;
+}

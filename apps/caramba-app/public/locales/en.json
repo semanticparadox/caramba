@@ -566,5 +566,218 @@
     "sessionExpired": "Session expired. Reopen the Mini App from the bot.",
     "dataTimeout": "Loading timed out. Pull down to refresh.",
     "dataFetch": "Could not load your data. Try refreshing."
+  },
+  "exa": {
+    "nav": {
+      "connect": "Connect",
+      "servers": "Servers",
+      "profile": "Profile",
+      "aria": "Sections"
+    },
+    "common": {
+      "loading": "Loading…",
+      "error": "Something went wrong. Try again",
+      "copied": "Copied",
+      "copy": "Copy",
+      "copyLink": "Copy link",
+      "yes": "Yes",
+      "no": "No",
+      "cancel": "Cancel",
+      "recommended": "Recommended",
+      "unlimited": "Unlimited",
+      "gb": "GB",
+      "days_one": "{{count}} day",
+      "days_other": "{{count}} days",
+      "daysWord_one": "day",
+      "daysWord_other": "days",
+      "back": "Back",
+      "next": "Next",
+      "done": "Done"
+    },
+    "home": {
+      "stateProtected": "Protected",
+      "stateExpired": "Subscription expired",
+      "stateExhausted": "Out of traffic",
+      "stateOff": "Not connected",
+      "noSubscription": "No subscription",
+      "noSubscriptionText": "Pick a plan — the robot walks you through the network.",
+      "choosePlan": "Choose a plan",
+      "enterPromo": "Enter promo code",
+      "pendingActivation": "Awaiting activation",
+      "activate": "Activate",
+      "activating": "Activating…",
+      "until": "until {{date}}",
+      "expiredOn": "expired {{date}}",
+      "expiredNote": "Your devices and server are kept. Protection resumes right after payment.",
+      "renew": "Renew",
+      "pay": "Pay",
+      "upgradeGold": "Switch to Gold",
+      "trafficMonth": "Traffic this month",
+      "limitReached": "Limit reached",
+      "ofGb": "of {{gb}} GB",
+      "exhaustedNote": "Resets on {{date}}. Gold has no traffic limit.",
+      "serverAuto": "Server picked automatically",
+      "serverOff": "not connected",
+      "serverPaused": "paused",
+      "direct": "direct",
+      "change": "Change",
+      "changeServer": "Change server",
+      "devices": "Devices",
+      "devicesOf": "{{n}} of {{of}}",
+      "copyLink": "Copy link",
+      "openInApp": "Open in app",
+      "openInAppHint": "The subscription link imports automatically",
+      "noAppGuide": "No app yet — how to install",
+      "copiedOpenManually": "Link copied — paste it into {{app}}",
+      "qrTitle": "Subscription QR",
+      "qrHint": "Scan with the camera on another device",
+      "notifications": "Notifications"
+    },
+    "clients": {
+      "hiddify": "iOS, Android, Windows, macOS",
+      "happ": "iOS, Android",
+      "v2raytun": "iOS, Android",
+      "singbox": "all platforms"
+    },
+    "servers": {
+      "title": "Servers",
+      "online": "{{count}} online",
+      "empty": "No servers yet",
+      "selected": "Selected",
+      "offline": "offline",
+      "ms": "{{ms}} ms",
+      "load": {
+        "low": "low load",
+        "medium": "medium",
+        "high": "high"
+      },
+      "switchTo": "Switch to {{name}}?",
+      "routerLink": "Router link",
+      "connectionType": "Connection type",
+      "route": "Route",
+      "direct": "Direct",
+      "viaRelay": "Via {{code}} relay",
+      "noLinks": "No links for this server yet",
+      "kind": {
+        "reality": {
+          "name": "VLESS Reality",
+          "hint": "best against blocking"
+        },
+        "ws": {
+          "name": "VLESS WS",
+          "hint": "through CDN / relay"
+        },
+        "grpc": {
+          "name": "gRPC",
+          "hint": "stable on mobile networks"
+        },
+        "httpupgrade": {
+          "name": "VLESS HTTPUpgrade",
+          "hint": "through HTTP proxies and CDN"
+        },
+        "hysteria2": {
+          "name": "Hysteria2",
+          "hint": "maximum speed"
+        },
+        "tuic": {
+          "name": "TUIC",
+          "hint": "fast on poor networks"
+        },
+        "trojan": {
+          "name": "Trojan",
+          "hint": "classic TLS"
+        },
+        "tcp": {
+          "name": "VLESS TCP",
+          "hint": "plain connection"
+        },
+        "other": {
+          "name": "Other",
+          "hint": ""
+        }
+      }
+    },
+    "profile": {
+      "title": "Profile",
+      "devices": "Devices",
+      "payments": "Payments",
+      "noPayments": "No payments yet",
+      "promo": "Promo",
+      "enterPromo": "Enter promo code",
+      "promoPlaceholder": "Promo code",
+      "promoApply": "Apply",
+      "promoApplied": "Promo code applied",
+      "invited": "invited",
+      "bonusDays": "bonus days",
+      "earned": "earned",
+      "language": "Language",
+      "support": "Contact support",
+      "terms": "Terms",
+      "privacy": "Privacy",
+      "method": {
+        "stars": "Telegram Stars",
+        "nowpayments": "Crypto",
+        "balance": "Balance",
+        "manual": "Manual",
+        "other": "{{method}}"
+      },
+      "notifySubscription": "Subscription expiry",
+      "notifyPayment": "Payments",
+      "notifyDevice": "New devices"
+    },
+    "devices": {
+      "title": "Devices",
+      "thisDevice": "this device",
+      "rename": "Rename",
+      "disconnect": "Disconnect",
+      "killAll": "Disconnect all",
+      "killAllConfirm": "Disconnect all devices? They will need to open the subscription link again.",
+      "freeSlot": "Free slot. Open the subscription link on a new device.",
+      "empty": "No active devices",
+      "note": "Devices active in the last 15 minutes are shown.",
+      "unknown": "Device",
+      "now": "now",
+      "minutesAgo_one": "{{count}} minute ago",
+      "minutesAgo_other": "{{count}} minutes ago",
+      "hoursAgo_one": "{{count}} hour ago",
+      "hoursAgo_other": "{{count}} hours ago",
+      "daysAgo_one": "{{count}} day ago",
+      "daysAgo_other": "{{count}} days ago"
+    },
+    "pay": {
+      "plan": "Plan",
+      "method": "Payment method",
+      "step": "step {{n}} of 3",
+      "devices_one": "{{count}} device",
+      "devices_other": "{{count}} devices",
+      "gb": "{{gb}} GB",
+      "perMonth": "{{price}}/mo",
+      "tryFree": "Try for free",
+      "freeHint": "{{devices}} · {{traffic}} · {{servers}}",
+      "freeDaily": "{{mb}} MB per day",
+      "servers_one": "{{count}} server",
+      "servers_other": "{{count}} servers",
+      "next": "Next · {{plan}}, {{days}} · {{price}}",
+      "stars": "Telegram Stars",
+      "starsHint": "inside Telegram, no card",
+      "crypto": "Crypto",
+      "cryptoHint": "USDT, TON, BTC · NowPayments",
+      "balance": "Balance",
+      "balanceHint": "pay from balance",
+      "note": "The subscription activates right after the payment is confirmed. Time is added to the current term.",
+      "payNow": "Pay",
+      "paying": "Opening payment…",
+      "success": "Protected",
+      "successUntil": "{{plan}} until {{date}}",
+      "successDays": "days",
+      "successDevices": "devices",
+      "successTraffic": "traffic",
+      "toHome": "Home",
+      "waiting": "Waiting for payment confirmation…",
+      "openBot": "Open payment in the bot",
+      "failed": "Payment failed",
+      "noPlans": "No plans yet",
+      "activated": "Free plan activated"
+    }
   }
 }
