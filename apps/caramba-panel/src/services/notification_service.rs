@@ -127,16 +127,6 @@ impl NotificationService {
 
     /// Сообщение отправляется в HTML parse mode (см. вызов выше), поэтому
     /// подставляемые домены экранируются под HTML.
-    fn format_rotation_message(
-        &self,
-        lang: Lang,
-        old_sni: &str,
-        new_sni: &str,
-        rotation_id: i64,
-    ) -> String {
-        self.format_rotation_message_with(None, lang, old_sni, new_sni, rotation_id)
-    }
-
     /// То же, но поверх текста, отредактированного в панели. `None` —
     /// переопределения нет, берётся встроенная строка. Подстановка идёт через
     /// ту же `substitute`, что и у `tf`, поэтому отредактированный текст не
@@ -185,7 +175,7 @@ mod tests {
 
         // По умолчанию — русский.
         let ru =
-            service.format_rotation_message(Lang::Ru, "www.google.com", "www.cloudflare.com", 42);
+            service.format_rotation_message_with(None, Lang::Ru, "www.google.com", "www.cloudflare.com", 42);
         assert!(ru.contains("www.google.com"));
         assert!(ru.contains("www.cloudflare.com"));
         assert!(ru.contains("ID ротации: #42"));
@@ -193,7 +183,7 @@ mod tests {
 
         // Английский — только по явному выбору пользователя.
         let en =
-            service.format_rotation_message(Lang::En, "www.google.com", "www.cloudflare.com", 42);
+            service.format_rotation_message_with(None, Lang::En, "www.google.com", "www.cloudflare.com", 42);
         assert!(en.contains("Rotation ID: #42"));
         assert!(en.contains("Disconnect from VPN"));
     }
@@ -205,7 +195,7 @@ mod tests {
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap();
         let service = NotificationService::new(pool);
 
-        let msg = service.format_rotation_message(Lang::Ru, "a<b&c", "d>e", 1);
+        let msg = service.format_rotation_message_with(None, Lang::Ru, "a<b&c", "d>e", 1);
         assert!(msg.contains("a&lt;b&amp;c"));
         assert!(msg.contains("d&gt;e"));
     }

@@ -149,13 +149,6 @@ pub fn routes(state: AppState) -> Router<AppState> {
             )),
         )
         .route(
-            "/store/products/{category_id}",
-            get(get_store_products).layer(middleware::from_fn_with_state(
-                state.clone(),
-                auth_middleware,
-            )),
-        )
-        .route(
             "/store/cart",
             get(get_cart).layer(middleware::from_fn_with_state(
                 state.clone(),
@@ -1635,6 +1628,10 @@ async fn get_store_categories(
     }
 }
 
+/// Витрина товаров — снята с маршрутизации, см. комментарий в main.rs.
+/// Оставлена в коде намеренно: вернуть раздел = снова зарегистрировать маршрут,
+/// а не писать обработчик заново. Удалить, если магазин так и не появится.
+#[allow(dead_code)]
 async fn get_store_products(
     State(state): State<AppState>,
     axum::Extension(_claims): axum::Extension<Claims>,
