@@ -6,13 +6,16 @@ import { ExaIcon } from '../icons'
 import { Button, CountryChip, IconButton, Pill, ScreenHeader } from '../ui'
 import { countryName } from '../lib/countries'
 import { useInboundLinks } from '../lib/links'
+import { availability, serverSpeedMbps } from '../lib/serverLabel'
 import { pickPrimary } from '../lib/subscription'
 import { groupByCountry, loadOf, selectServer, useServers, type ExaServer } from '../lib/useServers'
 import RouterLinkSheet from '../sheets/RouterLinkSheet'
 
-/** «Серверы»: страны → узлы с пингом и нагрузкой. Тап — переключение с
- *  подтверждением прямо в строке, без модалки. У каждого узла — «ссылка для
- *  роутера» с выбором инбаунда. */
+/** «Серверы»: страны → узлы со скоростью канала и нагрузкой. Тап —
+ *  переключение с подтверждением прямо в строке. У каждого узла — «прямая
+ *  ссылка» на конкретный инбаунд для роутера или ручной настройки.
+ *  Пинг не показываем: из WebView Telegram его честно не измерить, а задержка
+ *  панель→узел человеку ничего не говорит. */
 export default function Servers() {
     const { t, i18n } = useTranslation()
     const { token, subscriptions, refreshData } = useAuth()
@@ -25,10 +28,10 @@ export default function Servers() {
     const [routerFor, setRouterFor] = useState<ExaServer | null>(null)
 
     const groups = useMemo(() => groupByCountry(servers), [servers])
-    const online = servers.filter((s) => s.status === 'active').length
+    const online = servers.filter((s) => availability(s) !== 'offline').length
     const currentId = sub?.last_node_id ?? null
-    // Релей-узел для маршрута «через релей»: узел в РФ, если он есть в списке.
     const relayServer = servers.find((s) => s.country_code.toUpperCase() === 'RU') ?? null
+    const locale = i18n.language
 
     const confirm = async () => {
         if (!token || !sub || !pending || busy) return
@@ -54,32 +57,38 @@ export default function Servers() {
                 <div key={g.code} className="exa-stack" style={{ gap: 8 }}>
                     <div className="exa-group-head">
                         <CountryChip code={g.code} />
-                        <span>{countryName(g.code, i18n.language)}</span>
+                        <span>{countryName(g.code, locale)}</span>
                     </div>
                     <section className={`exa-card exa-card--list${g.servers.some((s) => s.id === pending?.id) ? ' is-selected' : ''}`}>
-                        {g.servers.map((s) => {
+                        {g.servers.map((s, idx) => {
                             const load = loadOf(s)
+                            const avail = availability(s)
                             const selected = s.id === currentId
                             const asking = pending?.id === s.id
+                            const speed = serverSpeedMbps(s)
+                            // Несколько узлов в одной стране различаем порядковым номером,
+                            // а не техническим «Node #7».
+                            const title = g.servers.length > 1 ? `${countryName(g.code, locale)} ${idx + 1}` : countryName(g.code, locale)
                             return (
                                 <div key={s.id}>
                                     <div
-                                        className={`exa-row${sub && !selected ? ' is-tappable' : ''}`}
+                                        className={`exa-row${sub && !selected && avail !== 'offline' ? ' is-tappable' : ''}`}
                                         role="button"
                                         onClick={() => {
-                                            if (!sub || selected || busy) return
+                                            if (!sub || selected || busy || avail === 'offline') return
                                             hapticTap()
                                             setPending(asking ? null : s)
                                         }}
                                     >
                                         <div className="exa-row__body">
                                             <div className="exa-row__title">
-                                                <span>{s.name}</span>
+                                                <span>{title}</span>
                                                 {selected ? <Pill tone="accent">{t('exa.servers.selected')}</Pill> : null}
-                                                {s.status !== 'active' ? <Pill tone="danger">{t('exa.servers.offline')}</Pill> : null}
+                                                {avail === 'full' ? <Pill tone="warning">{t('exa.servers.full')}</Pill> : null}
+                                                {avail === 'offline' ? <Pill tone="danger">{t('exa.servers.offline')}</Pill> : null}
                                             </div>
                                             <div className="exa-row__meta">
-                                                {s.latency != null ? <span>{t('exa.servers.ms', { ms: s.latency })}</span> : null}
+                                                {speed ? <span>{t('exa.servers.speed', { mbps: speed })}</span> : null}
                                                 <span className={`exa-load${load.level === 'high' ? ' is-high' : ''}`}>
                                                     <span style={{ width: `${Math.max(8, Math.round(load.ratio * 100))}%` }} />
                                                 </span>
@@ -98,7 +107,7 @@ export default function Servers() {
                                     </div>
                                     {asking ? (
                                         <div className="exa-inline-confirm">
-                                            <span>{t('exa.servers.switchTo', { name: s.name })}</span>
+                                            <span>{t('exa.servers.switchTo', { name: title })}</span>
                                             <Button size="sm" block={false} disabled={busy} onClick={() => void confirm()}>
                                                 {t('exa.common.yes')}
                                             </Button>

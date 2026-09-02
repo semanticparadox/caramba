@@ -13,6 +13,7 @@ import { Button, Card, CountryChip, IconButton, Pill } from '../ui'
 import { deriveState, formatDate, formatGb, pickPrimary, subscriptionUrl } from '../lib/subscription'
 import { countryName } from '../lib/countries'
 import { useServers } from '../lib/useServers'
+import { availability, serverSpeedMbps } from '../lib/serverLabel'
 import { useToast } from '../lib/useToast'
 import ClientPickerSheet from '../sheets/ClientPickerSheet'
 import QrSheet from '../sheets/QrSheet'
@@ -123,8 +124,12 @@ export default function Connect() {
               : `${sub.plan_name} · ${t('exa.common.days', { count: days })}`
 
     const serverLine = currentServer
-        ? `${countryName(currentServer.country_code, locale)}, ${currentServer.name}`
-        : sub.last_node_name || t('exa.home.serverAuto')
+        ? countryName(currentServer.country_code, locale)
+        : sub.last_node_flag
+          ? countryName(sub.last_node_flag, locale)
+          : t('exa.home.serverAuto')
+    const serverSpeed = currentServer ? serverSpeedMbps(currentServer) : null
+    const serverAvail = currentServer ? availability(currentServer) : 'ok'
 
     return (
         <div className="exa-screen">
@@ -177,6 +182,21 @@ export default function Connect() {
                 )}
             </Card>
 
+            {/* Подключение — главное действие, сразу под тарифом */}
+            {isProtected || state === 'exhausted' ? (
+                <div className="exa-connect">
+                    <Button icon={<ExaIcon name="connect" size={22} />} onClick={() => setSheet('client')}>
+                        {t('exa.home.connect')}
+                    </Button>
+                    <IconButton label={t('exa.home.copyLink')} className="is-lg" onClick={() => void copyLink()}>
+                        <ExaIcon name="copy" size={22} />
+                    </IconButton>
+                    <IconButton label="QR" className="is-lg" onClick={() => setSheet('qr')}>
+                        <ExaIcon name="qr" size={22} />
+                    </IconButton>
+                </div>
+            ) : null}
+
             {/* Сервер */}
             <Card className="exa-card--row" muted={muted || state === 'exhausted'}>
                 <CountryChip code={currentServer?.country_code ?? sub.last_node_flag ?? '··'} />
@@ -189,9 +209,11 @@ export default function Connect() {
                             ? t('exa.home.serverOff')
                             : state === 'exhausted'
                               ? t('exa.home.serverPaused')
-                              : currentServer?.latency != null
-                                ? `${t('exa.servers.ms', { ms: currentServer.latency })} · ${t('exa.home.direct')}`
-                                : t('exa.home.direct')}
+                              : serverAvail === 'offline'
+                                ? t('exa.servers.offline')
+                                : serverSpeed
+                                  ? `${t('exa.servers.speed', { mbps: serverSpeed })} · ${t('exa.home.direct')}`
+                                  : t('exa.home.direct')}
                     </div>
                 </div>
                 {isProtected ? (
@@ -259,24 +281,6 @@ export default function Connect() {
                 ) : null}
                 {!muted ? <ExaIcon name="chevron" size={20} className="exa-linkrow__chevron" /> : null}
             </Card>
-
-            {/* Действия */}
-            {isProtected || state === 'exhausted' ? (
-                <div className="exa-actions">
-                    <button type="button" onClick={() => void copyLink()}>
-                        <ExaIcon name="copy" size={22} />
-                        <span>{t('exa.home.copyLink')}</span>
-                    </button>
-                    <button type="button" onClick={() => setSheet('qr')}>
-                        <ExaIcon name="qr" size={22} />
-                        <span>QR</span>
-                    </button>
-                    <button type="button" onClick={() => setSheet('client')}>
-                        <ExaIcon name="phone" size={22} />
-                        <span>{t('exa.home.openInApp')}</span>
-                    </button>
-                </div>
-            ) : null}
 
             <ServerPickerSheet
                 open={sheet === 'server'}

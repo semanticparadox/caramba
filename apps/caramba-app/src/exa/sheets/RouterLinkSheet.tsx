@@ -63,7 +63,7 @@ export default function RouterLinkSheet({
             <Sheet
                 open={open && !qr}
                 title={t('exa.servers.routerLink')}
-                subtitle={`${countryName(server.country_code, i18n.language)}, ${server.name}`}
+                subtitle={`${countryName(server.country_code, i18n.language)} · ${t('exa.servers.routerLinkHint')}`}
                 onClose={onClose}
             >
                 <div className="exa-stack" style={{ gap: 6 }}>
@@ -122,7 +122,7 @@ export default function RouterLinkSheet({
                     open={open && qr}
                     value={current.url}
                     title={t(`exa.servers.kind.${current.kind}.name`)}
-                    subtitle={`${countryName(targetNode?.country_code ?? server.country_code, i18n.language)}, ${targetNode?.name ?? server.name}`}
+                    subtitle={countryName(targetNode?.country_code ?? server.country_code, i18n.language)}
                     onClose={() => setQr(false)}
                 />
             ) : null}

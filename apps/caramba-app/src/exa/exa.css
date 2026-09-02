@@ -254,6 +254,14 @@ body {
 .exa-iconbtn.is-lg { width: 48px; height: 48px; border-radius: var(--exa-radius-md); }
 .exa-iconbtn.is-sm { width: 40px; height: 40px; }
 
+/* Подключение: широкая главная кнопка + ссылка + QR */
+.exa-connect {
+    display: grid;
+    grid-template-columns: 1fr 52px 52px;
+    gap: 8px;
+}
+.exa-connect .exa-iconbtn.is-lg { width: 52px; height: 52px; }
+
 /* Ряд из трёх действий на главном */
 .exa-actions {
     display: grid;

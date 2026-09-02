@@ -631,7 +631,9 @@
       "copiedOpenManually": "Link copied — paste it into {{app}}",
       "qrTitle": "Subscription QR",
       "qrHint": "Scan with the camera on another device",
-      "notifications": "Notifications"
+      "notifications": "Notifications",
+      "connect": "Connect",
+      "link": "Link"
     },
     "clients": {
       "hiddify": "iOS, Android, Windows, macOS",
@@ -644,7 +646,7 @@
       "online": "{{count}} online",
       "empty": "No servers yet",
       "selected": "Selected",
-      "offline": "offline",
+      "offline": "off",
       "ms": "{{ms}} ms",
       "load": {
         "low": "low load",
@@ -652,7 +654,7 @@
         "high": "high"
       },
       "switchTo": "Switch to {{name}}?",
-      "routerLink": "Router link",
+      "routerLink": "Direct link",
       "connectionType": "Connection type",
       "route": "Route",
       "direct": "Direct",
@@ -695,7 +697,10 @@
           "name": "Other",
           "hint": ""
         }
-      }
+      },
+      "routerLinkHint": "for a router or manual setup",
+      "full": "full",
+      "speed": "{{mbps}} Mbps"
     },
     "profile": {
       "title": "Profile",
@@ -742,7 +747,8 @@
       "hoursAgo_one": "{{count}} hour ago",
       "hoursAgo_other": "{{count}} hours ago",
       "daysAgo_one": "{{count}} day ago",
-      "daysAgo_other": "{{count}} days ago"
+      "daysAgo_other": "{{count}} days ago",
+      "disconnectConfirm": "Disconnect this device? It will need to open the subscription link again."
     },
     "pay": {
       "plan": "Plan",

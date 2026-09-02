@@ -81,6 +81,7 @@ export default function Devices() {
 
     const kick = async (d: DeviceEntry) => {
         if (!token || !sub || busy) return
+        if (!window.confirm(t('exa.devices.disconnectConfirm'))) return
         hapticTap()
         setBusy(d.id)
         const res = await fetch(apiUrl(`/api/client/subscription/${sub.id}/devices/${d.id}`), {
@@ -156,22 +157,19 @@ export default function Devices() {
                                     <div className="exa-row__meta">{relative(d.last_seen_at)}</div>
                                 </div>
                             )}
-                            {d.is_current ? (
-                                <IconButton
-                                    label={t('exa.devices.rename')}
-                                    className="is-ghost is-sm"
-                                    onClick={() => {
-                                        setDraft(d.device_name)
-                                        setEditing(d.id)
-                                    }}
-                                >
-                                    <ExaIcon name="pencil" size={20} />
-                                </IconButton>
-                            ) : (
-                                <Button variant="danger" size="sm" block={false} disabled={busy !== null} onClick={() => void kick(d)}>
-                                    {t('exa.devices.disconnect')}
-                                </Button>
-                            )}
+                            <IconButton
+                                label={t('exa.devices.rename')}
+                                className="is-ghost is-sm"
+                                onClick={() => {
+                                    setDraft(d.device_name)
+                                    setEditing(d.id)
+                                }}
+                            >
+                                <ExaIcon name="pencil" size={20} />
+                            </IconButton>
+                            <Button variant="danger" size="sm" block={false} disabled={busy !== null} onClick={() => void kick(d)}>
+                                {t('exa.devices.disconnect')}
+                            </Button>
                         </div>
                     ))}
                 </section>
@@ -183,7 +181,7 @@ export default function Devices() {
                 </div>
             ) : null}
             {!loading && devices.length === 0 ? <p className="exa-muted exa-center">{t('exa.devices.empty')}</p> : null}
-            {devices.length > 1 ? (
+            {devices.length > 0 ? (
                 <Button variant="danger" size="md" disabled={busy !== null} onClick={() => void kickAll()}>
                     {t('exa.devices.killAll')}
                 </Button>

@@ -633,7 +633,9 @@
       "copiedOpenManually": "Ссылка скопирована — вставьте её в {{app}}",
       "qrTitle": "QR подписки",
       "qrHint": "Отсканируйте камерой на другом устройстве",
-      "notifications": "Уведомления"
+      "notifications": "Уведомления",
+      "connect": "Подключиться",
+      "link": "Ссылка"
     },
     "clients": {
       "hiddify": "iOS, Android, Windows, macOS",
@@ -646,7 +648,7 @@
       "online": "{{count}} онлайн",
       "empty": "Серверов пока нет",
       "selected": "Выбран",
-      "offline": "недоступен",
+      "offline": "выключен",
       "ms": "{{ms}} мс",
       "load": {
         "low": "низкая нагрузка",
@@ -654,7 +656,7 @@
         "high": "высокая"
       },
       "switchTo": "Переключить на {{name}}?",
-      "routerLink": "Ссылка для роутера",
+      "routerLink": "Прямая ссылка",
       "connectionType": "Тип подключения",
       "route": "Маршрут",
       "direct": "Прямой",
@@ -697,7 +699,10 @@
           "name": "Другое",
           "hint": ""
         }
-      }
+      },
+      "routerLinkHint": "для роутера или ручной настройки",
+      "full": "заполнен",
+      "speed": "{{mbps}} Мбит/с"
     },
     "profile": {
       "title": "Профиль",
@@ -747,7 +752,8 @@
       "hoursAgo_many": "{{count}} часов назад",
       "daysAgo_one": "{{count}} день назад",
       "daysAgo_few": "{{count}} дня назад",
-      "daysAgo_many": "{{count}} дней назад"
+      "daysAgo_many": "{{count}} дней назад",
+      "disconnectConfirm": "Отключить это устройство? Ему придётся заново открыть ссылку подписки."
     },
     "pay": {
       "plan": "Тариф",

@@ -2,6 +2,7 @@
  *  Всё — на токенах из exa-tokens.css; стили в exa.css. */
 import { useEffect, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { hapticTap } from '../lib/haptics'
+import { countryFlag } from '../lib/planFormat'
 import { ExaIcon } from './icons'
 
 export function Card({
@@ -93,9 +94,16 @@ export function IconButton({
     )
 }
 
-/** Брендовый чип страны: код ISO вместо эмодзи-флага. */
+/** Чип страны: флаг в стальной рамке. Флаг рисует система (Regional Indicator
+ *  Symbols), поэтому в Telegram он выглядит нативно; код — только в aria. */
 export function CountryChip({ code, small = false }: { code: string; small?: boolean }) {
-    return <span className={`exa-chip${small ? ' is-small' : ''}`}>{code.toUpperCase().slice(0, 2)}</span>
+    const cc = (code || '').toUpperCase().slice(0, 2)
+    const flag = /^[A-Z]{2}$/.test(cc) ? countryFlag(cc) : cc
+    return (
+        <span className={`exa-chip${small ? ' is-small' : ''}`} role="img" aria-label={cc}>
+            {flag}
+        </span>
+    )
 }
 
 export function Pill({

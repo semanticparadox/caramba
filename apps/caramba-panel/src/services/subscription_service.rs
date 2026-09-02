@@ -1593,52 +1593,62 @@ impl SubscriptionService {
         Ok(sub)
     }
 
+    /// Имя устройства из User-Agent: «клиент · платформа». Современные клиенты
+    /// пишут платформу в скобках («HiddifyNext/4.0.0 (ios) …»), а слова
+    /// «iphone» там нет — прежний разбор отдавал безликий «Sing-box Client».
     pub fn parse_device_name(&self, ua: &str) -> String {
-        let ua_lower = ua.to_lowercase();
+        let l = ua.to_lowercase();
 
-        if ua_lower.contains("iphone") {
-            return "iPhone".to_string();
-        }
-        if ua_lower.contains("ipad") {
-            return "iPad".to_string();
-        }
-        if ua_lower.contains("android") {
-            return "Android Device".to_string();
-        }
-        if ua_lower.contains("windows") {
-            return "Windows PC".to_string();
-        }
-        if ua_lower.contains("macintosh") || ua_lower.contains("mac os x") {
-            return "MacBook/iMac".to_string();
-        }
-        if ua_lower.contains("linux") {
-            return "Linux Device".to_string();
-        }
-        if ua_lower.contains("sing-box") {
-            return "Sing-box Client".to_string();
-        }
-        if ua_lower.contains("clash") {
-            return "Clash Client".to_string();
-        }
-        if ua_lower.contains("v2ray") || ua_lower.contains("xray") {
-            return "Xray/V2Ray Client".to_string();
-        }
-        if ua_lower.contains("streisand") {
-            return "Streisand (iOS)".to_string();
-        }
-        if ua_lower.contains("shadowrocket") {
-            return "Shadowrocket (iOS)".to_string();
-        }
-        if ua_lower.contains("v2box") {
-            return "V2Box".to_string();
-        }
+        let client = [
+            ("hiddify", "Hiddify"),
+            ("happ", "Happ"),
+            ("v2raytun", "v2rayTun"),
+            ("streisand", "Streisand"),
+            ("shadowrocket", "Shadowrocket"),
+            ("clash-verge", "Clash Verge"),
+            ("clash verge", "Clash Verge"),
+            ("nekobox", "NekoBox"),
+            ("nekoray", "NekoRay"),
+            ("v2rayng", "v2rayNG"),
+            ("v2rayn", "v2rayN"),
+            ("karing", "Karing"),
+            ("stash", "Stash"),
+            ("mihomo", "Mihomo"),
+            ("clash", "Clash"),
+            ("sing-box", "sing-box"),
+            ("singbox", "sing-box"),
+            ("xray", "Xray"),
+            ("v2ray", "V2Ray"),
+        ]
+        .iter()
+        .find(|(needle, _)| l.contains(needle))
+        .map(|(_, label)| *label);
 
-        if ua.len() > 20 {
-            format!("{}...", &ua[0..17])
-        } else if ua.is_empty() {
-            "Unknown Device".to_string()
+        let platform = if l.contains("iphone") || l.contains("(ios") || l.contains(" ios") {
+            Some("iPhone")
+        } else if l.contains("ipad") {
+            Some("iPad")
+        } else if l.contains("android") {
+            Some("Android")
+        } else if l.contains("windows") {
+            Some("Windows")
+        } else if l.contains("macos")
+            || l.contains("mac os")
+            || l.contains("macintosh")
+            || l.contains("darwin")
+        {
+            Some("Mac")
+        } else if l.contains("linux") {
+            Some("Linux")
         } else {
-            ua.to_string()
+            None
+        };
+
+        match (client, platform) {
+            (Some(c), Some(p)) => format!("{} · {}", c, p),
+            (Some(c), None) => c.to_string(),
+            (None, Some(p)) => p.to_string(),
+            (None, None) => "Device".to_string(),
         }
     }
 
