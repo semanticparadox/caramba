@@ -166,6 +166,18 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             try client.configure(panelUrl, subscriptionID: subUuid, accessToken: accessToken)
         }
 
+        // ABI v2 policy: the whole CoreConfig arrives as one JSON blob and is
+        // applied BEFORE up, so the assembled mihomo config already carries it.
+        if let policyJson = conf[CarambaVpnKeys.policyJson] as? String, !policyJson.isEmpty {
+            try client.setPolicyJSON(policyJson)
+        }
+        // Capture mode. Apple owns the utun fd, so "tun" is the norm here; the
+        // key exists for parity with desktop and for no-TUN debugging.
+        if let mode = conf[CarambaVpnKeys.tunnelMode] as? String, !mode.isEmpty, mode != "tun" {
+            let port = Int(conf[CarambaVpnKeys.mixedPort] as? String ?? "") ?? 7890
+            try client.setTunnelMode(mode, port: port)
+        }
+
         // Optional routing policy (applies to both paths).
         if let proto = conf[CarambaVpnKeys.protocolName] as? String, !proto.isEmpty {
             client.setProtocol(proto)
@@ -185,12 +197,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         // gomobile maps Go `SetTunFd(fd int) error` to `setTunFd(_ fd: Int) throws`.
         try client.setTunFd(Int(fd))
 
-        // Up raises the tunnel from the active config. On the panel path we pass the
-        // selected serverId; on the raw path serverId is empty ("") since an
-        // imported subscription has no panel node. gomobile maps
+        // Up raises the tunnel from the active config. Both paths pass serverId:
+        // on the panel path it is the subscription node, on the raw path it is the
+        // ABI v2 pin of the CARAMBA selector to one proxy of the imported config
+        // (empty means automatic). gomobile maps
         // `Up(serverID string) (string, error)` to a throwing Swift method returning
         // the UpResult JSON; we only need its success/throw.
-        _ = try client.up(rawMode ? "" : serverId)
+        _ = try client.up(serverId)
         #else
         _ = serverId
         _ = rawMode

@@ -29,6 +29,12 @@ class CarambaCoreFfi {
   using ConfigureFn = char* (*)(CarambaHandle, const char*, const char*,
                                 const char*);
   using SetTunFdFn = char* (*)(CarambaHandle, int);
+  // ABI v2. Resolved OPTIONALLY: a DLL built before the policy/probe wave does
+  // not export them, and a hard check would block the whole desktop path. A null
+  // pointer here means "old core"; the caller answers with a clear error.
+  using SetTunnelModeFn = char* (*)(CarambaHandle, const char*, int);
+  using SetPolicyFn = char* (*)(CarambaHandle, const char*);
+  using ProbeFn = char* (*)(CarambaHandle, int);
   // ImportSubscription parses a raw subscription (rawConfig in the given format)
   // into a mihomo config and stores it as the imported source. Returns a
   // CarambaFreeString-owned JSON string; on failure it carries an "error" field.
@@ -63,6 +69,12 @@ class CarambaCoreFfi {
         GetProcAddress(module_, "CarambaConfigure"));
     SetTunFd =
         reinterpret_cast<SetTunFdFn>(GetProcAddress(module_, "CarambaSetTunFd"));
+    // ABI v2, optional: absent in a core built before the policy/probe wave.
+    SetTunnelMode = reinterpret_cast<SetTunnelModeFn>(
+        GetProcAddress(module_, "CarambaSetTunnelMode"));
+    SetPolicy = reinterpret_cast<SetPolicyFn>(
+        GetProcAddress(module_, "CarambaSetPolicy"));
+    Probe = reinterpret_cast<ProbeFn>(GetProcAddress(module_, "CarambaProbe"));
     ImportSubscription = reinterpret_cast<ImportSubscriptionFn>(
         GetProcAddress(module_, "CarambaImportSubscription"));
     Up = reinterpret_cast<UpFn>(GetProcAddress(module_, "CarambaUp"));
@@ -105,6 +117,9 @@ class CarambaCoreFfi {
   NewFn New = nullptr;
   ConfigureFn Configure = nullptr;
   SetTunFdFn SetTunFd = nullptr;
+  SetTunnelModeFn SetTunnelMode = nullptr;  // optional (ABI v2)
+  SetPolicyFn SetPolicy = nullptr;          // optional (ABI v2)
+  ProbeFn Probe = nullptr;                  // optional (ABI v2)
   ImportSubscriptionFn ImportSubscription = nullptr;
   UpFn Up = nullptr;
   DownFn Down = nullptr;

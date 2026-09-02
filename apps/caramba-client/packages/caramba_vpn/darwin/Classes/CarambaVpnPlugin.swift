@@ -1,7 +1,10 @@
 // CarambaVpnPlugin — the app-process Flutter plugin for Apple platforms.
 //
 // Registers the CHANNEL CONTRACT on both iOS and macOS:
-//   MethodChannel  com.caramba/vpn          connect / disconnect / status / configure
+//   MethodChannel  com.caramba/vpn          configure / connect / connectRaw /
+//                                           disconnect / status, plus the ABI v2
+//                                           generic-mode calls importSubscription /
+//                                           probe / setPolicy / setTunnelMode
 //   EventChannel   com.caramba/vpn/status   { stage, detail?, connectedSinceMs }
 //   EventChannel   com.caramba/vpn/traffic  { downBps, upBps, downTotal, upTotal }
 //
@@ -24,6 +27,14 @@
 
 import Foundation
 import NetworkExtension
+
+// The gomobile-bound Go core, used ONLY for the metadata-only generic-mode calls
+// (importSubscription / probe) that must not raise a tunnel. The packet path
+// still lives in the Network Extension. Guarded so the plugin compiles without
+// the vendored framework; the calls then answer FlutterError("core_missing").
+#if canImport(Caramba)
+import Caramba
+#endif
 
 public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
 
@@ -59,6 +70,17 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     /// captured by `configure` and threaded to the extension on connect.
     private var pendingConfig: [String: Any] = [:]
 
+    /// Lazily built metadata-only core client for the generic-mode calls
+    /// (importSubscription / probe). It runs IN THE APP PROCESS and never raises
+    /// a tunnel; the packet path stays in the extension.
+    #if canImport(Caramba)
+    private var tools: CarambaClient?
+    #endif
+
+    /// Serial queue for the blocking core calls (import parses a whole
+    /// subscription, probe dials every node) so they never sit on the main thread.
+    private let toolsQueue = DispatchQueue(label: "com.caramba.vpn.tools")
+
     // MARK: FlutterPlugin
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -73,6 +95,12 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
                         CarambaVpnKeys.accessToken, CarambaVpnKeys.protocolName,
                         CarambaVpnKeys.relayCountry, CarambaVpnKeys.presetId] {
                 if let v = args[key] { pendingConfig[key] = v }
+            }
+            // Wire-key compatibility: the canonical key is `subscriptionUuid`, but
+            // older callers send `subscriptionId`. Accept either, store the canonical.
+            if pendingConfig[CarambaVpnKeys.subscriptionUuid] == nil,
+               let legacy = args[CarambaVpnKeys.subscriptionId] {
+                pendingConfig[CarambaVpnKeys.subscriptionUuid] = legacy
             }
             result(nil)
 
@@ -89,6 +117,35 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
 
         case "status":
             result(CarambaSharedState.readStatus().asMap)
+
+        // --- generic mode (ABI v2) -------------------------------------------
+
+        case "importSubscription":
+            let args = call.arguments as? [String: Any] ?? [:]
+            let raw = args[CarambaVpnKeys.rawConfig] as? String ?? ""
+            let format = args[CarambaVpnKeys.rawFormat] as? String ?? ""
+            importSubscription(raw: raw, format: format, result: result)
+
+        case "probe":
+            let args = call.arguments as? [String: Any] ?? [:]
+            let timeoutMs = (args[CarambaVpnKeys.timeoutMs] as? NSNumber)?.intValue ?? 5000
+            probe(timeoutMs: timeoutMs, result: result)
+
+        case "setPolicy":
+            // Stored, not applied here: the core that raises the tunnel lives in
+            // the extension, which reads this through providerConfiguration and
+            // calls setPolicyJSON before up.
+            let args = call.arguments as? [String: Any] ?? [:]
+            pendingConfig[CarambaVpnKeys.policyJson] = args["json"] as? String ?? ""
+            result(nil)
+
+        case "setTunnelMode":
+            let args = call.arguments as? [String: Any] ?? [:]
+            pendingConfig[CarambaVpnKeys.tunnelMode] = args["mode"] as? String ?? "tun"
+            let port = (args["port"] as? NSNumber)?.intValue ?? 7890
+            // providerConfiguration must stay plist-safe; keep it a String.
+            pendingConfig[CarambaVpnKeys.mixedPort] = String(port)
+            result(nil)
 
         default:
             result(FlutterMethodNotImplemented)
@@ -194,7 +251,15 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
             providerConf[CarambaVpnKeys.rawConfig] = args[CarambaVpnKeys.rawConfig] as? String ?? ""
             providerConf[CarambaVpnKeys.rawFormat] = args[CarambaVpnKeys.rawFormat] as? String ?? ""
             providerConf[CarambaVpnKeys.rawLabel] = label
-            providerConf[CarambaVpnKeys.serverId] = ""
+            // ABI v2: a non-empty serverId pins the CARAMBA selector to that proxy
+            // name inside the imported config; empty keeps the automatic choice.
+            providerConf[CarambaVpnKeys.serverId] = args[CarambaVpnKeys.serverId] as? String ?? ""
+            // Policy + capture mode apply to BOTH paths, so copy them over even
+            // though the raw path skips the panel seam.
+            for key in [CarambaVpnKeys.policyJson, CarambaVpnKeys.tunnelMode,
+                        CarambaVpnKeys.mixedPort] {
+                if let v = self.pendingConfig[key] { providerConf[key] = v }
+            }
 
             let proto = (mgr.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
             proto.providerBundleIdentifier = self.extensionBundleIdentifier()
@@ -230,6 +295,75 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
                 }
             }
         }
+    }
+
+    // MARK: Generic mode (ABI v2), in-process, no tunnel
+
+    /// Lazily builds the metadata-only core client. Its work dir is separate from
+    /// the extension's so a probe never disturbs a live tunnel.
+    #if canImport(Caramba)
+    private func toolsClient() throws -> CarambaClient {
+        if let existing = tools { return existing }
+        let base = CarambaAppGroup.containerURL ?? FileManager.default.temporaryDirectory
+        let workDir = base.appendingPathComponent("caramba-tools", isDirectory: true).path
+        let tokenPath = base.appendingPathComponent("caramba-tools/token.json").path
+        var initError: NSError?
+        // Empty panel URL: NewClient only wires the client (no network), and the
+        // generic path never talks to a panel.
+        guard let client = CarambaNewClient("", "", workDir, tokenPath, &initError) else {
+            throw initError ?? NSError(domain: "com.caramba.vpn", code: -1,
+                                       userInfo: [NSLocalizedDescriptionKey: "core init failed"])
+        }
+        tools = client
+        return client
+    }
+    #endif
+
+    /// Parses a raw subscription and returns the metadata JSON verbatim, WITHOUT
+    /// raising a tunnel. Dart parses the JSON into ImportResult.
+    private func importSubscription(raw: String, format: String,
+                                    result: @escaping FlutterResult) {
+        #if canImport(Caramba)
+        toolsQueue.async { [weak self] in
+            guard let self = self else { return }
+            do {
+                let client = try self.toolsClient()
+                let json = try client.importSubscription(raw, format: format)
+                DispatchQueue.main.async { result(json) }
+            } catch {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: "import_failed",
+                                        message: error.localizedDescription, details: nil))
+                }
+            }
+        }
+        #else
+        result(FlutterError(code: "core_missing",
+                            message: "exarobot.xcframework not linked", details: nil))
+        #endif
+    }
+
+    /// Measures the latency of every node of the currently loaded config and
+    /// returns the ABI v2 JSON verbatim. Blocking, so it runs off the main thread.
+    private func probe(timeoutMs: Int, result: @escaping FlutterResult) {
+        #if canImport(Caramba)
+        toolsQueue.async { [weak self] in
+            guard let self = self else { return }
+            do {
+                let client = try self.toolsClient()
+                let json = try client.probeJSON(timeoutMs)
+                DispatchQueue.main.async { result(json) }
+            } catch {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: "probe_failed",
+                                        message: error.localizedDescription, details: nil))
+                }
+            }
+        }
+        #else
+        result(FlutterError(code: "core_missing",
+                            message: "exarobot.xcframework not linked", details: nil))
+        #endif
     }
 
     private func disconnect(result: @escaping FlutterResult) {

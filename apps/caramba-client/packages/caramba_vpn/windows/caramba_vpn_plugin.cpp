@@ -45,6 +45,24 @@ std::string ArgString(const flutter::EncodableMap* args, const char* key) {
   return std::string();
 }
 
+// Reads an int argument from a MethodCall argument map; fallback if absent.
+int ArgInt(const flutter::EncodableMap* args, const char* key, int fallback) {
+  if (args == nullptr) {
+    return fallback;
+  }
+  auto it = args->find(flutter::EncodableValue(key));
+  if (it == args->end()) {
+    return fallback;
+  }
+  if (const auto* i = std::get_if<int32_t>(&it->second)) {
+    return *i;
+  }
+  if (const auto* i = std::get_if<int64_t>(&it->second)) {
+    return static_cast<int>(*i);
+  }
+  return fallback;
+}
+
 }  // namespace
 
 void CarambaVpnPlugin::RegisterWithRegistrar(
@@ -255,9 +273,63 @@ void CarambaVpnPlugin::HandleMethodCall(
   if (method == "connectRaw") {
     const std::string raw_config = ArgString(args, "rawConfig");
     const std::string format = ArgString(args, "format");
-    // "label" is display-only (profile name); the tunnel has no subscription
-    // node, so it is not forwarded to the core here.
-    ConnectRaw(raw_config, format);
+    // "label" is display-only (profile name) and is not forwarded to the core.
+    // "serverId" (ABI v2) pins the CARAMBA selector to one node of the imported
+    // config; empty keeps the automatic choice.
+    ConnectRaw(raw_config, format, ArgString(args, "serverId"));
+    result->Success();
+    return;
+  }
+  // --- generic mode (ABI v2) -------------------------------------------------
+  if (method == "importSubscription") {
+    // Parse a subscription and return its metadata WITHOUT raising the tunnel.
+    // Uses the same core handle a later connectRaw will raise, so the import
+    // stays the active config.
+    if (!EnsureCore()) {
+      result->Error("core_missing", "exarobot core library not found");
+      return;
+    }
+    const std::string json = core_.TakeString(core_.ImportSubscription(
+        handle_, ArgString(args, "rawConfig").c_str(),
+        ArgString(args, "format").c_str()));
+    result->Success(flutter::EncodableValue(json));
+    return;
+  }
+  if (method == "probe") {
+    if (!EnsureCore()) {
+      result->Error("core_missing", "exarobot core library not found");
+      return;
+    }
+    if (core_.Probe == nullptr) {
+      result->Error("core_missing",
+                    "CarambaProbe is missing (core predates ABI v2)");
+      return;
+    }
+    const std::string json = core_.TakeString(
+        core_.Probe(handle_, ArgInt(args, "timeoutMs", 5000)));
+    result->Success(flutter::EncodableValue(json));
+    return;
+  }
+  if (method == "setPolicy") {
+    policy_json_ = ArgString(args, "json");
+    if (handle_ != 0 && core_.SetPolicy == nullptr) {
+      result->Error("core_missing",
+                    "CarambaSetPolicy is missing (core predates ABI v2)");
+      return;
+    }
+    ApplyPolicy();
+    result->Success();
+    return;
+  }
+  if (method == "setTunnelMode") {
+    tunnel_mode_ = ArgString(args, "mode");
+    mixed_port_ = ArgInt(args, "port", 7890);
+    if (handle_ != 0 && core_.SetTunnelMode == nullptr) {
+      result->Error("core_missing",
+                    "CarambaSetTunnelMode is missing (core predates ABI v2)");
+      return;
+    }
+    ApplyTunnelMode();
     result->Success();
     return;
   }
@@ -324,7 +396,27 @@ bool CarambaVpnPlugin::EnsureCore() {
                                      access_token_.c_str()));
     configured_ = true;
   }
+  // ABI v2: policy + capture mode go in right after the handle exists, before
+  // any Up. A missing symbol (pre-ABI-v2 core) is skipped silently here; the
+  // explicit setPolicy/setTunnelMode calls surface the error to Dart.
+  ApplyPolicy();
+  ApplyTunnelMode();
   return true;
+}
+
+void CarambaVpnPlugin::ApplyPolicy() {
+  if (handle_ == 0 || core_.SetPolicy == nullptr || policy_json_.empty()) {
+    return;
+  }
+  core_.DropString(core_.SetPolicy(handle_, policy_json_.c_str()));
+}
+
+void CarambaVpnPlugin::ApplyTunnelMode() {
+  if (handle_ == 0 || core_.SetTunnelMode == nullptr || tunnel_mode_.empty()) {
+    return;
+  }
+  core_.DropString(
+      core_.SetTunnelMode(handle_, tunnel_mode_.c_str(), mixed_port_));
 }
 
 void CarambaVpnPlugin::Connect(const std::string& server_id) {
@@ -356,7 +448,8 @@ void CarambaVpnPlugin::Connect(const std::string& server_id) {
 }
 
 void CarambaVpnPlugin::ConnectRaw(const std::string& raw_config,
-                                  const std::string& format) {
+                                  const std::string& format,
+                                  const std::string& server_id) {
   EmitStage("connecting", "");
 
   if (!EnsureCore()) {
@@ -380,9 +473,10 @@ void CarambaVpnPlugin::ConnectRaw(const std::string& raw_config,
   // Desktop: mihomo owns the TUN (wintun). Pass -1, never establish an fd here.
   core_.DropString(core_.SetTunFd(handle_, -1));
 
-  // Empty serverID: the imported config has no subscription node; the core
-  // raises the imported source. CarambaUp always returns non-NULL JSON.
-  std::string up_json = core_.TakeString(core_.Up(handle_, ""));
+  // serverID (ABI v2) pins the CARAMBA selector to one node of the imported
+  // config; empty keeps the automatic choice. CarambaUp always returns non-NULL
+  // JSON.
+  std::string up_json = core_.TakeString(core_.Up(handle_, server_id.c_str()));
   std::string up_error;
   if (up_json.empty() || json::GetString(up_json, "error", &up_error)) {
     EmitStage("error", up_error.empty() ? "tunnel failed to start" : up_error);

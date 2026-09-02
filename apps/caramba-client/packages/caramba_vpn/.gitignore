@@ -1,0 +1,7 @@
+# build artifacts vendored from libs/caramba-core/build (never committed)
+android/libs/*.aar
+macos/Libraries/*.dylib
+linux/lib/*.so
+windows/lib/*.dll
+ios/Frameworks/*.xcframework
+macos/Frameworks/*.xcframework

@@ -82,6 +82,77 @@ internal class CarambaCore private constructor(
             client.importSubscription(raw, format)
             return CarambaCore(client)
         }
+
+        /**
+         * Builds a core client for the metadata-only calls of generic mode
+         * (importSubscription / probe). No panel, no auth, no TUN: the client is
+         * only used to parse a subscription and to measure node latency, then
+         * closed. Runs in the PLUGIN process, not in CarambaVpnService.
+         *
+         * @param workDir scratch dir for the parsed config (separate from the
+         *        tunnel work dir so a probe never disturbs a live session).
+         * @param tokenPath token-store file path (unused on this path).
+         *
+         * @throws Exception if the Go core fails to initialize.
+         */
+        fun createTools(workDir: String, tokenPath: String): CarambaCore {
+            // NewClient only wires the client (no network), so an empty panel URL
+            // is fine here — the generic path never talks to a panel.
+            val client = mobile.Mobile.newClient("", "", workDir, tokenPath)
+            return CarambaCore(client)
+        }
+    }
+
+    /**
+     * Parses a raw subscription into a mihomo config and returns the metadata
+     * JSON (ABI v2: `{"name":...,"servers":[{id,name,type,server,port,country}]}`).
+     * Does NOT raise a tunnel.
+     *
+     * @throws Exception on a parse failure (Go error).
+     */
+    fun importSubscription(raw: String, format: String): String =
+        client.importSubscription(raw, format)
+
+    /**
+     * Measures the latency of every proxy in the currently loaded config
+     * (ABI v2 `Client.ProbeJSON`). Returns
+     * `{"servers":[{...,"latencyMs":42}]}` with -1 on timeout. Blocking: call
+     * from a background thread.
+     *
+     * gomobile maps Go `int` to Java `long`.
+     *
+     * @throws Exception if the core has no config loaded.
+     */
+    fun probeJson(timeoutMs: Int): String = client.probeJSON(timeoutMs.toLong())
+
+    /**
+     * Applies the app-side CoreConfig before up (ABI v2 `Client.SetPolicyJSON`).
+     * The JSON shape is the one produced by the Dart `CorePolicy.toJson()`.
+     *
+     * @throws Exception if the JSON is malformed.
+     */
+    fun setPolicyJson(json: String) {
+        client.setPolicyJSON(json)
+    }
+
+    /**
+     * Switches the traffic capture mode: "tun" (system TUN inbound, the default
+     * on Android where the VpnService owns the fd) or "proxy" (local mixed
+     * inbound on 127.0.0.1:port). Applied at the next up().
+     *
+     * @throws Exception if the mode is unknown.
+     */
+    fun setTunnelMode(mode: String, port: Int) {
+        client.setTunnelMode(mode, port.toLong())
+    }
+
+    /** Releases the client (used by the short-lived tools instance). */
+    fun close() {
+        try {
+            client.down()
+        } catch (_: Throwable) {
+            // Best-effort: the tools client never raised a tunnel.
+        }
     }
 
     /** Pass the platform TUN fd to the engine BEFORE up(). */

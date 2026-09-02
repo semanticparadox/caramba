@@ -59,6 +59,22 @@ enum CarambaVpnKeys {
     static let rawFormat = "format"
     static let rawLabel = "label"
     static let rawMode = "rawMode"
+
+    // ABI v2. `policyJson` is the CorePolicy JSON the extension feeds to
+    // `setPolicyJSON` before `up`; `tunnelMode` / `mixedPort` mirror
+    // `SetTunnelMode(mode, port)`. All three ride providerConfiguration, so they
+    // are stored as plist-safe values (String, String, String).
+    static let policyJson = "policyJson"
+    static let tunnelMode = "tunnelMode"
+    static let mixedPort = "mixedPort"
+
+    // Legacy alias for the subscription uuid. The app's VpnConfig.toArgs() and
+    // the plugin facade both send `subscriptionUuid`; older callers sent
+    // `subscriptionId`. Accept either on the `configure` channel.
+    static let subscriptionId = "subscriptionId"
+
+    // probe(timeoutMs) argument name on the method channel.
+    static let timeoutMs = "timeoutMs"
 }
 
 /// Tunnel stage strings. These MUST stay identical to the Dart `VpnStage` names

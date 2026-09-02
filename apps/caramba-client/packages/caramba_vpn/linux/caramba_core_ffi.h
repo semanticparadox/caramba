@@ -26,6 +26,13 @@ typedef char* (*caramba_configure_fn)(CarambaHandle, const char*, const char*,
 typedef char* (*caramba_import_subscription_fn)(CarambaHandle, const char*,
                                                 const char*);
 typedef char* (*caramba_set_tun_fd_fn)(CarambaHandle, int);
+// ABI v2. SetTunnelMode/SetPolicy отдают NULL при успехе, Probe — всегда JSON.
+// Все три РЕЗОЛВЯТСЯ ОПЦИОНАЛЬНО: библиотека, собранная до ABI v2, их не несёт,
+// и жёсткая проверка заблокировала бы весь desktop-путь. NULL-указатель здесь
+// означает «ядро старое» — вызывающий отвечает понятной ошибкой.
+typedef char* (*caramba_set_tunnel_mode_fn)(CarambaHandle, const char*, int);
+typedef char* (*caramba_set_policy_fn)(CarambaHandle, const char*);
+typedef char* (*caramba_probe_fn)(CarambaHandle, int);
 typedef char* (*caramba_up_fn)(CarambaHandle, const char*);
 typedef char* (*caramba_down_fn)(CarambaHandle);
 typedef char* (*caramba_status_fn)(CarambaHandle);
@@ -39,6 +46,9 @@ typedef struct {
   caramba_configure_fn Configure;
   caramba_import_subscription_fn ImportSubscription;
   caramba_set_tun_fd_fn SetTunFd;
+  caramba_set_tunnel_mode_fn SetTunnelMode;  // optional (ABI v2)
+  caramba_set_policy_fn SetPolicy;           // optional (ABI v2)
+  caramba_probe_fn Probe;                    // optional (ABI v2)
   caramba_up_fn Up;
   caramba_down_fn Down;
   caramba_status_fn Status;
@@ -63,6 +73,12 @@ static inline gboolean caramba_core_ffi_load(CarambaCoreFfi* ffi) {
   ffi->ImportSubscription = (caramba_import_subscription_fn)dlsym(
       ffi->module, "CarambaImportSubscription");
   ffi->SetTunFd = (caramba_set_tun_fd_fn)dlsym(ffi->module, "CarambaSetTunFd");
+  // ABI v2, optional: absent in a core built before the policy/probe wave.
+  ffi->SetTunnelMode = (caramba_set_tunnel_mode_fn)dlsym(
+      ffi->module, "CarambaSetTunnelMode");
+  ffi->SetPolicy =
+      (caramba_set_policy_fn)dlsym(ffi->module, "CarambaSetPolicy");
+  ffi->Probe = (caramba_probe_fn)dlsym(ffi->module, "CarambaProbe");
   ffi->Up = (caramba_up_fn)dlsym(ffi->module, "CarambaUp");
   ffi->Down = (caramba_down_fn)dlsym(ffi->module, "CarambaDown");
   ffi->Status = (caramba_status_fn)dlsym(ffi->module, "CarambaStatus");

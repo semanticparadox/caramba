@@ -48,13 +48,25 @@ every platform and bridges to the Go core. The contract is fixed by
 - MethodChannel `com.caramba/vpn`
   - `configure({panelUrl, subscriptionUuid, accessToken})`: authorize the core
     before the first connect. Maps to gomobile `NewClient(panelUrl, ...)` plus
-    `SetSubscriptionID(subscriptionUuid)` and the JWT.
+    `SetSubscriptionID(subscriptionUuid)` and the JWT. `subscriptionUuid` is the
+    canonical key; every platform also accepts the legacy `subscriptionId`.
   - `connect({serverId, serverName, countryCode})`: raise the tunnel. Maps to
     `SetTunFd(fd)` (mobile only) then `Up(serverId)`.
   - `disconnect()`: maps to `Down()`.
+  - Generic mode (ABI v2, see `docs/CORE-ABI-v2.md`), none of which raise a
+    tunnel; the first two return the core's JSON verbatim as a String:
+    - `importSubscription({rawConfig, format})` -> `{name?, servers[]}` with
+      `id`, `name`, `type`, `server`, `port`, `country` per node. `id` is the
+      mihomo proxy name and doubles as the `serverId` for `connectRaw`.
+    - `probe({timeoutMs})` -> `{servers[]}` with `latencyMs` (-1 on timeout).
+    - `setPolicy({json})` -> the `CorePolicy` JSON, applied before the next `Up`.
+    - `setTunnelMode({mode, port})` -> `tun` or `proxy` plus the local mixed
+      inbound port, applied at the next `Up`.
 - EventChannel `com.caramba/vpn/status`: emits `{stage, detail?,
-  connectedSinceMs?}`. `stage` is one of `disconnected`, `connecting`,
-  `connected`, `reconnecting`, `error`.
+  connectedSinceMs?, mode?, mixedPort?, activeProxy?}`. `stage` is one of
+  `disconnected`, `connecting`, `connected`, `reconnecting`, `error`. The last
+  three are ABI v2 additions and stay optional: a core that omits them parses to
+  `null`.
 - EventChannel `com.caramba/vpn/traffic`: emits `{downBps, upBps, downTotal,
   upTotal}` about once per second while connected.
 
@@ -65,11 +77,15 @@ Imported subscriptions (the `rawSub` profile kind, see "Connection profiles" in
   the tunnel without a panel. Maps to `mobile.ImportSubscription(raw, format)`
   (the Go `subimport` parser) then `SetImportedConfig` and `Up`. There is no
   panel URL, subscription uuid or token on this path; `label` is display only.
+  An optional `serverId` (ABI v2) pins the CARAMBA selector to one proxy of the
+  imported config; empty keeps the automatic choice.
   Status and traffic events are emitted on the same two EventChannels.
 
-The app picks native vs mock at runtime: `MethodChannelVpnConnection` when
-`--dart-define=USE_NATIVE_VPN=true`, otherwise `MockVpnConnection`
-(`lib/state/providers.dart`). Without the binding artifacts the channels are
+The app picks the backend at runtime through
+`createVpnConnection(native: ...)` (`lib/vpn/vpn_service.dart`, which wraps
+`CarambaVpn.createConnection`): mock unless `--dart-define=USE_NATIVE_VPN=true`,
+`FfiVpnConnection` on macOS (the core in the app process, see the macOS section)
+and `MethodChannelVpnConnection` everywhere else. Without the binding artifacts the channels are
 unimplemented and tapping connect throws `MissingPluginException`, so only pass
 the flag once step 0 produced the artifacts for that platform.
 
@@ -192,7 +208,7 @@ channels on each platform through its federated plugin classes:
 | --- | --- | --- |
 | Android | `CarambaVpnPlugin` + `CarambaVpnService` | `com.caramba.caramba_vpn`, Kotlin |
 | iOS     | `CarambaVpnPlugin` + `PacketTunnelProvider` | Swift |
-| macOS   | `CarambaVpnPlugin` + `PacketTunnelProvider` | Swift |
+| macOS   | `CarambaVpnPlugin` + `PacketTunnelProvider` (extension path), or no plugin class at all on the dart:ffi path — `FfiVpnConnection` loads `libcaramba_core.dylib` in process | Swift / Dart |
 | Windows | `CarambaVpnPluginCApi` | C++ loading `libcaramba_core.dll` + `wintun.dll` |
 | Linux   | `caramba_vpn` | C++ / GObject loading `libcaramba_core.so` |
 
@@ -275,6 +291,86 @@ target that a Flutter plugin cannot create for you, so add it once.
    `$(PRODUCT_MODULE_NAME).PacketTunnelProvider`.
 
 ### macOS
+
+macOS has TWO independent paths. Pick one; they do not interfere.
+
+| | A. dart:ffi (no Xcode) | B. Network Extension |
+| --- | --- | --- |
+| Artifact | `libcaramba_core.dylib` in `packages/caramba_vpn/macos/Libraries/` | `exarobot.xcframework` in `packages/caramba_vpn/macos/Frameworks/` |
+| Where the core runs | in the app process | in a separate extension process |
+| Traffic capture | `proxy`: local mixed inbound (SOCKS5 + HTTP) on 127.0.0.1:7890 | `tun`: system TUN, all traffic |
+| Needs Xcode / signing / approval | no | yes |
+| Dart class | `FfiVpnConnection` | `MethodChannelVpnConnection` |
+
+#### A. dart:ffi path (development, no Xcode)
+
+TUN on macOS needs root or a packet-tunnel Network Extension. The ffi path
+sidesteps both: `FfiVpnConnection` loads `libcaramba_core.dylib` straight into
+the app process, calls `CarambaSetTunnelMode(h, "proxy", 7890)` and raises the
+core with a local mixed inbound instead of a TUN. That proves a real
+subscription connection with zero privileges; traffic reaches it because the app
+(or the macOS network proxy settings) points at 127.0.0.1:7890.
+
+1. Build the library once (step 0, desktop section):
+
+   ```bash
+   cd libs/caramba-core
+   scripts/build-desktop-lib.sh   # -> libs/caramba-core/build/libcaramba_core.dylib
+   ```
+
+2. Run. Nothing to copy for development: the lookup walks up from the working
+   directory to `libs/caramba-core/build/`, so a repo checkout resolves on its
+   own.
+
+   ```bash
+   cd apps/caramba-client
+   flutter run -d macos --dart-define=USE_NATIVE_VPN=true
+   ```
+
+   Lookup order (`packages/caramba_vpn/lib/src/ffi/library_lookup.dart`, unit
+   tested in `test/library_lookup_test.dart`):
+   1. `$CARAMBA_CORE_LIB` (absolute path, wins over everything);
+   2. `<executable dir>/../Frameworks/libcaramba_core.dylib` (packaged `.app`);
+   3. `<executable dir>/libcaramba_core.dylib`;
+   4. `<ancestor>/libs/caramba-core/build/libcaramba_core.dylib` for every
+      ancestor of the working directory and of `Platform.script`.
+
+3. For a packaged build, copy the dylib into the plugin so CocoaPods embeds it:
+
+   ```bash
+   cp libs/caramba-core/build/libcaramba_core.dylib \
+      apps/caramba-client/packages/caramba_vpn/macos/Libraries/
+   ```
+
+   The podspec declares `s.vendored_libraries =
+   'Libraries/libcaramba_core.dylib'`, which lands it in
+   `Contents/Frameworks/` — entry 2 of the lookup order. See
+   `packages/caramba_vpn/macos/Libraries/README.md`.
+
+Threading: `CarambaUp` can block for up to 60 s and `CarambaProbe` for its
+timeout, so both run in `Isolate.run`. Only sendable values cross the isolate
+boundary (the library path, the integer handle, strings); the isolate reopens
+the dylib by path, which `dlopen` resolves to the already-loaded image, so the
+Go runtime and its handle table are shared and the handle stays valid. Status
+and traffic are polled at 1 Hz on a `Timer` in the UI isolate — those calls
+return immediately.
+
+Symbols: `CarambaSetPolicy` and `CarambaProbe` are looked up LAZILY. A dylib
+built before ABI v2 loads fine and only fails at the call site, with
+`CarambaCoreMissingSymbol` naming the symbol and the library path, instead of
+crashing at `DynamicLibrary.open`.
+
+Smoke test against a real dylib:
+
+```bash
+cd apps/caramba-client
+CARAMBA_CORE_LIB=$PWD/../../libs/caramba-core/build/libcaramba_core.dylib \
+  flutter test test/ffi_smoke_test.dart
+```
+
+Without the env var the test skips itself.
+
+#### B. Network Extension path (system TUN, production)
 
 macOS uses the same shared Swift sources as iOS (the plugin body and the
 `PacketTunnelProvider`), but the extension packaging differs.
@@ -361,8 +457,12 @@ Per platform notes for the native run:
 - iOS: `flutter run -d <device> --dart-define=USE_NATIVE_VPN=true`. The Network
   Extension only loads on a signed build on a real device; the simulator cannot
   run a packet tunnel.
-- macOS: `flutter run -d macos --dart-define=USE_NATIVE_VPN=true`. Approve the
-  extension in System Settings on first run.
+- macOS: `flutter run -d macos --dart-define=USE_NATIVE_VPN=true`. This takes
+  the dart:ffi path by default (proxy mode, nothing to approve) as long as
+  `libcaramba_core.dylib` is where the lookup can find it. Force the Network
+  Extension path by passing `preferFfiOnMacOS: false` to
+  `createVpnConnection`, and approve the extension in System Settings on first
+  run.
 - Windows: run an elevated shell (or the elevated exe) then
   `flutter run -d windows --dart-define=USE_NATIVE_VPN=true`.
 - Linux: ensure the capability or `pkexec` from step 2, then

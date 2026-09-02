@@ -21,25 +21,77 @@ manifest VPN service plus permission, the iOS/macOS Network Extension target,
 entitlements, App Group, desktop privilege elevation) is described in the
 project `INTEGRATION.md` and applied after `flutter create .`.
 
-The Dart side is intentionally thin. The tunnel lifecycle already belongs to the
-app, in `lib/vpn/vpn_service.dart` (`MethodChannelVpnConnection`). This plugin
-adds exactly one thing on top of that contract: a `configure` call so the app
-can hand the auth and config seam to native before the first `connect`.
+The Dart side owns the ENGINE CONTRACT: `VpnConnection`, `VpnStatus`,
+`TrafficStats`, `CorePolicy`, `ImportResult`, `ProbeResult` and three
+implementations of the contract — `MethodChannelVpnConnection` (platform
+channels), `FfiVpnConnection` (the core in the app process through dart:ffi) and
+`MockVpnConnection`. The contract lives here rather than in the app so the ffi
+implementation can implement it without a plugin -> app dependency.
+
+The app's model of a server belongs to the app, so the contract types are
+generic in it: `VpnConnection<S>`, `VpnStatus<S>`. The app closes them over its
+own `Server` in `lib/vpn/vpn_service.dart` and keeps the same public names, so
+nothing else in the app changes. Two callbacks bridge the gap:
+
+- `VpnServerDescriptor<S>` reduces the app model to `VpnServerArgs(id, name,
+  countryCode)` for the wire;
+- `VpnRawTargetFactory<S>` builds the placeholder "server" shown for an imported
+  (rawSub) profile.
+
+`CarambaVpn.createConnection<S>(native: ...)` picks the implementation: mock when
+`native` is false, `FfiVpnConnection` on macOS (proxy mode, no Network
+Extension), `MethodChannelVpnConnection` everywhere else.
 
 ## Channel contract (registered by every platform class)
 
 MethodChannel `com.caramba/vpn`:
 
+- `configure({ panelUrl: String, subscriptionUuid: String, accessToken: String })` -> void
+  - `subscriptionUuid` is the canonical key. Every platform also accepts the
+    legacy `subscriptionId`.
 - `connect({ serverId: String, serverName: String, countryCode: String })` -> void
+- `connectRaw({ rawConfig: String, format: String, label: String, serverId: String })` -> void
+  - `format` is one of `auto` / `clash` / `singbox` / `v2ray` / `uri`; `label` is
+    display only. `serverId` (ABI v2) pins the CARAMBA selector to one proxy of
+    the imported config, empty means automatic.
 - `disconnect()` -> void
 - `status()` -> optional current status map
-- `configure({ panelUrl: String, subscriptionId: String, accessToken: String })` -> void
+
+Generic mode (ABI v2). These never raise a tunnel; both return the core's JSON
+as a String and Dart parses it:
+
+- `importSubscription({ rawConfig: String, format: String })` -> String
+  - `{ "name": String?, "servers": [ { id, name, type, server, port, country } ] }`
+    where `id` is the mihomo proxy name, i.e. the `serverId` for `connectRaw`.
+- `probe({ timeoutMs: int })` -> String
+  - `{ "servers": [ { id, name, type, server, port, country, latencyMs } ] }`
+    with `latencyMs: -1` on timeout.
+- `setPolicy({ json: String })` -> void
+  - the `CorePolicy.toJson()` payload; applied to the core before the next `up`.
+- `setTunnelMode({ mode: String, port: int })` -> void
+  - `mode` is `tun` or `proxy`; `port` is the local mixed inbound port and only
+    matters in proxy mode. Applied at the next `up`.
+
+Platform notes: Android runs `importSubscription` / `probe` on a background
+thread against a metadata-only core client in the plugin process and persists
+`setPolicy` / `setTunnelMode` into the seam prefs, which `CarambaVpnService`
+applies before `up`. Apple handles `importSubscription` / `probe` in process
+under `#if canImport(Caramba)` and answers `FlutterError("core_missing")` when
+the framework is not linked; `setPolicy` / `setTunnelMode` ride
+`providerConfiguration` to `PacketTunnelProvider`, which calls `setPolicyJSON`
+before `up`. Linux and Windows resolve `CarambaSetPolicy` / `CarambaProbe` /
+`CarambaSetTunnelMode` optionally and answer `core_missing` when the loaded
+library predates ABI v2.
 
 EventChannel `com.caramba/vpn/status` emits a map:
 
-- `{ stage: String, detail: String?, connectedSinceMs: int }`
+- `{ stage: String, detail: String?, connectedSinceMs: int, mode: String?,
+  mixedPort: int?, activeProxy: String? }`
 - `stage` is one of exactly: `disconnected`, `connecting`, `connected`,
   `reconnecting`, `error` (lowerCamel, matches the Dart `VpnStage` names).
+- `mode` (`tun` / `proxy`), `mixedPort` and `activeProxy` are ABI v2 additions.
+  They are optional: a core that does not send them parses to `null` and nothing
+  breaks.
 
 EventChannel `com.caramba/vpn/traffic` emits a map:
 
@@ -94,13 +146,46 @@ renamed.
 ```dart
 import 'package:caramba_vpn/caramba_vpn.dart';
 
+// One-off auth seam (also available as VpnConfig + a configResolver).
 await CarambaVpn.instance.configure(
   panelUrl: 'https://panel.example',
   subscriptionId: subscriptionUuid,
   accessToken: jwtAccessToken,
 );
-// connect/disconnect/status stay on the app's MethodChannelVpnConnection.
+
+// Pick an implementation for this platform. `S` is the app's server model.
+final conn = CarambaVpn.createConnection<Server>(
+  native: true,
+  describe: (s) => VpnServerArgs(id: '${s.id}', name: s.name),
+  rawTarget: (label) => Server(id: -1, name: label),
+);
+
+// Generic mode: inspect a subscription before connecting.
+final imported = await conn.importSubscription(raw: rawText, format: 'auto');
+final latencies = await conn.probe(timeout: const Duration(seconds: 5));
+await conn.setPolicy(const CorePolicy(preset: 'ru-smart', killSwitch: true));
+await conn.setTunnelMode(TunnelMode.proxy, mixedPort: 7890);
+await conn.connectRaw(
+  raw: rawText,
+  format: 'auto',
+  label: 'My subscription',
+  serverId: imported.servers.first.id,
+);
 ```
+
+## macOS: two paths
+
+| Path | Artifact | Tunnel mode | Needs Xcode |
+| --- | --- | --- | --- |
+| dart:ffi (`FfiVpnConnection`) | `libcaramba_core.dylib` in `macos/Libraries/` | `proxy` (mixed inbound on 127.0.0.1:7890) | no |
+| Network Extension | `exarobot.xcframework` in `macos/Frameworks/` | `tun` (system TUN) | yes |
+
+The ffi path loads the core into the app process, so TUN (which needs root or a
+packet-tunnel extension) is off the table and the core opens a local SOCKS5 +
+HTTP inbound instead. Blocking core calls (`Up`, up to ~60 s, and `Probe`) run
+in `Isolate.run`; the library is reopened by path inside the isolate, which
+`dlopen` resolves to the same already-loaded image, so the integer handle stays
+valid. See `macos/Libraries/README.md` for the lookup order.
 
 The app depends on this package by path:
 

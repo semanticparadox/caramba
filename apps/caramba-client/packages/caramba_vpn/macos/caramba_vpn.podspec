@@ -36,6 +36,13 @@ NEPacketTunnelProvider system/app extension that links exarobot.xcframework.
   # macos/Frameworks/ (see INTEGRATION step 0). canImport(Caramba) resolves it.
   s.vendored_frameworks = 'Frameworks/exarobot.xcframework'
 
+  # Vendored cgo c-shared library for the dart:ffi path (FfiVpnConnection loads
+  # the core into the app process, proxy mode, no Network Extension). CocoaPods
+  # embeds it into the app bundle at Contents/Frameworks/, which is the second
+  # entry in the runtime lookup order. See macos/Libraries/README.md for the
+  # build + copy step; the file is not committed.
+  s.vendored_libraries = 'Libraries/libcaramba_core.dylib'
+
   s.dependency 'FlutterMacOS'
   s.platform = :osx, '11.0'
 

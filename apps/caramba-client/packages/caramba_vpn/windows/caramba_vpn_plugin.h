@@ -64,10 +64,16 @@ class CarambaVpnPlugin : public flutter::Plugin {
   // connect(serverId, serverName, countryCode): ensure the core handle, set
   // tunFd = -1, bring the tunnel up, and start the poll loop.
   void Connect(const std::string& server_id);
-  // connectRaw(rawConfig, format, label): ensure the core handle, import the
-  // raw subscription, set tunFd = -1, bring the tunnel up with an empty
-  // serverId, and start the poll loop. Mirrors Connect for the rawSub path.
-  void ConnectRaw(const std::string& raw_config, const std::string& format);
+  // connectRaw(rawConfig, format, label, serverId): ensure the core handle,
+  // import the raw subscription, set tunFd = -1, bring the tunnel up (serverId
+  // is the ABI v2 pin of the CARAMBA selector to one node of the imported
+  // config; empty means automatic), and start the poll loop.
+  void ConnectRaw(const std::string& raw_config, const std::string& format,
+                  const std::string& server_id);
+  // ABI v2 policy + capture mode. Stored on the plugin and pushed into the core
+  // in EnsureCore (and immediately when the core already exists).
+  void ApplyPolicy();
+  void ApplyTunnelMode();
   // disconnect(): bring the tunnel down and stop the poll loop.
   void Disconnect();
 
@@ -132,6 +138,13 @@ class CarambaVpnPlugin : public flutter::Plugin {
   std::string subscription_id_;
   std::string access_token_;
   bool configured_ = false;
+
+  // ABI v2 seam captured from setPolicy() / setTunnelMode() before the core
+  // exists. Empty policy_json_ means "not set"; tunnel_mode_ empty means the
+  // core default (tun).
+  std::string policy_json_;
+  std::string tunnel_mode_;
+  int mixed_port_ = 7890;
 };
 
 }  // namespace caramba_vpn

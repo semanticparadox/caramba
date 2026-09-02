@@ -1,24 +1,59 @@
-import 'package:flutter/services.dart';
-
-/// Тонкий Dart-фасад федеративного плагина `caramba_vpn`.
+/// Публичная поверхность федеративного плагина `caramba_vpn`.
 ///
 /// Плагин регистрирует на каждой платформе каналы `com.caramba/vpn`
 /// (MethodChannel) + `com.caramba/vpn/status` и `com.caramba/vpn/traffic`
 /// (EventChannel) и мостит их к Go-ядру caramba-core (mihomo): gomobile
 /// aar/xcframework на мобильных, cgo c-shared `libcaramba_core` на desktop.
 ///
-/// Жизненный цикл туннеля (`connect` / `disconnect` / `status` + потоки
-/// статуса и трафика) уже принадлежит приложению — его держит
-/// `MethodChannelVpnConnection` в `lib/vpn/vpn_service.dart`. Здесь намеренно
-/// нет дублирующего API: единственное, что добавляет плагин поверх контракта
-/// приложения, — метод `configure`, которым приложение передаёт нативной
-/// стороне seam аутентификации/конфигурации (URL панели, UUID подписки и
-/// access-токен) до первого `connect`.
-///
-/// Каналы оба раза одни и те же (`com.caramba/vpn`): нативная сторона
-/// маршрутизирует `configure` к `mobile.NewClient(panelUrl, ...)` +
-/// `SetSubscriptionID(subscriptionId)` и кладёт `accessToken` в token-store
-/// ядра, после чего `connect` поднимает туннель уже аутентифицированным.
+/// Здесь же живёт КОНТРАКТ движка ([VpnConnection] и модели статуса) и три его
+/// реализации: канальная, dart:ffi (внутрипроцессная, для macOS без Xcode) и
+/// мок. Контракт вынесен в плагин, чтобы FFI-реализация могла его реализовать
+/// без обратной зависимости плагин -> приложение; модель сервера принадлежит
+/// приложению и входит параметром типа `S`.
+library;
+
+import 'package:caramba_vpn/src/contract.dart';
+import 'package:caramba_vpn/src/core_policy.dart';
+import 'package:caramba_vpn/src/ffi_vpn_connection.dart';
+import 'package:caramba_vpn/src/method_channel_vpn_connection.dart';
+import 'package:caramba_vpn/src/mock_vpn_connection.dart';
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
+import 'package:flutter/services.dart';
+
+export 'package:caramba_vpn/src/contract.dart';
+export 'package:caramba_vpn/src/core_models.dart'
+    show ImportResult, ImportedServer, ProbeResult;
+export 'package:caramba_vpn/src/core_policy.dart';
+export 'package:caramba_vpn/src/ffi/caramba_core_bindings.dart'
+    show CarambaCoreException, CarambaCoreLibrary, CarambaCoreMissingSymbol;
+export 'package:caramba_vpn/src/ffi/core_loader.dart'
+    show
+        CarambaCoreLibraryNotFound,
+        currentProcessLibraryCandidates,
+        kCarambaCoreLibEnv,
+        openCarambaCoreLibrary,
+        resolveCarambaCoreLibraryPath;
+export 'package:caramba_vpn/src/ffi/library_lookup.dart'
+    show carambaCoreLibFileName, carambaCoreLibraryCandidates;
+export 'package:caramba_vpn/src/ffi_vpn_connection.dart' show FfiVpnConnection;
+export 'package:caramba_vpn/src/method_channel_vpn_connection.dart'
+    show MethodChannelVpnConnection;
+export 'package:caramba_vpn/src/mock_vpn_connection.dart'
+    show MockVpnConnection;
+
+/// Какой транспорт до ядра использовать.
+enum CarambaVpnBackend {
+  /// Мок без нативного бэка (dev/CI, web).
+  mock,
+
+  /// Платформенные каналы `com.caramba/vpn` (Android/iOS/Linux/Windows).
+  channel,
+
+  /// Внутрипроцессное ядро через dart:ffi (macOS без Xcode-расширения).
+  ffi,
+}
+
+/// Тонкий Dart-фасад плагина: seam-конфигурация ядра и фабрика соединений.
 class CarambaVpn {
   CarambaVpn._();
 
@@ -26,8 +61,8 @@ class CarambaVpn {
   /// состояние держать здесь нечего — фасад без полей.
   static final CarambaVpn instance = CarambaVpn._();
 
-  /// Тот же MethodChannel, что использует `MethodChannelVpnConnection`
-  /// приложения. Имя — часть контракта panel<->client, не менять.
+  /// Тот же MethodChannel, что использует [MethodChannelVpnConnection].
+  /// Имя — часть контракта panel<->client, не менять.
   static const MethodChannel _channel = MethodChannel('com.caramba/vpn');
 
   /// Имя метода seam-конфигурации.
@@ -41,6 +76,10 @@ class CarambaVpn {
   /// * [accessToken] — действующий JWT access-токен; кладётся в token-store
   ///   ядра, чтобы запросы конфига/подписки шли авторизованными.
   ///
+  /// На провод уходит ключ `subscriptionUuid` — тот же, что шлёт
+  /// `VpnConfig.toArgs()`. Нативные стороны принимают и устаревший
+  /// `subscriptionId`.
+  ///
   /// Идемпотентен: повторный вызов обновляет seam (например, после refresh
   /// токена). Вызывать до `connect`.
   Future<void> configure({
@@ -50,8 +89,72 @@ class CarambaVpn {
   }) {
     return _channel.invokeMethod<void>(_configureMethod, <String, String>{
       'panelUrl': panelUrl,
-      'subscriptionId': subscriptionId,
+      'subscriptionUuid': subscriptionId,
       'accessToken': accessToken,
     });
+  }
+
+  /// Какой бэкенд выбрать на текущей платформе.
+  ///
+  /// * `native == false` -> [CarambaVpnBackend.mock];
+  /// * macOS + [preferFfiOnMacOS] -> [CarambaVpnBackend.ffi] (ядро в процессе,
+  ///   proxy-режим, без Network Extension и без Xcode);
+  /// * иначе -> [CarambaVpnBackend.channel].
+  static CarambaVpnBackend selectBackend({
+    required bool native,
+    bool preferFfiOnMacOS = true,
+    TargetPlatform? platform,
+    bool isWeb = kIsWeb,
+  }) {
+    if (!native || isWeb) return CarambaVpnBackend.mock;
+    final target = platform ?? defaultTargetPlatform;
+    if (preferFfiOnMacOS && target == TargetPlatform.macOS) {
+      return CarambaVpnBackend.ffi;
+    }
+    return CarambaVpnBackend.channel;
+  }
+
+  /// Создаёт соединение нужного типа.
+  ///
+  /// `S` — модель сервера приложения. Плагин её не знает, поэтому приложение
+  /// отдаёт [describe] (свести модель к полям провода) и [rawTarget] (собрать
+  /// плейсхолдер-«сервер» для rawSub-профиля).
+  ///
+  /// На macOS FFI-путь по умолчанию поднимается в [TunnelMode.proxy]: TUN там
+  /// требует root или Network Extension, а mixed-инбаунд на 127.0.0.1 — нет.
+  static VpnConnection<S> createConnection<S extends Object>({
+    required bool native,
+    required VpnServerDescriptor<S> describe,
+    VpnRawTargetFactory<S>? rawTarget,
+    VpnConfigResolver? configResolver,
+    bool preferFfiOnMacOS = true,
+    String? libraryPath,
+    TunnelMode ffiTunnelMode = TunnelMode.proxy,
+    int ffiMixedPort = 7890,
+    TargetPlatform? platform,
+  }) {
+    switch (selectBackend(
+      native: native,
+      preferFfiOnMacOS: preferFfiOnMacOS,
+      platform: platform,
+    )) {
+      case CarambaVpnBackend.mock:
+        return MockVpnConnection<S>(rawTarget: rawTarget);
+      case CarambaVpnBackend.ffi:
+        return FfiVpnConnection<S>(
+          describe: describe,
+          rawTarget: rawTarget,
+          configResolver: configResolver,
+          libraryPath: libraryPath,
+          defaultTunnelMode: ffiTunnelMode,
+          mixedPort: ffiMixedPort,
+        );
+      case CarambaVpnBackend.channel:
+        return MethodChannelVpnConnection<S>(
+          describe: describe,
+          rawTarget: rawTarget,
+          configResolver: configResolver,
+        );
+    }
   }
 }

@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import androidx.annotation.NonNull
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
@@ -15,11 +17,15 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.PluginRegistry
+import java.io.File
 
 // CarambaVpnPlugin — the app-process Flutter plugin for Android.
 //
 // Registers the CHANNEL CONTRACT:
-//   MethodChannel  com.caramba/vpn          connect / disconnect / status / configure
+//   MethodChannel  com.caramba/vpn          configure / connect / connectRaw /
+//                                           disconnect / status, plus the ABI v2
+//                                           generic-mode calls importSubscription /
+//                                           probe / setPolicy / setTunnelMode
 //   EventChannel   com.caramba/vpn/status   { stage, detail?, connectedSinceMs }
 //   EventChannel   com.caramba/vpn/traffic  { downBps, upBps, downTotal, upTotal }
 //
@@ -53,6 +59,15 @@ class CarambaVpnPlugin :
     private var trafficSink: EventChannel.EventSink? = null
 
     private var activity: Activity? = null
+
+    // Main-thread handler: worker replies (importSubscription / probe) must be
+    // delivered to the MethodChannel Result on the platform thread.
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    // Lazily built metadata-only core client for the generic-mode calls
+    // (importSubscription / probe). Separate from the tunnel core, which lives
+    // in CarambaVpnService.
+    private var tools: CarambaCore? = null
 
     // Pending connect args captured while the VPN-consent dialog is shown; the
     // service is started from onActivityResult once consent is granted.
@@ -96,6 +111,8 @@ class CarambaVpnPlugin :
 
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
         CarambaVpnBus.setListener(null)
+        tools?.close()
+        tools = null
         methodChannel.setMethodCallHandler(null)
         statusChannel.setStreamHandler(null)
         trafficChannel.setStreamHandler(null)
@@ -131,18 +148,59 @@ class CarambaVpnPlugin :
                 // rawSub path: carry the imported subscription + format + label
                 // through the SAME args map / consent flow / service intent the
                 // connect path uses. RAW_MODE flags the service to import instead of
-                // using the panel seam; serverId stays empty (no subscription node).
+                // using the panel seam; serverId (ABI v2) is optional and pins the
+                // CARAMBA selector to one node of the imported config.
                 val args = mapOf(
                     CarambaVpnKeys.RAW_MODE to "1",
                     CarambaVpnKeys.RAW_CONFIG to (call.argument<String>(CarambaVpnKeys.RAW_CONFIG) ?: ""),
                     CarambaVpnKeys.RAW_FORMAT to (call.argument<String>(CarambaVpnKeys.RAW_FORMAT) ?: ""),
                     CarambaVpnKeys.RAW_LABEL to (call.argument<String>(CarambaVpnKeys.RAW_LABEL) ?: ""),
-                    CarambaVpnKeys.SERVER_ID to "",
+                    // ABI v2: a non-empty serverId pins the CARAMBA selector to
+                    // that proxy name inside the imported config; empty keeps the
+                    // automatic choice.
+                    CarambaVpnKeys.SERVER_ID to (call.argument<String>(CarambaVpnKeys.SERVER_ID) ?: ""),
                     // serverName drives the foreground notification / TUN session
                     // label; reuse the raw profile label there.
                     CarambaVpnKeys.SERVER_NAME to (call.argument<String>(CarambaVpnKeys.RAW_LABEL) ?: ""),
                 )
                 connect(args, result)
+            }
+
+            // --- generic mode (ABI v2) -------------------------------------------
+            //
+            // importSubscription and probe do NOT touch the VpnService: they run on
+            // a lightweight core client inside the plugin process, on a background
+            // thread, and reply on the main thread. Both return the core's JSON
+            // verbatim; Dart parses it.
+
+            "importSubscription" -> {
+                val raw = call.argument<String>(CarambaVpnKeys.RAW_CONFIG) ?: ""
+                val format = call.argument<String>(CarambaVpnKeys.RAW_FORMAT) ?: ""
+                runOnWorker(result, "import_failed") {
+                    toolsCore().importSubscription(raw, format)
+                }
+            }
+
+            "probe" -> {
+                val timeoutMs = (call.argument<Number>(CarambaVpnKeys.TIMEOUT_MS))?.toInt() ?: 5000
+                runOnWorker(result, "probe_failed") {
+                    toolsCore().probeJson(timeoutMs)
+                }
+            }
+
+            "setPolicy" -> {
+                // Persisted, not applied here: the core that matters is the one
+                // CarambaVpnService builds, and it reads this seam before up().
+                persistPolicy(call.argument<String>(CarambaVpnKeys.POLICY_JSON) ?: "")
+                result.success(null)
+            }
+
+            "setTunnelMode" -> {
+                persistTunnelMode(
+                    mode = call.argument<String>(CarambaVpnKeys.TUNNEL_MODE) ?: "tun",
+                    port = (call.argument<Number>(CarambaVpnKeys.MIXED_PORT))?.toInt() ?: 7890,
+                )
+                result.success(null)
             }
 
             "disconnect" -> {
@@ -223,6 +281,63 @@ class CarambaVpnPlugin :
         } else {
             appContext.startService(intent)
         }
+    }
+
+    // MARK: Generic mode helpers (ABI v2)
+
+    /**
+     * Runs a blocking core call on a background thread and replies on the main
+     * thread. importSubscription parses a whole subscription and probe dials
+     * every node, so neither may sit on the platform thread.
+     */
+    private fun runOnWorker(result: Result, errorCode: String, body: () -> String) {
+        Thread({
+            val reply: Result = result
+            try {
+                val json = body()
+                mainHandler.post { reply.success(json) }
+            } catch (t: Throwable) {
+                val message = t.message ?: errorCode
+                mainHandler.post { reply.error(errorCode, message, null) }
+            }
+        }, "caramba-vpn-tools").start()
+    }
+
+    /**
+     * Lazily builds the metadata-only core client shared by importSubscription
+     * and probe. It lives in the plugin process and keeps its own work dir, so a
+     * probe never disturbs a running tunnel (whose core lives in the service).
+     *
+     * Synchronized: it is called from the worker thread, and two concurrent
+     * generic-mode calls must not build two clients over the same work dir.
+     */
+    @Synchronized
+    private fun toolsCore(): CarambaCore {
+        val existing = tools
+        if (existing != null) return existing
+        val dir = File(appContext.filesDir, "caramba-core-tools")
+        if (!dir.exists()) dir.mkdirs()
+        val created = CarambaCore.createTools(
+            workDir = dir.absolutePath,
+            tokenPath = File(dir, "tokens.json").absolutePath,
+        )
+        tools = created
+        return created
+    }
+
+    private fun persistPolicy(json: String) {
+        appContext.getSharedPreferences(CarambaVpnKeys.PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(CarambaVpnKeys.PREF_POLICY_JSON, json)
+            .apply()
+    }
+
+    private fun persistTunnelMode(mode: String, port: Int) {
+        appContext.getSharedPreferences(CarambaVpnKeys.PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(CarambaVpnKeys.PREF_TUNNEL_MODE, mode)
+            .putInt(CarambaVpnKeys.PREF_MIXED_PORT, port)
+            .apply()
     }
 
     private fun persistSeam(

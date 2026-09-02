@@ -143,12 +143,21 @@ class CarambaVpnService : VpnService() {
                 )
             }
             core = c
+            // ABI v2: policy and capture mode are applied BEFORE up() so the
+            // assembled mihomo config already carries them.
+            if (seam.policyJson.isNotEmpty()) {
+                c.setPolicyJson(seam.policyJson)
+            }
+            if (seam.tunnelMode.isNotEmpty() && seam.tunnelMode != "tun") {
+                c.setTunnelMode(seam.tunnelMode, seam.mixedPort)
+            }
             // fd MUST be set before up(); on Android the OS owns routing, so the
             // core leaves auto-route off and uses this descriptor as the TUN.
             c.setTunFd(fd)
-            // Raise the tunnel: panel path uses the selected serverId; the raw path
-            // uses an empty serverId (an imported subscription has no panel node).
-            c.up(if (rawMode) "" else serverId) // blocks until applied; throws on failure.
+            // Raise the tunnel. Both paths pass serverId: on the panel path it is
+            // the subscription node, on the raw path it is the ABI v2 pin of the
+            // CARAMBA selector to one proxy of the imported config (empty = auto).
+            c.up(serverId) // blocks until applied; throws on failure.
             connectedSinceMs = System.currentTimeMillis()
             pollLoop(c)
         } catch (t: Throwable) {
@@ -354,6 +363,11 @@ class CarambaVpnService : VpnService() {
         val subUrl: String,
         val subscriptionId: String,
         val accessToken: String,
+        // ABI v2 policy + capture mode, written by setPolicy() / setTunnelMode()
+        // on the plugin. Applied to the core BEFORE up().
+        val policyJson: String,
+        val tunnelMode: String,
+        val mixedPort: Int,
     )
 
     private fun readSeam(): Seam {
@@ -363,6 +377,11 @@ class CarambaVpnService : VpnService() {
             subUrl = p.getString(CarambaVpnKeys.SUB_URL, "") ?: "",
             subscriptionId = p.getString(CarambaVpnKeys.SUBSCRIPTION_ID, "") ?: "",
             accessToken = p.getString(CarambaVpnKeys.ACCESS_TOKEN, "") ?: "",
+            policyJson = p.getString(CarambaVpnKeys.PREF_POLICY_JSON, "") ?: "",
+            // Android owns the TUN fd, so "tun" stays the default here; "proxy"
+            // is honoured for the rare no-TUN debugging case.
+            tunnelMode = p.getString(CarambaVpnKeys.PREF_TUNNEL_MODE, "tun") ?: "tun",
+            mixedPort = p.getInt(CarambaVpnKeys.PREF_MIXED_PORT, 7890),
         )
     }
 

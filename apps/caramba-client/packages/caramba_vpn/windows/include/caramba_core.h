@@ -68,6 +68,31 @@ CARAMBA_API char* CarambaImportSubscription(CarambaHandle h,
                                             const char* raw,
                                             const char* format);
 
+// CarambaSetTunnelMode switches how traffic is captured.
+//   mode = "tun" (or "" / NULL): system TUN inbound, needs privileges
+//          (root / CAP_NET_ADMIN, administrator on Windows);
+//   mode = "proxy": local mixed inbound (SOCKS5 + HTTP) on 127.0.0.1:port with
+//          NO privileges; the app or the OS proxy settings steer traffic into it.
+// port <= 0 keeps the default (7890) and only matters in proxy mode. Applied at
+// the next CarambaUp. Returns NULL on success, or a CarambaFreeString-owned
+// JSON error string.
+CARAMBA_API char* CarambaSetTunnelMode(CarambaHandle h, const char* mode,
+                                       int port);
+
+// CarambaSetPolicy applies the app-side CoreConfig before CarambaUp (ABI v2).
+// json carries the optional fields protocol / preset / relay / stack / mtu /
+// ipv6 / fakeIp / killSwitch / dns / split; unknown fields are ignored and
+// absent fields keep their current value. Returns NULL on success, or a
+// CarambaFreeString-owned JSON error string.
+CARAMBA_API char* CarambaSetPolicy(CarambaHandle h, const char* json);
+
+// CarambaProbe measures the latency of every proxy node of the currently loaded
+// config (imported or panel) WITHOUT raising the tunnel (ABI v2). Blocking for
+// up to timeoutMs. Always returns a non-NULL, CarambaFreeString-owned JSON
+// string: { "servers": [ { "id", "name", "type", "server", "port", "country",
+// "latencyMs" } ] } with latencyMs = -1 on timeout, or { "error": ... }.
+CARAMBA_API char* CarambaProbe(CarambaHandle h, int timeoutMs);
+
 // CarambaUp raises the tunnel to serverID (may be empty for panel/auto choice).
 // Always returns a non-NULL, CarambaFreeString-owned JSON string: api.UpResult
 // on success, or { "error": ... } on failure. Parse the "error" field to detect
@@ -89,6 +114,10 @@ CARAMBA_API char* CarambaStatus(CarambaHandle h);
 // "upTotal": int } (instantaneous bytes/s + session totals from mihomo
 // statistics). Returns NULL on failure.
 CARAMBA_API char* CarambaTraffic(CarambaHandle h);
+
+// CarambaFree stops the tunnel and releases the core behind the handle. Safe to
+// call with an unknown handle.
+CARAMBA_API void CarambaFree(CarambaHandle h);
 
 // CarambaFreeString releases a string returned by CarambaUp / CarambaStatus /
 // CarambaTraffic. Safe to call with NULL.
