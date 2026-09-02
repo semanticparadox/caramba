@@ -12,7 +12,8 @@
  *
  * Контракт совпадает с мобильным (gomobile mobile.Client):
  *   - stage: "disconnected" | "connecting" | "connected" | "reconnecting" | "error";
- *   - статус (CarambaStatus): {"stage":...,"detail":...,"connectedSinceMs":...};
+ *   - статус (CarambaStatus): {"stage":...,"detail":...,"connectedSinceMs":...,
+ *     "mode":"tun"|"proxy","mixedPort":7890} (mixedPort только в proxy-режиме);
  *   - трафик (CarambaTraffic): {"downBps":...,"upBps":...,"downTotal":...,"upTotal":...}.
  *
  * Владение памятью:
@@ -26,6 +27,11 @@
  *
  * TUN на десктопе: fd НЕ передаётся (tunFd=-1) — mihomo сам поднимает TUN
  * (wintun/utun/tun). Требуются привилегии; на Windows рядом нужен wintun.dll.
+ *
+ * Режим без привилегий: CarambaSetTunnelMode(h, "proxy", 7890) убирает TUN и
+ * поднимает вместо него локальный mixed-инбаунд (SOCKS5+HTTP) на 127.0.0.1:7890.
+ * Это позволяет доказать реальное соединение по подписке без root; трафик в
+ * порт направляет приложение или системный прокси ОС.
  */
 
 #ifndef CARAMBA_CORE_H
@@ -47,6 +53,16 @@ extern char *CarambaConfigure(long h, char *panelURL, char *subscriptionID, char
  * "uri". После него CarambaUp(h, "") поднимает туннель из импортированного
  * конфига без панели и без входа. Возвращает JSON метаданных либо JSON-ошибку. */
 extern char *CarambaImportSubscription(long h, char *raw, char *format);
+
+/* Переключить способ захвата трафика.
+ * mode = "tun" (или "" / NULL) — системный TUN-инбаунд, требует прав
+ *        (root/CAP_NET_ADMIN, админ на Windows, Network Extension на Apple);
+ * mode = "proxy" — локальный mixed-инбаунд (SOCKS5+HTTP) на 127.0.0.1:port
+ *        БЕЗ каких-либо привилегий; трафик в него направляет приложение или
+ *        системный прокси ОС.
+ * port <= 0 оставляет порт по умолчанию (7890) и значим только в proxy-режиме.
+ * Применяется при следующем CarambaUp. NULL при успехе, иначе JSON-ошибка. */
+extern char *CarambaSetTunnelMode(long h, char *mode, int port);
 
 /* Проброс TUN fd (на десктопе обычно не нужен; -1 = ядро поднимает TUN само).
  * NULL при успехе, иначе JSON-ошибка. */

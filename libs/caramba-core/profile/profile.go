@@ -19,6 +19,44 @@ import (
 // На неё ссылается финальное правило MATCH.
 const CarambaSelector = "CARAMBA"
 
+// TunnelMode — способ захвата трафика на клиенте.
+//
+// Режимы принципиально различаются требованиями к правам:
+//   - ModeTun поднимает системный TUN-интерфейс и перехватывает ВЕСЬ трафик, но
+//     требует привилегий (root на Linux/macOS, админ на Windows) либо системного
+//     расширения (Network Extension на Apple);
+//   - ModeProxy поднимает только локальный mixed-инбаунд (SOCKS5+HTTP) на петле
+//     и НЕ требует никаких привилегий. Трафик в него направляет само приложение
+//     или системный прокси ОС.
+type TunnelMode string
+
+const (
+	// ModeTun — системный TUN-инбаунд. Режим по умолчанию.
+	ModeTun TunnelMode = "tun"
+	// ModeProxy — локальный mixed-инбаунд без привилегий.
+	ModeProxy TunnelMode = "proxy"
+)
+
+// Значения по умолчанию для proxy-режима.
+const (
+	// DefaultMixedPort — порт mixed-инбаунда (SOCKS5 и HTTP на одном порту).
+	DefaultMixedPort = 7890
+	// DefaultBindAddress — адрес привязки инбаундов. Только петля: без AllowLAN
+	// ядро всё равно слушает 127.0.0.1 (см. listener.genAddr в mihomo).
+	DefaultBindAddress = "127.0.0.1"
+)
+
+// ProxyConfig описывает inbound в режиме ModeProxy.
+type ProxyConfig struct {
+	// MixedPort — порт mixed-инбаунда. 0 → DefaultMixedPort.
+	MixedPort int
+	// BindAddress — адрес привязки ("127.0.0.1" или "*"). Пусто →
+	// DefaultBindAddress. Ядро учитывает его ТОЛЬКО при AllowLAN.
+	BindAddress string
+	// AllowLAN открывает mixed-инбаунд для локальной сети.
+	AllowLAN bool
+}
+
 // Stack — сетевой стек TUN.
 type Stack string
 
@@ -74,8 +112,13 @@ type SplitTunnel struct {
 
 // Policy — локальная политика клиента, накладываемая на конфиг панели.
 type Policy struct {
-	Tun TunConfig
-	DNS DNSConfig
+	// Mode выбирает способ захвата трафика: ModeTun (по умолчанию) или
+	// ModeProxy. Пустая строка трактуется как ModeTun.
+	Mode TunnelMode
+	Tun  TunConfig
+	// Proxy — параметры mixed-инбаунда; используются только при Mode == ModeProxy.
+	Proxy ProxyConfig
+	DNS   DNSConfig
 	// KillSwitch: при включении весь нераспознанный трафик в туннеле, который
 	// не может выйти через прокси, отбрасывается (REJECT) вместо утечки в
 	// DIRECT. Достигается заменой финального fallback-правила.
@@ -101,6 +144,7 @@ type Policy struct {
 // kill-switch включён, DNS с fake-ip.
 func DefaultPolicy() Policy {
 	return Policy{
+		Mode: ModeTun,
 		Tun: TunConfig{
 			Enable:     true,
 			Stack:      StackGVisor,
@@ -108,6 +152,10 @@ func DefaultPolicy() Policy {
 			MTU:        1280,
 			AutoRoute:  true,
 			DNSHijack:  []string{"any:53"},
+		},
+		Proxy: ProxyConfig{
+			MixedPort:   DefaultMixedPort,
+			BindAddress: DefaultBindAddress,
 		},
 		DNS: DNSConfig{
 			Enable:              true,
@@ -122,6 +170,45 @@ func DefaultPolicy() Policy {
 	}
 }
 
+// EffectiveMode возвращает режим захвата трафика с подставленным умолчанием:
+// пустая строка означает ModeTun (обратная совместимость с политиками, которые
+// собирались до появления proxy-режима).
+func (p Policy) EffectiveMode() TunnelMode {
+	if p.Mode == ModeProxy {
+		return ModeProxy
+	}
+	return ModeTun
+}
+
+// EffectiveProxy возвращает параметры mixed-инбаунда с подставленными
+// значениями по умолчанию (порт 7890, привязка к петле).
+func (p Policy) EffectiveProxy() ProxyConfig {
+	pc := p.Proxy
+	if pc.MixedPort <= 0 {
+		pc.MixedPort = DefaultMixedPort
+	}
+	pc.BindAddress = strings.TrimSpace(pc.BindAddress)
+	if pc.BindAddress == "" {
+		pc.BindAddress = DefaultBindAddress
+	}
+	return pc
+}
+
+// effectiveKillSwitch сообщает, применять ли kill-switch к финальному правилу.
+//
+// Kill-switch — понятие TUN-режима: там туннель является маршрутом по умолчанию,
+// и без REJECT нераспознанный трафик утёк бы в DIRECT мимо прокси. В
+// proxy-режиме утекать нечему: ОС ничего не заворачивает, в mixed-инбаунд
+// попадает только то, что приложение отправило туда явно. Финальный REJECT там
+// означал бы «прокси поднят, но отбрасывает всё», поэтому в proxy-режиме
+// kill-switch не применяется.
+func (p Policy) effectiveKillSwitch() bool {
+	if p.EffectiveMode() == ModeProxy {
+		return false
+	}
+	return p.KillSwitch
+}
+
 // AssembleMihomoConfig принимает сырой mihomo YAML из подписки и возвращает
 // новый YAML с применённой локальной политикой. Узлы (proxies/proxy-groups)
 // сохраняются как есть.
@@ -133,8 +220,12 @@ func AssembleMihomoConfig(rawYAML []byte, policy Policy) ([]byte, error) {
 	}
 
 	applyGeneral(doc, policy)
-	applyTun(doc, policy.Tun)
-	applyDNS(doc, policy.DNS)
+	if policy.EffectiveMode() == ModeProxy {
+		applyProxyInbound(doc, policy)
+	} else {
+		applyTun(doc, policy.Tun)
+	}
+	applyDNS(doc, policy)
 	applyRuleProviders(doc, policy)
 	applyRules(doc, policy)
 	applyProtocol(doc, policy.Protocol)
@@ -148,7 +239,12 @@ func AssembleMihomoConfig(rawYAML []byte, policy Policy) ([]byte, error) {
 
 // applyGeneral переопределяет верхнеуровневые флаги.
 func applyGeneral(doc map[string]any, p Policy) {
-	doc["allow-lan"] = p.AllowLAN
+	allowLAN := p.AllowLAN
+	if p.EffectiveMode() == ModeProxy {
+		// В proxy-режиме доступ из локальной сети открывает сам инбаунд.
+		allowLAN = allowLAN || p.Proxy.AllowLAN
+	}
+	doc["allow-lan"] = allowLAN
 	doc["mode"] = "rule"
 	if p.LogLevel != "" {
 		doc["log-level"] = p.LogLevel
@@ -178,6 +274,24 @@ func applyTun(doc map[string]any, t TunConfig) {
 	doc["tun"] = tun
 }
 
+// applyProxyInbound формирует локальный mixed-инбаунд (SOCKS5 и HTTP на одном
+// порту) и убирает TUN. Это режим без привилегий: ядро лишь слушает порт на
+// петле, а трафик в него направляет приложение либо системный прокси ОС.
+//
+// Прочие инбаунды из конфига подписки (port/socks-port/redir-port/tproxy-port)
+// удаляются намеренно: в proxy-режиме порт должен быть ровно один и известный
+// UI, иначе ядро займёт лишние порты, а подсказка «Proxy on 127.0.0.1:7890»
+// перестанет соответствовать действительности.
+func applyProxyInbound(doc map[string]any, p Policy) {
+	delete(doc, "tun")
+	for _, key := range []string{"port", "socks-port", "redir-port", "tproxy-port"} {
+		delete(doc, key)
+	}
+	pc := p.EffectiveProxy()
+	doc["mixed-port"] = pc.MixedPort
+	doc["bind-address"] = pc.BindAddress
+}
+
 func stackOrDefault(s Stack) Stack {
 	if s == "" {
 		return StackGVisor
@@ -186,9 +300,23 @@ func stackOrDefault(s Stack) Stack {
 }
 
 // applyDNS формирует секцию dns.
-func applyDNS(doc map[string]any, d DNSConfig) {
+//
+// В proxy-режиме fake-ip намеренно понижается до redir-host. Причина: fake-ip
+// имеет смысл только вместе с TUN, который отдаёт клиенту синтетический адрес из
+// пула и сам разворачивает его обратно в домен. При mixed-инбаунде домен и так
+// приходит в ядро как есть (HTTP CONNECT и SOCKS5 адресуют по имени), зато
+// синтетические адреса ломают правила, которым нужен настоящий IP (GEOIP без
+// no-resolve), и любого клиента, который спросил бы встроенный резолвер напрямую
+// и полез бы по полученному адресу мимо прокси. redir-host отдаёт честные ответы
+// и оставляет GEOIP работоспособным.
+func applyDNS(doc map[string]any, p Policy) {
+	d := p.DNS
 	if !d.Enable {
 		return
+	}
+	enhanced := strings.TrimSpace(d.EnhancedMode)
+	if p.EffectiveMode() == ModeProxy && strings.EqualFold(enhanced, "fake-ip") {
+		enhanced = "redir-host"
 	}
 	dns := map[string]any{
 		"enable": true,
@@ -197,10 +325,12 @@ func applyDNS(doc map[string]any, d DNSConfig) {
 	if d.Listen != "" {
 		dns["listen"] = d.Listen
 	}
-	if d.EnhancedMode != "" {
-		dns["enhanced-mode"] = d.EnhancedMode
+	if enhanced != "" {
+		dns["enhanced-mode"] = enhanced
 	}
-	if d.FakeIPRange != "" {
+	// fake-ip-range имеет смысл только в fake-ip режиме; в redir-host ядро его
+	// игнорирует, а в конфиге он лишь путает читателя.
+	if d.FakeIPRange != "" && strings.EqualFold(enhanced, "fake-ip") {
 		dns["fake-ip-range"] = d.FakeIPRange
 	}
 	if len(d.Nameservers) > 0 {
@@ -253,7 +383,7 @@ func applyRules(doc map[string]any, p Policy) {
 	// Allow-list: только перечисленные процессы идут в туннель, остальные —
 	// напрямую (правило-«ловушка» перед финальным MATCH).
 	finalTarget := CarambaSelector
-	if p.KillSwitch {
+	if p.effectiveKillSwitch() {
 		// При kill-switch нераспознанный трафик отбрасывается, а не утекает.
 		finalTarget = "REJECT"
 	}
@@ -264,7 +394,7 @@ func applyRules(doc map[string]any, p Policy) {
 		}
 		// Всё, что не в allow-list, идёт напрямую (split-tunnel) — но если
 		// включён kill-switch, политика всё равно отбрасывает неизвестное.
-		if p.KillSwitch {
+		if p.effectiveKillSwitch() {
 			rules = append(rules, "MATCH,REJECT")
 		} else {
 			rules = append(rules, "MATCH,DIRECT")
@@ -305,7 +435,7 @@ func compileSmartRules(p Policy) []string {
 
 	// Kill-switch: если по умолчанию весь трафик идёт в прокси, при разрыве
 	// туннеля нераспознанное должно блокироваться, а не утекать в DIRECT.
-	if p.KillSwitch && merged.FinalAction == routing.ActionProxy {
+	if p.effectiveKillSwitch() && merged.FinalAction == routing.ActionProxy {
 		merged.FinalAction = routing.ActionReject
 	}
 

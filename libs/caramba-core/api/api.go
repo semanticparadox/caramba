@@ -127,6 +127,11 @@ type StatusResult struct {
 	Authenticated bool                   `json:"authenticated"`
 	Engine        engine.Status          `json:"engine"`
 	Subscription  *subscription.Metadata `json:"subscription,omitempty"`
+	// Mode — способ захвата трафика ("tun"|"proxy"), см. SetTunnelMode.
+	Mode string `json:"mode"`
+	// MixedPort — порт локального mixed-инбаунда; заполняется только в
+	// proxy-режиме (UI показывает по нему "Proxy on 127.0.0.1:7890").
+	MixedPort int `json:"mixed_port,omitempty"`
 }
 
 // UpResult — результат поднятия туннеля.
@@ -236,6 +241,56 @@ func (c *Core) SetPolicy(p profile.Policy) {
 	c.mu.Lock()
 	c.policy = p
 	c.mu.Unlock()
+}
+
+// SetTunnelMode переключает способ захвата трафика для следующего Up.
+//
+//   - "tun" (или пусто) — системный TUN-инбаунд: перехватывает весь трафик, но
+//     требует привилегий (root на Linux/macOS, админ на Windows) либо системного
+//     расширения на Apple;
+//   - "proxy" — локальный mixed-инбаунд (SOCKS5+HTTP) на 127.0.0.1:mixedPort БЕЗ
+//     каких-либо привилегий; трафик в него направляет само приложение или
+//     системный прокси ОС.
+//
+// mixedPort <= 0 оставляет ранее заданный порт (по умолчанию
+// profile.DefaultMixedPort) и значим только в proxy-режиме. Неизвестный режим —
+// ошибка, политика при этом не меняется.
+func (c *Core) SetTunnelMode(mode string, mixedPort int) error {
+	m := profile.TunnelMode(strings.ToLower(strings.TrimSpace(mode)))
+	switch m {
+	case "", profile.ModeTun:
+		m = profile.ModeTun
+	case profile.ModeProxy:
+	default:
+		return fmt.Errorf("api: неизвестный режим туннеля %q (ожидается \"tun\" или \"proxy\")", mode)
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.policy.Mode = m
+	if mixedPort > 0 {
+		c.policy.Proxy.MixedPort = mixedPort
+	}
+	if c.policy.Proxy.MixedPort <= 0 {
+		c.policy.Proxy.MixedPort = profile.DefaultMixedPort
+	}
+	if strings.TrimSpace(c.policy.Proxy.BindAddress) == "" {
+		c.policy.Proxy.BindAddress = profile.DefaultBindAddress
+	}
+	return nil
+}
+
+// TunnelMode возвращает текущий режим ("tun"|"proxy") и порт mixed-инбаунда.
+// Порт значим только в proxy-режиме; в tun-режиме возвращается 0.
+func (c *Core) TunnelMode() (string, int) {
+	c.mu.Lock()
+	policy := c.policy
+	c.mu.Unlock()
+	mode := policy.EffectiveMode()
+	if mode != profile.ModeProxy {
+		return string(mode), 0
+	}
+	return string(mode), policy.EffectiveProxy().MixedPort
 }
 
 // SetRouting задаёт «умную» маршрутизацию (правила/пресет) для следующего Up.
@@ -617,9 +672,12 @@ func (c *Core) Status(ctx context.Context) (StatusResult, error) {
 	if err != nil {
 		return StatusResult{}, fmt.Errorf("api: состояние движка: %w", err)
 	}
+	mode, mixedPort := c.TunnelMode()
 	res := StatusResult{
 		Authenticated: c.auth.IsAuthenticated(),
 		Engine:        st,
+		Mode:          mode,
+		MixedPort:     mixedPort,
 	}
 
 	c.mu.Lock()

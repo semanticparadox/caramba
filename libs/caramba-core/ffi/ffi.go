@@ -128,6 +128,28 @@ func CarambaImportSubscription(h C.long, raw, format *C.char) *C.char {
 	return okOrErr(cl.ImportSubscription(C.GoString(raw), C.GoString(format)))
 }
 
+//export CarambaSetTunnelMode
+//
+// CarambaSetTunnelMode переключает способ захвата трафика (см.
+// mobile.Client.SetTunnelMode): mode = "tun" (или "" / NULL) — системный TUN,
+// требующий прав; mode = "proxy" — локальный mixed-инбаунд (SOCKS5+HTTP) на
+// 127.0.0.1:port БЕЗ каких-либо привилегий. port <= 0 оставляет порт по
+// умолчанию (7890) и значим только в proxy-режиме.
+//
+// Применяется при следующем CarambaUp. Возвращает NULL при успехе либо
+// JSON-ошибку (владелец освобождает строку через CarambaFreeString). После
+// переключения CarambaStatus отдаёт поля "mode" и (в proxy-режиме) "mixedPort".
+func CarambaSetTunnelMode(h C.long, mode *C.char, port C.int) *C.char {
+	cl := lookup(h)
+	if cl == nil {
+		return errJSON("caramba: неизвестный хэндл")
+	}
+	if err := cl.SetTunnelMode(C.GoString(mode), int(port)); err != nil {
+		return errJSON(err.Error())
+	}
+	return nil
+}
+
 //export CarambaSetTunFd
 //
 // CarambaSetTunFd пробрасывает TUN fd в ядро (как на мобильных). На десктопе в

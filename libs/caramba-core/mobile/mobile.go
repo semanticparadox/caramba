@@ -174,6 +174,20 @@ func (c *Client) SetProtocol(name string) { c.core.SetProtocol(name) }
 // SetRelay задаёт страну relay-входа (ISO-2, напр. "TR"). Пусто — прямой вход.
 func (c *Client) SetRelay(country string) { c.core.SetRelay(country) }
 
+// SetTunnelMode переключает способ захвата трафика (применяется при следующем Up):
+//
+//   - "tun" (или пусто) — системный TUN-инбаунд; перехватывает весь трафик, но
+//     требует привилегий (root/админ) либо системного расширения на Apple;
+//   - "proxy" — локальный mixed-инбаунд (SOCKS5+HTTP) на 127.0.0.1:mixedPort БЕЗ
+//     привилегий. Трафик в него направляет приложение или системный прокси ОС.
+//     Это путь «доказать соединение без root» на десктопе.
+//
+// mixedPort <= 0 оставляет порт по умолчанию (7890) и значим только в
+// proxy-режиме. Неизвестный режим возвращает ошибку.
+func (c *Client) SetTunnelMode(mode string, mixedPort int) error {
+	return c.core.SetTunnelMode(mode, mixedPort)
+}
+
 // ApplyPreset применяет встроенный пресет маршрутизации по ID (напр. "ru-smart",
 // "telegram-only"). Ошибка — если ID неизвестен.
 func (c *Client) ApplyPreset(id string) error { return c.core.ApplyPreset(id) }
@@ -229,6 +243,11 @@ type statusEvent struct {
 	Stage            string `json:"stage"`
 	Detail           string `json:"detail,omitempty"`
 	ConnectedSinceMs int64  `json:"connectedSinceMs"`
+	// Mode — способ захвата трафика ("tun"|"proxy"), см. SetTunnelMode.
+	Mode string `json:"mode"`
+	// MixedPort — порт локального mixed-инбаунда. Заполняется ТОЛЬКО в
+	// proxy-режиме, чтобы UI показал «Proxy on 127.0.0.1:7890».
+	MixedPort int `json:"mixedPort,omitempty"`
 }
 
 // trafficEvent — плоская форма счётчиков для EventChannel com.caramba/vpn/traffic.
@@ -270,10 +289,13 @@ func (c *Client) StatusJSON() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	mode, mixedPort := c.core.TunnelMode()
 	return toJSON(statusEvent{
 		Stage:            stageFromEngineState(string(st.State)),
 		Detail:           st.Detail,
 		ConnectedSinceMs: st.ConnectedSinceMs,
+		Mode:             mode,
+		MixedPort:        mixedPort,
 	})
 }
 
