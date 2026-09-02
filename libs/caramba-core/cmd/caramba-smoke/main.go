@@ -18,6 +18,7 @@
 //
 //	build/caramba-smoke --sub https://panel.example/sub/<uuid>
 //	build/caramba-smoke --sub ./my-clash.yaml --format clash --port 7891
+//	build/caramba-smoke --sub ./my-clash.yaml --probe --server "NL-1"
 //
 // Код возврата 0 только если запрос ЧЕРЕЗ локальный прокси действительно
 // прошёл.
@@ -35,6 +36,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -68,6 +70,11 @@ type options struct {
 	port    int
 	timeout time.Duration
 	workdir string
+	// probe включает замер задержек до всех узлов подписки ПЕРЕД подъёмом
+	// ядра (CarambaProbe/ProbeJSON).
+	probe bool
+	// probeTimeout — таймаут на один узел замера.
+	probeTimeout time.Duration
 }
 
 func main() {
@@ -83,10 +90,12 @@ func parseFlags() (options, error) {
 	fs := flag.NewFlagSet("caramba-smoke", flag.ContinueOnError)
 	fs.StringVar(&o.sub, "sub", "", "URL подписки либо путь к файлу с сырым конфигом (обязателен)")
 	fs.StringVar(&o.format, "format", subimport.FormatAuto, "формат подписки: auto|uri|v2ray|clash|singbox")
-	fs.StringVar(&o.server, "server", "", "имя выходного узла; пусто — выбор селектора CARAMBA")
+	fs.StringVar(&o.server, "server", "", "имя узла (поле id метаданных импорта); закрепляется первым в селекторе CARAMBA, пусто — автоматика")
 	fs.IntVar(&o.port, "port", 7890, "порт локального mixed-инбаунда (SOCKS5+HTTP)")
 	fs.DurationVar(&o.timeout, "timeout", 30*time.Second, "таймаут на выкачивание подписки, ожидание connected и каждую проверку")
 	fs.StringVar(&o.workdir, "workdir", "", "рабочий каталог ядра; пусто — временный каталог, удаляемый после прогона")
+	fs.BoolVar(&o.probe, "probe", false, "перед подъёмом туннеля промерить задержку до каждого узла и напечатать таблицу")
+	fs.DurationVar(&o.probeTimeout, "probe-timeout", 3*time.Second, "таймаут на один узел при --probe")
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "caramba-smoke — проверка подписки через локальный прокси, без root.\n\n")
 		fmt.Fprintf(fs.Output(), "Использование:\n  caramba-smoke --sub <URL|файл> [флаги]\n\nФлаги:\n")
@@ -110,6 +119,9 @@ func parseFlags() (options, error) {
 	}
 	if o.timeout <= 0 {
 		return options{}, fmt.Errorf("некорректный --timeout %s (ожидается положительная длительность)", o.timeout)
+	}
+	if o.probeTimeout <= 0 {
+		return options{}, fmt.Errorf("некорректный --probe-timeout %s (ожидается положительная длительность)", o.probeTimeout)
 	}
 	o.format = strings.ToLower(strings.TrimSpace(o.format))
 	if o.format == "" {
@@ -141,7 +153,7 @@ func run() error {
 
 	// 1. Прямой выход — точка отсчёта для сравнения IP.
 	directIP := ""
-	fmt.Println("1/6 прямой выход (без прокси)")
+	fmt.Println("1/7 прямой выход (без прокси)")
 	if ip, lat, derr := fetchExitIP(directClient(o.timeout)); derr != nil {
 		// Не фатально: прямой выход может быть заблокирован, ради этого всё и затевается.
 		fmt.Printf("     не удалось (%v); сравнивать будет не с чем\n", derr)
@@ -151,7 +163,7 @@ func run() error {
 	}
 
 	// 2. Сырая подписка: URL или файл.
-	fmt.Printf("\n2/6 загрузка подписки: %s\n", o.sub)
+	fmt.Printf("\n2/7 загрузка подписки: %s\n", o.sub)
 	raw, err := loadSubscription(o.sub, o.timeout)
 	if err != nil {
 		return err
@@ -180,24 +192,42 @@ func run() error {
 	if err := os.MkdirAll(homeDir, 0o700); err != nil {
 		return fmt.Errorf("каталог ядра %s: %w", homeDir, err)
 	}
-	setCoreHomeDir(homeDir)
-
 	client, err := mobile.NewClient(placeholderPanelURL, "", workDir, filepath.Join(workDir, "tokens.json"))
 	if err != nil {
 		return fmt.Errorf("создание ядра: %w", err)
 	}
+	// Порядок важен: api.NewCore сам ставит домашним каталогом ядра свой
+	// workDir (чтобы geo-базы качались в него на чистой машине). Здесь мы
+	// переопределяем это уже ПОСЛЕ создания ядра: рабочий каталог прогона
+	// временный и удаляется, а перекачивать десятки мегабайт каждый запуск
+	// незачем.
+	setCoreHomeDir(homeDir)
 
 	// 4. Импорт подписки. Формат auto определяется по содержимому, включая
 	// base64-список v2ray (subimport сам его декодирует).
-	fmt.Printf("\n3/6 импорт подписки (формат %s)\n", o.format)
+	fmt.Printf("\n3/7 импорт подписки (формат %s)\n", o.format)
 	metaJSON, err := client.ImportSubscription(string(raw), o.format)
 	if err != nil {
 		return fmt.Errorf("импорт подписки: %w", err)
 	}
 	printServers(metaJSON)
 
-	// 5. Proxy-режим и подъём ядра.
-	fmt.Printf("\n4/6 запуск ядра в proxy-режиме\n")
+	// 5. Замер узлов (опционально) — до подъёма туннеля.
+	fmt.Printf("\n4/7 замер узлов (--probe)\n")
+	if o.probe {
+		probeJSON, perr := client.ProbeJSON(int(o.probeTimeout / time.Millisecond))
+		if perr != nil {
+			return fmt.Errorf("замер узлов: %w", perr)
+		}
+		if perr := printProbe(probeJSON); perr != nil {
+			return perr
+		}
+	} else {
+		fmt.Printf("     пропущен (добавьте --probe)\n")
+	}
+
+	// 6. Proxy-режим и подъём ядра.
+	fmt.Printf("\n5/7 запуск ядра в proxy-режиме\n")
 	fmt.Printf("     рабочий каталог: %s\n", workDir)
 	fmt.Printf("     каталог geo-баз: %s (первый прогон их докачивает)\n", homeDir)
 	if err := client.SetTunnelMode("proxy", o.port); err != nil {
@@ -226,8 +256,8 @@ func run() error {
 	}
 	fmt.Printf("     порт 127.0.0.1:%d принимает соединения\n", o.port)
 
-	// 6. Проверки ЧЕРЕЗ локальный прокси — единственный критерий успеха.
-	fmt.Printf("\n5/6 проверка трафика через 127.0.0.1:%d\n", o.port)
+	// 7. Проверки ЧЕРЕЗ локальный прокси — единственный критерий успеха.
+	fmt.Printf("\n6/7 проверка трафика через 127.0.0.1:%d\n", o.port)
 	proxied, err := proxyClient(o.port, o.timeout)
 	if err != nil {
 		return err
@@ -247,8 +277,8 @@ func run() error {
 		return fmt.Errorf("%s вернул HTTP %d вместо 204", noContentURL, code)
 	}
 
-	// 7. Итоговые снимки состояния и счётчиков.
-	fmt.Printf("\n6/6 состояние ядра\n")
+	// 8. Итоговые снимки состояния и счётчиков.
+	fmt.Printf("\n7/7 состояние ядра\n")
 	if st, serr := client.StatusJSON(); serr == nil {
 		fmt.Printf("     status:  %s\n", st)
 	} else {
@@ -331,10 +361,12 @@ func loadSubscription(src string, timeout time.Duration) ([]byte, error) {
 func printServers(metaJSON string) {
 	var meta struct {
 		Servers []struct {
-			Name   string `json:"name"`
-			Type   string `json:"type"`
-			Server string `json:"server"`
-			Port   int    `json:"port"`
+			ID      string `json:"id"`
+			Name    string `json:"name"`
+			Type    string `json:"type"`
+			Server  string `json:"server"`
+			Port    int    `json:"port"`
+			Country string `json:"country"`
 		} `json:"servers"`
 	}
 	if err := json.Unmarshal([]byte(metaJSON), &meta); err != nil {
@@ -347,8 +379,56 @@ func printServers(metaJSON string) {
 			fmt.Printf("       ... и ещё %d\n", len(meta.Servers)-10)
 			break
 		}
-		fmt.Printf("       - %s [%s] %s:%d\n", s.Name, s.Type, s.Server, s.Port)
+		fmt.Printf("       - id=%s [%s] %s:%d %s\n", s.ID, s.Type, s.Server, s.Port, s.Country)
 	}
+}
+
+// printProbe печатает таблицу результатов CarambaProbe. Столбец «МС» показывает
+// прочерк для узлов, не ответивших за таймаут (latencyMs = -1).
+func printProbe(probeJSON string) error {
+	var report struct {
+		Servers []struct {
+			ID        string `json:"id"`
+			Type      string `json:"type"`
+			Server    string `json:"server"`
+			Port      int    `json:"port"`
+			Country   string `json:"country"`
+			LatencyMs int    `json:"latencyMs"`
+		} `json:"servers"`
+	}
+	if err := json.Unmarshal([]byte(probeJSON), &report); err != nil {
+		return fmt.Errorf("разбор результата замера %q: %w", probeJSON, err)
+	}
+	if len(report.Servers) == 0 {
+		fmt.Printf("     узлов для замера нет\n")
+		return nil
+	}
+	fmt.Printf("     %-28s %-10s %-24s %-3s %6s\n", "УЗЕЛ", "ТИП", "АДРЕС", "СТР", "МС")
+	alive := 0
+	for _, s := range report.Servers {
+		lat := "-"
+		if s.LatencyMs >= 0 {
+			lat = strconv.Itoa(s.LatencyMs)
+			alive++
+		}
+		addr := fmt.Sprintf("%s:%d", s.Server, s.Port)
+		fmt.Printf("     %-28s %-10s %-24s %-3s %6s\n", trunc(s.ID, 28), trunc(s.Type, 10), trunc(addr, 24), s.Country, lat)
+	}
+	fmt.Printf("     ответили %d из %d\n", alive, len(report.Servers))
+	return nil
+}
+
+// trunc обрезает строку до n рун, чтобы колонки таблицы не разъезжались на
+// длинных именах узлов.
+func trunc(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	if n <= 1 {
+		return string(r[:n])
+	}
+	return string(r[:n-1]) + "…"
 }
 
 // waitConnected опрашивает StatusJSON, пока стадия не станет connected.

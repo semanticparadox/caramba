@@ -124,6 +124,10 @@ type Policy struct {
 	// DIRECT. Достигается заменой финального fallback-правила.
 	KillSwitch bool
 	Split      SplitTunnel
+	// IPv6 разрешает IPv6 в ядре (верхнеуровневый ipv6 и dns.ipv6). По
+	// умолчанию выключен: на мобильных операторах полурабочий IPv6 чаще ломает
+	// соединение, чем помогает.
+	IPv6 bool
 	// Routing — «умная» маршрутизация (пресет/правила, как в Koala Clash).
 	// Если nil — используется прежнее поведение (geo-CN + split-tunnel).
 	// Если задан — правила пресета компонуются со split-tunnel (байпасы и
@@ -213,6 +217,19 @@ func (p Policy) effectiveKillSwitch() bool {
 // новый YAML с применённой локальной политикой. Узлы (proxies/proxy-groups)
 // сохраняются как есть.
 func AssembleMihomoConfig(rawYAML []byte, policy Policy) ([]byte, error) {
+	return AssembleMihomoConfigPinned(rawYAML, policy, "")
+}
+
+// AssembleMihomoConfigPinned делает то же, что AssembleMihomoConfig, но
+// дополнительно фиксирует конкретный узел как выбор по умолчанию в группе
+// CARAMBA (pinProxy — имя прокси, как оно записано в секции proxies).
+//
+// Это путь Up(serverID) для импортированных подписок: панельного выбора
+// выходного узла там нет, поэтому узел выбирается перестановкой участников
+// селектора. Пустой pinProxy оставляет автоматический выбор. Пин применяется
+// ПОСЛЕ applyProtocol: явный выбор пользователя важнее служебной группы
+// протокола.
+func AssembleMihomoConfigPinned(rawYAML []byte, policy Policy, pinProxy string) ([]byte, error) {
 	// Разбираем в общую карту, чтобы не терять неизвестные ключи панели.
 	doc := map[string]any{}
 	if err := yaml.Unmarshal(rawYAML, &doc); err != nil {
@@ -229,6 +246,8 @@ func AssembleMihomoConfig(rawYAML []byte, policy Policy) ([]byte, error) {
 	applyRuleProviders(doc, policy)
 	applyRules(doc, policy)
 	applyProtocol(doc, policy.Protocol)
+	applyPin(doc, pinProxy)
+	applyKillSwitch(doc, policy)
 
 	out, err := yaml.Marshal(doc)
 	if err != nil {
@@ -246,6 +265,7 @@ func applyGeneral(doc map[string]any, p Policy) {
 	}
 	doc["allow-lan"] = allowLAN
 	doc["mode"] = "rule"
+	doc["ipv6"] = p.IPv6
 	if p.LogLevel != "" {
 		doc["log-level"] = p.LogLevel
 	}
@@ -320,7 +340,7 @@ func applyDNS(doc map[string]any, p Policy) {
 	}
 	dns := map[string]any{
 		"enable": true,
-		"ipv6":   false,
+		"ipv6":   p.IPv6,
 	}
 	if d.Listen != "" {
 		dns["listen"] = d.Listen
@@ -354,8 +374,15 @@ func applyRuleProviders(doc map[string]any, p Policy) {
 }
 
 // applyRules собирает список rules. Если задан Routing — используется движок
-// «умной» маршрутизации (пресет + пользовательские правила), иначе — прежнее
-// поведение (geo-CN + split-tunnel).
+// «умной» маршрутизации (пресет + пользовательские правила), иначе — базовый
+// набор без страновых geo-правил.
+//
+// Kill-switch НЕ превращает финал в MATCH,REJECT: финальное правило всегда
+// ведёт в селектор CARAMBA (иначе при включённом kill-switch клиент просто
+// терял бы весь трафик, даже когда прокси жив). Отказ «в закрытую» обеспечивает
+// applyKillSwitch, который убирает DIRECT из фолбэка селектора. Единственное
+// место, где REJECT уместен, — allow-list split: трафик ВНЕ списка при
+// kill-switch отбрасывается, а без него идёт напрямую.
 func applyRules(doc map[string]any, p Policy) {
 	if p.Routing != nil {
 		doc["rules"] = compileSmartRules(p)
@@ -373,45 +400,39 @@ func applyRules(doc map[string]any, p Policy) {
 		rules = append(rules, fmt.Sprintf("PROCESS-NAME,%s,DIRECT", proc))
 	}
 
-	// Национальный трафик напрямую (как в конфиге панели).
-	rules = append(rules,
-		"GEOIP,CN,DIRECT",
-		"GEOSITE,cn,DIRECT",
-		"GEOIP,private,DIRECT,no-resolve",
-	)
-
-	// Allow-list: только перечисленные процессы идут в туннель, остальные —
-	// напрямую (правило-«ловушка» перед финальным MATCH).
-	finalTarget := CarambaSelector
-	if p.effectiveKillSwitch() {
-		// При kill-switch нераспознанный трафик отбрасывается, а не утекает.
-		finalTarget = "REJECT"
-	}
+	// Локальные сети мимо туннеля. Страновые geo-правила (GEOIP,CN/GEOSITE,cn)
+	// здесь намеренно НЕ добавляются: без выбранного пресета мы не знаем страну
+	// пользователя, а зашитый Китай ломал маршрутизацию для РФ/Ирана/Беларуси.
+	// Страновая логика живёт в пресетах (routing.Presets), см. Policy.Routing.
+	rules = append(rules, "GEOIP,private,DIRECT,no-resolve")
 
 	if len(p.Split.AllowProcesses) > 0 {
+		// Allow-list: в туннель идут ТОЛЬКО перечисленные процессы.
 		for _, proc := range p.Split.AllowProcesses {
 			rules = append(rules, fmt.Sprintf("PROCESS-NAME,%s,%s", proc, CarambaSelector))
 		}
-		// Всё, что не в allow-list, идёт напрямую (split-tunnel) — но если
-		// включён kill-switch, политика всё равно отбрасывает неизвестное.
+		// Всё, что вне списка: при kill-switch отбрасывается, иначе идёт напрямую.
 		if p.effectiveKillSwitch() {
 			rules = append(rules, "MATCH,REJECT")
 		} else {
 			rules = append(rules, "MATCH,DIRECT")
 		}
-	} else {
-		rules = append(rules, "MATCH,"+finalTarget)
+		doc["rules"] = rules
+		return
 	}
 
+	rules = append(rules, "MATCH,"+CarambaSelector)
 	doc["rules"] = rules
 }
 
 // compileSmartRules строит правила из активного пресета маршрутизации,
-// накладывая поверх него пользовательский split-tunnel и kill-switch.
+// накладывая поверх него пользовательский split-tunnel.
 //
 // Приоритет (сверху вниз): байпас-домены → байпас-процессы → allow-процессы →
-// правила пресета → финальный MATCH. Kill-switch меняет финал PROXY→REJECT,
-// чтобы при отсутствии прокси нераспознанный трафик не утекал.
+// правила пресета → финальный MATCH. Финал берётся из пресета и kill-switch'ем
+// НЕ подменяется (см. applyRules и applyKillSwitch); исключение — allow-list
+// split, где трафик вне списка при kill-switch отбрасывается, а без него идёт
+// напрямую.
 func compileSmartRules(p Policy) []string {
 	// Высокоприоритетные пользовательские правила.
 	hp := routing.Config{}
@@ -430,16 +451,114 @@ func compileSmartRules(p Policy) []string {
 			Type: routing.MatchProcessName, Value: proc, Action: routing.ActionProxy,
 		})
 	}
+	if len(p.Split.AllowProcesses) > 0 {
+		// Allow-list перебивает финал пресета: вне списка — REJECT при
+		// kill-switch, иначе DIRECT.
+		if p.effectiveKillSwitch() {
+			hp.FinalAction = routing.ActionReject
+		} else {
+			hp.FinalAction = routing.ActionDirect
+		}
+	}
 
 	merged := p.Routing.Merge(hp)
 
-	// Kill-switch: если по умолчанию весь трафик идёт в прокси, при разрыве
-	// туннеля нераспознанное должно блокироваться, а не утекать в DIRECT.
-	if p.effectiveKillSwitch() && merged.FinalAction == routing.ActionProxy {
-		merged.FinalAction = routing.ActionReject
-	}
-
 	return merged.CompiledRules(CarambaSelector)
+}
+
+// applyKillSwitch реализует отказ «в закрытую»: убирает DIRECT из фолбэка
+// группы-селектора CARAMBA, чтобы при недоступном прокси трафик не утекал мимо
+// туннеля. Финальное правило при этом остаётся MATCH,CARAMBA (см. applyRules).
+//
+// Если после удаления DIRECT в группе не осталось ни одного участника, DIRECT
+// возвращается: mihomo отвергает пустую select-группу целиком, и туннель не
+// поднялся бы вовсе. Это мягкая деградация, а не обход политики: пустая группа
+// означает подписку без узлов, где защищать нечего.
+//
+// В proxy-режиме не применяется (см. effectiveKillSwitch).
+func applyKillSwitch(doc map[string]any, p Policy) {
+	if !p.effectiveKillSwitch() {
+		return
+	}
+	groups, ok := doc["proxy-groups"].([]any)
+	if !ok {
+		return
+	}
+	for _, g := range groups {
+		gm, ok := g.(map[string]any)
+		if !ok {
+			continue
+		}
+		if name, _ := gm["name"].(string); name != CarambaSelector {
+			continue
+		}
+		list, ok := gm["proxies"].([]any)
+		if !ok {
+			continue
+		}
+		filtered := make([]any, 0, len(list))
+		for _, item := range list {
+			if s, ok := item.(string); ok && strings.EqualFold(s, "DIRECT") {
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		if len(filtered) == 0 {
+			continue // группа выродилась бы в пустую — оставляем как есть
+		}
+		gm["proxies"] = filtered
+	}
+}
+
+// applyPin фиксирует конкретный узел как выбор по умолчанию: переставляет его
+// первым в списке участников группы-селектора CARAMBA.
+//
+// Почему именно перестановка. У select-группы mihomo нет ключа default: при
+// старте Selector.selected = имя первого участника (adapter/outboundgroup:
+// NewSelector получает emptyFallback = proxies[0]), и selectedProxy возвращает
+// его же, пока приложение не переключит выбор через API. Поэтому «первый в
+// списке» и есть выбор по умолчанию.
+//
+// Пустое имя, отсутствие группы или отсутствие такого участника — без
+// изменений (мягкая деградация: пользователь получит автоматический выбор
+// вместо ошибки).
+func applyPin(doc map[string]any, proxyName string) {
+	proxyName = strings.TrimSpace(proxyName)
+	if proxyName == "" {
+		return
+	}
+	groups, ok := doc["proxy-groups"].([]any)
+	if !ok {
+		return
+	}
+	for _, g := range groups {
+		gm, ok := g.(map[string]any)
+		if !ok {
+			continue
+		}
+		if name, _ := gm["name"].(string); name != CarambaSelector {
+			continue
+		}
+		list, ok := gm["proxies"].([]any)
+		if !ok {
+			continue
+		}
+		idx := -1
+		for i, item := range list {
+			if s, ok := item.(string); ok && s == proxyName {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			continue // такого узла в группе нет
+		}
+		reordered := make([]any, 0, len(list))
+		reordered = append(reordered, list[idx])
+		reordered = append(reordered, list[:idx]...)
+		reordered = append(reordered, list[idx+1:]...)
+		gm["proxies"] = reordered
+	}
 }
 
 // protocolClashType сопоставляет дружелюбное имя протокола с типом прокси в
@@ -451,6 +570,42 @@ var protocolClashType = map[string]string{
 	"Hysteria2":     "hysteria2",
 	"TUIC":          "tuic",
 	"Shadowsocks":   "ss",
+}
+
+// CanonicalProtocol приводит имя протокола к каноничной форме, которую понимает
+// applyProtocol, и сообщает, известно ли оно. Сравнение регистронезависимо.
+//
+// Пустая строка и "auto"/"Авто" — валидный ввод «оставить автоматику панели»;
+// каноничная форма для них — пустая строка. Неизвестное имя возвращает
+// (name, false), чтобы вызывающий мог назвать поле в тексте ошибки.
+func CanonicalProtocol(name string) (string, bool) {
+	name = strings.TrimSpace(name)
+	if name == "" || strings.EqualFold(name, "auto") || strings.EqualFold(name, "Авто") {
+		return "", true
+	}
+	for canonical := range protocolClashType {
+		if strings.EqualFold(canonical, name) {
+			return canonical, true
+		}
+	}
+	return name, false
+}
+
+// CanonicalStack приводит имя сетевого стека TUN к каноничной форме и сообщает,
+// известно ли оно. Пустая строка допустима и означает «оставить умолчание»
+// (gvisor, см. stackOrDefault).
+func CanonicalStack(name string) (Stack, bool) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "":
+		return "", true
+	case string(StackGVisor):
+		return StackGVisor, true
+	case string(StackSystem):
+		return StackSystem, true
+	case string(StackMixed):
+		return StackMixed, true
+	}
+	return Stack(name), false
 }
 
 // protoGroupName — имя служебной url-test группы, которую applyProtocol ставит

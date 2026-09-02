@@ -63,6 +63,9 @@ type Core struct {
 	sub     *subscription.Client
 	subInfo *app.SubscriptionClient
 	engine  engine.Engine
+	// store — хранилище токенов. Держим ссылку, чтобы пересобрать auth-клиента
+	// при смене адреса панели (SetPanelURL), не потеряв уже выданные токены.
+	store auth.Store
 
 	mu             sync.Mutex
 	subscriptionID string // кэш UUID подписки текущего пользователя
@@ -72,6 +75,10 @@ type Core struct {
 	// SetImportedConfig). Если задан, Up поднимает туннель из него БЕЗ обращения
 	// к панели и БЕЗ требования аутентификации (raw-путь, contract A/D).
 	importedConfig []byte
+	// lastPanelYAML — сырой YAML последнего успешно загруженного профиля панели.
+	// Нужен CarambaProbe: замер узлов идёт по «текущей загруженной конфигурации»
+	// и не должен ради этого повторно ходить в сеть.
+	lastPanelYAML []byte
 }
 
 // NewCore создаёт фасад. Возвращает ошибку, если не удаётся подготовить рабочий
@@ -102,6 +109,13 @@ func NewCore(cfg Config) (*Core, error) {
 		return nil, fmt.Errorf("api: хранилище токенов: %w", err)
 	}
 
+	// Ядру нужно знать свой домашний каталог ДО разбора конфига: правила
+	// GEOIP/GEOSITE заставляют mihomo искать (и при отсутствии докачивать)
+	// geo-базы в нём, а constant.Path.MMDB() отдаёт пустой путь, если каталога
+	// нет, — разбор падает с «can't download MMDB: open : no such file». В
+	// сборке без тега mihomo вызов пустой (см. homedir_default.go).
+	setCoreHomeDir(workDir)
+
 	panelClient := auth.NewPanelClient(cfg.PanelBaseURL, auth.WithStore(store))
 	return &Core{
 		cfg:     cfg,
@@ -109,9 +123,49 @@ func NewCore(cfg Config) (*Core, error) {
 		auth:    panelClient,
 		sub:     subscription.NewClient(subBase),
 		subInfo: app.NewSubscriptionClient(panelClient),
+		store:   store,
 		engine:  engine.New(),
 		policy:  profile.DefaultPolicy(),
 	}, nil
+}
+
+// SetPanelURL перенаправляет ядро на другую панель: пересобирает auth-клиента,
+// клиента подписок и клиента /subscription под новый базовый URL.
+//
+// Зачем. Мультипанельный режим (enroll в чужую панель) меняет адрес уже после
+// NewClient, а раньше panelURL из Configure просто отбрасывался — ядро продолжало
+// ходить в панель, заданную при создании. Токен-хранилище переиспользуется, так
+// что уже инъецированный JWT не теряется; кэш UUID подписки и последний
+// загруженный профиль сбрасываются, потому что относятся к прежней панели.
+//
+// Пустой или совпадающий с текущим URL — no-op. Применяется к следующим
+// сетевым вызовам (Up/Status/AutoTune).
+func (c *Core) SetPanelURL(panelURL string) error {
+	panelURL = strings.TrimSpace(panelURL)
+	if panelURL == "" {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if panelURL == c.cfg.PanelBaseURL {
+		return nil
+	}
+	// SubBaseURL следует за панелью только тогда, когда он не был задан явно
+	// отдельным адресом сервиса подписок.
+	subBase := c.cfg.SubBaseURL
+	if subBase == "" || subBase == c.cfg.PanelBaseURL {
+		subBase = panelURL
+		c.cfg.SubBaseURL = ""
+	}
+	c.cfg.PanelBaseURL = panelURL
+
+	panelClient := auth.NewPanelClient(panelURL, auth.WithStore(c.store))
+	c.auth = panelClient
+	c.sub = subscription.NewClient(subBase)
+	c.subInfo = app.NewSubscriptionClient(panelClient)
+	c.subscriptionID = ""
+	c.lastPanelYAML = nil
+	return nil
 }
 
 // --- JSON-дружественные результаты ---
@@ -236,7 +290,8 @@ func (c *Core) Logout(ctx context.Context) error {
 // --- Политика ---
 
 // SetPolicy задаёт локальную политику (TUN/kill-switch/split-tunnel/DNS),
-// применяемую при следующем Up.
+// применяемую при следующем Up. Уже поднятый туннель не перестраивается:
+// приложение должно вызвать Down + Up, чтобы новая политика вступила в силу.
 func (c *Core) SetPolicy(p profile.Policy) {
 	c.mu.Lock()
 	c.policy = p
@@ -438,6 +493,10 @@ func (c *Core) candidates(ctx context.Context) ([]autotune.Candidate, []byte, er
 		return nil, nil, fmt.Errorf("api: загрузка серверов подписки: %w", err)
 	}
 
+	c.mu.Lock()
+	c.lastPanelYAML = prof.RawYAML
+	c.mu.Unlock()
+
 	return aggregateCandidates(prof.Metadata.Servers), prof.RawYAML, nil
 }
 
@@ -572,8 +631,10 @@ func (c *Core) ImportSubscription(raw []byte, format string) (subimport.Metadata
 //
 //   - raw-путь (импортированная подписка, SetImportedConfig/ImportSubscription):
 //     если importedConfig задан, узлы берутся из него БЕЗ обращения к панели и
-//     БЕЗ требования аутентификации. serverID игнорируется (для импорта нет
-//     панельного выбора выходного узла), как и relay (панель его не применяет).
+//     БЕЗ требования аутентификации. Непустой serverID трактуется как ИМЯ прокси
+//     (Metadata.Servers[].id) и закрепляет этот узел первым в селекторе CARAMBA,
+//     то есть делает его выбором по умолчанию; пустой оставляет автоматику.
+//     relay игнорируется (панель его не применяет).
 //   - панельный путь: требуется аутентификация; конфиг подписки тянется у панели
 //     по UUID. serverID необязателен и передаётся как node_id, relay — как
 //     relay_country.
@@ -587,9 +648,15 @@ func (c *Core) Up(ctx context.Context, serverID string) (UpResult, error) {
 	c.mu.Unlock()
 
 	var rawYAML []byte
+	// pinProxy — имя узла, которое нужно закрепить в селекторе CARAMBA. Для
+	// импортированной подписки панельного выбора узла нет, поэтому serverID
+	// применяется здесь, локально (см. profile.AssembleMihomoConfigPinned). На
+	// панельном пути узел выбирает сама панель по node_id, и пин не нужен.
+	pinProxy := ""
 	if len(imported) > 0 {
 		// raw-путь: ни auth, ни fetch к панели.
 		rawYAML = imported
+		pinProxy = strings.TrimSpace(serverID)
 	} else {
 		// панельный путь.
 		if !c.auth.IsAuthenticated() {
@@ -617,9 +684,12 @@ func (c *Core) Up(ctx context.Context, serverID string) (UpResult, error) {
 			return UpResult{}, fmt.Errorf("api: загрузка подписки: %w", err)
 		}
 		rawYAML = prof.RawYAML
+		c.mu.Lock()
+		c.lastPanelYAML = rawYAML
+		c.mu.Unlock()
 	}
 
-	assembled, err := profile.AssembleMihomoConfig(rawYAML, policy)
+	assembled, err := profile.AssembleMihomoConfigPinned(rawYAML, policy, pinProxy)
 	if err != nil {
 		return UpResult{}, fmt.Errorf("api: сборка конфигурации: %w", err)
 	}

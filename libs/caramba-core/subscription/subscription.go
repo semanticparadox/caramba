@@ -30,6 +30,12 @@ type HTTPDoer interface {
 
 // Server — узел/прокси из mihomo-конфига, извлечённый для отображения в UI.
 type Server struct {
+	// ID — стабильный идентификатор узла для приложения. Совпадает с именем
+	// прокси в mihomo-конфиге: именно его приложение возвращает в Up(serverID),
+	// чтобы закрепить узел в селекторе CARAMBA (контракт ABI v2). Отдельное поле
+	// нужно, потому что Name показывается пользователю и может быть локализован,
+	// а ID — машинный ключ.
+	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Type   string `json:"type"`
 	Server string `json:"server"`
@@ -287,6 +293,7 @@ func parseServers(raw []byte) ([]Server, error) {
 	servers := make([]Server, 0, len(doc.Proxies))
 	for _, p := range doc.Proxies {
 		servers = append(servers, Server{
+			ID:      p.Name,
 			Name:    p.Name,
 			Type:    p.Type,
 			Server:  p.Server,

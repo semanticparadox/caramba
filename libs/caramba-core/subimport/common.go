@@ -62,41 +62,46 @@ func asBool(v any) bool {
 	return false
 }
 
-// countryFromName извлекает ISO-2 код страны из имени прокси. Логика повторяет
-// subscription.countryFromName (флаг-эмодзи либо ведущий двухбуквенный код), но
-// дублируется здесь намеренно: функция в пакете subscription не экспортирована, а
-// править subscription.go ради экспорта означало бы трогать чужой файл (риск
-// конфликта правок, см. RECON). Поведение держим синхронным с оригиналом.
-func countryFromName(name string) string {
+// CountryFromName извлекает ISO-2 код страны из имени прокси.
+//
+// Логика (в порядке приоритета):
+//  1. флаг-эмодзи в любом месте имени (две Regional Indicator Symbol-руны);
+//  2. первый «токен» ровно из двух латинских букв («DE Stealth» → DE,
+//     «Amsterdam NL 01» → NL). Токены режутся по любым не-буквам.
+//
+// Пусто, если страну вывести не удалось. Функция экспортирована, потому что тем
+// же правилом пользуется CarambaProbe (api): контракт ABI требует одинаковой
+// страны у списка серверов импорта и у результатов замера.
+func CountryFromName(name string) string {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return ""
 	}
-	if iso := flagToISO(name); iso != "" {
-		return iso
+	runes := []rune(name)
+	for i := 0; i+1 < len(runes); i++ {
+		if iso := flagToISO(string(runes[i : i+2])); iso != "" {
+			return iso
+		}
 	}
-	var letters []rune
-	for _, r := range name {
+	var token []rune
+	for _, r := range runes {
 		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-			letters = append(letters, r)
-			if len(letters) > 2 {
-				return ""
-			}
+			token = append(token, r)
 			continue
 		}
-		if len(letters) == 0 {
-			continue
+		if len(token) == 2 {
+			return strings.ToUpper(string(token))
 		}
-		break
+		token = token[:0]
 	}
-	if len(letters) == 2 {
-		return strings.ToUpper(string(letters))
+	if len(token) == 2 {
+		return strings.ToUpper(string(token))
 	}
 	return ""
 }
 
-// flagToISO декодирует ведущий флаг-эмодзи (две Regional Indicator Symbol-руны,
-// U+1F1E6..U+1F1FF) в ISO-2 код. "" если имя не начинается с флага.
+// flagToISO декодирует флаг-эмодзи (две Regional Indicator Symbol-руны,
+// U+1F1E6..U+1F1FF) в ISO-2 код. "" если строка не начинается с флага.
 func flagToISO(name string) string {
 	const base = 0x1F1E6
 	runes := []rune(strings.TrimSpace(name))

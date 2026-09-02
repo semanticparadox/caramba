@@ -172,8 +172,16 @@ func activeProxyName() string {
 	if !ok || p == nil {
 		return ""
 	}
-	// C.Proxy у групп-селекторов отдаёт текущий выбор через Now().
+	// Текущий выбор селектора отдаёт метод Now(). Он есть у самой группы
+	// (adapter/outboundgroup.Selector), но НЕ у обёртки *adapter.Proxy, которую
+	// возвращает tunnel.Proxies(): та встраивает C.ProxyAdapter интерфейсом, и
+	// Now() через встраивание не продвигается. Поэтому сперва разворачиваем
+	// обёртку через Adapter() (метод объявлен в самом интерфейсе C.Proxy), и
+	// только потом пробуем привести к nower.
 	type nower interface{ Now() string }
+	if n, ok := p.Adapter().(nower); ok {
+		return n.Now()
+	}
 	if n, ok := p.(nower); ok {
 		return n.Now()
 	}

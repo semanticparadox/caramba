@@ -150,6 +150,46 @@ func CarambaSetTunnelMode(h C.long, mode *C.char, port C.int) *C.char {
 	return nil
 }
 
+//export CarambaSetPolicy
+//
+// CarambaSetPolicy применяет политику подключения одной JSON-строкой (см.
+// mobile.Client.SetPolicyJSON): protocol, preset, relay, stack, mtu, ipv6,
+// fakeIp, killSwitch, dns.{nameservers,fallback}, split.{mode,apps,bypassDomains}.
+// Все поля опциональны, неизвестные ключи игнорируются; недопустимое значение
+// перечислимого поля возвращает JSON-ошибку с именем этого поля и политику не
+// меняет.
+//
+// Применяется при следующем CarambaUp: если туннель уже поднят, приложение
+// обязано переподключиться (CarambaDown + CarambaUp). Возвращает NULL при успехе
+// либо JSON-ошибку (владелец освобождает строку через CarambaFreeString).
+func CarambaSetPolicy(h C.long, jsonStr *C.char) *C.char {
+	cl := lookup(h)
+	if cl == nil {
+		return errJSON("caramba: неизвестный хэндл")
+	}
+	if err := cl.SetPolicyJSON(C.GoString(jsonStr)); err != nil {
+		return errJSON(err.Error())
+	}
+	return nil
+}
+
+//export CarambaProbe
+//
+// CarambaProbe меряет задержку до каждого узла ТЕКУЩЕЙ загруженной конфигурации
+// (импортированной подписки либо последнего загруженного профиля панели), не
+// поднимая туннель. Возвращает JSON
+// {"servers":[{"id","name","type","server","port","country","latencyMs"}]}
+// (latencyMs = -1 — узел не ответил) либо JSON-ошибку. Если ничего не загружено,
+// вернётся {"servers":[]}. timeoutMs <= 0 — таймаут по умолчанию (3000).
+// Владелец освобождает строку через CarambaFreeString.
+func CarambaProbe(h C.long, timeoutMs C.int) *C.char {
+	cl := lookup(h)
+	if cl == nil {
+		return errJSON("caramba: неизвестный хэндл")
+	}
+	return okOrErr(cl.ProbeJSON(int(timeoutMs)))
+}
+
 //export CarambaSetTunFd
 //
 // CarambaSetTunFd пробрасывает TUN fd в ядро (как на мобильных). На десктопе в
@@ -169,7 +209,10 @@ func CarambaSetTunFd(h C.long, fd C.int) *C.char {
 //export CarambaUp
 //
 // CarambaUp поднимает туннель и возвращает JSON api.UpResult (или JSON-ошибку).
-// serverID необязателен (пусто — выбор панели). Владелец освобождает строку.
+// serverID необязателен (пусто — выбор панели/автоматика). Для импортированной
+// подписки непустой serverID — это ИМЯ узла (поле id из метаданных
+// CarambaImportSubscription), которое закрепляется выбором по умолчанию в
+// селекторе CARAMBA. Владелец освобождает строку.
 func CarambaUp(h C.long, serverID *C.char) *C.char {
 	cl := lookup(h)
 	if cl == nil {
@@ -194,9 +237,10 @@ func CarambaDown(h C.long) *C.char {
 
 //export CarambaStatus
 //
-// CarambaStatus возвращает плоский JSON статуса {stage,detail?,connectedSinceMs}
-// (CHANNEL CONTRACT), пригодный для status-канала плагина. Владелец освобождает
-// строку.
+// CarambaStatus возвращает плоский JSON статуса
+// {stage,detail?,connectedSinceMs,activeProxy?} (CHANNEL CONTRACT), пригодный
+// для status-канала плагина. activeProxy — имя узла, выбранного в селекторе
+// CARAMBA; присутствует только когда туннель поднят. Владелец освобождает строку.
 func CarambaStatus(h C.long) *C.char {
 	cl := lookup(h)
 	if cl == nil {

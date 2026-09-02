@@ -13,7 +13,9 @@
  * Контракт совпадает с мобильным (gomobile mobile.Client):
  *   - stage: "disconnected" | "connecting" | "connected" | "reconnecting" | "error";
  *   - статус (CarambaStatus): {"stage":...,"detail":...,"connectedSinceMs":...,
- *     "mode":"tun"|"proxy","mixedPort":7890} (mixedPort только в proxy-режиме);
+ *     "activeProxy":"NL-1","mode":"tun"|"proxy","mixedPort":7890}
+ *     (activeProxy — только при поднятом туннеле, mixedPort — только в
+ *     proxy-режиме);
  *   - трафик (CarambaTraffic): {"downBps":...,"upBps":...,"downTotal":...,"upTotal":...}.
  *
  * Владение памятью:
@@ -51,8 +53,41 @@ extern char *CarambaConfigure(long h, char *panelURL, char *subscriptionID, char
 
 /* Импорт сырой подписки (raw-путь): format = "auto"|"clash"|"singbox"|"v2ray"|
  * "uri". После него CarambaUp(h, "") поднимает туннель из импортированного
- * конфига без панели и без входа. Возвращает JSON метаданных либо JSON-ошибку. */
+ * конфига без панели и без входа. Возвращает JSON метаданных либо JSON-ошибку.
+ *
+ * Массив servers метаданных — контракт списка узлов для приложения:
+ *   {"servers":[{"id":"NL-1","name":"NL-1","type":"vless","server":"1.2.3.4",
+ *                "port":443,"country":"NL"}]}
+ * где id — имя прокси; именно его передают обратно в CarambaUp как serverID. */
 extern char *CarambaImportSubscription(long h, char *raw, char *format);
+
+/* Политика подключения одной JSON-строкой. Все поля опциональны, неизвестные
+ * ключи игнорируются:
+ *   {"protocol":"auto|AmneziaWG|VLESS-Reality|Hysteria2|TUIC|Shadowsocks",
+ *    "preset":"ru-smart|ru-full|telegram-only|ir-smart|by-smart|cn-smart|
+ *              streaming|adblock|global|",
+ *    "relay":"TR|KZ|FI|",
+ *    "stack":"gvisor|system|mixed",
+ *    "mtu":1280, "ipv6":false, "fakeIp":true, "killSwitch":true,
+ *    "dns":{"nameservers":[...],"fallback":[...]},
+ *    "split":{"mode":"off|bypass|allow","apps":[...],"bypassDomains":[...]}}
+ * Недопустимое значение перечислимого поля → JSON-ошибка с именем поля, при
+ * этом политика НЕ меняется. Применяется при следующем CarambaUp: если туннель
+ * уже поднят, приложение обязано переподключиться (CarambaDown + CarambaUp).
+ * NULL при успехе, иначе JSON-ошибка. */
+extern char *CarambaSetPolicy(long h, char *jsonStr);
+
+/* Замер задержки до каждого узла ТЕКУЩЕЙ загруженной конфигурации
+ * (импортированной подписки либо последнего загруженного профиля панели) БЕЗ
+ * подъёма туннеля. Возвращает
+ *   {"servers":[{"id":"NL-1","name":"NL-1","type":"vless","server":"1.2.3.4",
+ *                "port":443,"country":"NL","latencyMs":42}]}
+ * где latencyMs = -1 означает «узел не ответил за timeoutMs». Если ничего не
+ * загружено — {"servers":[]}. timeoutMs <= 0 — таймаут по умолчанию (3000).
+ * Замеры идут параллельно, не более 8 одновременно. Способ замера зависит от
+ * сборки библиотеки: TCP-соединение без тега mihomo, настоящий URL-тест через
+ * прокси (с TCP-фолбэком) под -tags mihomo. Владелец освобождает строку. */
+extern char *CarambaProbe(long h, int timeoutMs);
 
 /* Переключить способ захвата трафика.
  * mode = "tun" (или "" / NULL) — системный TUN-инбаунд, требует прав
@@ -68,14 +103,17 @@ extern char *CarambaSetTunnelMode(long h, char *mode, int port);
  * NULL при успехе, иначе JSON-ошибка. */
 extern char *CarambaSetTunFd(long h, int fd);
 
-/* Поднять туннель. serverID может быть "" (выбор панели).
- * Возвращает JSON UpResult либо JSON-ошибку. */
+/* Поднять туннель. serverID может быть "" (выбор панели/автоматика). Для
+ * импортированной подписки непустой serverID — это ИМЯ узла (поле id из
+ * метаданных CarambaImportSubscription); узел закрепляется выбором по умолчанию
+ * в селекторе CARAMBA. Возвращает JSON UpResult либо JSON-ошибку. */
 extern char *CarambaUp(long h, char *serverID);
 
 /* Остановить туннель. NULL при успехе, иначе JSON-ошибка. */
 extern char *CarambaDown(long h);
 
-/* Плоский статус {stage,detail?,connectedSinceMs} для status-канала. */
+/* Плоский статус {stage,detail?,connectedSinceMs,activeProxy?} для
+ * status-канала. */
 extern char *CarambaStatus(long h);
 
 /* Плоские счётчики {downBps,upBps,downTotal,upTotal} для traffic-канала. */

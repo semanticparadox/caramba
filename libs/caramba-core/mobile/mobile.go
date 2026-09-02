@@ -130,7 +130,8 @@ func (c *Client) SetSubscriptionID(id string) { c.core.SetSubscriptionID(id) }
 // после Configure ядро авторизовано (IsAuthenticated()==true) и Up сам забирает
 // clash-конфиг подписки (он несёт amnezia-wg) без round-trip за UUID.
 //
-//   - panelURL      — базовый URL панели; пусто оставляет URL, заданный NewClient.
+//   - panelURL      — базовый URL панели. Непустой и отличающийся от текущего
+//     перенаправляет ядро на эту панель; пусто оставляет URL из NewClient.
 //   - subscriptionID — UUID подписки текущего пользователя (передаётся в ядро,
 //     чтобы Up не ходил за ним к панели). Пусто — ядро подтянет его лениво.
 //   - accessToken    — JWT приложения. Обязателен.
@@ -142,10 +143,14 @@ func (c *Client) SetSubscriptionID(id string) { c.core.SetSubscriptionID(id) }
 // сознательная деградация ради простого, бесшовного handoff (см.
 // auth.PanelClient.SetTokens / api.Core.InjectToken).
 func (c *Client) Configure(panelURL, subscriptionID, accessToken string) error {
-	// panelURL на стороне ядра фиксируется при NewClient (NewCore требует его там).
-	// Параметр оставлен в сигнатуре как часть документированного контракта плагина
-	// и для будущей пере-конфигурации; сейчас ядро использует URL из NewClient.
-	_ = panelURL
+	// Непустой и отличающийся panelURL перенаправляет ядро на другую панель:
+	// пересобираются auth-клиент, клиент подписок и клиент /subscription
+	// (api.Core.SetPanelURL). Это нужно мультипанельному режиму (enroll в чужую
+	// панель), где адрес становится известен уже после NewClient. Пусто —
+	// остаётся URL из NewClient.
+	if err := c.core.SetPanelURL(panelURL); err != nil {
+		return err
+	}
 	return c.core.InjectToken(accessToken, "", 0, subscriptionID)
 }
 
@@ -205,6 +210,44 @@ func (c *Client) ListPresets(country string) (string, error) {
 	return toJSON(c.core.ListPresets(country))
 }
 
+// SetPolicyJSON применяет политику подключения одной JSON-строкой (контракт ABI
+// v2, CarambaSetPolicy). Все поля опциональны, неизвестные ключи игнорируются:
+//
+//	{"protocol":"auto|AmneziaWG|VLESS-Reality|Hysteria2|TUIC|Shadowsocks",
+//	 "preset":"ru-smart|ru-full|telegram-only|ir-smart|by-smart|cn-smart|streaming|adblock|global|",
+//	 "relay":"TR|KZ|FI|",
+//	 "stack":"gvisor|system|mixed",
+//	 "mtu":1280, "ipv6":false, "fakeIp":true, "killSwitch":true,
+//	 "dns":{"nameservers":[...],"fallback":[...]},
+//	 "split":{"mode":"off|bypass|allow","apps":[...],"bypassDomains":[...]}}
+//
+// Недопустимое значение перечислимого поля возвращает ошибку с именем этого поля
+// и НЕ меняет политику. Политика применяется при следующем Up: если туннель уже
+// поднят, приложение обязано переподключиться (Down + Up), иначе изменения
+// останутся невидимыми.
+func (c *Client) SetPolicyJSON(jsonStr string) error { return c.core.SetPolicyJSON(jsonStr) }
+
+// ProbeJSON меряет задержку до каждого узла ТЕКУЩЕЙ загруженной конфигурации
+// (импортированной подписки либо последнего загруженного профиля панели), не
+// поднимая туннель. Возвращает JSON вида
+//
+//	{"servers":[{"id":"...","name":"...","type":"vless","server":"host",
+//	             "port":443,"country":"NL","latencyMs":42}]}
+//
+// latencyMs = -1 означает, что узел не ответил за timeoutMs. timeoutMs <= 0 —
+// таймаут по умолчанию (3с). Если ничего не загружено, вернётся {"servers":[]}.
+func (c *Client) ProbeJSON(timeoutMs int) (string, error) {
+	// Общий бюджет: таймаут одного узла плюс запас на очередь (замеры идут
+	// пачками по 8). Минимум — минута, чтобы длинная подписка успела промериться.
+	budget := 60
+	if timeoutMs > 0 {
+		budget = timeoutMs/1000 + 60
+	}
+	ctx, cancel := timeoutCtx(budget)
+	defer cancel()
+	return c.core.ProbeJSON(ctx, timeoutMs)
+}
+
 // --- Туннель ---
 
 // SetTunFd пробрасывает в движок TUN fd, созданный платформой (Android
@@ -212,7 +255,9 @@ func (c *Client) ListPresets(country string) (string, error) {
 func (c *Client) SetTunFd(fd int) error { return c.core.SetTunFd(fd) }
 
 // Up поднимает туннель. serverID необязателен (пусто — выбор панели/автоподбора).
-// Возвращает JSON api.UpResult.
+// Для импортированной подписки непустой serverID — это ИМЯ узла (поле id из
+// метаданных ImportSubscription), и он закрепляется как выбор по умолчанию в
+// селекторе CARAMBA. Возвращает JSON api.UpResult.
 func (c *Client) Up(serverID string) (string, error) {
 	ctx, cancel := timeoutCtx(60)
 	defer cancel()
@@ -243,6 +288,10 @@ type statusEvent struct {
 	Stage            string `json:"stage"`
 	Detail           string `json:"detail,omitempty"`
 	ConnectedSinceMs int64  `json:"connectedSinceMs"`
+	// ActiveProxy — имя узла, выбранного в селекторе CARAMBA. Заполняется только
+	// когда туннель поднят (контракт ABI v2): UI показывает по нему «через какой
+	// сервер идёт трафик».
+	ActiveProxy string `json:"activeProxy,omitempty"`
 	// Mode — способ захвата трафика ("tun"|"proxy"), см. SetTunnelMode.
 	Mode string `json:"mode"`
 	// MixedPort — порт локального mixed-инбаунда. Заполняется ТОЛЬКО в
@@ -278,7 +327,7 @@ func stageFromEngineState(s string) string {
 }
 
 // StatusJSON возвращает плоский статус для EventChannel com.caramba/vpn/status:
-// {stage, detail?, connectedSinceMs}. Это НЕ то же, что Status() (тот отдаёт
+// {stage, detail?, connectedSinceMs, activeProxy?}. Это НЕ то же, что Status() (тот отдаёт
 // вложенный api.StatusResult). Нативный слой подписывается на переходы и пушит
 // этот JSON в канал статуса; stage берётся из движка и маппится в имена VpnStage.
 //
@@ -294,6 +343,7 @@ func (c *Client) StatusJSON() (string, error) {
 		Stage:            stageFromEngineState(string(st.State)),
 		Detail:           st.Detail,
 		ConnectedSinceMs: st.ConnectedSinceMs,
+		ActiveProxy:      st.ActiveProxy,
 		Mode:             mode,
 		MixedPort:        mixedPort,
 	})

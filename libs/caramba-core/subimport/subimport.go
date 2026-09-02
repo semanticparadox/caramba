@@ -140,8 +140,9 @@ func marshalClash(proxies proxyList) ([]byte, error) {
 
 // buildMetadata собирает Metadata.Servers из произведённых proxies. Каждый прокси
 // обязан нести name/type/server/port — иначе соответствующее поле сервера будет
-// пустым (см. предупреждение в Import). Страна извлекается из имени так же, как в
-// subscription.parseServers.
+// пустым (см. предупреждение в Import). Страна извлекается из имени
+// (CountryFromName), ID = имя прокси: именно его приложение передаёт обратно в
+// Up(serverID), чтобы закрепить узел в селекторе CARAMBA (контракт ABI v2).
 func buildMetadata(proxies proxyList) Metadata {
 	servers := make([]subscription.Server, 0, len(proxies))
 	for _, px := range proxies {
@@ -149,11 +150,12 @@ func buildMetadata(proxies proxyList) Metadata {
 		typ, _ := px["type"].(string)
 		server, _ := px["server"].(string)
 		servers = append(servers, subscription.Server{
+			ID:      name,
 			Name:    name,
 			Type:    typ,
 			Server:  server,
 			Port:    asInt(px["port"]),
-			Country: countryFromName(name),
+			Country: CountryFromName(name),
 		})
 	}
 	return Metadata{Servers: servers}
