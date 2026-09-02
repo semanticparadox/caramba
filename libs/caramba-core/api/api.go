@@ -84,9 +84,9 @@ type Core struct {
 // NewCore создаёт фасад. Возвращает ошибку, если не удаётся подготовить рабочий
 // каталог или хранилище токенов.
 func NewCore(cfg Config) (*Core, error) {
-	if cfg.PanelBaseURL == "" {
-		return nil, fmt.Errorf("api: не задан PanelBaseURL")
-	}
+	// Пустой PanelBaseURL допустим: ядро в режиме «только импорт» (rawSub,
+	// гостевой режим клиента) не ходит в панель. Панельные операции без URL
+	// отвергаются позже с понятной ошибкой (см. Up).
 	subBase := cfg.SubBaseURL
 	if subBase == "" {
 		subBase = cfg.PanelBaseURL
@@ -659,6 +659,9 @@ func (c *Core) Up(ctx context.Context, serverID string) (UpResult, error) {
 		pinProxy = strings.TrimSpace(serverID)
 	} else {
 		// панельный путь.
+		if strings.TrimSpace(c.cfg.PanelBaseURL) == "" {
+			return UpResult{}, fmt.Errorf("api: панель не настроена: импортируйте подписку или вызовите Configure с panelURL")
+		}
 		if !c.auth.IsAuthenticated() {
 			return UpResult{}, auth.ErrNotAuthenticated
 		}

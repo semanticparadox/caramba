@@ -49,10 +49,14 @@ func TestToJSONRoundTrip(t *testing.T) {
 	}
 }
 
-// TestNewClientRequiresPanelURL — NewClient должен возвращать ошибку без panelURL
-// (проксируется из api.NewCore), чтобы нативная сторона получала внятный сбой.
-func TestNewClientRequiresPanelURL(t *testing.T) {
-	if _, err := NewClient("", "", t.TempDir(), ""); err == nil {
-		t.Error("ожидалась ошибка при пустом panelURL")
+// TestNewClientAllowsEmptyPanelURL: клиент без panelURL допустим (режим «только
+// импорт», гостевой режим), а панельный Up без URL даёт понятную ошибку.
+func TestNewClientAllowsEmptyPanelURL(t *testing.T) {
+	c, err := NewClient("", "", t.TempDir(), "")
+	if err != nil {
+		t.Fatalf("NewClient без panelURL: %v", err)
+	}
+	if _, err := c.Up(""); err == nil {
+		t.Error("ожидалась ошибка панельного Up без panelURL")
 	}
 }
