@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Caramba Connect · Concept C · Open Chart</title>
+<style>
+  :root{
+    --sans:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,system-ui,sans-serif;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,monospace;
+    --t1:27px; --t2:20px; --t3:15px; --t4:13px; --t5:11px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  body{font-family:var(--sans);background:#060606;color:#fafafa;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:40px 24px;gap:44px;flex-wrap:wrap}
+  svg{display:block}
+  .ic{width:20px;height:20px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  /* ---------- phone shell ---------- */
+  .phone{
+    --bg:#0A0A0A; --canvas:#0C0C0C;
+    --s1:#161616; --s2:#1E1E1E; --s3:#272727; --inset:#0E0E0E;
+    --border:#2A2A2A; --border-strong:#3D3D3D;
+    --t-hi:#FAFAFA; --t-med:#A0A0A0; --t-low:#7C7C7C;
+    --ok:#30D158; --amber:#FF9F0A; --error:#FF453A;
+    --on-accent:#0A0A0A; --accent:#FAFAFA;
+    width:390px;height:844px;background:var(--bg);color:var(--t-hi);
+    border-radius:46px;border:1px solid #1c1c1c;
+    box-shadow:0 0 0 9px #050505,0 30px 80px -30px #000;
+    position:relative;overflow:hidden;flex:0 0 auto;
+    transition:background .3s,color .3s,box-shadow .3s,border-color .3s;
+  }
+  .phone.light{
+    --bg:#FAFAFA; --canvas:#FFFFFF;
+    --s1:#FFFFFF; --s2:#F4F4F4; --s3:#ECECEC; --inset:#F1F1F1;
+    --border:#E5E5E5; --border-strong:#D2D2D2;
+    --t-hi:#0A0A0A; --t-med:#585858; --t-low:#6E6E6E;
+    --ok:#1E9E54; --amber:#A85D00; --error:#C8102E;
+    --on-accent:#FFFFFF; --accent:#0A0A0A;
+    border-color:#dadada;box-shadow:0 0 0 9px #cfcfcf,0 30px 80px -34px #777;
+  }
+  #atmo{position:absolute;inset:0;width:390px;height:844px;z-index:0;pointer-events:none}
+  .statusbar{position:absolute;top:0;left:0;right:0;height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;font-size:var(--t4);font-weight:600;color:var(--t-med);z-index:40}
+  .screen{position:absolute;inset:0;display:flex;flex-direction:column;z-index:10}
+  .body{flex:1;overflow-y:auto;overflow-x:hidden;padding:52px 22px 100px;scrollbar-width:none}
+  .body::-webkit-scrollbar{display:none}
+  .head{display:flex;align-items:center;justify-content:space-between;min-height:44px;margin-bottom:16px}
+  .wordmark{font-size:17px;font-weight:700;letter-spacing:-.02em}
+  .chip-n{font-family:var(--mono);font-size:var(--t5);font-weight:600;color:var(--t-med);border:1px solid var(--border-strong);border-radius:6px;padding:4px 8px}
+
+  /* ---------- dial ---------- */
+  .connect{display:flex;flex-direction:column;align-items:center;padding:18px 0 0;text-align:center}
+  .dial{width:196px;height:196px;border-radius:50%;position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;margin-bottom:16px}
+  .dial .track{position:absolute;inset:0;border-radius:50%;border:2px solid var(--border-strong);transition:border-color .35s}
+  .dial .arc{position:absolute;inset:-2px;display:none}
+  .dial .face{width:146px;height:146px;border-radius:50%;background:var(--s1);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--t-med);transition:color .35s,border-color .35s,background .15s}
+  .dial .face .ic{width:42px;height:42px;stroke-width:1.8}
+  .dial:active .face{background:var(--s2)}
+  .dial.connecting .track,.dial.reconnecting .track{border-color:transparent}
+  .dial.connecting .arc,.dial.reconnecting .arc{display:block;animation:rot 1s linear infinite}
+  .dial.connecting .face,.dial.reconnecting .face{color:var(--amber)}
+  .dial.connected .track{border-color:var(--ok)}
+  .dial.connected .face{color:var(--ok);border-color:var(--ok)}
+  .dial.error .track{border-color:var(--error)}
+  .dial.error .face{color:var(--error);border-color:var(--error)}
+  @keyframes rot{to{transform:rotate(360deg)}}
+  .phone.nomotion .dial .arc{animation:none}
+  .phone.nomotion .cstate,.phone.nomotion .dial .track,.phone.nomotion .dial .face{transition-duration:.2s}
+  .cstate{font-size:var(--t2);font-weight:600;letter-spacing:-.01em;transition:color .3s}
+  .cstate.ok{color:var(--ok)} .cstate.am{color:var(--amber)} .cstate.er{color:var(--error)}
+  .csub{font-size:var(--t4);color:var(--t-med);margin-top:5px;min-height:18px}
+
+  .ksbanner{margin:12px 0 0;border-radius:12px;padding:8px 12px;display:none;align-items:center;gap:9px;font-size:var(--t4);
+    background:color-mix(in srgb,var(--amber) 10%,transparent);color:var(--amber);border:1px solid color-mix(in srgb,var(--amber) 32%,transparent)}
+  .ksbanner.show{display:flex}
+  .ksbanner.show + .rows{margin-top:10px}
+
+  /* ---------- rows / stats / nav ---------- */
+  .rows{background:var(--s1);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-top:16px}
+  .crow{display:flex;align-items:center;gap:14px;padding:0 16px;min-height:48px;cursor:pointer;transition:background .12s}
+  .crow+.crow{border-top:1px solid var(--border)}
+  .crow:active{background:var(--s2)}
+  .crow .lbl{color:var(--t-hi);font-size:var(--t3)}
+  .crow .ico{color:var(--t-med)}
+  .crow .val{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:var(--t3);color:var(--t-med)}
+  .chev{color:var(--t-low);width:18px;height:18px}
+  .code{font-family:var(--mono);font-size:var(--t5);font-weight:600;letter-spacing:.04em;color:var(--t-hi);background:var(--inset);border:1px solid var(--border);border-radius:7px;padding:3px 7px}
+
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-top:10px}
+  .stat{background:var(--s1);padding:11px 16px}
+  .stat .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:var(--t2);font-weight:600;letter-spacing:-.02em}
+  .stat .k{font-size:var(--t5);color:var(--t-low);text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
+
+  .nav{position:absolute;bottom:0;left:0;right:0;height:80px;background:color-mix(in srgb,var(--canvas) 92%,transparent);backdrop-filter:blur(12px);border-top:1px solid var(--border);display:flex;padding:8px 4px 24px;z-index:50}
+  .nav button{flex:1;background:none;border:none;color:var(--t-low);font-family:var(--sans);font-size:var(--t5);font-weight:500;display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;min-height:48px}
+  .nav button.on{color:var(--t-hi)}
+
+  /* ---------- control rail ---------- */
+  .rail{width:286px;flex:0 0 auto;color:#8f8f8f;font-size:13px;line-height:1.65;padding-top:6px}
+  .rail h1{font-size:19px;font-weight:700;color:#fafafa;letter-spacing:-.02em}
+  .rail .kicker{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#6a6a6a;margin-bottom:6px}
+  .rail p{margin-top:10px}
+  .rail h3{color:#fafafa;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;margin:22px 0 9px;font-family:var(--mono)}
+  .sbtn{display:flex;width:100%;align-items:center;gap:10px;background:#131313;border:1px solid #262626;color:#c9c9c9;border-radius:12px;padding:11px 13px;font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer;margin-bottom:7px;transition:background .12s,border-color .12s,color .12s}
+  .sbtn:hover{background:#191919}
+  .sbtn.on{background:#fafafa;border-color:#fafafa;color:#0a0a0a}
+  .sbtn .dot{width:8px;height:8px;border-radius:2px;background:#3d3d3d;flex:0 0 auto}
+  .sbtn.on .dot{background:#0a0a0a}
+  .sbtn .kb{margin-left:auto;font-family:var(--mono);font-size:10px;opacity:.55}
+  .toggles{display:flex;gap:7px}
+  .toggles .sbtn{margin-bottom:0}
+  .meter{margin-top:14px;font-family:var(--mono);font-size:11px;color:#6a6a6a;display:flex;align-items:center;gap:8px}
+  .meter i{width:7px;height:7px;border-radius:50%;background:#3d3d3d;display:block}
+  .meter i.live{background:#FF9F0A}
+  .legend{margin-top:8px;border-top:1px solid #1c1c1c;padding-top:14px}
+  .legend div{display:flex;gap:9px;margin-bottom:7px;align-items:flex-start}
+  .legend b{color:#d6d6d6;font-weight:600;flex:0 0 84px}
+  @media(max-width:820px){.rail{width:390px}}
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+  <canvas id="atmo" width="390" height="844" aria-hidden="true"></canvas>
+
+  <div class="statusbar"><span>9:41</span><span style="display:flex;gap:6px"><span class="mono">5G</span><span class="mono">100%</span></span></div>
+
+  <div class="screen">
+    <div class="body">
+      <div class="head"><div class="wordmark">Caramba</div><span class="chip-n">Pro</span></div>
+
+      <div class="connect">
+        <div class="dial" id="dial" role="button" tabindex="0" aria-label="Переключить подключение">
+          <div class="track"></div>
+          <svg class="arc" viewBox="0 0 196 196"><circle cx="98" cy="98" r="97" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-dasharray="76 534"/></svg>
+          <div class="face" id="face"></div>
+        </div>
+        <div class="cstate" id="cstate">Отключено</div>
+        <div class="csub" id="csub">Нажмите, чтобы подключиться</div>
+      </div>
+
+      <div class="ksbanner" id="ksb"><span class="ic" style="width:16px;height:16px" id="ksbIc"></span><span>Трафик на паузе до переподключения.</span></div>
+
+      <div class="rows" id="config"></div>
+
+      <div class="stats">
+        <div class="stat"><div class="v" id="stDown">0,0 МБ</div><div class="k">Скачано</div></div>
+        <div class="stat"><div class="v" id="stUp">0,0 МБ</div><div class="k">Отправлено</div></div>
+        <div class="stat"><div class="v" id="stLat">·</div><div class="k">Задержка</div></div>
+        <div class="stat"><div class="v" id="stSes">00:00</div><div class="k">Сессия</div></div>
+      </div>
+    </div>
+    <div class="nav" id="nav"></div>
+  </div>
+</div>
+
+<div class="rail">
+  <div class="kicker">Concept C</div>
+  <h1>Open Chart</h1>
+  <p>Фон приложения это карта сети. Отключено: вокруг вас замкнутая граница, маршруты обрываются тупиками, мир заштрихован. Подключено: границы нет, сетка карты проявляется, каждый маршрут идёт до своей станции.</p>
+
+  <h3>Состояние</h3>
+  <button class="sbtn on" id="b-off"><span class="dot"></span>Disconnected<span class="kb">1</span></button>
+  <button class="sbtn" id="b-connecting"><span class="dot"></span>Connecting<span class="kb">2</span></button>
+  <button class="sbtn" id="b-connected"><span class="dot"></span>Connected<span class="kb">3</span></button>
+  <button class="sbtn" id="b-error"><span class="dot"></span>Error<span class="kb">4</span></button>
+  <button class="sbtn" id="b-reconnecting"><span class="dot"></span>Reconnecting<span class="kb">5</span></button>
+
+  <h3>Режим</h3>
+  <div class="toggles">
+    <button class="sbtn" id="b-motion" style="flex:1"><span class="dot"></span>Reduce motion</button>
+    <button class="sbtn" id="b-theme" style="flex:1"><span class="dot"></span>Light</button>
+  </div>
+
+  <div class="meter"><i id="fpsDot"></i><span id="fpsTxt">canvas: static frame, 0 fps</span></div>
+  <div style="margin-top:8px;font-family:var(--mono);font-size:10px;color:#5c5c5c;line-height:1.6">Клавиши 1 to 5. Прямые ссылки: <span style="color:#8f8f8f">#connected</span>, <span style="color:#8f8f8f">#error,light</span>, <span style="color:#8f8f8f">#connecting,reduce</span></div>
+
+  <div class="legend">
+    <div><b>Граница</b><span>Замкнутая октагональная рамка вокруг диска. Не круг, чтобы не спорить с кольцом статуса.</span></div>
+    <div><b>Штриховка</b><span>Картографическая отметка запретной зоны. Здесь запретна вся зона снаружи.</span></div>
+    <div><b>Тупики</b><span>Поперечная засечка там, где маршрут упирается в границу.</span></div>
+    <div><b>Сетка</b><span>Градусная сетка появляется только при подключении. Одна главная линия проходит через центр диска.</span></div>
+    <div><b>Станции</b><span>Полые квадраты офлайн, залитые с волосяным кольцом онлайн. Коды стран моноширинным, только в подключённом состоянии.</span></div>
+    <div><b>Покой</b><span>Отключено и подключено это статичный кадр. Тикер остановлен, кадры не рисуются.</span></div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   ICONS (Lucide paths)
+   ============================================================ */
+const I={
+  power:'<line x1="12" x2="12" y1="2" y2="12"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>',
+  shield:'<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  dots:'<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
+  globe:'<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+  waypoints:'<circle cx="12" cy="4.5" r="2.5"/><path d="m10.2 6.3-3.9 3.9"/><circle cx="4.5" cy="12" r="2.5"/><path d="M7 12h10"/><circle cx="19.5" cy="12" r="2.5"/><path d="m13.8 17.7 3.9-3.9"/><circle cx="12" cy="19.5" r="2.5"/>',
+  lock:'<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  route:'<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>',
+  chev:'<path d="m9 18 6-6-6-6"/>',
+  user:'<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>',
+  sliders:'<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>',
+  pause:'<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
+};
+const svg=(n,cls='ic',st='')=>`<svg class="${cls}" style="${st}" viewBox="0 0 24 24">${I[n]}</svg>`;
+
+/* ============================================================
+   ATMOSPHERE TOKENS
+   ============================================================ */
+const TOKENS={
+  dark:{
+    bg:'#0A0A0A', bgRGB:[10,10,10],
+    grid:[250,250,250,0.030], gridMajor:[250,250,250,0.052],
+    hatch:[250,250,250,0.026], shade:[0,0,0,0.45], lift:[250,250,250,0.025],
+    routeIdle:[250,250,250,0.10], routeGhost:[250,250,250,0.045],
+    routeProbe:[255,159,10,0.24], routeLive:[48,209,88,0.22],
+    nodeIdle:[250,250,250,0.16], nodeLive:[48,209,88,0.50],
+    barrier:[250,250,250,0.14], fault:[255,69,58,0.55], label:[250,250,250,0.20],
+  },
+  light:{
+    bg:'#FAFAFA', bgRGB:[250,250,250],
+    grid:[10,10,10,0.045], gridMajor:[10,10,10,0.075],
+    hatch:[10,10,10,0.038], shade:[10,10,10,0.055], lift:[250,250,250,0.0],
+    routeIdle:[10,10,10,0.14], routeGhost:[10,10,10,0.06],
+    routeProbe:[168,93,0,0.30], routeLive:[30,158,84,0.32],
+    nodeIdle:[10,10,10,0.22], nodeLive:[30,158,84,0.62],
+    barrier:[10,10,10,0.20], fault:[200,16,46,0.60], label:[10,10,10,0.26],
+  }
+};
+const rgba=(c,m=1)=>`rgba(${c[0]},${c[1]},${c[2]},${(c[3]*m).toFixed(4)})`;
+const mixc=(a,b,t)=>[Math.round(a[0]+(b[0]-a[0])*t),Math.round(a[1]+(b[1]-a[1])*t),Math.round(a[2]+(b[2]-a[2])*t),a[3]+(b[3]-a[3])*t];
+
+/* ============================================================
+   CHART GEOMETRY  (design space: 390 x 844, home station 195,240)
+   ============================================================ */
+const W=390, HH=844;
+const HOME={x:195,y:240};
+
+/* boundary octagon: centre 195,258 · half 134 x 150 · corner cut 36 */
+const BARRIER=[[97,108],[293,108],[329,144],[329,372],[293,408],[97,408],[61,372],[61,144]];
+
+/* eight routes, each leaving the dial ring (r = 104) then elbowing outward */
+const ROUTES=[
+  {id:'NL', pts:[[121,166],[103,148],[103,124],[46,124]],                 code:'NL', side:'r'},
+  {id:'TOP',pts:[[195,136],[195,120],[219,96],[219,58]],                  code:null, tie:true},
+  {id:'DE', pts:[[269,166],[287,148],[287,126],[352,126]],                code:'DE', side:'l'},
+  {id:'US', pts:[[299,240],[331,240],[357,266]],                          code:'US', side:'l'},
+  {id:'SE', pts:[[91,240],[59,240],[31,268]],                             code:'SE', side:'r'},
+  {id:'JP', pts:[[269,314],[287,332],[352,332]],                          code:'JP', side:'l'},
+  {id:'RL', pts:[[121,314],[103,332],[103,470],[14,470],[14,860]],        code:null, tie:true},
+  {id:'RR', pts:[[195,344],[213,362],[213,500],[376,500],[376,860]],      code:null, tie:true},
+];
+const FAULT_ROUTE=2; // DE is the route that reports the failure
+
+/* ---- geometry helpers ---- */
+function inPoly(x,y,poly){let c=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const [xi,yi]=poly[i],[xj,yj]=poly[j];if(((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi))c=!c}return c}
+function cumOf(pts){const c=[0];for(let i=1;i<pts.length;i++){c.push(c[i-1]+Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]))}return c}
+function ptAt(pts,cum,s){
+  s=Math.max(0,Math.min(cum[cum.length-1],s));
+  for(let i=0;i<pts.length-1;i++){ if(s<=cum[i+1]||i===pts.length-2){
+    const f=(cum[i+1]-cum[i])?(s-cum[i])/(cum[i+1]-cum[i]):0;
+    return {x:pts[i][0]+(pts[i+1][0]-pts[i][0])*f, y:pts[i][1]+(pts[i+1][1]-pts[i][1])*f,
+            dx:(pts[i+1][0]-pts[i][0]), dy:(pts[i+1][1]-pts[i][1])};
+  }}
+  return {x:pts[0][0],y:pts[0][1],dx:1,dy:0};
+}
+function strokeRange(ctx,pts,cum,a,b){
+  if(b<=a+0.01)return;
+  ctx.beginPath(); let started=false;
+  for(let i=0;i<pts.length-1;i++){
+    const s0=cum[i],s1=cum[i+1]; const A=Math.max(a,s0),B=Math.min(b,s1);
+    if(B<=A)continue;
+    const f1=(A-s0)/(s1-s0), f2=(B-s0)/(s1-s0);
+    const x1=pts[i][0]+(pts[i+1][0]-pts[i][0])*f1, y1=pts[i][1]+(pts[i+1][1]-pts[i][1])*f1;
+    const x2=pts[i][0]+(pts[i+1][0]-pts[i][0])*f2, y2=pts[i][1]+(pts[i+1][1]-pts[i][1])*f2;
+    if(!started){ctx.moveTo(x1,y1);started=true} else {ctx.lineTo(x1,y1)}
+    ctx.lineTo(x2,y2);
+  }
+  ctx.stroke();
+}
+
+/* ---- precompute (this is the ChartGeometry object in Flutter) ---- */
+const BAR_CLOSED=BARRIER.concat([BARRIER[0]]);
+const BAR_CUM=cumOf(BAR_CLOSED);
+const BAR_LEN=BAR_CUM[BAR_CUM.length-1];
+
+const GEO=ROUTES.map((r,idx)=>{
+  const cum=cumOf(r.pts), total=cum[cum.length-1];
+  // first exit from the boundary, sampled at 1px
+  let cross=total, cp=ptAt(r.pts,cum,total);
+  for(let s=0;s<=total;s+=1){
+    const p=ptAt(r.pts,cum,s);
+    if(!inPoly(p.x,p.y,BARRIER)){cross=s;cp=p;break}
+  }
+  const n=Math.hypot(cp.dx,cp.dy)||1;
+  // waypoints = elbow vertices that sit outside the boundary (relay hops)
+  const way=[];
+  for(let i=1;i<r.pts.length-1;i++){ if(!inPoly(r.pts[i][0],r.pts[i][1],BARRIER)) way.push(r.pts[i]) }
+  // where the boundary is cut open for this route
+  let best=0,bd=1e9;
+  for(let i=0;i<BAR_CLOSED.length-1;i++){
+    const [x1,y1]=BAR_CLOSED[i],[x2,y2]=BAR_CLOSED[i+1];
+    const vx=x2-x1,vy=y2-y1,L2=vx*vx+vy*vy||1;
+    let t=((cp.x-x1)*vx+(cp.y-y1)*vy)/L2; t=Math.max(0,Math.min(1,t));
+    const px=x1+vx*t,py=y1+vy*t,d=Math.hypot(cp.x-px,cp.y-py);
+    if(d<bd){bd=d;best=BAR_CUM[i]+Math.hypot(px-x1,py-y1)}
+  }
+  const end=r.pts[r.pts.length-1];
+  return {...r, idx, cum, total, cross, cp, nx:cp.dx/n, ny:cp.dy/n, way, gapAt:best,
+          end:{x:end[0],y:end[1]}, rank:0};
+});
+// opening order: nearest station first
+[...GEO].sort((a,b)=>a.total-b.total).forEach((g,i)=>{g.rank=i});
+
+/* ============================================================
+   STATE DEFINITIONS
+   ============================================================ */
+const S={
+  off:          {grid:.18, hatch:1,   shade:1,   lift:0, barrier:1,  gap:0,   cap:1, label:0, tint:'idle',  mode:'static', reach:0},
+  connecting:   {grid:.55, hatch:.35, shade:.45, lift:0, barrier:.70, gap:1,  cap:0, label:0, tint:'probe', mode:'probe',  lo:.15, hi:.78, period:2200},
+  connected:    {grid:1,   hatch:0,   shade:0,   lift:1, barrier:0,  gap:1,   cap:0, label:1, tint:'live',  mode:'static', reach:1},
+  error:        {grid:.18, hatch:1,   shade:1,   lift:0, barrier:1,  gap:0,   cap:1, label:0, tint:'idle',  mode:'static', reach:0, fault:1},
+  reconnecting: {grid:.40, hatch:.50, shade:.60, lift:0, barrier:.85, gap:.55,cap:0, label:0, tint:'probe', mode:'probe',  lo:.20, hi:.60, period:3000},
+};
+const DUR={off:700, connecting:620, connected:1200, error:420, reconnecting:480};
+const KEYS=['grid','hatch','shade','lift','barrier','gap','cap','label','fault'];
+
+/* ============================================================
+   RUNTIME
+   ============================================================ */
+const cv=document.getElementById('atmo'), ctx=cv.getContext('2d');
+const phone=document.getElementById('phone');
+let dpr=Math.min(window.devicePixelRatio||1,3);
+let theme='dark', reduce=false;
+let state='off', prev='off', tStart=0, dur=0, DY=0;
+let running=false, raf=0, lastFrame=0, drawnFps=0, fpsWin=[];
+let snap=null, snapStart=0;
+let shakeStart=-1e9;
+
+function sizeCanvas(){
+  cv.width=W*dpr; cv.height=HH*dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+sizeCanvas();
+
+/* align the chart's home station to the real dial centre */
+function measure(){
+  const d=document.getElementById('dial').getBoundingClientRect();
+  const p=phone.getBoundingClientRect();
+  DY=Math.round((d.top-p.top)+d.height/2-HOME.y);
+}
+
+const ease={
+  outCubic:t=>1-Math.pow(1-t,3),
+  inCubic:t=>t*t*t,
+  inOut:t=>t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2,
+  inOutSine:t=>-(Math.cos(Math.PI*t)-1)/2,
+};
+const clamp01=v=>v<0?0:v>1?1:v;
+
+/* per route extension for a given state definition */
+function reachOf(def,i,now){
+  if(def.mode==='probe'){
+    if(reduce) return (def.lo+def.hi)/2;   // frozen half open chart, no loop
+    const ph=((now/def.period)+i*0.11)%1;
+    if(ph<0.62) return def.lo+(def.hi-def.lo)*ease.inOutSine(ph/0.62);
+    if(ph<0.72) return def.hi;
+    return def.hi-(def.hi-def.lo)*ease.inOutSine((ph-0.72)/0.28);
+  }
+  return def.reach;
+}
+/* staggered progress: opening runs inside out, closing runs outside in */
+function staggerProg(p,g,opening){
+  const n=GEO.length, w=opening?0.07:0.045;
+  const r=opening?g.rank:(n-1-g.rank);
+  const span=1-w*(n-1);
+  return clamp01((p-r*w)/span);
+}
+
+function tint(name,T){ return name==='probe'?T.routeProbe : name==='live'?T.routeLive : T.routeIdle }
+
+function draw(now){
+  const T=TOKENS[theme];
+  const from=S[prev], to=S[state];
+  let p = dur>0 ? clamp01((now-tStart)/dur) : 1;
+  const pe = ease.inOut(p);
+
+  // interpolated field scalars
+  const P={};
+  KEYS.forEach(k=>{ const a=from[k]||0, b=to[k]||0; P[k]=a+(b-a)*pe });
+  if(reduce){ KEYS.forEach(k=>P[k]=to[k]||0) }
+
+  // route colour
+  const cFrom=tint(from.tint,T), cTo=tint(to.tint,T);
+
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,W,HH);
+  ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,HH);
+  if(P.lift>0.001){ ctx.fillStyle=rgba(T.lift,P.lift); ctx.fillRect(0,0,W,HH) }
+
+  // error shake, chart layer only
+  let sx=0;
+  if(!reduce && now-shakeStart<260){ const t=(now-shakeStart)/260; sx=Math.sin(t*Math.PI*3)*(1-t)*5 }
+
+  ctx.save();
+  ctx.translate(sx,DY);
+
+  const barPath=new Path2D();
+  BARRIER.forEach((pt,i)=> i?barPath.lineTo(pt[0],pt[1]):barPath.moveTo(pt[0],pt[1]));
+  barPath.closePath();
+
+  /* --- graticule --- */
+  if(P.grid>0.001){
+    ctx.lineWidth=1;
+    const pitch=44, major=4;
+    for(let k=-12;k<=12;k++){
+      const x=HOME.x+k*pitch; if(x<-2||x>W+2)continue;
+      ctx.strokeStyle=rgba(k%major===0?T.gridMajor:T.grid,P.grid);
+      ctx.beginPath(); ctx.moveTo(Math.round(x)+.5,-DY); ctx.lineTo(Math.round(x)+.5,HH-DY); ctx.stroke();
+    }
+    for(let k=-14;k<=14;k++){
+      const y=HOME.y+k*pitch; if(y<-DY-2||y>HH-DY+2)continue;
+      ctx.strokeStyle=rgba(k%major===0?T.gridMajor:T.grid,P.grid);
+      ctx.beginPath(); ctx.moveTo(0,Math.round(y)+.5); ctx.lineTo(W,Math.round(y)+.5); ctx.stroke();
+    }
+  }
+
+  /* --- restricted field: shade + hatch, outside the boundary only --- */
+  if(P.shade>0.001||P.hatch>0.001){
+    const outside=new Path2D();
+    outside.rect(-40,-DY-40,W+80,HH+80);
+    outside.addPath(barPath);
+    ctx.save();
+    ctx.clip(outside,'evenodd');
+    if(P.shade>0.001){
+      const g=ctx.createRadialGradient(HOME.x,HOME.y,140,HOME.x,HOME.y,560);
+      g.addColorStop(0,rgba(T.shade,0));
+      g.addColorStop(1,rgba(T.shade,P.shade));
+      ctx.fillStyle=g; ctx.fillRect(-40,-DY-40,W+80,HH+80);
+    }
+    if(P.hatch>0.001){
+      ctx.strokeStyle=rgba(T.hatch,P.hatch); ctx.lineWidth=1;
+      ctx.beginPath();
+      for(let d=-HH-80;d<W+80;d+=12.728){ ctx.moveTo(d,-DY-40); ctx.lineTo(d+HH+80,HH-DY+40) }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /* --- routes --- */
+  GEO.forEach(g=>{
+    let rF=reachOf(from,g.idx,now), rT=reachOf(to,g.idx,now);
+    let k;
+    if(reduce) k=1;
+    else if(state==='connected') k=ease.outCubic(staggerProg(p,g,true));
+    else if(prev==='connected')  k=ease.outCubic(staggerProg(p,g,false));
+    else k= (state==='error') ? ease.inCubic(p) : pe;
+    const reach=rF+(rT-rF)*k;
+    const lit=g.cross+(g.total-g.cross)*clamp01(reach);
+
+    // ghost of the unreachable remainder
+    if(reach<0.985){
+      ctx.setLineDash([2,4]); ctx.lineWidth=1.2; ctx.lineCap='butt';
+      ctx.strokeStyle=rgba(T.routeGhost,1-reach);
+      strokeRange(ctx,g.pts,g.cum,lit,g.total);
+      ctx.setLineDash([]);
+    }
+    // the live part. Each route crosses from probe amber to live green on its OWN
+    // extension, so the map completes station by station instead of switching on.
+    ctx.lineWidth=1.5; ctx.lineCap='round'; ctx.lineJoin='round';
+    ctx.strokeStyle=rgba(mixc(cFrom,cTo,reduce?1:k),1);
+    strokeRange(ctx,g.pts,g.cum,0,lit);
+
+    // dead end cap at the boundary
+    if(P.cap>0.02 && reach<0.4){
+      const a=P.cap*(1-reach/0.4);
+      const px=-g.ny, py=g.nx;
+      ctx.strokeStyle=rgba(T.routeIdle,a*1.6); ctx.lineWidth=1.6;
+      ctx.beginPath();
+      ctx.moveTo(g.cp.x+px*5.5,g.cp.y+py*5.5);
+      ctx.lineTo(g.cp.x-px*5.5,g.cp.y-py*5.5);
+      ctx.stroke();
+    }
+  });
+
+  /* --- boundary, cut open at each crossing --- */
+  if(P.barrier>0.005){
+    const gw=P.gap*13;
+    const cuts=GEO.map(g=>g.gapAt).sort((a,b)=>a-b);
+    ctx.strokeStyle=rgba(T.barrier,P.barrier); ctx.lineWidth=1.2; ctx.lineCap='butt'; ctx.setLineDash([]);
+    let s=0;
+    cuts.forEach(c=>{ const a=c-gw,b=c+gw; if(a>s) strokeRange(ctx,BAR_CLOSED,BAR_CUM,s,a); s=Math.max(s,b) });
+    if(s<BAR_LEN) strokeRange(ctx,BAR_CLOSED,BAR_CUM,s,BAR_LEN);
+  }
+
+  /* --- the one failed route --- */
+  if(P.fault>0.02){
+    const g=GEO[FAULT_ROUTE], a=P.fault, r=4.5;
+    ctx.strokeStyle=rgba(T.fault,a); ctx.lineWidth=1.8; ctx.lineCap='round';
+    ctx.beginPath();
+    ctx.moveTo(g.cp.x-r,g.cp.y-r); ctx.lineTo(g.cp.x+r,g.cp.y+r);
+    ctx.moveTo(g.cp.x+r,g.cp.y-r); ctx.lineTo(g.cp.x-r,g.cp.y+r);
+    ctx.stroke();
+  }
+
+  /* --- stations, relay hops, edge ties, labels --- */
+  GEO.forEach(g=>{
+    let rF=reachOf(from,g.idx,now), rT=reachOf(to,g.idx,now);
+    let k = reduce?1 : (state==='connected'?ease.outCubic(staggerProg(p,g,true))
+          : prev==='connected'?ease.outCubic(staggerProg(p,g,false)) : pe);
+    const reach=rF+(rT-rF)*k;
+    const on=clamp01((reach-0.88)/0.12);
+
+    // relay hops on the open part of the route
+    g.way.forEach(w=>{
+      ctx.strokeStyle=rgba(on>0.5?T.nodeLive:T.nodeIdle, on>0.5?0.7:0.85); ctx.lineWidth=1.2;
+      ctx.beginPath(); ctx.arc(w[0],w[1],2.6,0,Math.PI*2); ctx.stroke();
+    });
+
+    if(g.tie){
+      // "chart continues" tie mark where a route leaves the frame
+      const e=g.end, vert=Math.abs(g.pts[g.pts.length-1][0]-g.pts[g.pts.length-2][0])<1;
+      const ex=vert?e.x:e.x, ey=vert?Math.min(e.y,HH-DY-6):e.y;
+      ctx.strokeStyle=rgba(on>0.5?T.nodeLive:T.nodeIdle,0.8); ctx.lineWidth=1.4;
+      ctx.beginPath();
+      if(vert){ctx.moveTo(ex-5,ey);ctx.lineTo(ex+5,ey)} else {ctx.moveTo(ex,ey-5);ctx.lineTo(ex,ey+5)}
+      ctx.stroke();
+      return;
+    }
+
+    const e=g.end, sz=5;
+    if(on<0.5){
+      ctx.strokeStyle=rgba(T.nodeIdle,1); ctx.lineWidth=1.2;
+      ctx.strokeRect(e.x-sz/2+.5,e.y-sz/2+.5,sz,sz);
+    }else{
+      ctx.fillStyle=rgba(T.nodeLive,on);
+      ctx.fillRect(e.x-sz/2,e.y-sz/2,sz,sz);
+      ctx.strokeStyle=rgba(T.nodeLive,on*0.42); ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(e.x,e.y,8.5,0,Math.PI*2); ctx.stroke();
+    }
+    if(g.code && P.label>0.02){
+      ctx.fillStyle=rgba(T.label,P.label);
+      ctx.font='600 9px ui-monospace, "SF Mono", Menlo, monospace';
+      ctx.textBaseline='middle';
+      ctx.textAlign = g.side==='r'?'left':'right';
+      ctx.fillText(g.code, e.x + (g.side==='r'?11:-11), e.y+0.5);
+    }
+  });
+
+  /* quiet lens: the atmosphere is suppressed behind the status label so the
+     green / amber / red state text always sits on near pure base */
+  ctx.save();
+  ctx.translate(195,382); ctx.scale(1,46/176);
+  const lens=ctx.createRadialGradient(0,0,0,0,0,176);
+  lens.addColorStop(0,rgba(T.bgRGB,0.90));
+  lens.addColorStop(0.55,rgba(T.bgRGB,0.86));
+  lens.addColorStop(1,rgba(T.bgRGB,0));
+  ctx.fillStyle=lens; ctx.fillRect(-200,-200,400,400);
+  if(P.lift>0.001){
+    const lens2=ctx.createRadialGradient(0,0,0,0,0,176);
+    lens2.addColorStop(0,rgba(T.lift,P.lift*0.90));
+    lens2.addColorStop(0.55,rgba(T.lift,P.lift*0.86));
+    lens2.addColorStop(1,rgba(T.lift,0));
+    ctx.fillStyle=lens2; ctx.fillRect(-200,-200,400,400);
+  }
+  ctx.restore();
+
+  ctx.restore();
+
+  /* reduce motion: opacity cross fade over the previous composition */
+  if(reduce && snap && now-snapStart<200){
+    const t=(now-snapStart)/200;
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.globalAlpha=1-ease.outCubic(t);
+    ctx.drawImage(snap,0,0);
+    ctx.globalAlpha=1;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+
+  return p>=1;
+}
+
+/* ---- ticker, capped at 30fps and stopped whenever the frame is static ---- */
+function isStatic(){ return reduce || (S[state].mode==='static') }
+function loop(ts){
+  if(!running){return}
+  if(ts-lastFrame>=33){
+    const settled=draw(ts);
+    fpsWin.push(ts); while(fpsWin.length&&ts-fpsWin[0]>1000)fpsWin.shift();
+    drawnFps=fpsWin.length;
+    lastFrame=ts;
+    const fadeDone = !(reduce&&snap&&ts-snapStart<200);
+    if(settled && isStatic() && fadeDone && ts-shakeStart>260){ stop(); return }
+  }
+  raf=requestAnimationFrame(loop);
+}
+function start(){ if(running)return; running=true; lastFrame=0; fpsWin=[]; raf=requestAnimationFrame(loop); meter() }
+function stop(){ running=false; cancelAnimationFrame(raf); drawnFps=0; meter() }
+function meter(){
+  const live=running&&!isStatic();
+  document.getElementById('fpsDot').className=live?'live':'';
+  document.getElementById('fpsTxt').textContent = live
+    ? 'canvas: animating, '+Math.min(30,Math.max(1,drawnFps))+' fps'
+    : 'canvas: static frame, 0 fps';
+}
+setInterval(meter,500);
+
+/* pause when the tab is hidden, the same gate as AppLifecycleState */
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) stop(); else if(!isStatic()) start() });
+
+/* ============================================================
+   UI STATE
+   ============================================================ */
+const COPY={
+  off:          {cls:'',              label:'Отключено',              lc:'',   sub:'Нажмите, чтобы подключиться', face:'power',  fc:'var(--t-med)'},
+  connecting:   {cls:'connecting',    label:'Подключение',            lc:'am', sub:'Нидерланды · AmneziaWG',      face:'dots',   fc:'var(--amber)'},
+  connected:    {cls:'connected',     label:'Защищено',               lc:'ok', sub:'Нидерланды, Амстердам',       face:'shield', fc:'var(--ok)'},
+  error:        {cls:'error',         label:'Не удалось подключиться',lc:'er', sub:'Проверьте сеть и нажмите снова', face:'alert', fc:'var(--error)'},
+  reconnecting: {cls:'reconnecting',  label:'Переподключение',        lc:'am', sub:'Нидерланды · AmneziaWG',      face:'dots',   fc:'var(--amber)'},
+};
+let sessSec=0, sessTimer=null;
+
+function applyUI(){
+  const c=COPY[state];
+  const dial=document.getElementById('dial');
+  dial.className='dial '+c.cls;
+  const f=document.getElementById('face');
+  f.innerHTML=`<svg class="ic" style="width:42px;height:42px;stroke-width:1.8" viewBox="0 0 24 24">${I[c.face]}</svg>`;
+  f.style.color=c.fc;
+  const st=document.getElementById('cstate');
+  st.textContent=c.label; st.className='cstate '+c.lc;
+  document.getElementById('csub').textContent=c.sub;
+  document.getElementById('ksb').className='ksbanner'+(state==='reconnecting'?' show':'');
+
+  clearInterval(sessTimer); sessTimer=null;
+  if(state==='connected'){
+    document.getElementById('stLat').textContent='24 мс';
+    document.getElementById('stDown').textContent='128,4 МБ';
+    document.getElementById('stUp').textContent='22,1 МБ';
+    sessSec=1567; tickSess();
+    sessTimer=setInterval(()=>{sessSec++;tickSess()},1000);
+  }else if(state==='reconnecting'){
+    document.getElementById('stLat').textContent='·';
+    tickSess();
+  }else{
+    document.getElementById('stLat').textContent='·';
+    document.getElementById('stDown').textContent='0,0 МБ';
+    document.getElementById('stUp').textContent='0,0 МБ';
+    sessSec=0; tickSess();
+  }
+  ['off','connecting','connected','error','reconnecting'].forEach(k=>{
+    document.getElementById('b-'+(k==='off'?'off':k)).classList.toggle('on',k===state);
+  });
+}
+function tickSess(){
+  const m=String(Math.floor(sessSec/60)).padStart(2,'0'), s=String(sessSec%60).padStart(2,'0');
+  document.getElementById('stSes').textContent=m+':'+s;
+}
+
+function setState(next){
+  if(next===state)return;
+  if(reduce){
+    const c=document.createElement('canvas'); c.width=cv.width; c.height=cv.height;
+    c.getContext('2d').drawImage(cv,0,0); snap=c; snapStart=performance.now();
+  } else { snap=null }
+  prev=state; state=next;
+  tStart=performance.now(); dur=reduce?200:DUR[state];
+  if(state==='error' && !reduce) shakeStart=performance.now();
+  applyUI(); measure(); start();
+}
+
+/* ============================================================
+   WIRING
+   ============================================================ */
+document.getElementById('config').innerHTML=`
+  <div class="crow"><span class="ico">${svg('globe')}</span><span class="lbl">Сервер</span><span class="val"><span class="code">NL</span>Нидерланды${svg('chev','ic chev')}</span></div>
+  <div class="crow"><span class="ico">${svg('waypoints')}</span><span class="lbl">Relay (вход)</span><span class="val">Авто${svg('chev','ic chev')}</span></div>
+  <div class="crow"><span class="ico">${svg('lock')}</span><span class="lbl">Протокол</span><span class="val">AmneziaWG${svg('chev','ic chev')}</span></div>
+  <div class="crow"><span class="ico">${svg('route')}</span><span class="lbl">Маршрут</span><span class="val">Россия${svg('chev','ic chev')}</span></div>`;
+document.getElementById('nav').innerHTML=
+  [['power','Главная',1],['globe','Серверы',0],['user','Профиль',0],['sliders','Настройки',0]]
+  .map(([i,l,on])=>`<button class="${on?'on':''}">${svg(i)}<span>${l}</span></button>`).join('');
+document.getElementById('ksbIc').outerHTML=svg('pause','ic','width:16px;height:16px');
+
+const STATE_KEYS={off:'off',connecting:'connecting',connected:'connected',error:'error',reconnecting:'reconnecting'};
+Object.keys(STATE_KEYS).forEach(k=>{
+  document.getElementById('b-'+k).addEventListener('click',()=>setState(k));
+});
+document.getElementById('dial').addEventListener('click',()=>{
+  setState(state==='connected'?'off':state==='off'||state==='error'?'connecting':'connected');
+});
+document.getElementById('dial').addEventListener('keydown',e=>{
+  if(e.key==='Enter'||e.key===' '){e.preventDefault();document.getElementById('dial').click()}
+});
+document.getElementById('b-motion').addEventListener('click',e=>{
+  reduce=!reduce; e.currentTarget.classList.toggle('on',reduce); phone.classList.toggle('nomotion',reduce);
+  snap=null; tStart=performance.now(); dur=1; start();
+});
+document.getElementById('b-theme').addEventListener('click',e=>{
+  theme = theme==='dark'?'light':'dark';
+  phone.classList.toggle('light', theme==='light');
+  e.currentTarget.classList.toggle('on', theme==='light');
+  start();
+});
+document.addEventListener('keydown',e=>{
+  const m={'1':'off','2':'connecting','3':'connected','4':'error','5':'reconnecting'};
+  if(m[e.key]) setState(m[e.key]);
+});
+window.addEventListener('resize',()=>{dpr=Math.min(window.devicePixelRatio||1,3);sizeCanvas();measure();start()});
+
+if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+  reduce=true; document.getElementById('b-motion').classList.add('on'); phone.classList.add('nomotion');
+}
+
+/* deep link: #connected  #error,light  #connecting,reduce  #connected,light,reduce */
+(function(){
+  const parts=decodeURIComponent(location.hash.replace(/^#/,'')).split(',').map(s=>s.trim()).filter(Boolean);
+  parts.forEach(p=>{
+    if(S[p]) state=p;
+    else if(p==='disconnected') state='off';
+    else if(p==='light'){theme='light';phone.classList.add('light');document.getElementById('b-theme').classList.add('on')}
+    else if(p==='reduce'){reduce=true;document.getElementById('b-motion').classList.add('on');phone.classList.add('nomotion')}
+  });
+})();
+
+applyUI(); measure();
+prev=state; tStart=performance.now(); dur=1;
+start();
+</script>
+</body>
+</html>

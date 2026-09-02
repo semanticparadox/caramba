@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Caramba Connect · Atmosphere Concept A · Masonry</title>
+<style>
+  :root{
+    --sans:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,system-ui,sans-serif;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,monospace;
+    --t1:27px; --t2:20px; --t3:15px; --t4:13px; --t5:11px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  svg{display:block}
+  body{font-family:var(--sans);background:#08080a;color:#e8e8e8;min-height:100vh;
+       display:flex;align-items:flex-start;justify-content:center;gap:44px;padding:40px 32px;flex-wrap:wrap}
+
+  /* ---------- phone shell ---------- */
+  .phone{
+    --bg:#0A0A0A; --canvas:#0C0C0C;
+    --s1:#161616; --s2:#1E1E1E; --s3:#272727; --inset:#0E0E0E;
+    --border:#2A2A2A; --border-strong:#3D3D3D;
+    --t-hi:#FAFAFA; --t-med:#A0A0A0; --t-low:#7C7C7C;
+    --ok:#30D158; --amber:#FF9F0A; --error:#FF453A;
+    --accent:#FAFAFA; --on-accent:#0A0A0A;
+    width:390px;height:844px;position:relative;overflow:hidden;flex:0 0 auto;
+    border-radius:46px;border:1px solid #1c1c1c;background:var(--bg);color:var(--t-hi);
+    box-shadow:0 0 0 9px #050505,0 34px 90px -34px #000;
+    transition:background .3s,color .3s,border-color .3s,box-shadow .3s;
+  }
+  .phone.light{
+    --bg:#FAFAFA; --canvas:#FFFFFF;
+    --s1:#FFFFFF; --s2:#F4F4F4; --s3:#ECECEC; --inset:#F1F1F1;
+    --border:#E5E5E5; --border-strong:#D2D2D2;
+    --t-hi:#0A0A0A; --t-med:#585858; --t-low:#6E6E6E;
+    --ok:#1E9E54; --amber:#A85D00; --error:#C8102E;
+    --accent:#0A0A0A; --on-accent:#FFFFFF;
+    border-color:#dcdcdc;box-shadow:0 0 0 9px #cdcdcd,0 34px 90px -38px #7a7a7a;
+  }
+  .atmo{position:absolute;inset:0;width:390px;height:844px;z-index:0;pointer-events:none}
+  #atmoB{opacity:0}
+  .fade{transition:opacity .22s linear}
+
+  .statusbar{position:absolute;top:0;left:0;right:0;height:44px;display:flex;align-items:center;
+    justify-content:space-between;padding:0 26px;font-size:var(--t4);font-weight:600;color:var(--t-med);z-index:40}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .ic{width:20px;height:20px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
+
+  .body{position:absolute;inset:0;padding:56px 20px 100px;z-index:10;display:flex;flex-direction:column;overflow:hidden}
+  .head{display:flex;align-items:center;justify-content:space-between;min-height:40px;margin-bottom:12px}
+  .wordmark{font-size:17px;font-weight:700;letter-spacing:-.02em}
+  .chip-n{font-family:var(--mono);font-size:var(--t5);font-weight:600;letter-spacing:.06em;color:var(--t-med);
+    border:1px solid var(--border-strong);border-radius:6px;padding:4px 8px}
+
+  /* kill switch banner */
+  .banner{display:none;align-items:center;gap:9px;border-radius:10px;padding:9px 12px;margin-bottom:12px;
+    font-size:var(--t4);font-weight:500;line-height:1.35;
+    background:color-mix(in srgb,var(--amber) 12%,transparent);color:var(--amber);
+    border:1px solid color-mix(in srgb,var(--amber) 34%,transparent)}
+  .banner.on{display:flex}
+  .banner .ic{width:16px;height:16px;stroke-width:2.1}
+
+  /* dial */
+  .connect{display:flex;flex-direction:column;align-items:center;padding:8px 0 22px;text-align:center}
+  .dial{width:196px;height:196px;border-radius:50%;position:relative;display:flex;align-items:center;
+    justify-content:center;cursor:pointer;margin-bottom:18px}
+  .dial .track{position:absolute;inset:0;border-radius:50%;border:2px solid var(--border-strong);transition:border-color .35s cubic-bezier(.65,0,.35,1)}
+  .dial .arc{position:absolute;inset:-2px;display:none}
+  .dial .face{width:146px;height:146px;border-radius:50%;background:var(--s1);border:1px solid var(--border);
+    display:flex;align-items:center;justify-content:center;color:var(--t-med);
+    transition:color .35s,border-color .35s,background .15s}
+  .dial .face .ic{width:44px;height:44px;stroke-width:1.7}
+  .dial:active .face{background:var(--s2)}
+  .dial.connecting .track{border-color:transparent}
+  .dial.connecting .arc{display:block;animation:rot 1.05s linear infinite}
+  .dial.connecting .face{color:var(--amber)}
+  .dial.reconnecting .track{border-color:transparent}
+  .dial.reconnecting .arc{display:block;animation:rot 1.05s linear infinite}
+  .dial.reconnecting .face{color:var(--amber)}
+  .dial.connected .track{border-color:var(--ok)}
+  .dial.connected .face{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 60%,transparent)}
+  .dial.error .track{border-color:var(--error)}
+  .dial.error .face{color:var(--error);border-color:color-mix(in srgb,var(--error) 55%,transparent)}
+  @keyframes rot{to{transform:rotate(360deg)}}
+  .cstate{font-size:var(--t2);font-weight:600;letter-spacing:-.015em;transition:color .3s}
+  .cstate.ok{color:var(--ok)} .cstate.am{color:var(--amber)} .cstate.er{color:var(--error)}
+  .csub{font-size:var(--t4);color:var(--t-med);margin-top:5px;min-height:18px}
+  .csub b{font-weight:600;color:var(--t-hi);border-bottom:1px solid var(--border-strong);cursor:pointer}
+
+  /* rows + stats */
+  .rows{background:var(--s1);border:1px solid var(--border);border-radius:16px;overflow:hidden}
+  .crow{display:flex;align-items:center;gap:13px;padding:0 15px;min-height:52px;cursor:pointer}
+  .crow+.crow{border-top:1px solid var(--border)}
+  .crow .ico{color:var(--t-med)}
+  .crow .lbl{font-size:var(--t3)}
+  .crow .val{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:var(--t3);color:var(--t-med)}
+  .crow .chev{color:var(--t-low);width:18px;height:18px}
+  .cc{font-family:var(--mono);font-size:var(--t5);font-weight:600;letter-spacing:.05em;color:var(--t-hi)}
+
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);
+    border-radius:14px;overflow:hidden;margin-top:10px}
+  .stat{background:var(--s1);padding:13px 15px}
+  .stat .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:var(--t2);font-weight:600;letter-spacing:-.02em}
+  .stat .k{font-size:var(--t5);color:var(--t-low);text-transform:uppercase;letter-spacing:.06em;margin-top:3px}
+
+  .qwrap{margin-top:12px;background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:13px 15px 15px}
+  .qtop{display:flex;align-items:baseline;justify-content:space-between}
+  .qtop .a{font-size:var(--t4);font-weight:600}
+  .qtop .b{font-size:var(--t5);color:var(--t-low);text-transform:uppercase;letter-spacing:.06em}
+  .quota{height:6px;background:var(--inset);border-radius:3px;overflow:hidden;margin-top:9px}
+  .quota i{display:block;height:100%;width:42%;background:var(--t-hi);border-radius:3px}
+
+  .nav{position:absolute;bottom:0;left:0;right:0;height:80px;z-index:30;
+    background:color-mix(in srgb,var(--canvas) 88%,transparent);backdrop-filter:blur(14px);
+    border-top:1px solid var(--border);display:flex;padding:9px 4px 24px}
+  .nav button{flex:1;background:none;border:none;color:var(--t-low);font-family:var(--sans);font-size:var(--t5);
+    font-weight:500;display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;min-height:46px}
+  .nav button.on{color:var(--t-hi)}
+  .nav .ic{width:21px;height:21px}
+
+  /* ---------- side panel ---------- */
+  .side{width:330px;flex:0 0 auto;padding-top:6px}
+  .side h2{font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#6b6b6b;margin:0 0 10px}
+  .side h2+h2{margin-top:0}
+  .kicker{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#6b6b6b;font-weight:600}
+  .side h1{font-size:24px;font-weight:700;letter-spacing:-.02em;margin:8px 0 6px;color:#fafafa}
+  .lede{font-size:13.5px;line-height:1.6;color:#9a9a9a;margin-bottom:26px}
+  .seg{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:20px}
+  .seg button{background:#141416;border:1px solid #262629;color:#c9c9c9;border-radius:11px;min-height:42px;
+    font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer;transition:background .12s,border-color .12s,color .12s;
+    display:flex;align-items:center;justify-content:center;gap:8px}
+  .seg button:hover{background:#1a1a1d}
+  .seg button.on{background:#fafafa;border-color:#fafafa;color:#0a0a0a}
+  .seg button .dot{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.75}
+  .seg button.wide{grid-column:1/-1}
+  .tog{display:flex;align-items:center;justify-content:space-between;background:#141416;border:1px solid #262629;
+    border-radius:11px;padding:11px 14px;margin-bottom:7px;cursor:pointer;font-size:13px;color:#c9c9c9}
+  .tog .sw{width:42px;height:25px;border-radius:13px;background:#2c2c30;border:1px solid #3a3a3e;position:relative;flex:0 0 auto}
+  .tog .sw i{position:absolute;top:2px;left:2px;width:19px;height:19px;border-radius:50%;background:#8a8a8e;transition:transform .15s,background .15s}
+  .tog.on .sw{background:#fafafa;border-color:#fafafa}
+  .tog.on .sw i{transform:translateX(17px);background:#0a0a0a}
+  .hud{font-family:var(--mono);font-size:11.5px;line-height:1.9;color:#8a8a8e;background:#0f0f11;border:1px solid #232326;
+    border-radius:11px;padding:12px 14px;margin:18px 0 22px}
+  .hud b{color:#fafafa;font-weight:600}
+  .hud .g{color:#3fbf6a}
+  .notes{font-size:12.5px;line-height:1.75;color:#8e8e92}
+  .notes p{margin-bottom:11px}
+  .notes strong{color:#dcdcdc;font-weight:600}
+  .notes code{font-family:var(--mono);font-size:11.5px;color:#dcdcdc;background:#161618;padding:1px 5px;border-radius:5px}
+  @media(max-width:820px){.side{width:390px}}
+</style>
+</head>
+<body>
+
+<!-- ============================= PHONE ============================= -->
+<div class="phone" id="phone">
+  <canvas class="atmo" id="atmoA"></canvas>
+  <canvas class="atmo fade" id="atmoB"></canvas>
+
+  <div class="statusbar">
+    <span>9:41</span>
+    <span class="mono" style="display:flex;gap:8px"><span>5G</span><span>100%</span></span>
+  </div>
+
+  <div class="body">
+    <div class="head">
+      <div class="wordmark">Caramba Connect</div>
+      <div class="chip-n">PRO</div>
+    </div>
+
+    <div class="banner" id="banner"><span class="ic" data-ic="pause"></span><span>Traffic paused while the route is rebuilt.</span></div>
+
+    <div class="connect">
+      <div class="dial" id="dial" role="button" tabindex="0" aria-label="Toggle connection">
+        <div class="track"></div>
+        <svg class="arc" viewBox="0 0 196 196" aria-hidden="true">
+          <circle cx="98" cy="98" r="97" fill="none" stroke="var(--amber)" stroke-width="2"
+                  stroke-linecap="round" stroke-dasharray="78 532"/>
+        </svg>
+        <div class="face" id="face"></div>
+      </div>
+      <div class="cstate" id="cstate">Not connected</div>
+      <div class="csub" id="csub">Tap to connect</div>
+    </div>
+
+    <div class="rows">
+      <div class="crow"><span class="ico ic" data-ic="globe"></span><span class="lbl">Server</span>
+        <span class="val"><span class="cc">NL</span><span>Amsterdam</span><span class="ic chev" data-ic="chev"></span></span></div>
+      <div class="crow"><span class="ico ic" data-ic="shield"></span><span class="lbl">Protocol</span>
+        <span class="val"><span>Auto · VLESS</span><span class="ic chev" data-ic="chev"></span></span></div>
+      <div class="crow"><span class="ico ic" data-ic="split"></span><span class="lbl">Routing</span>
+        <span class="val"><span>Split</span><span class="ic chev" data-ic="chev"></span></span></div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="v" id="stDown">0.0 MB</div><div class="k">Downloaded</div></div>
+      <div class="stat"><div class="v" id="stUp">0.0 MB</div><div class="k">Uploaded</div></div>
+      <div class="stat"><div class="v" id="stLat">·</div><div class="k">Latency</div></div>
+      <div class="stat"><div class="v" id="stSes">00:00:00</div><div class="k">Session</div></div>
+    </div>
+
+    <div class="qwrap">
+      <div class="qtop"><span class="a mono">42.1 of 100 GB</span><span class="b">Resets Oct 1</span></div>
+      <div class="quota"><i></i></div>
+    </div>
+  </div>
+
+  <div class="nav">
+    <button class="on"><span class="ic" data-ic="power"></span><span>Home</span></button>
+    <button><span class="ic" data-ic="globe"></span><span>Servers</span></button>
+    <button><span class="ic" data-ic="user"></span><span>Profile</span></button>
+    <button><span class="ic" data-ic="sliders"></span><span>Settings</span></button>
+  </div>
+</div>
+
+<!-- ============================= SIDE PANEL ============================= -->
+<div class="side">
+  <div class="kicker">Atmosphere concept A</div>
+  <h1>Masonry</h1>
+  <p class="lede">The background is a wall. Disconnected, it is a closed course of panels pressed flat against the
+    glass with the corners dimmed. Connected, the same panels retreat into their corners and the wall becomes an open
+    lattice with depth and light behind it. Same geometry, one parameter.</p>
+
+  <h2>Connection state</h2>
+  <div class="seg" id="stateSeg">
+    <button data-st="disconnected" class="on"><span class="dot"></span>Disconnected</button>
+    <button data-st="connecting"><span class="dot"></span>Connecting</button>
+    <button data-st="connected"><span class="dot"></span>Connected</button>
+    <button data-st="error"><span class="dot"></span>Error</button>
+    <button data-st="reconnecting" class="wide"><span class="dot"></span>Reconnecting</button>
+  </div>
+
+  <h2>Environment</h2>
+  <div class="tog" id="togTheme"><span>Light theme</span><span class="sw"><i></i></span></div>
+  <div class="tog" id="togMotion"><span>Reduce motion</span><span class="sw"><i></i></span></div>
+
+  <div class="hud">
+    atmosphere &nbsp;<b id="hudMode">static frame</b><br>
+    repaint &nbsp;&nbsp;&nbsp;&nbsp;<b id="hudFps">0 fps</b><br>
+    cells &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b id="hudCells">0</b> &nbsp;planes <b id="hudPlanes">1</b><br>
+    open &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b id="hudOpen">0.00</b>
+  </div>
+
+  <div class="notes">
+    <p><strong>Opening is centrifugal, closing is centripetal.</strong> Connect runs a single wavefront out from the
+      dial to the frame edge and leaves every cell it passes open. Disconnect runs a closing front inward, so the last
+      cell to seal is the one under your thumb.</p>
+    <p><strong>Connecting is a wall that will not stay open.</strong> A wave opens outward and a second wave seals it
+      shut behind, on a 1.9 s loop. It reads as a handshake being retried, and it is the only state that animates
+      continuously.</p>
+    <p><strong>Connected is quiet.</strong> Static frame at 0 fps. Every 4.8 s a reach pulse leaves the dial and
+      crosses the lattice in 1.6 s, then the canvas goes idle again. Watch the repaint readout above.</p>
+    <p><strong>Hue is confirmation, not signal.</strong> Status colour is a mix of at most 16% on strut and node
+      strokes, never on fills. Meaning is carried by whether the wall is closed or open. The
+      <code>atmoGuard</code> layer damps the atmosphere behind the dial and its labels so text contrast never
+      depends on the state.</p>
+  </div>
+</div>
+
+<script>
+/* =========================================================================
+   Lucide glyphs (official path data, single stroke family)
+   ========================================================================= */
+const ICONS = {
+  power:'<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/>',
+  dots:'<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  shieldcheck:'<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  globe:'<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+  shield:'<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
+  split:'<path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3"/><path d="m15 9 6-6"/>',
+  chev:'<path d="m9 18 6-6-6-6"/>',
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  sliders:'<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>',
+  pause:'<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>'
+};
+function svg(name){return '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">'+ICONS[name]+'</svg>';}
+document.querySelectorAll('[data-ic]').forEach(function(el){
+  const n=el.getAttribute('data-ic');
+  el.outerHTML = svg(n).replace('class="ic"','class="'+el.getAttribute('class')+'"');
+});
+
+/* =========================================================================
+   Atmosphere: geometry
+   ========================================================================= */
+const W=390, H=844;
+const CELL_W=46, CELL_H=21;          // running bond, ~2.2:1
+const CX=W/2, CY=230;                // vanishing point = dial centre
+const BAND=0.22;                     // wavefront softness, normalised radius
+const PLANES=[{s:1.00,a:1.00},{s:1.34,a:0.34},{s:1.78,a:0.12}];
+const TINT_MAX=0.16;                 // hard cap on status colour mix, strokes only
+const DISSOLVE=0.82;                 // how far open struts fade back into the base
+
+const A=document.getElementById('atmoA'), B=document.getElementById('atmoB');
+let DPR=Math.min(window.devicePixelRatio||1,2);
+[A,B].forEach(function(c){c.width=W*DPR;c.height=H*DPR;});
+let topCv=A, botCv=B;
+let ctxTop=A.getContext('2d'), ctxBot=B.getContext('2d');
+
+function hash32(n){ n=(n^61)^(n>>>16); n=(n+(n<<3))|0; n^=n>>>4; n=Math.imul(n,0x27d4eb2d); n^=n>>>15; return (n>>>0)/4294967296; }
+
+let CELLS=[], MAXR=1;
+(function build(){
+  const cols=Math.ceil(W/CELL_W)+4, rows=Math.ceil(H/CELL_H)+4;
+  const x0=Math.round(CX-cols*CELL_W/2), y0=Math.round(CY-rows*CELL_H/2);
+  MAXR=Math.hypot(W/2+CELL_W, Math.max(CY,H-CY)+CELL_H);
+  for(let j=0;j<rows;j++){
+    const off=(j%2)?CELL_W/2:0;
+    for(let i=0;i<cols;i++){
+      const x=x0+i*CELL_W+off, y=y0+j*CELL_H;
+      if(x>W+CELL_W*2||x+CELL_W< -CELL_W*2||y>H+CELL_H*2||y+CELL_H< -CELL_H*2) continue;
+      const mx=x+CELL_W/2, my=y+CELL_H/2;
+      const rn=Math.hypot(mx-CX,my-CY)/MAXR;
+      CELLS.push({x:x,y:y,rn:rn,alt:j%2,h:hash32(i*73856093^j*19349663)});
+    }
+  }
+})();
+/* error voids: missing bricks, clustered in the first courses around the dial */
+const VOIDS = CELLS
+  .filter(function(c){return c.rn>0.075 && c.rn<0.285;})
+  .sort(function(a,b){return a.h-b.h;})
+  .slice(0,6);
+
+/* =========================================================================
+   Atmosphere: palette (dark / light)
+   ========================================================================= */
+function rgb(h){return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];}
+const TH={
+  dark:{
+    base:'#0A0A0A', baseC:rgb('#0A0A0A'),
+    panel:rgb('#151515'), panelAlt:rgb('#0E0E0E'), void:rgb('#060606'),
+    seamClosed:rgb('#040404'), seamOpen:rgb('#343434'), node:rgb('#454545'),
+    light:'255,255,255', lightA:0.090,
+    vig:'0,0,0', vigA:0.40,
+    guard:'10,10,10', guardA:0.68,
+    pulse:'250,250,250', pulseA:0.26,
+    tintOk:rgb('#30D158'), tintAm:rgb('#FF9F0A'), tintEr:rgb('#FF453A')
+  },
+  light:{
+    base:'#FAFAFA', baseC:rgb('#FAFAFA'),
+    panel:rgb('#ECECEC'), panelAlt:rgb('#F4F4F4'), void:rgb('#FFFFFF'),
+    seamClosed:rgb('#D6D6D6'), seamOpen:rgb('#BEBEBE'), node:rgb('#A8A8A8'),
+    light:'255,255,255', lightA:0.90,
+    vig:'10,10,10', vigA:0.12,
+    guard:'250,250,250', guardA:0.70,
+    pulse:'10,10,10', pulseA:0.16,
+    tintOk:rgb('#1E9E54'), tintAm:rgb('#A85D00'), tintEr:rgb('#C8102E')
+  }
+};
+
+/* =========================================================================
+   Atmosphere: animated parameters
+   ========================================================================= */
+const P={ open:0, depth:0, light:0, vig:1, tint:0, tr:0,tg:0,tb:0, voids:0, front:-0.3, front2:-0.3, shake:0 };
+let KIND='flat';            // flat | sweep | openRun | closeRun
+let STATE='disconnected';
+let THEME='dark', REDUCE=false;
+let sweepT0=0, sweepPeriod=1900;
+let pulseT0=-1e9, pulseTimer=null;
+
+const TWEENS=[];
+function tween(key,to,dur,ease,delay){
+  for(let i=TWEENS.length-1;i>=0;i--) if(TWEENS[i].k===key) TWEENS.splice(i,1);
+  TWEENS.push({k:key,f:P[key],t:to,d:dur||300,e:ease||easeOutCubic,s:performance.now()+(delay||0)});
+}
+function easeOutCubic(t){return 1-Math.pow(1-t,3);}
+function easeInOutCubic(t){return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;}
+function easeOutQuint(t){return 1-Math.pow(1-t,5);}
+function easeInQuad(t){return t*t;}
+function linear(t){return t;}
+function stepTweens(now){
+  let live=false;
+  for(let i=TWEENS.length-1;i>=0;i--){
+    const w=TWEENS[i];
+    let t=(now-w.s)/w.d;
+    if(t<0){live=true;continue;}
+    if(t>=1){P[w.k]=w.t;TWEENS.splice(i,1);continue;}
+    P[w.k]=w.f+(w.t-w.f)*w.e(t); live=true;
+  }
+  return live;
+}
+
+/* =========================================================================
+   Precomputed gradient layers (built once per theme, half resolution)
+   ========================================================================= */
+let imgLight, imgVig, imgGuard;
+function buildLayers(){
+  const T=TH[THEME], k=0.5, w=Math.round(W*k), h=Math.round(H*k);
+  function mk(paint){const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d');paint(x,k);return c;}
+  imgLight=mk(function(x,k){
+    const g=x.createRadialGradient(CX*k,CY*k,0,CX*k,CY*k,430*k);
+    g.addColorStop(0,'rgba('+T.light+','+T.lightA+')');
+    g.addColorStop(0.45,'rgba('+T.light+','+(T.lightA*0.52)+')');
+    g.addColorStop(1,'rgba('+T.light+',0)');
+    x.fillStyle=g;x.fillRect(0,0,w,h);
+  });
+  imgVig=mk(function(x,k){
+    const g=x.createRadialGradient(CX*k,CY*k,60*k,CX*k,CY*k,600*k);
+    g.addColorStop(0,'rgba('+T.vig+',0)');
+    g.addColorStop(0.55,'rgba('+T.vig+','+(T.vigA*0.30)+')');
+    g.addColorStop(1,'rgba('+T.vig+','+T.vigA+')');
+    x.fillStyle=g;x.fillRect(0,0,w,h);
+  });
+  imgGuard=mk(function(x,k){
+    const g=x.createRadialGradient(CX*k,(CY+24)*k,0,CX*k,(CY+24)*k,266*k);
+    g.addColorStop(0,'rgba('+T.guard+','+(T.guardA*0.98)+')');
+    g.addColorStop(0.42,'rgba('+T.guard+','+(T.guardA*0.86)+')');
+    g.addColorStop(0.72,'rgba('+T.guard+','+(T.guardA*0.42)+')');
+    g.addColorStop(1,'rgba('+T.guard+',0)');
+    x.fillStyle=g;x.fillRect(0,0,w,h);
+  });
+}
+
+/* colour helpers + lookup tables --------------------------------------- */
+let FILL=[], FILL_ALT=[];
+const NF=33;
+function mix(a,b,t){return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];}
+function css(c){return 'rgb('+(c[0]|0)+','+(c[1]|0)+','+(c[2]|0)+')';}
+function buildFills(){
+  const T=TH[THEME];FILL=[];FILL_ALT=[];
+  for(let i=0;i<NF;i++){const t=i/(NF-1);
+    FILL.push(css(mix(T.panel,T.void,t)));
+    FILL_ALT.push(css(mix(T.panelAlt,T.void,t)));}
+}
+
+/* =========================================================================
+   Wavefront + per-cell openness
+   ========================================================================= */
+function wf(f,r){const v=(f-r)/BAND; return v<0?0:(v>1?1:v);}
+function cellOpen(rn){
+  switch(KIND){
+    case 'sweep':    { const a=wf(P.front,rn), b=wf(P.front2,rn); const d=a-b; return P.open*(d>0?d:0); }
+    case 'openRun':  return P.open*wf(P.front,rn);
+    case 'closeRun': return P.open*wf(P.front,rn);
+    default:         return P.open;
+  }
+}
+
+/* =========================================================================
+   Draw
+   ========================================================================= */
+const NB=8, NR=4;                              // open buckets x radial-dissolve buckets
+function smoothstep(a,b,x){const t=Math.min(1,Math.max(0,(x-a)/(b-a)));return t*t*(3-2*t);}
+function drawLattice(ctx,scale,fills,now){
+  const T=TH[THEME];
+  const paths=new Array(NB*NR).fill(null);
+  const nodePath=new Path2D(); let anyNode=false;
+  const invS=1/scale;
+  let openSum=0, n=0;
+
+  for(let i=0;i<CELLS.length;i++){
+    const c=CELLS[i];
+    let o=cellOpen(c.rn);
+    // per-cell grain so the wavefront edge is never a perfect ring
+    o=o*(0.90+0.10*c.h); if(o<0)o=0; if(o>1)o=1;
+    openSum+=o; n++;
+
+    if(fills){
+      const idx=(o*(NF-1))|0;
+      ctx.fillStyle = c.alt?FILL_ALT[idx]:FILL[idx];
+      ctx.fillRect(c.x,c.y,CELL_W,CELL_H);
+    }
+    // an open wall dissolves toward the frame edge: the lattice stays legible
+    // where the light is and lets go of the corners, so open reads calmer than closed
+    const fade = o*DISSOLVE*smoothstep(0.20,0.98,c.rn*scale);
+    const b = ((o*(NB-1))|0)*NR + Math.min(NR-1,(fade/DISSOLVE*NR)|0);
+    let p=paths[b]; if(!p){p=paths[b]=new Path2D();}
+    const gx=CELL_W*0.5*(1-0.62*o), gy=CELL_H*0.5*(1-0.60*o);
+    const x=c.x+0.5, y=c.y+0.5;
+    p.moveTo(x,y);            p.lineTo(x+gx,y);
+    p.moveTo(x+CELL_W-gx,y);  p.lineTo(x+CELL_W,y);
+    p.moveTo(x,y);            p.lineTo(x,y+gy);
+    p.moveTo(x,y+CELL_H-gy);  p.lineTo(x,y+CELL_H);
+    if(o>0.55 && fade<0.45){ nodePath.rect(c.x-0.5,c.y-0.5,2,2); anyNode=true; }
+  }
+
+  ctx.lineWidth=invS;
+  const tintC=[P.tr,P.tg,P.tb];
+  for(let b=0;b<NB*NR;b++){
+    if(!paths[b]) continue;
+    const o=((b/NR)|0)/(NB-1);
+    const fade=((b%NR)+0.5)/NR*DISSOLVE;
+    let col=mix(T.seamClosed,T.seamOpen,o);
+    const tf=P.tint*o*TINT_MAX;               // hue only where the wall is open
+    if(tf>0.002) col=mix(col,tintC,tf);
+    if(fade>0.01) col=mix(col,T.baseC,fade);
+    ctx.strokeStyle=css(col);
+    ctx.stroke(paths[b]);
+  }
+  if(anyNode && fills){
+    let col=T.node; const tf=P.tint*TINT_MAX;
+    if(tf>0.002) col=mix(col,tintC,tf);
+    ctx.fillStyle=css(col); ctx.fill(nodePath);
+  }
+
+  /* reach pulse: second short pass over the lit ring only */
+  if(fills && !REDUCE){
+    const dt=now-pulseT0;
+    if(dt>=0 && dt<1600){
+      const pp=easeOutCubic(dt/1600)*1.22;
+      const env=Math.sin(Math.PI*(dt/1600));
+      const buckets=[null,null,null,null];
+      for(let i=0;i<CELLS.length;i++){
+        const c=CELLS[i]; const d=(c.rn-pp)/0.085;
+        const g=Math.exp(-d*d)*(1-DISSOLVE*smoothstep(0.20,0.98,c.rn));
+        if(g<0.06) continue;
+        const bi=Math.min(3,(g*4)|0);
+        let p=buckets[bi]; if(!p){p=buckets[bi]=new Path2D();}
+        const o=cellOpen(c.rn);
+        const gx=CELL_W*0.5*(1-0.62*o), gy=CELL_H*0.5*(1-0.60*o);
+        const x=c.x+0.5,y=c.y+0.5;
+        p.moveTo(x,y);           p.lineTo(x+gx,y);
+        p.moveTo(x+CELL_W-gx,y); p.lineTo(x+CELL_W,y);
+        p.moveTo(x,y);           p.lineTo(x,y+gy);
+        p.moveTo(x,y+CELL_H-gy); p.lineTo(x,y+CELL_H);
+      }
+      for(let bi=0;bi<4;bi++){
+        if(!buckets[bi]) continue;
+        ctx.strokeStyle='rgba('+T.pulse+','+(T.pulseA*env*((bi+1)/4))+')';
+        ctx.stroke(buckets[bi]);
+      }
+    }
+  }
+  return n?openSum/n:0;
+}
+
+function drawVoids(ctx){
+  const T=TH[THEME];
+  ctx.fillStyle='rgba('+T.void.join(',')+','+(P.voids*0.95)+')';
+  for(let i=0;i<VOIDS.length;i++){const c=VOIDS[i];ctx.fillRect(c.x+1,c.y+1,CELL_W-2,CELL_H-2);}
+  ctx.lineWidth=1;
+  ctx.strokeStyle='rgba('+T.tintEr.join(',')+','+(P.voids*0.34)+')';
+  for(let i=0;i<VOIDS.length;i++){const c=VOIDS[i];ctx.strokeRect(c.x+1.5,c.y+1.5,CELL_W-3,CELL_H-3);}
+  // broken lip: light catches the bottom and right edge of a missing brick
+  ctx.strokeStyle='rgba('+T.node.join(',')+','+(P.voids*0.30)+')';
+  const lip=new Path2D();
+  for(let i=0;i<VOIDS.length;i++){const c=VOIDS[i];
+    lip.moveTo(c.x+1.5,c.y+CELL_H-1.5); lip.lineTo(c.x+CELL_W-1.5,c.y+CELL_H-1.5);
+    lip.lineTo(c.x+CELL_W-1.5,c.y+1.5);}
+  ctx.stroke(lip);
+}
+
+let lastOpen=0;
+function draw(ctx,now){
+  const T=TH[THEME];
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.globalAlpha=1;
+  ctx.fillStyle=T.base; ctx.fillRect(0,0,W,H);
+
+  ctx.save();
+  if(P.shake) ctx.translate(P.shake,0);
+  for(let p=PLANES.length-1;p>=0;p--){
+    const pl=PLANES[p];
+    const a = p===0 ? 1 : pl.a*P.depth;
+    if(a<0.015) continue;
+    ctx.save(); ctx.globalAlpha=a;
+    if(pl.s!==1){ctx.translate(CX,CY);ctx.scale(pl.s,pl.s);ctx.translate(-CX,-CY);}
+    const av=drawLattice(ctx,pl.s,p===0,now);
+    if(p===0) lastOpen=av;
+    ctx.restore();
+  }
+  if(P.voids>0.01) drawVoids(ctx);
+  ctx.restore();
+
+  ctx.globalAlpha=1;
+  if(P.light>0.012){ctx.globalAlpha=P.light;ctx.drawImage(imgLight,0,0,W,H);}
+  if(P.vig>0.012){ctx.globalAlpha=P.vig;ctx.drawImage(imgVig,0,0,W,H);}
+  ctx.globalAlpha=1; ctx.drawImage(imgGuard,0,0,W,H);
+}
+
+/* =========================================================================
+   Frame loop, gated
+   ========================================================================= */
+let running=false, lastPaint=0, fpsCount=0, fpsT0=0;
+function wake(){ if(!running && !REDUCE){running=true;fpsT0=performance.now();fpsCount=0;requestAnimationFrame(loop);} }
+
+function loop(now){
+  if(REDUCE){running=false;return;}
+  let live=stepTweens(now);
+
+  if(KIND==='sweep'){
+    // one wave opens the courses, a second wave on the same curve seals them
+    // 0.22 of a period later, so a shell of open wall travels out and thins
+    const t=((now-sweepT0)%sweepPeriod)/sweepPeriod;
+    P.front  = -0.25 + 1.62*easeOutCubic(Math.min(1,t/0.70));
+    P.front2 = -0.25 + 1.62*easeOutCubic(Math.min(1,Math.max(0,t-0.22)/0.70));
+    live=true;
+  }
+  const pulseLive = (now-pulseT0>=0 && now-pulseT0<1600);
+  if(pulseLive) live=true;
+
+  if(now-lastPaint>=32){ lastPaint=now; draw(ctxTop,now); fpsCount++; }
+
+  const el=now-fpsT0;
+  if(el>500){ setHud(Math.round(fpsCount*1000/el)+' fps'); fpsT0=now; fpsCount=0; }
+
+  if(live){ requestAnimationFrame(loop); }
+  else { running=false; draw(ctxTop,now); setHud('0 fps'); }
+  hudGeom();
+}
+function setHud(f){document.getElementById('hudFps').textContent=f;}
+function hudGeom(){
+  document.getElementById('hudOpen').textContent=lastOpen.toFixed(2);
+  document.getElementById('hudPlanes').textContent=(P.depth>0.05?'3':'1');
+}
+
+/* connected reach pulse scheduler ------------------------------------- */
+function schedulePulse(){
+  clearTimeout(pulseTimer);
+  if(STATE!=='connected'||REDUCE) return;
+  pulseTimer=setTimeout(function(){
+    if(STATE!=='connected'||REDUCE) return;
+    pulseT0=performance.now(); wake(); schedulePulse();
+  },4800);
+}
+
+/* =========================================================================
+   State machine
+   ========================================================================= */
+const COPY={
+  disconnected:{title:'Not connected', sub:'Tap to connect', cls:'', glyph:'power', tone:''},
+  connecting:  {title:'Connecting',    sub:'Checking route to Amsterdam', cls:'connecting', glyph:'dots', tone:'am'},
+  connected:   {title:'Protected',     sub:'Netherlands, Amsterdam · VLESS', cls:'connected', glyph:'shieldcheck', tone:'ok'},
+  error:       {title:'Could not connect', sub:'Handshake timed out. <b>Retry</b>', cls:'error', glyph:'alert', tone:'er'},
+  reconnecting:{title:'Reconnecting',  sub:'Rebuilding the route to Amsterdam', cls:'reconnecting', glyph:'dots', tone:'am'}
+};
+const STATS={
+  disconnected:['0.0 MB','0.0 MB','·','00:00:00'],
+  connecting:  ['0.0 MB','0.0 MB','·','00:00:00'],
+  connected:   ['1.24 GB','218 MB','38 ms','01:12:44'],
+  error:       ['0.0 MB','0.0 MB','·','00:00:00'],
+  reconnecting:['1.24 GB','218 MB','·','01:14:02']
+};
+
+function tintTo(c,amount,dur){
+  tween('tr',c[0],dur,linear); tween('tg',c[1],dur,linear); tween('tb',c[2],dur,linear);
+  tween('tint',amount,dur,linear);
+}
+
+function applyContent(st){
+  const c=COPY[st], T=TH[THEME];
+  const dial=document.getElementById('dial');
+  dial.className='dial '+c.cls;
+  document.getElementById('face').innerHTML=svg(c.glyph);
+  const cs=document.getElementById('cstate');
+  cs.textContent=c.title; cs.className='cstate '+c.tone;
+  document.getElementById('csub').innerHTML=c.sub;
+  const s=STATS[st];
+  document.getElementById('stDown').textContent=s[0];
+  document.getElementById('stUp').textContent=s[1];
+  document.getElementById('stLat').textContent=s[2];
+  document.getElementById('stSes').textContent=s[3];
+  document.getElementById('banner').classList.toggle('on', st==='reconnecting');
+  document.querySelectorAll('#stateSeg button').forEach(function(b){
+    b.classList.toggle('on', b.getAttribute('data-st')===st);
+  });
+  document.getElementById('hudMode').textContent =
+    REDUCE ? 'static · reduce motion' :
+    st==='connecting'||st==='reconnecting' ? 'sweep loop' :
+    st==='connected' ? 'idle · pulse every 4.8 s' : 'static frame';
+}
+
+function setState(st,instant){
+  const prevOpen=P.open, T=TH[THEME];
+  STATE=st;
+  applyContent(st);
+  clearTimeout(pulseTimer); pulseT0=-1e9;
+
+  if(REDUCE||instant){ staticCompose(st); return; }
+
+  if(st==='connecting'||st==='reconnecting'){
+    const warm = st==='reconnecting';
+    KIND='sweep'; sweepT0=performance.now(); sweepPeriod = warm?2600:1900;
+    tween('open', warm?0.62:0.52, 340, easeOutCubic);
+    tween('depth', warm?0.70:0.50, 430, easeOutCubic);
+    tween('light', warm?0.22:0.14, 430, easeOutCubic);
+    tween('vig', 0.30, 420, easeOutCubic);
+    tween('voids',0,180,linear);
+    tintTo(T.tintAm, 1.5, 320);
+  }
+  else if(st==='connected'){
+    KIND='openRun'; P.front=-0.25;
+    tween('front', 1.30, 620, easeOutQuint);
+    tween('open', 1, 300, easeOutCubic);
+    tween('depth', 1, 700, easeOutCubic);
+    tween('light', 1, 800, easeOutCubic);
+    tween('vig', 0, 620, easeOutCubic);
+    tween('voids',0,180,linear);
+    tintTo(T.tintOk, 1, 520);
+    setTimeout(function(){
+      if(STATE!=='connected')return;
+      KIND='flat'; P.open=1; pulseT0=performance.now(); wake(); schedulePulse();
+    },660);
+  }
+  else if(st==='disconnected'){
+    KIND='closeRun'; P.open=Math.max(prevOpen,0.44); P.front=1.30;
+    tween('front', -0.30, 520, easeInOutCubic);
+    tween('depth', 0, 600, easeOutCubic);
+    tween('light', 0, 600, easeOutCubic);
+    tween('vig', 1, 640, easeOutCubic);
+    tween('voids',0,220,linear);
+    tintTo([0,0,0], 0, 420);
+    setTimeout(function(){ if(STATE==='disconnected'){KIND='flat';P.open=0;} },540);
+  }
+  else if(st==='error'){
+    KIND='closeRun'; P.open=Math.max(prevOpen,0.44);
+    P.front=Math.max(0.35,P.front);
+    tween('front', -0.30, 230, easeInQuad, 90);
+    tween('depth', 0, 300, easeOutCubic, 60);
+    tween('light', 0, 260, easeOutCubic);
+    tween('vig', 1, 420, easeOutCubic, 120);
+    tintTo(T.tintEr, 1, 300);
+    // one lateral shake, transform only
+    const t0=performance.now()+300;
+    (function shake(){
+      const el=performance.now()-t0;
+      if(el<0){requestAnimationFrame(shake);return;}
+      if(el>190){P.shake=0;return;}
+      P.shake=Math.sin(el/190*Math.PI*3)*3.2*(1-el/190);
+      requestAnimationFrame(shake);
+    })();
+    setTimeout(function(){
+      if(STATE!=='error')return;
+      KIND='flat'; P.open=0; tween('voids',1,280,easeOutCubic);
+    },330);
+  }
+  wake();
+}
+
+/* static compositions used for reduce-motion and instant application ----- */
+function staticCompose(st){
+  const T=TH[THEME];
+  TWEENS.length=0; P.shake=0;
+  const set=function(o,d,l,v,vo,kind,f1,f2,tint,amt){
+    P.open=o;P.depth=d;P.light=l;P.vig=v;P.voids=vo;KIND=kind;P.front=f1;P.front2=f2;
+    P.tr=tint[0];P.tg=tint[1];P.tb=tint[2];P.tint=amt;
+  };
+  if(st==='disconnected') set(0,   0,   0,   1, 0, 'flat', 0,0,[0,0,0],0);
+  if(st==='connecting')   set(0.52,0.50,0.14,0.30,0,'sweep',0.62,0.28,T.tintAm,1.5);
+  if(st==='reconnecting') set(0.62,0.70,0.22,0.30,0,'sweep',0.50,0.16,T.tintAm,1.5);
+  if(st==='connected')    set(1,   1,   1,   0, 0, 'flat', 0,0,T.tintOk,1);
+  if(st==='error')        set(0,   0,   0,   1, 1, 'flat', 0,0,T.tintEr,1);
+}
+
+/* reduce-motion cross-fade between two painted stills -------------------- */
+function reduceSwap(st){
+  staticCompose(st);
+  draw(ctxBot, performance.now());
+  botCv.style.opacity='1';
+  setTimeout(function(){
+    // promote the freshly painted canvas, reset the other underneath it
+    const tc=topCv, tx=ctxTop;
+    topCv=botCv; ctxTop=ctxBot; botCv=tc; ctxBot=tx;
+    topCv.classList.remove('fade'); topCv.style.opacity='1';
+    botCv.classList.add('fade'); botCv.style.opacity='0';
+    void botCv.offsetWidth;
+  },240);
+}
+
+/* =========================================================================
+   Wiring
+   ========================================================================= */
+function go(st){
+  if(REDUCE){ STATE=st; applyContent(st); reduceSwap(st); }
+  else setState(st,false);
+}
+document.querySelectorAll('#stateSeg button').forEach(function(b){
+  b.addEventListener('click',function(){ go(b.getAttribute('data-st')); });
+});
+document.getElementById('dial').addEventListener('click',function(){
+  go(STATE==='connected'?'disconnected':STATE==='disconnected'?'connecting':STATE==='connecting'?'connected':'connecting');
+});
+document.getElementById('csub').addEventListener('click',function(e){
+  if(e.target.tagName==='B') go('connecting');
+});
+
+const togTheme=document.getElementById('togTheme');
+togTheme.addEventListener('click',function(){
+  THEME = THEME==='dark'?'light':'dark';
+  togTheme.classList.toggle('on', THEME==='light');
+  document.getElementById('phone').classList.toggle('light', THEME==='light');
+  buildLayers(); buildFills();
+  const T=TH[THEME];
+  const t = STATE==='connected'?T.tintOk : (STATE==='error'?T.tintEr : (STATE==='disconnected'?[0,0,0]:T.tintAm));
+  P.tr=t[0];P.tg=t[1];P.tb=t[2];
+  if(REDUCE){ reduceSwap(STATE); } else { draw(ctxTop,performance.now()); wake(); }
+});
+
+const togMotion=document.getElementById('togMotion');
+togMotion.addEventListener('click',function(){
+  REDUCE=!REDUCE;
+  togMotion.classList.toggle('on',REDUCE);
+  clearTimeout(pulseTimer); pulseT0=-1e9;
+  applyContent(STATE);
+  if(REDUCE){ running=false; staticCompose(STATE); draw(ctxTop,performance.now()); setHud('0 fps · disabled'); }
+  else { setState(STATE,true); wake(); }
+  hudGeom();
+});
+
+/* boot ------------------------------------------------------------------ */
+buildLayers(); buildFills();
+document.getElementById('hudCells').textContent=CELLS.length;
+
+/* optional deep link for review: #connected, #error, #connecting/light, ... */
+var boot=(location.hash||'').replace('#','').split('/');
+if(boot.indexOf('light')>=0){ togTheme.click(); }
+if(boot.indexOf('reduce')>=0){ togMotion.click(); }
+var bootState = COPY[boot[0]] ? boot[0] : 'disconnected';
+STATE=bootState;
+applyContent(bootState);
+staticCompose(bootState);
+draw(ctxTop,performance.now());
+if(bootState==='connected'&&!REDUCE){ pulseT0=performance.now(); schedulePulse(); wake(); }
+else if((bootState==='connecting'||bootState==='reconnecting')&&!REDUCE){ sweepT0=performance.now(); wake(); }
+setHud('0 fps');
+hudGeom();
+
+/* pause when the tab is hidden, exactly as the Flutter ticker is gated */
+document.addEventListener('visibilitychange',function(){
+  if(document.hidden){ running=false; clearTimeout(pulseTimer); setHud('0 fps · paused'); }
+  else { if(STATE==='connected') schedulePulse(); if(!REDUCE) wake(); }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Concept B: Carrier</title>
+<style>
+  :root{
+    --sans:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,system-ui,sans-serif;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,monospace;
+    --t1:27px; --t2:20px; --t3:15px; --t4:13px; --t5:11px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    font-family:var(--sans);background:#111111;color:#eaeaea;
+    min-height:100%;display:flex;align-items:center;justify-content:center;
+    gap:56px;padding:40px 32px;flex-wrap:wrap;
+  }
+  svg{display:block}
+  .ic{width:20px;height:20px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  /* ---------- phone shell ---------- */
+  .phone{
+    --bg:#0A0A0A; --canvas:#0C0C0C;
+    --s1:#161616; --s2:#1E1E1E; --s3:#272727; --inset:#0E0E0E;
+    --border:#2A2A2A; --border-strong:#3D3D3D;
+    --t-hi:#FAFAFA; --t-med:#A0A0A0; --t-low:#7C7C7C;
+    --ok:#30D158; --amber:#FF9F0A; --error:#FF453A;
+    --accent:#FAFAFA; --on-accent:#0A0A0A;
+    width:390px;height:844px;border-radius:46px;position:relative;overflow:hidden;flex:0 0 auto;
+    background:var(--bg);color:var(--t-hi);
+    border:1px solid #202020;box-shadow:0 0 0 10px #232323, 0 40px 90px -30px #000;
+    transition:background .3s, color .3s, border-color .3s, box-shadow .3s;
+  }
+  .phone.light{
+    --bg:#FAFAFA; --canvas:#FFFFFF;
+    --s1:#FFFFFF; --s2:#F4F4F4; --s3:#ECECEC; --inset:#F1F1F1;
+    --border:#E5E5E5; --border-strong:#D2D2D2;
+    --t-hi:#0A0A0A; --t-med:#585858; --t-low:#6E6E6E;
+    --ok:#1E9E54; --amber:#A85D00; --error:#C8102E;
+    --accent:#0A0A0A; --on-accent:#FFFFFF;
+    border-color:#dcdcdc;box-shadow:0 0 0 9px #cdcdcd, 0 40px 90px -36px #7a7a7a;
+  }
+
+  #atmo{position:absolute;inset:0;width:390px;height:844px;z-index:0;display:block}
+  .content{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column}
+
+  .statusbar{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 26px;font-size:var(--t4);font-weight:600;color:var(--t-med);flex:0 0 auto}
+  .body{flex:1;padding:14px 20px 0;display:flex;flex-direction:column;overflow:hidden}
+  .head{display:flex;align-items:center;justify-content:space-between;min-height:44px;margin-bottom:14px;flex:0 0 auto}
+  .wordmark{font-size:17px;font-weight:700;letter-spacing:-.02em}
+  .chip-n{font-family:var(--mono);font-size:var(--t5);font-weight:600;color:var(--t-med);border:1px solid var(--border-strong);border-radius:6px;padding:4px 8px;letter-spacing:.04em}
+
+  /* ---------- dial ---------- */
+  .connect{display:flex;flex-direction:column;align-items:center;text-align:center;padding:6px 0 14px;flex:0 0 auto}
+  .dial{width:196px;height:196px;border-radius:50%;position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;margin-bottom:16px}
+  .dial .track{position:absolute;inset:0;border-radius:50%;border:2px solid var(--border-strong);transition:border-color .35s cubic-bezier(.65,0,.35,1)}
+  .dial .arc{position:absolute;inset:-2px;opacity:0;transition:opacity .2s}
+  .dial .face{width:146px;height:146px;border-radius:50%;background:var(--s1);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--t-med);transition:color .35s,border-color .35s,background .15s;position:relative;z-index:2}
+  .dial .face .ic{width:42px;height:42px;stroke-width:1.7}
+  .dial:active .face{background:var(--s2)}
+  .dial.connecting .track{border-color:transparent}
+  .dial.connecting .arc{opacity:1;animation:rot 1.05s linear infinite}
+  .dial.connecting .face{color:var(--amber)}
+  .dial.connected .track{border-color:var(--ok)}
+  .dial.connected .face{color:var(--ok);border-color:var(--ok)}
+  .dial.error .track{border-color:var(--error)}
+  .dial.error .face{color:var(--error);border-color:var(--error)}
+  .dial.shake{animation:shk .16s ease-in-out 2}
+  @keyframes rot{to{transform:rotate(360deg)}}
+  @keyframes shk{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+  .cstate{font-size:var(--t2);font-weight:600;letter-spacing:-.01em;transition:color .3s}
+  .cstate.ok{color:var(--ok)}.cstate.amber{color:var(--amber)}.cstate.err{color:var(--error)}
+  .csub{font-size:var(--t4);color:var(--t-med);margin-top:5px;min-height:18px}
+  .csub b{font-weight:600;color:var(--t-hi);cursor:pointer;border-bottom:1px solid var(--border-strong)}
+
+  /* the band the carrier trace lives in: transparent, canvas draws through it */
+  .carrier-band{height:52px;flex:0 0 auto}
+
+  /* ---------- cards ---------- */
+  .rows{background:var(--s1);border:1px solid var(--border);border-radius:16px;overflow:hidden;flex:0 0 auto}
+  .crow{display:flex;align-items:center;gap:14px;padding:0 16px;min-height:56px;cursor:pointer}
+  .crow+.crow{border-top:1px solid var(--border)}
+  .crow .ico{color:var(--t-med)}
+  .crow .lbl{color:var(--t-hi);font-size:var(--t3)}
+  .crow .val{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:var(--t3);color:var(--t-med)}
+  .crow .chev{color:var(--t-low);width:18px;height:18px}
+  .code{font-family:var(--mono);font-size:var(--t4);font-weight:600;letter-spacing:.05em;color:var(--t-hi);background:var(--inset);border:1px solid var(--border);border-radius:8px;padding:7px 0;min-width:42px;text-align:center}
+
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-top:12px;flex:0 0 auto}
+  .stat{background:var(--s1);padding:13px 16px}
+  .stat .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:var(--t2);font-weight:600;letter-spacing:-.02em;transition:color .3s}
+  .stat .k{font-size:var(--t5);color:var(--t-low);text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
+
+  .banner{margin-top:12px;display:none;align-items:center;gap:10px;border-radius:12px;padding:11px 13px;font-size:var(--t4);line-height:1.45;flex:0 0 auto}
+  .banner.show{display:flex}
+  .banner.warn{background:color-mix(in srgb,var(--amber) 10%,transparent);color:var(--amber)}
+  .banner.err{background:color-mix(in srgb,var(--error) 10%,transparent);color:var(--error)}
+  .banner .ic{width:17px;height:17px}
+
+  /* ---------- nav ---------- */
+  .nav{height:80px;flex:0 0 auto;margin-top:auto;background:color-mix(in srgb,var(--canvas) 88%,transparent);backdrop-filter:blur(12px);border-top:1px solid var(--border);display:flex;padding:9px 4px 24px}
+  .nav button{flex:1;background:none;border:none;color:var(--t-low);font-family:var(--sans);font-size:var(--t5);font-weight:500;display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;min-height:46px}
+  .nav button.on{color:var(--t-hi)}
+
+  /* ---------- side panel ---------- */
+  .panel{width:320px;flex:0 0 auto;color:#8f8f8f;font-size:13px;line-height:1.65}
+  .panel h1{font-size:19px;color:#fafafa;font-weight:700;letter-spacing:-.02em;margin-bottom:4px}
+  .panel .lede{color:#b4b4b4;margin-bottom:22px;font-size:13px}
+  .panel h3{color:#fafafa;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin:22px 0 9px}
+  .seg{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .seg button{
+    font-family:var(--sans);font-size:13px;font-weight:600;padding:11px 12px;border-radius:12px;cursor:pointer;
+    background:#131313;border:1px solid #262626;color:#c8c8c8;text-align:left;transition:background .12s,border-color .12s,color .12s;
+  }
+  .seg button:hover{background:#191919}
+  .seg button.on{background:#fafafa;border-color:#fafafa;color:#0a0a0a}
+  .tog{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#131313;border:1px solid #262626;border-radius:12px;padding:11px 13px;margin-bottom:7px;cursor:pointer}
+  .tog span{font-size:13px;color:#c8c8c8;font-weight:500}
+  .sw{width:44px;height:26px;border-radius:13px;background:#2c2c2c;border:1px solid #3d3d3d;position:relative;flex:0 0 auto;transition:background .16s}
+  .sw i{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#8f8f8f;transition:transform .16s,background .16s}
+  .sw.on{background:#fafafa;border-color:#fafafa}
+  .sw.on i{transform:translateX(18px);background:#0a0a0a}
+  .panel dl{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:12px}
+  .panel dt{color:#6f6f6f}
+  .panel dd{font-family:var(--mono);color:#c8c8c8;font-variant-numeric:tabular-nums}
+  .panel p{margin-bottom:9px}
+  .panel code{font-family:var(--mono);font-size:11.5px;color:#eaeaea;background:#161616;padding:1.5px 5px;border-radius:5px}
+  @media(max-width:1000px){.panel{display:none}}
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+  <canvas id="atmo" width="390" height="844"></canvas>
+
+  <div class="content">
+    <div class="statusbar">
+      <span>9:41</span>
+      <span style="display:flex;gap:7px"><span class="mono">5G</span><span class="mono">86%</span></span>
+    </div>
+
+    <div class="body">
+      <div class="head">
+        <div class="wordmark">Caramba Connect</div>
+        <span class="chip-n">PRO</span>
+      </div>
+
+      <div class="connect">
+        <div class="dial" id="dial" role="button" tabindex="0" aria-label="Toggle connection">
+          <div class="track"></div>
+          <svg class="arc" viewBox="0 0 196 196" width="196" height="196">
+            <circle cx="98" cy="98" r="97" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-dasharray="74 536"/>
+          </svg>
+          <div class="face" id="face"></div>
+        </div>
+        <div class="cstate" id="cstate">Not connected</div>
+        <div class="csub" id="csub">Tap to connect</div>
+      </div>
+
+      <div class="carrier-band" id="carrierBand"></div>
+
+      <div class="rows">
+        <div class="crow">
+          <span class="code">NL</span>
+          <span class="lbl">Netherlands</span>
+          <span class="val"><span id="cityVal">Amsterdam</span><svg class="ic chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span>
+        </div>
+        <div class="crow">
+          <span class="ico"><svg class="ic" viewBox="0 0 24 24"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/></svg></span>
+          <span class="lbl">Protocol</span>
+          <span class="val"><span id="protoVal">Stealth</span><svg class="ic chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><div class="v" id="stDown">0.0 MB</div><div class="k">Downloaded</div></div>
+        <div class="stat"><div class="v" id="stUp">0.0 MB</div><div class="k">Uploaded</div></div>
+        <div class="stat"><div class="v" id="stLat">&middot;</div><div class="k">Latency</div></div>
+        <div class="stat"><div class="v" id="stSes">00:00</div><div class="k">Session</div></div>
+      </div>
+
+      <div class="banner" id="banner"><span id="bannerIc"></span><span id="bannerTx"></span></div>
+    </div>
+
+    <div class="nav" id="nav"></div>
+  </div>
+</div>
+
+<div class="panel">
+  <h1>Concept B: Carrier</h1>
+  <p class="lede">Signal weather. A low grey ceiling and a fenced horizon when you are exposed. The lid lifts, the horizon runs unbroken to both edges, and the distant lights come up all the way out when you are protected.</p>
+
+  <h3>Connection state</h3>
+  <div class="seg" id="stateSeg">
+    <button data-s="disconnected" class="on">Disconnected</button>
+    <button data-s="connecting">Connecting</button>
+    <button data-s="connected">Connected</button>
+    <button data-s="error">Error</button>
+  </div>
+  <p style="margin-top:9px;font-size:12px;color:#6f6f6f">Tapping the dial runs the real sequence: connect, handshake, lock.</p>
+
+  <h3>Environment</h3>
+  <div class="tog" id="togMotion"><span>Reduce motion</span><span class="sw" id="swMotion"><i></i></span></div>
+  <div class="tog" id="togTheme"><span>Light theme</span><span class="sw" id="swTheme"><i></i></span></div>
+
+  <h3>Live render budget</h3>
+  <dl>
+    <dt>Target fps</dt><dd id="dbgFps">8</dd>
+    <dt>Painted fps</dt><dd id="dbgReal">0</dd>
+    <dt>Ceiling</dt><dd id="dbgCeil">207px</dd>
+    <dt>Strata</dt><dd id="dbgStrata">8</dd>
+    <dt>Reach</dt><dd id="dbgReach">0.00</dd>
+    <dt>Beacons lit</dt><dd id="dbgBeac">0 / 26</dd>
+    <dt>Grain</dt><dd id="dbgGrain">5.5%</dd>
+    <dt>Ticker</dt><dd id="dbgTick">running</dd>
+  </dl>
+
+  <h3>Notes</h3>
+  <p>Disconnected idles at <code>8fps</code> on purpose. The stutter is the jam, and the state that should look stuck is also the one that has to cost nothing in a pocket.</p>
+  <p>Connected idles at <code>6fps</code>, carrier phase only. Error stops the ticker outright. Reduce motion never starts it: state changes become a 200ms opacity cross-fade between two settled frames.</p>
+  <p>No ceiling or grain renders below <code>y=334</code>. That invariant is what holds WCAG AA under every label.</p>
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   ATMOSPHERE TOKENS
+   Layered under the existing Caramba tokens. Nothing in the
+   component layer reads these.
+   ============================================================ */
+
+const ATMO = {
+  dark: {
+    skyTop:            [10, 10, 10],
+    skyHorizonClosed:  [13, 13, 13],
+    skyHorizonOpen:    [30, 30, 30],
+    skyBottom:         [11, 11, 11],
+    ceilingInk:        [0, 0, 0],
+    ceilingMaxAlpha:   0.75,
+    ceilingEdge:       [255, 255, 255],
+    ceilingEdgeAlpha:  0.050,
+    horizonClosed:     [61, 61, 61],
+    horizonOpen:       [82, 82, 82],
+    beacon:            [160, 160, 160],
+    carrier:           [138, 138, 138],
+    carrierBroken:     [106, 106, 106],
+    horizonLift:       [255, 255, 255],
+    horizonLiftAlpha:  0.050,
+    castConnecting:    [255, 159, 10],
+    castConnected:     [48, 209, 88],
+    castError:         [255, 69, 58],
+    fractureNotch:     [255, 69, 58],
+    grainContrast:     1.0
+  },
+  light: {
+    skyTop:            [245, 245, 245],
+    skyHorizonClosed:  [240, 240, 240],
+    skyHorizonOpen:    [253, 253, 253],
+    skyBottom:         [250, 250, 250],
+    ceilingInk:        [207, 207, 207],
+    ceilingMaxAlpha:   0.50,
+    ceilingEdge:       [0, 0, 0],
+    ceilingEdgeAlpha:  0.048,
+    horizonClosed:     [210, 210, 210],
+    horizonOpen:       [173, 173, 173],
+    beacon:            [110, 110, 110],
+    carrier:           [122, 122, 122],
+    carrierBroken:     [154, 154, 154],
+    horizonLift:       [0, 0, 0],
+    horizonLiftAlpha:  0.030,
+    castConnecting:    [168, 93, 0],
+    castConnected:     [30, 158, 84],
+    castError:         [200, 16, 46],
+    fractureNotch:     [200, 16, 46],
+    grainContrast:     0.75
+  }
+};
+
+// Resting scalars per state.
+const REST = {
+  disconnected:  { ceiling:0.245, strata:8, grain:0.055, reach:0.00, fence:1.0,  castA:0.00, cast:null,          flat:0, lock:0, fps:8  },
+  connecting:    { ceiling:0.150, strata:5, grain:0.035, reach:0.15, fence:0.0,  castA:0.06, cast:'connecting',  flat:0, lock:0, fps:30 },
+  connected:     { ceiling:0.064, strata:2, grain:0.014, reach:1.00, fence:0.0,  castA:0.07, cast:'connected',   flat:0, lock:1, fps:6  },
+  error:         { ceiling:0.265, strata:9, grain:0.062, reach:0.00, fence:1.0,  castA:0.08, cast:'error',       flat:1, lock:1, fps:0  },
+  reconnecting:  { ceiling:0.190, strata:6, grain:0.048, reach:0.22, fence:0.4,  castA:0.05, cast:'connecting',  flat:0, lock:0, fps:8  }
+};
+
+const VISIBILITY_BASE = 0.66;   // horizon visible out to base + 0.50 * reach
+const BEACON_FALLOFF  = 0.55;
+const TYPE_BAND_TOP   = 0.395;  // no ceiling, grain or lift below this fraction of height
+const GRAIN_TILE      = 96;
+const TRANSITION_FPS  = 30;
+
+// Non-uniform stratum table: [yOffset, height, alpha, xStart, xEnd] as fractions.
+// Irregular horizontal spans are what stop the deck reading as even stripes.
+const STRATA = [
+  [0.000, 0.340, 1.00, 0.00, 1.00],
+  [0.340, 0.130, 0.78, 0.00, 1.00],
+  [0.490, 0.090, 0.62, 0.00, 0.82],
+  [0.600, 0.070, 0.46, 0.14, 1.00],
+  [0.690, 0.055, 0.34, 0.00, 0.62],
+  [0.765, 0.045, 0.24, 0.28, 1.00],
+  [0.825, 0.038, 0.16, 0.00, 0.74],
+  [0.878, 0.030, 0.10, 0.36, 1.00],
+  [0.920, 0.026, 0.07, 0.00, 0.55]
+];
+
+/* ============================================================
+   DETERMINISTIC TABLES (precomputed once, never Random() per frame)
+   ============================================================ */
+
+const NOISE = new Float32Array(512);
+(function(){ let s = 1337 >>> 0;
+  for (let i = 0; i < 512; i++){ s = (Math.imul(s, 1664525) + 1013904223) >>> 0; NOISE[i] = (s / 4294967296) * 2 - 1; }
+})();
+function vnoise(x){
+  const i = Math.floor(x), f = x - i;
+  const a = NOISE[((i % 512) + 512) % 512], b = NOISE[(((i + 1) % 512) + 512) % 512];
+  const u = f * f * (3 - 2 * f);
+  return a + (b - a) * u;
+}
+
+// 26 beacons at irregular x. Uniform spacing would read as a ruler.
+const BEACONS = (function(){
+  let s = 99991 >>> 0; const out = [];
+  for (let i = 0; i < 26; i++){
+    s = (Math.imul(s, 1103515245) + 12345) >>> 0;
+    out.push((i + 0.5) / 26 + ((s / 4294967296) - 0.5) * 0.030);
+  }
+  return out;
+})();
+
+// Reconnecting duty cycle: fixed phase per beacon index, never random.
+const DUTY_PHASE = [0, 3, 1, 4, 2, 0];
+
+// Fixed dropout ranges in the broken carrier, as fractions of width.
+const DROPOUTS = [[0.175, 0.232], [0.515, 0.558], [0.786, 0.831]];
+
+const FRACTURE_X = 0.765; // seeded from the error code in production; fixed here.
+                          // Sits just outside the dial so the break is always visible.
+
+/* ============================================================
+   EASING
+   ============================================================ */
+const EASE = {
+  linear:      t => t,
+  outCubic:    t => 1 - Math.pow(1 - t, 3),
+  inCubic:     t => t * t * t,
+  inOutCubic:  t => t < .5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2,
+  outQuint:    t => 1 - Math.pow(1 - t, 5),
+  inQuart:     t => t * t * t * t,
+  outBack:     t => { const c = 1.30; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); }
+};
+
+/* ============================================================
+   CHOREOGRAPHY  [delayMs, durationMs, curve]
+   ============================================================ */
+const CHOREO = {
+  'disconnected>connecting': {
+    ceiling:[0,900,'inOutCubic'], strata:[0,900,'inOutCubic'], grain:[0,400,'outCubic'],
+    reach:[0,300,'outCubic'], fence:[0,240,'outCubic'], castMix:[0,400,'linear'],
+    lock:[0,300,'linear'], flat:[0,150,'linear'], total:900
+  },
+  'connecting>connected': {
+    ceiling:[60,700,'outQuint'], strata:[60,700,'outQuint'], grain:[0,600,'outCubic'],
+    reach:[200,900,'outCubic'], fence:[0,200,'outCubic'], castMix:[0,500,'linear'],
+    lock:[0,180,'outBack'], flat:[0,150,'linear'], total:1100
+  },
+  'connected>disconnected': {
+    ceiling:[0,420,'inCubic'], strata:[0,420,'inCubic'], grain:[0,200,'linear'],
+    reach:[0,260,'inCubic'], fence:[160,260,'outCubic'], castMix:[0,300,'linear'],
+    lock:[0,60,'linear'], flat:[0,150,'linear'], total:420
+  },
+  'error': {
+    ceiling:[0,90,'inQuart'], strata:[0,90,'inQuart'], grain:[0,150,'linear'],
+    reach:[0,120,'inCubic'], fence:[0,150,'outCubic'], castMix:[0,200,'linear'],
+    lock:[0,150,'outCubic'], flat:[0,150,'outCubic'], total:400
+  },
+  'default': {
+    ceiling:[0,600,'inOutCubic'], strata:[0,600,'inOutCubic'], grain:[0,400,'linear'],
+    reach:[0,500,'outCubic'], fence:[0,300,'outCubic'], castMix:[0,400,'linear'],
+    lock:[0,300,'linear'], flat:[0,200,'linear'], total:640
+  }
+};
+
+/* ============================================================
+   ENGINE STATE
+   ============================================================ */
+
+const cv  = document.getElementById('atmo');
+const ctx = cv.getContext('2d');
+const W = 390, H = 844;
+const DPR = Math.min(window.devicePixelRatio || 1, 3);
+cv.width = W * DPR; cv.height = H * DPR;
+ctx.scale(DPR, DPR);
+
+let theme       = 'dark';
+let reduceMotion= false;
+let state       = 'disconnected';
+let prevState   = 'disconnected';
+
+const props   = Object.assign({}, REST.disconnected, {castMix:1});
+const from    = Object.assign({}, props);
+const to      = Object.assign({}, props);
+let castPrev  = null, castNext = null, castPrevA = 0, castNextA = 0;
+let plan      = CHOREO['default'];
+let tStart    = 0;
+let animating = false;
+let shakeUntil= 0;
+
+// Geometry measured from the real layout, not hard-coded.
+let horizonY = 220, dialCX = 195, carrierY = 422, dialR = 98;
+
+// Grain tile, precomputed once per theme.
+let grainPattern = null;
+function buildGrain(){
+  const g = document.createElement('canvas');
+  g.width = GRAIN_TILE; g.height = GRAIN_TILE;
+  const gx = g.getContext('2d');
+  const img = gx.createImageData(GRAIN_TILE, GRAIN_TILE);
+  const d = img.data;
+  const dark = theme === 'dark';
+  let s = 20250902 >>> 0;
+  for (let i = 0; i < GRAIN_TILE * GRAIN_TILE; i++){
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    const n = s / 4294967296;
+    const v = dark ? Math.round(70 + n * 185) : Math.round(40 + n * 150);
+    d[i*4] = v; d[i*4+1] = v; d[i*4+2] = v;
+    d[i*4+3] = Math.round(120 + n * 135);
+  }
+  gx.putImageData(img, 0, 0);
+  grainPattern = ctx.createPattern(g, 'repeat');
+}
+
+// Reduce-motion cross-fade layers.
+const layerA = document.createElement('canvas');
+const layerB = document.createElement('canvas');
+[layerA, layerB].forEach(c => { c.width = W * DPR; c.height = H * DPR; c.getContext('2d').scale(DPR, DPR); });
+let xfadeStart = -1;
+
+/* ============================================================
+   MEASURE
+   ============================================================ */
+function measure(){
+  const p  = document.getElementById('phone').getBoundingClientRect();
+  const d  = document.getElementById('dial').getBoundingClientRect();
+  const cb = document.getElementById('carrierBand').getBoundingClientRect();
+  horizonY = Math.round(d.top - p.top + d.height / 2) + 0.5;
+  dialCX   = Math.round(d.left - p.left + d.width / 2);
+  dialR    = d.width / 2;
+  carrierY = Math.round(cb.top - p.top + cb.height / 2) + 0.5;
+}
+
+/* ============================================================
+   DRAW
+   ============================================================ */
+function rgba(c, a){ return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')'; }
+function lerp(a, b, t){ return a + (b - a) * t; }
+function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
+function mixRGB(a, b, t){ return [Math.round(lerp(a[0],b[0],t)), Math.round(lerp(a[1],b[1],t)), Math.round(lerp(a[2],b[2],t))]; }
+
+function draw(g, p, t){
+  const A = ATMO[theme];
+  g.clearRect(0, 0, W, H);
+
+  const ceilY  = p.ceiling * H;
+  // "clear" is how open the sky is: 0 at the disconnected lid, 1 when connected.
+  const clear  = clamp((REST.disconnected.ceiling - p.ceiling) / (REST.disconnected.ceiling - REST.connected.ceiling), 0, 1);
+  const shake  = (t < shakeUntil && !reduceMotion)
+    ? Math.sin((shakeUntil - t) / 120 * Math.PI * 2) * 6 * ((shakeUntil - t) / 120) : 0;
+
+  g.save();
+  g.translate(shake, 0);
+
+  /* 1. sky field ------------------------------------------------ */
+  const horizonCol = mixRGB(A.skyHorizonClosed, A.skyHorizonOpen, clear);
+  const sky = g.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, rgba(A.skyTop, 1));
+  sky.addColorStop(clamp(horizonY / H, 0.02, 0.98), rgba(horizonCol, 1));
+  sky.addColorStop(1, rgba(A.skyBottom, 1));
+  g.fillStyle = sky;
+  g.fillRect(0, 0, W, H);
+
+  /* 2. ceiling strata ------------------------------------------- */
+  const bandLimit = TYPE_BAND_TOP * H;
+  g.save();
+  g.beginPath(); g.rect(0, 0, W, bandLimit); g.clip();
+  for (let k = 0; k < STRATA.length; k++){
+    const vis = clamp(p.strata - k, 0, 1);
+    if (vis <= 0.001) continue;
+    const [off, hgt, al, x0, x1] = STRATA[k];
+    const y0 = off * ceilY, hh = Math.max(1, hgt * ceilY);
+    const px0 = x0 * W, px1 = x1 * W;
+    // horizontal feather at any end that does not reach the frame edge
+    const span = (col, alpha) => {
+      const lg = g.createLinearGradient(px0, 0, px1, 0);
+      lg.addColorStop(0, rgba(col, x0 > 0.001 ? 0 : alpha));
+      lg.addColorStop(0.22, rgba(col, alpha));
+      lg.addColorStop(0.78, rgba(col, alpha));
+      lg.addColorStop(1, rgba(col, x1 < 0.999 ? 0 : alpha));
+      return lg;
+    };
+    g.fillStyle = span(A.ceilingInk, al * A.ceilingMaxAlpha * vis);
+    g.fillRect(px0, y0, px1 - px0, hh);
+    // 1px lit edge under each stratum: what makes the deck legible in dark.
+    g.fillStyle = span(A.ceilingEdge, A.ceilingEdgeAlpha * vis * al);
+    g.fillRect(px0, y0 + hh - 1, px1 - px0, 1);
+  }
+  // soft feather at the underside of the deck
+  const feath = g.createLinearGradient(0, ceilY - 46, 0, ceilY + 6);
+  feath.addColorStop(0, rgba(A.ceilingInk, 0.34 * A.ceilingMaxAlpha * clamp(p.strata / 8, 0, 1)));
+  feath.addColorStop(1, rgba(A.ceilingInk, 0));
+  g.fillStyle = feath;
+  g.fillRect(0, ceilY - 46, W, 52);
+
+  /* 3. grain, masked to the ceiling zone ------------------------ */
+  if (grainPattern && p.grain > 0.002){
+    const jitter = reduceMotion ? 0 : (Math.floor(t / 125) % 4);
+    const jx = [0, 37, 11, 59][jitter], jy = [0, 23, 53, 7][jitter];
+    const gTop = p.grain * ATMO[theme].grainContrast;
+    const gBot = Math.min(ceilY + 64, bandLimit);
+    g.save();
+    g.translate(-jx, -jy);
+    g.fillStyle = grainPattern;
+    // 12 strips so the underside of the murk fades out instead of ending on a hard rule
+    const STRIP = 12, sh = gBot / STRIP;
+    for (let i = 0; i < STRIP; i++){
+      const f = i / (STRIP - 1);
+      g.globalAlpha = gTop * (f < 0.62 ? 1 : 1 - (f - 0.62) / 0.38);
+      g.fillRect(jx, jy + i * sh, W, sh + 1);
+    }
+    g.restore();
+    g.globalAlpha = 1;
+  }
+  g.restore();
+
+  /* 4. state cast: radial from the dial, capped at 8% ----------- */
+  function paintCast(colKey, alpha){
+    if (!colKey || alpha <= 0.001) return;
+    const c = A['cast' + colKey[0].toUpperCase() + colKey.slice(1)];
+    const r = W * 0.92;
+    const rg = g.createRadialGradient(dialCX, horizonY, 0, dialCX, horizonY, r);
+    rg.addColorStop(0,    rgba(c, alpha));
+    rg.addColorStop(0.45, rgba(c, alpha * 0.35));
+    rg.addColorStop(1,    rgba(c, 0));
+    g.fillStyle = rg;
+    g.fillRect(0, 0, W, H);
+  }
+  paintCast(castPrev, castPrevA * (1 - p.castMix));
+  paintCast(castNext, castNextA * p.castMix);
+
+  /* 5. neutral lift band on the open horizon -------------------- */
+  if (clear > 0.02){
+    const lift = g.createLinearGradient(0, horizonY - 26, 0, horizonY + 26);
+    lift.addColorStop(0,   rgba(A.horizonLift, 0));
+    lift.addColorStop(0.5, rgba(A.horizonLift, A.horizonLiftAlpha * clear));
+    lift.addColorStop(1,   rgba(A.horizonLift, 0));
+    g.fillStyle = lift;
+    g.fillRect(0, horizonY - 26, W, 52);
+  }
+
+  /* 6. the horizon: fence, dashes, fracture --------------------- */
+  const visibility = VISIBILITY_BASE + 0.50 * p.reach;
+  const lineCol    = mixRGB(A.horizonClosed, A.horizonOpen, clear);
+  const half       = W / 2;
+  const SEG        = 3;                      // segment width in px
+  const gapPhase   = (state === 'reconnecting' && !reduceMotion) ? (t / 1000 * 12) : 0;
+  const dashOn     = lerp(19, 10, p.fence);  // fence up = short dashes
+  const dashOff    = lerp(0.5, 16, p.fence);
+  const period     = dashOn + dashOff;
+
+  for (let x = 0; x < W; x += SEG){
+    const d = Math.abs(x + SEG / 2 - half) / half;
+    let a = clamp((visibility - d) / 0.20, 0, 1);
+    if (a <= 0.004) continue;
+    if (period > 0.6){
+      const ph = ((x + gapPhase) % period);
+      if (ph > dashOn) continue;
+    }
+    // error fracture: a gap and a 2px step
+    let yOff = 0;
+    if (p.flat > 0.5){
+      const fx = FRACTURE_X * W;
+      if (x > fx - 7 && x < fx + 7) continue;
+      if (x >= fx + 7) yOff = 2;
+    }
+    g.fillStyle = rgba(lineCol, a * (0.62 + 0.38 * clear));
+    g.fillRect(x, horizonY - 0.5 + yOff, SEG - 0.4, 1);
+  }
+
+  // fence ticks: short verticals standing on the horizon
+  if (p.fence > 0.01){
+    const tickH = 9 * p.fence;
+    for (let x = (dialCX % 26); x < W; x += 26){
+      const d = Math.abs(x - half) / half;
+      const a = clamp((visibility - d) / 0.20, 0, 1);
+      if (a <= 0.004) continue;
+      g.fillStyle = rgba(lineCol, a * 0.5);
+      g.fillRect(x, horizonY - tickH, 1, tickH);
+    }
+  }
+
+  // fracture notch: the only saturated line work in the layer
+  if (p.flat > 0.5){
+    const fx = Math.round(FRACTURE_X * W);
+    g.fillStyle = rgba(A.fractureNotch, 0.55 * p.flat);
+    g.fillRect(fx - 1, horizonY - 6, 2, 12);
+  }
+
+  /* 7. distant lights ------------------------------------------- */
+  let lit = 0;
+  for (let i = 0; i < BEACONS.length; i++){
+    const bx = BEACONS[i] * W;
+    if (Math.abs(bx - dialCX) < dialR + 8) continue;   // occluded by the dial
+    const d = Math.abs(bx - half) / half;
+    let a = clamp((visibility - d) / 0.20, 0, 1) * (1 - BEACON_FALLOFF * d);
+    if (state === 'reconnecting' && !reduceMotion && i < 6 + 0){
+      const f = Math.floor(t / 125);
+      a *= (((f + DUTY_PHASE[i % 6]) % 5) < 3) ? 1 : 0.15;
+    } else if (state === 'reconnecting' && reduceMotion && i < 6){
+      a *= 0.60;
+    }
+    if (a <= 0.01) continue;
+    lit++;
+    g.fillStyle = rgba(A.beacon, a * 0.85);
+    g.fillRect(bx - 0.5, horizonY - 1.5, 1.4, 1.4);
+    if (a > 0.55){ // near lights get a faint second pixel of presence
+      g.fillStyle = rgba(A.beacon, (a - 0.55) * 0.5);
+      g.fillRect(bx - 1.5, horizonY - 2, 3.4, 2.6);
+    }
+  }
+  window.__lit = lit;
+
+  /* 8. the carrier trace ---------------------------------------- */
+  const ampBroken = 7.5, ampLocked = 3.2;
+  const phase = reduceMotion ? 0 : t / 1000;
+  const huntCursor = (state === 'connecting' && !reduceMotion) ? ((phase * 0.85) % 1) : -1;
+  const scan = state === 'reconnecting' ? phase * 0.5 : phase;
+
+  g.lineWidth = 1;
+  g.lineJoin = 'round';
+  g.lineCap = 'butt';
+
+  let started = false;
+  const brokenCol = rgba(A.carrierBroken, 0.85);
+  const lockedCol = rgba(A.carrier, 0.9);
+  g.strokeStyle = p.lock > 0.5 ? lockedCol : brokenCol;
+  g.beginPath();
+
+  for (let i = 0; i <= 130; i++){
+    const fx = i / 130, x = fx * W;
+    let gap = false;
+    if (p.lock < 0.6 && p.flat < 0.5){
+      for (let k = 0; k < DROPOUTS.length; k++){
+        if (fx > DROPOUTS[k][0] && fx < DROPOUTS[k][1]) { gap = true; break; }
+      }
+    }
+    if (gap){ started = false; continue; }
+
+    // local lock amount: global lock, raised behind the hunt cursor
+    let L = p.lock;
+    if (huntCursor >= 0){
+      const behind = huntCursor - fx;
+      if (behind > 0 && behind < 0.42) L = Math.max(L, 1 - behind / 0.42);
+      else if (behind >= 0.42) L = Math.max(L, 0.10);
+    }
+
+    const nz = vnoise(fx * 26 + scan * 5.5) * 0.72 + vnoise(fx * 74 + scan * 13) * 0.28;
+    const cleanY = Math.sin(fx * W * 0.045 + scan * 0.38) * ampLocked
+                 + Math.sin(fx * W * 0.017 - scan * 0.21) * (ampLocked * 0.5);
+    const brokeY = nz * ampBroken;
+    let y = carrierY + lerp(brokeY, cleanY, clamp(L, 0, 1)) * (1 - p.flat);
+
+    if (p.flat > 0.5 && Math.abs(fx - FRACTURE_X) < 0.012){
+      y = carrierY - 11 * p.flat * (1 - Math.abs(fx - FRACTURE_X) / 0.012);
+    }
+
+    if (!started){ g.moveTo(x, y); started = true; } else { g.lineTo(x, y); }
+  }
+  g.stroke();
+
+  // a faint baseline under the trace so the band reads as an instrument well
+  g.fillStyle = rgba(theme === 'dark' ? [255,255,255] : [0,0,0], theme === 'dark' ? 0.030 : 0.035);
+  g.fillRect(0, carrierY + 20, W, 1);
+
+  g.restore();
+}
+
+/* ============================================================
+   STATE MACHINE + TICKER
+   ============================================================ */
+
+function planFor(a, b){
+  if (b === 'error') return CHOREO['error'];
+  return CHOREO[a + '>' + b] || CHOREO['default'];
+}
+
+function setState(next, silent){
+  if (next === state) return;
+  prevState = state;
+  const rp = REST[prevState], rn = REST[next];
+
+  Object.keys(rp).forEach(k => { if (k !== 'fps' && k !== 'cast') from[k] = props[k]; });
+  Object.keys(rn).forEach(k => { if (k !== 'fps' && k !== 'cast') to[k] = rn[k]; });
+
+  castPrev = castNext !== null ? castNext : rp.cast;
+  castPrevA = castNextA || rp.castA;
+  castNext = rn.cast; castNextA = rn.castA;
+  from.castMix = 0; to.castMix = 1; props.castMix = 0;
+
+  plan = planFor(prevState, next);
+  state = next;
+  tStart = performance.now();
+  animating = true;
+  lastDraw = -1e9;              // the first frame after a state change always paints
+
+  if (next === 'error' && !reduceMotion) shakeUntil = tStart + 120;
+  if (reduceMotion){
+    // settled frame to settled frame, opacity only. No tweening of any geometry.
+    Object.keys(to).forEach(k => { props[k] = to[k]; });
+    props.castMix = 1;
+    animating = false;
+    shakeUntil = 0;
+    xfadeStart = tStart;
+  }
+  paintChrome(silent);
+  ensureTicker();
+}
+
+function stepProps(now){
+  if (!animating) return false;
+  const el = now - tStart;
+  let done = true;
+  for (const key in plan){
+    if (key === 'total') continue;
+    const [dly, dur, curve] = plan[key];
+    const t = clamp((el - dly) / dur, 0, 1);
+    if (t < 1) done = false;
+    props[key] = lerp(from[key], to[key], EASE[curve](t));
+  }
+  if (el >= plan.total){ animating = false; Object.keys(to).forEach(k => props[k] = to[k]); return false; }
+  return true;
+}
+
+let rafId = null, lastDraw = 0, lastEmit = 0, emitted = 0, realFps = 0;
+
+function targetFps(){
+  if (reduceMotion) return (xfadeStart >= 0) ? TRANSITION_FPS : 0;
+  // a transition, or the error shake, always runs at 30 even if the state rests at 0
+  if (animating || performance.now() < shakeUntil) return TRANSITION_FPS;
+  return REST[state].fps;
+}
+
+function frame(now){
+  rafId = null;
+  if (document.hidden){ return; }          // ticker.stop() on background
+
+  const advancing = stepProps(now);
+  const fps = targetFps();
+
+  if (reduceMotion && xfadeStart >= 0){
+    const t = clamp((now - xfadeStart) / 200, 0, 1);
+    draw(layerB.getContext('2d'), props, now);
+    ctx.clearRect(0, 0, W, H);
+    ctx.globalAlpha = 1;    ctx.drawImage(layerA, 0, 0, W, H);
+    ctx.globalAlpha = EASE.inOutCubic(t); ctx.drawImage(layerB, 0, 0, W, H);
+    ctx.globalAlpha = 1;
+    if (t >= 1){
+      const la = layerA.getContext('2d');
+      la.clearRect(0, 0, W, H); la.drawImage(layerB, 0, 0, W, H);
+      xfadeStart = -1;
+    }
+    emitted++;
+    rafId = requestAnimationFrame(frame);
+    updateDebug(fps);
+    return;
+  }
+
+  if (fps > 0 && now - lastDraw >= 1000 / fps - 1){
+    draw(ctx, props, now);
+    lastDraw = now; emitted++;
+    updateDebug(fps);
+  }
+
+  if (now - lastEmit >= 1000){ realFps = emitted; emitted = 0; lastEmit = now; updateDebug(fps); }
+
+  if (fps > 0 || advancing || now < shakeUntil){
+    rafId = requestAnimationFrame(frame);
+  } else {
+    draw(ctx, props, now);               // one final settled frame
+    rafId = null; realFps = 0;
+    updateDebug(0);
+  }
+}
+
+function ensureTicker(){
+  if (rafId === null){ lastDraw = -1e9; rafId = requestAnimationFrame(frame); }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) ensureTicker();
+});
+
+/* ============================================================
+   CHROME (dial, labels, stats, nav)
+   ============================================================ */
+
+const ICONS = {
+  power:  '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/>',
+  shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+  alert:  '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  dots:   '<circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/>',
+  house:  '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  globe:  '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+  user:   '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  slider: '<path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/>',
+  wifioff:'<path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/>'
+};
+function svg(name, cls){ return '<svg class="' + (cls || 'ic') + '" viewBox="0 0 24 24">' + ICONS[name] + '</svg>'; }
+
+const COPY = {
+  disconnected: { cls:'',      glyph:'power',  label:'Not connected', sub:'Tap to connect',                                       lat:'&middot;' },
+  connecting:   { cls:'amber', glyph:'dots',   label:'Connecting',    sub:'Handshake with Amsterdam',                             lat:'&middot;' },
+  connected:    { cls:'ok',    glyph:'shield', label:'Protected',     sub:'Stealth over NL. Kill-switch on.',                     lat:'41 ms' },
+  error:        { cls:'err',   glyph:'alert',  label:'No connection', sub:'The server refused the handshake. <b>Retry</b>',       lat:'&middot;' },
+  reconnecting: { cls:'amber', glyph:'dots',   label:'Reconnecting',  sub:'Network changed. Holding traffic.',                    lat:'&middot;' }
+};
+
+const $ = id => document.getElementById(id);
+let sessionStart = 0, sessionTimer = null;
+
+function paintChrome(){
+  const c = COPY[state];
+  const dial = $('dial');
+  dial.className = 'dial ' + (state === 'reconnecting' ? 'connecting' : state === 'disconnected' ? '' : state);
+  $('face').innerHTML = svg(c.glyph);
+  $('cstate').className = 'cstate ' + c.cls;
+  $('cstate').textContent = c.label;
+  $('csub').innerHTML = c.sub;
+  $('stLat').innerHTML = c.lat;
+  $('stLat').style.color = state === 'connected' ? 'var(--ok)' : 'var(--t-hi)';
+
+  if (state === 'error' && !reduceMotion){
+    dial.classList.add('shake');
+    setTimeout(() => dial.classList.remove('shake'), 340);
+  }
+
+  const b = $('banner');
+  if (state === 'reconnecting'){
+    b.className = 'banner warn show'; $('bannerIc').innerHTML = svg('wifioff');
+    $('bannerTx').textContent = 'Traffic paused while reconnecting.';
+  } else if (state === 'error'){
+    b.className = 'banner err show'; $('bannerIc').innerHTML = svg('alert');
+    $('bannerTx').textContent = 'Kill-switch is holding traffic. Nothing leaked.';
+  } else { b.className = 'banner'; }
+
+  if (state === 'connected'){
+    if (!sessionTimer){
+      sessionStart = Date.now();
+      sessionTimer = setInterval(() => {
+        const s = Math.floor((Date.now() - sessionStart) / 1000);
+        $('stSes').textContent = String(Math.floor(s / 60)).padStart(2,'0') + ':' + String(s % 60).padStart(2,'0');
+        $('stDown').textContent = (128.4 + s * 0.7).toFixed(1) + ' MB';
+        $('stUp').textContent   = (12.7 + s * 0.09).toFixed(1) + ' MB';
+      }, 1000);
+      $('stDown').textContent = '128.4 MB'; $('stUp').textContent = '12.7 MB'; $('stSes').textContent = '00:00';
+    }
+  } else {
+    clearInterval(sessionTimer); sessionTimer = null;
+    $('stDown').textContent = '0.0 MB'; $('stUp').textContent = '0.0 MB'; $('stSes').textContent = '00:00';
+  }
+
+  document.querySelectorAll('#stateSeg button').forEach(el => el.classList.toggle('on', el.dataset.s === state));
+}
+
+$('nav').innerHTML = [['house','Home',1],['globe','Servers',0],['user','Profile',0],['slider','Settings',0]]
+  .map(([i,l,on]) => '<button class="' + (on ? 'on' : '') + '">' + svg(i,'ic') + '<span>' + l + '</span></button>').join('');
+
+function updateDebug(fps){
+  $('dbgFps').textContent   = fps;
+  $('dbgReal').textContent  = realFps;
+  $('dbgCeil').textContent  = Math.round(props.ceiling * H) + 'px';
+  $('dbgStrata').textContent= props.strata.toFixed(1);
+  $('dbgReach').textContent = props.reach.toFixed(2);
+  $('dbgBeac').textContent  = (window.__lit || 0) + ' / 26';
+  $('dbgGrain').textContent = (props.grain * 100).toFixed(1) + '%';
+  $('dbgTick').textContent  = (rafId === null && fps === 0) ? 'stopped' : 'running';
+}
+
+/* ============================================================
+   CONTROLS
+   ============================================================ */
+
+document.querySelectorAll('#stateSeg button').forEach(el => {
+  el.addEventListener('click', () => setState(el.dataset.s));
+});
+
+let seq = null;
+$('dial').addEventListener('click', () => {
+  clearTimeout(seq);
+  if (state === 'connected'){ setState('disconnected'); return; }
+  if (state === 'connecting'){ setState('disconnected'); return; }
+  setState('connecting');
+  seq = setTimeout(() => setState('connected'), 2300);
+});
+$('dial').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); $('dial').click(); } });
+
+$('togMotion').addEventListener('click', () => {
+  reduceMotion = !reduceMotion;
+  $('swMotion').classList.toggle('on', reduceMotion);
+  const la = layerA.getContext('2d');
+  la.clearRect(0, 0, W, H); draw(la, props, performance.now());
+  xfadeStart = -1;
+  paintChrome();
+  if (!reduceMotion) ensureTicker(); else { draw(ctx, props, performance.now()); updateDebug(0); }
+});
+
+$('togTheme').addEventListener('click', () => {
+  theme = theme === 'dark' ? 'light' : 'dark';
+  $('phone').classList.toggle('light', theme === 'light');
+  $('swTheme').classList.toggle('on', theme === 'light');
+  buildGrain();
+  draw(ctx, props, performance.now());
+  const la = layerA.getContext('2d'); la.clearRect(0,0,W,H); draw(la, props, performance.now());
+});
+
+/* ============================================================
+   BOOT
+   ============================================================ */
+// Deep link for review: #connected  #error,light  #connecting,reduce
+(function bootHash(){
+  const h = decodeURIComponent(location.hash.replace(/^#/, '')).split(',').map(s => s.trim()).filter(Boolean);
+  if (h.includes('light')) $('togTheme').click();
+  if (h.includes('reduce')) $('togMotion').click();
+  const s = h.find(x => REST[x]);
+  if (s && s !== state){
+    setState(s);
+    Object.keys(to).forEach(k => props[k] = to[k]);
+    props.castMix = 1; animating = false; shakeUntil = 0;
+  }
+})();
+
+buildGrain();
+paintChrome();
+requestAnimationFrame(() => {
+  measure();
+  const la = layerA.getContext('2d'); draw(la, props, 0);
+  ensureTicker();
+});
+window.addEventListener('resize', () => { measure(); });
+</script>
+</body>
+</html>
