@@ -1,0 +1,133 @@
+package subimport
+
+import (
+	"strconv"
+	"strings"
+)
+
+// asInt приводит произвольное YAML/JSON-значение к int. Порт после разбора URI
+// приходит строкой, из YAML — int/float64, из JSON — float64. Возвращает 0, если
+// привести не удалось.
+func asInt(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	case string:
+		if i, err := strconv.Atoi(strings.TrimSpace(n)); err == nil {
+			return i
+		}
+	}
+	return 0
+}
+
+// asString приводит значение к строке без потери числовых форм (порт/uuid могут
+// прийти числом из JSON). Возвращает "" для nil.
+func asString(v any) string {
+	switch s := v.(type) {
+	case string:
+		return s
+	case float64:
+		return strconv.FormatInt(int64(s), 10)
+	case int:
+		return strconv.Itoa(s)
+	case int64:
+		return strconv.FormatInt(s, 10)
+	case bool:
+		return strconv.FormatBool(s)
+	case nil:
+		return ""
+	default:
+		return ""
+	}
+}
+
+// asBool приводит значение к bool (sing-box JSON отдаёт bool, URI-параметры —
+// строки "1"/"true").
+func asBool(v any) bool {
+	switch b := v.(type) {
+	case bool:
+		return b
+	case string:
+		switch strings.ToLower(strings.TrimSpace(b)) {
+		case "1", "true", "yes", "on":
+			return true
+		}
+	case float64:
+		return b != 0
+	}
+	return false
+}
+
+// countryFromName извлекает ISO-2 код страны из имени прокси. Логика повторяет
+// subscription.countryFromName (флаг-эмодзи либо ведущий двухбуквенный код), но
+// дублируется здесь намеренно: функция в пакете subscription не экспортирована, а
+// править subscription.go ради экспорта означало бы трогать чужой файл (риск
+// конфликта правок, см. RECON). Поведение держим синхронным с оригиналом.
+func countryFromName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if iso := flagToISO(name); iso != "" {
+		return iso
+	}
+	var letters []rune
+	for _, r := range name {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+			letters = append(letters, r)
+			if len(letters) > 2 {
+				return ""
+			}
+			continue
+		}
+		if len(letters) == 0 {
+			continue
+		}
+		break
+	}
+	if len(letters) == 2 {
+		return strings.ToUpper(string(letters))
+	}
+	return ""
+}
+
+// flagToISO декодирует ведущий флаг-эмодзи (две Regional Indicator Symbol-руны,
+// U+1F1E6..U+1F1FF) в ISO-2 код. "" если имя не начинается с флага.
+func flagToISO(name string) string {
+	const base = 0x1F1E6
+	runes := []rune(strings.TrimSpace(name))
+	if len(runes) < 2 {
+		return ""
+	}
+	a, b := runes[0], runes[1]
+	if a < base || a > base+25 || b < base || b > base+25 {
+		return ""
+	}
+	return string([]byte{byte('A' + (a - base)), byte('A' + (b - base))})
+}
+
+// fallbackName формирует имя прокси, если оно не задано в источнике (URI без
+// fragment, sing-box outbound без tag). Берёт host:port, чтобы UI-список и
+// автоподбор не показывали пустую строку (ServerID = name).
+func fallbackName(server string, port int) string {
+	if server == "" {
+		return "imported"
+	}
+	if port > 0 {
+		return server + ":" + strconv.Itoa(port)
+	}
+	return server
+}
+
+// putNonEmptyString кладёт строковое значение в map только если оно непустое.
+// Так нормализованный proxy-map не засоряется пустыми ключами, которые mihomo
+// мог бы интерпретировать как заданные (например пустой sni).
+func putNonEmptyString(m map[string]any, key, val string) {
+	if strings.TrimSpace(val) != "" {
+		m[key] = val
+	}
+}

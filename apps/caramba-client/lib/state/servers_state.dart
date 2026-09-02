@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:caramba_client/data/api_client.dart';
 import 'package:caramba_client/data/models/server.dart';
 import 'package:caramba_client/state/providers.dart';
 

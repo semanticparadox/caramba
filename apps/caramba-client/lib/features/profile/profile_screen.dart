@@ -1,6 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart' hide Family;
 
 import 'package:go_router/go_router.dart';
 
@@ -63,7 +65,7 @@ class ProfileScreen extends ConsumerWidget {
               AppSpace.s20 + AppSpace.s6,
             ),
             children: [
-              ScreenHead('Профиль', trailing: const NotificationBell()),
+              const ScreenHead('Профиль', trailing: NotificationBell()),
               Row(
                 children: [
                   Container(
@@ -102,7 +104,7 @@ class ProfileScreen extends ConsumerWidget {
               ),
 
               // ---- Баланс кошелька (money-модель: пополняется рефералами).
-              SectionTitle('Баланс'),
+              const SectionTitle('Баланс'),
               RowsGroup(
                 children: [
                   CRow(
@@ -118,7 +120,7 @@ class ProfileScreen extends ConsumerWidget {
               ),
 
               // ---- Подписки
-              SectionTitle('Подписки'),
+              const SectionTitle('Подписки'),
               subsAsync.when(
                 data: (subs) => subs.isEmpty
                     ? const InlineEmpty(message: 'Активных подписок нет')
@@ -145,8 +147,8 @@ class ProfileScreen extends ConsumerWidget {
               // ---- Устройства
               devicesAsync.when(
                 data: (devices) => _DevicesSection(devices: devices),
-                loading: () => Column(
-                  children: const [SectionTitle('Устройства'), InlineLoading()],
+                loading: () => const Column(
+                  children: [SectionTitle('Устройства'), InlineLoading()],
                 ),
                 error: (_, __) => Column(
                   children: [
@@ -160,7 +162,7 @@ class ProfileScreen extends ConsumerWidget {
               ),
 
               // ---- Рефералы
-              SectionTitle('Рефералы'),
+              const SectionTitle('Рефералы'),
               referralAsync.when(
                 data: (r) => _ReferralSection(referral: r),
                 loading: () => const InlineLoading(),
@@ -172,7 +174,7 @@ class ProfileScreen extends ConsumerWidget {
 
               // ---- Партнёрам (только при подтверждённой партнёрской роли)
               if (isPartner) ...[
-                SectionTitle('Партнёрам'),
+                const SectionTitle('Партнёрам'),
                 RowsGroup(
                   children: [
                     CRow(
@@ -186,7 +188,7 @@ class ProfileScreen extends ConsumerWidget {
               ],
 
               // ---- Поддержка
-              SectionTitle('Поддержка'),
+              const SectionTitle('Поддержка'),
               RowsGroup(
                 children: [
                   CRow(
@@ -524,7 +526,7 @@ class _FamilySheet extends ConsumerWidget {
       final invite = await ref
           .read(apiClientProvider)
           .inviteFamily(subscriptionId: sub.id);
-      Clipboard.setData(ClipboardData(text: invite.inviteLink));
+      unawaited(Clipboard.setData(ClipboardData(text: invite.inviteLink)));
       ref.invalidate(familyProvider(sub.id));
       if (context.mounted) {
         Navigator.of(context).pop();

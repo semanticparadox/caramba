@@ -35,7 +35,7 @@ class AppNotification {
     if (d.inMinutes < 60) return '${d.inMinutes} мин назад';
     if (d.inHours < 24) return '${d.inHours} ч назад';
     if (d.inDays < 7) return '${d.inDays} дн назад';
-    final two = (int n) => n.toString().padLeft(2, '0');
+    String two(int n) => n.toString().padLeft(2, '0');
     return '${two(t.day)}.${two(t.month)}.${t.year}';
   }
 

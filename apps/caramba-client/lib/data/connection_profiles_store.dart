@@ -35,7 +35,7 @@ class ConnectionProfilesStore {
       final decoded = jsonDecode(raw);
       if (decoded is! List) return const [];
       return decoded
-          .whereType<Map>()
+          .whereType<Map<dynamic, dynamic>>()
           .map(
             (e) => ConnectionProfile.fromJson(
               e.map((k, v) => MapEntry(k.toString(), v)),

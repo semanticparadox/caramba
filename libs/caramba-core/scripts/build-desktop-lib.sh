@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+#
+# build-desktop-lib.sh — сборка десктопной разделяемой библиотеки caramba-core
+# (cgo c-shared) для встраивания в Flutter через dart:ffi.
+#
+# В отличие от build-desktop.sh (он собирает CLI-бинарник caramba), здесь из
+# пакета ffi/ собирается НАТИВНАЯ БИБЛИОТЕКА с C-ABI (CarambaNew/CarambaUp/...),
+# которую десктопный плагин caramba_vpn грузит и зовёт через FFI. На десктопе
+# mihomo сам поднимает TUN (tunFd=-1), поэтому fd не передаётся; подъём TUN
+# требует прав (root/CAP_NET_ADMIN на Linux, админ на Windows).
+#
+# Требования:
+#   - Go-тулчейн и заполненный go.sum: `cd libs/caramba-core && go mod tidy`
+#     (тег mihomo тянет большой транзитивный граф — без tidy сборка падает с
+#     «missing go.sum entry»);
+#   - CGO_ENABLED=1 и системный C-тулчейн (clang/gcc; на Windows mingw-w64),
+#     т.к. ядро mihomo (gvisor/sing-tun) требует cgo;
+#   - на Windows рядом с caramba_core.dll должен лежать wintun.dll (его ставит
+#     инсталлятор/раннер плагина).
+#
+# Использование:
+#   scripts/build-desktop-lib.sh            # текущая платформа
+#
+# Артефакт по платформе (расширение выбирает go по GOOS):
+#   linux   → build/libcaramba_core.so   (+ build/libcaramba_core.h)
+#   darwin  → build/libcaramba_core.dylib (+ build/libcaramba_core.h)
+#   windows → build/caramba_core.dll      (+ build/caramba_core.h)
+#
+# Вендоринг плагином (десктоп):
+#   linux   → apps/caramba-client/linux/caramba_vpn/libcaramba_core.so
+#   macos   → apps/caramba-client/macos/caramba_vpn/libcaramba_core.dylib
+#   windows → apps/caramba-client/windows/caramba_vpn/caramba_core.dll (+ wintun.dll)
+# Каноничный C-заголовок для dart:ffi: libs/caramba-core/ffi/caramba_core.h
+# (cgo также генерирует .h рядом с -o; держите их синхронными).
+#
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+OUT="${ROOT}/build"
+PKG="./ffi"
+TAGS="mihomo"
+mkdir -p "${OUT}"
+
+GOOS="$(go env GOOS 2>/dev/null || echo)"
+case "${GOOS}" in
+  windows) LIB="caramba_core.dll" ;;
+  darwin)  LIB="libcaramba_core.dylib" ;;
+  *)       LIB="libcaramba_core.so" ;;
+esac
+
+echo ">> go build -tags ${TAGS} -buildmode=c-shared (CGO_ENABLED=1) → ${OUT}/${LIB}"
+( cd "${ROOT}" && CGO_ENABLED=1 go build \
+    -tags "${TAGS}" \
+    -buildmode=c-shared \
+    -o "${OUT}/${LIB}" \
+    "${PKG}" )
+
+echo ">> готово: ${OUT}/${LIB} (+ сгенерированный .h рядом)"
+echo ">> каноничный заголовок для FFI: ${ROOT}/ffi/caramba_core.h"
+[[ "${GOOS}" == "windows" ]] && echo ">> ВНИМАНИЕ Windows: положите wintun.dll рядом с ${LIB}"

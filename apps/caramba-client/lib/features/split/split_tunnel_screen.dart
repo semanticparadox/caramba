@@ -83,7 +83,7 @@ class _SplitTunnelScreenState extends ConsumerState<SplitTunnelScreen> {
                         SplitMode.off => Lucide.shield,
                         SplitMode.onlySelected => Lucide.appWindow,
                         SplitMode.bypassSelected => Lucide.route,
-                      }),
+                      },),
                       title: m.title,
                       subtitle: m.desc,
                       selected: cfg.splitMode == m,
@@ -91,7 +91,7 @@ class _SplitTunnelScreenState extends ConsumerState<SplitTunnelScreen> {
                     ),
 
                   if (enabled) ...[
-                    SectionTitle('Приложения'),
+                    const SectionTitle('Приложения'),
                     TextField(
                       controller: _searchCtrl,
                       onChanged: (v) => setState(() => _query = v),

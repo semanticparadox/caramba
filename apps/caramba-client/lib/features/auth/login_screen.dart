@@ -159,9 +159,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   onPressed: busy ? null : _openBot,
                 ),
                 const SizedBox(height: AppSpace.s6),
-                SectionTitle(
+                const SectionTitle(
                   'Код из бота',
-                  padding: const EdgeInsets.only(bottom: AppSpace.s3),
+                  padding: EdgeInsets.only(bottom: AppSpace.s3),
                 ),
                 Row(
                   children: [
@@ -209,9 +209,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   style: AppType.bodySm.copyWith(color: c.textMed),
                 ),
                 const SizedBox(height: AppSpace.s6),
-                SectionTitle(
+                const SectionTitle(
                   'Есть инвайт-код',
-                  padding: const EdgeInsets.only(bottom: AppSpace.s3),
+                  padding: EdgeInsets.only(bottom: AppSpace.s3),
                 ),
                 Text(
                   'Подключаетесь к другой панели по приглашению? Введите инвайт-код.',

@@ -82,7 +82,7 @@ class PartnerOverview {
       PartnerOverview(
         isPartner: (json['is_partner'] as bool?) ?? false,
         codes: ((json['codes'] as List?) ?? const [])
-            .whereType<Map>()
+            .whereType<Map<dynamic, dynamic>>()
             .map((e) => PartnerCode.fromJson(e.cast<String, dynamic>()))
             .toList(growable: false),
       );

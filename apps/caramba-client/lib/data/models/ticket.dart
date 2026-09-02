@@ -4,6 +4,7 @@
 /// Статусы панели: open | in_progress | awaiting_user | resolved | closed
 /// (см. tickets_service.rs::set_status). Роли отправителя: user | admin
 /// (admin = поддержка), плюс system/bot для авто-сообщений.
+library;
 
 enum TicketStatus { open, inProgress, awaitingUser, resolved, closed }
 
@@ -117,7 +118,7 @@ class TicketMessage {
   String get timeLabel {
     final t = createdAt;
     if (t == null) return '';
-    final two = (int n) => n.toString().padLeft(2, '0');
+    String two(int n) => n.toString().padLeft(2, '0');
     final hm = '${two(t.hour)}:${two(t.minute)}';
     final now = DateTime.now();
     final sameDay =
@@ -170,7 +171,7 @@ class TicketDetail {
     final rawMessages = json['messages'] ?? ticket['messages'];
     final messages = (rawMessages is List)
         ? rawMessages
-              .whereType<Map>()
+              .whereType<Map<dynamic, dynamic>>()
               .map((e) => TicketMessage.fromJson(e.cast<String, dynamic>()))
               .toList(growable: false)
         : const <TicketMessage>[];
@@ -193,7 +194,7 @@ String _relative(DateTime? t) {
   if (d.inMinutes < 60) return '${d.inMinutes} мин назад';
   if (d.inHours < 24) return '${d.inHours} ч назад';
   if (d.inDays < 7) return '${d.inDays} дн назад';
-  final two = (int n) => n.toString().padLeft(2, '0');
+  String two(int n) => n.toString().padLeft(2, '0');
   return '${two(t.day)}.${two(t.month)}.${t.year}';
 }
 

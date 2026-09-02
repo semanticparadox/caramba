@@ -351,7 +351,7 @@ class ReferralInfo {
           '',
       botLink: json['bot_link'] as String?,
       referrals: list
-          .whereType<Map>()
+          .whereType<Map<dynamic, dynamic>>()
           .map((e) => ReferralEntry.fromJson(e.cast<String, dynamic>()))
           .toList(growable: false),
     );
@@ -402,7 +402,7 @@ class Family {
   factory Family.fromJson(Map<String, dynamic> json) => Family(
     isParent: (json['is_parent'] as bool?) ?? false,
     members: ((json['members'] as List?) ?? const [])
-        .whereType<Map>()
+        .whereType<Map<dynamic, dynamic>>()
         .map((e) => FamilyMember.fromJson(e.cast<String, dynamic>()))
         .toList(growable: false),
   );

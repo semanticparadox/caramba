@@ -84,9 +84,9 @@ class _NewTicketScreenState extends ConsumerState<NewTicketScreen> {
               style: AppType.bodyMd.copyWith(color: c.textMed),
             ),
             const SizedBox(height: AppSpace.s5),
-            SectionTitle(
+            const SectionTitle(
               'Тема',
-              padding: const EdgeInsets.only(bottom: AppSpace.s2),
+              padding: EdgeInsets.only(bottom: AppSpace.s2),
             ),
             _field(
               context,
@@ -96,9 +96,9 @@ class _NewTicketScreenState extends ConsumerState<NewTicketScreen> {
               onChanged: () => setState(() {}),
             ),
             const SizedBox(height: AppSpace.s5),
-            SectionTitle(
+            const SectionTitle(
               'Сообщение',
-              padding: const EdgeInsets.only(bottom: AppSpace.s2),
+              padding: EdgeInsets.only(bottom: AppSpace.s2),
             ),
             _field(
               context,

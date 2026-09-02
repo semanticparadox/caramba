@@ -146,16 +146,16 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
         style: AppType.bodyMd.copyWith(color: c.textMed),
       ),
       const SizedBox(height: AppSpace.s6),
-      SectionTitle('Код', padding: const EdgeInsets.only(bottom: AppSpace.s3)),
+      const SectionTitle('Код', padding: EdgeInsets.only(bottom: AppSpace.s3)),
       TextField(
         controller: _codeController,
         style: AppType.monoMd.copyWith(color: c.textHi),
         decoration: const InputDecoration(hintText: 'INVITE-XXXX'),
       ),
       const SizedBox(height: AppSpace.s5),
-      SectionTitle(
+      const SectionTitle(
         'URL панели',
-        padding: const EdgeInsets.only(bottom: AppSpace.s3),
+        padding: EdgeInsets.only(bottom: AppSpace.s3),
       ),
       TextField(
         controller: _panelController,
@@ -246,9 +246,9 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
       const SizedBox(height: AppSpace.s6),
 
       // Регистрация по email/password (свежий аккаунт расходует enroll-код).
-      SectionTitle(
+      const SectionTitle(
         'Регистрация',
-        padding: const EdgeInsets.only(bottom: AppSpace.s3),
+        padding: EdgeInsets.only(bottom: AppSpace.s3),
       ),
       TextField(
         controller: _emailController,
@@ -278,9 +278,9 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
       FilledButton(onPressed: _register, child: const Text('Создать аккаунт')),
 
       const SizedBox(height: AppSpace.s6),
-      SectionTitle(
+      const SectionTitle(
         'Уже есть аккаунт',
-        padding: const EdgeInsets.only(bottom: AppSpace.s3),
+        padding: EdgeInsets.only(bottom: AppSpace.s3),
       ),
       Text(
         'Войдите по коду из Telegram-бота этой панели.',

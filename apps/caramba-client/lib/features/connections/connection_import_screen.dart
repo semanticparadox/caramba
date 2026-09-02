@@ -97,7 +97,7 @@ class _ConnectionImportScreenState
             const SizedBox(height: AppSpace.s5),
 
             // Имя профиля (опционально).
-            SectionTitle('Имя'),
+            const SectionTitle('Имя'),
             TextField(
               controller: _nameController,
               enabled: !_busy,
@@ -109,7 +109,7 @@ class _ConnectionImportScreenState
             const SizedBox(height: AppSpace.s5),
 
             // Источник: URL или сырой конфиг.
-            SectionTitle('Ссылка или конфиг'),
+            const SectionTitle('Ссылка или конфиг'),
             TextField(
               controller: _sourceController,
               enabled: !_busy,
@@ -148,7 +148,7 @@ class _ConnectionImportScreenState
             const SizedBox(height: AppSpace.s5),
 
             // Выбор формата (auto по умолчанию).
-            SectionTitle('Формат'),
+            const SectionTitle('Формат'),
             RowsGroup(
               children: [
                 CRow(
@@ -193,7 +193,7 @@ class _ConnectionImportScreenState
   }
 
   Future<void> _pickFormat() async {
-    final values = ImportFormat.values;
+    const values = ImportFormat.values;
     final selected = await showPickerSheet(
       context: context,
       title: 'Формат импорта',

@@ -226,9 +226,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               },
             ),
             const SizedBox(height: AppSpace.s4),
-            SectionTitle(
+            const SectionTitle(
               'Трафик',
-              padding: const EdgeInsets.only(bottom: AppSpace.s3),
+              padding: EdgeInsets.only(bottom: AppSpace.s3),
             ),
             ref
                 .watch(trafficHistoryProvider)

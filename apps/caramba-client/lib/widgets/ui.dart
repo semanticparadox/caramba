@@ -50,8 +50,9 @@ class RowsGroup extends StatelessWidget {
     final c = context.c;
     final rows = <Widget>[];
     for (var i = 0; i < children.length; i++) {
-      if (i > 0)
+      if (i > 0) {
         rows.add(Divider(height: 1, thickness: 1, color: c.borderSubtle));
+      }
       rows.add(children[i]);
     }
     return Container(

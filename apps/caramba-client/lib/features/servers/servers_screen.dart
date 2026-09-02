@@ -88,9 +88,9 @@ class ServersScreen extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SectionTitle(
+        const SectionTitle(
           'Общий пул',
-          padding: const EdgeInsets.only(bottom: AppSpace.s3),
+          padding: EdgeInsets.only(bottom: AppSpace.s3),
         ),
         for (final s in common) _tile(context, ref, s, selected),
         if (priv.isNotEmpty) ...[

@@ -112,7 +112,7 @@ class _PartnerBody extends StatelessWidget {
         ),
 
         // ---- Итоги (минорные единицы для начислено, mono-значения).
-        SectionTitle('Итого'),
+        const SectionTitle('Итого'),
         Row(
           children: [
             Expanded(
@@ -158,7 +158,7 @@ class _PartnerBody extends StatelessWidget {
         ),
 
         // ---- Новый код.
-        SectionTitle('Новый код'),
+        const SectionTitle('Новый код'),
         const _CreateCodeForm(),
 
         // ---- Список кодов.

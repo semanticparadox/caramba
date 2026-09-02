@@ -133,9 +133,9 @@ class _AutotuneScreenState extends ConsumerState<AutotuneScreen> {
                 if (!_done)
                   ...List.generate(_steps.length, (i) => _stepRow(i))
                 else ...[
-                  SectionTitle(
+                  const SectionTitle(
                     'Выбрано',
-                    padding: const EdgeInsets.only(bottom: AppSpace.s3),
+                    padding: EdgeInsets.only(bottom: AppSpace.s3),
                   ),
                   RowsGroup(
                     children: [

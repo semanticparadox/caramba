@@ -43,11 +43,11 @@ class SettingsScreen extends ConsumerWidget {
             AppSpace.s20 + AppSpace.s6,
           ),
           children: [
-            ScreenHead('Настройки'),
+            const ScreenHead('Настройки'),
 
-            SectionTitle(
+            const SectionTitle(
               'Подключение',
-              padding: const EdgeInsets.only(bottom: AppSpace.s3),
+              padding: EdgeInsets.only(bottom: AppSpace.s3),
             ),
             RowsGroup(
               children: [
@@ -99,7 +99,7 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
 
-            SectionTitle('Сеть и ядро'),
+            const SectionTitle('Сеть и ядро'),
             RowsGroup(
               children: [
                 CRow(
@@ -171,7 +171,7 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
 
-            SectionTitle('Автонастройка'),
+            const SectionTitle('Автонастройка'),
             RowsGroup(
               children: [
                 CRow(
@@ -183,7 +183,7 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
 
-            SectionTitle('Поддержка'),
+            const SectionTitle('Поддержка'),
             RowsGroup(
               children: [
                 CRow(
@@ -195,7 +195,7 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
 
-            SectionTitle('Вид'),
+            const SectionTitle('Вид'),
             RowsGroup(
               children: [
                 CRow(

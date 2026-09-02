@@ -92,7 +92,7 @@ class _ReferralBody extends StatelessWidget {
         ),
 
         // ---- Баланс / всего начислено (минорные единицы, mono-значения).
-        SectionTitle('Баланс'),
+        const SectionTitle('Баланс'),
         Row(
           children: [
             Expanded(
@@ -116,7 +116,7 @@ class _ReferralBody extends StatelessWidget {
         ),
 
         // ---- Код + ссылка.
-        SectionTitle('Ваш код'),
+        const SectionTitle('Ваш код'),
         RowsGroup(
           children: [
             CRow(
