@@ -4,8 +4,10 @@ import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/api_client.dart';
 import 'package:caramba_client/data/models/ticket.dart';
+import 'package:caramba_client/features/profile/panel_required.dart';
 import 'package:caramba_client/features/support/tickets_screen.dart';
 import 'package:caramba_client/router/routes.dart';
+import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/state/tickets_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
@@ -53,6 +55,11 @@ class _TicketDetailScreenState extends ConsumerState<TicketDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    // Раздел живёт у аккаунта панели: в generic-режиме показываем, что нужно
+    // сделать, чтобы он заработал, вместо 401 за каждым провайдером.
+    if (ref.watch(authProvider).stage != AuthStage.authenticated) {
+      return const PanelRequiredScreen(title: 'Запрос в поддержку');
+    }
     final async = ref.watch(ticketDetailProvider(widget.ticketId));
     final detail = async.valueOrNull;
     final canReply = detail?.status.isOpen ?? false;

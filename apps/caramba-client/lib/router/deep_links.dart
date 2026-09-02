@@ -20,51 +20,93 @@ import 'package:caramba_client/router/routes.dart';
 /// Регистрация схемы — платформенная (Android intent-filter, iOS/macOS
 /// CFBundleURLTypes, Windows/Linux протокол). Без неё OS не доставит ссылку;
 /// сам разбор и навигация — здесь.
+///
+/// ГОНКА ХОЛОДНОГО СТАРТА. Ссылка приходит раньше, чем роутер готов её принять:
+/// пока локальные настройки и профили не прочитаны, гейт навигации держит сплеш
+/// и уводит на `/login`, и переход по ссылке просто теряется — на эмуляторе это
+/// выглядело как «`carambaconnect://import` открывает /login». Поэтому цель
+/// последней ссылки запоминается ([pendingLocation]) и повторяется вызовом
+/// [replayPending], когда роутер сообщает, что гейт открыт.
 class DeepLinkHandler {
   final GoRouter _router;
   final AppLinks _appLinks;
-  StreamSubscription<Uri>? _sub;
 
-  DeepLinkHandler(this._router, {AppLinks? appLinks})
-    : _appLinks = appLinks ?? AppLinks();
+  /// Вызывается, когда пришла ссылка импорта подписки: приложение обязано
+  /// включить generic-режим, иначе пользователь без аккаунта панели упрётся в
+  /// `/login` вместо экрана импорта.
+  final void Function()? _onImport;
+
+  StreamSubscription<Uri>? _sub;
+  String? _pending;
+
+  DeepLinkHandler(this._router, {AppLinks? appLinks, void Function()? onImport})
+    : _appLinks = appLinks ?? AppLinks(),
+      _onImport = onImport;
+
+  /// Локация роутера, на которую ведёт ссылка, или `null`, если это не наш
+  /// deeplink. Чистая функция: разбор ссылки проверяется без роутера.
+  static String? targetOf(String raw) {
+    final enroll = EnrollLink.tryParse(raw);
+    if (enroll != null) {
+      return Uri(
+        path: AppRoute.enroll,
+        queryParameters: {'panel': enroll.panelUrl, 'code': enroll.code},
+      ).toString();
+    }
+    final import = ImportLink.tryParse(raw);
+    if (import != null) {
+      return Uri(
+        path: AppRoute.connectionImport,
+        queryParameters: {'url': import.url},
+      ).toString();
+    }
+    return null;
+  }
 
   /// Подписывается на поток ссылок и обрабатывает ту, что запустила приложение.
   Future<void> start() async {
     _sub = _appLinks.uriLinkStream.listen(
-      _handle,
+      handle,
       onError: (_) {
         // Сбойный URI игнорируем: deeplink — best-effort вход, не критичный путь.
       },
     );
     try {
       final initial = await _appLinks.getInitialLink();
-      if (initial != null) _handle(initial);
+      if (initial != null) handle(initial);
     } catch (_) {
       // Нет начальной ссылки или платформа не поддерживает — не падаем.
     }
   }
 
-  void _handle(Uri uri) {
-    final raw = uri.toString();
-    final enroll = EnrollLink.tryParse(raw);
-    if (enroll != null) {
-      _router.go(
-        Uri(
-          path: AppRoute.enroll,
-          queryParameters: {'panel': enroll.panelUrl, 'code': enroll.code},
-        ).toString(),
-      );
-      return;
-    }
-    final import = ImportLink.tryParse(raw);
-    if (import != null) {
-      _router.go(
-        Uri(
-          path: AppRoute.connectionImport,
-          queryParameters: {'url': import.url},
-        ).toString(),
-      );
-    }
+  /// Обрабатывает одну ссылку: запоминает цель и ведёт роутер.
+  void handle(Uri uri) {
+    final target = targetOf(uri.toString());
+    if (target == null) return;
+    if (target.startsWith(AppRoute.connectionImport)) _onImport?.call();
+    _pending = target;
+    _router.go(target);
+  }
+
+  /// Куда ведёт последняя принятая ссылка, если её ещё не повторяли.
+  String? get pendingLocation => _pending;
+
+  /// Повторяет последнюю ссылку, если гейт роутера успел увести с неё.
+  /// Одноразово: цель гасится, чтобы поздний вызов не выдёргивал пользователя
+  /// из экрана, куда он ушёл сам.
+  void replayPending() {
+    final target = _pending;
+    _pending = null;
+    if (target == null) return;
+    if (_currentPath() == Uri.parse(target).path) return;
+    _router.go(target);
+  }
+
+  /// Путь, на котором роутер стоит сейчас. До первой навигации конфигурация
+  /// пуста — тогда путь пустой, и повтор точно нужен.
+  String _currentPath() {
+    final matches = _router.routerDelegate.currentConfiguration;
+    return matches.isEmpty ? '' : matches.uri.path;
   }
 
   void dispose() {

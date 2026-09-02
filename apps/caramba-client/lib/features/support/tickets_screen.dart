@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/models/ticket.dart';
+import 'package:caramba_client/features/profile/panel_required.dart';
 import 'package:caramba_client/router/routes.dart';
+import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/tickets_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
@@ -19,6 +21,11 @@ class TicketsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
+    // Раздел живёт у аккаунта панели: в generic-режиме показываем, что нужно
+    // сделать, чтобы он заработал, вместо 401 за каждым провайдером.
+    if (ref.watch(authProvider).stage != AuthStage.authenticated) {
+      return const PanelRequiredScreen(title: 'Поддержка');
+    }
     final async = ref.watch(ticketsProvider);
 
     return Scaffold(

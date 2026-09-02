@@ -29,6 +29,10 @@ class ConnectionsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
     final state = ref.watch(connectionProfilesProvider);
+    // Один профиль, и он активный — типичная картина generic-режима сразу после
+    // импорта. Тогда главное действие экрана не «завести ещё один профиль», а
+    // «подключиться»: импорт уезжает в тихую кнопку.
+    final only = state.profiles.length == 1 ? state.active : null;
 
     return Scaffold(
       backgroundColor: c.bgCanvas,
@@ -52,11 +56,24 @@ class ConnectionsScreen extends ConsumerWidget {
               style: AppType.bodyMd.copyWith(color: c.textMed),
             ),
             const SizedBox(height: AppSpace.s4),
-            FilledButton.icon(
-              onPressed: () => context.go(AppRoute.connectionImport),
-              icon: LucideIcon(Lucide.plus, color: c.textOnAccent, size: 18),
-              label: const Text('Импорт подписки'),
-            ),
+            if (only != null) ...[
+              FilledButton.icon(
+                onPressed: () => connectProfile(context, ref, only),
+                icon: LucideIcon(Lucide.zap, color: c.textOnAccent, size: 18),
+                label: const Text('Подключить'),
+              ),
+              const SizedBox(height: AppSpace.s2),
+              GhostButton(
+                label: 'Импорт подписки',
+                icon: Lucide.plus,
+                onPressed: () => context.go(AppRoute.connectionImport),
+              ),
+            ] else
+              FilledButton.icon(
+                onPressed: () => context.go(AppRoute.connectionImport),
+                icon: LucideIcon(Lucide.plus, color: c.textOnAccent, size: 18),
+                label: const Text('Импорт подписки'),
+              ),
             const SizedBox(height: AppSpace.s5),
             if (state.loading)
               const InlineLoading()
@@ -155,7 +172,7 @@ class _ProfileCard extends ConsumerWidget {
               child: FilledButton.icon(
                 onPressed: () {
                   Navigator.of(ctx).pop();
-                  _connect(context, ref);
+                  connectProfile(context, ref, profile);
                 },
                 icon: LucideIcon(Lucide.zap, color: c.textOnAccent, size: 18),
                 label: const Text('Подключить'),
@@ -230,17 +247,6 @@ class _ProfileCard extends ConsumerWidget {
       (profile.source.startsWith('http://') ||
           profile.source.startsWith('https://'));
 
-  Future<void> _connect(BuildContext context, WidgetRef ref) async {
-    await ref.read(connectionProfilesProvider.notifier).activate(profile.id);
-    final ok = await ref.read(vpnProvider.notifier).connect();
-    if (!context.mounted) return;
-    if (!ok) {
-      showCarambaToast(context, 'Подключаться не к чему. Проверьте профиль.');
-      return;
-    }
-    context.go(AppRoute.home);
-  }
-
   /// Перекачивает подписку по её ссылке и переразбирает ядром, обновляя кэш
   /// узлов на профиле. Туннель при этом не поднимается.
   Future<void> _refresh(BuildContext context, WidgetRef ref) async {
@@ -307,6 +313,23 @@ class _ProfileCard extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Делает профиль активным, поднимает по нему туннель и уводит на Home.
+/// Общий путь для главной кнопки экрана и для листа действий карточки.
+Future<void> connectProfile(
+  BuildContext context,
+  WidgetRef ref,
+  ConnectionProfile profile,
+) async {
+  await ref.read(connectionProfilesProvider.notifier).activate(profile.id);
+  final ok = await ref.read(vpnProvider.notifier).connect();
+  if (!context.mounted) return;
+  if (!ok) {
+    showCarambaToast(context, 'Подключаться не к чему. Проверьте профиль.');
+    return;
+  }
+  context.go(AppRoute.home);
 }
 
 /// Грубая давность в плоских словах. `null`, если отметки времени нет.

@@ -53,12 +53,20 @@ String? resolveRedirect({
   required bool guest,
   required String location,
 }) {
-  final onSplash = location == AppRoute.splash;
-  final onLogin = location == AppRoute.login;
-  final onAutotune = location == AppRoute.autotune;
+  // Deeplink приносит локацию с query (`/connections/import?url=...`), а гейт
+  // рассуждает о маршруте: сравниваем только путь, иначе pre-auth поток
+  // перестаёт узнаваться ровно на той ссылке, ради которой он существует.
+  final path = _pathOf(location);
+  final onSplash = path == AppRoute.splash;
+  final onLogin = path == AppRoute.login;
+  final onAutotune = path == AppRoute.autotune;
   // Энроллмент — pre-auth поток (deeplink/ручной ввод/QR): держим его
   // доступным из unauthenticated, не редиректим на /login.
-  final onEnroll = location == AppRoute.enroll;
+  final onEnroll = path == AppRoute.enroll;
+  // Импорт подписки — второй pre-auth поток (`carambaconnect://import`).
+  // Аккаунт для него не нужен вовсе, поэтому уводить на /login тем более
+  // нельзя: на холодном старте это съедало ссылку целиком.
+  final preAuth = onEnroll || path == AppRoute.connectionImport;
 
   switch (stage) {
     case AuthStage.authenticated:
@@ -74,8 +82,9 @@ String? resolveRedirect({
     case AuthStage.unauthenticated:
     case AuthStage.authenticating:
       // Deeplink на холодном старте: пока сессия резолвится, не сбрасываем
-      // /enroll на сплеш (иначе панель/код из ссылки потеряются).
-      if (onEnroll) return null;
+      // /enroll и /connections/import на сплеш или логин (иначе панель/код или
+      // ссылка подписки из URI потеряются).
+      if (preAuth) return null;
       // Локальное состояние ещё грузится: решение «гость или нет» без него
       // было бы принято по дефолтам.
       if (!bootReady || !profilesReady) {
@@ -94,6 +103,22 @@ String? resolveRedirect({
       return onLogin ? null : AppRoute.login;
   }
 }
+
+/// Путь без query-строки. `state.matchedLocation` её и так не несёт, но гейт
+/// вызывается и с сырой локацией (тесты, повтор deeplink'а), поэтому режем.
+String _pathOf(String location) {
+  final q = location.indexOf('?');
+  return q < 0 ? location : location.substring(0, q);
+}
+
+/// Гейт роутера открыт: локальные настройки и профили прочитаны, и redirect
+/// больше не держит сплеш. До этого момента любая навигация по deeplink была бы
+/// съедена, поэтому [DeepLinkHandler] ждёт именно его, чтобы повторить ссылку.
+final _routerGateReadyProvider = Provider<bool>(
+  (ref) =>
+      ref.watch(appBootReadyProvider) &&
+      ref.watch(connectionProfilesReadyProvider),
+);
 
 /// Application router (Riverpod-aware).
 ///
@@ -253,11 +278,29 @@ final routerProvider = Provider<GoRouter>((ref) {
     ],
   );
 
-  // Deeplink intake (carambaconnect://enroll): стартуем после сборки роутера,
-  // чтобы навигация на /enroll шла в готовый GoRouter. Гасим при dispose.
-  final deepLinks = DeepLinkHandler(router);
+  // Deeplink intake (carambaconnect://enroll|import): стартуем после сборки
+  // роутера, чтобы навигация шла в готовый GoRouter. Гасим при dispose.
+  final deepLinks = DeepLinkHandler(
+    router,
+    // Ссылка импорта — вход в generic-режим: без этого флага пользователь без
+    // аккаунта панели отскочил бы на /login с уже открытого экрана импорта.
+    onImport: () => ref.read(guestModeProvider.notifier).enable(),
+  );
   unawaited(deepLinks.start());
   ref.onDispose(deepLinks.dispose);
+
+  // Ссылка холодного старта приходит раньше, чем гейт открылся: повторяем её,
+  // как только локальные настройки и профили прочитаны.
+  void onGate(bool? prev, bool next) {
+    if (next) deepLinks.replayPending();
+  }
+
+  final gateSub = ref.listen<bool>(
+    _routerGateReadyProvider,
+    onGate,
+    fireImmediately: true,
+  );
+  ref.onDispose(gateSub.close);
 
   return router;
 });

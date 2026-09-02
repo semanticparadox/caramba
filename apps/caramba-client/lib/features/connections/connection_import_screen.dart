@@ -11,6 +11,7 @@ import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/subscription_fetch.dart';
 import 'package:caramba_client/features/connections/qr_scan_sheet.dart';
 import 'package:caramba_client/router/routes.dart';
+import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/core_error.dart';
 import 'package:caramba_client/state/providers.dart';
@@ -337,9 +338,12 @@ class _ConnectionImportScreenState
     await ref.read(connectionProfilesProvider.notifier).add(profile);
     if (!mounted) return;
     showCarambaToast(context, 'Профиль добавлен');
-    // Generic-режим: пользователь пришёл сюда прямо с экрана входа, возвращать
-    // его в список профилей незачем — ведём на Home, подключаться.
-    if (ref.read(guestModeProvider)) {
+    // Generic-режим: пользователь пришёл сюда с экрана входа или по deeplink
+    // `carambaconnect://import`, возвращать его в список профилей незачем —
+    // ведём на Home, подключаться. Признак — отсутствие сессии панели, а не
+    // только флаг режима: по ссылке импорт открывается и до его установки.
+    if (ref.read(guestModeProvider) ||
+        ref.read(authProvider).stage != AuthStage.authenticated) {
       context.go(AppRoute.home);
       return;
     }

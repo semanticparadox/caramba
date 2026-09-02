@@ -139,6 +139,46 @@ void main() {
       );
     });
 
+    test('импорт подписки по deeplink доступен до входа', () {
+      // carambaconnect://import — вход в generic-режим: аккаунт панели для него
+      // не нужен, и увод на /login съедал бы ссылку на холодном старте.
+      expect(
+        redirect(
+          stage: AuthStage.unauthenticated,
+          location: '${AppRoute.connectionImport}?url=x',
+        ),
+        isNull,
+      );
+      expect(
+        redirect(
+          stage: AuthStage.unauthenticated,
+          location: AppRoute.connectionImport,
+        ),
+        isNull,
+      );
+      expect(
+        redirect(
+          stage: AuthStage.unknown,
+          location: '${AppRoute.connectionImport}?url=x',
+        ),
+        isNull,
+      );
+    });
+
+    test('ссылка импорта переживает нечитанные настройки и профили', () {
+      // Гейт «локальное состояние ещё грузится» держит сплеш для всех — кроме
+      // pre-auth потоков, иначе ссылка теряется до того, как её кто-то увидел.
+      expect(
+        redirect(
+          stage: AuthStage.unknown,
+          location: '${AppRoute.connectionImport}?url=x',
+          bootReady: false,
+          profilesReady: false,
+        ),
+        isNull,
+      );
+    });
+
     test('пока сессия резолвится, держим сплеш', () {
       expect(
         redirect(stage: AuthStage.unknown, location: AppRoute.splash),
@@ -224,6 +264,15 @@ void main() {
     test('внутри приложения не трогаем', () {
       expect(
         redirect(stage: AuthStage.authenticated, location: AppRoute.servers),
+        isNull,
+      );
+      // Импорт остаётся доступен и с аккаунтом: мульти-профиль разрешает
+      // свою подписку рядом с панельной.
+      expect(
+        redirect(
+          stage: AuthStage.authenticated,
+          location: '${AppRoute.connectionImport}?url=x',
+        ),
         isNull,
       );
     });
