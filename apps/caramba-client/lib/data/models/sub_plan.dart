@@ -304,7 +304,7 @@ class ReferralInfo {
   });
 
   String get inviteLink =>
-      shareLink.isNotEmpty ? shareLink : 'https://t.me/exarobot?start=$code';
+      shareLink.isNotEmpty ? shareLink : 'https://t.me/exa_robot?start=$code';
 
   /// Текущий баланс в денежных единицах (минорные / 100).
   double get balance => balanceCents / 100;
@@ -423,7 +423,7 @@ class FamilyInvite {
   });
 
   /// Ссылка-приглашение в бота (deeplink). Код подставляется в start-параметр.
-  String get inviteLink => 'https://t.me/exarobot?start=family-$code';
+  String get inviteLink => 'https://t.me/exa_robot?start=family-$code';
 
   factory FamilyInvite.fromJson(Map<String, dynamic> json) => FamilyInvite(
     code: (json['code'] as String?) ?? '',

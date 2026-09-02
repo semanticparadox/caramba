@@ -149,7 +149,7 @@ class ProfileScreen extends ConsumerWidget {
                 label: 'Купить или продлить',
                 icon: Lucide.creditCard,
                 onPressed: () =>
-                    openExternal(context, 'https://t.me/exarobot?start=plans'),
+                    openExternal(context, 'https://t.me/exa_robot?start=plans'),
               ),
 
               // ---- Устройства

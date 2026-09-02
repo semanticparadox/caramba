@@ -32,7 +32,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   /// `--dart-define=CARAMBA_BOT_USERNAME=...` под конкретный деплой.
   static const _botUsername = String.fromEnvironment(
     'CARAMBA_BOT_USERNAME',
-    defaultValue: 'exarobot',
+    defaultValue: 'exa_robot',
   );
 
   final _controllers = List.generate(_len, (_) => TextEditingController());

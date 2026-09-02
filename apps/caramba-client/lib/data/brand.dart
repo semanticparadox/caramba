@@ -41,7 +41,7 @@ const String kBrandBotUrl = String.fromEnvironment(
 const String kTenant1PanelUrl = 'https://exarobot.top';
 
 /// Username бота тенанта №1 без `@`. Совпадает с дефолтом `CARAMBA_BOT_USERNAME`.
-const String kTenant1BotUsername = 'exarobot';
+const String kTenant1BotUsername = 'exa_robot';
 
 /// Deep-link бота тенанта №1 в Telegram.
 const String kTenant1BotUrl = 'https://t.me/$kTenant1BotUsername';
