@@ -36,6 +36,11 @@ Sources: `Leonxlnx/taste-skill` (design), `conorbronsdon/avoid-ai-writing` and
 - Type: system SF Pro stack or Geist, not Inter as a default. Mono only for
   technical data (latency, byte counts, codes, prices).
 - Motion is subtle: animate transform/opacity only, no infinite breathing glows.
+  Exactly one ambient background is allowed, the atmosphere layer specified in
+  `DESIGN.md` section 4.2 (Open Chart). It is a flat line drawing capped at 8
+  percent field alpha, it never blurs or glows, it only animates while connecting
+  or reconnecting, and its ticker is stopped in every settled state. Any other
+  ambient background is out of spec.
 - Ship full state cycles (loading, empty, error), WCAG AA contrast, single-line
   button labels, one label per intent, no centered-hero-over-mesh default.
 
@@ -57,6 +62,8 @@ Sources: `Leonxlnx/taste-skill` (design), `conorbronsdon/avoid-ai-writing` and
 
 ## Files still to de-slop
 
-- `DESIGN.md` (built on "Electric Iris" purple, needs replacement palette).
-- Flutter theme tokens under `lib/theme/`.
 - `demo/caramba-demo.html` (rebuilt to the rules; reference implementation).
+
+`DESIGN.md` and the Flutter theme tokens under `lib/theme/` are done: the
+"Electric Iris" purple is gone, the palette is neutral with status-only color,
+and section 4.2 pins the one ambient layer the product is allowed.

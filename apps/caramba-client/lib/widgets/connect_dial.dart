@@ -20,10 +20,18 @@ class ConnectDial extends StatefulWidget {
   final String? subLabel;
   final VoidCallback onTap;
 
+  /// Optional keys the atmosphere layer measures against: the chart's home
+  /// station is the dial itself, and the boundary bottom plus the quiet lens
+  /// are derived from the laid-out connect block rather than from constants.
+  final GlobalKey? dialKey;
+  final GlobalKey? labelKey;
+
   const ConnectDial({
     required this.stage,
     required this.onTap,
     this.subLabel,
+    this.dialKey,
+    this.labelKey,
     super.key,
   });
 
@@ -112,6 +120,7 @@ class _ConnectDialState extends State<ConnectDial>
       mainAxisSize: MainAxisSize.min,
       children: [
         GestureDetector(
+          key: widget.dialKey,
           onTapDown: (_) => setState(() => _pressed = true),
           onTapUp: (_) => setState(() => _pressed = false),
           onTapCancel: () => setState(() => _pressed = false),
@@ -165,19 +174,34 @@ class _ConnectDialState extends State<ConnectDial>
           ),
         ),
         const SizedBox(height: AppSpace.s4),
-        Text(state.text, style: AppType.titleLg.copyWith(color: state.color)),
-        if (widget.subLabel != null) ...[
-          const SizedBox(height: AppSpace.s1),
-          Text(
-            widget.subLabel!,
-            textAlign: TextAlign.center,
-            style:
-                (widget.stage == VpnStage.connected
-                        ? AppType.monoSm
-                        : AppType.bodySm)
-                    .copyWith(color: c.textMed),
+        // The connect block: state label + sub-line. One live region for the
+        // screen reader, and the rect the atmosphere layer clears behind.
+        Semantics(
+          container: true,
+          liveRegion: true,
+          child: Column(
+            key: widget.labelKey,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                state.text,
+                style: AppType.titleLg.copyWith(color: state.color),
+              ),
+              if (widget.subLabel != null) ...[
+                const SizedBox(height: AppSpace.s1),
+                Text(
+                  widget.subLabel!,
+                  textAlign: TextAlign.center,
+                  style:
+                      (widget.stage == VpnStage.connected
+                              ? AppType.monoSm
+                              : AppType.bodySm)
+                          .copyWith(color: c.textMed),
+                ),
+              ],
+            ],
           ),
-        ],
+        ),
       ],
     );
   }

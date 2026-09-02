@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:caramba_client/atmosphere/atmosphere_layer.dart';
 import 'package:caramba_client/data/brand.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
 import 'package:caramba_client/router/routes.dart';
@@ -37,11 +38,50 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final ValueNotifier<int> _tick = ValueNotifier<int>(0);
   Timer? _ticker;
 
+  // The atmosphere layer is registered to the real layout: the chart's home
+  // station is the dial, and the boundary bottom plus the quiet lens come from
+  // the laid-out connect block. Measured after layout, then only when the
+  // result actually moves (text scale, rotation), so this does not loop.
+  final GlobalKey _layerKey = GlobalKey();
+  final GlobalKey _dialKey = GlobalKey();
+  final GlobalKey _labelKey = GlobalKey();
+  final GlobalKey _headerKey = GlobalKey();
+  final ScrollController _scroll = ScrollController();
+  AtmosphereAnchor _anchor = AtmosphereAnchor.unmeasured;
+
   @override
   void dispose() {
     _ticker?.cancel();
     _tick.dispose();
+    _scroll.dispose();
     super.dispose();
+  }
+
+  /// Anchors the chart to where the dial sits at scroll offset zero. The
+  /// atmosphere is a background layer and does not scroll with the list, so the
+  /// current scroll offset is taken back out of the measurement.
+  void _measureAnchor() {
+    final layer = _layerKey.currentContext?.findRenderObject();
+    final dial = _dialKey.currentContext?.findRenderObject();
+    final label = _labelKey.currentContext?.findRenderObject();
+    final header = _headerKey.currentContext?.findRenderObject();
+    if (layer is! RenderBox ||
+        dial is! RenderBox ||
+        label is! RenderBox ||
+        header is! RenderBox) {
+      return;
+    }
+    if (!layer.hasSize || !dial.hasSize || !label.hasSize) return;
+    final shift = Offset(0, _scroll.hasClients ? _scroll.offset : 0.0);
+    final dialTopLeft = dial.localToGlobal(Offset.zero, ancestor: layer);
+    final labelTopLeft = label.localToGlobal(Offset.zero, ancestor: layer);
+    final headerTopLeft = header.localToGlobal(Offset.zero, ancestor: layer);
+    final next = AtmosphereAnchor(
+      dialCenter: dialTopLeft + dial.size.center(Offset.zero) + shift,
+      labelRect: (labelTopLeft + shift) & label.size,
+      headerBottom: headerTopLeft.dy + header.size.height + shift.dy,
+    );
+    if (next != _anchor && mounted) setState(() => _anchor = next);
   }
 
   void _startTicker() => _ticker ??= Timer.periodic(
@@ -129,116 +169,156 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       VpnStage.disconnected => 'Нажмите, чтобы подключиться',
     };
 
+    WidgetsBinding.instance.addPostFrameCallback((_) => _measureAnchor());
+
     return Scaffold(
-      backgroundColor: c.bgCanvas,
-      body: SafeArea(
-        bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpace.s5,
-            AppSpace.s5,
-            AppSpace.s5,
-            AppSpace.s20 + AppSpace.s6,
-          ),
-          children: [
-            Row(
-              children: [
-                Text(
-                  kBrandName,
-                  style: AppType.titleMd.copyWith(color: c.textHi),
-                ),
-                const Spacer(),
-                _PlanChip(plan: plan),
-                const SizedBox(width: AppSpace.s2),
-                const NotificationBell(),
-              ],
+      backgroundColor: c.bgBase,
+      body: Stack(
+        children: [
+          // The chart sits full-bleed behind Home. It is decorative, excluded
+          // from semantics, and reports nothing the dial does not already say.
+          Positioned.fill(
+            child: AtmosphereLayer(
+              key: _layerKey,
+              stage: status.stage,
+              anchor: _anchor,
             ),
-            const SizedBox(height: AppSpace.s4),
-            Center(
-              child: ValueListenableBuilder<int>(
-                valueListenable: _tick,
-                builder: (context, _, __) => ConnectDial(
-                  stage: status.stage,
-                  subLabel: status.stage == VpnStage.connected
-                      ? _session(status.connectedSince)
-                      : csub,
-                  onTap: () {
-                    unawaited(HapticFeedback.mediumImpact());
-                    unawaited(ref.read(vpnProvider.notifier).toggle());
-                  },
+          ),
+          Positioned.fill(
+            child: SafeArea(
+              bottom: false,
+              child: ListView(
+                controller: _scroll,
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpace.s5,
+                  AppSpace.s5,
+                  AppSpace.s5,
+                  AppSpace.s20 + AppSpace.s6,
                 ),
+                children: [
+                  Row(
+                    key: _headerKey,
+                    children: [
+                      // Operator brand names can be long; the row must not
+                      // overflow on a narrow phone at a large text scale.
+                      Flexible(
+                        child: Text(
+                          kBrandName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppType.titleMd.copyWith(color: c.textHi),
+                        ),
+                      ),
+                      const Spacer(),
+                      _PlanChip(plan: plan),
+                      const SizedBox(width: AppSpace.s2),
+                      const NotificationBell(),
+                    ],
+                  ),
+                  // The chart needs its designed headroom above the dial: the
+                  // upper stations and the boundary top edge sit in this gap.
+                  const SizedBox(height: AppSpace.s8),
+                  Center(
+                    child: ValueListenableBuilder<int>(
+                      valueListenable: _tick,
+                      builder: (context, _, __) => ConnectDial(
+                        dialKey: _dialKey,
+                        labelKey: _labelKey,
+                        stage: status.stage,
+                        subLabel: status.stage == VpnStage.connected
+                            ? _session(status.connectedSince)
+                            : csub,
+                        onTap: () {
+                          unawaited(HapticFeedback.mediumImpact());
+                          unawaited(ref.read(vpnProvider.notifier).toggle());
+                        },
+                      ),
+                    ),
+                  ),
+                  // The cards keep their own opaque surfaces; this is the seam where
+                  // the chart slides under the content so it never fights the stats.
+                  _CardsBackdrop(
+                    children: [
+                      RowsGroup(
+                        children: [
+                          CRow(
+                            icon: Lucide.globe,
+                            label: 'Сервер',
+                            value: server == null ? 'Авто' : server.name,
+                            chevron: true,
+                            trailing: server?.countryCode == null
+                                ? null
+                                : Padding(
+                                    padding: const EdgeInsets.only(
+                                      right: AppSpace.s2,
+                                    ),
+                                    child: CodeChip(server!.countryCode!),
+                                  ),
+                            onTap: () => context.go(AppRoute.servers),
+                          ),
+                          CRow(
+                            icon: Lucide.waypoints,
+                            label: 'Relay (вход)',
+                            value: relays[relayIdx].name,
+                            chevron: true,
+                            onTap: () => _pickRelay(),
+                          ),
+                          CRow(
+                            icon: protocols[cfg.protocol].icon,
+                            label: 'Протокол',
+                            value: protocols[cfg.protocol].name,
+                            chevron: true,
+                            onTap: () => context.go(AppRoute.protocol),
+                          ),
+                          CRow(
+                            icon: Lucide.route,
+                            label: 'Маршрут',
+                            value: modes[cfg.route].name,
+                            chevron: true,
+                            onTap: () => _pickRoute(),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpace.s4),
+                      ValueListenableBuilder<int>(
+                        valueListenable: _tick,
+                        builder: (context, _, __) {
+                          final connected = status.isConnected;
+                          return _StatsGrid(
+                            down: connected
+                                ? _fmtBytes(traffic.downTotal)
+                                : '0,0 МБ',
+                            up: connected
+                                ? _fmtBytes(traffic.upTotal)
+                                : '0,0 МБ',
+                            latency: connected && server?.pingMs != null
+                                ? '${server!.pingMs} мс'
+                                : '·',
+                            session: connected
+                                ? _session(status.connectedSince)
+                                : '00:00',
+                          );
+                        },
+                      ),
+                      const SizedBox(height: AppSpace.s4),
+                      const SectionTitle(
+                        'Трафик',
+                        padding: EdgeInsets.only(bottom: AppSpace.s3),
+                      ),
+                      ref
+                          .watch(trafficHistoryProvider)
+                          .when(
+                            data: (points) => TrafficChart(points: points),
+                            loading: () => const TrafficChart(points: []),
+                            error: (_, __) => const TrafficChart(points: []),
+                          ),
+                    ],
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: AppSpace.s5),
-            RowsGroup(
-              children: [
-                CRow(
-                  icon: Lucide.globe,
-                  label: 'Сервер',
-                  value: server == null ? 'Авто' : server.name,
-                  chevron: true,
-                  trailing: server?.countryCode == null
-                      ? null
-                      : Padding(
-                          padding: const EdgeInsets.only(right: AppSpace.s2),
-                          child: CodeChip(server!.countryCode!),
-                        ),
-                  onTap: () => context.go(AppRoute.servers),
-                ),
-                CRow(
-                  icon: Lucide.waypoints,
-                  label: 'Relay (вход)',
-                  value: relays[relayIdx].name,
-                  chevron: true,
-                  onTap: () => _pickRelay(),
-                ),
-                CRow(
-                  icon: protocols[cfg.protocol].icon,
-                  label: 'Протокол',
-                  value: protocols[cfg.protocol].name,
-                  chevron: true,
-                  onTap: () => context.go(AppRoute.protocol),
-                ),
-                CRow(
-                  icon: Lucide.route,
-                  label: 'Маршрут',
-                  value: modes[cfg.route].name,
-                  chevron: true,
-                  onTap: () => _pickRoute(),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpace.s4),
-            ValueListenableBuilder<int>(
-              valueListenable: _tick,
-              builder: (context, _, __) {
-                final connected = status.isConnected;
-                return _StatsGrid(
-                  down: connected ? _fmtBytes(traffic.downTotal) : '0,0 МБ',
-                  up: connected ? _fmtBytes(traffic.upTotal) : '0,0 МБ',
-                  latency: connected && server?.pingMs != null
-                      ? '${server!.pingMs} мс'
-                      : '·',
-                  session: connected
-                      ? _session(status.connectedSince)
-                      : '00:00',
-                );
-              },
-            ),
-            const SizedBox(height: AppSpace.s4),
-            const SectionTitle(
-              'Трафик',
-              padding: EdgeInsets.only(bottom: AppSpace.s3),
-            ),
-            ref
-                .watch(trafficHistoryProvider)
-                .when(
-                  data: (points) => TrafficChart(points: points),
-                  loading: () => const TrafficChart(points: []),
-                  error: (_, __) => const TrafficChart(points: []),
-                ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -279,6 +359,40 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ref.read(coreConfigProvider.notifier).setRoute(i);
       showCarambaToast(context, 'Маршрут: ${modes[i].name}');
     }
+  }
+}
+
+/// The plane the config and stats cards sit on. The chart never deviates more
+/// than about 7 percent from the base plane, but stacking it under a dense grid
+/// of numbers still costs legibility, so the atmosphere is damped to under a
+/// fifth from the first card down. The short top ramp keeps it from reading as
+/// a box edge.
+class _CardsBackdrop extends StatelessWidget {
+  final List<Widget> children;
+  const _CardsBackdrop({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    final base = context.c.bgBase;
+    return Container(
+      padding: const EdgeInsets.only(top: AppSpace.s5),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            base.withValues(alpha: 0),
+            base.withValues(alpha: 0.82),
+            base.withValues(alpha: 0.82),
+          ],
+          stops: const [0, 0.055, 1],
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
+      ),
+    );
   }
 }
 
