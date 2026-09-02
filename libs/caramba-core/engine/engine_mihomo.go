@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/metacubex/mihomo/component/process"
 	"github.com/metacubex/mihomo/hub/executor"
 	"github.com/metacubex/mihomo/tunnel"
 	"github.com/metacubex/mihomo/tunnel/statistic"
@@ -78,6 +79,12 @@ func (e *mihomoEngine) Start(configPath string) error {
 		// NEPacketTunnelProvider), поэтому ядру auto-route не нужен.
 		cfg.General.Tun.AutoRoute = false
 		cfg.General.Tun.AutoDetectInterface = false
+		// Поиск процесса на Android читает /data/system/packages.xml, куда у
+		// обычного приложения нет доступа: TUN-листенер падает с permission
+		// denied и туннель молча не поднимается. Раздельное туннелирование по
+		// приложениям на мобильных делает сама ОС (VpnService.Builder), поэтому
+		// ядру этот режим не нужен.
+		cfg.General.FindProcessMode = process.FindProcessOff
 	}
 
 	// force=true — полностью переинициализировать ядро под новый конфиг

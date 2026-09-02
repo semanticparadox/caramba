@@ -38,8 +38,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${ROOT}/build"
 PKG="./ffi"
-TAGS="mihomo"
+TAGS="mihomo,with_gvisor"
 mkdir -p "${OUT}"
+# Патчи зависимостей: патченная копия mihomo + альтернативный go.mod
+# (см. patches/README.md); основной go.mod не трогаем.
+bash "${ROOT}/scripts/mk-patched-deps.sh" >/dev/null
+export GOFLAGS="-modfile=${OUT}/patched.mod"
 
 GOOS="$(go env GOOS 2>/dev/null || echo)"
 case "${GOOS}" in

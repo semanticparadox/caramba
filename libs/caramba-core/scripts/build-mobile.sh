@@ -40,9 +40,22 @@ OUT="${ROOT}/build"
 PKG="github.com/semanticparadox/caramba/libs/caramba-core/mobile"
 
 # Тег mihomo подключает нативное ядро (engine_mihomo.go, prober_mihomo.go).
-TAGS="mihomo"
+TAGS="mihomo,with_gvisor"
 
 mkdir -p "${OUT}"
+# Патчи зависимостей: патченная копия mihomo + альтернативный go.mod
+# (см. patches/README.md). gomobile не понимает -modfile, поэтому на время
+# сборки подменяем go.mod/go.sum и восстанавливаем их при любом выходе.
+bash "${ROOT}/scripts/mk-patched-deps.sh" >/dev/null
+cp "${ROOT}/go.mod" "${OUT}/go.mod.orig"
+cp "${ROOT}/go.sum" "${OUT}/go.sum.orig"
+restore_gomod() {
+  cp "${OUT}/go.mod.orig" "${ROOT}/go.mod"
+  cp "${OUT}/go.sum.orig" "${ROOT}/go.sum"
+}
+trap restore_gomod EXIT
+cp "${OUT}/patched.mod" "${ROOT}/go.mod"
+cp "${OUT}/patched.sum" "${ROOT}/go.sum"
 
 require_gomobile() {
   if ! command -v gomobile >/dev/null 2>&1; then

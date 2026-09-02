@@ -24,9 +24,29 @@ type Preset struct {
 // Build возвращает Config пресета, подставляя baseURL вместо "{BASE}" в URL
 // провайдеров. group — имя группы-селектора для действия PROXY.
 func (p Preset) Build(baseURL, group string) Config {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	// Без базового URL (клиент без панели, импортированная подписка) удалённые
+	// rule-provider'ы недоступны: mihomo падал бы на Get "/rulesets/..." с
+	// пустой схемой. Оставляем только geosite/geoip/домены; ruleset-правила
+	// выкидываем вместе с провайдерами.
+	if base == "" {
+		rules := make([]Rule, 0, len(p.Rules))
+		for _, r := range p.Rules {
+			if r.Type == MatchRuleSet {
+				continue
+			}
+			rules = append(rules, r)
+		}
+		return Config{
+			ProxyGroup:  group,
+			FinalAction: p.FinalAction,
+			Rules:       rules,
+			Providers:   nil,
+		}
+	}
 	providers := make([]RuleProvider, 0, len(p.Providers))
 	for _, rp := range p.Providers {
-		rp.URL = strings.ReplaceAll(rp.URL, "{BASE}", strings.TrimRight(baseURL, "/"))
+		rp.URL = strings.ReplaceAll(rp.URL, "{BASE}", base)
 		providers = append(providers, rp)
 	}
 	return Config{
