@@ -162,6 +162,17 @@ translations! {
     "menu.profile" => { ru: "👤 Профиль", en: "👤 My Profile" },
     "menu.referral" => { ru: "🎁 Бонусы и рефералы", en: "🎁 Bonuses / Referral" },
     "menu.support" => { ru: "❓ Поддержка", en: "❓ Support" },
+    "menu.guides" => { ru: "📖 Как подключить", en: "📖 How to connect" },
+    "guides.prompt" => { ru: "Выберите устройство — инструкция займёт две минуты. Одна подписка работает на всех устройствах в пределах лимита тарифа.", en: "Pick your device — the guide takes two minutes. One subscription works on all your devices within the plan limit." },
+    "guides.missing" => { ru: "Инструкции ещё не опубликованы. Напишите в поддержку — поможем подключиться.", en: "Guides are not published yet. Contact support and we will help you connect." },
+    "guides.index_btn" => { ru: "📖 Пошаговая инструкция", en: "📖 Step-by-step guide" },
+    "guides.ios" => { ru: "iPhone и iPad", en: "iPhone and iPad" },
+    "guides.android" => { ru: "Android", en: "Android" },
+    "guides.windows" => { ru: "Windows", en: "Windows" },
+    "guides.macos" => { ru: "Mac", en: "Mac" },
+    "guides.linux" => { ru: "Linux", en: "Linux" },
+    "guides.tv" => { ru: "Android TV", en: "Android TV" },
+    "guides.router" => { ru: "Роутер и ручная настройка", en: "Router and manual setup" },
     "menu.open_app" => { ru: "🔑 Войти в приложение", en: "🔑 Open in app" },
     "menu.launch_app" => { ru: "🚀 Запустить", en: "🚀 Launch" },
 
@@ -974,6 +985,12 @@ mod tests {
     #[test]
     fn russian_differs_from_english() {
         const SAME_BY_DESIGN: &[&str] = &[
+            // Названия платформ в инструкциях одинаковы на обоих языках.
+            "guides.android",
+            "guides.windows",
+            "guides.macos",
+            "guides.linux",
+            "guides.tv",
             "topup.method_stars", // «⭐️ Telegram Stars» — бренд
             "plans.header",       // «💎 <b>{0}</b> ({1}/{2})» — только плейсхолдеры
             "promo.redeem_prompt_short",

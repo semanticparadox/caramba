@@ -24,6 +24,7 @@ enum MenuAction {
     Services,
     Referral,
     Support,
+    Guides,
     Devices,
     Leaderboard,
     Login,
@@ -72,6 +73,7 @@ fn menu_action(text: &str) -> Option<MenuAction> {
         ("menu.services", Services),
         ("menu.referral", Referral),
         ("menu.support", Support),
+        ("menu.guides", Guides),
         ("menu.open_app", Login),
     ] {
         if matches_any_lang(text, key) {
@@ -1266,6 +1268,23 @@ pub async fn message_handler(
                                 register_bot_message(bot, &state, uid, &m).await;
                             });
                         });
+                }
+            }
+
+            MenuAction::Guides => {
+                match crate::bot::keyboards::guides_keyboard(&state.settings, lang).await {
+                    Some(kb) => {
+                        let _ = bot
+                            .send_message(msg.chat.id, t(lang, "guides.prompt"))
+                            .reply_markup(kb)
+                            .await;
+                    }
+                    None => {
+                        let _ = bot
+                            .send_message(msg.chat.id, t(lang, "guides.missing"))
+                            .reply_markup(menu_markup(&state, lang).await)
+                            .await;
+                    }
                 }
             }
 

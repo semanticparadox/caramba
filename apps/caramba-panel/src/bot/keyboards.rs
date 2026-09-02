@@ -35,9 +35,64 @@ pub fn main_menu(lang: Lang, app_mode: bool, always_support: bool) -> KeyboardMa
             KeyboardButton::new(t(lang, "menu.referral")),
             KeyboardButton::new(t(lang, "menu.support")),
         ],
-        vec![KeyboardButton::new(t(lang, "menu.open_app"))],
+        vec![
+            KeyboardButton::new(t(lang, "menu.guides")),
+            KeyboardButton::new(t(lang, "menu.open_app")),
+        ],
     ])
     .resize_keyboard()
+}
+
+/// Платформы инструкций в порядке показа; ключ настройки — `guide_url_{id}`.
+pub const GUIDE_PLATFORMS: [&str; 7] = [
+    "ios", "android", "windows", "macos", "linux", "tv", "router",
+];
+
+/// Инлайн-кнопки со ссылками на инструкции (Telegraph). Адреса лежат в
+/// настройках панели, чтобы менять их без релиза; пустые пропускаются.
+/// `None` — если не опубликована ни одна страница.
+pub async fn guides_keyboard(
+    settings: &crate::settings::SettingsService,
+    lang: Lang,
+) -> Option<InlineKeyboardMarkup> {
+    let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+    let mut row: Vec<InlineKeyboardButton> = Vec::new();
+    for id in GUIDE_PLATFORMS {
+        let url = settings
+            .get_or_default(&format!("guide_url_{id}"), "")
+            .await;
+        let Ok(parsed) = url.trim().parse::<reqwest::Url>() else {
+            continue;
+        };
+        row.push(InlineKeyboardButton::url(
+            t(lang, &format!("guides.{id}")),
+            parsed,
+        ));
+        // Роутер — отдельной строкой, остальные по две.
+        if row.len() == 2 || id == "router" {
+            rows.push(std::mem::take(&mut row));
+        }
+    }
+    if !row.is_empty() {
+        rows.push(row);
+    }
+    if rows.is_empty() {
+        None
+    } else {
+        Some(InlineKeyboardMarkup::new(rows))
+    }
+}
+
+/// Одна кнопка «Пошаговая инструкция» — к сообщению со ссылками подписки.
+pub async fn guide_index_button(
+    settings: &crate::settings::SettingsService,
+    lang: Lang,
+) -> Option<InlineKeyboardMarkup> {
+    let url = settings.get_or_default("guide_url_index", "").await;
+    let parsed = url.trim().parse::<reqwest::Url>().ok()?;
+    Some(InlineKeyboardMarkup::new(vec![vec![
+        InlineKeyboardButton::url(t(lang, "guides.index_btn"), parsed),
+    ]]))
 }
 
 /// Инлайн-клавиатура с кнопкой получения одноразового кода для входа в

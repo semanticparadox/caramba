@@ -1033,10 +1033,20 @@ pub async fn callback_handler(
                                                 escape_html(&link)
                                             ));
                                         }
-                                        let _ = bot
+                                        let send = bot
                                             .send_message(ChatId(user_tg.tg_id), response)
-                                            .parse_mode(ParseMode::Html)
-                                            .await;
+                                            .parse_mode(ParseMode::Html);
+                                        // Рядом со ссылками — как их вставить в приложение.
+                                        let send = match crate::bot::keyboards::guide_index_button(
+                                            &state.settings,
+                                            lang,
+                                        )
+                                        .await
+                                        {
+                                            Some(kb) => send.reply_markup(kb),
+                                            None => send,
+                                        };
+                                        let _ = send.await;
                                     }
                                 }
                                 Err(e) => {
