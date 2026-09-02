@@ -95,6 +95,53 @@
                         </div>
                     </div>
 
+                    <div class="pt-6 border-t border-border-default">
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-1 ml-1">Connection guides (Telegraph)</p>
+                        <p class="text-xs text-slate-500 mb-4 ml-1">Shown by the bot («How to connect») and the Mini App. Leave a field empty to hide that platform.</p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Index (all platforms)</label>
+                            <input type="url" form="main-settings-form" name="guide_url_index" value="{{ guide_url_index }}"
+                                placeholder="https://telegra.ph/..." class="input-field">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">iPhone / iPad</label>
+                            <input type="url" form="main-settings-form" name="guide_url_ios" value="{{ guide_url_ios }}"
+                                placeholder="https://telegra.ph/..." class="input-field">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Android</label>
+                            <input type="url" form="main-settings-form" name="guide_url_android" value="{{ guide_url_android }}"
+                                placeholder="https://telegra.ph/..." class="input-field">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Windows</label>
+                            <input type="url" form="main-settings-form" name="guide_url_windows" value="{{ guide_url_windows }}"
+                                placeholder="https://telegra.ph/..." class="input-field">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Mac</label>
+                            <input type="url" form="main-settings-form" name="guide_url_macos" value="{{ guide_url_macos }}"
+                                placeholder="https://telegra.ph/..." class="input-field">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Linux</label>
+                            <input type="url" form="main-settings-form" name="guide_url_linux" value="{{ guide_url_linux }}"
+                                placeholder="https://telegra.ph/..." class="input-field">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Android TV</label>
+                            <input type="url" form="main-settings-form" name="guide_url_tv" value="{{ guide_url_tv }}"
+                                placeholder="https://telegra.ph/..." class="input-field">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Router / manual</label>
+                            <input type="url" form="main-settings-form" name="guide_url_router" value="{{ guide_url_router }}"
+                                placeholder="https://telegra.ph/..." class="input-field">
+                        </div>
+                        </div>
+                    </div>
+
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6 border-t border-border-default">
                         <div>
                             <label

@@ -784,6 +784,30 @@
       "failed": "Payment failed",
       "noPlans": "No plans yet",
       "activated": "Free plan activated"
+    },
+    "guide": {
+      "title": "How to connect",
+      "intro": "Install the app for your device and paste the subscription link into it — one link works on all your devices.",
+      "noSubscription": "The link appears after payment or plan activation.",
+      "ios": "iPhone",
+      "android": "Android",
+      "windows": "Windows",
+      "macos": "Mac",
+      "linux": "Linux",
+      "tv": "Android TV",
+      "openGuide": "Open the step-by-step guide",
+      "download": "Download",
+      "router": "Router and manual setup"
+    },
+    "notifications": {
+      "title": "Notifications",
+      "unread": "{{count}} new",
+      "all": "All",
+      "unreadTab": "New",
+      "archive": "Archive",
+      "markAll": "Mark all read",
+      "empty": "No notifications yet",
+      "new": "new"
     }
   }
 }

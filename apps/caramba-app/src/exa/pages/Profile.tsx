@@ -168,9 +168,20 @@ export default function Profile() {
     }
 
     // ---------- поддержка ----------
+    // support_url в панели хранится как username бота-поддержки (так его читает
+    // и Telegram-бот). Всё, что не похоже на ссылку или username, — мусор из
+    // формы, тогда ведём в чат самого бота, а не в браузер.
     const openSupport = () => {
         hapticTap()
-        const url = userStats?.support_url || (userStats?.bot_username ? `https://t.me/${userStats.bot_username}` : null)
+        const raw = (userStats?.support_url || '').trim()
+        const bot = userStats?.bot_username ? `https://t.me/${userStats.bot_username}` : null
+        let url: string | null = null
+        if (/^https?:\/\//.test(raw)) url = raw
+        else {
+            const name = raw.replace(/^@/, '')
+            if (/^[A-Za-z0-9_]{5,32}$/.test(name) && !/undefined|null/i.test(name)) url = `https://t.me/${name}`
+        }
+        url = url || bot
         if (!url) return
         if (/^https?:\/\/t\.me\//.test(url)) WebApp.openTelegramLink(url)
         else WebApp.openLink(url)

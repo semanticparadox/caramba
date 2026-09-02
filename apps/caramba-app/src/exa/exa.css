@@ -699,3 +699,18 @@ body {
     z-index: 70;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
 }
+
+/* ---------- гайд: платформы ---------- */
+.exa-platforms { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.exa-platform {
+    height: 40px;
+    border-radius: 10px;
+    border: 1px solid var(--exa-border-strong);
+    background: var(--exa-surface);
+    color: var(--exa-text-2);
+    font: inherit;
+    font-size: var(--exa-text-sm);
+    font-weight: 600;
+    cursor: pointer;
+}
+.exa-platform.is-on { border-color: var(--exa-accent); background: var(--exa-accent-soft); color: var(--exa-text); }

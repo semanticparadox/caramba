@@ -15,8 +15,8 @@ const Servers = lazy(() => import('./pages/Servers'))
 const Profile = lazy(() => import('./pages/Profile'))
 const Devices = lazy(() => import('./pages/Devices'))
 const Pay = lazy(() => import('./pages/Pay'))
-const Guide = lazy(() => import('../pages/ConnectGuide'))
-const Notifications = lazy(() => import('../pages/Notifications'))
+const Guide = lazy(() => import('./pages/Guide'))
+const Notifications = lazy(() => import('./pages/Notifications'))
 
 /** Учесть `?startapp=` один раз за сессию — с `replace`, чтобы системная
  *  кнопка «назад» вела наружу, а не на главный экран, о котором не просили. */

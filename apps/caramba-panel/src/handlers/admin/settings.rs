@@ -324,6 +324,14 @@ pub struct SettingsTemplate {
     pub currency_rate: String,
     pub stars_per_usd: String,
     pub support_url: String,
+    pub guide_url_index: String,
+    pub guide_url_ios: String,
+    pub guide_url_android: String,
+    pub guide_url_windows: String,
+    pub guide_url_macos: String,
+    pub guide_url_linux: String,
+    pub guide_url_tv: String,
+    pub guide_url_router: String,
     pub panel_url: String,
     pub panel_url_display: String,
     pub admin_ui_url_display: String,
@@ -514,6 +522,14 @@ pub struct SaveSettingsForm {
     pub currency_rate: Option<String>,
     pub stars_per_usd: Option<String>,
     pub support_url: Option<String>,
+    pub guide_url_index: Option<String>,
+    pub guide_url_ios: Option<String>,
+    pub guide_url_android: Option<String>,
+    pub guide_url_windows: Option<String>,
+    pub guide_url_macos: Option<String>,
+    pub guide_url_linux: Option<String>,
+    pub guide_url_tv: Option<String>,
+    pub guide_url_router: Option<String>,
     pub panel_url: Option<String>,
     pub bot_username: Option<String>,
     pub brand_name: Option<String>,
@@ -637,6 +653,14 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .await
         .to_string();
     let support_url = state.settings.get_or_default("support_url", "").await;
+    let guide_url_index = state.settings.get_or_default("guide_url_index", "").await;
+    let guide_url_ios = state.settings.get_or_default("guide_url_ios", "").await;
+    let guide_url_android = state.settings.get_or_default("guide_url_android", "").await;
+    let guide_url_windows = state.settings.get_or_default("guide_url_windows", "").await;
+    let guide_url_macos = state.settings.get_or_default("guide_url_macos", "").await;
+    let guide_url_linux = state.settings.get_or_default("guide_url_linux", "").await;
+    let guide_url_tv = state.settings.get_or_default("guide_url_tv", "").await;
+    let guide_url_router = state.settings.get_or_default("guide_url_router", "").await;
     let panel_url_setting = state.settings.get_or_default("panel_url", "").await;
     let panel_url_env = std::env::var("PANEL_URL").unwrap_or_default();
     let panel_url = if !panel_url_setting.trim().is_empty() {
@@ -1170,6 +1194,14 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         currency_rate,
         stars_per_usd,
         support_url,
+        guide_url_index,
+        guide_url_ios,
+        guide_url_android,
+        guide_url_windows,
+        guide_url_macos,
+        guide_url_linux,
+        guide_url_tv,
+        guide_url_router,
         panel_url,
         panel_url_display,
         admin_ui_url_display,
@@ -1515,6 +1547,30 @@ pub async fn save_settings(
             crate::services::payment::stars::STARS_PER_USD_SETTING.to_string(),
             normalized.to_string(),
         );
+    }
+    if let Some(v) = form.guide_url_index {
+        settings.insert("guide_url_index".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.guide_url_ios {
+        settings.insert("guide_url_ios".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.guide_url_android {
+        settings.insert("guide_url_android".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.guide_url_windows {
+        settings.insert("guide_url_windows".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.guide_url_macos {
+        settings.insert("guide_url_macos".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.guide_url_linux {
+        settings.insert("guide_url_linux".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.guide_url_tv {
+        settings.insert("guide_url_tv".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.guide_url_router {
+        settings.insert("guide_url_router".to_string(), v.trim().to_string());
     }
     if let Some(v) = form.support_url {
         settings.insert("support_url".to_string(), v);

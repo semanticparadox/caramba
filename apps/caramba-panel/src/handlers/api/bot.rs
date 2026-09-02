@@ -239,6 +239,15 @@ pub async fn purchase_product(
 /// Ключи с секретами (токены, API-ключи, пароли) здесь намеренно отсутствуют,
 /// чтобы утечка PANEL_TOKEN не давала доступ ко всем секретам.
 const BOT_SETTINGS_ALLOWLIST: &[&str] = &[
+    // Инструкции по подключению (Telegraph) — читаются ботом и мини-приложением.
+    "guide_url_index",
+    "guide_url_ios",
+    "guide_url_android",
+    "guide_url_windows",
+    "guide_url_macos",
+    "guide_url_linux",
+    "guide_url_tv",
+    "guide_url_router",
     // Brand k/v (contract B) — the six canonical brand_* keys the bot reads back
     // to render its brand admin menu and the panel branding endpoint serves.
     "brand_enabled",

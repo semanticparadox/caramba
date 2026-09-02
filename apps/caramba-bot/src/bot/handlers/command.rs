@@ -1205,6 +1205,21 @@ pub async fn message_handler(
                         });
                     });
             }
+        } else if text == t(lang, "kb.guides") || text == t(Some("en"), "kb.guides") {
+            match crate::bot::keyboards::guides_keyboard(&state.settings, lang).await {
+                Some(kb) => {
+                    let _ = bot
+                        .send_message(msg.chat.id, t(lang, "msg.guides_prompt"))
+                        .reply_markup(kb)
+                        .await;
+                }
+                None => {
+                    let _ = bot
+                        .send_message(msg.chat.id, t(lang, "msg.guides_missing"))
+                        .reply_markup(main_menu(lang))
+                        .await;
+                }
+            }
         } else if text == t(lang, "kb.support") || text == t(Some("en"), "kb.support") {
             let support_username = state.settings.get_or_default("support_url", "").await;
 

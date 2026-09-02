@@ -64,6 +64,13 @@ pub fn routes(state: AppState) -> Router<AppState> {
             )),
         )
         .route(
+            "/guides",
+            get(get_guides).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
             "/user/subscriptions",
             get(get_user_subscriptions).layer(middleware::from_fn_with_state(
                 state.clone(),
@@ -3973,4 +3980,24 @@ async fn client_download_attachment(
             }
         }
     }
+}
+
+/// Адреса инструкций по подключению (Telegraph) по платформам. Лежат в
+/// настройках панели как `guide_url_{platform}`, пустые не отдаются —
+/// приложение прячет кнопку, а не ведёт в никуда.
+async fn get_guides(State(state): State<AppState>) -> impl IntoResponse {
+    let mut out = serde_json::Map::new();
+    for key in [
+        "index", "ios", "android", "windows", "macos", "linux", "tv", "router",
+    ] {
+        let url = state
+            .settings
+            .get_or_default(&format!("guide_url_{key}"), "")
+            .await;
+        let url = url.trim();
+        if url.starts_with("https://") {
+            out.insert(key.to_string(), serde_json::Value::String(url.to_string()));
+        }
+    }
+    Json(serde_json::Value::Object(out))
 }

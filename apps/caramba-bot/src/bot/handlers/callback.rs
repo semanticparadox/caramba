@@ -721,10 +721,19 @@ pub async fn callback_handler(
                             for link in links {
                                 response.push_str(&format!("`{}`\n\n", escape_md(&link)));
                             }
-                            let _ = bot
+                            let mut send = bot
                                 .send_message(ChatId(tg_id), response)
-                                .parse_mode(ParseMode::MarkdownV2)
-                                .await;
+                                .parse_mode(ParseMode::MarkdownV2);
+                            // Рядом со ссылками — как их вставить в приложение.
+                            if let Some(kb) = crate::bot::keyboards::guide_index_button(
+                                &state.settings,
+                                links_lang.as_deref(),
+                            )
+                            .await
+                            {
+                                send = send.reply_markup(kb);
+                            }
+                            let _ = send.await;
                         }
                     }
                     Err(e) => {
