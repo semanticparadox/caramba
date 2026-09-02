@@ -40,3 +40,11 @@ ATMO_SHOTS_DIR=/tmp/atmo flutter test test/atmosphere/render_shots_test.dart
 
 Writes one PNG per state per theme, the atmosphere plus a plain mock of Home's
 chrome. Without the environment variable the test skips.
+
+## Emulator run (2026-09-02, Android 15 arm64, Pixel 7 AVD)
+
+`emulator/` holds screenshots of the real build (`--dart-define=USE_NATIVE_VPN=true`,
+gomobile AAR with mihomo + gVisor): guest entry on the login screen, subscription
+import preview, Home in disconnected / connecting (VPN consent) / connected / error,
+Chrome loading example.com through the tunnel, and the routing picker. The tunnel
+in that run relayed through a SOCKS5 fixture on the host (`10.0.2.2:11080`).
