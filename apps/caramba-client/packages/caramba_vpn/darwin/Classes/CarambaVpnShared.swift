@@ -11,6 +11,11 @@
 // channel names and stage strings are the cross-platform federation contract
 // consumed unchanged by apps/caramba-client/lib/vpn/vpn_service.dart.
 
+#if os(iOS)
+import Flutter
+#elseif os(macOS)
+import FlutterMacOS
+#endif
 import Foundation
 
 /// Channel and key names shared across the Apple implementation.

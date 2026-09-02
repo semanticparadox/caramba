@@ -168,16 +168,16 @@ cp libs/caramba-core/build/exarobot.aar \
    apps/caramba-client/packages/caramba_vpn/android/libs/
 
 cp -R libs/caramba-core/build/exarobot.xcframework \
-   apps/caramba-client/packages/caramba_vpn/ios/Frameworks/
+   apps/caramba-client/packages/caramba_vpn/darwin/Frameworks/ios/
 cp -R libs/caramba-core/build/exarobot.xcframework \
-   apps/caramba-client/packages/caramba_vpn/macos/Frameworks/
+   apps/caramba-client/packages/caramba_vpn/darwin/Frameworks/macos/
 
 cp libs/caramba-core/build/libcaramba_core.so \
    apps/caramba-client/packages/caramba_vpn/linux/lib/
 cp libs/caramba-core/build/libcaramba_core.dll \
    apps/caramba-client/packages/caramba_vpn/windows/lib/
 cp libs/caramba-core/build/libcaramba_core.dylib \
-   apps/caramba-client/packages/caramba_vpn/macos/Libraries/
+   apps/caramba-client/packages/caramba_vpn/darwin/Libraries/
 ```
 
 The plugin podspecs, Gradle and CMake files reference these vendored paths, so
@@ -296,7 +296,7 @@ macOS has TWO independent paths. Pick one; they do not interfere.
 
 | | A. dart:ffi (no Xcode) | B. Network Extension |
 | --- | --- | --- |
-| Artifact | `libcaramba_core.dylib` in `packages/caramba_vpn/macos/Libraries/` | `exarobot.xcframework` in `packages/caramba_vpn/macos/Frameworks/` |
+| Artifact | `libcaramba_core.dylib` in `packages/caramba_vpn/darwin/Libraries/` | `exarobot.xcframework` in `packages/caramba_vpn/macos/Frameworks/` |
 | Where the core runs | in the app process | in a separate extension process |
 | Traffic capture | `proxy`: local mixed inbound (SOCKS5 + HTTP) on 127.0.0.1:7890 | `tun`: system TUN, all traffic |
 | Needs Xcode / signing / approval | no | yes |
@@ -339,13 +339,13 @@ subscription connection with zero privileges; traffic reaches it because the app
 
    ```bash
    cp libs/caramba-core/build/libcaramba_core.dylib \
-      apps/caramba-client/packages/caramba_vpn/macos/Libraries/
+      apps/caramba-client/packages/caramba_vpn/darwin/Libraries/
    ```
 
    The podspec declares `s.vendored_libraries =
    'Libraries/libcaramba_core.dylib'`, which lands it in
    `Contents/Frameworks/` — entry 2 of the lookup order. See
-   `packages/caramba_vpn/macos/Libraries/README.md`.
+   `packages/caramba_vpn/darwin/Libraries/README.md`.
 
 Threading: `CarambaUp` can block for up to 60 s and `CarambaProbe` for its
 timeout, so both run in `Isolate.run`. Only sendable values cross the isolate

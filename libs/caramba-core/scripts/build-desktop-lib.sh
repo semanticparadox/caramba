@@ -53,12 +53,23 @@ case "${GOOS}" in
 esac
 
 echo ">> go build -tags ${TAGS} -buildmode=c-shared (CGO_ENABLED=1) → ${OUT}/${LIB}"
+# macOS: минимальная версия ОС как у Flutter-раннера (12.0).
+if [[ "${GOOS}" == "darwin" ]]; then
+  export CGO_CFLAGS="${CGO_CFLAGS:-} -mmacosx-version-min=12.0"
+  export CGO_LDFLAGS="${CGO_LDFLAGS:-} -mmacosx-version-min=12.0"
+fi
 ( cd "${ROOT}" && CGO_ENABLED=1 go build \
     -tags "${TAGS}" \
     -buildmode=c-shared \
     -o "${OUT}/${LIB}" \
     "${PKG}" )
 
+# macOS: install name через @rpath, чтобы приложение находило библиотеку в
+# своём bundle (Contents/Frameworks), и подпись ad-hoc после правки.
+if [[ "${GOOS}" == "darwin" ]]; then
+  install_name_tool -id "@rpath/${LIB}" "${OUT}/${LIB}"
+  codesign -f -s - "${OUT}/${LIB}" >/dev/null 2>&1 || true
+fi
 echo ">> готово: ${OUT}/${LIB} (+ сгенерированный .h рядом)"
 echo ">> каноничный заголовок для FFI: ${ROOT}/ffi/caramba_core.h"
 [[ "${GOOS}" == "windows" ]] && echo ">> ВНИМАНИЕ Windows: положите wintun.dll рядом с ${LIB}"

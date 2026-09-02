@@ -38,8 +38,10 @@ flutter:
         pluginClass: CarambaVpnPlugin
       ios:
         pluginClass: CarambaVpnPlugin
+        sharedDarwinSource: true
       macos:
         pluginClass: CarambaVpnPlugin
+        sharedDarwinSource: true
       windows:
         pluginClass: CarambaVpnPluginCApi
       linux:

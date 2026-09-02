@@ -25,6 +25,11 @@
 //
 // CODE IDENTIFIERS stay `caramba`; user-facing strings say `exarobot`.
 
+#if os(iOS)
+import Flutter
+#elseif os(macOS)
+import FlutterMacOS
+#endif
 import Foundation
 import NetworkExtension
 
