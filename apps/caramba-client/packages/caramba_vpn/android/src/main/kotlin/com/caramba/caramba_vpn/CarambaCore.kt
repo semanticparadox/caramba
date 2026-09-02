@@ -1,11 +1,15 @@
 package com.caramba.caramba_vpn
 
+import io.caramba.core.mobile.Client as GoClient
+import io.caramba.core.mobile.Mobile as GoMobile
 import org.json.JSONObject
 
 // CarambaCore — thin Kotlin wrapper over the gomobile-generated Go core.
 //
-// gomobile bind on libs/caramba-core/mobile produces the Java/Kotlin class
-// `mobile.Mobile` (static factory) and `mobile.Client` (instance). Method names
+// gomobile bind on libs/caramba-core/mobile produces, under the Java package
+// declared by the module's `javapkg` (io.caramba.core), the classes
+// `io.caramba.core.mobile.Mobile` (static factory) and `.Client` (instance),
+// aliased here as GoMobile / GoClient. Method names
 // are camelCased by gomobile: NewClient -> Mobile.newClient, Up -> up, Down ->
 // down, StatusJSON -> statusJSON, TrafficJSON -> trafficJSON, SetTunFd ->
 // setTunFd, Configure -> configure. Go errors surface as thrown Exceptions.
@@ -18,7 +22,7 @@ import org.json.JSONObject
 // session, created on connect() and released on close(). The Go core keeps one
 // api.Core for the Client's lifetime, so up/down/status stay consistent.
 internal class CarambaCore private constructor(
-    private val client: mobile.Client,
+    private val client: GoClient,
 ) {
 
     companion object {
@@ -43,7 +47,7 @@ internal class CarambaCore private constructor(
             subscriptionId: String,
             accessToken: String,
         ): CarambaCore {
-            val client = mobile.Mobile.newClient(panelUrl, subUrl, workDir, tokenPath)
+            val client = GoMobile.newClient(panelUrl, subUrl, workDir, tokenPath)
             // Configure injects the JWT + subscription UUID so the core is
             // authenticated before Up. panelUrl is also echoed (the core keeps the
             // NewClient URL; the arg is part of the documented plugin contract).
@@ -73,7 +77,7 @@ internal class CarambaCore private constructor(
             raw: String,
             format: String,
         ): CarambaCore {
-            val client = mobile.Mobile.newClient(panelUrl, subUrl, workDir, tokenPath)
+            val client = GoMobile.newClient(panelUrl, subUrl, workDir, tokenPath)
             // ImportSubscription parses the raw payload into a mihomo config and
             // stores it as the imported source. gomobile maps Go
             // `ImportSubscription(raw, format string) (string, error)` to
@@ -98,7 +102,7 @@ internal class CarambaCore private constructor(
         fun createTools(workDir: String, tokenPath: String): CarambaCore {
             // NewClient only wires the client (no network), so an empty panel URL
             // is fine here — the generic path never talks to a panel.
-            val client = mobile.Mobile.newClient("", "", workDir, tokenPath)
+            val client = GoMobile.newClient("", "", workDir, tokenPath)
             return CarambaCore(client)
         }
     }

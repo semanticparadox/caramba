@@ -43,8 +43,7 @@ class CarambaVpnPlugin :
     FlutterPlugin,
     ActivityAware,
     MethodCallHandler,
-    PluginRegistry.ActivityResultListener,
-    CarambaVpnBus.Listener {
+    PluginRegistry.ActivityResultListener {
 
     private companion object {
         const val VPN_REQUEST_CODE = 0x6361 // 'ca'
@@ -106,7 +105,7 @@ class CarambaVpnPlugin :
             }
         })
 
-        CarambaVpnBus.setListener(this)
+        CarambaVpnBus.setListener(busListener)
     }
 
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
@@ -398,11 +397,17 @@ class CarambaVpnPlugin :
 
     // MARK: CarambaVpnBus.Listener (forward to the event sinks on the main thread)
 
-    override fun onStatus(snapshot: CarambaStatusSnapshot) {
-        statusSink?.success(snapshot.asMap())
-    }
+    // Held as a private anonymous object rather than implemented by the plugin
+    // class itself: CarambaVpnBus.Listener and the snapshot types are `internal`,
+    // and a public member of this public class may not expose them (Kotlin
+    // EXPOSED_PARAMETER_TYPE). The bus already posts to the main looper.
+    private val busListener = object : CarambaVpnBus.Listener {
+        override fun onStatus(snapshot: CarambaStatusSnapshot) {
+            statusSink?.success(snapshot.asMap())
+        }
 
-    override fun onTraffic(snapshot: CarambaTrafficSnapshot) {
-        trafficSink?.success(snapshot.asMap())
+        override fun onTraffic(snapshot: CarambaTrafficSnapshot) {
+            trafficSink?.success(snapshot.asMap())
+        }
     }
 }

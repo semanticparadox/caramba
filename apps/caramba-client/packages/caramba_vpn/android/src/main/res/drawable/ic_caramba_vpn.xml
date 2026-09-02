@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Notification small-icon for the tunnel foreground service.
+
+  A plugin-owned drawable so the module never depends on a host-app resource or
+  on a hidden platform id: android.R.drawable.stat_sys_vpn_ic exists in the
+  framework but is NOT part of the public SDK, so referencing it does not
+  compile. Status-bar icons are rendered as a mask (alpha only), hence the plain
+  white shield outline.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFFFF">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,1L3,5v6c0,5.55 3.84,10.74 9,12 5.16,-1.26 9,-6.45 9,-12V5L12,1zM12,3.18l7,3.11V11c0,4.52 -2.98,8.79 -7,9.93C7.98,19.79 5,15.52 5,11V6.29L12,3.18zM11,7v4L7,11v2h4v4h2v-4h4v-2h-4L13,7h-2z" />
+</vector>

@@ -9,7 +9,7 @@
 //
 // CODE IDENTIFIERS stay 'caramba' (the user-facing brand is 'exarobot').
 //
-// The gomobile AAR is vendored under android/libs/ and picked up by the flatDir
+// The gomobile AAR is vendored under android/libs/ and picked up as a file dependency
 // repository below. Build it on the user's machine with:
 //
 //   cd libs/caramba-core
@@ -39,19 +39,39 @@ rootProject.allprojects {
     repositories {
         google()
         mavenCentral()
-        // Vendored gomobile AAR (caramba.aar). Copied/built into android/libs/.
-        flatDir {
-            dirs "${project.projectDir}/libs"
-        }
     }
 }
 
 apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
+// The vendored gomobile AAR cannot be consumed as `implementation files(*.aar)`:
+// AGP refuses a direct local .aar dependency in a library module (the
+// :caramba_vpn:bundleDebugAar task fails with "Direct local .aar file
+// dependencies are not supported when building an AAR"), because those classes
+// and .so files would not be repackaged into this module's own AAR.
+//
+// caramba.aar is a plain gomobile binding: classes.jar + jni/<abi>/libgojni.so,
+// an EMPTY R.txt and a manifest carrying only <uses-sdk>. So exploding it into a
+// jar dependency + a jniLibs source dir is lossless, and both of those forms ARE
+// packaged into the consuming app.
+def carambaAarFile = file("${project.projectDir}/libs/caramba.aar")
+def carambaAarDir = layout.buildDirectory.dir("caramba-aar")
+
+def explodeCarambaAar = tasks.register('explodeCarambaAar', Copy) {
+    from(zipTree(carambaAarFile))
+    into(carambaAarDir)
+    include 'classes.jar'
+    include 'jni/**'
+}
+
 android {
     namespace 'com.caramba.caramba_vpn'
-    compileSdk 34
+    // Must match the host app (flutter.compileSdkVersion == 36). The
+    // flutter_embedding / androidx AARs pulled in by Flutter 3.47 declare an
+    // AAR-metadata floor of compileSdk 36, so a lower value fails
+    // checkDebugAarMetadata. Compile-time only: minSdk below is unchanged.
+    compileSdk 36
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
@@ -73,6 +93,9 @@ android {
     // CI lint pass; the real build requires it (gomobile bind output).
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
+        // libgojni.so for every ABI shipped by the binding, taken from the
+        // exploded AAR above (see explodeCarambaAar).
+        main.jniLibs.srcDirs += carambaAarDir.map { it.dir('jni') }
     }
 }
 
@@ -80,10 +103,20 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
     // androidx.annotation for @NonNull on the plugin callbacks.
     implementation 'androidx.annotation:annotation:1.7.1'
-    // gomobile AAR. `name` matches libs/caramba.aar (without extension).
-    implementation(name: 'caramba', ext: 'aar')
+    // Go core classes from the vendored gomobile binding (libs/caramba.aar),
+    // exploded by explodeCarambaAar. Java package: io.caramba.core.mobile
+    // (Mobile.newClient(...) -> Client), wrapped by CarambaCore.kt.
+    implementation files(carambaAarDir.map { it.file('classes.jar') }) {
+        builtBy explodeCarambaAar
+    }
     // The Flutter Android Gradle plugin injects the io.flutter:flutter_embedding_*
     // dependency for plugin modules automatically, so FlutterPlugin / MethodChannel /
     // EventChannel resolve without being declared here (standard plugin template).
     // org.json (JSONObject) is part of the Android platform — no dependency needed.
+}
+
+// jniLibs source dirs are not part of the dependency graph, so make every build
+// path wait for the AAR to be exploded.
+tasks.named('preBuild').configure {
+    dependsOn explodeCarambaAar
 }

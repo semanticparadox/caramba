@@ -1,6 +1,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- INTEGRATION.md step 2 (Android): the tunnel permissions
+         (FOREGROUND_SERVICE, FOREGROUND_SERVICE_SPECIAL_USE,
+         POST_NOTIFICATIONS) and the <service> declaration for
+         com.caramba.caramba_vpn.CarambaVpnService are contributed by the
+         caramba_vpn plugin manifest and merged in by the manifest merger,
+         so they are deliberately NOT duplicated here. Verify after a build
+         in build/app/intermediates/merged_manifests/debug/.
+         VPN consent (VpnService.prepare) is raised by the plugin on the
+         first connect; step 2.4 (minSdk >= 21) holds via
+         flutter.minSdkVersion == 24 in app/build.gradle.kts. -->
     <application
-        android:label="caramba_client"
+        android:label="Caramba Connect"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -23,6 +33,24 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+
+            <!-- INTEGRATION.md step 3b: custom-scheme deep links. Parsed and
+                 routed in Dart (lib/router/deep_links.dart on app_links); the OS
+                 only delivers the URI if the scheme is registered here.
+                 carambaconnect://enroll?panel=<https-url>&code=<invite> -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="carambaconnect" android:host="enroll" />
+            </intent-filter>
+            <!-- carambaconnect://import?url=<subscription-url> -> /connections/import -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="carambaconnect" android:host="import" />
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

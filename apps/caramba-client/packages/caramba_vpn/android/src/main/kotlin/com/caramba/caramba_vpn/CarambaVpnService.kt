@@ -344,7 +344,9 @@ class CarambaVpnService : VpnService() {
         // system icon so a fresh `flutter create .` without a custom icon builds.
         val appIcon = applicationInfo.icon
         if (appIcon != 0) return appIcon
-        return android.R.drawable.stat_sys_vpn_ic
+        // Plugin-owned fallback. android.R.drawable.stat_sys_vpn_ic is a hidden
+        // framework id (not in the public SDK), so it cannot be referenced here.
+        return R.drawable.ic_caramba_vpn
     }
 
     private fun stopForegroundCompat() {
