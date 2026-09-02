@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:caramba_client/data/api_client.dart';
 import 'package:caramba_client/data/models/sub_plan.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
+import 'package:caramba_client/features/profile/panel_required.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/account_state.dart';
 import 'package:caramba_client/state/auth_state.dart';
@@ -21,12 +22,19 @@ import 'package:caramba_client/widgets/ui.dart';
 
 /// Профиль: подписки (free с недельной квота-баром, платные с метой),
 /// устройства, рефералы, семейный доступ. Все данные — из `/api/v2/app/*`.
+///
+/// Весь экран панельный. В generic-режиме (своя подписка, аккаунта панели нет)
+/// показывать нечего, а протянутые провайдеры ушли бы в 401 — поэтому без
+/// сессии рендерим пустое состояние с приглашением подключить панель.
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
+    if (ref.watch(authProvider).stage != AuthStage.authenticated) {
+      return const PanelRequiredScreen(title: 'Профиль');
+    }
     final user = ref.watch(currentUserProvider);
     final subsAsync = ref.watch(subscriptionsProvider);
     final devicesAsync = ref.watch(devicesProvider);

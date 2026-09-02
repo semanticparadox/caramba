@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/data/connection_profiles_store.dart';
 import 'package:caramba_client/data/models/connection_profile.dart';
+import 'package:caramba_client/vpn/vpn_models.dart';
 
 /// Состояние мульти-профиля подключения (план §4.4).
 ///
@@ -69,13 +70,32 @@ class ConnectionProfilesNotifier
   }
 
   Future<void> _load() async {
-    final profiles = await _store.readProfiles();
-    final activeId = await _store.readActiveId();
+    final stored = await _store.readProfiles();
+    final storedActiveId = await _store.readActiveId();
+
+    // Мутация могла прилететь раньше, чем ответило хранилище: энроллмент по
+    // deeplink на холодном старте заводит профиль сразу, и загрузка не имеет
+    // права его затереть. Поэтому сохранённые записи ДОБАВЛЯЮТСЯ к тем, что
+    // уже есть в памяти, а не заменяют их.
+    final pending = state.profiles;
+    if (pending.isEmpty) {
+      state = ConnectionProfilesState(
+        profiles: stored,
+        activeId: storedActiveId,
+        loading: false,
+      );
+      return;
+    }
+    final known = pending.map((p) => p.id).toSet();
     state = ConnectionProfilesState(
-      profiles: profiles,
-      activeId: activeId,
+      profiles: [...stored.where((p) => !known.contains(p.id)), ...pending],
+      // Активный, выбранный уже в этой сессии, важнее сохранённого.
+      activeId: state.activeId ?? storedActiveId,
       loading: false,
     );
+    // Мутация успела записать в стор ТОЛЬКО свою часть списка: возвращаем туда
+    // полный, иначе сохранённые профили потерялись бы.
+    await _persist();
   }
 
   Future<void> _persist() async {
@@ -185,6 +205,82 @@ class ConnectionProfilesNotifier
     }
     return true;
   }
+
+  /// Возвращает id профиля панели по её URL, если такой уже заведён.
+  /// Энроллмент этим отличает «создали новый» от «нашли существующий», чтобы
+  /// на невалидном коде убрать за собой только СВОЙ профиль-плейсхолдер.
+  String? findPanelId(String panelUrl) {
+    for (final p in state.profiles) {
+      if (p.isPanel && p.panelUrl == panelUrl) return p.id;
+    }
+    return null;
+  }
+
+  /// Точечное обновление профиля по id. Мутатор получает текущую запись и
+  /// возвращает новую; несуществующий id — no-op.
+  Future<void> _update(
+    String id,
+    ConnectionProfile Function(ConnectionProfile) mutate,
+  ) async {
+    final idx = state.profiles.indexWhere((p) => p.id == id);
+    if (idx < 0) return;
+    final next = [...state.profiles];
+    next[idx] = mutate(next[idx]);
+    state = state.copyWith(profiles: next);
+    await _persist();
+  }
+
+  /// Записывает результат `importSubscription`: тело подписки, формат и кэш
+  /// узлов. Пин узла сбрасывается, если его больше нет в новом списке (после
+  /// «Обновить подписку» состав узлов мог поменяться).
+  Future<void> setImported(
+    String id, {
+    required String rawConfig,
+    required String format,
+    required List<ImportedServer> servers,
+    DateTime? at,
+  }) => _update(id, (p) {
+    final keepPin =
+        p.selectedServerId != null &&
+        servers.any((s) => s.id == p.selectedServerId);
+    return p.copyWith(
+      rawConfig: rawConfig,
+      format: format,
+      servers: servers,
+      serversUpdatedMs: (at ?? DateTime.now()).millisecondsSinceEpoch,
+      clearSelectedServer: !keepPin,
+    );
+  });
+
+  /// Прикрепляет селектор к узлу подписки. `null` — авто-выбор ядром.
+  Future<void> setSelectedServer(String id, String? serverId) => _update(
+    id,
+    (p) => p.copyWith(
+      selectedServerId: serverId,
+      clearSelectedServer: serverId == null,
+    ),
+  );
+
+  /// Сохраняет результат замера задержек (`probe`).
+  Future<void> setProbe(String id, ProbeSnapshot probe) =>
+      _update(id, (p) => p.copyWith(lastProbe: probe));
+
+  /// Проставляет профилю панели его собственные креды, чтобы `configure`
+  /// уходило на ЕГО инстанс, а не на тенант-1 (`kApiBaseUrl`). Вызывается
+  /// после успешного энроллмент-входа.
+  Future<void> setPanelCredentials(
+    String id, {
+    String? panelUrl,
+    String? subscriptionUuid,
+    String? accessToken,
+  }) => _update(
+    id,
+    (p) => p.copyWith(
+      panelUrl: panelUrl,
+      subscriptionUuid: subscriptionUuid,
+      accessToken: accessToken,
+    ),
+  );
 
   /// Переименование профиля.
   Future<void> rename(String id, String displayName) async {

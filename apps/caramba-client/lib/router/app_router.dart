@@ -26,16 +26,83 @@ import 'package:caramba_client/router/deep_links.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/shell/app_shell.dart';
 import 'package:caramba_client/state/auth_state.dart';
+import 'package:caramba_client/state/bootstrap_state.dart';
 import 'package:caramba_client/state/settings_state.dart';
 
 final _rootKey = GlobalKey<NavigatorState>(debugLabel: 'root');
+
+/// Решение гейта навигации: куда отправить пользователя из [location].
+/// `null` означает «оставить где есть».
+///
+/// Вынесено чистой функцией из [routerProvider] намеренно: это единственная
+/// нетривиальная логика роутера, и она обязана быть проверяемой без поднятия
+/// GoRouter, платформенных каналов и сети.
+///
+/// Три входа помимо стадии сессии:
+///   * [bootReady] — прочитаны локальные настройки (иначе `firstRun` врёт
+///     дефолтом `true` и онбординг всплывал бы каждый запуск);
+///   * [profilesReady] — прочитан список профилей подключения (иначе холодный
+///     старт с импортированной подпиской успевал бы отскочить на `/login`);
+///   * [guest] — generic-режим: есть своя подписка либо явно выбран режим без
+///     аккаунта. Такой пользователь работает в шелле без входа в панель.
+String? resolveRedirect({
+  required AuthStage stage,
+  required bool firstRun,
+  required bool bootReady,
+  required bool profilesReady,
+  required bool guest,
+  required String location,
+}) {
+  final onSplash = location == AppRoute.splash;
+  final onLogin = location == AppRoute.login;
+  final onAutotune = location == AppRoute.autotune;
+  // Энроллмент — pre-auth поток (deeplink/ручной ввод/QR): держим его
+  // доступным из unauthenticated, не редиректим на /login.
+  final onEnroll = location == AppRoute.enroll;
+
+  switch (stage) {
+    case AuthStage.authenticated:
+      // Настройки ещё не прочитаны: держим сплеш, иначе увели бы в онбординг
+      // по дефолтному firstRun ещё до загрузки сохранённого.
+      if (!bootReady) return onSplash ? null : AppRoute.splash;
+      if (firstRun) return onAutotune ? null : AppRoute.autotune;
+      // Уводим из pre-auth экранов (вкл. /enroll) в приложение после входа.
+      if (onSplash || onLogin || onAutotune || onEnroll) return AppRoute.home;
+      return null;
+
+    case AuthStage.unknown:
+    case AuthStage.unauthenticated:
+    case AuthStage.authenticating:
+      // Deeplink на холодном старте: пока сессия резолвится, не сбрасываем
+      // /enroll на сплеш (иначе панель/код из ссылки потеряются).
+      if (onEnroll) return null;
+      // Локальное состояние ещё грузится: решение «гость или нет» без него
+      // было бы принято по дефолтам.
+      if (!bootReady || !profilesReady) {
+        return onSplash ? null : AppRoute.splash;
+      }
+      // Generic-режим: своя подписка вместо аккаунта панели. Пускаем в шелл,
+      // не дожидаясь ни логина, ни завершения auth-пробы — иначе подключаться
+      // есть чем, а приложение упирается в /login.
+      if (guest) {
+        if (onSplash || onAutotune) return AppRoute.home;
+        // /login и /enroll остаются доступны по своей воле: гость может в
+        // любой момент привязать аккаунт панели.
+        return null;
+      }
+      if (stage == AuthStage.unknown) return onSplash ? null : AppRoute.splash;
+      return onLogin ? null : AppRoute.login;
+  }
+}
 
 /// Application router (Riverpod-aware).
 ///
 /// Auth-gating: cold start lands on `/` (splash), which mounts NO protected
 /// providers. While `unknown` we hold on the splash; `unauthenticated`/
 /// `authenticating` -> `/login`; `authenticated` + первый вход -> `/autotune`;
-/// `authenticated` -> `/home`. Протокол и split-tunnel живут вне табов поверх
+/// `authenticated` -> `/home`. Решение про онбординг ждёт [appBootProvider]:
+/// до чтения prefs `firstRunProvider` держит дефолтное `true`, и autotune
+/// всплывал бы при каждом запуске. Протокол и split-tunnel живут вне табов поверх
 /// шелла (полноэкранные пикеры с крестиком).
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = _AuthRefresh(ref);
@@ -45,38 +112,14 @@ final routerProvider = Provider<GoRouter>((ref) {
     navigatorKey: _rootKey,
     initialLocation: AppRoute.splash,
     refreshListenable: refresh,
-    redirect: (context, state) {
-      final auth = ref.read(authProvider);
-      final firstRun = ref.read(firstRunProvider);
-      final loc = state.matchedLocation;
-      final onSplash = loc == AppRoute.splash;
-      final onLogin = loc == AppRoute.login;
-      final onAutotune = loc == AppRoute.autotune;
-      // Энроллмент — pre-auth поток (deeplink/ручной ввод/QR): держим его
-      // доступным из unauthenticated, не редиректим на /login.
-      final onEnroll = loc == AppRoute.enroll;
-
-      switch (auth.stage) {
-        case AuthStage.unknown:
-          // Deeplink на холодном старте: пока сессия резолвится, не сбрасываем
-          // /enroll на сплеш (иначе панель/код из ссылки потеряются).
-          if (onEnroll) return null;
-          return onSplash ? null : AppRoute.splash;
-        case AuthStage.unauthenticated:
-        case AuthStage.authenticating:
-          if (onEnroll) return null;
-          return onLogin ? null : AppRoute.login;
-        case AuthStage.authenticated:
-          if (firstRun) {
-            return onAutotune ? null : AppRoute.autotune;
-          }
-          // Уводим из pre-auth экранов (вкл. /enroll) в приложение после входа.
-          if (onSplash || onLogin || onAutotune || onEnroll) {
-            return AppRoute.home;
-          }
-          return null;
-      }
-    },
+    redirect: (context, state) => resolveRedirect(
+      stage: ref.read(authProvider).stage,
+      firstRun: ref.read(firstRunProvider),
+      bootReady: ref.read(appBootReadyProvider),
+      profilesReady: ref.read(connectionProfilesReadyProvider),
+      guest: ref.read(guestAllowedProvider),
+      location: state.matchedLocation,
+    ),
     routes: [
       GoRoute(
         path: AppRoute.splash,
@@ -119,7 +162,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: 'import',
             parentNavigatorKey: _rootKey,
-            builder: (context, state) => const ConnectionImportScreen(),
+            // `url` приходит из deeplink `carambaconnect://import?url=...`
+            // и подставляется в поле ссылки.
+            builder: (context, state) => ConnectionImportScreen(
+              initialUrl: state.uri.queryParameters['url'],
+            ),
           ),
         ],
       ),
@@ -220,20 +267,48 @@ final routerProvider = Provider<GoRouter>((ref) {
 class _AuthRefresh extends ChangeNotifier {
   late final ProviderSubscription<AuthState> _authSub;
   late final ProviderSubscription<bool> _firstRunSub;
+  late final ProviderSubscription<bool> _bootSub;
+  late final ProviderSubscription<bool> _guestSub;
+  late final ProviderSubscription<bool> _profilesSub;
 
   _AuthRefresh(Ref ref) {
-    _authSub = ref.listen<AuthState>(authProvider, (prev, next) {
-      if (prev?.stage != next.stage) notifyListeners();
-    });
-    _firstRunSub = ref.listen<bool>(firstRunProvider, (prev, next) {
-      if (prev != next) notifyListeners();
-    });
+    _authSub = ref.listen<AuthState>(authProvider, _onAuth);
+    _firstRunSub = ref.listen<bool>(firstRunProvider, _onFlag);
+    // Подписки с fireImmediately заодно СТАРТУЮТ провайдеры: пока настройки и
+    // профили не прочитаны, редирект держит сплеш.
+    _bootSub = ref.listen<bool>(
+      appBootReadyProvider,
+      _onFlag,
+      fireImmediately: true,
+    );
+    // Generic-режим и наличие профилей решают, пускать ли в шелл без входа.
+    _guestSub = ref.listen<bool>(
+      guestAllowedProvider,
+      _onFlag,
+      fireImmediately: true,
+    );
+    _profilesSub = ref.listen<bool>(
+      connectionProfilesReadyProvider,
+      _onFlag,
+      fireImmediately: true,
+    );
+  }
+
+  void _onAuth(AuthState? prev, AuthState next) {
+    if (prev?.stage != next.stage) notifyListeners();
+  }
+
+  void _onFlag(bool? prev, bool next) {
+    if (prev != next) notifyListeners();
   }
 
   @override
   void dispose() {
     _authSub.close();
     _firstRunSub.close();
+    _bootSub.close();
+    _guestSub.close();
+    _profilesSub.close();
     super.dispose();
   }
 }

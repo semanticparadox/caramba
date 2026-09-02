@@ -4,22 +4,30 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/protocol.dart';
 import 'package:caramba_client/router/routes.dart';
+import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/core_config_state.dart';
+import 'package:caramba_client/state/core_error.dart';
+import 'package:caramba_client/state/probe_state.dart';
+import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/state/servers_state.dart';
 import 'package:caramba_client/state/settings_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
 import 'package:caramba_client/theme/typography.dart';
+import 'package:caramba_client/vpn/vpn_models.dart';
 import 'package:caramba_client/widgets/lucide.dart';
 import 'package:caramba_client/widgets/ui.dart';
 
 /// Автоподбор настроек (демо §AUTOTUNE).
 ///
-/// Прогоняет 3 шага (имитация измерения сети, проверки протоколов, выбора
-/// маршрута), затем показывает выбранную конфигурацию и применяет её в
-/// [coreConfigProvider]. На проде шаги питает caramba-core `AutoTune(Prober)`.
+/// Два режима, по [isNativeVpnProvider]:
+///   * нативное ядро — НАСТОЯЩИЙ прогон: подписка отдаётся ядру на разбор,
+///     затем `probe` с таймаутом 6 с, узел с наименьшей задержкой закрепляется
+///     на профиле (`selectedServerId`). Никаких таймеров-имитаций;
+///   * мок — прежняя трёхшаговая имитация, чтобы UI работал без ядра.
 class AutotuneScreen extends ConsumerStatefulWidget {
   /// Если экран вызван повторно из настроек, по «Продолжить» возвращаемся назад,
   /// а не на Home (роутер уже на home-ветке).
@@ -31,42 +39,126 @@ class AutotuneScreen extends ConsumerStatefulWidget {
 }
 
 class _AutotuneScreenState extends ConsumerState<AutotuneScreen> {
-  static const _steps = [
+  static const _mockSteps = [
     'Измеряю задержку до серверов',
     'Проверяю, какие протоколы проходят',
     'Выбираю лучший маршрут',
   ];
 
+  static const _nativeSteps = [
+    'Разбираю подписку',
+    'Меряю задержки узлов',
+    'Выбираю самый быстрый узел',
+  ];
+
   int _current = 0; // индекс активного шага
   bool _done = false;
+  String? _error;
+
+  /// Победитель реального замера (нативный путь). `null` в моке и до финиша.
+  ProbeResult? _best;
+
+  /// Сколько узлов ответило из скольких (нативный путь).
+  int _reachable = 0;
+  int _total = 0;
+
   final List<Timer> _timers = [];
+
+  List<String> get _steps =>
+      ref.read(isNativeVpnProvider) ? _nativeSteps : _mockSteps;
 
   @override
   void initState() {
     super.initState();
-    _run();
+    // Запуск после первого кадра: нативный путь читает провайдеры и делает
+    // await, а в initState провайдеры трогать рано.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _run();
+    });
   }
 
   void _run() {
     setState(() {
       _current = 0;
       _done = false;
+      _error = null;
+      _best = null;
     });
-    for (var i = 0; i < _steps.length; i++) {
+    if (ref.read(isNativeVpnProvider)) {
+      unawaited(_runNative());
+    } else {
+      _runMock();
+    }
+  }
+
+  /// Имитация для dev-сборок без ядра: три шага по таймеру и эвристический
+  /// результат. Никогда не выполняется, когда бэкендом стоит настоящее ядро.
+  void _runMock() {
+    for (var i = 0; i < _mockSteps.length; i++) {
       _timers.add(
         Timer(Duration(milliseconds: 700 + 950 * (i + 1)), () {
           if (!mounted) return;
           setState(() => _current = i + 1);
-          if (i == _steps.length - 1) _finish();
+          if (i == _mockSteps.length - 1) {
+            // Выбор: рекомендованный протокол + gVisor-стек (как в autotune ядра).
+            ref
+                .read(coreConfigProvider.notifier)
+                .applyAutotune(protocol: 1, stack: 2);
+            setState(() => _done = true);
+          }
         }),
       );
     }
   }
 
-  void _finish() {
-    // Выбор: рекомендованный протокол + gVisor-стек (как в caramba-core autotune).
-    ref.read(coreConfigProvider.notifier).applyAutotune(protocol: 1, stack: 2);
-    setState(() => _done = true);
+  /// Настоящий прогон через ядро.
+  Future<void> _runNative() async {
+    final profile = ref.read(activeConnectionProfileProvider);
+    if (profile == null) {
+      setState(() {
+        _error =
+            'Нет активного профиля. Импортируйте подписку или войдите в панель.';
+        _done = true;
+      });
+      return;
+    }
+    try {
+      // Шаг 1 закрывается, когда конфиг ушёл в ядро; probeProfile делает это
+      // внутри, поэтому шаг переключаем до вызова.
+      setState(() => _current = 1);
+      final results = await probeProfile(
+        ref.read(vpnConnectionProvider),
+        profile,
+      );
+      if (!mounted) return;
+      setState(() => _current = 2);
+      final best = bestOf(results);
+      if (best != null) {
+        await ref
+            .read(connectionProfilesProvider.notifier)
+            .setSelectedServer(profile.id, best.id);
+      }
+      await ref
+          .read(connectionProfilesProvider.notifier)
+          .setProbe(profile.id, ProbeSnapshot.fromResults(results));
+      if (!mounted) return;
+      setState(() {
+        _current = _nativeSteps.length;
+        _best = best;
+        _total = results.length;
+        _reachable = results.where((r) => !r.timedOut).length;
+        _error = best == null && results.isNotEmpty
+            ? 'Ни один узел не ответил. Проверьте сеть или обновите подписку.'
+            : (results.isEmpty ? 'Ядро не вернуло ни одного узла.' : null);
+        _done = true;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = coreErrorText(e) ?? 'Не удалось замерить узлы.';
+        _done = true;
+      });
+    }
   }
 
   void _continue() {
@@ -93,10 +185,7 @@ class _AutotuneScreenState extends ConsumerState<AutotuneScreen> {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    final protocols = ref.watch(protocolsProvider);
-    final cfg = ref.watch(coreConfigProvider);
-    final servers = ref.watch(serversProvider).valueOrNull ?? const [];
-    final best = servers.isEmpty ? null : servers.first;
+    final steps = _steps;
 
     return Scaffold(
       backgroundColor: c.bgCanvas,
@@ -131,33 +220,13 @@ class _AutotuneScreenState extends ConsumerState<AutotuneScreen> {
                 ),
                 const SizedBox(height: AppSpace.s6),
                 if (!_done)
-                  ...List.generate(_steps.length, (i) => _stepRow(i))
+                  ...List.generate(steps.length, (i) => _stepRow(steps, i))
                 else ...[
-                  const SectionTitle(
-                    'Выбрано',
-                    padding: EdgeInsets.only(bottom: AppSpace.s3),
-                  ),
-                  RowsGroup(
-                    children: [
-                      CRow(
-                        icon: protocols[cfg.protocol].icon,
-                        label: 'Протокол',
-                        value: protocols[cfg.protocol].name,
-                      ),
-                      CRow(
-                        icon: Lucide.globe,
-                        label: 'Сервер',
-                        value: best == null
-                            ? 'Авто'
-                            : '${best.name}${best.pingMs != null ? ' · ${best.pingMs} мс' : ''}',
-                      ),
-                      CRow(
-                        icon: Lucide.layers,
-                        label: 'Сетевой стек',
-                        value: CoreOption.stacks[cfg.stack].name,
-                      ),
-                    ],
-                  ),
+                  if (_error != null) ...[
+                    _Notice(text: _error!),
+                    const SizedBox(height: AppSpace.s5),
+                  ],
+                  _result(),
                   const SizedBox(height: AppSpace.s5),
                   FilledButton(
                     onPressed: _continue,
@@ -178,7 +247,83 @@ class _AutotuneScreenState extends ConsumerState<AutotuneScreen> {
     );
   }
 
-  Widget _stepRow(int i) {
+  /// Итог. В нативном режиме это результат настоящего замера, в моке — прежняя
+  /// сводка выбранных настроек.
+  Widget _result() {
+    final protocols = ref.watch(protocolsProvider);
+    final cfg = ref.watch(coreConfigProvider);
+
+    if (ref.read(isNativeVpnProvider)) {
+      final best = _best;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SectionTitle(
+            'Результат замера',
+            padding: EdgeInsets.only(bottom: AppSpace.s3),
+          ),
+          RowsGroup(
+            children: [
+              CRow(
+                icon: Lucide.globe,
+                label: 'Узел',
+                value: best == null
+                    ? 'Авто'
+                    : (best.name.isEmpty ? best.id : best.name),
+              ),
+              CRow(
+                icon: Lucide.gauge,
+                label: 'Задержка',
+                value: best == null ? '-' : '${best.latencyMs} мс',
+                mono: true,
+              ),
+              CRow(
+                icon: Lucide.layers,
+                label: 'Ответили',
+                value: _total == 0 ? '-' : '$_reachable из $_total',
+                mono: true,
+              ),
+            ],
+          ),
+        ],
+      );
+    }
+
+    final servers = ref.watch(serversProvider).valueOrNull ?? const [];
+    final best = servers.isEmpty ? null : servers.first;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SectionTitle(
+          'Выбрано',
+          padding: EdgeInsets.only(bottom: AppSpace.s3),
+        ),
+        RowsGroup(
+          children: [
+            CRow(
+              icon: protocols[cfg.protocol].icon,
+              label: 'Протокол',
+              value: protocols[cfg.protocol].name,
+            ),
+            CRow(
+              icon: Lucide.globe,
+              label: 'Сервер',
+              value: best == null
+                  ? 'Авто'
+                  : '${best.name}${best.pingMs != null ? ' · ${best.pingMs} мс' : ''}',
+            ),
+            CRow(
+              icon: Lucide.layers,
+              label: 'Сетевой стек',
+              value: CoreOption.stacks[cfg.stack].name,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _stepRow(List<String> steps, int i) {
     final c = context.c;
     final done = i < _current;
     return Container(
@@ -208,11 +353,40 @@ class _AutotuneScreenState extends ConsumerState<AutotuneScreen> {
           const SizedBox(width: AppSpace.s3),
           Expanded(
             child: Text(
-              _steps[i],
+              steps[i],
               style: AppType.bodyMd.copyWith(
                 color: done ? c.textMed : c.textHi,
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Плоское предупреждение под итогом: замер прошёл, но результат не тот,
+/// которого ждали. Это не отказ экрана, дальше пройти можно.
+class _Notice extends StatelessWidget {
+  final String text;
+  const _Notice({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Container(
+      padding: const EdgeInsets.all(AppSpace.s4),
+      decoration: BoxDecoration(
+        color: c.surface1,
+        borderRadius: AppRadius.r14,
+        border: Border.all(color: c.borderSubtle),
+      ),
+      child: Row(
+        children: [
+          LucideIcon(Lucide.alert, color: c.warning, size: 18),
+          const SizedBox(width: AppSpace.s3),
+          Expanded(
+            child: Text(text, style: AppType.bodySm.copyWith(color: c.textMed)),
           ),
         ],
       ),

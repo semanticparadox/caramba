@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:caramba_client/data/brand.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/auth_state.dart';
+import 'package:caramba_client/state/settings_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
 import 'package:caramba_client/theme/typography.dart';
@@ -50,6 +51,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   String get _code => _controllers.map((c) => c.text).join();
+
+  /// Generic-режим: аккаунт панели не нужен. Флаг ставим ДО перехода, чтобы
+  /// редирект роутера уже считал пользователя допущенным в шелл и не отбросил
+  /// экран импорта обратно на /login.
+  void _startGuestImport() {
+    ref.read(guestModeProvider.notifier).enable();
+    context.go(AppRoute.connectionImport);
+  }
 
   void _onChanged(int i, String v) {
     if (_localError != null) setState(() => _localError = null);
@@ -222,6 +231,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   label: 'Энроллмент по коду',
                   icon: Lucide.userPlus,
                   onPressed: busy ? null : () => context.go(AppRoute.enroll),
+                ),
+                const SizedBox(height: AppSpace.s6),
+                const SectionTitle(
+                  'Своя подписка',
+                  padding: EdgeInsets.only(bottom: AppSpace.s3),
+                ),
+                Text(
+                  'Аккаунт не нужен: вставьте ссылку на подписку или конфиг, и '
+                  'приложение подключится по ней.',
+                  style: AppType.bodySm.copyWith(color: c.textMed),
+                ),
+                const SizedBox(height: AppSpace.s3),
+                GhostButton(
+                  label: 'Импортировать подписку',
+                  icon: Lucide.globe,
+                  onPressed: busy ? null : _startGuestImport,
                 ),
               ],
             ),

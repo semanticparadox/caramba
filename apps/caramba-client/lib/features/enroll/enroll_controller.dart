@@ -77,10 +77,19 @@ class EnrollState {
 class EnrollNotifier extends StateNotifier<EnrollState> {
   final Ref _ref;
 
+  /// id профиля панели, СОЗДАННОГО этим потоком. Заполнен только когда профиля
+  /// с таким URL раньше не было: на невалидном коде убираем за собой именно
+  /// его, чтобы в списке подключений не оставался мёртвый плейсхолдер. Профиль,
+  /// который существовал до нас, не трогаем ни при каком исходе.
+  String? _createdProfileId;
+
   EnrollNotifier(this._ref) : super(const EnrollState());
 
   /// Сбрасывает поток в исходное состояние (повторный заход / отмена).
-  void reset() => state = const EnrollState();
+  void reset() {
+    _createdProfileId = null;
+    state = const EnrollState();
+  }
 
   /// Принимает сырой deeplink `carambaconnect://enroll?...`. Если разбор удался
   /// — заводит профиль панели и валидирует код. Иначе оставляет ручной ввод.
@@ -118,15 +127,23 @@ class EnrollNotifier extends StateNotifier<EnrollState> {
 
     // Профиль панели заводится сразу: аккаунт обязателен, профиль ведёт
     // последующий вход и подключение. Имя уточним из panel_name после валидации.
-    await _ref
-        .read(connectionProfilesProvider.notifier)
-        .addPanelAccount(panelUrl: link.panelUrl, displayName: link.panelUrl);
+    final profiles = _ref.read(connectionProfilesProvider.notifier);
+    final preexisting = profiles.findPanelId(link.panelUrl);
+    final profileId = await profiles.addPanelAccount(
+      panelUrl: link.panelUrl,
+      displayName: link.panelUrl,
+    );
+    _createdProfileId = preexisting == null ? profileId : null;
+    // Энроллмент означает переход на эту панель: делаем её профиль активным,
+    // иначе `configure` уйдёт на прежний профиль.
+    await profiles.activate(profileId);
 
     final client = _ref.read(enrollApiClientProvider(link.panelUrl));
     try {
       final v = await client.validateEnroll(link.code);
       if (!mounted) return;
       if (!v.valid) {
+        await _dropOrphanProfile();
         state = state.copyWith(
           stage: EnrollStage.invalid,
           validation: v,
@@ -149,6 +166,7 @@ class EnrollNotifier extends StateNotifier<EnrollState> {
         clearError: true,
       );
     } on ApiException catch (e) {
+      await _dropOrphanProfile();
       if (!mounted) return;
       state = state.copyWith(
         stage: EnrollStage.invalid,
@@ -157,12 +175,22 @@ class EnrollNotifier extends StateNotifier<EnrollState> {
             : 'Не удалось проверить код. Проверьте URL панели и связь.',
       );
     } catch (_) {
+      await _dropOrphanProfile();
       if (!mounted) return;
       state = state.copyWith(
         stage: EnrollStage.invalid,
         error: 'Не удалось связаться с панелью. Проверьте URL и связь.',
       );
     }
+  }
+
+  /// Убирает профиль-плейсхолдер, созданный этим потоком, когда энроллмент не
+  /// состоялся. Идемпотентно: повторный вызов ничего не делает.
+  Future<void> _dropOrphanProfile() async {
+    final id = _createdProfileId;
+    if (id == null) return;
+    _createdProfileId = null;
+    await _ref.read(connectionProfilesProvider.notifier).remove(id);
   }
 
   /// Регистрация email/password с расходованием enroll-кода на панели из ссылки.
@@ -197,6 +225,14 @@ class EnrollNotifier extends StateNotifier<EnrollState> {
     try {
       final tokens = await op(client, link.code);
       await _ref.read(tokenStoreProvider).save(tokens);
+      // Профиль этой панели получает СВОИ креды: без них `_resolveVpnConfig`
+      // падает на дефолтный путь тенанта-1 и конфигурирует ядро против чужой
+      // панели. UUID подписки тянем панель-скоупным клиентом (baseUrl из
+      // ссылки), токены он берёт из общего TokenStore, куда мы их только что
+      // положили.
+      await _storePanelCredentials(link, client, tokens);
+      // Вход состоялся: профиль больше не сирота.
+      _createdProfileId = null;
       if (!mounted) return;
       // Итоговый экран (онбординг-трафик) показываем ДО передачи сессии, чтобы
       // пользователь увидел подтверждение. Короткая пауза даёт кадру с итогом
@@ -220,6 +256,32 @@ class EnrollNotifier extends StateNotifier<EnrollState> {
         error: 'Что-то пошло не так. Повторите попытку.',
       );
     }
+  }
+
+  /// Кладёт на профиль панели её URL, UUID подписки и свежий access-токен.
+  /// Подписки может ещё не быть (новый неоплаченный аккаунт) — тогда сохраняем
+  /// хотя бы URL и токен, а UUID подтянется при следующем энроллменте/входе.
+  Future<void> _storePanelCredentials(
+    EnrollLink link,
+    ApiClient client,
+    AuthTokens tokens,
+  ) async {
+    final profiles = _ref.read(connectionProfilesProvider.notifier);
+    final id = profiles.findPanelId(link.panelUrl);
+    if (id == null) return;
+    String? uuid;
+    try {
+      final sub = await client.getSubscription();
+      if (sub.subscriptionUuid.isNotEmpty) uuid = sub.subscriptionUuid;
+    } catch (_) {
+      // Подписки нет или панель не ответила: не роняем энроллмент из-за неё.
+    }
+    await profiles.setPanelCredentials(
+      id,
+      panelUrl: link.panelUrl,
+      subscriptionUuid: uuid,
+      accessToken: tokens.accessToken,
+    );
   }
 
   /// Маппит машинную причину невалидности в плоский текст (без em-dash).

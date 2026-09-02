@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:caramba_client/vpn/vpn_models.dart';
+
 /// Тип подключения профиля.
 ///
 /// - [rawSub] — импортированная подписка/конфиг (вставка URL/QR/файла). Ядро
@@ -61,6 +63,26 @@ class ConnectionProfile {
   /// нативной стороне через `connectRaw` (Build C).
   final String? rawConfig;
 
+  /// Формат [rawConfig] на проводе (`auto` / `clash` / `singbox` / `v2ray` /
+  /// `uri`) — ровно то, что ждёт `subimport.Import`. Пустая строка в старых
+  /// записях читается как `auto`.
+  final String format;
+
+  /// Узлы подписки, полученные от ядра при `importSubscription`. Кэш: список
+  /// серверов показывается до подключения и переживает перезапуск.
+  final List<ImportedServer> servers;
+
+  /// `id` узла (имя прокси), к которому прикреплён селектор CARAMBA.
+  /// `null` — автоматический выбор ядром.
+  final String? selectedServerId;
+
+  /// Последний замер задержек: `id узла -> мс` (-1 = таймаут) + отметка времени.
+  /// `null` — ни разу не мерили.
+  final ProbeSnapshot? lastProbe;
+
+  /// Когда список [servers] последний раз обновлялся (мс эпохи); 0 — никогда.
+  final int serversUpdatedMs;
+
   /// Кэш брендинга (произвольный JSON). В P1 только хранится, тему не ведёт.
   final Map<String, dynamic>? brandingCache;
 
@@ -76,12 +98,23 @@ class ConnectionProfile {
     this.subscriptionUuid,
     this.accessToken,
     this.rawConfig,
+    this.format = 'auto',
+    this.servers = const <ImportedServer>[],
+    this.selectedServerId,
+    this.lastProbe,
+    this.serversUpdatedMs = 0,
     this.brandingCache,
     this.lastActiveMs = 0,
   });
 
   bool get isRaw => type == ProfileType.rawSub;
   bool get isPanel => type == ProfileType.panelAccount;
+
+  /// Сколько узлов известно по кэшу импорта.
+  int get serverCount => servers.length;
+
+  /// Задержка узла из последнего замера (мс), `null` — узел не мерили.
+  int? latencyOf(String serverId) => lastProbe?.latencyMs[serverId];
 
   factory ConnectionProfile.fromJson(Map<String, dynamic> json) =>
       ConnectionProfile(
@@ -93,6 +126,13 @@ class ConnectionProfile {
         subscriptionUuid: json['subscription_uuid'] as String?,
         accessToken: json['access_token'] as String?,
         rawConfig: json['raw_config'] as String?,
+        // Записи до generic-режима не несут этих полей: читаем их мягко, чтобы
+        // старый JSON грузился без миграции.
+        format: _decodeFormat(json['format']),
+        servers: _decodeServers(json['servers']),
+        selectedServerId: _nullIfEmpty(json['selected_server_id']),
+        lastProbe: ProbeSnapshot.fromJson(json['last_probe']),
+        serversUpdatedMs: _decodeMs(json['servers_updated_ms']),
         brandingCache: _decodeBranding(json['branding_cache']),
         lastActiveMs: (json['last_active_ms'] as num?)?.toInt() ?? 0,
       );
@@ -106,6 +146,11 @@ class ConnectionProfile {
     'subscription_uuid': subscriptionUuid,
     'access_token': accessToken,
     'raw_config': rawConfig,
+    'format': format,
+    'servers': servers.map((s) => s.toJson()).toList(growable: false),
+    'selected_server_id': selectedServerId,
+    'last_probe': lastProbe?.toJson(),
+    'servers_updated_ms': serversUpdatedMs,
     'branding_cache': brandingCache,
     'last_active_ms': lastActiveMs,
   };
@@ -119,8 +164,14 @@ class ConnectionProfile {
     String? subscriptionUuid,
     String? accessToken,
     String? rawConfig,
+    String? format,
+    List<ImportedServer>? servers,
+    String? selectedServerId,
+    ProbeSnapshot? lastProbe,
+    int? serversUpdatedMs,
     Map<String, dynamic>? brandingCache,
     int? lastActiveMs,
+    bool clearSelectedServer = false,
   }) => ConnectionProfile(
     id: id ?? this.id,
     type: type ?? this.type,
@@ -130,9 +181,40 @@ class ConnectionProfile {
     subscriptionUuid: subscriptionUuid ?? this.subscriptionUuid,
     accessToken: accessToken ?? this.accessToken,
     rawConfig: rawConfig ?? this.rawConfig,
+    format: format ?? this.format,
+    servers: servers ?? this.servers,
+    selectedServerId: clearSelectedServer
+        ? null
+        : (selectedServerId ?? this.selectedServerId),
+    lastProbe: lastProbe ?? this.lastProbe,
+    serversUpdatedMs: serversUpdatedMs ?? this.serversUpdatedMs,
     brandingCache: brandingCache ?? this.brandingCache,
     lastActiveMs: lastActiveMs ?? this.lastActiveMs,
   );
+
+  /// Формат импорта: пустая/чужая запись читается как `auto`.
+  static String _decodeFormat(Object? v) {
+    if (v is String && v.trim().isNotEmpty) return v.trim();
+    return 'auto';
+  }
+
+  /// Отметка времени: не-число (запись чужой версии) читается как «неизвестно».
+  static int _decodeMs(Object? v) => v is num ? v.toInt() : 0;
+
+  static String? _nullIfEmpty(Object? v) {
+    if (v is String && v.isNotEmpty) return v;
+    return null;
+  }
+
+  /// Кэш узлов: не-список и мусорные элементы дают пустой список.
+  static List<ImportedServer> _decodeServers(Object? v) {
+    if (v is! List) return const <ImportedServer>[];
+    return v
+        .whereType<Map<Object?, Object?>>()
+        .map(ImportedServer.fromMap)
+        .where((s) => s.id.isNotEmpty)
+        .toList(growable: false);
+  }
 
   /// Тивкость: branding мог быть как map, так и строкой-JSON (старые записи).
   static Map<String, dynamic>? _decodeBranding(Object? v) {
@@ -149,4 +231,63 @@ class ConnectionProfile {
     }
     return null;
   }
+}
+
+/// Снимок последнего замера задержек узлов профиля (ABI v2 `probe`).
+///
+/// Хранится на [ConnectionProfile], чтобы список серверов показывал пинги сразу
+/// после перезапуска, а не пустые прочерки. `-1` в [latencyMs] означает таймаут
+/// (узел не ответил за отведённое время) — это НЕ то же самое, что «не мерили»:
+/// не измеренный узел просто отсутствует в карте.
+class ProbeSnapshot {
+  /// `id` узла (имя прокси) -> задержка в мс; -1 = таймаут.
+  final Map<String, int> latencyMs;
+
+  /// Когда замер выполнен (мс эпохи).
+  final int updatedMs;
+
+  const ProbeSnapshot({required this.latencyMs, required this.updatedMs});
+
+  /// Пустой снимок (ни один узел не измерен).
+  static const ProbeSnapshot empty = ProbeSnapshot(
+    latencyMs: <String, int>{},
+    updatedMs: 0,
+  );
+
+  bool get isEmpty => latencyMs.isEmpty;
+
+  DateTime? get updatedAt =>
+      updatedMs > 0 ? DateTime.fromMillisecondsSinceEpoch(updatedMs) : null;
+
+  Map<String, dynamic> toJson() => {
+    'latency_ms': latencyMs,
+    'updated_ms': updatedMs,
+  };
+
+  /// Разбор записи из JSON профиля. `null`/мусор дают `null` (не мерили).
+  static ProbeSnapshot? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final rawLatency = raw['latency_ms'];
+    if (rawLatency is! Map) return null;
+    final latency = <String, int>{};
+    rawLatency.forEach((k, v) {
+      if (k is String && k.isNotEmpty && v is num) latency[k] = v.toInt();
+    });
+    return ProbeSnapshot(
+      latencyMs: latency,
+      updatedMs: (raw['updated_ms'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  /// Собирает снимок из ответа ядра `probe()`.
+  factory ProbeSnapshot.fromResults(
+    List<ProbeResult> results, {
+    DateTime? at,
+  }) => ProbeSnapshot(
+    latencyMs: <String, int>{
+      for (final r in results)
+        if (r.id.isNotEmpty) r.id: r.latencyMs,
+    },
+    updatedMs: (at ?? DateTime.now()).millisecondsSinceEpoch,
+  );
 }

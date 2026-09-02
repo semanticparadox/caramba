@@ -39,15 +39,8 @@ class Server {
 
   bool get isSelectable => status != 'full';
 
-  /// Бакет качества пинга для цвета строки (DESIGN.md §5.2):
-  /// good `<60`, fair `60–150`, poor `>150`, timeout (`null`).
-  PingBucket get pingBucket {
-    final p = pingMs;
-    if (p == null) return PingBucket.timeout;
-    if (p < 60) return PingBucket.good;
-    if (p <= 150) return PingBucket.fair;
-    return PingBucket.poor;
-  }
+  /// Бакет качества пинга для цвета строки (DESIGN.md §5.2).
+  PingBucket get pingBucket => pingBucketOf(pingMs);
 
   /// Бакет загрузки: low `<50`, med `50–80`, high `>80`.
   LoadBucket get loadBucket {
@@ -82,6 +75,18 @@ class Server {
     load: load ?? this.load,
     status: status ?? this.status,
   );
+}
+
+/// Бакет качества пинга (DESIGN.md §5.2): good `<60`, fair `60..150`,
+/// poor `>150`, timeout (`null` или отрицательное значение).
+///
+/// Вынесено из [Server]: те же пороги применяются к узлам импортированной
+/// подписки (у них своя модель и `-1` вместо `null` на таймауте).
+PingBucket pingBucketOf(int? ms) {
+  if (ms == null || ms < 0) return PingBucket.timeout;
+  if (ms < 60) return PingBucket.good;
+  if (ms <= 150) return PingBucket.fair;
+  return PingBucket.poor;
 }
 
 enum PingBucket { good, fair, poor, timeout }

@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:caramba_client/main.dart';
 
@@ -24,9 +25,11 @@ void main() {
   late TestDefaultBinaryMessenger messenger;
 
   setUp(() {
-    messenger = TestDefaultBinaryMessengerBinding
-        .instance
-        .defaultBinaryMessenger;
+    // Локальные настройки читаются на старте (тема, first-run, режим туннеля):
+    // чистая установка = пустое хранилище.
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     for (final channel in _bootChannels) {
       messenger.setMockMethodCallHandler(channel, (call) async => null);
     }

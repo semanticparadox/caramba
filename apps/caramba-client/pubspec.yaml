@@ -29,6 +29,10 @@ dependencies:
   # Secure storage (JWT access/refresh tokens)
   flutter_secure_storage: ^9.2.2
 
+  # Локальные настройки (CoreConfig, AppSettings, first-run, режим туннеля).
+  # Не секреты: JWT и raw-конфиги по-прежнему живут в secure storage.
+  shared_preferences: ^2.3.3
+
   # Charts (traffic / usage)
   fl_chart: ^0.69.2
 
@@ -44,6 +48,11 @@ dependencies:
 
   # Vector assets / line illustrations
   flutter_svg: ^2.0.16
+
+  # Импорт подписки: QR-скан (только Android/iOS, на desktop скрыт) и выбор
+  # файла конфига. Оба аффорданса ведут в один и тот же путь импорта.
+  mobile_scanner: ^5.2.3
+  file_picker: ^8.1.4
 
   # Models / serialization (annotations)
   freezed_annotation: ^2.4.4

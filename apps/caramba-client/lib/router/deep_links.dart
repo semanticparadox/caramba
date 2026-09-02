@@ -8,11 +8,14 @@ import 'package:caramba_client/router/routes.dart';
 
 /// Intake входящих deeplink'ов (P2, contract A).
 ///
-/// Слушает custom-scheme URI `carambaconnect://enroll?panel=<https>&code=<code>`
-/// через [AppLinks]: и холодный старт (приложение запущено ссылкой), и тёплый
-/// (уже работает). На совпадение схемы/действия — навигация на [AppRoute.enroll]
-/// с проброшенными query-параметрами; экран энроллмента заводит профиль панели,
-/// валидирует код и ведёт в register/login. Account ALWAYS required.
+/// Слушает custom-scheme URI через [AppLinks]: и холодный старт (приложение
+/// запущено ссылкой), и тёплый (уже работает). Поддерживаются два действия:
+///   * `carambaconnect://enroll?panel=<https>&code=<code>` — навигация на
+///     [AppRoute.enroll]; экран заводит профиль панели, валидирует код и ведёт
+///     в register/login (аккаунт обязателен);
+///   * `carambaconnect://import?url=<encoded sub url>` — навигация на
+///     [AppRoute.connectionImport] с подставленной ссылкой подписки
+///     (generic-режим, панель не нужна).
 ///
 /// Регистрация схемы — платформенная (Android intent-filter, iOS/macOS
 /// CFBundleURLTypes, Windows/Linux протокол). Без неё OS не доставит ссылку;
@@ -42,14 +45,26 @@ class DeepLinkHandler {
   }
 
   void _handle(Uri uri) {
-    final link = EnrollLink.tryParse(uri.toString());
-    if (link == null) return;
-    _router.go(
-      Uri(
-        path: AppRoute.enroll,
-        queryParameters: {'panel': link.panelUrl, 'code': link.code},
-      ).toString(),
-    );
+    final raw = uri.toString();
+    final enroll = EnrollLink.tryParse(raw);
+    if (enroll != null) {
+      _router.go(
+        Uri(
+          path: AppRoute.enroll,
+          queryParameters: {'panel': enroll.panelUrl, 'code': enroll.code},
+        ).toString(),
+      );
+      return;
+    }
+    final import = ImportLink.tryParse(raw);
+    if (import != null) {
+      _router.go(
+        Uri(
+          path: AppRoute.connectionImport,
+          queryParameters: {'url': import.url},
+        ).toString(),
+      );
+    }
   }
 
   void dispose() {

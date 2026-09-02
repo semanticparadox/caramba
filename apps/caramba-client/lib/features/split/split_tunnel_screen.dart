@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/models/split_app.dart';
+import 'package:caramba_client/features/settings/reconnect_banner.dart';
 import 'package:caramba_client/state/core_config_state.dart';
+import 'package:caramba_client/state/vpn_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
 import 'package:caramba_client/theme/typography.dart';
@@ -11,8 +13,12 @@ import 'package:caramba_client/widgets/lucide.dart';
 import 'package:caramba_client/widgets/ui.dart';
 
 /// Раздельное туннелирование (per-app split). Режим (off / только выбранные /
-/// кроме выбранных) + поиск и список приложений с пер-аппными тумблерами.
-/// Пишет в [coreConfigProvider] -> caramba-core Policy.Split.
+/// кроме выбранных), домены мимо туннеля и список приложений с пер-аппными
+/// тумблерами. Пишет в [coreConfigProvider] -> caramba-core Policy.Split.
+///
+/// Список приложений на desktop пока демонстрационный (платформенного канала
+/// перечисления приложений нет), поэтому домены — рабочий инструмент здесь и
+/// сейчас: они уходят в `split.bypassDomains` и работают на всех платформах.
 class SplitTunnelScreen extends ConsumerStatefulWidget {
   const SplitTunnelScreen({super.key});
 
@@ -22,11 +28,19 @@ class SplitTunnelScreen extends ConsumerStatefulWidget {
 
 class _SplitTunnelScreenState extends ConsumerState<SplitTunnelScreen> {
   final _searchCtrl = TextEditingController();
+  final _domainsCtrl = TextEditingController();
   String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _domainsCtrl.text = ref.read(coreConfigProvider).bypassDomains;
+  }
 
   @override
   void dispose() {
     _searchCtrl.dispose();
+    _domainsCtrl.dispose();
     super.dispose();
   }
 
@@ -79,18 +93,37 @@ class _SplitTunnelScreenState extends ConsumerState<SplitTunnelScreen> {
                   // Режим
                   for (final m in SplitMode.values)
                     ListItemCard(
-                      leading: IBox(switch (m) {
-                        SplitMode.off => Lucide.shield,
-                        SplitMode.onlySelected => Lucide.appWindow,
-                        SplitMode.bypassSelected => Lucide.route,
-                      },),
+                      leading: IBox(_modeGlyph(m)),
                       title: m.title,
                       subtitle: m.desc,
                       selected: cfg.splitMode == m,
                       onTap: () => cfgN.setSplitMode(m),
                     ),
 
+                  if (ref.watch(reconnectRequiredProvider)) ...[
+                    const SizedBox(height: AppSpace.s3),
+                    const ReconnectBanner(),
+                  ],
+
                   if (enabled) ...[
+                    const SectionTitle('Домены мимо туннеля'),
+                    TextField(
+                      controller: _domainsCtrl,
+                      minLines: 2,
+                      maxLines: 5,
+                      style: AppType.monoMd.copyWith(color: c.textHi),
+                      onChanged: cfgN.setBypassDomains,
+                      decoration: const InputDecoration(
+                        hintText: 'example.com, bank.ru\nmail.local',
+                      ),
+                    ),
+                    const SizedBox(height: AppSpace.s2),
+                    Text(
+                      'Через запятую или с новой строки. Эти домены всегда идут '
+                      'напрямую, мимо туннеля.',
+                      style: AppType.bodySm.copyWith(color: c.textLow),
+                    ),
+                    const SizedBox(height: AppSpace.s5),
                     const SectionTitle('Приложения'),
                     TextField(
                       controller: _searchCtrl,
@@ -143,6 +176,13 @@ class _SplitTunnelScreenState extends ConsumerState<SplitTunnelScreen> {
       ),
     );
   }
+
+  /// Глиф режима: вынесен из билда, чтобы switch не жил внутри аргумента.
+  static String _modeGlyph(SplitMode m) => switch (m) {
+    SplitMode.off => Lucide.shield,
+    SplitMode.onlySelected => Lucide.appWindow,
+    SplitMode.bypassSelected => Lucide.route,
+  };
 
   void _close(BuildContext context) {
     if (context.canPop()) {

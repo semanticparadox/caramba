@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/data/brand.dart';
 import 'package:caramba_client/router/app_router.dart';
+import 'package:caramba_client/state/bootstrap_state.dart';
 import 'package:caramba_client/state/branding_state.dart';
 import 'package:caramba_client/state/settings_state.dart';
 import 'package:caramba_client/theme/app_theme.dart';
@@ -19,6 +20,9 @@ class CarambaApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Стартуем чтение локальных настроек с первого кадра: тема и решение про
+    // онбординг зависят от него, а роутер держит сплеш, пока оно не готово.
+    ref.watch(appBootProvider);
     final themeMode = ref.watch(themeModeProvider);
     final router = ref.watch(routerProvider);
     // Брендинг активного инстанса панели (P3, contract E). Всегда валиден:

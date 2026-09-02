@@ -69,6 +69,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
       // на сплеше: трактуем как отсутствие сессии и уводим на логин.
       hasSession = false;
     }
+    // Провайдер мог быть выброшен (инвалидация после энроллмента), пока мы
+    // ждали secure storage: писать в state после dispose нельзя.
+    if (!mounted) return;
     if (hasSession) {
       state = state.copyWith(stage: AuthStage.authenticated);
       await _loadProfile();

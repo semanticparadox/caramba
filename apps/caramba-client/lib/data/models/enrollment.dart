@@ -33,10 +33,7 @@ class EnrollLink {
     if (uri == null) return null;
     if (uri.scheme.toLowerCase() != 'carambaconnect') return null;
 
-    final action = uri.host.isNotEmpty
-        ? uri.host
-        : (uri.pathSegments.isNotEmpty ? uri.pathSegments.first : '');
-    if (action.toLowerCase() != 'enroll') return null;
+    if (_action(uri) != 'enroll') return null;
 
     final panel = (uri.queryParameters['panel'] ?? '').trim();
     final code = (uri.queryParameters['code'] ?? '').trim();
@@ -72,6 +69,56 @@ class EnrollLink {
     final port = uri.hasPort ? ':${uri.port}' : '';
     return '$scheme://${uri.host}$port';
   }
+}
+
+/// Разобранная import-ссылка: URL подписки для generic-режима.
+///
+/// Второе действие той же схемы: `carambaconnect://import?url=<encoded>`.
+/// Ведёт на экран импорта с подставленной ссылкой; аккаунт панели для этого
+/// пути не нужен — подписка произвольная.
+///
+/// Разбор намеренно живёт отдельно от [EnrollLink]: у ссылок разные
+/// обязательные параметры, и `EnrollLink.tryParse` обязан по-прежнему отвергать
+/// всё, что не `enroll` (обратная совместимость).
+class ImportLink {
+  /// URL подписки (http/https). Пустых значений здесь не бывает.
+  final String url;
+
+  const ImportLink({required this.url});
+
+  /// Парсит `carambaconnect://import?url=<encoded sub url>`.
+  ///
+  /// Возвращает `null`, если схема/действие не те либо `url` пуст или не
+  /// http(s). Как и у [EnrollLink], действие может стоять и в хосте
+  /// (`carambaconnect://import`), и в первом сегменте пути
+  /// (`carambaconnect:///import`).
+  static ImportLink? tryParse(String raw) {
+    final uri = Uri.tryParse(raw.trim());
+    if (uri == null) return null;
+    if (uri.scheme.toLowerCase() != 'carambaconnect') return null;
+    if (_action(uri) != 'import') return null;
+    return fromUrl(uri.queryParameters['url'] ?? '');
+  }
+
+  /// Собирает [ImportLink] из голого URL (QR/ручной ввод). Требует http(s) и
+  /// непустой хост: сырой конфиг сюда не подходит, для него есть поле ввода.
+  static ImportLink? fromUrl(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null || uri.host.isEmpty) return null;
+    final scheme = uri.scheme.toLowerCase();
+    if (scheme != 'https' && scheme != 'http') return null;
+    return ImportLink(url: trimmed);
+  }
+}
+
+/// Действие custom-scheme URI: хост либо первый сегмент пути, в нижнем регистре.
+String _action(Uri uri) {
+  final raw = uri.host.isNotEmpty
+      ? uri.host
+      : (uri.pathSegments.isNotEmpty ? uri.pathSegments.first : '');
+  return raw.toLowerCase();
 }
 
 /// Ответ публичной валидации `GET /api/v2/app/enroll/{code}`.

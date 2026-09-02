@@ -4,12 +4,15 @@ import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/models/protocol.dart';
 import 'package:caramba_client/data/models/split_app.dart';
+import 'package:caramba_client/features/settings/reconnect_banner.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/core_config_state.dart';
+import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/state/settings_state.dart';
 import 'package:caramba_client/state/vpn_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
+import 'package:caramba_client/vpn/core_policy.dart';
 import 'package:caramba_client/theme/tokens.dart';
 import 'package:caramba_client/widgets/lucide.dart';
 import 'package:caramba_client/widgets/ui.dart';
@@ -30,6 +33,8 @@ class SettingsScreen extends ConsumerWidget {
     final protocols = ref.watch(protocolsProvider);
     final modes = ref.watch(routingModesProvider);
     final isLight = settings.themeMode == ThemeMode.light;
+    final tunnelMode = ref.watch(tunnelModeProvider);
+    final authed = ref.watch(authProvider).stage == AuthStage.authenticated;
 
     return Scaffold(
       backgroundColor: c.bgCanvas,
@@ -44,6 +49,13 @@ class SettingsScreen extends ConsumerWidget {
           ),
           children: [
             const ScreenHead('Настройки'),
+
+            // Политика ядра применяется при следующем поднятии туннеля, а не
+            // на лету: пока правки не применены, показываем это явно.
+            if (ref.watch(reconnectRequiredProvider)) ...[
+              const ReconnectBanner(),
+              const SizedBox(height: AppSpace.s4),
+            ],
 
             const SectionTitle(
               'Подключение',
@@ -161,6 +173,45 @@ class SettingsScreen extends ConsumerWidget {
                   trailing: Switch(value: cfg.ipv6, onChanged: cfgN.setIpv6),
                 ),
                 CRow(
+                  icon: Lucide.route,
+                  label: 'Захват трафика',
+                  value: tunnelMode == TunnelMode.tun
+                      ? 'Системный TUN'
+                      : 'Локальный прокси',
+                  chevron: true,
+                  onTap: () async {
+                    final i = await showPickerSheet(
+                      context: context,
+                      title: 'Захват трафика',
+                      subtitle:
+                          'TUN заворачивает весь трафик системы и требует прав. '
+                          'Прокси поднимает 127.0.0.1:$kMixedPort без прав.',
+                      options: const [
+                        (
+                          name: 'Системный TUN',
+                          desc:
+                              'Весь трафик устройства. Нужны права '
+                              'администратора или системное расширение.',
+                          icon: Lucide.shield as String?,
+                        ),
+                        (
+                          name: 'Локальный прокси',
+                          desc:
+                              'SOCKS5 и HTTP на 127.0.0.1:7890. Без прав, '
+                              'трафик направляют приложения или система.',
+                          icon: Lucide.net as String?,
+                        ),
+                      ],
+                      selected: tunnelMode == TunnelMode.tun ? 0 : 1,
+                    );
+                    if (i != null) {
+                      ref
+                          .read(tunnelModeProvider.notifier)
+                          .set(i == 0 ? TunnelMode.tun : TunnelMode.proxy);
+                    }
+                  },
+                ),
+                CRow(
                   label: 'Раздельное туннелирование',
                   value: cfg.splitMode == SplitMode.off
                       ? 'Выкл'
@@ -183,17 +234,33 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
 
-            const SectionTitle('Поддержка'),
-            RowsGroup(
-              children: [
-                CRow(
-                  icon: Lucide.lifeBuoy,
-                  label: 'Запросы в поддержку',
-                  chevron: true,
-                  onTap: () => context.go(AppRoute.tickets),
-                ),
-              ],
-            ),
+            // Поддержка живёт в панели: без аккаунта раздел пустой, поэтому в
+            // generic-режиме показываем вход вместо тикетов.
+            if (authed) ...[
+              const SectionTitle('Поддержка'),
+              RowsGroup(
+                children: [
+                  CRow(
+                    icon: Lucide.lifeBuoy,
+                    label: 'Запросы в поддержку',
+                    chevron: true,
+                    onTap: () => context.go(AppRoute.tickets),
+                  ),
+                ],
+              ),
+            ] else ...[
+              const SectionTitle('Аккаунт панели'),
+              RowsGroup(
+                children: [
+                  CRow(
+                    icon: Lucide.userPlus,
+                    label: 'Войти или подключить панель',
+                    chevron: true,
+                    onTap: () => context.go(AppRoute.login),
+                  ),
+                ],
+              ),
+            ],
 
             const SectionTitle('Вид'),
             RowsGroup(
@@ -212,16 +279,17 @@ class SettingsScreen extends ConsumerWidget {
             ),
 
             const SizedBox(height: AppSpace.s5),
-            QuietButton(
-              label: 'Выйти из аккаунта',
-              onPressed: () async {
-                if (ref.read(vpnProvider).isConnected) {
-                  await ref.read(vpnProvider.notifier).disconnect();
-                }
-                ref.read(firstRunProvider.notifier).reset();
-                await ref.read(authProvider.notifier).logout();
-              },
-            ),
+            if (authed)
+              QuietButton(
+                label: 'Выйти из аккаунта',
+                onPressed: () async {
+                  if (ref.read(vpnProvider).isConnected) {
+                    await ref.read(vpnProvider.notifier).disconnect();
+                  }
+                  ref.read(firstRunProvider.notifier).reset();
+                  await ref.read(authProvider.notifier).logout();
+                },
+              ),
           ],
         ),
       ),
