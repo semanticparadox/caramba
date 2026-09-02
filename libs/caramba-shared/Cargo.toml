@@ -1,6 +1,6 @@
 [package]
 name = "caramba-shared"
-version = "0.9.77"
+version = "0.9.78"
 edition = "2024"
 
 [dependencies]
