@@ -207,3 +207,66 @@ fn panel_refuses_to_sign_a_document_no_client_can_read() {
     // Проверяем, что предел существует как число, а не как обещание.
     assert_eq!(csm::DOC_FRAME_MAX, 4096);
 }
+
+/// Заполнение из генератора корпуса: последовательность байт от `start`.
+fn seq(start: u8, n: usize) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    for (i, slot) in out.iter_mut().enumerate().take(n) {
+        *slot = start.wrapping_add(i as u8);
+    }
+    out
+}
+
+/// Эталонный bootstrap-блоб из `03-WIRE.md` 8.5, ровно теми же входными
+/// данными, что в генераторе корпуса.
+fn wire_bootstrap_blob() -> caramba_shared::csm::BootstrapBlob {
+    use caramba_shared::csm::{BootstrapBlob, DohEntry, Mirror};
+    BootstrapBlob {
+        pid: hex(PID).try_into().unwrap(),
+        ver: 1,
+        iat: FIX_IAT,
+        origin: "https://panel.example.net".into(),
+        code: "K7QW-3M2P-9XRT".into(),
+        root_public: hex(ROOT_PUBLIC).try_into().unwrap(),
+        mirrors: vec![Mirror {
+            host: "m1.example-cdn.net".into(),
+            sni: "m1.example-cdn.net".into(),
+            pins: vec![seq(0x20, 32)],
+            asn: 24940,
+            country: "DE".into(),
+            weight: None,
+            ips: Vec::new(),
+        }],
+        doh: vec![DohEntry {
+            host: "doh.example.net".into(),
+            path: "/dns-query".into(),
+            ips: vec!["198.51.100.7".into()],
+            pins: vec![seq(0x40, 32)],
+        }],
+        operator_name: Some("Exa Networks".into()),
+    }
+}
+
+#[test]
+fn bootstrap_blob_reproduces_the_corpus_fixture_byte_for_byte() {
+    let Some(dir) = corpus_dir() else {
+        eprintln!("корпус недоступен, тест пропущен");
+        return;
+    };
+    let expected = std::fs::read(dir.join("bin/positive/b1_wire_8_5.bin"))
+        .expect("эталонный кадр b1_wire_8_5.bin");
+
+    let payload = wire_bootstrap_blob().encode().expect("пределы профиля");
+    let frame = csm::build(DocType::Bootstrap, &payload, &[seed(ROOT_SEED)]).expect("кадр");
+
+    assert_eq!(
+        payload.len(),
+        290,
+        "03-WIRE.md 8.5 фиксирует payload 290 байт"
+    );
+    assert_eq!(frame.len(), 374, "03-WIRE.md 8.5 фиксирует кадр 374 байта");
+    assert_eq!(
+        frame, expected,
+        "bootstrap-блоб панели не совпал с эталонным байт в байт"
+    );
+}

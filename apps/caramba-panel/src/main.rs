@@ -10,6 +10,7 @@ mod api;
 mod bot;
 mod bot_manager;
 mod cli;
+mod csm;
 pub mod handlers;
 mod license;
 mod scripts;
@@ -1581,6 +1582,10 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         // через .nest(), чтобы не дублировать каждый маршрут дважды.
         .nest("/api", api_routes.clone())
         .nest("/caramba-api", api_routes)
+        // CSM/1: подписанные документы протокола. Регистрируются ПЕРЕД
+        // /sub/{uuid}, потому что k1 и подобные это фиксированные сегменты, а
+        // не идентификаторы подписки, и матчер обязан увидеть их первыми.
+        .merge(csm::routes::routes())
         // Public Subscription URL endpoint
         .route(
             "/sub/{uuid}",

@@ -20,7 +20,7 @@ pub mod frame;
 
 pub use cbor::Value;
 pub use docs::{
-    ALG_ED25519, BootstrapBlob, DOC_FRAME_MAX, KeyDocument, KeyEntry, LIFETIME_BOOTSTRAP,
+    ALG_ED25519, BootstrapBlob, DOC_FRAME_MAX, DohEntry, KeyDocument, KeyEntry, LIFETIME_BOOTSTRAP,
     LIFETIME_CATALOG, LIFETIME_DIRECTIVE, LIFETIME_KEY, LIFETIME_RESERVE, Mirror, Role, RoleSpec,
     SPEC_VERSION,
 };

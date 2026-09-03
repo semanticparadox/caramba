@@ -167,50 +167,125 @@ impl KeyDocument {
     }
 }
 
-/// Запись зеркала в bootstrap-блобе и в резервном пуле.
+/// Запись зеркала (`03-WIRE.md` 8.2, «Mirror entry»).
+///
+/// `asn` и `cc` панель определяет при сохранении пула и подписывает вместе с
+/// остальным: клиент обязан иметь возможность ПРОВЕРИТЬ заявленное разнообразие
+/// провайдеров, а не поверить ему на слово.
 #[derive(Debug, Clone)]
 pub struct Mirror {
-    /// Хост зеркала.
+    /// Хост.
     pub host: String,
-    /// Порт. `None` означает 443.
-    pub port: Option<u64>,
+    /// SNI, задаётся явно для каждого зеркала.
+    pub sni: String,
+    /// Пины SPKI (sha256), от одного до четырёх.
+    pub pins: Vec<[u8; 32]>,
+    /// Автономная система.
+    pub asn: u64,
+    /// Страна, две заглавные буквы ISO 3166-1.
+    pub country: String,
+    /// Вес выбора, 1..100. `None` означает 10.
+    pub weight: Option<u64>,
+    /// Литеральные адреса для ступени без резолвера.
+    pub ips: Vec<String>,
 }
 
 impl Mirror {
     fn to_value(&self) -> Value {
         let mut m = BTreeMap::new();
         m.insert(1, Value::Text(self.host.clone()));
-        if let Some(p) = self.port {
-            m.insert(2, Value::Uint(p));
+        m.insert(2, Value::Text(self.sni.clone()));
+        m.insert(
+            3,
+            Value::Array(self.pins.iter().map(|p| Value::Bytes(p.to_vec())).collect()),
+        );
+        m.insert(4, Value::Uint(self.asn));
+        m.insert(5, Value::Text(self.country.clone()));
+        if let Some(w) = self.weight {
+            m.insert(6, Value::Uint(w));
+        }
+        if !self.ips.is_empty() {
+            m.insert(
+                7,
+                Value::Array(self.ips.iter().map(|i| Value::Text(i.clone())).collect()),
+            );
         }
         Value::Map(m)
     }
 }
 
-/// Bootstrap-блоб, `doc_type = 0x05`. Подписывается корнем: это то, что клиент
-/// получает при энроллменте, до того как у него есть хоть какое-то доверие.
+/// Запись DoH (`03-WIRE.md` 8.2, «DoH entry»).
+///
+/// Литеральные адреса обязательны именно здесь: ступень, которая поднимается
+/// без резолвера, обязана уметь подключиться, не спрашивая DNS. Проверка
+/// сертификата при этом не отключается: имя берётся из `host` и уходит в SNI.
+#[derive(Debug, Clone)]
+pub struct DohEntry {
+    pub host: String,
+    /// Путь запроса, только путь.
+    pub path: String,
+    pub ips: Vec<String>,
+    pub pins: Vec<[u8; 32]>,
+}
+
+impl DohEntry {
+    fn to_value(&self) -> Value {
+        Value::map([
+            (1, Value::Text(self.host.clone())),
+            (2, Value::Text(self.path.clone())),
+            (
+                3,
+                Value::Array(self.ips.iter().map(|i| Value::Text(i.clone())).collect()),
+            ),
+            (
+                4,
+                Value::Array(self.pins.iter().map(|p| Value::Bytes(p.to_vec())).collect()),
+            ),
+        ])
+    }
+}
+
+/// Bootstrap-блоб, `doc_type = 0x05` (`03-WIRE.md` 8.5).
+///
+/// Подписывается корнем и живёт ВНЕ того хоста, от которого он спасает: это
+/// набор для входа, когда основной адрес недоступен. Он самодостаточен, потому
+/// что несёт сам корневой ключ, и пригоден к диктовке голосом в вырожденном
+/// случае.
+///
+/// Цен, ссылок на оплату и имени бота здесь нет и быть не может.
 #[derive(Debug, Clone)]
 pub struct BootstrapBlob {
     pub pid: [u8; 8],
     pub ver: u64,
     pub iat: u64,
-    /// Зеркала, с которых можно взять ключевой документ.
+    /// Origin энроллмента, `https://host[:port]`, без пути.
+    pub origin: String,
+    /// Код приглашения с вплетённым пином.
+    pub code: String,
+    /// Корневой публичный ключ: блоб самодостаточен.
+    pub root_public: [u8; 32],
     pub mirrors: Vec<Mirror>,
-    /// Идентификатор тира, к которому относится приглашение.
-    pub tier: Option<u64>,
+    pub doh: Vec<DohEntry>,
+    /// Отображаемое имя оператора, инертный текст.
+    pub operator_name: Option<String>,
 }
 
 impl BootstrapBlob {
     pub fn to_value(&self) -> Value {
         let mut m = envelope(&self.pid, self.ver, self.iat, LIFETIME_BOOTSTRAP);
-        if !self.mirrors.is_empty() {
-            m.insert(
-                10,
-                Value::Array(self.mirrors.iter().map(Mirror::to_value).collect()),
-            );
-        }
-        if let Some(t) = self.tier {
-            m.insert(16, Value::Uint(t));
+        m.insert(10, Value::Text(self.origin.clone()));
+        m.insert(11, Value::Text(self.code.clone()));
+        m.insert(12, Value::Bytes(self.root_public.to_vec()));
+        m.insert(
+            13,
+            Value::Array(self.mirrors.iter().map(Mirror::to_value).collect()),
+        );
+        m.insert(
+            14,
+            Value::Array(self.doh.iter().map(DohEntry::to_value).collect()),
+        );
+        if let Some(n) = &self.operator_name {
+            m.insert(15, Value::Text(n.clone()));
         }
         Value::Map(m)
     }

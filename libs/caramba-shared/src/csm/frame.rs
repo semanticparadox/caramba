@@ -116,7 +116,7 @@ pub fn build(
             (kid, sig)
         })
         .collect();
-    slots.sort_by(|a, b| a.0.cmp(&b.0));
+    slots.sort_by_key(|slot| slot.0);
 
     // Одинаковый keyid в двух слотах верификатор отвергает, поэтому не выпускаем.
     if slots.windows(2).any(|w| w[0].0 == w[1].0) {

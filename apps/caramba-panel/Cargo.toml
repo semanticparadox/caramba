@@ -46,6 +46,8 @@ jsonwebtoken = { version = "10.3", default-features = false, features = ["rust_c
 redis = { version = "1.0.3", features = ["tokio-comp", "tokio-rustls-comp", "connection-manager"] }
 # removal of bb8-redis and bb8
 sha2 = "0.10"
+# CSM/1: онлайн-ключ подписи протокола (корневой живёт офлайн).
+ed25519-dalek = { version = "2", features = ["rand_core"] }
 sha1 = "0.10"
 hmac = "0.12"
 subtle = "2.6"
@@ -60,7 +62,7 @@ sysinfo = "0.38"
 # 0.38 introduced many changes. I'll stick to 0.33 for sysinfo to minimize breakage for now, or maybe 0.38 if I'm brave.
 # Let's go with 0.33 for sysinfo.
 
-caramba-shared = { path = "../../libs/caramba-shared", features = ["geo", "license"] }
+caramba-shared = { path = "../../libs/caramba-shared", features = ["geo", "license", "csm"] }
 serde_yaml = "0.9"
 urlencoding = "2.1"
 url = "2.5"
