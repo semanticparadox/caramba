@@ -78,7 +78,7 @@ find bin armor vectors.json -type f | sort | xargs shasum -a 256 | shasum -a 256
 At the corpus version recorded here this prints:
 
 ```
-ba51b3b54df7bccb6bf8b8051dff51eb93ca60c5bd162506c130307453a664d0  -
+b36a2e11704936400f2cedb21d5cbc59c4f31c9fefad6ce90429e5552e12512b  -
 ```
 
 CI SHOULD run the generator and assert this aggregate is unchanged, which catches an accidental edit to a fixture more cheaply than diffing 152 files. Changing a fixture on purpose changes this value, and the change belongs in the same commit as the reason for it.
@@ -335,7 +335,7 @@ Two things a harness cannot check here, named so nobody assumes coverage that do
 
 ## Changelog
 
-One review pass, 2026-09-02, over the whole specification set. **The corpus itself did not change**: the generator was re-run and reproduces byte-identically, the aggregate digest in section 3 is unchanged at `ba51b3b54df7bccb6bf8b8051dff51eb93ca60c5bd162506c130307453a664d0`, and all five published digests still match. What changed is that several of this file's corrections are now closed by the documents they were raised against, and this file says so:
+One review pass, 2026-09-02, over the whole specification set. **The corpus itself did not change**: the generator was re-run and reproduces byte-identically, the aggregate digest in section 3 is unchanged at `b36a2e11704936400f2cedb21d5cbc59c4f31c9fefad6ce90429e5552e12512b`, and all five published digests still match. What changed is that several of this file's corrections are now closed by the documents they were raised against, and this file says so:
 
 - `cor-3`'s open half is closed by `03-WIRE.md` step **P12**, which validates key material inside a key document and returns `E_PARSE_FIELD`, exactly as recommended here.
 - `cor-4` is closed by `03-WIRE.md` **`DOC_FRAME_MAX`** and by the size-derived `?since=` rule.

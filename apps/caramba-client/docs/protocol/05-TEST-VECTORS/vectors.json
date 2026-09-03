@@ -163,6 +163,26 @@
         "1": 2
       },
       "note": "Trust anchor is version 2 of the rotation chain, whose root role holds rootB only."
+    },
+    "tiers": {
+      "anchor": "bin/positive/k1_typical.bin",
+      "pinned_pid": "226e8a20f699b964",
+      "link_pin": "49Q8M87PK6WP9QXG3T30",
+      "now": 1788307500,
+      "time_floor": 1788307200,
+      "expected_nonce": "a3f10c94b27e5d6188ff20419c73ae05",
+      "device_dtp": "4f0f22569564aab09a2d1a75c132d955",
+      "device_agreement_sk": "a801c3a8f0bbc69e012c248320808ccf24e4928065cedfbcfd22032e9c954138",
+      "hwm": {
+        "1": 2,
+        "2": 0,
+        "3": 411,
+        "4": 0,
+        "5": 0,
+        "8": 0
+      },
+      "bound_tier": 1,
+      "note": "Trust anchor is k1_typical, which publishes tiers {1: chash(c1_min), 2: chash(c1_max)}. The bound tier is 1 and comes from the trusted directive; a verifier that reads the tier from the catalog in front of it instead will accept neg-verify-tier-not-anchored."
     }
   },
   "published_digest_check": [
@@ -1069,12 +1089,13 @@
       "sha256": "9a3eff8e82a7e199534aeb170ffee975d46c38795009d97287854f316c0533fa",
       "verdict": "reject",
       "code": "E_VERIFY_CATHASH",
-      "step": "V14",
+      "step": "V14a",
       "context": "default",
       "context_override": {
         "hwm": {
           "2": 6
         },
+        "bound_cat": "bin/positive/c1_min.bin",
         "note": "The trusted directive names cat = sha256(c1_min.bin). This catalog is a different document with a different frame digest."
       },
       "note": "A validly signed catalog whose sha256 is not the cat the trusted directive named. The directive binds the catalog by hash, so a compromised mirror cannot substitute a different but validly signed catalog; per 01-DECISION.md A1, a compromised ONLINE KEY still can, and that is an accepted risk rather than a defect."
@@ -1111,12 +1132,12 @@
       "file": "bin/negative/verify_expired.bin",
       "doc_type": 3,
       "bytes": 228,
-      "sha256": "eb54666108856f003fb966fdb81262712c8196472937965051e15442c5e43276",
+      "sha256": "f495ee167ec374dcc552c6f1a85180815d3cbcc54be6446293145de2479805dd",
       "verdict": "reject",
       "code": "E_VERIFY_EXPIRED",
       "step": "V12",
       "context": "default",
-      "note": "exp is 3300 seconds before now, past the 300 second skew. The rejection means the document is refused for NEW instructions and NEW status only. Invariant 16 is absolute: an expired document MUST NOT disconnect a user, tear down a tunnel or clear a cached configuration, and a harness that treats this fixture as a disconnect trigger has implemented the wrong thing."
+      "note": "exp is 200 seconds before now, past the 300 second skew when the skew is applied to now rather than to exp: now = floor + 300, exp = floor - 200, and V12 tests now \u003e exp + 300. iat is floor - 3800, so iat + LIFETIME_MAX[0x03] + 300 = floor + 100 clears V11 by 100 seconds and the two codes are separable under the specification predicate with no tolerance invented. The rejection means the document is refused for NEW instructions and NEW status only. Invariant 16 is absolute: an expired document MUST NOT disconnect a user, tear down a tunnel or clear a cached configuration, and a harness that treats this fixture as a disconnect trigger has implemented the wrong thing."
     },
     {
       "id": "neg-verify-iat-below-floor",
@@ -1156,6 +1177,19 @@
       "step": "V4",
       "context": "default",
       "note": "A key document signed by the ONLINE key. This is the attack the role table exists to stop: an attacker holding the online key mints a key document at N+1 naming only their own key under role root, the high-water mark advances, and the operator can never recover. The role is resolved from doc_type and the key set is read from the PREVIOUSLY TRUSTED document, so the online kid is simply not in roles[1].ks."
+    },
+    {
+      "id": "neg-verify-loc-charset",
+      "group": "negative",
+      "file": "bin/negative/verify_loc_charset.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "7060f050c9126d96969f582f3a8152078927a66eaf8a56a0a9d325794be17ff9",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "loc is 24 well-formed UTF-8 bytes that are not base32 Crockford. Length alone is not the rule: this value reaches a URL path verbatim, because RequestURI escapes but does not clean dot segments, and it reaches the X-CSM-Loc header. Rejecting it at P11 closes it at the boundary where every other identifier is checked."
     },
     {
       "id": "neg-verify-no-anchor",
@@ -1262,6 +1296,45 @@
       "note": "A key document at version 3 against a trusted version 1. Clients MUST refuse to skip a version, and the code is E_VERIFY_ROTATION rather than E_VERIFY_VERSION so that a skip is distinguishable from a rollback in the attempt history."
     },
     {
+      "id": "neg-verify-selpol-preset",
+      "group": "negative",
+      "file": "bin/negative/verify_selpol_preset.bin",
+      "doc_type": 3,
+      "bytes": 253,
+      "sha256": "cbf9853ce1a2a20eefa61021c4d75d8a4e390536f870f48a69f19a2551d2e2d4",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "sel.preset and pol[2] are both present and differ. pol is what the client applies to the core and sel is what it puts on the legacy URL; a directive that says two different presets makes the client apply both."
+    },
+    {
+      "id": "neg-verify-selpol-proto",
+      "group": "negative",
+      "file": "bin/negative/verify_selpol_proto.bin",
+      "doc_type": 3,
+      "bytes": 249,
+      "sha256": "3cf254e1949e5b6a2274014a335bd0a334d72b50bcef8b2482a0c9b3d04a98f3",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "sel.proto is 1 (VLESS) while pol[1] is Shadowsocks, whose PROTO_WIRE value is 6. The mapping of 02-SPEC.md 7.4 is authoritative in one direction only: VLESS and VLESS-Reality both map to 1, so a client MUST NOT reconstruct pol[1] from sel.proto, and this vector must not be satisfied by doing so."
+    },
+    {
+      "id": "neg-verify-selpol-rcc",
+      "group": "negative",
+      "file": "bin/negative/verify_selpol_rcc.bin",
+      "doc_type": 3,
+      "bytes": 242,
+      "sha256": "71af0e3353882744e3b843bf8c05e9339c6c05d6517226c71550ac2ca9c0dd92",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "sel.rcc is NL while pol[3] names de. sel.relay is a node id and pol[3] is a country code; where pol[3] carries a country code, sel.rcc MUST be that code uppercased. An empty pol[3] means the operator resolved it and admits any legal sel.rcc, which is why this fixture sets a concrete code."
+    },
+    {
       "id": "neg-verify-signature-payload-bitflip",
       "group": "negative",
       "file": "bin/negative/verify_signature_payload_bitflip.bin",
@@ -1286,6 +1359,19 @@
       "step": "V4",
       "context": "default",
       "note": "Signed by a well-formed key that is in no role of the trusted document. The frame MUST be rejected whole; an unauthorized slot is never skipped, because a frame carrying one is a frame someone tried to launder."
+    },
+    {
+      "id": "neg-verify-tier-not-anchored",
+      "group": "negative",
+      "file": "bin/negative/verify_tier_not_anchored.bin",
+      "doc_type": 2,
+      "bytes": 274,
+      "sha256": "f94694d840e1543795eddfeea33e928e2f6c0cec5653c3f5f39f48304c49f7e9",
+      "verdict": "reject",
+      "code": "E_VERIFY_CATHASH",
+      "step": "V14b",
+      "context": "tiers",
+      "note": "A catalog carrying tier 999, which the trusted key document does not anchor, verified against a directive that named tier 1. V14b MUST look up tiers[1], the tier the trusted directive named, and reject this frame because its sha256 is not the root-signed hash for that tier. An implementation that takes the tier from the catalog accepts this vector, and a compromised online key can then mint any fleet it likes by naming a tier the root never published."
     },
     {
       "id": "neg-verify-version-equal-different-bytes",
@@ -1726,11 +1812,11 @@
       "group": "positive",
       "file": "bin/positive/m1_max.bin",
       "doc_type": 3,
-      "bytes": 3840,
-      "sha256": "a9e07bfa4e37999917d6309f2c0770d4e7252d79799e5b912d136a3be84ba0aa",
+      "bytes": 4096,
+      "sha256": "91745e312afb40ae0356a1c2fab1b1e2403a9c9401a80c257d25ad2ec17cc950",
       "verdict": "accept",
       "context": "default",
-      "note": "Maximum directive: every optional field present, every capped text field at 80 bytes, all eleven policy keys, then padded to 3840 bytes, the largest 256-byte grid value that fits under thr.resp_max of 4096. Unpadded it is 1019 bytes."
+      "note": "Maximum directive: every optional field present, every capped text field at 80 bytes, all eleven policy keys, then padded to 4096 bytes, the largest 256-byte grid value that fits under thr.resp_max of 4096. Unpadded it is 1048 bytes."
     },
     {
       "id": "pos-m1-min",
@@ -2427,12 +2513,12 @@
     "derivations": 9,
     "ed25519_public_key_ingest": 17,
     "ed25519_signature": 7,
-    "files": 152,
-    "negative": 84,
+    "files": 157,
+    "negative": 89,
     "positive": 52,
     "reference": 2,
     "transport": 8,
-    "vectors": 138
+    "vectors": 143
   },
   "error_code_registry": {
     "parse": [
@@ -2543,8 +2629,8 @@
       "typical_count": 2
     },
     "directive": {
-      "maximum": 3840,
-      "maximum_unpadded": 1019,
+      "maximum": 4096,
+      "maximum_unpadded": 1048,
       "minimum": 228,
       "typical": 444
     },

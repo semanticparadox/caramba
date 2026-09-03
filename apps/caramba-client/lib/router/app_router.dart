@@ -8,6 +8,10 @@ import 'package:caramba_client/features/auth/login_screen.dart';
 import 'package:caramba_client/features/autotune/autotune_screen.dart';
 import 'package:caramba_client/features/connections/connection_import_screen.dart';
 import 'package:caramba_client/features/connections/connections_screen.dart';
+import 'package:caramba_client/features/csm/documents_screen.dart';
+import 'package:caramba_client/features/csm/operator_identity_screen.dart';
+import 'package:caramba_client/features/csm/transport_ladder_screen.dart';
+import 'package:caramba_client/features/csm/what_we_send_screen.dart';
 import 'package:caramba_client/features/enroll/enroll_screen.dart';
 import 'package:caramba_client/features/home/home_screen.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
@@ -161,6 +165,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => EnrollScreen(
           initialPanel: state.uri.queryParameters['panel'],
           initialCode: state.uri.queryParameters['code'],
+          // k это link_pin ссылки энроллмента. Он доезжает до контроллера, а не
+          // теряется по дороге: без него закреплённый энроллмент молча стал бы
+          // незакреплённым.
+          initialLinkPin: state.uri.queryParameters['k'],
         ),
       ),
       GoRoute(
@@ -194,6 +202,29 @@ final routerProvider = Provider<GoRouter>((ref) {
             ),
           ),
         ],
+      ),
+      // Экраны проверки CSM/1: личность оператора, состояние документов,
+      // лестница транспортов и раскрытие отправляемых полей. Полноэкранные
+      // поверх шелла, как остальные пикеры.
+      GoRoute(
+        path: AppRoute.csmOperator,
+        parentNavigatorKey: _rootKey,
+        builder: (context, state) => const OperatorIdentityScreen(),
+      ),
+      GoRoute(
+        path: AppRoute.csmDocuments,
+        parentNavigatorKey: _rootKey,
+        builder: (context, state) => const CsmDocumentsScreen(),
+      ),
+      GoRoute(
+        path: AppRoute.csmTransport,
+        parentNavigatorKey: _rootKey,
+        builder: (context, state) => const TransportLadderScreen(),
+      ),
+      GoRoute(
+        path: AppRoute.csmDisclosure,
+        parentNavigatorKey: _rootKey,
+        builder: (context, state) => const WhatWeSendScreen(),
       ),
       GoRoute(
         path: AppRoute.referrals,

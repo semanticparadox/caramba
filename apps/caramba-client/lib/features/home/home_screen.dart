@@ -11,7 +11,10 @@ import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/protocol.dart';
 import 'package:caramba_client/data/models/relay.dart';
 import 'package:caramba_client/data/models/server.dart';
+import 'package:caramba_client/features/csm/config_age_card.dart';
+import 'package:caramba_client/features/csm/keep_or_revert_card.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
+import 'package:caramba_client/features/settings/csm_settings_bridge.dart';
 import 'package:caramba_client/features/settings/reconnect_banner.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/account_state.dart';
@@ -348,6 +351,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         const ReconnectBanner(),
                         const SizedBox(height: AppSpace.s4),
                       ],
+                      // INV-21 и INV-22 живут здесь же, ниже дайла: возраст
+                      // конфигурации, липкая ошибка и карточки «Оставить или
+                      // Вернуть». Выше дайла их ставить нельзя, атмосферный
+                      // слой зарегистрирован на измеренную геометрию шапки и
+                      // дайла и любой сдвиг ломает его инвариант.
+                      const CsmConfigAgeCard(),
+                      const CsmPendingChangesSection(),
                       ...cards,
                     ],
                   ),
@@ -609,7 +619,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       selected: sel,
     );
     if (i != null && mounted) {
-      ref.read(coreConfigProvider.notifier).setRelay(i);
+      CsmSettingsBridge.setRelay(ref, i, relays);
       showCarambaToast(context, 'Relay: ${relays[i].name}');
     }
   }
@@ -627,7 +637,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       selected: cfg.route,
     );
     if (i != null && mounted) {
-      ref.read(coreConfigProvider.notifier).setRoute(i);
+      CsmSettingsBridge.setRoute(ref, i);
       showCarambaToast(context, 'Маршрут: ${modes[i].name}');
     }
   }

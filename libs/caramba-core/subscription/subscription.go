@@ -108,6 +108,10 @@ func NewClient(subBaseURL string, opts ...Option) *Client {
 	return c
 }
 
+// HTTPDoer возвращает текущий HTTP-клиент. Нужен, чтобы проверить, что
+// лестница транспортов действительно передана в обоих местах сборки клиента.
+func (c *Client) HTTPDoer() HTTPDoer { return c.http }
+
 // FetchOptions — необязательные параметры выборки.
 type FetchOptions struct {
 	// NodeID привязывает конфиг к конкретному выходному узлу (?node_id=).
@@ -115,7 +119,19 @@ type FetchOptions struct {
 	// RelayCountry переопределяет фильтрацию релеев (?relay_country=, ISO-2 или
 	// "none").
 	RelayCountry string
+	// Variant передаёт вариант конфигурации (?variant=). Нужен только когда
+	// оператор выставил бит возможностей 10 (проброс variant): без проброса
+	// панель детерминированно отдаёт вариант по умолчанию, и каждая проверка
+	// хеша конфигурации падала бы. Пустая строка означает "не отправлять".
+	Variant string
 }
+
+// MaxProfileBytes — потолок тела конфигурации подписки.
+//
+// Он не подписан и оператором не поднимается. Существует потому, что
+// неограниченный io.ReadAll на теле, размер которого выбирает отвечающая
+// сторона, это выделение памяти по её заявлению.
+const MaxProfileBytes int64 = 4 << 20
 
 // FetchProfile загружает mihomo-конфиг подписки по её UUID и возвращает сырой
 // YAML вместе с разобранными метаданными.
@@ -135,6 +151,9 @@ func (c *Client) FetchProfile(ctx context.Context, subscriptionUUID string, opts
 	}
 	if opts.RelayCountry != "" {
 		q.Set("relay_country", opts.RelayCountry)
+	}
+	if opts.Variant != "" {
+		q.Set("variant", opts.Variant)
 	}
 	endpoint.RawQuery = q.Encode()
 
@@ -158,9 +177,14 @@ func (c *Client) FetchProfile(ctx context.Context, subscriptionUUID string, opts
 		return nil, fmt.Errorf("subscription: панель вернула статус %d", resp.StatusCode)
 	}
 
-	raw, err := io.ReadAll(resp.Body)
+	// Чтение под потолком: +1 байт, чтобы переполнение было видно на первом
+	// лишнем байте, а не после того, как оно уже в памяти.
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, MaxProfileBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("subscription: чтение тела: %w", err)
+	}
+	if int64(len(raw)) > MaxProfileBytes {
+		return nil, fmt.Errorf("subscription: тело выше потолка %d байт", MaxProfileBytes)
 	}
 
 	meta, err := parseMetadata(resp.Header, raw)

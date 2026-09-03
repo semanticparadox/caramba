@@ -285,11 +285,28 @@ func buildPositives() []publishedDigest {
 	dirMaxOpts := directiveOpts{
 		pid: pid, ver: 65535, iat: fixIAT, nonce: nonce, dtp: dtp, st: 7, rc: 3001,
 		cat: frameSHA(catMaxFrame), cn: uint64((len(catMaxFrame) + chunkPayloadMax - 1) / chunkPayloadMax),
-		tier: 65535, cap: []byte{0x00, 0x00, 0x0f, 0xff},
+		// tier at its maximum, 1023. 03-WIRE.md 8.1 caps it there and not at
+		// 65535: the tier id is a CBOR map key in tiers, and rule 3.3 rejects
+		// every key at or above 1024, so a panel deriving 65535 signed a
+		// document no conforming verifier could decode.
+		tier: 1023, cap: []byte{0x00, 0x00, 0x0f, 0xff},
+		// sel and pol MUST agree under the three self-contained predicates of
+		// 02-SPEC.md 7.4, and a maximum fixture is no exception: pol[1] is the
+		// protocol whose PROTO_WIRE value is sel.proto, pol[2] repeats
+		// sel.preset, and sel.rcc is pol[3] uppercased. An earlier revision
+		// violated all three and no implementation noticed, which is why the
+		// predicates now have negative vectors of their own.
+		//
+		// pol[3] stays LOWERCASE deliberately. The wire predicate is satisfied
+		// (sel.rcc is that code uppercased), and the value is still outside the
+		// three states 02-SPEC.md 7.3 admits for pol[3], so a client that
+		// applies it rather than ignoring the one key is caught. Agreement at
+		// parse and vocabulary at merge are different rules and this fixture
+		// exercises both at once.
 		sel: &selection{exit: strings.Repeat("e", 24), relay: strings.Repeat("r", 24),
-			preset: strings.Repeat("p", 32), variant: 255, proto: 8, rcc: "--", nid: 1 << 40},
+			preset: strings.Repeat("p", 32), variant: 255, proto: 8, rcc: "NL", nid: 1 << 40},
 		pol: []policyItem{
-			{1, t("auto"), 1}, {2, t("bypass-ru"), 2}, {3, t("nl"), 1}, {4, t("system"), 3},
+			{1, t("AmneziaWG"), 1}, {2, t(strings.Repeat("p", 32)), 2}, {3, t("nl"), 1}, {4, t("system"), 3},
 			{5, u(1420), 1}, {6, boolean(false), 2}, {7, boolean(true), 1}, {8, boolean(true), 1},
 			{9, arr{t("https://doh.example.net/dns-query")}, 2},
 			{10, arr{t("1.0.0.1")}, 3},

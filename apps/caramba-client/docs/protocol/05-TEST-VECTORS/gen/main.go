@@ -36,6 +36,11 @@ type ctx struct {
 	DeviceAgree string            `json:"device_agreement_sk,omitempty"`
 	HWM         map[string]uint64 `json:"hwm,omitempty"`
 	StoredFrame string            `json:"stored_frame,omitempty"`
+	// BoundCat is the fixture path whose sha256 the trusted directive named,
+	// for V14a. BoundTier is the tier that same directive named, for V14b; it
+	// is deliberately NOT read from the catalog under verification.
+	BoundCat  string `json:"bound_cat,omitempty"`
+	BoundTier *int   `json:"bound_tier,omitempty"`
 	Note        string            `json:"note,omitempty"`
 }
 
@@ -464,6 +469,13 @@ func contexts() map[string]ctx {
 	rootOnly := base
 	rootOnly.Anchor = "bin/anchors/k1_root_only.bin"
 	rootOnly.Note = "Trust anchor publishes a root role and no online role. Legal, and the only shape in which V3 cannot resolve a key set."
+	tierOne := 1
+	tiers := base
+	tiers.Anchor = "bin/positive/k1_typical.bin"
+	tiers.BoundTier = &tierOne
+	tiers.HWM = map[string]uint64{"1": 2, "2": 0, "3": 411, "4": 0, "5": 0, "8": 0}
+	tiers.Note = "Trust anchor is k1_typical, which publishes tiers {1: chash(c1_min), 2: chash(c1_max)}. The bound tier is 1 and comes from the trusted directive; a verifier that reads the tier from the catalog in front of it instead will accept neg-verify-tier-not-anchored."
+
 	first := base
 	first.Anchor = ""
 	first.HWM = map[string]uint64{"1": 0}
@@ -475,6 +487,7 @@ func contexts() map[string]ctx {
 		"rotation_v1": rot,
 		"rotation_v2": rot2,
 		"root_only":   rootOnly,
+		"tiers":       tiers,
 		"first_trust": first,
 	}
 }

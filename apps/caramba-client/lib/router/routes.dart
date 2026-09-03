@@ -23,6 +23,20 @@ abstract final class AppRoute {
   static const protocol = '/protocol';
   static const splitTunnel = '/split-tunnel';
 
+  // Экраны проверки CSM/1 (INV-17..INV-21), полноэкранные поверх шелла.
+
+  /// Личность оператора: имя, отпечаток корня, дата и происхождение пина.
+  static const csmOperator = '/csm/operator';
+
+  /// Состояние проверки документов в работе.
+  static const csmDocuments = '/csm/documents';
+
+  /// Транспортная лестница: все семь ступеней и история попыток.
+  static const csmTransport = '/csm/transport';
+
+  /// Что приложение отправляет оператору, с кнопкой копирования.
+  static const csmDisclosure = '/csm/disclosure';
+
   /// Профили подключения (мульти-профиль, полноэкранный поверх шелла).
   static const connections = '/connections';
 

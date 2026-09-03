@@ -15,7 +15,6 @@ import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
 import 'package:caramba_client/theme/typography.dart';
 import 'package:caramba_client/widgets/lucide.dart';
-import 'package:caramba_client/widgets/ui.dart';
 
 class ReconnectBanner extends ConsumerWidget {
   const ReconnectBanner({super.key});
@@ -41,13 +40,22 @@ class ReconnectBanner extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: AppSpace.s3),
-          QuietButton(
-            label: 'Переподключить',
+          // Кнопка по содержимому, а НЕ во всю ширину: в [Row] рядом с
+          // [Expanded] нефлексовый ребёнок получает бесконечную ширину, и
+          // `width: double.infinity` внутри него роняет разметку. Баннер
+          // обязан пережить собственное появление.
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: c.textHi,
+              minimumSize: const Size(0, 40),
+              padding: const EdgeInsets.symmetric(horizontal: AppSpace.s3),
+            ),
             onPressed: () async {
               final vpn = ref.read(vpnProvider.notifier);
               await vpn.disconnect();
               await vpn.connect();
             },
+            child: const Text('Переподключить'),
           ),
         ],
       ),

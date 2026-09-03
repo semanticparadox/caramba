@@ -85,6 +85,14 @@ func NewPanelClient(baseURL string, opts ...Option) *PanelClient {
 	return c
 }
 
+// HTTPDoer возвращает текущий HTTP-клиент.
+//
+// Существует ради одной проверки, которую иначе невозможно написать: что
+// api.NewCore и api.SetPanelURL ОБА передали сюда лестницу транспортов.
+// Забыть второе место означает молча вернуть перерегистрированного арендатора
+// к собственному ClientHello Go, и находится это через полгода.
+func (c *PanelClient) HTTPDoer() HTTPDoer { return c.http }
+
 // --- DTO запросов/ответов панели ---
 
 type registerEmailRequest struct {

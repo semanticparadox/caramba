@@ -2,9 +2,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/data/api_client.dart';
 import 'package:caramba_client/data/models/auth_tokens.dart';
+import 'package:caramba_client/data/models/csm_enrollment.dart';
 import 'package:caramba_client/data/models/enrollment.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
+import 'package:caramba_client/state/csm_state.dart';
 import 'package:caramba_client/state/providers.dart';
 
 /// Контроллер энроллмента (P2, contract A/B/C).
@@ -109,6 +111,7 @@ class EnrollNotifier extends StateNotifier<EnrollState> {
   Future<void> submitManual({
     required String panelUrl,
     required String code,
+    String? linkPin,
   }) async {
     final link = EnrollLink.fromParts(panelUrl: panelUrl, code: code);
     if (link == null) {
@@ -118,11 +121,31 @@ class EnrollNotifier extends StateNotifier<EnrollState> {
       );
       return;
     }
-    await startWith(link);
+    await startWith(link, linkPin: linkPin);
+  }
+
+  /// Закрепляет link_pin ссылки на активном профиле.
+  ///
+  /// Пин это единственный момент, когда доверие СОЗДАЁТСЯ, поэтому он ставится
+  /// один раз и только на профиле, который его ещё не закреплял; повторный
+  /// вызов ничего не меняет (02-SPEC.md 2.1 правило 1).
+  Future<void> _pinFromLink(EnrollLink link, String? linkPin) async {
+    if (linkPin == null || linkPin.isEmpty) {
+      return;
+    }
+    final csmLink = CsmEnrollLink.fromParts(
+      origin: link.panelUrl,
+      code: link.code,
+      linkPin: linkPin,
+    );
+    if (csmLink == null) {
+      return;
+    }
+    await _ref.read(csmNotifierProvider).establishPinFromLink(csmLink);
   }
 
   /// Заводит профиль панели (P1-провайдер) и запускает валидацию кода.
-  Future<void> startWith(EnrollLink link) async {
+  Future<void> startWith(EnrollLink link, {String? linkPin}) async {
     state = EnrollState(stage: EnrollStage.validating, link: link);
 
     // Профиль панели заводится сразу: аккаунт обязателен, профиль ведёт
@@ -160,6 +183,12 @@ class EnrollNotifier extends StateNotifier<EnrollState> {
               displayName: v.panelName!,
             );
       }
+      // Ссылка несёт k, значит она несёт link_pin, и профиль обязан его
+      // закрепить. Без этого шага закреплённая ссылка молча превращается в
+      // незакреплённую, а разницу между продиктованным вне полосы и пришедшим
+      // в приложение пином экран личности оператора показывает как свойство
+      // безопасности (INV-18).
+      await _pinFromLink(link, linkPin);
       state = state.copyWith(
         stage: EnrollStage.valid,
         validation: v,

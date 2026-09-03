@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/data/connection_profiles_store.dart';
 import 'package:caramba_client/data/models/connection_profile.dart';
+import 'package:caramba_client/data/models/csm_profile.dart';
 import 'package:caramba_client/vpn/vpn_models.dart';
 
 /// Состояние мульти-профиля подключения (план §4.4).
@@ -281,6 +282,16 @@ class ConnectionProfilesNotifier
       accessToken: accessToken,
     ),
   );
+
+  /// Записывает состояние CSM/1 на профиль.
+  ///
+  /// Единственный путь мутации состояния CSM: закреплённый корень, отметки
+  /// максимума версий, временной пол, настройки с происхождением и карточки
+  /// живут ровно здесь, в одной записи secure storage на профиль. Второго дома
+  /// у них нет, потому что два хранилища отметок это дыра для отката, а не
+  /// защита в глубину (02-SPEC.md 5.1, 8.8.3).
+  Future<void> setCsm(String id, CsmProfileState csm) =>
+      _update(id, (p) => p.copyWith(csm: csm));
 
   /// Переименование профиля.
   Future<void> rename(String id, String displayName) async {

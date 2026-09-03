@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:app_links/app_links.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:caramba_client/data/models/csm_enrollment.dart';
 import 'package:caramba_client/data/models/enrollment.dart';
 import 'package:caramba_client/router/routes.dart';
 
@@ -46,6 +47,23 @@ class DeepLinkHandler {
   /// Локация роутера, на которую ведёт ссылка, или `null`, если это не наш
   /// deeplink. Чистая функция: разбор ссылки проверяется без роутера.
   static String? targetOf(String raw) {
+    // Разбор CSM идёт ПЕРВЫМ: он единственный читает параметр k, то есть
+    // link_pin. Разобрав ту же ссылку старым парсером, приложение молча теряет
+    // пин и превращает закреплённый энроллмент в незакреплённый, а это ровно
+    // та разница между продиктованным вне полосы и пришедшим в приложение,
+    // которую экран личности оператора показывает как свойство безопасности.
+    final csm = CsmEnrollLink.tryParse(raw);
+    if (csm != null) {
+      final pin = csm.linkPin;
+      return Uri(
+        path: AppRoute.enroll,
+        queryParameters: {
+          'panel': csm.origin,
+          'code': csm.code,
+          if (pin != null) 'k': pin,
+        },
+      ).toString();
+    }
     final enroll = EnrollLink.tryParse(raw);
     if (enroll != null) {
       return Uri(

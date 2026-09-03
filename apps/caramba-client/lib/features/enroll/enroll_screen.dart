@@ -22,10 +22,19 @@ class EnrollScreen extends ConsumerStatefulWidget {
   /// URL панели из deeplink (query `panel`). `null` => ручной ввод.
   final String? initialPanel;
 
+  /// `link_pin` из ссылки энроллмента (query `k`), когда она его несёт.
+  /// Закрепляется профилем при успешной валидации.
+  final String? initialLinkPin;
+
   /// Инвайт-код из deeplink (query `code`). `null` => ручной ввод.
   final String? initialCode;
 
-  const EnrollScreen({this.initialPanel, this.initialCode, super.key});
+  const EnrollScreen({
+    this.initialPanel,
+    this.initialCode,
+    this.initialLinkPin,
+    super.key,
+  });
 
   @override
   ConsumerState<EnrollScreen> createState() => _EnrollScreenState();
@@ -56,7 +65,11 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
         if (mounted) {
           ref
               .read(enrollProvider.notifier)
-              .submitManual(panelUrl: panel, code: code);
+              .submitManual(
+                panelUrl: panel,
+                code: code,
+                linkPin: widget.initialLinkPin,
+              );
         }
       });
     }
@@ -391,6 +404,7 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
         .submitManual(
           panelUrl: _panelController.text,
           code: _codeController.text,
+          linkPin: widget.initialLinkPin,
         );
   }
 

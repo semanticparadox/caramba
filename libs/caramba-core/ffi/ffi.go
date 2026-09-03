@@ -285,3 +285,94 @@ func CarambaFreeString(s *C.char) {
 		C.free(unsafe.Pointer(s))
 	}
 }
+
+// --- CSM/1: подписанный манифест и лестница транспортов (ABI v3) ---
+//
+// Каждый символ принимает и отдаёт JSON строкой, как CarambaSetPolicy.
+// Отсутствующий символ обрабатывается тем же CarambaCoreMissingSymbol, что и
+// setPolicy с probe сегодня: клиент против старой библиотеки деградирует до
+// "CSM недоступен в этой сборке", а не падает.
+
+//export CarambaCsmEnroll
+//
+// CarambaCsmEnroll регистрирует профиль из bootstrap blob либо из origin, кода
+// и пина. Возвращает снимок проверенного состояния или {"error":...}.
+func CarambaCsmEnroll(h C.long, jsonStr *C.char) *C.char {
+	cl := lookup(h)
+	if cl == nil {
+		return errJSON("неизвестный хэндл")
+	}
+	return okOrErr(cl.CsmEnroll(C.GoString(jsonStr)))
+}
+
+//export CarambaCsmRefresh
+//
+// CarambaCsmRefresh выполняет один цикл выборки документов. Отказ не означает
+// потерю конфигурации: профиль остаётся на кешированных документах.
+func CarambaCsmRefresh(h C.long, timeoutSec C.int) *C.char {
+	cl := lookup(h)
+	if cl == nil {
+		return errJSON("неизвестный хэндл")
+	}
+	return okOrErr(cl.CsmRefresh(int(timeoutSec)))
+}
+
+//export CarambaCsmState
+//
+// CarambaCsmState отдаёт личность оператора, состояние проверки документов,
+// битовое поле возможностей и возраст конфигурации.
+func CarambaCsmState(h C.long) *C.char {
+	cl := lookup(h)
+	if cl == nil {
+		return errJSON("неизвестный хэндл")
+	}
+	return okOrErr(cl.CsmState())
+}
+
+//export CarambaCsmLadder
+//
+// CarambaCsmLadder отдаёт все скомпилированные ступени и историю попыток.
+func CarambaCsmLadder(h C.long) *C.char {
+	cl := lookup(h)
+	if cl == nil {
+		return errJSON("неизвестный хэндл")
+	}
+	return okOrErr(cl.CsmLadder())
+}
+
+//export CarambaCsmSetLadder
+//
+// CarambaCsmSetLadder применяет переключатели и порядок от пользователя.
+func CarambaCsmSetLadder(h C.long, jsonStr *C.char) *C.char {
+	cl := lookup(h)
+	if cl == nil {
+		return errJSON("неизвестный хэндл")
+	}
+	if err := cl.CsmSetLadder(C.GoString(jsonStr)); err != nil {
+		return errJSON(err.Error())
+	}
+	return C.CString(`{"ok":true}`)
+}
+
+//export CarambaCsmRequestSettings
+//
+// CarambaCsmRequestSettings отправляет изменение настроек как подписанный
+// запрос и принимает подписанный ответ как новую директиву.
+func CarambaCsmRequestSettings(h C.long, jsonStr *C.char) *C.char {
+	cl := lookup(h)
+	if cl == nil {
+		return errJSON("неизвестный хэндл")
+	}
+	return okOrErr(cl.CsmRequestSettings(C.GoString(jsonStr)))
+}
+
+//export CarambaLadderRequest
+//
+// CarambaLadderRequest выполняет произвольный HTTP запрос через лестницу.
+func CarambaLadderRequest(h C.long, jsonStr *C.char) *C.char {
+	cl := lookup(h)
+	if cl == nil {
+		return errJSON("неизвестный хэндл")
+	}
+	return okOrErr(cl.LadderRequest(C.GoString(jsonStr)))
+}

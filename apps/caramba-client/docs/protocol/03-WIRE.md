@@ -685,7 +685,7 @@ Root-signed. Carries the key set, the role thresholds, the revocation list and t
 | 10 | `keys` | array of key entries | yes | 1..16 | every public key this tenant uses |
 | 11 | `roles` | map, key = `role` enum | yes | 1..3 pairs | role to `{ks, thr}` |
 | 12 | `rev` | map | no | | revocation, see below |
-| 13 | `tiers` | map, key = tier id uint | no, but see below | <= 16 pairs | tier id to `bstr(32)` catalog `chash` |
+| 13 | `tiers` | map, key = tier id uint | no, but see below | <= 16 pairs, each key in 1..1023 | tier id to `bstr(32)` catalog `chash` |
 | 14 | | | | | reserved, critical (see Correction 6, section 16) |
 | 15 | `dep` | array of deprecation entries | no | <= 16 | `01-DECISION.md` B7 |
 | 16 | `ttlk` | uint | no | 300..86400 | seconds until the client should refetch this document |
@@ -704,7 +704,9 @@ Root-signed. Carries the key set, the role thresholds, the revocation list and t
 
 **The consequence for fleet changes, stated rather than discovered later.** Because V14b compares against the root-signed `tiers` entry, a panel MUST NOT point a directive at a catalog whose `chash` is not in the current key document's `tiers` while `tiers` is published for that tier. The sequence for a fleet change is therefore: content digest changes, the panel signs and persists the new catalog (section 1.5), a root-signed key document naming the new `chash` is imported, and only then do directives move to the new `cat`. Until the key document arrives the panel keeps serving the previous catalog and the previous `cat`. That is a real operational cost, it is the offline ceremony `01-DECISION.md` A1 predicts an operator will avoid, and the mitigation is cadence rather than exemption: an operator SHOULD run a scheduled root signing at least weekly so a fleet change lands within one cycle, and MAY sign on demand.
 
-**`tier` identity.** `tier` is a `uint < 2^16` derived from the panel's `plans.id` by a rule the panel states once and never changes. A panel MUST refuse to sign a catalog for a plan whose derived `tier` exceeds 65535, and MUST refuse to serve CSM routes for a tenant with more than 16 tiers, because `tiers` is capped at 16 pairs and a tier without a published hash is a tier without V14b. Both refusals are startup or save-time checks, not request-time ones.
+**`tier` identity.** `tier` is a `uint` in the range **1..1023**, derived from the panel's `plans.id` by a rule the panel states once and never changes. A panel MUST refuse to sign a catalog for a plan whose derived `tier` falls outside that range, and MUST refuse to serve CSM routes for a tenant with more than 16 tiers, because `tiers` is capped at 16 pairs and a tier without a published hash is a tier without V14b. Both refusals are startup or save-time checks, not request-time ones.
+
+> **Correction: the upper bound is 1023, not 65535, and the lower bound is 1.** An earlier revision of this table typed `tier` as `uint < 2^16` while also making the tier id a CBOR **map key** in `tiers`. Section 3.3 rejects map key 0 and every key at or above 1024, so a conforming panel deriving a tier id of 1024 or above signed a key document that no conforming verifier could decode: the tenant went dark at P9 with `E_PARSE_CBOR`, an error naming CBOR rather than tiers. Tier 0 was unrepresentable for the same reason. The range is therefore stated once, here, and it binds the `tier` field of the catalog (section 8.2 key 10) and of the directive (section 8.3 key 16) as well as the `tiers` keys, so that every tier a panel can name is a tier a root can anchor. Sixteen tiers is the cohort ceiling, so 1023 is not a constraint an operator can reach.
 
 **Role entry** (value in `roles`):
 
@@ -791,7 +793,7 @@ Online-signed, content-addressed, nonce-free, byte-identical for every subscribe
 
 | Key | Name | Type | Mandatory | Cap | Meaning |
 |---|---|---|---|---|---|
-| 10 | `tier` | uint | yes | < 2^16 | plan tier this catalog serves |
+| 10 | `tier` | uint | yes | 1..1023 | plan tier this catalog serves |
 | 11 | `ex` | array of node entries | yes | 1..512 | exit nodes |
 | 12 | `re` | array of node entries | no | 0..64 | relay nodes |
 | 13 | `ro` | array of route entries | no | 0..32 | routing presets |
@@ -1026,7 +1028,7 @@ Online-signed, nonce-bound, one hour expiry, per device. In the deployed configu
 | 13 | `rc` | uint | no | `rc` registry, default 0 | machine reason code |
 | 14 | `cat` | bstr | yes | exactly 32 | `chash` of the catalog this directive is bound to |
 | 15 | `cn` | uint | yes | 1..64 | number of chunks that catalog is served in |
-| 16 | `tier` | uint | yes | < 2^16 | plan tier |
+| 16 | `tier` | uint | yes | 1..1023 | plan tier |
 | 17 | `cap` | bstr | yes | exactly 4 | capability bitfield echo |
 | 18 | `sel` | map | no | | authoritative selection |
 | 19 | `pol` | map | no | | settings echo with provenance |

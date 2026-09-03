@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:caramba_client/data/models/csm_profile.dart';
 import 'package:caramba_client/vpn/vpn_models.dart';
 
 /// Тип подключения профиля.
@@ -89,6 +90,16 @@ class ConnectionProfile {
   /// Время последней активации (мс эпохи). 0 — ещё не активировался.
   final int lastActiveMs;
 
+  /// Состояние CSM/1: закреплённый корневой ключ, отметки максимума версий,
+  /// временной пол, возможности оператора, последние проверенные документы,
+  /// настройки с происхождением и предпочтения лестницы.
+  ///
+  /// `null` означает «профиль никогда не закреплял корневой ключ»: запись,
+  /// сделанная до CSM, и профиль из legacy-импорта `carambaconnect://import`
+  /// таким и остаются. Молча повышать их до CSM нельзя, потому что закреплять
+  /// нечего (02-SPEC.md 9.8).
+  final CsmProfileState? csm;
+
   const ConnectionProfile({
     required this.id,
     required this.type,
@@ -105,10 +116,16 @@ class ConnectionProfile {
     this.serversUpdatedMs = 0,
     this.brandingCache,
     this.lastActiveMs = 0,
+    this.csm,
   });
 
   bool get isRaw => type == ProfileType.rawSub;
   bool get isPanel => type == ProfileType.panelAccount;
+
+  /// Профиль закрепил корневой ключ оператора. Обратной дороги в
+  /// непроверяемый legacy-режим у такого профиля нет ни по какой причине
+  /// (INV-13).
+  bool get isCsmPinned => csm?.stage.isPinned ?? false;
 
   /// Сколько узлов известно по кэшу импорта.
   int get serverCount => servers.length;
@@ -135,6 +152,9 @@ class ConnectionProfile {
         serversUpdatedMs: _decodeMs(json['servers_updated_ms']),
         brandingCache: _decodeBranding(json['branding_cache']),
         lastActiveMs: (json['last_active_ms'] as num?)?.toInt() ?? 0,
+        // Запись, сделанная до CSM, не несёт этого ключа: читаем мягко, ровно
+        // как поле format выше, и получаем «корень не закреплён».
+        csm: CsmProfileState.fromJson(json['csm']),
       );
 
   Map<String, dynamic> toJson() => {
@@ -153,6 +173,7 @@ class ConnectionProfile {
     'servers_updated_ms': serversUpdatedMs,
     'branding_cache': brandingCache,
     'last_active_ms': lastActiveMs,
+    'csm': csm?.toJson(),
   };
 
   ConnectionProfile copyWith({
@@ -171,7 +192,9 @@ class ConnectionProfile {
     int? serversUpdatedMs,
     Map<String, dynamic>? brandingCache,
     int? lastActiveMs,
+    CsmProfileState? csm,
     bool clearSelectedServer = false,
+    bool clearCsm = false,
   }) => ConnectionProfile(
     id: id ?? this.id,
     type: type ?? this.type,
@@ -190,6 +213,11 @@ class ConnectionProfile {
     serversUpdatedMs: serversUpdatedMs ?? this.serversUpdatedMs,
     brandingCache: brandingCache ?? this.brandingCache,
     lastActiveMs: lastActiveMs ?? this.lastActiveMs,
+    // csm не снимается обычной мутацией: липкое правило INV-13 требует, чтобы
+    // закреплённый корень пережил любую перезапись профиля. Снять его можно
+    // только явным clearCsm, и это отдельный флаг именно чтобы такой сброс был
+    // видимым решением, а не побочным эффектом импорта.
+    csm: clearCsm ? null : (csm ?? this.csm),
   );
 
   /// Формат импорта: пустая/чужая запись читается как `auto`.

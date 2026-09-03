@@ -64,8 +64,14 @@ class EnrollLink {
     final uri = Uri.tryParse(v);
     if (uri == null) return null;
     final scheme = uri.scheme.toLowerCase();
-    if (scheme != 'https' && scheme != 'http') return null;
     if (uri.host.isEmpty) return null;
+    // INV-8: http отвергается для любой выборки манифеста, конфигурации, правил
+    // и geo, и единственное исключение без TLS это .onion. Проверка стоит
+    // ЗДЕСЬ, в точке ввода, а не только в транспорте: иначе пользователь
+    // вводит http-адрес, получает «принято», и узнаёт об отказе непрозрачной
+    // ошибкой подключения (02-SPEC.md 8.10).
+    final isOnion = uri.host.toLowerCase().endsWith('.onion');
+    if (scheme != 'https' && !(scheme == 'http' && isOnion)) return null;
     final port = uri.hasPort ? ':${uri.port}' : '';
     return '$scheme://${uri.host}$port';
   }

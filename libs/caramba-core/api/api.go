@@ -7,6 +7,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"github.com/semanticparadox/caramba/libs/caramba-core/routing"
 	"github.com/semanticparadox/caramba/libs/caramba-core/subimport"
 	"github.com/semanticparadox/caramba/libs/caramba-core/subscription"
+	"github.com/semanticparadox/caramba/libs/caramba-core/transport"
 )
 
 // Config — параметры инициализации Core.
@@ -36,6 +38,9 @@ type Config struct {
 	// TokenStorePath — путь к файлу токенов. Если пусто — стандартный путь
 	// файлового хранилища.
 	TokenStorePath string
+	// SubscriptionDomain — единственный хост, на который CSM/1 разрешает
+	// ровно один переход. Пусто означает, что переходы запрещены полностью.
+	SubscriptionDomain string
 }
 
 // Core связывает аутентификацию, подписку, сборку профиля и движок.
@@ -66,6 +71,17 @@ type Core struct {
 	// store — хранилище токенов. Держим ссылку, чтобы пересобрать auth-клиента
 	// при смене адреса панели (SetPanelURL), не потеряв уже выданные токены.
 	store auth.Store
+
+	// ladder и doer — лестница транспортов CSM/1 и HTTPDoer поверх неё.
+	// Именно этот HTTPDoer уходит в auth.NewPanelClient и
+	// subscription.NewClient, и делается это в ОБОИХ местах их сборки:
+	// в NewCore и в SetPanelURL. Забыть второе место значит молча вернуть
+	// перерегистрированного арендатора к собственному ClientHello Go.
+	ladder *transport.Ladder
+	doer   *transport.Doer
+	// csm — выборщик подписанных документов. Он же служит источником
+	// ступени R0 (последние хорошие документы с диска).
+	csm *transport.Fetcher
 
 	mu             sync.Mutex
 	subscriptionID string // кэш UUID подписки текущего пользователя
@@ -116,17 +132,53 @@ func NewCore(cfg Config) (*Core, error) {
 	// сборке без тега mihomo вызов пустой (см. homedir_default.go).
 	setCoreHomeDir(workDir)
 
-	panelClient := auth.NewPanelClient(cfg.PanelBaseURL, auth.WithStore(store))
-	return &Core{
+	// Лестница строится ОДИН раз и живёт весь жизненный цикл ядра. Оба
+	// клиента получают один и тот же HTTPDoer: лестница реализована один раз,
+	// в Go, и два независимых её экземпляра означали бы две истории попыток и
+	// два бюджета соединений на один профиль.
+	ladder := transport.NewLadder(transport.NewNetExchange(auth.DefaultUserAgent))
+	doer := transport.NewDoer(ladder, cfg.PanelBaseURL, subscriptionDomainOf(cfg))
+
+	panelClient := auth.NewPanelClient(cfg.PanelBaseURL, auth.WithStore(store), auth.WithHTTPClient(doer))
+	c := &Core{
 		cfg:     cfg,
 		workDir: workDir,
 		auth:    panelClient,
-		sub:     subscription.NewClient(subBase),
+		sub:     subscription.NewClient(subBase, subscription.WithHTTPClient(doer)),
 		subInfo: app.NewSubscriptionClient(panelClient),
 		store:   store,
 		engine:  engine.New(),
 		policy:  profile.DefaultPolicy(),
-	}, nil
+		ladder:  ladder,
+		doer:    doer,
+	}
+	// Выборщик CSM НЕ поднимается здесь. Его конструктор создаёт при первом
+	// запуске пару ключей устройства и пишет её на диск, а это долгоживущий
+	// идентификатор, появляющийся как побочный эффект запуска ядра у каждой
+	// установки, включая тех, кто никогда не зарегистрируется в CSM. Он
+	// строится лениво, на первом вызове CSM: до регистрации ступени R0 всё
+	// равно нечего отдавать, а LoadCached на несозданном хранилище это no-op.
+	return c, nil
+}
+
+// subscriptionDomainOf возвращает единственный хост, на который разрешён один
+// переход. Явная настройка сильнее; иначе берётся хост сервиса подписок,
+// который приложение и так передаёт отдельным адресом. Без этого ветка
+// перехода недостижима, а панель выдаёт 308 безусловно, и легаси-путь
+// перестаёт работать у любого арендатора, чей Host не совпал.
+func subscriptionDomainOf(cfg Config) string {
+	if d := strings.TrimSpace(cfg.SubscriptionDomain); d != "" {
+		return d
+	}
+	sub := strings.TrimSpace(cfg.SubBaseURL)
+	if sub == "" {
+		return ""
+	}
+	u, err := url.Parse(sub)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }
 
 // SetPanelURL перенаправляет ядро на другую панель: пересобирает auth-клиента,
@@ -159,9 +211,18 @@ func (c *Core) SetPanelURL(panelURL string) error {
 	}
 	c.cfg.PanelBaseURL = panelURL
 
-	panelClient := auth.NewPanelClient(panelURL, auth.WithStore(c.store))
+	// Второе место сборки клиентов, и оно обязано отдать им ТОТ ЖЕ HTTPDoer.
+	// Именно здесь ошибка не видна: клиенты пересобираются, лестница молча
+	// теряется, и ядро продолжает ходить в панель собственным транспортом Go.
+	if c.doer == nil {
+		c.ladder = transport.NewLadder(transport.NewNetExchange(auth.DefaultUserAgent))
+		c.doer = transport.NewDoer(c.ladder, panelURL, subscriptionDomainOf(c.cfg))
+	} else {
+		c.doer.SetOrigin(panelURL, subscriptionDomainOf(c.cfg))
+	}
+	panelClient := auth.NewPanelClient(panelURL, auth.WithStore(c.store), auth.WithHTTPClient(c.doer))
 	c.auth = panelClient
-	c.sub = subscription.NewClient(subBase)
+	c.sub = subscription.NewClient(subBase, subscription.WithHTTPClient(c.doer))
 	c.subInfo = app.NewSubscriptionClient(panelClient)
 	c.subscriptionID = ""
 	c.lastPanelYAML = nil
@@ -172,8 +233,8 @@ func (c *Core) SetPanelURL(panelURL string) error {
 
 // AuthResult — результат входа/регистрации.
 type AuthResult struct {
-	OK            bool   `json:"ok"`
-	Authenticated bool   `json:"authenticated"`
+	OK            bool `json:"ok"`
+	Authenticated bool `json:"authenticated"`
 }
 
 // StatusResult — агрегированное состояние для UI/CLI.

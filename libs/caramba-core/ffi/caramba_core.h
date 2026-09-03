@@ -125,6 +125,45 @@ extern void CarambaFree(long h);
 /* Освободить строку, возвращённую любой Caramba*-функцией. */
 extern void CarambaFreeString(char *s);
 
+/* --- CSM/1: подписанный манифест и лестница транспортов (ABI v3) ---
+ *
+ * Каждый символ принимает и отдаёт JSON строкой, как CarambaSetPolicy.
+ * Дополнение аддитивное: клиент, собранный против старой библиотеки, не
+ * находит символ и деградирует до "CSM недоступен в этой сборке", как это уже
+ * происходит с setPolicy и probe. */
+
+/* Регистрация из bootstrap blob либо из origin, кода и пина.
+ * Вход {origin?,code?,link_pin?,blob_b64?,subscription_domain?,account_jwt?}.
+ * Выход: снимок проверенного состояния или {"error":...}. */
+extern char *CarambaCsmEnroll(long h, char *jsonStr);
+
+/* Один цикл выборки документов. Отказ НЕ означает потерю конфигурации:
+ * профиль остаётся на кешированных документах и продолжает подключать. */
+extern char *CarambaCsmRefresh(long h, int timeoutSec);
+
+/* Личность оператора, состояние проверки документов, отпечаток подписавшего,
+ * битовое поле возможностей, возраст конфигурации и её источник. */
+extern char *CarambaCsmState(long h);
+
+/* Все скомпилированные ступени с порядком, переключателем и причиной
+ * недоступности, плюс история попыток. Недоступная ступень видна и выключена
+ * с причиной, а не скрыта. */
+extern char *CarambaCsmLadder(long h);
+
+/* Переключатели и порядок ступеней от пользователя.
+ * Вход {order?:[int],enabled?:{"5":false},proxy?,tunnel_proxy?}.
+ * Ступени 0 и 6 выключить нельзя, попытка возвращает ошибку. */
+extern char *CarambaCsmSetLadder(long h, char *jsonStr);
+
+/* Изменение настроек как подписанный запрос; ответ принимается как новая
+ * директива. Вход {want?:{"1":"..."},sel?:{...},account_jwt?}. */
+extern char *CarambaCsmRequestSettings(long h, char *jsonStr);
+
+/* Произвольный HTTP запрос через лестницу.
+ * Вход {method,path,origin?,headers?,body_b64?,timeout_ms?,rungs?}.
+ * Выход {status,headers,body_b64,rung,error?}. */
+extern char *CarambaLadderRequest(long h, char *jsonStr);
+
 #ifdef __cplusplus
 }
 #endif

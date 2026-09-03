@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/metacubex/mihomo v1.19.27
+	github.com/metacubex/utls v1.8.4
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -90,7 +91,6 @@ require (
 	github.com/metacubex/tailscale-wireguard-go v0.0.0-20260521124654-e1bf77ef79af // indirect
 	github.com/metacubex/tfo-go v0.0.0-20251130171125-413e892ac443 // indirect
 	github.com/metacubex/tls v0.1.6 // indirect
-	github.com/metacubex/utls v1.8.4 // indirect
 	github.com/metacubex/wireguard-go v0.0.0-20250820062549-a6cecdd7f57f // indirect
 	github.com/metacubex/yamux v0.0.0-20250918083631-dd5f17c0be49 // indirect
 	github.com/miekg/dns v1.1.63 // indirect
@@ -181,3 +181,5 @@ require (
 //    engine_mihomo.go теперь читает github.com/metacubex/mihomo/tunnel/statistic
 //    (живая статистика трафика) — это под-пакет уже требуемого mihomo, так что
 //    go.mod не меняется (граф добьёт tidy).
+
+tool golang.org/x/mobile/cmd/gobind

@@ -4,10 +4,15 @@ import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/models/protocol.dart';
 import 'package:caramba_client/data/models/split_app.dart';
+import 'package:caramba_client/data/models/csm_settings.dart';
 import 'package:caramba_client/features/settings/reconnect_banner.dart';
+import 'package:caramba_client/features/csm/config_age_card.dart';
+import 'package:caramba_client/features/csm/keep_or_revert_card.dart';
+import 'package:caramba_client/features/settings/csm_settings_bridge.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/core_config_state.dart';
+import 'package:caramba_client/state/csm_state.dart';
 import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/state/settings_state.dart';
 import 'package:caramba_client/state/vpn_state.dart';
@@ -57,6 +62,12 @@ class SettingsScreen extends ConsumerWidget {
               const SizedBox(height: AppSpace.s4),
             ],
 
+            // Липкая ошибка и возраст конфигурации (INV-13, INV-21), а следом
+            // карточки «Оставить или Вернуть» (INV-22). Они висят, пока
+            // пользователь не ответит, и навигацией не закрываются.
+            const CsmConfigAgeCard(),
+            const CsmPendingChangesSection(),
+
             const SectionTitle(
               'Подключение',
               padding: EdgeInsets.only(bottom: AppSpace.s3),
@@ -68,6 +79,9 @@ class SettingsScreen extends ConsumerWidget {
                   label: 'Протокол',
                   value: protocols[cfg.protocol].name,
                   chevron: true,
+                  trailing: const CsmProvenanceTag(
+                    settingKey: CsmSettingKey.protocol,
+                  ),
                   onTap: () => context.go(AppRoute.protocol),
                 ),
                 CRow(
@@ -75,6 +89,9 @@ class SettingsScreen extends ConsumerWidget {
                   label: 'Маршрутизация',
                   value: modes[cfg.route].name,
                   chevron: true,
+                  trailing: const CsmProvenanceTag(
+                    settingKey: CsmSettingKey.preset,
+                  ),
                   onTap: () async {
                     final i = await showPickerSheet(
                       context: context,
@@ -90,15 +107,25 @@ class SettingsScreen extends ConsumerWidget {
                           )
                           .toList(),
                       selected: cfg.route,
+                      disabled: ref.read(csmDisabledRoutePresetsProvider),
                     );
-                    if (i != null) cfgN.setRoute(i);
+                    if (i != null) CsmSettingsBridge.setRoute(ref, i);
                   },
                 ),
                 CRow(
                   label: 'Kill-switch',
-                  trailing: Switch(
-                    value: cfg.killSwitch,
-                    onChanged: cfgN.setKillSwitch,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CsmProvenanceTag(
+                        settingKey: CsmSettingKey.killSwitch,
+                      ),
+                      Switch(
+                        value: cfg.killSwitch,
+                        onChanged: (v) =>
+                            CsmSettingsBridge.setKillSwitch(ref, v),
+                      ),
+                    ],
                   ),
                 ),
                 CRow(
@@ -119,6 +146,9 @@ class SettingsScreen extends ConsumerWidget {
                   label: 'Сетевой стек (TUN)',
                   value: CoreOption.stacks[cfg.stack].name,
                   chevron: true,
+                  trailing: const CsmProvenanceTag(
+                    settingKey: CsmSettingKey.stack,
+                  ),
                   onTap: () async {
                     final i = await _pickCore(
                       context,
@@ -127,7 +157,7 @@ class SettingsScreen extends ConsumerWidget {
                       CoreOption.stacks,
                       cfg.stack,
                     );
-                    if (i != null) cfgN.setStack(i);
+                    if (i != null) CsmSettingsBridge.setStack(ref, i);
                   },
                 ),
                 CRow(
@@ -135,6 +165,9 @@ class SettingsScreen extends ConsumerWidget {
                   label: 'DNS-резолвер',
                   value: CoreOption.dns[cfg.dns].name,
                   chevron: true,
+                  trailing: const CsmProvenanceTag(
+                    settingKey: CsmSettingKey.dnsNameservers,
+                  ),
                   onTap: () async {
                     final i = await _pickCore(
                       context,
@@ -143,13 +176,16 @@ class SettingsScreen extends ConsumerWidget {
                       CoreOption.dns,
                       cfg.dns,
                     );
-                    if (i != null) cfgN.setDns(i);
+                    if (i != null) CsmSettingsBridge.setDns(ref, i);
                   },
                 ),
                 CRow(
                   label: 'MTU',
                   value: CoreOption.mtu[cfg.mtu].name,
                   chevron: true,
+                  trailing: const CsmProvenanceTag(
+                    settingKey: CsmSettingKey.mtu,
+                  ),
                   onTap: () async {
                     final i = await _pickCore(
                       context,
@@ -158,19 +194,34 @@ class SettingsScreen extends ConsumerWidget {
                       CoreOption.mtu,
                       cfg.mtu,
                     );
-                    if (i != null) cfgN.setMtu(i);
+                    if (i != null) CsmSettingsBridge.setMtu(ref, i);
                   },
                 ),
                 CRow(
                   label: 'Fake-IP',
-                  trailing: Switch(
-                    value: cfg.fakeIp,
-                    onChanged: cfgN.setFakeIp,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CsmProvenanceTag(settingKey: CsmSettingKey.fakeIp),
+                      Switch(
+                        value: cfg.fakeIp,
+                        onChanged: (v) => CsmSettingsBridge.setFakeIp(ref, v),
+                      ),
+                    ],
                   ),
                 ),
                 CRow(
                   label: 'IPv6',
-                  trailing: Switch(value: cfg.ipv6, onChanged: cfgN.setIpv6),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CsmProvenanceTag(settingKey: CsmSettingKey.ipv6),
+                      Switch(
+                        value: cfg.ipv6,
+                        onChanged: (v) => CsmSettingsBridge.setIpv6(ref, v),
+                      ),
+                    ],
+                  ),
                 ),
                 CRow(
                   icon: Lucide.route,
@@ -217,10 +268,52 @@ class SettingsScreen extends ConsumerWidget {
                       ? 'Выкл'
                       : '${cfg.splitCount} прил.',
                   chevron: true,
+                  trailing: const CsmProvenanceTag(
+                    settingKey: CsmSettingKey.splitMode,
+                  ),
                   onTap: () => context.go(AppRoute.splitTunnel),
                 ),
               ],
             ),
+
+            // Раздел показывается только профилю, который закрепил корневой
+            // ключ. Четыре строки, каждая из которых открывает пустое
+            // состояние, это не прозрачность, а четыре тупика; они появляются
+            // ровно тогда, когда за ними есть что показать.
+            if (ref.watch(csmProfileStateProvider) != null) ...[
+              const SectionTitle('Проверка и прозрачность'),
+              RowsGroup(
+              children: [
+                CRow(
+                  icon: Lucide.key,
+                  label: 'Оператор',
+                  value: 'отпечаток и энроллмент',
+                  chevron: true,
+                  onTap: () => context.go(AppRoute.csmOperator),
+                ),
+                CRow(
+                  icon: Lucide.fileCheck,
+                  label: 'Документы',
+                  value: 'что проверено',
+                  chevron: true,
+                  onTap: () => context.go(AppRoute.csmDocuments),
+                ),
+                CRow(
+                  icon: Lucide.listTree,
+                  label: 'Транспорт',
+                  value: 'ступени и попытки',
+                  chevron: true,
+                  onTap: () => context.go(AppRoute.csmTransport),
+                ),
+                CRow(
+                  icon: Lucide.eye,
+                  label: 'Что мы отправляем',
+                  chevron: true,
+                  onTap: () => context.go(AppRoute.csmDisclosure),
+                ),
+              ],
+              ),
+            ],
 
             const SectionTitle('Автонастройка'),
             RowsGroup(

@@ -474,13 +474,23 @@ func buildNegatives() {
 		"E_VERIFY_IAT", "V11", "default", nil,
 		"iat one day below time_floor. This document had already expired when the profile last heard from the panel, so it is refused under the literal V11 of 03-WIRE.md and under the amended V11 of 02-SPEC.md Correction 2 alike. Contrast pos-c1-stale-but-live, where the two forms disagree.")
 
+	// iat is picked so that V11 and V12 are genuinely separable under the
+	// NORMATIVE predicate. LIFETIME_MAX for a directive is 3600 and the skew
+	// is 300, so V11 passes for any iat at or above floor - 3900 and V12 fails
+	// for any iat below now - 3900 = floor - 3600. iat = floor - 3800 is inside
+	// that 300 second window: the document is expired against now, and it had
+	// NOT yet expired at the floor. An earlier revision used floor - 7200,
+	// which fails the literal V11 as well, so no step ordering could reach V12
+	// and every implementation had to widen the predicate by an invented
+	// constant to reproduce this vector. The predicate is the specification's;
+	// the fixture moved instead.
 	vr("expired", "expired", dtDirective,
 		buildFrame(dtDirective, encode(buildDirective(directiveOpts{
-			pid: pid, ver: 444, iat: fixIAT - 7200, nonce: nonce, dtp: dtp, st: 3,
+			pid: pid, ver: 444, iat: fixIAT - 3800, nonce: nonce, dtp: dtp, st: 3,
 			cat: frameSHA(catMinFrame), cn: 1, tier: fixTier, cap: []byte{0, 0, 0, 3},
 			ttl: fixTTL, loc: loc})), []signer{online}),
 		"E_VERIFY_EXPIRED", "V12", "default", nil,
-		"exp is 3300 seconds before now, past the 300 second skew. The rejection means the document is refused for NEW instructions and NEW status only. Invariant 16 is absolute: an expired document MUST NOT disconnect a user, tear down a tunnel or clear a cached configuration, and a harness that treats this fixture as a disconnect trigger has implemented the wrong thing.")
+		"exp is 200 seconds before now, past the 300 second skew when the skew is applied to now rather than to exp: now = floor + 300, exp = floor - 200, and V12 tests now > exp + 300. iat is floor - 3800, so iat + LIFETIME_MAX[0x03] + 300 = floor + 100 clears V11 by 100 seconds and the two codes are separable under the specification predicate with no tolerance invented. The rejection means the document is refused for NEW instructions and NEW status only. Invariant 16 is absolute: an expired document MUST NOT disconnect a user, tear down a tunnel or clear a cached configuration, and a harness that treats this fixture as a disconnect trigger has implemented the wrong thing.")
 
 	vr("nonce-mismatch", "nonce_mismatch", dtDirective,
 		signDir(mut(encode(minDirectiveMap(445)), append([]byte{0x0a, 0x50}, nonce...),
@@ -496,10 +506,54 @@ func buildNegatives() {
 
 	vr("cathash-mismatch", "cathash_mismatch", dtCatalog,
 		buildFrame(dtCatalog, encode(minCatalogMap(21, 14)), []signer{online}),
-		"E_VERIFY_CATHASH", "V14", "default",
-		&ctx{HWM: map[string]uint64{"2": 6},
+		"E_VERIFY_CATHASH", "V14a", "default",
+		&ctx{HWM: map[string]uint64{"2": 6}, BoundCat: "bin/positive/c1_min.bin",
 			Note: "The trusted directive names cat = sha256(c1_min.bin). This catalog is a different document with a different frame digest."},
 		"A validly signed catalog whose sha256 is not the cat the trusted directive named. The directive binds the catalog by hash, so a compromised mirror cannot substitute a different but validly signed catalog; per 01-DECISION.md A1, a compromised ONLINE KEY still can, and that is an accepted risk rather than a defect.")
+
+	// The tier for V14b comes from the DIRECTIVE, never from the catalog under
+	// verification. This catalog is validly signed by the online key and names
+	// tier 9999, for which the trusted key document publishes nothing; the
+	// trusted directive named tier 1, whose root-signed hash is chash(c1_min).
+	// A verifier that reads doc.tier looks up tiers[9999], finds nothing, skips
+	// the step and ACCEPTS a fleet the root never anchored, which is exactly
+	// the invention 03-WIRE.md 6.2 says V14b exists to stop.
+	vr("tier-not-anchored", "tier_not_anchored", dtCatalog,
+		buildFrame(dtCatalog, encode(minCatalogMap(23, 999)), []signer{online}),
+		"E_VERIFY_CATHASH", "V14b", "tiers", nil,
+		"A catalog carrying tier 999, which the trusted key document does not anchor, verified against a directive that named tier 1. V14b MUST look up tiers[1], the tier the trusted directive named, and reject this frame because its sha256 is not the root-signed hash for that tier. An implementation that takes the tier from the catalog accepts this vector, and a compromised online key can then mint any fleet it likes by naming a tier the root never published.")
+
+	// The three self-contained sel and pol agreement predicates, 02-SPEC.md
+	// 7.4. Each is decidable from the incoming bytes alone, which is what makes
+	// E_PARSE_FIELD the right code and the parse step the right place.
+	selPolBase := func(ver uint64, sel *selection, pol []policyItem) []byte {
+		return buildFrame(dtDirective, encode(buildDirective(directiveOpts{
+			pid: pid, ver: ver, iat: fixIAT, nonce: nonce, dtp: dtp, st: 3,
+			cat: frameSHA(catMinFrame), cn: 1, tier: fixTier, cap: []byte{0, 0, 0, 3},
+			sel: sel, pol: pol, ttl: fixTTL, loc: loc,
+		})), []signer{online})
+	}
+	vr("selpol-preset", "selpol_preset", dtDirective,
+		selPolBase(447, &selection{preset: "bypass-ru"}, []policyItem{{2, t("direct"), 1}}),
+		"E_PARSE_FIELD", "P11", "default", nil,
+		"sel.preset and pol[2] are both present and differ. pol is what the client applies to the core and sel is what it puts on the legacy URL; a directive that says two different presets makes the client apply both.")
+	vr("selpol-proto", "selpol_proto", dtDirective,
+		selPolBase(448, &selection{proto: 1}, []policyItem{{1, t("Shadowsocks"), 1}}),
+		"E_PARSE_FIELD", "P11", "default", nil,
+		"sel.proto is 1 (VLESS) while pol[1] is Shadowsocks, whose PROTO_WIRE value is 6. The mapping of 02-SPEC.md 7.4 is authoritative in one direction only: VLESS and VLESS-Reality both map to 1, so a client MUST NOT reconstruct pol[1] from sel.proto, and this vector must not be satisfied by doing so.")
+	vr("selpol-rcc", "selpol_rcc", dtDirective,
+		selPolBase(449, &selection{rcc: "NL"}, []policyItem{{3, t("de"), 1}}),
+		"E_PARSE_FIELD", "P11", "default", nil,
+		"sel.rcc is NL while pol[3] names de. sel.relay is a node id and pol[3] is a country code; where pol[3] carries a country code, sel.rcc MUST be that code uppercased. An empty pol[3] means the operator resolved it and admits any legal sel.rcc, which is why this fixture sets a concrete code.")
+
+	// loc is 24 characters of base32 Crockford (03-WIRE.md section 4). It is a
+	// version scope and it is pasted into a URL path and a request header, so
+	// the character set is a parse rule and not a downstream concern.
+	vr("loc-charset", "loc_charset", dtDirective,
+		signDir(mut(encode(minDirectiveMap(450)), append([]byte{0x18, 0x19, 0x78, 0x18}, []byte(loc)...),
+			append([]byte{0x18, 0x19, 0x78, 0x18}, []byte("../../../../../../etc/pa")...))),
+		"E_PARSE_FIELD", "P11", "default", nil,
+		"loc is 24 well-formed UTF-8 bytes that are not base32 Crockford. Length alone is not the rule: this value reaches a URL path verbatim, because RequestURI escapes but does not clean dot segments, and it reaches the X-CSM-Loc header. Rejecting it at P11 closes it at the boundary where every other identifier is checked.")
 }
 
 func buildAnchorNegatives() {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:caramba_client/data/safe_url.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
 import 'package:caramba_client/theme/typography.dart';
@@ -21,11 +22,15 @@ class SectionTitle extends StatelessWidget {
           padding ?? const EdgeInsets.fromLTRB(0, AppSpace.s6, 0, AppSpace.s3),
       child: Row(
         children: [
-          Text(
-            text.toUpperCase(),
-            style: AppType.caption.copyWith(
-              color: c.textLow,
-              letterSpacing: 1.0,
+          // Заголовок переносится, а не обрезается: раздел, у которого не
+          // видно конца названия, хуже раздела в две строки.
+          Flexible(
+            child: Text(
+              text.toUpperCase(),
+              style: AppType.caption.copyWith(
+                color: c.textLow,
+                letterSpacing: 1.0,
+              ),
             ),
           ),
           if (trailing != null) ...[
@@ -541,7 +546,10 @@ void showCarambaToast(BuildContext context, String message) {
 /// Открывает внешнюю ссылку (deeplink в бота / страница оплаты). При неуспехе
 /// показывает тост. Используется для purchase pay_url и share-ссылок.
 Future<void> openExternal(BuildContext context, String url) async {
-  final uri = Uri.tryParse(url);
+  // Схема проверяется по списку допустимых: pay_url и share-ссылки приходят с
+  // сервера, а launchUrl без такой проверки открывает javascript:, file: и
+  // любую схему стороннего приложения по значению, которое выбрали не мы.
+  final uri = csmSafeExternalUri(url);
   if (uri == null) {
     if (context.mounted) showCarambaToast(context, 'Ссылка недоступна');
     return;
@@ -641,6 +649,14 @@ Future<int?> showPickerSheet({
   required String subtitle,
   required List<({String name, String desc, String? icon})> options,
   required int selected,
+  /// Индексы, которые видны, но не выбираемы, и подпись причины к каждому.
+  ///
+  /// 02-SPEC.md 7.2 и 7.9: значение, которого оператор не предлагает или
+  /// которого не умеет эта версия приложения, ОБЯЗАНО отрисоваться видимым и
+  /// выключенным с названной причиной, а не исчезнуть из списка. Пропавшая
+  /// строка неотличима от «такого не бывает», и пользователь ищет её в
+  /// обновлении, которого ему не нужно.
+  Map<int, String> disabled = const <int, String>{},
 }) {
   final c = context.c;
   return showModalBottomSheet<int>(
@@ -678,14 +694,20 @@ Future<int?> showPickerSheet({
                     itemCount: options.length,
                     itemBuilder: (_, i) {
                       final o = options[i];
-                      return ListItemCard(
-                        leading: o.icon != null
-                            ? IBox(o.icon!)
-                            : const SizedBox(width: 0, height: 40),
-                        title: o.name,
-                        subtitle: o.desc,
-                        selected: i == selected,
-                        onTap: () => Navigator.of(ctx).pop(i),
+                      final off = disabled[i];
+                      return Opacity(
+                        opacity: off == null ? 1 : 0.45,
+                        child: ListItemCard(
+                          leading: o.icon != null
+                              ? IBox(o.icon!)
+                              : const SizedBox(width: 0, height: 40),
+                          title: o.name,
+                          subtitle: off ?? o.desc,
+                          selected: off == null && i == selected,
+                          onTap: off == null
+                              ? () => Navigator.of(ctx).pop(i)
+                              : null,
+                        ),
                       );
                     },
                   ),
@@ -697,4 +719,284 @@ Future<int?> showPickerSheet({
       );
     },
   );
+}
+
+// ------------------------------------------------- пустое / загрузка / ошибка
+//
+// DESIGN.md 5.9. Экраны проверки CSM/1 показывают эти три состояния целиком, а
+// не полосой поверх пустоты: пользователь, пришедший проверять оператора,
+// обязан отличать «ещё читаем с диска» от «профиль ничего не закреплял».
+
+/// Скелет-блок загрузки: shimmer по [AppColors.shimmerBase] со светлой
+/// протяжкой [AppColors.shimmerHi], ~1.2 с. Голого спиннера на полном экране
+/// не бывает.
+class SkeletonBlock extends StatefulWidget {
+  final double height;
+  final double? width;
+  final BorderRadius radius;
+
+  const SkeletonBlock({
+    this.height = 16,
+    this.width,
+    this.radius = AppRadius.r8,
+    super.key,
+  });
+
+  @override
+  State<SkeletonBlock> createState() => _SkeletonBlockState();
+}
+
+class _SkeletonBlockState extends State<SkeletonBlock>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return SizedBox(
+      height: widget.height,
+      width: widget.width,
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) {
+          final t = _c.value;
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: widget.radius,
+              gradient: LinearGradient(
+                begin: Alignment(-1 - 2 * (1 - t), 0),
+                end: Alignment(1 - 2 * (1 - t), 0),
+                colors: [c.shimmerBase, c.shimmerHi, c.shimmerBase],
+                stops: const [0.0, 0.5, 1.0],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Скелет карточки-группы строк: рамка на месте, содержимое мерцает.
+class SkeletonRows extends StatelessWidget {
+  final int rows;
+  const SkeletonRows({this.rows = 3, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Container(
+      decoration: BoxDecoration(
+        color: c.surface1,
+        borderRadius: AppRadius.r16,
+        border: Border.all(color: c.borderSubtle),
+      ),
+      padding: const EdgeInsets.all(AppSpace.s4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < rows; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpace.s4),
+            Row(
+              children: [
+                const SkeletonBlock(height: 14, width: 96),
+                const Spacer(),
+                SkeletonBlock(height: 14, width: 64 + (i % 3) * 24),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Полноэкранное пустое состояние: линейный глиф, заголовок, одна строка
+/// объяснения и один первичный CTA.
+class ScreenEmpty extends StatelessWidget {
+  final String glyph;
+  final String title;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  const ScreenEmpty({
+    required this.glyph,
+    required this.title,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpace.s12),
+      child: Column(
+        children: [
+          LucideIcon(glyph, color: c.textMed, size: 32),
+          const SizedBox(height: AppSpace.s4),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: AppType.titleMd.copyWith(color: c.textHi),
+          ),
+          const SizedBox(height: AppSpace.s2),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppType.bodyMd.copyWith(color: c.textMed),
+          ),
+          if (actionLabel != null) ...[
+            const SizedBox(height: AppSpace.s5),
+            GhostButton(label: actionLabel!, onPressed: onAction),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Полноэкранная ошибка: danger-глиф, причина простыми словами, «Повторить»
+/// и раскрываемые «Подробности» с сырым текстом в mono-блоке.
+class ScreenError extends StatefulWidget {
+  final String message;
+  final String? details;
+  final VoidCallback? onRetry;
+
+  const ScreenError({
+    required this.message,
+    this.details,
+    this.onRetry,
+    super.key,
+  });
+
+  @override
+  State<ScreenError> createState() => _ScreenErrorState();
+}
+
+class _ScreenErrorState extends State<ScreenError> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpace.s10),
+      child: Column(
+        children: [
+          LucideIcon(Lucide.alert, color: c.danger, size: 30),
+          const SizedBox(height: AppSpace.s4),
+          Text(
+            widget.message,
+            textAlign: TextAlign.center,
+            style: AppType.bodyMd.copyWith(color: c.textHi),
+          ),
+          if (widget.onRetry != null) ...[
+            const SizedBox(height: AppSpace.s5),
+            GhostButton(
+              label: 'Повторить',
+              icon: Lucide.refresh,
+              onPressed: widget.onRetry,
+            ),
+          ],
+          if (widget.details != null) ...[
+            const SizedBox(height: AppSpace.s2),
+            QuietButton(
+              label: _open ? 'Скрыть подробности' : 'Подробности',
+              color: c.textMed,
+              onPressed: () => setState(() => _open = !_open),
+            ),
+            if (_open) ...[
+              const SizedBox(height: AppSpace.s2),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppSpace.s3),
+                decoration: BoxDecoration(
+                  color: c.surfaceInset,
+                  borderRadius: AppRadius.r12,
+                  border: Border.all(color: c.borderSubtle),
+                ),
+                child: Text(
+                  widget.details!,
+                  style: AppType.monoSm.copyWith(color: c.textMed),
+                ),
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Inline-баннер (DESIGN.md 5.10): тонированный фон, глиф, одна строка.
+/// [tone] выбирает семейство: info (нейтральный), warning, danger.
+enum BannerTone { info, warning, danger }
+
+class InlineBanner extends StatelessWidget {
+  final String text;
+  final BannerTone tone;
+  final String? glyph;
+  final Widget? trailing;
+
+  const InlineBanner({
+    required this.text,
+    this.tone = BannerTone.info,
+    this.glyph,
+    this.trailing,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final (Color fg, Color bg) = switch (tone) {
+      BannerTone.info => (c.textMed, c.surface1),
+      BannerTone.warning => (c.warning, c.warningSubtle),
+      BannerTone.danger => (c.danger, c.dangerSubtle),
+    };
+    return Container(
+      padding: const EdgeInsets.all(AppSpace.s4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: AppRadius.r12,
+        border: Border.all(
+          color: tone == BannerTone.info
+              ? c.borderSubtle
+              : fg.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LucideIcon(glyph ?? Lucide.alert, color: fg, size: 18),
+          const SizedBox(width: AppSpace.s3),
+          Expanded(
+            child: Text(
+              text,
+              style: AppType.bodySm.copyWith(
+                color: tone == BannerTone.info ? c.textMed : c.textHi,
+              ),
+            ),
+          ),
+          if (trailing != null) ...[
+            const SizedBox(width: AppSpace.s3),
+            trailing!,
+          ],
+        ],
+      ),
+    );
+  }
 }

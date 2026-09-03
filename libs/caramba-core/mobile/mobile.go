@@ -416,3 +416,55 @@ func splitCSV(s string) []string {
 	}
 	return out
 }
+
+// --- CSM/1: подписанный манифест и лестница транспортов ---
+//
+// Всё богатое состояние уходит строкой JSON, как SetPolicyJSON: gomobile не
+// пропускает через границу карты и срезы чужих структур, а пять мостов должны
+// читать одинаковые формы. Это символы ABI v3; клиент, собранный против старой
+// библиотеки, не находит их и вырождается в "CSM недоступен в этой сборке",
+// а не падает.
+
+// CsmEnroll выполняет регистрацию из bootstrap blob либо из origin, кода и
+// пина. Возвращает снимок проверенного состояния.
+func (c *Client) CsmEnroll(jsonStr string) (string, error) {
+	ctx, cancel := timeoutCtx(60)
+	defer cancel()
+	return c.core.CsmEnroll(ctx, jsonStr)
+}
+
+// CsmRefresh выполняет один цикл выборки документов.
+//
+// Ошибка не означает потерю конфигурации: профиль остаётся на кешированных
+// документах и продолжает подключать (инвариант 16).
+func (c *Client) CsmRefresh(timeoutSec int) (string, error) {
+	ctx, cancel := timeoutCtx(timeoutSec)
+	defer cancel()
+	return c.core.CsmRefresh(ctx)
+}
+
+// CsmState отдаёт личность оператора, состояние проверки документов, битовое
+// поле возможностей, возраст конфигурации и её источник.
+func (c *Client) CsmState() (string, error) { return c.core.CsmStateJSON() }
+
+// CsmLadder отдаёт все скомпилированные ступени с порядком, переключателем,
+// причиной недоступности и историей попыток.
+func (c *Client) CsmLadder() (string, error) { return c.core.CsmLadderJSON() }
+
+// CsmSetLadder применяет переключатели и порядок от пользователя.
+func (c *Client) CsmSetLadder(jsonStr string) error { return c.core.CsmSetLadderJSON(jsonStr) }
+
+// CsmRequestSettings отправляет изменение настроек как подписанный запрос.
+func (c *Client) CsmRequestSettings(jsonStr string) (string, error) {
+	ctx, cancel := timeoutCtx(30)
+	defer cancel()
+	return c.core.CsmRequestSettingsJSON(ctx, jsonStr)
+}
+
+// LadderRequest выполняет произвольный HTTP запрос через лестницу. Это то, чем
+// управляющий слой на Dart заменяет собственные сокеты к оператору.
+func (c *Client) LadderRequest(jsonStr string) (string, error) {
+	ctx, cancel := timeoutCtx(120)
+	defer cancel()
+	return c.core.LadderRequestJSON(ctx, jsonStr)
+}

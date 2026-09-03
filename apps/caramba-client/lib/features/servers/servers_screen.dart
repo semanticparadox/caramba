@@ -4,12 +4,14 @@ import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/server.dart';
+import 'package:caramba_client/features/settings/reconnect_banner.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/core_error.dart';
 import 'package:caramba_client/state/probe_state.dart';
 import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/state/servers_state.dart';
+import 'package:caramba_client/state/vpn_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
 import 'package:caramba_client/theme/typography.dart';
@@ -78,6 +80,13 @@ class _ImportedServersViewState extends ConsumerState<_ImportedServersView> {
                 onTap: () => context.go(AppRoute.home),
               ),
             ),
+            // Смена узла выхода действует со следующего `Up` (02-SPEC.md
+            // 7.11): туннель не рвём сами, поднимаем тот же баннер, что и
+            // настройки, и ждём человека.
+            if (_exitChanged(ref, profile)) ...[
+              const ReconnectBanner(),
+              const SizedBox(height: AppSpace.s4),
+            ],
             Text(
               profile.displayName.isEmpty
                   ? 'Узлы импортированной подписки'
@@ -124,6 +133,27 @@ class _ImportedServersViewState extends ConsumerState<_ImportedServersView> {
         ),
       ),
     );
+  }
+
+  /// Закреплённый узел разошёлся с тем, на котором стоит поднятый туннель.
+  static bool _exitChanged(WidgetRef ref, ConnectionProfile profile) {
+    if (!ref.watch(vpnProvider).isConnected) return false;
+    final id = profile.selectedServerId;
+    if (id == null || id.isEmpty) return false;
+    final active = ref.watch(activeProxyProvider);
+    if (active == null || active.isEmpty) return false;
+    for (final s in profile.servers) {
+      if (s.id != id) continue;
+      // Сравниваем по идентификатору узла, а не по отображаемому имени.
+      // activeProxy это то, что доложило ядро про селектор CARAMBA, и оно
+      // вправе доложить метку группы или дедуплицированное имя; сравнение по
+      // имени тогда залипает баннером, который нельзя закрыть, потому что
+      // Reconnect его не снимает.
+      if (active == s.id) return false;
+      final name = s.name;
+      return name.isNotEmpty && name != active;
+    }
+    return false;
   }
 
   Future<void> _select(ImportedServer server) async {
@@ -282,6 +312,7 @@ class _PanelServersView extends ConsumerWidget {
     final c = context.c;
     final async = ref.watch(serversProvider);
     final selected = ref.watch(selectedServerProvider);
+    final status = ref.watch(vpnProvider);
 
     return Scaffold(
       backgroundColor: c.bgCanvas,
@@ -306,6 +337,14 @@ class _PanelServersView extends ConsumerWidget {
                   onTap: () => context.go(AppRoute.home),
                 ),
               ),
+              // То же правило на панельной ветке: выбор выхода вступает в силу
+              // на следующем поднятии туннеля.
+              if (status.isConnected &&
+                  selected != null &&
+                  status.server?.id != selected.id) ...[
+                const ReconnectBanner(),
+                const SizedBox(height: AppSpace.s4),
+              ],
               async.when(
                 data: (servers) => _list(context, ref, servers, selected),
                 loading: () => const _Loading(),

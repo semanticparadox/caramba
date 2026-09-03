@@ -9,6 +9,8 @@ library;
 
 import 'package:dio/dio.dart';
 
+import 'package:caramba_client/data/safe_url.dart';
+
 /// Ошибка загрузки подписки с текстом для inline-показа.
 class SubscriptionFetchException implements Exception {
   final String message;
@@ -20,6 +22,18 @@ class SubscriptionFetchException implements Exception {
 /// Скачивает тело подписки. Бросает [SubscriptionFetchException] на сетевой
 /// ошибке, не-2xx ответе или пустом теле.
 Future<String> fetchSubscriptionBody(String url, {Dio? client}) async {
+  // INV-8 действует и здесь. Generic-режим ходит своим Dio, а не лестницей в
+  // Go, и это записано как факт в 02-SPEC.md 8.9: SPKI пинов, бюджета
+  // соединения и истории попыток у этого пути нет. Единственное правило,
+  // которое НЕ имеет права разъезжаться между двумя путями, это схема:
+  // http:// отвергается для любой выборки конфигурации, и `.onion` это
+  // единственное исключение без TLS (02-SPEC.md 8.10).
+  final safe = csmSafeExternalUri(url);
+  if (safe == null) {
+    throw const SubscriptionFetchException(
+      'нужен https-адрес подписки (http допустим только для .onion)',
+    );
+  }
   final dio =
       client ??
       Dio(
@@ -31,7 +45,7 @@ Future<String> fetchSubscriptionBody(String url, {Dio? client}) async {
         ),
       );
   try {
-    final res = await dio.get<String>(url);
+    final res = await dio.get<String>(safe.toString());
     final body = res.data?.trim() ?? '';
     final code = res.statusCode;
     if (code == null || code < 200 || code >= 300) {

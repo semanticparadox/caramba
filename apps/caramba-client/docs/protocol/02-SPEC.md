@@ -1593,6 +1593,7 @@ Every number this specification introduces. Byte-level and size-budget constants
 | `BUILD_EPOCH` plausibility window at enrollment | `[BUILD_EPOCH, BUILD_EPOCH + 315360000]` | 5.4 |
 | minimum cohort size | 25 subscribers, **provisional** | 8.1.1 |
 | cohort ceiling for nodes | 16, from the `tiers` map cap | 8.1.1 |
+| `tier` id range | 1..1023 | `03-WIRE.md` 8.1 |
 | nonce lifetime | 300 s | 5.3, 7.8 |
 | default `ttlk` when absent | 21600 s | 4.3, 5.6 |
 | default `exph` when absent | 604800 s | 4.6 |
