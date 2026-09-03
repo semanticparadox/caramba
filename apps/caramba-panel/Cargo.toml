@@ -73,6 +73,11 @@ flate2 = "1.0"
 
 
 
+[dev-dependencies]
+# Только `ServiceExt::oneshot` для теста слоёв маршрутов CSM: собранный сервис
+# гоняется без сети. Уже в дереве через axum, новых крейтов не добавляет.
+tower = "0.5"
+
 [build-dependencies]
 # For embedding scripts later if needed
 # rust-embed = "8.0"

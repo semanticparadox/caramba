@@ -14,9 +14,12 @@
 //! Спецификация: `apps/caramba-client/docs/protocol/03-WIRE.md` (формат) и
 //! `02-SPEC.md` (нормативные правила).
 
+pub mod catalog;
 pub mod cbor;
+pub mod directive;
 pub mod docs;
 pub mod frame;
+pub mod pad;
 
 pub use cbor::Value;
 pub use docs::{

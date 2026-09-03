@@ -832,6 +832,14 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         handlers::admin::run_expiry_reminder_loop(expiry_state).await;
     });
 
+    // CSM/1: локаторы подписок без строки в csm_subscriptions выписываются
+    // на старте, чтобы полный проход по подпискам не стоял на пути чужого
+    // запроса к /sub/m1 (ленивый путь остаётся для подписок, созданных позже).
+    {
+        let pool = state.pool.clone();
+        tokio::spawn(async move { csm::catalog_store::backfill_at_startup(&pool).await });
+    }
+
     // Rule-set mirror sync: однократно на старте + раз в 12 часов (совпадает с
     // Interval=43200 у RULE-PROVIDER'ов в Go-ядре). Лёгкая фоновая задача —
     // скачивает апстрим-списки доменов/IP в RULESETS_DIR. Сбой не критичен:
@@ -1582,10 +1590,6 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         // через .nest(), чтобы не дублировать каждый маршрут дважды.
         .nest("/api", api_routes.clone())
         .nest("/caramba-api", api_routes)
-        // CSM/1: подписанные документы протокола. Регистрируются ПЕРЕД
-        // /sub/{uuid}, потому что k1 и подобные это фиксированные сегменты, а
-        // не идентификаторы подписки, и матчер обязан увидеть их первыми.
-        .merge(csm::routes::routes())
         // Public Subscription URL endpoint
         .route(
             "/sub/{uuid}",
@@ -1627,8 +1631,40 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
                     auth_middleware,
                 )),
         )
-        .with_state(state)
-        .layer(tower_http::compression::CompressionLayer::new())
+        .with_state(state.clone());
+
+    // CSM/1: подписанные документы протокола живут в корне рядом с
+    // /sub/{uuid} (фиксированные сегменты k1/c1/m1 матчер видит раньше
+    // параметра), но ВНЕ сжатия и постоянных заголовков: слои применяются к
+    // роутеру панели, а маршруты CSM сливаются поверх уже обёрнутого
+    // (03-WIRE.md 12.4, 13.1).
+    let app = csm::routes::mount(panel_layers(app), csm::routes::routes().with_state(state));
+
+    // Start server
+    let port: u16 = std::env::var("PANEL_PORT")
+        .unwrap_or_else(|_| "3000".to_string())
+        .parse()
+        .expect("PANEL_PORT must be a number");
+
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    tracing::info!("Listening on {}", addr);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
+
+    Ok(())
+}
+
+/// Слои роутера панели: сжатие, предел тела запроса и пять постоянных
+/// заголовков безопасности. Функция, а не цепочка на месте, потому что тест
+/// маршрутов CSM обязан собирать сервис теми же слоями, что и продакшн, и
+/// доказывать, что CSM в них не попадает.
+fn panel_layers(app: axum::Router) -> axum::Router {
+    app.layer(tower_http::compression::CompressionLayer::new())
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             10 * 1024 * 1024,
         )) // 10MB limit
@@ -1654,25 +1690,7 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         .layer(tower_http::set_header::SetResponseHeaderLayer::overriding(
             axum::http::header::REFERRER_POLICY,
             axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"),
-        ));
-
-    // Start server
-    let port: u16 = std::env::var("PANEL_PORT")
-        .unwrap_or_else(|_| "3000".to_string())
-        .parse()
-        .expect("PANEL_PORT must be a number");
-
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    tracing::info!("Listening on {}", addr);
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown_signal())
-    .await?;
-
-    Ok(())
+        ))
 }
 
 // Ожидает SIGTERM (systemd/Docker) или Ctrl-C и инициирует graceful shutdown

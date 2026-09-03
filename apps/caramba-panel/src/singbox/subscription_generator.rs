@@ -88,30 +88,30 @@ impl NodeInfo {
 // ─── Helper: Parse stream_settings JSON ───────────────────────────────────────
 
 /// Parsed transport/security info from an inbound's stream_settings JSON
-struct StreamInfo {
-    network: String,  // tcp, ws, grpc, xhttp, quic
-    security: String, // reality, tls, none
-    sni: String,
-    public_key: String, // Reality only
-    short_id: String,   // Reality only
-    fingerprint: String,
-    ws_path: String,      // WebSocket path
-    grpc_service: String, // gRPC serviceName
-    flow: String,         // xtls-rprx-vision (Reality+TCP only)
+pub(crate) struct StreamInfo {
+    pub(crate) network: String,  // tcp, ws, grpc, xhttp, quic
+    pub(crate) security: String, // reality, tls, none
+    pub(crate) sni: String,
+    pub(crate) public_key: String, // Reality only
+    pub(crate) short_id: String,   // Reality only
+    pub(crate) fingerprint: String,
+    pub(crate) ws_path: String,      // WebSocket path
+    pub(crate) grpc_service: String, // gRPC serviceName
+    pub(crate) flow: String,         // xtls-rprx-vision (Reality+TCP only)
 
     // XHTTP / Advanced settings
-    packet_encoding: Option<String>, // packet-up / packetaddr
-    x_padding_bytes: Option<String>, // 500-1200
+    pub(crate) packet_encoding: Option<String>, // packet-up / packetaddr
+    pub(crate) x_padding_bytes: Option<String>, // 500-1200
     #[allow(dead_code)] // WIP: xmux/mux settings not yet emitted into configs
-    xmux: Option<Value>, // JSON object for mux settings
+    pub(crate) xmux: Option<Value>, // JSON object for mux settings
 
     // Hysteria 2
-    hy2_ports: Option<String>, // Port hopping range e.g. "20000-50000"
-    hy2_obfs: Option<String>,  // Obfs password
+    pub(crate) hy2_ports: Option<String>, // Port hopping range e.g. "20000-50000"
+    pub(crate) hy2_obfs: Option<String>,  // Obfs password
 
     // TUIC v5
-    tuic_congestion_control: Option<String>,
-    tuic_zero_rtt_handshake: Option<bool>,
+    pub(crate) tuic_congestion_control: Option<String>,
+    pub(crate) tuic_zero_rtt_handshake: Option<bool>,
 }
 
 fn is_placeholder_sni(sni: &str) -> bool {
@@ -153,13 +153,13 @@ fn country_flag(code: Option<&str>) -> &'static str {
 }
 
 /// Country flag emoji only — node name omitted since flag is sufficient
-fn format_node_label(node: &NodeInfo) -> String {
+pub(crate) fn format_node_label(node: &NodeInfo) -> String {
     country_flag(node.country_code.as_deref()).to_string()
 }
 
 /// Compact protocol + transport label — user-friendly names instead of
 /// protocol jargon.
-fn format_proto_label(protocol: &str, si: &StreamInfo) -> String {
+pub(crate) fn format_proto_label(protocol: &str, si: &StreamInfo) -> String {
     match protocol.to_ascii_lowercase().as_str() {
         "vless" => match si.network.as_str() {
             "tcp" => match si.security.as_str() {
@@ -495,7 +495,7 @@ fn ensure_relay_outbound(
     Some(r_tag)
 }
 
-fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
+pub(crate) fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
     // 1. Parse into strongly-typed struct for robust alias handling (SNI, Settings, etc.)
     let settings: caramba_db::models::network::StreamSettings =
         serde_json::from_str(raw).unwrap_or_default();

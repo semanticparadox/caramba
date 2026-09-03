@@ -29,7 +29,7 @@ const FIX_IAT: u64 = 1_788_307_200;
 fn corpus_dir() -> Option<PathBuf> {
     let p = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../apps/caramba-client/docs/protocol/05-TEST-VECTORS");
-    p.exists().then(|| p)
+    p.exists().then_some(p)
 }
 
 fn hex(s: &str) -> Vec<u8> {
