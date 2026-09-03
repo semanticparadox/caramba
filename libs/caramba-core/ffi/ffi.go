@@ -340,6 +340,34 @@ func CarambaCsmLadder(h C.long) *C.char {
 	return okOrErr(cl.CsmLadder())
 }
 
+// CarambaCsmFleet отдаёт флот доверенного каталога: выходы, входы и запись
+// relay_chaining. Узлы приходят проекцией (id, ярлык, страна, форма протокола,
+// ребро rl) без материала подключения, а отозванный узел — помеченным
+// available=false, а не выброшенным из списка.
+//
+//export CarambaCsmFleet
+func CarambaCsmFleet(h C.long) *C.char {
+	cl := lookup(h)
+	if cl == nil {
+		return errJSON("неизвестный хэндл")
+	}
+	return okOrErr(cl.CsmFleet())
+}
+
+// CarambaCapabilities отдаёт путь ("raw"|"panel") и то, что на нём доступно, с
+// машинной причиной недоступности. Без этого символа обвязка либо прячет
+// недоступный элемент управления, либо объясняет его недоступность собственной
+// копией правила.
+//
+//export CarambaCapabilities
+func CarambaCapabilities(h C.long) *C.char {
+	cl := lookup(h)
+	if cl == nil {
+		return errJSON("неизвестный хэндл")
+	}
+	return okOrErr(cl.Capabilities())
+}
+
 // CarambaCsmSetLadder применяет переключатели и порядок от пользователя.
 //
 //export CarambaCsmSetLadder

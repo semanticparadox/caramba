@@ -46,6 +46,84 @@ type RouteRules struct {
 	RS []string `json:"rs"`
 }
 
+// Значения NodeRef.Kind. Разделение ex и re подписано (03-WIRE.md 8.2 ключи 3
+// и 4), поэтому вид узла не выводится из формы записи, а переносится как есть.
+const (
+	NodeKindExit  = "exit"
+	NodeKindRelay = "relay"
+)
+
+// ReasonNodeRevoked это машинная причина недоступности узла: его идентификатор
+// назван в rev.nodes доверенного ключевого документа.
+const ReasonNodeRevoked = "revoked"
+
+// CapRelayChaining это бит relay_chaining, capBitNames[2] (02-SPEC.md 6.3).
+// Константа существует, чтобы фасад не писал 1<<2 руками; согласованность с
+// capBitNames закреплена тестом.
+const CapRelayChaining uint32 = 1 << 2
+
+// NodeRef это проекция одной записи ex или re доверенного каталога: ровно то,
+// чем рисуется выбор страны и протокола, и НИЧЕГО из того, чем подключаются.
+//
+// Границу проводит именно этот тип. Ядро держит запись узла целиком — h, p,
+// sni, pbk, sid, fp, alp, hop, obf, ssm, mtu (03-WIRE.md 8.2.1) — и собирает
+// исходящее соединение само. Наружу уезжают идентификатор, ярлык, страна и
+// форма протокола. Рисующей стороне материал подключения не нужен, а его
+// появление там означало бы, что содержимое подписанного каталога живёт ещё и
+// в неподписанном слое: подмена одного SNI в слое Dart после этого не ловится
+// ничем, потому что проверять там нечего.
+type NodeRef struct {
+	ID string `json:"id"`
+	// Name это pn, инертный ярлык оператора. Он приходит подписанным и
+	// показывается как есть.
+	Name string `json:"name"`
+	// CC это ISO 3166-1 alpha-2 в верхнем регистре.
+	CC string `json:"cc"`
+	// Kind это NodeKindExit либо NodeKindRelay.
+	Kind string `json:"kind"`
+
+	// Proto, Network и Security это закрытые словари pr, nw и se
+	// (03-WIRE.md 5). Рядом с числом едет имя из того же словаря: ярлык
+	// обвязке нужен, а своя таблица на стороне Dart разошлась бы с этой при
+	// первом же расширении словаря, и разошлась бы молча.
+	Proto        uint64 `json:"proto"`
+	ProtoName    string `json:"proto_name,omitempty"`
+	Network      uint64 `json:"network"`
+	NetworkName  string `json:"network_name,omitempty"`
+	Security     uint64 `json:"security"`
+	SecurityName string `json:"security_name,omitempty"`
+
+	// Relay это rl: идентификатор записи re, через которую этот выход строит
+	// цепочку (03-WIRE.md 8.2.1 ключ 22). Пусто у входов и у выходов без
+	// цепочки. Это ребро, по которому обвязка связывает две проекции: страну
+	// входа она обязана взять из Relays, а не угадать по стране выхода.
+	Relay string `json:"relay,omitempty"`
+
+	// Available ложно, когда идентификатор назван в rev.nodes доверенного
+	// ключевого документа. Отозванный узел остаётся в списке помеченным, а не
+	// исчезает из него: список, укоротившийся молча, неотличим от списка,
+	// который укоротил сам оператор, и пользователь в первом случае ищет
+	// пропавшую страну, а во втором ждёт её возвращения.
+	Available bool `json:"available"`
+	// Reason называет причину недоступности машинным словом (сейчас только
+	// ReasonNodeRevoked). Пусто, когда Available истинно.
+	Reason string `json:"reason,omitempty"`
+}
+
+// Имена закрытых словарей 03-WIRE.md 5. Отсутствующее значение даёт пустое
+// имя, а не выдуманное: число уже уехало в Proto/Network/Security, и обвязка
+// покажет его, если словарь на этой сборке ещё не знает такого варианта.
+var (
+	protoNames = map[uint64]string{
+		1: "vless", 2: "vmess", 3: "trojan", 4: "hysteria2",
+		5: "tuic", 6: "shadowsocks", 7: "naive", 8: "wireguard",
+	}
+	networkNames = map[uint64]string{
+		1: "tcp", 2: "ws", 3: "grpc", 4: "httpupgrade", 5: "xhttp", 6: "quic",
+	}
+	securityNames = map[uint64]string{0: "none", 1: "tls", 2: "reality"}
+)
+
 // Snapshot это полное состояние профиля для клиента.
 type Snapshot struct {
 	Enrolled bool   `json:"enrolled"`
@@ -128,6 +206,20 @@ type Snapshot struct {
 	// только при удержании: в обычном случае это и есть Resources.
 	ResourcesInForce []string `json:"resources_in_force,omitempty"`
 
+	// Exits и Relays это флот доверенного каталога, ex и re, в порядке
+	// подписи. Без них выбор страны нарисовать нечем: остальной снимок несёт
+	// ЧЕТЫРЕ строки авторитетного выбора (Exit, Relay, Preset, Variant), но
+	// ни одной строки о том, из чего этот выбор сделан, поэтому обвязка
+	// показывала бы выбранное значение и не могла бы предложить ни одного
+	// другого.
+	//
+	// Порядок не пересортирован: он подписан, и любая сортировка здесь
+	// означала бы, что пользователь видит не тот список, который подписал
+	// оператор. Сортировать по алфавиту или по стране это дело того, кто
+	// рисует.
+	Exits  []NodeRef `json:"exits,omitempty"`
+	Relays []NodeRef `json:"relays,omitempty"`
+
 	Rungs []RungState `json:"rungs"`
 }
 
@@ -180,6 +272,7 @@ func (f *Fetcher) Snapshot() Snapshot {
 	if f.catalog != nil {
 		s.Resources = catalogResources(f.catalog)
 		s.Routes = catalogRoutes(f.catalog)
+		s.Exits, s.Relays = catalogFleet(f.catalog, f.catFrame, f.anchor)
 		if f.guard.PendingCatalogChange() {
 			s.ResourcesHeld = true
 			s.ResourcesInForce = f.guard.Names()
@@ -264,6 +357,102 @@ func catalogRoutes(cat *csm.Catalog) []RouteRules {
 		rs := make([]string, len(r.RS))
 		copy(rs, r.RS)
 		out = append(out, RouteRules{ID: r.ID, RS: rs})
+	}
+	return out
+}
+
+// catalogFleet проецирует ex и re доверенного каталога и помечает отозванные
+// узлы вместо того, чтобы их прятать.
+//
+// Тонкость, из-за которой одной пометки мало. К моменту снимка отозванные
+// записи уже физически выброшены из разобранного каталога: applyCatalogLocked
+// зовёт csm.DropRevokedNodes, и это правильно — 03-WIRE.md 8.1 ключ 12
+// требует, чтобы изъятый узел выпал из ПРИМЕНЕНИЯ даже на кешированном
+// каталоге без сети. Но выпасть из применения и исчезнуть с экрана это разные
+// вещи, и второе здесь не подразумевается: пользователю нужно увидеть, что
+// страна пропала не сама.
+//
+// Поэтому записи восстанавливаются разбором того же кадра, который уже был
+// проверен. Подпись не перепроверяется (её проверили, когда кадр приняли),
+// диск не читается, и ветка выполняется ТОЛЬКО когда rev.nodes назвал
+// идентификатор, которого в отфильтрованном каталоге нет. На каталоге без
+// отзывов — а это обычный каталог — не делается ничего лишнего.
+//
+// Отказ разбора не выдумывает записи: тогда проекция остаётся такой, какой её
+// сделал отфильтрованный каталог, и отозванный узел просто отсутствует. Это
+// хуже, но это не ложь.
+func catalogFleet(cat *csm.Catalog, frame []byte, anchor *csm.KeyDocument) (exits, relays []NodeRef) {
+	if cat == nil {
+		return nil, nil
+	}
+	revoked := revokedNodeSet(anchor)
+	exits = projectNodes(cat.Ex, NodeKindExit, revoked)
+	relays = projectNodes(cat.Re, NodeKindRelay, revoked)
+	if len(revoked) == 0 || len(frame) == 0 {
+		return exits, relays
+	}
+	if !anyRevokedMissing(revoked, exits, relays) {
+		return exits, relays
+	}
+	_, doc, err := csm.Parse(frame)
+	if err != nil {
+		return exits, relays
+	}
+	full, ok := doc.(*csm.Catalog)
+	if !ok {
+		return exits, relays
+	}
+	// Полный каталог это надмножество отфильтрованного, разобранное из тех же
+	// байт, поэтому пересборка целиком сохраняет подписанный порядок точнее,
+	// чем вставка недостающих записей на угаданные места.
+	return projectNodes(full.Ex, NodeKindExit, revoked), projectNodes(full.Re, NodeKindRelay, revoked)
+}
+
+// revokedNodeSet собирает rev.nodes доверенного ключевого документа.
+func revokedNodeSet(anchor *csm.KeyDocument) map[string]bool {
+	if anchor == nil || len(anchor.Rev.Nodes) == 0 {
+		return nil
+	}
+	m := make(map[string]bool, len(anchor.Rev.Nodes))
+	for _, id := range anchor.Rev.Nodes {
+		m[id] = true
+	}
+	return m
+}
+
+// anyRevokedMissing истинно, когда хотя бы один отозванный идентификатор не
+// представлен в проекции: значит, его уже выбросил фильтр применения.
+func anyRevokedMissing(revoked map[string]bool, sets ...[]NodeRef) bool {
+	present := make(map[string]bool, len(revoked))
+	for _, set := range sets {
+		for _, n := range set {
+			if revoked[n.ID] {
+				present[n.ID] = true
+			}
+		}
+	}
+	return len(present) < len(revoked)
+}
+
+// projectNodes проецирует срез записей узлов в порядке подписи.
+func projectNodes(in []csm.Node, kind string, revoked map[string]bool) []NodeRef {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]NodeRef, 0, len(in))
+	for _, n := range in {
+		ref := NodeRef{
+			ID: n.ID, Name: n.PN, CC: n.CC, Kind: kind,
+			Proto: n.PR, ProtoName: protoNames[n.PR],
+			Network: n.NW, NetworkName: networkNames[n.NW],
+			Security: n.SE, SecurityName: securityNames[n.SE],
+			Relay:     n.RL,
+			Available: !revoked[n.ID],
+		}
+		if !ref.Available {
+			ref.Reason = ReasonNodeRevoked
+		}
+		out = append(out, ref)
 	}
 	return out
 }

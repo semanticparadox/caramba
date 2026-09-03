@@ -270,6 +270,206 @@ type UpResult struct {
 	OK         bool          `json:"ok"`
 	ConfigPath string        `json:"config_path"`
 	Engine     engine.Status `json:"engine"`
+	// Ignored перечисляет выборы пользователя, которые ЭТОТ путь применить не
+	// смог. Пустой список означает, что применено всё, что было задано.
+	//
+	// Поле появилось потому, что раньше raw-путь молча выбрасывал SetRelay:
+	// туннель поднимался, ошибки не было, и единственным следом расхождения
+	// оставалось то, что трафик шёл не через ту страну. Записи здесь — те же
+	// Capability, что отдаёт Capabilities, с Supported=false: обвязка
+	// показывает ту же причину тем же кодом, а не заводит вторую формулировку
+	// для того же факта.
+	Ignored []Capability `json:"ignored,omitempty"`
+}
+
+// --- Возможности пути (что клиент МОЖЕТ прямо сейчас, и почему нет) ---
+
+// Имена возможностей. Это ключи, по которым обвязка сопоставляет запись с
+// конкретным элементом управления, поэтому они стабильны.
+const (
+	// CapNameRelayChaining это цепочка вход→выход: выбор страны ВХОДА.
+	CapNameRelayChaining = "relay_chaining"
+	// CapNameNodeSelection это закрепление конкретного выходного узла.
+	CapNameNodeSelection = "node_selection"
+)
+
+// Значения CapabilitiesResult.Path.
+const (
+	// ConfigPathRaw это импортированная подписка: узлы берутся из неё, в
+	// панель не ходят (см. SetImportedConfig и Up).
+	ConfigPathRaw = "raw"
+	// ConfigPathPanel это панельный путь: конфиг тянется у панели по UUID.
+	ConfigPathPanel = "panel"
+)
+
+// Машинные коды причин. Обвязка выбирает по ним текст; сама строка кода
+// пользователю не показывается.
+const (
+	// CapReasonRawProfile: возможность принадлежит панели, а импортированная
+	// подписка это готовый список узлов без того, кто мог бы его пересобрать.
+	CapReasonRawProfile = "raw_profile"
+	// CapReasonPanelNotConfigured: панельный путь выбран, но адрес панели пуст.
+	CapReasonPanelNotConfigured = "panel_not_configured"
+	// CapReasonOperatorNotGranted: оператор не выдал бит возможности в
+	// подписанных документах (02-SPEC.md 6.3).
+	CapReasonOperatorNotGranted = "operator_not_granted"
+)
+
+// Capability это одна возможность: доступна она на текущем пути или нет, и
+// если нет — почему, машинным словом.
+//
+// Смысл типа в том, чтобы недоступный элемент управления оставался видимым и
+// назывался причину. Спрятанный переключатель релея выглядит одинаково при
+// «оператор не выдал бит», «панель не настроена» и «эта подписка так не
+// умеет», и все три случая пользователь читает как поломку приложения. Хуже
+// того, причина, зашитая в Dart, — это второе место, где живёт правило: ядро
+// меняет поведение, текст остаётся прежним, и приложение уверенно врёт.
+type Capability struct {
+	Name      string `json:"name"`
+	Supported bool   `json:"supported"`
+	// Reason это машинный код (CapReason*). Пусто, когда Supported истинно.
+	Reason string `json:"reason,omitempty"`
+	// Detail это пояснение на английском для журнала и отчётов об ошибках.
+	// Оно НЕ предназначено для показа пользователю: текст для него выбирает
+	// обвязка по Reason.
+	Detail string `json:"detail,omitempty"`
+}
+
+// CapabilitiesResult это ответ Capabilities.
+type CapabilitiesResult struct {
+	// Path это путь, по которому пойдёт ближайший Up: ConfigPathRaw либо
+	// ConfigPathPanel. Возможности зависят от него, поэтому он отдаётся рядом.
+	Path         string       `json:"path"`
+	Capabilities []Capability `json:"capabilities"`
+}
+
+// Capabilities отвечает, что ядро умеет на ТЕКУЩЕМ пути.
+//
+// Ответ считается по тому же состоянию, по которому решает Up: импортированный
+// конфиг, адрес панели и, если профиль CSM зарегистрирован, эффективная маска
+// возможностей из подписанных документов. Выборщик CSM здесь НЕ создаётся:
+// csmFetcher при первом обращении пишет на диск пару ключей устройства, то
+// есть долгоживущий идентификатор, и заводить его ради вопроса «показывать ли
+// переключатель» значило бы создавать идентификатор без действия пользователя.
+// Отсутствующий выборщик означает «профиля CSM нет», а не «нельзя».
+func (c *Core) Capabilities() CapabilitiesResult {
+	c.mu.Lock()
+	raw := len(c.importedConfig) > 0
+	panelConfigured := strings.TrimSpace(c.cfg.PanelBaseURL) != ""
+	f := c.csm
+	c.mu.Unlock()
+
+	res := CapabilitiesResult{Path: ConfigPathPanel}
+	if raw {
+		res.Path = ConfigPathRaw
+	}
+	res.Capabilities = []Capability{
+		c.relayChainingCap(raw, panelConfigured, f),
+		nodeSelectionCap(raw, panelConfigured),
+	}
+	return res
+}
+
+// CapabilitiesJSON это Capabilities строкой JSON для мостов.
+func (c *Core) CapabilitiesJSON() (string, error) { return toJSONString(c.Capabilities()) }
+
+// relayChainingCap отвечает про цепочку вход→выход.
+//
+// На raw-пути ответ отрицательный, и это решение, а не недоделка. Цепочку
+// собирает панель: она принимает relay_country, подбирает вход и выдаёт
+// конфиг, где выход уже завёрнут во вход. Импортированная подписка это
+// готовый список узлов от постороннего оператора; пересобрать его в цепочку
+// здесь нечем и не по чему, поэтому Up на этом пути relay не применяет.
+// Раньше он его молча не применял — теперь об этом сказано до подъёма.
+func (c *Core) relayChainingCap(raw, panelConfigured bool, f *transport.Fetcher) Capability {
+	out := Capability{Name: CapNameRelayChaining}
+	switch {
+	case raw:
+		out.Reason = CapReasonRawProfile
+		out.Detail = "an imported subscription is a finished node list; the entry-exit chain is assembled by the panel from relay_country, and this path never contacts it"
+		return out
+	case !panelConfigured:
+		out.Reason = CapReasonPanelNotConfigured
+		out.Detail = "no panel base URL is configured, so relay_country has nowhere to be sent"
+		return out
+	}
+	// Пустая маска означает «проверенных документов нет», а не «оператор
+	// запретил»: до регистрации профиля CSM панельный путь работает по
+	// обычному REST, который relay_country принимает. Запрет объявляется
+	// только тогда, когда маска есть и бита в ней нет.
+	if f != nil {
+		if eff := f.EffectiveCap(); eff != 0 && eff&transport.CapRelayChaining == 0 {
+			out.Reason = CapReasonOperatorNotGranted
+			out.Detail = "the relay_chaining bit is clear in the effective capability mask of the verified documents"
+			return out
+		}
+	}
+	out.Supported = true
+	return out
+}
+
+// nodeSelectionCap отвечает про закрепление конкретного выходного узла.
+// На raw-пути это умеет сам клиент: serverID трактуется как имя прокси и
+// закрепляется первым в селекторе CARAMBA (AssembleMihomoConfigPinned), панель
+// для этого не нужна.
+func nodeSelectionCap(raw, panelConfigured bool) Capability {
+	if raw {
+		return Capability{
+			Name: CapNameNodeSelection, Supported: true,
+			Detail: "the node is pinned locally as the first entry of the CARAMBA selector",
+		}
+	}
+	if !panelConfigured {
+		return Capability{
+			Name: CapNameNodeSelection, Reason: CapReasonPanelNotConfigured,
+			Detail: "no panel base URL is configured, so node_id has nowhere to be sent",
+		}
+	}
+	return Capability{
+		Name: CapNameNodeSelection, Supported: true,
+		Detail: "the node is selected by the panel from node_id",
+	}
+}
+
+// CsmFleetJSON отдаёт флот доверенного каталога: выходы, входы и то, можно ли
+// сейчас построить цепочку.
+//
+// Это ровно то, из чего собирается экран выбора, и потому один вызов, а не
+// три: без Exits нечего показать, без Relays нельзя назвать страну входа, а
+// без RelayChaining переключатель входа пришлось бы либо прятать, либо
+// объяснять причину его недоступности заново на стороне Dart.
+func (c *Core) CsmFleetJSON() (string, error) {
+	f, err := c.csmFetcher()
+	if err != nil {
+		return "", err
+	}
+	snap := f.Snapshot()
+
+	c.mu.Lock()
+	raw := len(c.importedConfig) > 0
+	panelConfigured := strings.TrimSpace(c.cfg.PanelBaseURL) != ""
+	c.mu.Unlock()
+
+	return toJSONString(CsmFleetResult{
+		Exits:  snap.Exits,
+		Relays: snap.Relays,
+		// FleetEmpty это флот, которым пользоваться нельзя, а не флот с нулём
+		// выходов: он взводится ПОСЛЕ фильтрации по rev.nodes, и Exits при
+		// этом может быть непуст — все его записи будут помечены
+		// недоступными.
+		FleetEmpty:          snap.FleetEmpty,
+		RevokedNodesDropped: snap.RevokedNodesDropped,
+		RelayChaining:       c.relayChainingCap(raw, panelConfigured, f),
+	})
+}
+
+// CsmFleetResult это ответ CsmFleetJSON.
+type CsmFleetResult struct {
+	Exits               []transport.NodeRef `json:"exits"`
+	Relays              []transport.NodeRef `json:"relays"`
+	FleetEmpty          bool                `json:"fleet_empty"`
+	RevokedNodesDropped int                 `json:"revoked_nodes_dropped"`
+	RelayChaining       Capability          `json:"relay_chaining"`
 }
 
 // --- Аутентификация ---
@@ -718,7 +918,10 @@ func (c *Core) ImportSubscription(raw []byte, format string) (subimport.Metadata
 //     БЕЗ требования аутентификации. Непустой serverID трактуется как ИМЯ прокси
 //     (Metadata.Servers[].id) и закрепляет этот узел первым в селекторе CARAMBA,
 //     то есть делает его выбором по умолчанию; пустой оставляет автоматику.
-//     relay игнорируется (панель его не применяет).
+//     relay НЕ применяется: цепочку вход→выход собирает панель, а здесь её
+//     собрать не из чего. Это видно ДО подъёма через Capabilities
+//     (relay_chaining, причина CapReasonRawProfile) и, если выбор всё же был
+//     задан, названо в UpResult.Ignored после него.
 //   - панельный путь: требуется аутентификация; конфиг подписки тянется у панели
 //     по UUID. serverID необязателен и передаётся как node_id, relay — как
 //     relay_country.
@@ -730,7 +933,16 @@ func (c *Core) Up(ctx context.Context, serverID string) (UpResult, error) {
 	imported := c.importedConfig
 	policy := c.policy
 	presetID := c.presetID
+	rawRelay := c.relayCountry
 	c.mu.Unlock()
+
+	// Что этот подъём применить не сможет, известно до того, как он начнётся.
+	// Список собирается здесь, а не после старта движка, чтобы причина
+	// уезжала наружу тем же кодом, каким её отдаёт Capabilities.
+	var ignored []Capability
+	if len(imported) > 0 && strings.TrimSpace(rawRelay) != "" {
+		ignored = append(ignored, c.relayChainingCap(true, false, nil))
+	}
 
 	// Учётные данные служебного инбаунда на петле выпускаются на КАЖДЫЙ подъём
 	// и никуда не сохраняются. Без них слушатель не собирается: инбаунд с
@@ -842,7 +1054,7 @@ func (c *Core) Up(ctx context.Context, serverID string) (UpResult, error) {
 	c.mu.Unlock()
 
 	st, _ := c.engine.Status()
-	return UpResult{OK: true, ConfigPath: configPath, Engine: st}, nil
+	return UpResult{OK: true, ConfigPath: configPath, Engine: st, Ignored: ignored}, nil
 }
 
 // Down останавливает туннель.
