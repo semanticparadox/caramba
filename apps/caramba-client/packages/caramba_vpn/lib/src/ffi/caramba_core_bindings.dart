@@ -79,6 +79,14 @@ typedef _DHandleToString = Pointer<Utf8> Function(int h);
 typedef _CFree = Void Function(Int64 h);
 typedef _DFree = void Function(int h);
 
+// ABI v3, CSM/1: одна строка JSON внутрь, одна строка JSON наружу.
+typedef _CJsonCall = Pointer<Utf8> Function(Int64 h, Pointer<Utf8> json);
+typedef _DJsonCall = Pointer<Utf8> Function(int h, Pointer<Utf8> json);
+
+// ABI v3: хэндл и целое внутрь (CarambaCsmRefresh принимает таймаут).
+typedef _CHandleIntCall = Pointer<Utf8> Function(Int64 h, Int32 v);
+typedef _DHandleIntCall = Pointer<Utf8> Function(int h, int v);
+
 typedef _CFreeString = Void Function(Pointer<Utf8> s);
 typedef _DFreeString = void Function(Pointer<Utf8> s);
 
@@ -269,4 +277,112 @@ class CarambaCoreLibrary {
 
   /// `CarambaFree`. Гасит туннель и освобождает ядро.
   void free(int handle) => _free(handle);
+
+  // --- ABI v3: ключи устройства и запись настроек ----------------------------
+  //
+  // Резолвятся ЛЕНИВО, как и символы ABI v2: библиотека, собранная до ABI v3,
+  // их не содержит, и жёсткий lookup при загрузке ронял бы весь FFI-путь.
+  // Отсутствие символа превращается в [CarambaCoreMissingSymbol], то есть в
+  // «CSM недоступен в этой сборке», а не в падение.
+
+  _DJsonCall _lookupJson(String symbol) {
+    try {
+      return _lib.lookupFunction<_CJsonCall, _DJsonCall>(symbol);
+    } on ArgumentError {
+      throw CarambaCoreMissingSymbol(symbol, path);
+    }
+  }
+
+  /// `CarambaDeviceKeygen` (ABI v3). JSON личности устройства:
+  /// `{"spki_b64","agree_pub_b64","dtp_hex","tier","generation"}`.
+  String deviceKeygen(int handle, String json) {
+    final fn = _lookupJson('CarambaDeviceKeygen');
+    return _withStrings(<String>[json], (p) => _take(fn(handle, p[0])));
+  }
+
+  /// `CarambaDeviceSign` (ABI v3). JSON `{"sig_b64","proof_header"}`:
+  /// 64 байта `r || s` с низким `s`, НЕ ASN.1 DER.
+  String deviceSign(int handle, String json) {
+    final fn = _lookupJson('CarambaDeviceSign');
+    return _withStrings(<String>[json], (p) => _take(fn(handle, p[0])));
+  }
+
+  /// `CarambaDeviceAgree` (ABI v3). JSON `{"shared_b64","own_pub_b64"}`.
+  String deviceAgree(int handle, String json) {
+    final fn = _lookupJson('CarambaDeviceAgree');
+    return _withStrings(<String>[json], (p) => _take(fn(handle, p[0])));
+  }
+
+  /// `CarambaCsmRequestSettings` (ABI v3). Блокирующий: запрос идёт по
+  /// лестнице транспортов, поэтому зовётся вне UI-изолята.
+  String csmRequestSettings(int handle, String json) {
+    final fn = _lookupJson('CarambaCsmRequestSettings');
+    return _withStrings(<String>[json], (p) => _take(fn(handle, p[0])));
+  }
+
+  _DHandleToString _lookupHandleCall(String symbol) {
+    try {
+      return _lib.lookupFunction<_CHandleToString, _DHandleToString>(symbol);
+    } on ArgumentError {
+      throw CarambaCoreMissingSymbol(symbol, path);
+    }
+  }
+
+  /// `CarambaCsmState` (ABI v3). Снимок проверенного состояния CSM.
+  ///
+  /// Читающий вызов без сети: он отдаёт то, что ядро уже проверило, поэтому
+  /// живёт в UI-изоляте, в отличие от [csmRequestSettings].
+  String csmState(int handle) =>
+      _take(_lookupHandleCall('CarambaCsmState')(handle));
+
+  /// `CarambaCsmLadder` (ABI v3). Ступени и локальная история попыток.
+  String csmLadder(int handle) =>
+      _take(_lookupHandleCall('CarambaCsmLadder')(handle));
+
+  /// `CarambaCsmEnroll` (ABI v3). Регистрация профиля: bootstrap blob либо
+  /// origin с кодом и пином. Блокирующий: идёт по лестнице.
+  String csmEnroll(int handle, String json) {
+    final fn = _lookupJson('CarambaCsmEnroll');
+    return _withStrings(<String>[json], (p) => _take(fn(handle, p[0])));
+  }
+
+  /// `CarambaCsmRefresh` (ABI v3). Один цикл выборки документов. Блокирующий.
+  String csmRefresh(int handle, int timeoutSec) {
+    final _DHandleIntCall fn;
+    try {
+      fn = _lib.lookupFunction<_CHandleIntCall, _DHandleIntCall>(
+        'CarambaCsmRefresh',
+      );
+    } on ArgumentError {
+      throw CarambaCoreMissingSymbol('CarambaCsmRefresh', path);
+    }
+    return _take(fn(handle, timeoutSec));
+  }
+
+  /// `CarambaCsmSetLadder` (ABI v3). Порядок, переключатели и адреса прокси
+  /// ступеней. Без него экран транспортов переставляет ступени, которых ядро
+  /// не переставляет.
+  String csmSetLadder(int handle, String json) {
+    final fn = _lookupJson('CarambaCsmSetLadder');
+    return _withStrings(<String>[json], (p) => _take(fn(handle, p[0])));
+  }
+
+  /// `CarambaCsmAnswerCatalogChange` (ABI v3). Ответ на карточку смены набора
+  /// rule-set и geo-файлов: пока его нет, ядро удерживает прежний набор.
+  String csmAnswerCatalogChange(int handle, String json) {
+    final fn = _lookupJson('CarambaCsmAnswerCatalogChange');
+    return _withStrings(<String>[json], (p) => _take(fn(handle, p[0])));
+  }
+
+  /// `CarambaCsmSelectProfile` (ABI v3). Переключает хранилище CSM на профиль
+  /// (02-SPEC.md 1.2: хранилище ОБЯЗАНО ключеваться по pid).
+  String csmSelectProfile(int handle, String key) {
+    final fn = _lookupJson('CarambaCsmSelectProfile');
+    return _withStrings(<String>[key], (p) => _take(fn(handle, p[0])));
+  }
+
+  /// `CarambaLoopbackProxyURL` (ABI v3). Адрес служебного инбаунда на петле
+  /// вместе с парой логин-пароль текущего подъёма, или пустая строка.
+  String loopbackProxyUrl(int handle) =>
+      _take(_lookupHandleCall('CarambaLoopbackProxyURL')(handle));
 }

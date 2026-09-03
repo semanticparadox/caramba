@@ -82,15 +82,31 @@ type Core struct {
 	// csm — выборщик подписанных документов. Он же служит источником
 	// ступени R0 (последние хорошие документы с диска).
 	csm *transport.Fetcher
+	// deviceBridge — платформенный держатель ключей устройства (ABI v3).
+	// Задаётся мостом до первого обращения к CSM; nil означает программный
+	// уровень 3, который называет себя своим именем.
+	deviceBridge transport.DeviceKeyBridge
 
 	mu             sync.Mutex
 	subscriptionID string // кэш UUID подписки текущего пользователя
 	policy         profile.Policy
-	relayCountry   string // вход через страну (relay), ISO-2 или имя; пусто — прямое
+	// loopbackProxyURL — адрес служебного инбаунда на петле вместе с парой
+	// логин-пароль текущего подъёма. Пусто, пока движок не поднят.
+	loopbackProxyURL string
+	// csmProfileKey — профиль, чьё хранилище CSM сейчас выбрано (02-SPEC.md
+	// 1.2). Пусто означает единственное хранилище в рабочем каталоге, как у
+	// установок, заведённых до появления второго оператора.
+	csmProfileKey string
+	relayCountry  string // вход через страну (relay), ISO-2 или имя; пусто — прямое
 	// importedConfig — сырой clash/mihomo YAML импортированной подписки (см.
 	// SetImportedConfig). Если задан, Up поднимает туннель из него БЕЗ обращения
 	// к панели и БЕЗ требования аутентификации (raw-путь, contract A/D).
 	importedConfig []byte
+	// presetID — идентификатор применённого пресета маршрутизации. Хранится
+	// отдельно от скомпилированного Routing, потому что пересборка нужна на
+	// КАЖДЫЙ подъём: пул зеркал и набор подтверждённых списков приходят из
+	// каталога и живут короче, чем выбор пользователя.
+	presetID string
 	// lastPanelYAML — сырой YAML последнего успешно загруженного профиля панели.
 	// Нужен CarambaProbe: замер узлов идёт по «текущей загруженной конфигурации»
 	// и не должен ради этого повторно ходить в сеть.
@@ -414,6 +430,10 @@ func (c *Core) TunnelMode() (string, int) {
 func (c *Core) SetRouting(cfg *routing.Config) {
 	c.mu.Lock()
 	c.policy.Routing = cfg
+	// Явно поданная конфигурация сильнее пресета: пересобирать её из пресета
+	// на следующем подъёме значило бы молча затереть выбор вызывающего.
+	// ApplyPreset выставляет presetID обратно уже после этого вызова.
+	c.presetID = ""
 	c.mu.Unlock()
 }
 
@@ -431,6 +451,9 @@ func (c *Core) ApplyPreset(id string) error {
 		return fmt.Errorf("api: пресет %q: %w", id, err)
 	}
 	c.SetRouting(&cfg)
+	c.mu.Lock()
+	c.presetID = id
+	c.mu.Unlock()
 	return nil
 }
 
@@ -706,7 +729,36 @@ func (c *Core) Up(ctx context.Context, serverID string) (UpResult, error) {
 	c.mu.Lock()
 	imported := c.importedConfig
 	policy := c.policy
+	presetID := c.presetID
 	c.mu.Unlock()
+
+	// Учётные данные служебного инбаунда на петле выпускаются на КАЖДЫЙ подъём
+	// и никуда не сохраняются. Без них слушатель не собирается: инбаунд с
+	// ключом proxy уводит всё, что на него пришло, прямо в группу-селектор
+	// мимо правил, и на Android туда ходит любое приложение с разрешением
+	// INTERNET. Пару знают ровно две половины одного процесса: конфиг движка и
+	// ступень R4 лестницы.
+	if policy.LoopbackPort() > 0 {
+		user, pass, err := profile.NewLoopbackCredential()
+		if err != nil {
+			return UpResult{}, err
+		}
+		policy.Proxy.LoopbackUser, policy.Proxy.LoopbackPass = user, pass
+	}
+
+	// Разблокировка загрузки, 02-SPEC.md 8.10. Делается ДО обращения к панели:
+	// проверенные geo-базы и списки нужны ядру уже на разборе конфига, а отказ
+	// каталога должен остановить сборку прежде, чем что-то попадёт на диск.
+	plan, err := c.prepareBootstrap(ctx, ruleSetNames(presetID))
+	if err != nil {
+		return UpResult{}, err
+	}
+	policy.Bootstrap = plan.boot
+	policy.ApplyBootstrapDNS(plan.doh, presetCountry(presetID))
+	if r := c.routingForBuild(plan); r != nil {
+		policy.Routing = r
+	}
+	setProbeTarget(plan.boot.ProbeURL)
 
 	var rawYAML []byte
 	// pinProxy — имя узла, которое нужно закрепить в селекторе CARAMBA. Для
@@ -767,6 +819,28 @@ func (c *Core) Up(ctx context.Context, serverID string) (UpResult, error) {
 		return UpResult{}, fmt.Errorf("api: запуск движка: %w", err)
 	}
 
+	// Ступень R4 включается ровно здесь: служебный mixed-инбаунд на петле
+	// существует только пока поднят движок, и объявлять её доступной раньше
+	// значило бы обещать лестнице путь, которого ещё нет.
+	c.mu.Lock()
+	l := c.ladder
+	c.mu.Unlock()
+	if l != nil {
+		// Лестница получает адрес ВМЕСТЕ с учётными данными: голый host:port
+		// означал бы слушатель без аутентификации, а такого мы не собираем.
+		if addr := policy.LoopbackProxyURL(); addr != "" {
+			l.SetTunnelProxy(addr)
+		} else {
+			l.SetTunnelUnavailable(transport.ReasonNotConfigured)
+		}
+	}
+	// Тот же адрес нужен ядру CSM, когда оно отдельное (Android и Apple держат
+	// второе ядро под профиль CSM и Up на нём не зовут). Обвязка забирает его
+	// через LoopbackProxyURL и передаёт вызовом csmSetLadder.
+	c.mu.Lock()
+	c.loopbackProxyURL = policy.LoopbackProxyURL()
+	c.mu.Unlock()
+
 	st, _ := c.engine.Status()
 	return UpResult{OK: true, ConfigPath: configPath, Engine: st}, nil
 }
@@ -776,6 +850,47 @@ func (c *Core) Down() error {
 	if err := c.engine.Stop(); err != nil {
 		return fmt.Errorf("api: остановка движка: %w", err)
 	}
+	// Слушателя больше нет, значит и у R4 больше нет пути. Причина именно
+	// not_configured, а не platform_unsupported: сборка умеет, туннель опущен.
+	c.mu.Lock()
+	l := c.ladder
+	c.loopbackProxyURL = ""
+	c.mu.Unlock()
+	if l != nil {
+		l.SetTunnelProxy("")
+	}
+	return nil
+}
+
+// LoopbackProxyURL отдаёт адрес служебного инбаунда на петле вместе с парой
+// логин-пароль, выпущенной на этот подъём. Пустая строка означает, что
+// слушателя нет.
+//
+// Нужен обвязке, которая держит ОТДЕЛЬНОЕ ядро под профиль CSM: у того ядра
+// своя лестница, Up на нём никто не зовёт, и без этой передачи его ступень R4
+// навсегда остаётся not_configured, а диагностика показывает разные пути на
+// разных ОС у одного арендатора в одной сети.
+func (c *Core) LoopbackProxyURL() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.loopbackProxyURL
+}
+
+// SetTunnelUnavailable объявляет ступень R4 недоступной с явной причиной.
+//
+// Это точка для платформенного моста: платформа, на которой локального
+// слушателя не будет (например TUN без петли), обязана сказать это явно, чтобы
+// диагностика не показывала успех R4 на одной ОС и молчаливый отказ на другой
+// у одного арендатора в одной сети. Пустая причина трактуется как
+// platform_unsupported.
+func (c *Core) SetTunnelUnavailable(reason string) error {
+	c.mu.Lock()
+	l := c.ladder
+	c.mu.Unlock()
+	if l == nil {
+		return fmt.Errorf("api: лестница недоступна")
+	}
+	l.SetTunnelUnavailable(transport.Reason(strings.TrimSpace(reason)))
 	return nil
 }
 

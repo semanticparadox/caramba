@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:caramba_client/data/api_client.dart';
 import 'package:caramba_client/data/models/auth_tokens.dart';
 import 'package:caramba_client/data/models/csm_enrollment.dart';
+import 'package:caramba_client/data/models/csm_profile.dart';
 import 'package:caramba_client/data/models/enrollment.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
+import 'package:caramba_client/state/csm_enrollment_bridge.dart';
 import 'package:caramba_client/state/csm_state.dart';
 import 'package:caramba_client/state/providers.dart';
 
@@ -253,13 +255,33 @@ class EnrollNotifier extends StateNotifier<EnrollState> {
     final client = _ref.read(enrollApiClientProvider(link.panelUrl));
     try {
       final tokens = await op(client, link.code);
-      await _ref.read(tokenStoreProvider).save(tokens);
+      // Владелец записывается ВМЕСТЕ с токенами. Пока профиль не закрепил
+      // корень, его сессия лежит в legacy-корзине, а корзина одна на установку:
+      // без метки будущая миграция не знала бы, чья это сессия, и отдала бы её
+      // первому спросившему профилю (06-MIGRATION.md 7.1).
+      final profileId = _ref
+          .read(connectionProfilesProvider.notifier)
+          .findPanelId(link.panelUrl);
+      await _ref
+          .read(tokenStoreProvider)
+          .save(tokens, ownerId: profileId ?? '');
       // Профиль этой панели получает СВОИ креды: без них `_resolveVpnConfig`
       // падает на дефолтный путь тенанта-1 и конфигурирует ядро против чужой
       // панели. UUID подписки тянем панель-скоупным клиентом (baseUrl из
       // ссылки), токены он берёт из общего TokenStore, куда мы их только что
       // положили.
       await _storePanelCredentials(link, client, tokens);
+      // Регистрация в CSM/1 идёт ПОСЛЕ входа и ЧЕРЕЗ ЯДРО: она поднимает
+      // ключевой документ по лестнице транспортов, проверяет его против
+      // закреплённого пина и считает pid. Без этого шага профиль навсегда
+      // остаётся в стадии `pinned`: набор возможностей падает до пустого,
+      // запись настроек не уходит, каталог не проверяется и история попыток
+      // пуста, то есть весь слой CSM инертен (02-SPEC.md 9).
+      //
+      // Отказ регистрации НЕ отменяет вход: аккаунт на панели создан, токены
+      // сохранены, и подключение по подписке работает. Пользователь видит
+      // приложение без раздела проверки, а не экран ошибки.
+      await _enrollCsm(link, tokens.accessToken);
       // Вход состоялся: профиль больше не сирота.
       _createdProfileId = null;
       if (!mounted) return;
@@ -285,6 +307,43 @@ class EnrollNotifier extends StateNotifier<EnrollState> {
         error: 'Что-то пошло не так. Повторите попытку.',
       );
     }
+  }
+
+  /// Регистрирует профиль в CSM/1 и закрепляет проверенный ключевой документ.
+  ///
+  /// Возвращает `true`, когда профиль перешёл в `anchored`. Отказ намеренно не
+  /// поднимается наверх исключением: вход уже состоялся, и ронять его из-за
+  /// оператора, который CSM/1 не говорит, было бы регрессом для всех, кто
+  /// подключается по обычной подписке.
+  Future<bool> _enrollCsm(EnrollLink link, String accessToken) async {
+    final csm = _ref.read(csmProfileStateProvider);
+    // Профиль без закреплённого пина регистрировать нечем: пин это то, против
+    // чего проверяется первый ключевой документ (02-SPEC.md 7.2).
+    if (csm == null) {
+      return false;
+    }
+    if (csm.stage == CsmProfileStage.anchored) {
+      return true;
+    }
+    final result = await csmEnrollAndAnchor(
+      connection: _ref.read(vpnConnectionProvider),
+      notifier: _ref.read(csmNotifierProvider),
+      origin: link.panelUrl,
+      code: link.code,
+      linkPin: csm.pin.linkPin,
+      accountJwt: accessToken,
+    );
+    if (!result.ok) {
+      return false;
+    }
+    // Первый цикл выборки сразу за регистрацией: без него каталог и директива
+    // появятся только к следующему запуску, а до тех пор действующий набор
+    // возможностей пуст и половина экранов показывает пустое состояние.
+    await csmRefreshAndAnchor(
+      connection: _ref.read(vpnConnectionProvider),
+      notifier: _ref.read(csmNotifierProvider),
+    );
+    return true;
   }
 
   /// Кладёт на профиль панели её URL, UUID подписки и свежий access-токен.

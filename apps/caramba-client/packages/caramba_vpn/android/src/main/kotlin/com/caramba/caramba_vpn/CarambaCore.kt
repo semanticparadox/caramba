@@ -88,6 +88,37 @@ internal class CarambaCore private constructor(
         }
 
         /**
+         * Builds the core client that owns the CSM/1 profile.
+         *
+         * Differs from [create] in one thing that matters: the device key bridge
+         * is registered BEFORE any CSM call. 02-SPEC.md 9.4 puts the device
+         * signing key in StrongBox or the TEE, and a Go implementation would by
+         * definition put it in a file, which is the software tier; registering
+         * the bridge late would leave the core with a software identity it then
+         * has to keep, because `dtp` has already gone to the operator.
+         *
+         * @param bridge the AndroidKeyStore holder of the device identity.
+         *
+         * @throws Exception if the Go core fails to initialize.
+         */
+        fun createCsm(
+            panelUrl: String,
+            subUrl: String,
+            workDir: String,
+            tokenPath: String,
+            subscriptionId: String,
+            accessToken: String,
+            bridge: io.caramba.core.mobile.DeviceKeyBridge,
+        ): CarambaCore {
+            val client = GoMobile.newClient(panelUrl, subUrl, workDir, tokenPath)
+            client.setDeviceKeyBridge(bridge)
+            if (subscriptionId.isNotEmpty() || accessToken.isNotEmpty()) {
+                client.configure(panelUrl, subscriptionId, accessToken)
+            }
+            return CarambaCore(client)
+        }
+
+        /**
          * Builds a core client for the metadata-only calls of generic mode
          * (importSubscription / probe). No panel, no auth, no TUN: the client is
          * only used to parse a subscription and to measure node latency, then
@@ -149,6 +180,89 @@ internal class CarambaCore private constructor(
     fun setTunnelMode(mode: String, port: Int) {
         client.setTunnelMode(mode, port.toLong())
     }
+
+    /**
+     * Sends a settings change as a signed directive request and takes the signed,
+     * sealed response as the new directive (ABI v3 `Client.CsmRequestSettings`).
+     * Blocking: the request climbs the transport ladder. Returns the CSM state
+     * snapshot JSON.
+     *
+     * @throws Exception if the write is refused or the response does not verify.
+     */
+    fun csmRequestSettings(json: String): String = client.csmRequestSettings(json)
+
+    /**
+     * Returns the verified CSM state snapshot as JSON (ABI v3 `Client.CsmState`).
+     * A read: it touches no socket and applies nothing. Carries the trusted
+     * catalog's `resources` and `routes` projection, without which the client
+     * cannot notice the posture narrowing that arrives in the catalog rather
+     * than in a setting (02-SPEC.md 7.7.1).
+     */
+    fun csmState(): String = client.csmState()
+
+    /**
+     * Returns the rung states and the local attempt history as JSON (ABI v3
+     * `Client.CsmLadder`). The history is local and is never reported to the
+     * operator (02-SPEC.md 7.10); this call lifts it into the app because the
+     * transport screen must show every attempt with its outcome (INV-17).
+     */
+    fun csmLadder(): String = client.csmLadder()
+
+    /**
+     * Enrols the profile: a bootstrap blob, or an origin with a code and a
+     * dictated pin (02-SPEC.md 9). Blocking: it climbs the ladder. Returns the
+     * verified state snapshot JSON, from which the app takes the `pid`, the
+     * root fingerprint and the time floor and anchors the profile.
+     *
+     * Without this call a profile never leaves stage `pinned`, and everything
+     * gated on a verified catalog stays off.
+     */
+    fun csmEnroll(json: String): String = client.csmEnroll(json)
+
+    /**
+     * One fetch cycle: directive, and the catalog when it is needed. A failure
+     * does NOT mean a lost configuration: the profile stays on its cached
+     * documents and keeps connecting (INV-16).
+     */
+    fun csmRefresh(timeoutSec: Int): String = client.csmRefresh(timeoutSec.toLong())
+
+    /**
+     * Applies the user's rung order, switches and proxy addresses to the CORE.
+     * A write that stops in the Dart layer only changes the picture: the user
+     * reorders the ladder, the screen shows the new order, and the fetch keeps
+     * walking the old one.
+     */
+    fun csmSetLadder(json: String) {
+        client.csmSetLadder(json)
+    }
+
+    /**
+     * The user's answer to the resource-set change card (02-SPEC.md 7.7.1).
+     * Until it arrives the core holds the PREVIOUS set in force, which is what
+     * makes "keep the previous ones" mean what it says.
+     */
+    fun csmAnswerCatalogChange(json: String): String = client.csmAnswerCatalogChange(json)
+
+    /**
+     * Points the CSM store at one profile (02-SPEC.md 1.2: every profile state
+     * store MUST be keyed by `pid`). One store per app would put the second
+     * operator's pinned root, device registration, monotonic marks and attempt
+     * history on top of the first operator's.
+     */
+    fun csmSelectProfile(key: String) {
+        client.csmSelectProfile(key)
+    }
+
+    /**
+     * The loopback service inbound address together with the credential minted
+     * for this raise, or an empty string when the engine is down.
+     *
+     * The CSM profile lives in a SECOND core here, and `up` is never called on
+     * it: without handing this across, that core's rung R4 stays
+     * `not_configured` forever and the ladder degrades to R1 and R5 on exactly
+     * the platform the loopback listener was added for.
+     */
+    fun loopbackProxyUrl(): String = client.loopbackProxyURL()
 
     /** Releases the client (used by the short-lived tools instance). */
     fun close() {

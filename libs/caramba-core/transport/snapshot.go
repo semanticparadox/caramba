@@ -23,6 +23,29 @@ type DocState struct {
 	Bytes   int      `json:"bytes,omitempty"`
 }
 
+// ResourceRef это одна запись rs или geo доверенного каталога, спроецированная
+// для клиента: вид, имя и подписанный sha256 в hex.
+//
+// Проекция нужна снаружи, потому что 02-SPEC.md 7.7.1 делает изменение набора
+// ресурсов сужением защиты: хеш связывает байты, но НЕ связывает того, кто
+// выбрал и путь, и хеш. Клиент обязан заметить смену набора и спросить
+// пользователя, и заметить он её может только сравнив то, что видит сейчас, с
+// тем, что видел раньше.
+type ResourceRef struct {
+	// Kind это "rs" либо "geo".
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+	// Hash это подписанный sha256 в hex.
+	Hash string `json:"hash"`
+}
+
+// RouteRules это список rule-set одного маршрута каталога, ro[].rs. Его смена
+// это третья строка 02-SPEC.md 7.7.1.
+type RouteRules struct {
+	ID string   `json:"id"`
+	RS []string `json:"rs"`
+}
+
 // Snapshot это полное состояние профиля для клиента.
 type Snapshot struct {
 	Enrolled bool   `json:"enrolled"`
@@ -89,6 +112,22 @@ type Snapshot struct {
 	Preset  string `json:"preset,omitempty"`
 	Variant uint64 `json:"variant,omitempty"`
 
+	// Resources и Routes это сырьё для карточки 02-SPEC.md 7.7.1. Оба поля
+	// это ПРОЕКЦИЯ доверенного каталога, а не решение: сравнивает наборы и
+	// поднимает карточку клиент.
+	Resources []ResourceRef `json:"resources,omitempty"`
+	Routes    []RouteRules  `json:"routes,omitempty"`
+
+	// ResourcesHeld истинно, когда пришедший каталог назвал ДРУГОЙ набор
+	// ресурсов и ядро удерживает прежний до ответа пользователя. Пока это
+	// поле истинно, действуют записи ResourcesInForce, а не Resources, и
+	// экран, обещающий "пока вы не ответите, действует прежний набор", говорит
+	// правду ровно благодаря этому.
+	ResourcesHeld bool `json:"resources_held,omitempty"`
+	// ResourcesInForce это имена набора, который применяется СЕЙЧАС. Заполнено
+	// только при удержании: в обычном случае это и есть Resources.
+	ResourcesInForce []string `json:"resources_in_force,omitempty"`
+
 	Rungs []RungState `json:"rungs"`
 }
 
@@ -139,6 +178,12 @@ func (f *Fetcher) Snapshot() Snapshot {
 		}
 	}
 	if f.catalog != nil {
+		s.Resources = catalogResources(f.catalog)
+		s.Routes = catalogRoutes(f.catalog)
+		if f.guard.PendingCatalogChange() {
+			s.ResourcesHeld = true
+			s.ResourcesInForce = f.guard.Names()
+		}
 		s.Catalog = DocState{
 			Present: true, Ver: f.catalog.Env.Ver,
 			IAT: int64(f.catalog.Env.IAT), Exp: int64(f.catalog.Env.Exp),
@@ -190,6 +235,37 @@ func (f *Fetcher) Snapshot() Snapshot {
 		s.Source = R0Cached.Name()
 	}
 	return s
+}
+
+// catalogResources проецирует rs и geo каталога в порядке подписи. Порядок
+// сохраняется как есть: он подписан, а пересортировка здесь означала бы, что
+// клиент сравнивает не то, что подписал оператор.
+func catalogResources(cat *csm.Catalog) []ResourceRef {
+	if cat == nil {
+		return nil
+	}
+	out := make([]ResourceRef, 0, len(cat.RS)+len(cat.Geo))
+	for _, r := range cat.RS {
+		out = append(out, ResourceRef{Kind: "rs", Name: r.Name, Hash: hex.EncodeToString(r.Hash)})
+	}
+	for _, r := range cat.Geo {
+		out = append(out, ResourceRef{Kind: "geo", Name: r.Name, Hash: hex.EncodeToString(r.Hash)})
+	}
+	return out
+}
+
+// catalogRoutes проецирует ro[].rs каждого маршрута.
+func catalogRoutes(cat *csm.Catalog) []RouteRules {
+	if cat == nil {
+		return nil
+	}
+	out := make([]RouteRules, 0, len(cat.Ro))
+	for _, r := range cat.Ro {
+		rs := make([]string, len(r.RS))
+		copy(rs, r.RS)
+		out = append(out, RouteRules{ID: r.ID, RS: rs})
+	}
+	return out
 }
 
 // groupFour разбивает отпечаток на группы по четыре символа.

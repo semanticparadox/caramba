@@ -376,6 +376,155 @@ static void caramba_disconnect(CarambaVpnPlugin* self) {
 }
 
 // method_call_cb dispatches connect / disconnect / status.
+// lookup_string достаёт строковое поле из карты аргументов канала. NULL, когда
+// поля нет или его тип другой: подставлять пустую строку молча значило бы
+// отправить ядру запрос, которого никто не делал.
+static const gchar* lookup_string(FlValue* args, const gchar* key) {
+  if (args == NULL || fl_value_get_type(args) != FL_VALUE_TYPE_MAP) {
+    return NULL;
+  }
+  FlValue* v = fl_value_lookup_string(args, key);
+  if (v == NULL || fl_value_get_type(v) != FL_VALUE_TYPE_STRING) {
+    return NULL;
+  }
+  return fl_value_get_string(v);
+}
+
+// caramba_csm_call перекладывает один вызов ABI v3 в ядро. Аргумент собирается в
+// строку JSON той же формы, что читает ядро, ответ отдаётся строкой без
+// перекодирования: разбирает его Dart, и вторая точка разбора здесь означала бы
+// вторую версию формы.
+static FlMethodResponse* caramba_csm_call(CarambaVpnPlugin* self,
+                                          const gchar* method, FlValue* args) {
+  if (!ensure_core(self)) {
+    return FL_METHOD_RESPONSE(fl_method_error_response_new(
+        "core_missing", "exarobot core library not found", NULL));
+  }
+  caramba_json_call_fn fn = NULL;
+  const gchar* symbol = NULL;
+  g_autofree gchar* payload = NULL;
+
+  if (g_strcmp0(method, "deviceKeygen") == 0) {
+    fn = self->ffi.DeviceKeygen;
+    symbol = "CarambaDeviceKeygen";
+    payload = g_strdup("{\"purpose\":\"sign\",\"require_hardware\":true}");
+  } else if (g_strcmp0(method, "deviceSign") == 0) {
+    fn = self->ffi.DeviceSign;
+    symbol = "CarambaDeviceSign";
+    // Экранируется, а не склеивается: значение приходит по каналу без
+    // проверки, и одна двойная кавычка закрыла бы литерал, позволив
+    // вызывающему дописать соседние поля в DeviceSignRequest.
+    g_autofree gchar* message =
+        caramba_json_escape(lookup_string(args, "messageB64"));
+    payload = g_strdup_printf("{\"message_b64\":%s}", message);
+  } else if (g_strcmp0(method, "deviceAgree") == 0) {
+    fn = self->ffi.DeviceAgree;
+    symbol = "CarambaDeviceAgree";
+    const gchar* peer = lookup_string(args, "peerPubB64");
+    int rkv = 0;
+    if (args != NULL && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+      FlValue* v = fl_value_lookup_string(args, "rkv");
+      if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_INT) {
+        rkv = (int)fl_value_get_int(v);
+      }
+    }
+    g_autofree gchar* peer_json = caramba_json_escape(peer);
+    payload =
+        g_strdup_printf("{\"rkv\":%d,\"peer_pub_b64\":%s}", rkv, peer_json);
+  } else if (g_strcmp0(method, "csmEnroll") == 0) {
+    fn = self->ffi.CsmEnroll;
+    symbol = "CarambaCsmEnroll";
+    const gchar* json = lookup_string(args, "json");
+    payload = g_strdup(json != NULL ? json : "{}");
+  } else if (g_strcmp0(method, "csmSetLadder") == 0) {
+    fn = self->ffi.CsmSetLadder;
+    symbol = "CarambaCsmSetLadder";
+    const gchar* json = lookup_string(args, "json");
+    payload = g_strdup(json != NULL ? json : "{}");
+  } else if (g_strcmp0(method, "csmAnswerCatalogChange") == 0) {
+    fn = self->ffi.CsmAnswerCatalogChange;
+    symbol = "CarambaCsmAnswerCatalogChange";
+    const gchar* json = lookup_string(args, "json");
+    payload = g_strdup(json != NULL ? json : "{}");
+  } else if (g_strcmp0(method, "csmSelectProfile") == 0) {
+    // 02-SPEC.md 1.2: хранилище состояния профиля ОБЯЗАНО ключеваться по pid.
+    fn = self->ffi.CsmSelectProfile;
+    symbol = "CarambaCsmSelectProfile";
+    const gchar* key = lookup_string(args, "profileKey");
+    payload = g_strdup(key != NULL ? key : "");
+  } else {
+    fn = self->ffi.CsmRequestSettings;
+    symbol = "CarambaCsmRequestSettings";
+    const gchar* json = lookup_string(args, "json");
+    payload = g_strdup(json != NULL ? json : "{}");
+  }
+
+  if (fn == NULL) {
+    g_autofree gchar* message =
+        g_strdup_printf("%s is missing (core predates ABI v3)", symbol);
+    return FL_METHOD_RESPONSE(
+        fl_method_error_response_new("core_missing", message, NULL));
+  }
+  gchar* out = take_string(self, fn(self->handle, payload));
+  g_autoptr(FlValue) value = fl_value_new_string(out != NULL ? out : "");
+  g_free(out);
+  return FL_METHOD_RESPONSE(fl_method_success_response_new(value));
+}
+
+// caramba_csm_read отдаёт то, что ядро уже проверило: ни сокета, ни применения.
+// Снимок состояния несёт проекцию доверенного каталога, без которой клиенту
+// нечем заметить сужение защиты, приходящее в каталоге, а не в настройке
+// (02-SPEC.md 7.7.1); вызов лестницы поднимает ЛОКАЛЬНУЮ историю попыток,
+// которую INV-17 требует показать, а 02-SPEC.md 7.10 запрещает сообщать
+// оператору.
+static FlMethodResponse* caramba_csm_read(CarambaVpnPlugin* self,
+                                          const gchar* method) {
+  if (!ensure_core(self)) {
+    return FL_METHOD_RESPONSE(fl_method_error_response_new(
+        "core_missing", "exarobot core library not found", NULL));
+  }
+  gboolean ladder = g_strcmp0(method, "csmLadder") == 0;
+  caramba_handle_call_fn fn = ladder ? self->ffi.CsmLadder : self->ffi.CsmState;
+  if (fn == NULL) {
+    g_autofree gchar* message = g_strdup_printf(
+        "%s is missing (core predates ABI v3)",
+        ladder ? "CarambaCsmLadder" : "CarambaCsmState");
+    return FL_METHOD_RESPONSE(
+        fl_method_error_response_new("core_missing", message, NULL));
+  }
+  gchar* out = take_string(self, fn(self->handle));
+  g_autoptr(FlValue) value = fl_value_new_string(out != NULL ? out : "");
+  g_free(out);
+  return FL_METHOD_RESPONSE(fl_method_success_response_new(value));
+}
+
+// caramba_csm_refresh выполняет один цикл выборки документов. Отказ НЕ означает
+// потерю конфигурации: профиль остаётся на кешированных документах и продолжает
+// подключать (INV-16).
+static FlMethodResponse* caramba_csm_refresh(CarambaVpnPlugin* self,
+                                             FlValue* args) {
+  if (!ensure_core(self)) {
+    return FL_METHOD_RESPONSE(fl_method_error_response_new(
+        "core_missing", "exarobot core library not found", NULL));
+  }
+  if (self->ffi.CsmRefresh == NULL) {
+    return FL_METHOD_RESPONSE(fl_method_error_response_new(
+        "core_missing", "CarambaCsmRefresh is missing (core predates ABI v3)",
+        NULL));
+  }
+  int timeout = 30;
+  if (args != NULL && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+    FlValue* v = fl_value_lookup_string(args, "timeoutSec");
+    if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_INT) {
+      timeout = (int)fl_value_get_int(v);
+    }
+  }
+  gchar* out = take_string(self, self->ffi.CsmRefresh(self->handle, timeout));
+  g_autoptr(FlValue) value = fl_value_new_string(out != NULL ? out : "");
+  g_free(out);
+  return FL_METHOD_RESPONSE(fl_method_success_response_new(value));
+}
+
 static void method_call_cb(FlMethodChannel* channel, FlMethodCall* method_call,
                            gpointer user_data) {
   CarambaVpnPlugin* self = CARAMBA_VPN_PLUGIN(user_data);
@@ -532,6 +681,30 @@ static void method_call_cb(FlMethodChannel* channel, FlMethodCall* method_call,
       apply_tunnel_mode(self);
       response = FL_METHOD_RESPONSE(fl_method_success_response_new(NULL));
     }
+  } else if (g_strcmp0(method, "deviceKeygen") == 0 ||
+             g_strcmp0(method, "deviceSign") == 0 ||
+             g_strcmp0(method, "deviceAgree") == 0 ||
+             g_strcmp0(method, "csmRequestSettings") == 0 ||
+             g_strcmp0(method, "csmEnroll") == 0 ||
+             g_strcmp0(method, "csmSetLadder") == 0 ||
+             g_strcmp0(method, "csmAnswerCatalogChange") == 0 ||
+             g_strcmp0(method, "csmSelectProfile") == 0) {
+    // CSM/1, ABI v3. На десктопе аппаратного хранилища ключей нет, поэтому
+    // ядро держит их программно и ЧЕСТНО докладывает уровень 3. Символы всё
+    // равно поддерживаются: поверхность одна на всех пяти мостах, и приложение
+    // не разветвляется по платформе ради того, чтобы узнать отпечаток своего
+    // устройства.
+    //
+    // Запись настроек идёт ЧЕРЕЗ ЯДРО, а не собственным сокетом отсюда:
+    // управляющий слой со своими сокетами обходит лестницу транспортов, и
+    // приложение вырождается в ступень R0, пока ядро лезет по лестнице за
+    // конфигурацией, которую ему больше нечем изменить (02-SPEC.md 8.9).
+    response = caramba_csm_call(self, method, args);
+  } else if (g_strcmp0(method, "csmState") == 0 ||
+             g_strcmp0(method, "csmLadder") == 0) {
+    response = caramba_csm_read(self, method);
+  } else if (g_strcmp0(method, "csmRefresh") == 0) {
+    response = caramba_csm_refresh(self, args);
   } else if (g_strcmp0(method, "disconnect") == 0) {
     caramba_disconnect(self);
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(NULL));

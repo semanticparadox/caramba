@@ -143,29 +143,41 @@ require (
 // ПРИМЕЧАНИЕ по зависимостям и сборке:
 //
 //  - github.com/metacubex/mihomo нужен ТОЛЬКО для сборок с build-тегом `mihomo`
-//    (engine/engine_mihomo.go, autotune/prober_mihomo.go, api/prober_mihomo.go).
-//    Сборка по умолчанию (CLI, тесты, gomobile-фасад без ядра) использует заглушку
-//    и mihomo НЕ тянет при компиляции, поэтому собирается и без записей mihomo в
-//    go.sum (yaml.v3 — единственная реально импортируемая зависимость).
+//    (engine/engine_mihomo.go, transport/transport_mihomo.go,
+//    autotune/prober_mihomo.go, api/probe_mihomo.go, api/prober_mihomo.go,
+//    api/homedir_mihomo.go, cmd/caramba-smoke/core_mihomo.go).
+//    Сборка по умолчанию (CLI, тесты, gomobile-фасад без ядра) использует
+//    заглушку и mihomo при компиляции НЕ тянет.
 //
-//  - mihomo тянет большой транзитивный граф (sing-tun, sing-box deps, gvisor,
-//    quic-go, utls и т.д.) и требует CGO на ряде платформ. go.sum в репозитории
-//    СЕЙЧАС НЕПОЛНЫЙ: в нём есть только yaml.v3 (и check.v1), но нет контрольных
-//    сумм mihomo и его транзитивных зависимостей. Из-за этого `go build -tags
-//    mihomo ./...`, `go mod verify` и `go mod download` падают с «missing go.sum
-//    entry for github.com/metacubex/mihomo», пока не выполнен tidy. Запись require
-//    одна по себе сборку с тегом НЕ включает.
+//  - go.sum ПОЛНЫЙ, и отдельный шаг `go mod tidy` перед сборкой НЕ нужен.
+//    Раньше здесь стояло обратное: что в go.sum лежит только yaml.v3 и что
+//    сборка с тегом mihomo, как и проверка модулей, падает на отсутствующей
+//    контрольной сумме mihomo, пока не выполнен tidy. Оба утверждения на
+//    текущем дереве неверны. Проверено на Go 1.26 поверх прогретого кэша
+//    модулей:
 //
-//    Сгенерировать полный граф и go.sum (нужен тулчейн Go + доступ к прокси
-//    модулей; в текущем окружении их нет):
+//        go build ./...                              # ok
+//        CGO_ENABLED=1 go build -tags mihomo ./...   # ok
+//        go test ./...                               # ok
+//        go mod verify                               # all modules verified
 //
-//        cd libs/caramba-core
-//        go mod tidy                      # допишет транзитивные require + go.sum
-//        go build ./...                   # сборка по умолчанию (без ядра)
-//        go build -tags mihomo ./...      # сборка с нативным ядром (нужен CGO)
+//    Транзитивный граф mihomo (sing-tun, gvisor, quic-go, utls и прочее) уже
+//    зафиксирован в require-блоке выше и в go.sum. Отдельного шага tidy перед
+//    сборкой НЕТ ни у одного из режимов.
 //
-//    После tidy закоммитить обновлённые go.mod и go.sum. Для CI-джоба `-tags
-//    mihomo` потребуется CGO (CGO_ENABLED=1 + C-тулчейн целевой платформы).
+//  - ДИРЕКТИВА `tool` В КОНЦЕ ФАЙЛА УДЕРЖИВАЕТ golang.org/x/mobile В ГРАФЕ,
+//    И УБИРАТЬ ЕЁ НЕЛЬЗЯ. `tool golang.org/x/mobile/cmd/gobind` (Go 1.24+)
+//    объявляет gobind инструментом модуля. Ни один пакет этого модуля gobind
+//    не импортирует, поэтому без директивы `go mod tidy` посчитает
+//    golang.org/x/mobile ненужным и выкинет его из go.mod и go.sum. После
+//    этого `gomobile bind` пакета mobile/ перестаёт разрешать gobind, и
+//    ломается и Android-AAR, и iOS-xcframework — то есть вся нативная
+//    привязка. Версия gobind при этом пинуется тем же require-блоком, что и
+//    остальной граф, так что сборка привязки воспроизводима.
+//
+//    Если tidy всё же понадобился, после него обязательно проверить, что
+//    строка `tool golang.org/x/mobile/cmd/gobind` на месте, а
+//    `go list -m golang.org/x/mobile` по-прежнему что-то печатает.
 //
 //  - Режимы сборки, потребляющие ядро:
 //      * gomobile bind -tags mihomo пакета mobile/ → AAR/xcframework
@@ -174,12 +186,13 @@ require (
 //        библиотека libcaramba_core.{so,dylib,dll} + C-заголовок для dart:ffi
 //        (scripts/build-desktop-lib.sh);
 //      * go build -tags mihomo бинарника apps/caramba-cli (scripts/build-desktop.sh).
-//    Все три требуют tidy + CGO. Пакет ffi/ помечен `//go:build cgo`, поэтому в
-//    сборку по умолчанию (без cgo/тегов) НЕ попадает и её не ломает.
+//    Все три требуют CGO (CGO_ENABLED=1 + C-тулчейн целевой платформы). Пакет
+//    ffi/ помечен `//go:build cgo`, поэтому в сборку по умолчанию (без
+//    cgo/тегов) НЕ попадает и её не ломает.
 //
 //  - Новые импорты под тегом mihomo НЕ добавляют прямых require: engine/
-//    engine_mihomo.go теперь читает github.com/metacubex/mihomo/tunnel/statistic
+//    engine_mihomo.go читает github.com/metacubex/mihomo/tunnel/statistic
 //    (живая статистика трафика) — это под-пакет уже требуемого mihomo, так что
-//    go.mod не меняется (граф добьёт tidy).
+//    go.mod от него не меняется.
 
 tool golang.org/x/mobile/cmd/gobind

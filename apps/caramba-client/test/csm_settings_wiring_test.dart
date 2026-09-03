@@ -37,6 +37,7 @@ import 'package:caramba_client/state/servers_state.dart';
 import 'package:caramba_client/theme/app_theme.dart';
 import 'package:caramba_client/vpn/vpn_service.dart';
 import 'package:caramba_client/vpn/vpn_status.dart';
+import 'support/fake_csm_device.dart';
 
 const _pin = CsmPin(
   pid: '226e8a20f699b964',
@@ -76,7 +77,7 @@ class _Store implements ConnectionProfilesStore {
   }
 }
 
-class _FakeCore implements VpnConnection {
+class _FakeCore with FakeCsmDevice implements VpnConnection {
   _FakeCore({VpnStage stage = VpnStage.disconnected, String? activeProxy})
     : currentStatus = VpnStatus(
         stage: stage,

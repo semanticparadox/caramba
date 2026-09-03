@@ -76,7 +76,7 @@ const (
 type ProviderFormat string
 
 const (
-	FormatMrs  ProviderFormat = "mrs"  // бинарный формат mihomo (компактный, быстрый)
+	FormatMrs  ProviderFormat = "mrs" // бинарный формат mihomo (компактный, быстрый)
 	FormatYaml ProviderFormat = "yaml"
 	FormatText ProviderFormat = "text"
 )
@@ -94,6 +94,20 @@ type RuleProvider struct {
 	URL      string
 	// Interval — период автообновления в секундах (0 → 86400).
 	Interval int
+	// Proxy — имя исходящего, через который ядро тянет список (ключ `proxy:`
+	// в rule-providers). Пусто — ядро идёт в открытый интернет собственным
+	// диалером мимо туннеля и мимо лестницы. Для зеркал каталога сюда
+	// подставляется группа-селектор, чтобы загрузка ехала по туннелю.
+	Proxy string
+	// Path — локальный файл со списком. Непустой Path переводит провайдера в
+	// vehicle `file`: ядро читает готовые байты и НЕ ходит в сеть.
+	//
+	// Это единственная форма, совместимая с инвариантом 12. Подписанный
+	// sha256 фиксирует ровно одно содержимое; http-провайдер с interval либо
+	// перекачивал бы те же байты, либо принимал бы неподписанные новые. Файл
+	// сюда кладёт transport.ResourceGuard уже после сверки хеша, а обновление
+	// приходит следующим каталогом с новым подписанным хешем.
+	Path string
 }
 
 // Config — полная конфигурация маршрутизации.
@@ -168,7 +182,10 @@ func (c Config) CompiledProviders() map[string]any {
 	}
 	providers := make(map[string]any, len(c.Providers))
 	for _, p := range c.Providers {
-		if strings.TrimSpace(p.Name) == "" || strings.TrimSpace(p.URL) == "" {
+		if strings.TrimSpace(p.Name) == "" {
+			continue
+		}
+		if strings.TrimSpace(p.URL) == "" && strings.TrimSpace(p.Path) == "" {
 			continue
 		}
 		interval := p.Interval
@@ -183,13 +200,24 @@ func (c Config) CompiledProviders() map[string]any {
 		if format == "" {
 			format = FormatYaml
 		}
-		providers[p.Name] = map[string]any{
-			"type":     "http",
+		entry := map[string]any{
 			"behavior": string(behavior),
 			"format":   string(format),
-			"url":      p.URL,
-			"interval": interval,
 		}
+		if strings.TrimSpace(p.Path) != "" {
+			// Проверенный файл: ядро не ходит в сеть, поэтому ни url, ни
+			// interval, ни proxy здесь не имеют смысла.
+			entry["type"] = "file"
+			entry["path"] = p.Path
+		} else {
+			entry["type"] = "http"
+			entry["url"] = p.URL
+			entry["interval"] = interval
+			if px := strings.TrimSpace(p.Proxy); px != "" {
+				entry["proxy"] = px
+			}
+		}
+		providers[p.Name] = entry
 	}
 	if len(providers) == 0 {
 		return nil

@@ -9,9 +9,22 @@
          VPN consent (VpnService.prepare) is raised by the plugin on the
          first connect; step 2.4 (minSdk >= 21) holds via
          flutter.minSdkVersion == 24 in app/build.gradle.kts. -->
+    <!-- Auto Backup is OFF, and that is a protocol requirement, not a
+         preference. The CSM/1 device identity (02-SPEC.md 9.4) is what the
+         panel binds a device row to; on Android 11 and below the agreement key
+         cannot live in the keystore at all (PURPOSE_AGREE_KEY landed in
+         Android 12) and is an honest tier-3 blob in app storage. With backup
+         on by default, that blob is copied off the device and restored onto a
+         DIFFERENT handset, which makes tier 3 mean something weaker than the
+         same tier means in every other implementation. The two rule files are
+         kept as a second line of defence for any build that turns backup back
+         on. -->
     <application
         android:label="Caramba Connect"
         android:name="${applicationName}"
+        android:allowBackup="false"
+        android:fullBackupContent="@xml/caramba_backup_rules"
+        android:dataExtractionRules="@xml/caramba_data_extraction_rules"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"

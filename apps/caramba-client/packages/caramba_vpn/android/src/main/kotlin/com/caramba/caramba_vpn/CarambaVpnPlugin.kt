@@ -17,6 +17,7 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.PluginRegistry
+import org.json.JSONObject
 import java.io.File
 
 // CarambaVpnPlugin — the app-process Flutter plugin for Android.
@@ -68,6 +69,26 @@ class CarambaVpnPlugin :
     // in CarambaVpnService.
     private var tools: CarambaCore? = null
 
+    // The CSM/1 core client and the AndroidKeyStore holder of the device
+    // identity. Both live in the plugin process for the lifetime of the engine:
+    // the device identity is a long-lived identifier and must not be rebuilt per
+    // call.
+    private var csm: CarambaCore? = null
+
+    /**
+     * The profile whose CSM store is selected (02-SPEC.md 1.2). Empty means the
+     * single store in the core work dir, as installs made before the second
+     * operator have it.
+     */
+    private var csmProfileKey: String = ""
+
+    /**
+     * The loopback listener address with the credential of the current raise,
+     * as reported by the tunnel core. Empty while the engine is down.
+     */
+    private var loopbackProxyUrl: String = ""
+    private var device: CarambaDeviceKeys? = null
+
     // Pending connect args captured while the VPN-consent dialog is shown; the
     // service is started from onActivityResult once consent is granted.
     private var pendingConnectArgs: Map<String, String>? = null
@@ -106,12 +127,17 @@ class CarambaVpnPlugin :
         })
 
         CarambaVpnBus.setListener(busListener)
+        CarambaVpnBus.setLoopbackListener(::onLoopbackProxy)
     }
 
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
         CarambaVpnBus.setListener(null)
+        CarambaVpnBus.setLoopbackListener(null)
         tools?.close()
         tools = null
+        csm?.close()
+        csm = null
+        device = null
         methodChannel.setMethodCallHandler(null)
         statusChannel.setStreamHandler(null)
         trafficChannel.setStreamHandler(null)
@@ -200,6 +226,96 @@ class CarambaVpnPlugin :
                     port = (call.argument<Number>(CarambaVpnKeys.MIXED_PORT))?.toInt() ?: 7890,
                 )
                 result.success(null)
+            }
+
+            // --- CSM/1 device keys (ABI v3) --------------------------------------
+            //
+            // These do NOT touch the Go core: the key lives in the AndroidKeyStore
+            // and this class is its only holder. The core reaches the same key
+            // through CarambaDeviceKeyBridge, so one identity serves both paths.
+            // Signing and key agreement are keystore round trips, so they run on
+            // the worker thread and reply on the main one.
+
+            "deviceKeygen" -> {
+                runOnWorker(result, "device_keygen_failed") {
+                    deviceKeys().keygen("{}")
+                }
+            }
+
+            "deviceSign" -> {
+                val messageB64 = call.argument<String>(CarambaVpnKeys.MESSAGE_B64) ?: ""
+                runOnWorker(result, "device_sign_failed") {
+                    deviceKeys().sign(JSONObject().put("message_b64", messageB64).toString())
+                }
+            }
+
+            "deviceAgree" -> {
+                val peerB64 = call.argument<String>(CarambaVpnKeys.PEER_PUB_B64) ?: ""
+                val rkv = (call.argument<Number>(CarambaVpnKeys.RKV))?.toInt() ?: 0
+                runOnWorker(result, "device_agree_failed") {
+                    deviceKeys().agree(
+                        JSONObject().put("rkv", rkv).put("peer_pub_b64", peerB64).toString()
+                    )
+                }
+            }
+
+            "csmRequestSettings" -> {
+                // The write goes through the core, never through a socket opened
+                // here: a control plane with its own sockets bypasses the transport
+                // ladder, and the app degenerates to rung R0 while the core is
+                // still climbing for a configuration it can no longer change
+                // (02-SPEC.md 8.9).
+                val json = call.argument<String>(CarambaVpnKeys.POLICY_JSON) ?: "{}"
+                runOnWorker(result, "csm_write_failed") {
+                    csmCore().csmRequestSettings(json)
+                }
+            }
+
+            "csmState" -> {
+                // A read of what the core already verified. Off the main thread
+                // all the same: the core takes its own lock, and blocking the
+                // platform thread on it would stall the UI.
+                runOnWorker(result, "csm_state_failed") { csmCore().csmState() }
+            }
+
+            "csmLadder" -> {
+                runOnWorker(result, "csm_ladder_failed") { csmCore().csmLadder() }
+            }
+
+            "csmEnroll" -> {
+                // Enrolment goes THROUGH the core and up the ladder: it is the
+                // one moment trust is created, and a socket opened here would
+                // be a path to the operator the ladder cannot see.
+                val json = call.argument<String>(CarambaVpnKeys.POLICY_JSON) ?: "{}"
+                runOnWorker(result, "csm_enroll_failed") { csmCore().csmEnroll(json) }
+            }
+
+            "csmRefresh" -> {
+                val timeout = (call.argument<Number>(CarambaVpnKeys.TIMEOUT_SEC))?.toInt() ?: 30
+                runOnWorker(result, "csm_refresh_failed") { csmCore().csmRefresh(timeout) }
+            }
+
+            "csmSetLadder" -> {
+                val json = call.argument<String>(CarambaVpnKeys.POLICY_JSON) ?: "{}"
+                runOnWorker(result, "csm_set_ladder_failed") {
+                    csmCore().csmSetLadder(json)
+                    "{\"ok\":true}"
+                }
+            }
+
+            "csmAnswerCatalogChange" -> {
+                val json = call.argument<String>(CarambaVpnKeys.POLICY_JSON) ?: "{}"
+                runOnWorker(result, "csm_catalog_answer_failed") {
+                    csmCore().csmAnswerCatalogChange(json)
+                }
+            }
+
+            "csmSelectProfile" -> {
+                val key = call.argument<String>(CarambaVpnKeys.CSM_PROFILE_KEY) ?: ""
+                runOnWorker(result, "csm_select_profile_failed") {
+                    selectCsmProfile(key)
+                    "{\"ok\":true}"
+                }
             }
 
             "disconnect" -> {
@@ -324,6 +440,100 @@ class CarambaVpnPlugin :
         return created
     }
 
+    /**
+     * The AndroidKeyStore holder of the device identity. One instance: the
+     * identity is established once and both the channel calls and the Go core's
+     * bridge reach the same key through it.
+     */
+    @Synchronized
+    private fun deviceKeys(): CarambaDeviceKeys {
+        val existing = device
+        if (existing != null) return existing
+        val created = CarambaDeviceKeys(appContext)
+        device = created
+        return created
+    }
+
+    /**
+     * The core client that owns the CSM/1 profile: enrollment state, the pinned
+     * root, the monotonic marks and the transport ladder.
+     *
+     * It keeps a PERSISTENT work dir, unlike the tools client, because the CSM
+     * store is the profile's identity and it must survive a restart. The device
+     * key bridge is registered BEFORE any CSM call, so the core never falls back
+     * to a software key it would then have to keep forever.
+     */
+    @Synchronized
+    private fun csmCore(): CarambaCore {
+        val existing = csm
+        if (existing != null) return existing
+        loopbackProxyUrl = CarambaVpnBus.currentLoopbackProxy()
+        val dir = File(appContext.filesDir, "caramba-core-csm")
+        if (!dir.exists()) dir.mkdirs()
+        val prefs = appContext.getSharedPreferences(CarambaVpnKeys.PREFS, Context.MODE_PRIVATE)
+        val created = CarambaCore.createCsm(
+            panelUrl = prefs.getString(CarambaVpnKeys.PANEL_URL, "") ?: "",
+            subUrl = prefs.getString(CarambaVpnKeys.SUB_URL, "") ?: "",
+            workDir = dir.absolutePath,
+            tokenPath = File(dir, "tokens.json").absolutePath,
+            subscriptionId = prefs.getString(CarambaVpnKeys.SUBSCRIPTION_ID, "") ?: "",
+            accessToken = prefs.getString(CarambaVpnKeys.ACCESS_TOKEN, "") ?: "",
+            bridge = CarambaDeviceKeyBridge(deviceKeys()),
+        )
+        csm = created
+        if (csmProfileKey.isNotEmpty()) {
+            created.csmSelectProfile(csmProfileKey)
+        }
+        // The loopback rung of THIS core has to be told the listener address,
+        // because `up` runs on the tunnel core and never on this one. Without
+        // it R4 here is permanently not_configured and the ladder degrades to
+        // R1 and R5 on the platform the listener exists for.
+        applyLoopbackToCsm(created)
+        return created
+    }
+
+    /**
+     * Points the CSM store at one profile (02-SPEC.md 1.2). The store holds the
+     * pinned root, the device registration, the monotonic marks and the attempt
+     * history, and one store per app puts the second operator's on top of the
+     * first operator's. Changing the key drops the current core so the next CSM
+     * call rebuilds it against the new profile's directory.
+     */
+    @Synchronized
+    private fun selectCsmProfile(key: String) {
+        if (csmProfileKey == key) return
+        csmProfileKey = key
+        csm = null
+    }
+
+    /**
+     * Hands the loopback listener address, credential included, to the CSM core.
+     * An empty string means the engine is down and rung R4 has no path.
+     */
+    @Synchronized
+    private fun applyLoopbackToCsm(target: CarambaCore? = csm) {
+        val core = target ?: return
+        try {
+            core.csmSetLadder(
+                JSONObject().put("tunnel_proxy", loopbackProxyUrl).toString()
+            )
+        } catch (_: Throwable) {
+            // A core built before ABI v3 has no such symbol. The ladder then
+            // keeps R4 unavailable, which is the honest side of the failure.
+        }
+    }
+
+    /**
+     * The tunnel core published a new loopback address (a raise) or an empty one
+     * (a teardown). Pushed straight into the CSM core, which is the only place
+     * that needs it: an empty string returns rung R4 to not_configured.
+     */
+    @Synchronized
+    private fun onLoopbackProxy(url: String) {
+        loopbackProxyUrl = url
+        applyLoopbackToCsm()
+    }
+
     private fun persistPolicy(json: String) {
         appContext.getSharedPreferences(CarambaVpnKeys.PREFS, Context.MODE_PRIVATE)
             .edit()
@@ -355,6 +565,18 @@ class CarambaVpnPlugin :
             .putString(CarambaVpnKeys.SUBSCRIPTION_ID, subscriptionId)
             .putString(CarambaVpnKeys.ACCESS_TOKEN, accessToken)
             .apply()
+        // The CSM core caches the seam it was built with, and the settings write
+        // authorizes with the account token from that core's own store. A core
+        // built before a token rotation would keep answering 401 until the app
+        // restarts, so it is dropped and rebuilt on the next CSM call. The device
+        // identity survives: it lives in the AndroidKeyStore, not in the core.
+        dropCsmCore()
+    }
+
+    @Synchronized
+    private fun dropCsmCore() {
+        csm?.close()
+        csm = null
     }
 
     // MARK: ActivityAware (for the VPN-consent dialog)

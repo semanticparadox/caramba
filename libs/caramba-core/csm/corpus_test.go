@@ -491,7 +491,11 @@ func TestCorpusHPKEKeySchedule(t *testing.T) {
 	if v.KemID != int(HPKEKemID) || v.KdfID != int(HPKEKdfID) || v.AeadID != int(HPKEAeadID) || v.Mode != int(HPKEModeBase) {
 		t.Fatalf("the RFC 9180 vector is not the CSM/1 suite")
 	}
-	shared, err := dhkemDecap(mustHex(t, v.SkRm), mustHex(t, v.Enc))
+	dh, ownPub, err := ecdhP256(mustHex(t, v.SkRm), mustHex(t, v.Enc))
+	if err != nil {
+		t.Fatalf("ecdh: %v", err)
+	}
+	shared, err := dhkemDecap(dh, ownPub, mustHex(t, v.Enc))
 	if err != nil {
 		t.Fatalf("dhkem decap: %v", err)
 	}

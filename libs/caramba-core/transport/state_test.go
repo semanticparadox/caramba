@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"crypto/sha256"
 	"errors"
 	"os"
 	"path/filepath"
@@ -106,8 +107,18 @@ func TestDeviceProofPreImage(t *testing.T) {
 	if got := hexOf(msg); got != want {
 		t.Fatalf("прообраз %s, ожидался %s", got, want)
 	}
-	if len(msg) != 71 {
+	if len(msg) != ProofLen || ProofLen != 71 {
 		t.Fatalf("длина прообраза %d, ожидалась 71", len(msg))
+	}
+	// Дайджест это то, что подписывает сама операция ECDSA, и 03-WIRE.md 13.6
+	// называет его отдельно. Он проверяется здесь, потому что реализация,
+	// которая предварительно хеширует и подписывает дайджест КАК СООБЩЕНИЕ,
+	// собрала бы верный прообраз и всё равно выдала подпись, которую панель
+	// отвергнет.
+	sum := sha256.Sum256(msg)
+	const wantDigest = "45ae6e7f2d6e63113532b04a140183d21319b6d3af86993c3360c31eb80b3716"
+	if got := hexOf(sum[:]); got != wantDigest {
+		t.Fatalf("sha256 прообраза %s, ожидался %s", got, wantDigest)
 	}
 }
 

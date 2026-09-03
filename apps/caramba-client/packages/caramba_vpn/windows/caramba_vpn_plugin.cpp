@@ -310,6 +310,140 @@ void CarambaVpnPlugin::HandleMethodCall(
     result->Success(flutter::EncodableValue(json));
     return;
   }
+  // --- CSM/1 device keys and the settings write (ABI v3) ---------------------
+  //
+  // Windows has no hardware key store the core can reach, so the core holds the
+  // device keys in software and reports tier 3 HONESTLY rather than claiming
+  // hardware. The symbols exist anyway: the surface is the same on all five
+  // bridges, and the app does not branch by platform just to learn its own
+  // device thumbprint.
+  //
+  // The settings write goes THROUGH THE CORE, never through a socket opened
+  // here: a control plane with its own sockets bypasses the transport ladder,
+  // and the app degenerates to rung R0 while the core is still climbing for a
+  // configuration it can no longer change (02-SPEC.md 8.9).
+  if (method == "deviceKeygen" || method == "deviceSign" ||
+      method == "deviceAgree" || method == "csmRequestSettings" ||
+      method == "csmEnroll" || method == "csmSetLadder" ||
+      method == "csmAnswerCatalogChange") {
+    if (!EnsureCore()) {
+      result->Error("core_missing", "exarobot core library not found");
+      return;
+    }
+    CarambaCoreFfi::JsonCallFn fn = nullptr;
+    const char* symbol = nullptr;
+    std::string payload;
+    if (method == "deviceKeygen") {
+      fn = core_.DeviceKeygen;
+      symbol = "CarambaDeviceKeygen";
+      payload = R"({"purpose":"sign","require_hardware":true})";
+    } else if (method == "deviceSign") {
+      fn = core_.DeviceSign;
+      symbol = "CarambaDeviceSign";
+      // Escaped, never concatenated raw: the value arrives on the channel
+      // unvalidated, and one double quote would otherwise close the literal
+      // and let the caller write sibling fields into DeviceSignRequest.
+      payload = R"({"message_b64":)" +
+                json::EscapeString(ArgString(args, "messageB64")) + "}";
+    } else if (method == "deviceAgree") {
+      fn = core_.DeviceAgree;
+      symbol = "CarambaDeviceAgree";
+      payload = R"({"rkv":)" + std::to_string(ArgInt(args, "rkv", 0)) +
+                R"(,"peer_pub_b64":)" +
+                json::EscapeString(ArgString(args, "peerPubB64")) + "}";
+    } else if (method == "csmEnroll") {
+      fn = core_.CsmEnroll;
+      symbol = "CarambaCsmEnroll";
+      payload = ArgString(args, "json");
+      if (payload.empty()) {
+        payload = "{}";
+      }
+    } else if (method == "csmSetLadder") {
+      fn = core_.CsmSetLadder;
+      symbol = "CarambaCsmSetLadder";
+      payload = ArgString(args, "json");
+      if (payload.empty()) {
+        payload = "{}";
+      }
+    } else if (method == "csmAnswerCatalogChange") {
+      fn = core_.CsmAnswerCatalogChange;
+      symbol = "CarambaCsmAnswerCatalogChange";
+      payload = ArgString(args, "json");
+      if (payload.empty()) {
+        payload = "{}";
+      }
+    } else {
+      fn = core_.CsmRequestSettings;
+      symbol = "CarambaCsmRequestSettings";
+      payload = ArgString(args, "json");
+      if (payload.empty()) {
+        payload = "{}";
+      }
+    }
+    if (fn == nullptr) {
+      result->Error("core_missing", std::string(symbol) +
+                                        " is missing (core predates ABI v3)");
+      return;
+    }
+    const std::string json = core_.TakeString(fn(handle_, payload.c_str()));
+    result->Success(flutter::EncodableValue(json));
+    return;
+  }
+  // Reads of what the core already verified: no socket, nothing applied. The
+  // state snapshot carries the trusted catalog's resource projection, without
+  // which the client cannot notice the posture narrowing that arrives in the
+  // catalog rather than in a setting (02-SPEC.md 7.7.1); the ladder call lifts
+  // the LOCAL attempt history, which INV-17 requires on screen and 02-SPEC.md
+  // 7.10 forbids reporting to the operator.
+  if (method == "csmRefresh") {
+    if (!EnsureCore()) {
+      result->Error("core_missing", "exarobot core library not found");
+      return;
+    }
+    if (core_.CsmRefresh == nullptr) {
+      result->Error("core_missing",
+                    "CarambaCsmRefresh is missing (core predates ABI v3)");
+      return;
+    }
+    const std::string json = core_.TakeString(core_.CsmRefresh(
+        handle_, static_cast<int>(ArgInt(args, "timeoutSec", 30))));
+    result->Success(flutter::EncodableValue(json));
+    return;
+  }
+  if (method == "csmSelectProfile") {
+    // 02-SPEC.md 1.2: every profile state store MUST be keyed by pid. One
+    // store per app would put the second operator's pinned root, device
+    // registration and monotonic marks on top of the first operator's.
+    if (!EnsureCore()) {
+      result->Error("core_missing", "exarobot core library not found");
+      return;
+    }
+    if (core_.CsmSelectProfile == nullptr) {
+      result->Error("core_missing",
+                    "CarambaCsmSelectProfile is missing (core predates ABI v3)");
+      return;
+    }
+    const std::string json = core_.TakeString(
+        core_.CsmSelectProfile(handle_, ArgString(args, "profileKey").c_str()));
+    result->Success(flutter::EncodableValue(json));
+    return;
+  }
+  if (method == "csmState" || method == "csmLadder") {
+    if (!EnsureCore()) {
+      result->Error("core_missing", "exarobot core library not found");
+      return;
+    }
+    const bool ladder = method == "csmLadder";
+    CarambaCoreFfi::HandleCallFn fn = ladder ? core_.CsmLadder : core_.CsmState;
+    if (fn == nullptr) {
+      result->Error("core_missing",
+                    std::string(ladder ? "CarambaCsmLadder" : "CarambaCsmState") +
+                        " is missing (core predates ABI v3)");
+      return;
+    }
+    result->Success(flutter::EncodableValue(core_.TakeString(fn(handle_))));
+    return;
+  }
   if (method == "setPolicy") {
     policy_json_ = ArgString(args, "json");
     if (handle_ != 0 && core_.SetPolicy == nullptr) {

@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:caramba_vpn/src/csm/csm.dart';
+import 'package:caramba_vpn/csm.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // Шлюз слияния. Корпус 05-TEST-VECTORS порождён независимой реализацией и
@@ -62,9 +62,9 @@ class _CorpusStore implements CsmHighWaterStore {
 
 void main() {
   final corpus = _findCorpus();
-  final vectors = jsonDecode(
-    File('${corpus.path}/vectors.json').readAsStringSync(),
-  ) as Map<String, dynamic>;
+  final vectors =
+      jsonDecode(File('${corpus.path}/vectors.json').readAsStringSync())
+          as Map<String, dynamic>;
 
   Uint8List readFixture(String relative) =>
       File('${corpus.path}/$relative').readAsBytesSync();
@@ -125,10 +125,11 @@ void main() {
   }
 
   group('CSM/1 frame vectors', () {
-    final list = (vectors['vectors'] as List<dynamic>).cast<Map<String, dynamic>>();
+    final list = (vectors['vectors'] as List<dynamic>)
+        .cast<Map<String, dynamic>>();
 
     test('the corpus index is the expected size', () {
-      expect(list.length, 143);
+      expect(list.length, 144);
     });
 
     for (final vector in list) {
@@ -152,8 +153,10 @@ void main() {
           try {
             verifier.verify(bytes);
           } on CsmError catch (e) {
-            fail('$id expected accept, got ${e.code.wire} at ${e.step}: '
-                '${e.detail}');
+            fail(
+              '$id expected accept, got ${e.code.wire} at ${e.step}: '
+              '${e.detail}',
+            );
           }
         } else {
           CsmError? caught;
@@ -170,7 +173,8 @@ void main() {
           expect(
             caught!.code.wire,
             vector['code'] as String,
-            reason: '$id expected at step ${vector['step']}, this '
+            reason:
+                '$id expected at step ${vector['step']}, this '
                 'implementation failed at ${caught.step}: ${caught.detail}',
           );
         }
@@ -220,8 +224,8 @@ void main() {
   });
 
   group('armored form', () {
-    final list =
-        (vectors['armor'] as List<dynamic>).cast<Map<String, dynamic>>();
+    final list = (vectors['armor'] as List<dynamic>)
+        .cast<Map<String, dynamic>>();
 
     test('the section is the expected size', () => expect(list.length, 11));
 
@@ -289,7 +293,9 @@ void main() {
 
     test('dtp', () {
       expect(
-        csmHex(csmDeviceThumbprint(utf8.encode('csm1-doc-example-device-spki'))),
+        csmHex(
+          csmDeviceThumbprint(utf8.encode('csm1-doc-example-device-spki')),
+        ),
         keys['dtp'] as String,
       );
     });
@@ -348,7 +354,11 @@ void main() {
       expect(checks.length, 5);
       for (final c in checks) {
         final bytes = readFixture(c['file'] as String);
-        expect(bytes.length, c['bytes'] as int, reason: c['document'] as String);
+        expect(
+          bytes.length,
+          c['bytes'] as int,
+          reason: c['document'] as String,
+        );
         expect(
           csmHex(sha256(bytes)),
           c['expected_by_wire_15'] as String,

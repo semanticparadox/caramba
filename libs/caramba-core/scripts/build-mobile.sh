@@ -58,6 +58,15 @@ cp "${OUT}/patched.mod" "${ROOT}/go.mod"
 cp "${OUT}/patched.sum" "${ROOT}/go.sum"
 
 require_gomobile() {
+  # go install кладёт инструменты в GOPATH/bin, которого обычно нет в PATH у
+  # неинтерактивных оболочек: добавляем сами, иначе сборка падает с «не найден»
+  # при установленном gomobile.
+  GOBIN_DIR="$(go env GOBIN)"
+  [[ -z "${GOBIN_DIR}" ]] && GOBIN_DIR="$(go env GOPATH)/bin"
+  case ":${PATH}:" in
+    *":${GOBIN_DIR}:"*) ;;
+    *) export PATH="${GOBIN_DIR}:${PATH}" ;;
+  esac
   if ! command -v gomobile >/dev/null 2>&1; then
     echo "ошибка: gomobile не найден. Установите:" >&2
     echo "  go install golang.org/x/mobile/cmd/gomobile@latest" >&2

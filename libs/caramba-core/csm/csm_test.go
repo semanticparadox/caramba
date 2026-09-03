@@ -750,3 +750,52 @@ func TestKeyDocumentRereadSkipsRotation(t *testing.T) {
 		t.Fatalf("ver == hwm with different stored bytes must be E_VERIFY_VERSION, got %v", err)
 	}
 }
+
+// TestSealOpensThroughAnAgreementSource доказывает, что запечатанная директива
+// открывается держателем ключа, который скаляр НЕ отдаёт.
+//
+// Это единственный путь, доступный ключу в Secure Enclave или StrongBox:
+// оба выполняют ECDH и никогда не выпускают закрытый ключ наружу, а
+// 02-SPEC.md 9.4 требует держать ключ согласования именно там. Без этого теста
+// аппаратный уровень был бы объявлен и неисполним.
+func TestSealOpensThroughAnAgreementSource(t *testing.T) {
+	raw := corpusRead(t, "bin/positive/m1s_min.bin")
+
+	st := baseState(t)
+	sk := st.AgreementKeys[1]
+	// Карта скаляров ПУСТА: ровно так выглядит состояние на аппаратном
+	// носителе ключа.
+	st.AgreementKeys = map[uint64][]byte{}
+	st.Agreement = testAgreement{sk: sk}
+	if _, err := Verify(raw, st); err != nil {
+		t.Fatalf("запечатанная директива обязана открыться через источник согласования: %v", err)
+	}
+
+	// Источник, не знающий поколения, это шаг 5, а не отказ AEAD.
+	st2 := baseState(t)
+	st2.AgreementKeys = map[uint64][]byte{}
+	st2.Agreement = testAgreement{}
+	if _, err := Verify(raw, st2); CodeOf(err) != ESealRecipient {
+		t.Fatalf("отсутствие поколения обязано быть E_SEAL_RECIPIENT, получено %v", err)
+	}
+
+	// Источник побеждает карту: карта с ВЕРНЫМ скаляром не спасает источник,
+	// который отдаёт чужой ECDH.
+	other, _ := hex.DecodeString("a3ad342bf784735c7d33e112bdacbad1602bde3211433c5b0a727beed2b52fb3")
+	st3 := baseState(t)
+	st3.Agreement = testAgreement{sk: other}
+	if _, err := Verify(raw, st3); CodeOf(err) != ESealOpen {
+		t.Fatalf("источник обязан побеждать карту скаляров, получено %v", err)
+	}
+}
+
+// testAgreement это держатель ключа, который выполняет ECDH сам. Пустой sk
+// означает "поколения нет".
+type testAgreement struct{ sk []byte }
+
+func (a testAgreement) Agree(rkv uint64, peer []byte) ([]byte, []byte, error) {
+	if len(a.sk) == 0 || rkv != 1 {
+		return nil, nil, ErrNoAgreementGeneration
+	}
+	return ecdhP256(a.sk, peer)
+}

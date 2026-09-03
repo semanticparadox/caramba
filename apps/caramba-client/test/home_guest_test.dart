@@ -22,10 +22,11 @@ import 'package:caramba_client/theme/app_theme.dart';
 import 'package:caramba_client/vpn/vpn_service.dart';
 import 'package:caramba_client/vpn/vpn_status.dart';
 import 'package:caramba_client/widgets/connect_dial.dart';
+import 'support/fake_csm_device.dart';
 
 /// Ядро, поднятое в proxy-режиме на конкретном узле: ровно те поля ABI v2,
 /// которые generic-ветка Home показывает вместо панельных.
-class _FakeCore implements VpnConnection {
+class _FakeCore with FakeCsmDevice implements VpnConnection {
   @override
   final VpnStatus currentStatus;
 

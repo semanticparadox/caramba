@@ -159,6 +159,46 @@ extern char *CarambaCsmSetLadder(long h, char *jsonStr);
  * директива. Вход {want?:{"1":"..."},sel?:{...},account_jwt?}. */
 extern char *CarambaCsmRequestSettings(long h, char *jsonStr);
 
+/* Переключение хранилища CSM на профиль (02-SPEC.md 1.2: хранилище состояния
+ * профиля ОБЯЗАНО ключеваться по pid). Ключ это [a-z0-9_-] длиной до 64;
+ * пустой означает единственное хранилище в рабочем каталоге. */
+extern char *CarambaCsmSelectProfile(long h, char *key);
+
+/* Ответ пользователя на карточку смены набора rule-set и geo-файлов
+ * (02-SPEC.md 7.7.1). Вход {"accept":bool}, выход {"answered":bool}.
+ * Пока ответа нет, ядро удерживает ПРЕЖНИЙ набор, поэтому "оставить прежние"
+ * действительно оставляет прежние, а не только закрывает карточку. */
+extern char *CarambaCsmAnswerCatalogChange(long h, char *jsonStr);
+
+/* Адрес служебного mixed-инбаунда на петле вместе с парой логин-пароль
+ * текущего подъёма (socks5://user:pass@127.0.0.1:port), или пустая строка,
+ * когда движок не поднят. Нужен обвязке, которая держит ОТДЕЛЬНОЕ ядро под
+ * профиль CSM: у того ядра своя лестница и Up на нём никто не зовёт. */
+extern char *CarambaLoopbackProxyURL(long h);
+
+/* Личность устройства: завести или отдать уже заведённую (идемпотентно).
+ * Вход  {"purpose":"sign"|"agree","require_hardware":true}.
+ * Выход {"spki_b64","agree_pub_b64","dtp_hex","tier":1|2|3,"generation":n}.
+ * tier: 1 Secure Enclave, 2 StrongBox или TEE, 3 программное хранилище.
+ * Десктопная сборка хранилища не имеет и возвращает 3, называя вещи своими
+ * именами, а не выдавая программный ключ за аппаратный. */
+extern char *CarambaDeviceKeygen(long h, char *jsonStr);
+
+/* Подпись СООБЩЕНИЯ (не дайджеста) ключом подписи устройства.
+ * Вход  {"message_b64"}.
+ * Выход {"sig_b64","proof_header"} — 64 байта r || s, s в нижней половине
+ * порядка, НЕ ASN.1 DER; proof_header это та же подпись как base64url без
+ * дополнения, 86 символов, готовое значение X-CSM-Proof (03-WIRE.md 13.6). */
+extern char *CarambaDeviceSign(long h, char *jsonStr);
+
+/* ECDH ключом согласования устройства.
+ * Вход  {"rkv":n,"peer_pub_b64","kdf_info_b64"} — rkv 0 означает текущее
+ * поколение, kdf_info пусто для CSM/1.
+ * Выход {"shared_b64","own_pub_b64"} — 32 байта общей координаты X и 65 байт
+ * собственного открытого ключа этого поколения (он входит в kem_context
+ * DHKEM и известен только держателю ключа). */
+extern char *CarambaDeviceAgree(long h, char *jsonStr);
+
 /* Произвольный HTTP запрос через лестницу.
  * Вход {method,path,origin?,headers?,body_b64?,timeout_ms?,rungs?}.
  * Выход {status,headers,body_b64,rung,error?}. */

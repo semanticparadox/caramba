@@ -42,6 +42,12 @@ enum CarambaVpnKeys {
     static let downTotal = "caramba.vpn.downTotal"       // Int64
     static let upTotal = "caramba.vpn.upTotal"           // Int64
 
+    // The loopback service inbound of the current raise, credential included
+    // (socks5://user:pass@127.0.0.1:port). Written by the extension after `up`,
+    // read by the plugin and handed straight to the CSM core's rung R4. Never
+    // forwarded to a Flutter sink.
+    static let loopbackProxy = "caramba.vpn.loopbackProxy"
+
     // Configuration handed from the app to the extension via providerConfiguration.
     // The first three mirror the `configure` method-channel args; the rest carry
     // the connect args + optional policy.
@@ -80,6 +86,18 @@ enum CarambaVpnKeys {
 
     // probe(timeoutMs) argument name on the method channel.
     static let timeoutMs = "timeoutMs"
+
+    // CSM/1 device key arguments (ABI v3). The device key lives in the Secure
+    // Enclave and never crosses this channel: only the message to sign, the peer
+    // point and the results do.
+    static let messageB64 = "messageB64"
+    static let peerPubB64 = "peerPubB64"
+    static let rkv = "rkv"
+
+    // csmEnroll / csmSetLadder / csmAnswerCatalogChange carry one JSON string;
+    // csmRefresh a timeout; csmSelectProfile a local profile key.
+    static let timeoutSec = "timeoutSec"
+    static let csmProfileKey = "profileKey"
 }
 
 /// Tunnel stage strings. These MUST stay identical to the Dart `VpnStage` names
@@ -201,9 +219,34 @@ enum CarambaSharedState {
             upTotal: n(CarambaVpnKeys.upTotal))
     }
 
+    /// The loopback service inbound address, credential included, of the raise
+    /// that is up right now. Empty while the tunnel is down.
+    ///
+    /// It crosses the App Group for the same reason status does: the tunnel core
+    /// lives in the network extension and the CSM core lives in the plugin
+    /// process, and `up` is never called on the CSM core. Without the handoff,
+    /// that core's rung R4 is permanently `not_configured` and the ladder
+    /// silently degrades to R1 and R5 (02-SPEC.md 8.2).
+    ///
+    /// The value is a per-raise credential. It never reaches a Flutter sink: the
+    /// plugin reads it only to hand it straight back to the core.
+    static func writeLoopbackProxy(_ url: String) {
+        let d = CarambaAppGroup.defaults
+        if url.isEmpty {
+            d.removeObject(forKey: CarambaVpnKeys.loopbackProxy)
+        } else {
+            d.set(url, forKey: CarambaVpnKeys.loopbackProxy)
+        }
+    }
+
+    static func readLoopbackProxy() -> String {
+        CarambaAppGroup.defaults.string(forKey: CarambaVpnKeys.loopbackProxy) ?? ""
+    }
+
     /// Resets shared state to the disconnected baseline (called on stop).
     static func reset() {
         writeStatus(.disconnected)
         writeTraffic(.zero)
+        writeLoopbackProxy("")
     }
 }

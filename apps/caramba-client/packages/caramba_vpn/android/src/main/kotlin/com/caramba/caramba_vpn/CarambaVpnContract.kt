@@ -48,6 +48,20 @@ internal object CarambaVpnKeys {
     // plugin process on a lightweight core client, without the VpnService.
     const val TIMEOUT_MS = "timeoutMs"
 
+    // deviceSign() / deviceAgree() args (CSM/1, ABI v3). The device key lives in
+    // the AndroidKeyStore and never crosses this channel: only the message to
+    // sign, the peer point, and the results.
+    const val MESSAGE_B64 = "messageB64"
+    const val PEER_PUB_B64 = "peerPubB64"
+    const val RKV = "rkv"
+
+    // csmEnroll() / csmSetLadder() / csmAnswerCatalogChange() carry one JSON
+    // string under POLICY_JSON, the same shape the ABI v3 symbols take on every
+    // one of the five bridges. csmRefresh() takes a timeout, csmSelectProfile()
+    // a local profile key.
+    const val TIMEOUT_SEC = "timeoutSec"
+    const val CSM_PROFILE_KEY = "profileKey"
+
     // setPolicy() / setTunnelMode() args (ABI v2). Persisted in the seam prefs so
     // CarambaVpnService applies them to the core before up().
     const val POLICY_JSON = "json"

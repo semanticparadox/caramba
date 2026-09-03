@@ -35,6 +35,16 @@ class CarambaCoreFfi {
   using SetTunnelModeFn = char* (*)(CarambaHandle, const char*, int);
   using SetPolicyFn = char* (*)(CarambaHandle, const char*);
   using ProbeFn = char* (*)(CarambaHandle, int);
+  // ABI v3, CSM/1: one JSON string in, one JSON string out. Optional for the
+  // same reason as the ABI v2 symbols: a core built before CSM/1 does not carry
+  // them, and the client degrades to "CSM unavailable on this build".
+  using JsonCallFn = char* (*)(CarambaHandle, const char*);
+  // ABI v3 reads: handle in, JSON out. CsmState and CsmLadder take no argument
+  // because they apply nothing and request nothing over the network.
+  using HandleCallFn = char* (*)(CarambaHandle);
+  // ABI v3: handle plus one integer. CarambaCsmRefresh takes a timeout in
+  // seconds because a fetch cycle climbs the ladder and must be bounded.
+  using HandleIntCallFn = char* (*)(CarambaHandle, int);
   // ImportSubscription parses a raw subscription (rawConfig in the given format)
   // into a mihomo config and stores it as the imported source. Returns a
   // CarambaFreeString-owned JSON string; on failure it carries an "error" field.
@@ -75,6 +85,28 @@ class CarambaCoreFfi {
     SetPolicy = reinterpret_cast<SetPolicyFn>(
         GetProcAddress(module_, "CarambaSetPolicy"));
     Probe = reinterpret_cast<ProbeFn>(GetProcAddress(module_, "CarambaProbe"));
+    DeviceKeygen = reinterpret_cast<JsonCallFn>(
+        GetProcAddress(module_, "CarambaDeviceKeygen"));
+    DeviceSign = reinterpret_cast<JsonCallFn>(
+        GetProcAddress(module_, "CarambaDeviceSign"));
+    DeviceAgree = reinterpret_cast<JsonCallFn>(
+        GetProcAddress(module_, "CarambaDeviceAgree"));
+    CsmRequestSettings = reinterpret_cast<JsonCallFn>(
+        GetProcAddress(module_, "CarambaCsmRequestSettings"));
+    CsmState = reinterpret_cast<HandleCallFn>(
+        GetProcAddress(module_, "CarambaCsmState"));
+    CsmLadder = reinterpret_cast<HandleCallFn>(
+        GetProcAddress(module_, "CarambaCsmLadder"));
+    CsmEnroll = reinterpret_cast<JsonCallFn>(
+        GetProcAddress(module_, "CarambaCsmEnroll"));
+    CsmRefresh = reinterpret_cast<HandleIntCallFn>(
+        GetProcAddress(module_, "CarambaCsmRefresh"));
+    CsmSetLadder = reinterpret_cast<JsonCallFn>(
+        GetProcAddress(module_, "CarambaCsmSetLadder"));
+    CsmAnswerCatalogChange = reinterpret_cast<JsonCallFn>(
+        GetProcAddress(module_, "CarambaCsmAnswerCatalogChange"));
+    CsmSelectProfile = reinterpret_cast<JsonCallFn>(
+        GetProcAddress(module_, "CarambaCsmSelectProfile"));
     ImportSubscription = reinterpret_cast<ImportSubscriptionFn>(
         GetProcAddress(module_, "CarambaImportSubscription"));
     Up = reinterpret_cast<UpFn>(GetProcAddress(module_, "CarambaUp"));
@@ -120,6 +152,17 @@ class CarambaCoreFfi {
   SetTunnelModeFn SetTunnelMode = nullptr;  // optional (ABI v2)
   SetPolicyFn SetPolicy = nullptr;          // optional (ABI v2)
   ProbeFn Probe = nullptr;                  // optional (ABI v2)
+  JsonCallFn DeviceKeygen = nullptr;        // optional (ABI v3)
+  JsonCallFn DeviceSign = nullptr;          // optional (ABI v3)
+  JsonCallFn DeviceAgree = nullptr;         // optional (ABI v3)
+  JsonCallFn CsmRequestSettings = nullptr;  // optional (ABI v3)
+  HandleCallFn CsmState = nullptr;          // optional (ABI v3)
+  HandleCallFn CsmLadder = nullptr;         // optional (ABI v3)
+  JsonCallFn CsmEnroll = nullptr;           // optional (ABI v3)
+  HandleIntCallFn CsmRefresh = nullptr;     // optional (ABI v3)
+  JsonCallFn CsmSetLadder = nullptr;        // optional (ABI v3)
+  JsonCallFn CsmAnswerCatalogChange = nullptr;  // optional (ABI v3)
+  JsonCallFn CsmSelectProfile = nullptr;    // optional (ABI v3)
   ImportSubscriptionFn ImportSubscription = nullptr;
   UpFn Up = nullptr;
   DownFn Down = nullptr;

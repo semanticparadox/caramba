@@ -11,6 +11,13 @@ import 'package:dio/dio.dart';
 
 import 'package:caramba_client/data/safe_url.dart';
 
+/// Сколько переходов подряд принимается при выборке подписки.
+///
+/// Предел существует не ради вежливости: цепочка переходов, за которой никто
+/// не следит, это способ увести выборку куда угодно и заодно бесплатный цикл
+/// для того, кто ей управляет.
+const int kSubscriptionMaxRedirects = 5;
+
 /// Ошибка загрузки подписки с текстом для inline-показа.
 class SubscriptionFetchException implements Exception {
   final String message;
@@ -41,13 +48,43 @@ Future<String> fetchSubscriptionBody(String url, {Dio? client}) async {
           connectTimeout: const Duration(seconds: 15),
           receiveTimeout: const Duration(seconds: 20),
           responseType: ResponseType.plain,
-          followRedirects: true,
+          // Переходы НЕ следуются автоматически. csmSafeExternalUri проверил
+          // ровно тот адрес, который ввёл пользователь, а HttpClient идёт по
+          // 30x с https на http молча: INV-8 держался бы для введённого
+          // адреса и не держался для того, который на самом деле выбирается.
+          // Каждый переход проверяется тем же правилом, ниже.
+          followRedirects: false,
+          validateStatus: (code) => code != null && code > 0,
         ),
       );
   try {
-    final res = await dio.get<String>(safe.toString());
-    final body = res.data?.trim() ?? '';
-    final code = res.statusCode;
+    var target = safe;
+    Response<String>? res;
+    for (var hop = 0; hop <= kSubscriptionMaxRedirects; hop++) {
+      res = await dio.get<String>(target.toString());
+      final status = res.statusCode ?? 0;
+      if (status < 300 || status > 399) {
+        break;
+      }
+      if (hop == kSubscriptionMaxRedirects) {
+        throw const SubscriptionFetchException('слишком много переходов');
+      }
+      final location = res.headers.value('location');
+      if (location == null || location.isEmpty) {
+        throw const SubscriptionFetchException('переход без адреса');
+      }
+      final next = csmSafeExternalUri(target.resolve(location).toString());
+      if (next == null) {
+        // Точно то же правило, что и для введённого адреса: http:// не
+        // принимается ни на первом шаге, ни на пятом.
+        throw const SubscriptionFetchException(
+          'переход ведёт на адрес без https (http допустим только для .onion)',
+        );
+      }
+      target = next;
+    }
+    final body = res?.data?.trim() ?? '';
+    final code = res?.statusCode;
     if (code == null || code < 200 || code >= 300) {
       throw SubscriptionFetchException('ответ сервера $code');
     }

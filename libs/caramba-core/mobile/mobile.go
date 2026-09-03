@@ -454,6 +454,25 @@ func (c *Client) CsmLadder() (string, error) { return c.core.CsmLadderJSON() }
 // CsmSetLadder применяет переключатели и порядок от пользователя.
 func (c *Client) CsmSetLadder(jsonStr string) error { return c.core.CsmSetLadderJSON(jsonStr) }
 
+// CsmSelectProfile переключает хранилище CSM на профиль key (02-SPEC.md 1.2).
+// Пустой ключ означает единственное хранилище в рабочем каталоге.
+func (c *Client) CsmSelectProfile(key string) error { return c.core.CsmSelectProfile(key) }
+
+// CsmAnswerCatalogChange передаёт ответ пользователя на карточку смены набора
+// rule-set и geo-файлов. Вход {"accept":bool}, выход {"answered":bool}.
+func (c *Client) CsmAnswerCatalogChange(jsonStr string) (string, error) {
+	return c.core.CsmAnswerCatalogChangeJSON(jsonStr)
+}
+
+// LoopbackProxyURL отдаёт адрес служебного инбаунда на петле вместе с парой
+// логин-пароль текущего подъёма. Пусто, когда движок не поднят.
+//
+// Обвязка на Android и Apple держит ОТДЕЛЬНОЕ ядро под профиль CSM, и Up на
+// нём никто не зовёт. Без этой передачи ступень R4 того ядра навсегда
+// not_configured, и лестница деградирует до R1 и R5 на тех самых платформах,
+// ради которых служебный инбаунд и появился.
+func (c *Client) LoopbackProxyURL() string { return c.core.LoopbackProxyURL() }
+
 // CsmRequestSettings отправляет изменение настроек как подписанный запрос.
 func (c *Client) CsmRequestSettings(jsonStr string) (string, error) {
 	ctx, cancel := timeoutCtx(30)
@@ -467,4 +486,53 @@ func (c *Client) LadderRequest(jsonStr string) (string, error) {
 	ctx, cancel := timeoutCtx(120)
 	defer cancel()
 	return c.core.LadderRequestJSON(ctx, jsonStr)
+}
+
+// --- CSM/1: ключи устройства (ABI v3) ---
+
+// DeviceKeyBridge это платформенный держатель ключей устройства.
+//
+// Интерфейс объявлен ЗДЕСЬ, а не только в transport, потому что gomobile
+// связывает обратные вызовы лишь для интерфейсов связываемого пакета. Kotlin и
+// Swift реализуют его, и ядро зовёт их через границу: Secure Enclave и
+// StrongBox достижимы только оттуда, а реализация на Go по построению кладёт
+// ключ в файл, то есть в программный уровень.
+//
+// Формы JSON совпадают с символами ABI v3 (02-SPEC.md 12.2):
+//
+//	Keygen {"purpose":"sign"|"agree","require_hardware":bool}
+//	       -> {"spki_b64","agree_pub_b64","tier":1|2|3,"generation":n}
+//	Sign   {"message_b64"} -> {"sig_b64"}   64 байта r || s, низкий s
+//	Agree  {"rkv":n,"peer_pub_b64"} -> {"shared_b64","own_pub_b64"}
+type DeviceKeyBridge interface {
+	Keygen(reqJSON string) (string, error)
+	Sign(reqJSON string) (string, error)
+	Agree(reqJSON string) (string, error)
+}
+
+// SetDeviceKeyBridge устанавливает держателя ключей устройства. Вызывать до
+// первого обращения к CSM: подмена держателя после того, как личность
+// устройства заведена и отправлена оператору, это ошибка, а не тихая замена.
+func (c *Client) SetDeviceKeyBridge(b DeviceKeyBridge) error {
+	if b == nil {
+		return c.core.SetDeviceKeyBridge(nil)
+	}
+	return c.core.SetDeviceKeyBridge(b)
+}
+
+// DeviceKeygen заводит или отдаёт уже заведённую личность устройства.
+// Идемпотентен: повторный вызов отдаёт тот же dtp.
+func (c *Client) DeviceKeygen(jsonStr string) (string, error) {
+	return c.core.DeviceKeygenJSON(jsonStr)
+}
+
+// DeviceSign подписывает СООБЩЕНИЕ ключом подписи устройства и возвращает
+// 64 байта r || s с низким s.
+func (c *Client) DeviceSign(jsonStr string) (string, error) {
+	return c.core.DeviceSignJSON(jsonStr)
+}
+
+// DeviceAgree выполняет ECDH ключом согласования устройства.
+func (c *Client) DeviceAgree(jsonStr string) (string, error) {
+	return c.core.DeviceAgreeJSON(jsonStr)
 }

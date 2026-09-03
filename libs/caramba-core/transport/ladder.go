@@ -241,6 +241,67 @@ func (l *Ladder) SetTunnelProxy(addr string) {
 	}
 }
 
+// MirrorOrigins возвращает пул зеркал как origin'ы ("https://host") в порядке
+// пула: сначала основные, затем резервные.
+//
+// Это и есть обобщение плейсхолдера "{BASE}" из routing/presets.go, которого
+// требует 02-SPEC.md 8.10: подстановка идёт из того же упорядоченного пула,
+// которым ходит выборка манифеста, а не из единственного адреса панели.
+// Onion-хосты сюда не попадают: они self-authenticating и живут на ступени R7,
+// а ядру mihomo их всё равно нечем разрешить.
+func (l *Ladder) MirrorOrigins() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]string, 0, len(l.mirrors)+len(l.reserve))
+	seen := make(map[string]struct{}, len(out))
+	for _, m := range append(append([]csm.Mirror{}, l.mirrors...), l.reserve...) {
+		h := strings.TrimSpace(m.H)
+		if h == "" || IsOnion(h) {
+			continue
+		}
+		if _, dup := seen[h]; dup {
+			continue
+		}
+		seen[h] = struct{}{}
+		out = append(out, "https://"+h)
+	}
+	return out
+}
+
+// DoHURLs возвращает загрузочные резолверы каталога как адреса DoH.
+//
+// 03-WIRE.md 8.2 требует, чтобы каждый doh.h присутствовал ещё и в mir: список
+// заведомо операторский или операторски фронтованный, и это осознанный отказ
+// отдавать поток запросов домашнему, подчиняющемуся приказу резолверу
+// (01-DECISION.md 4.5). Именно поэтому он годится в ветку nameserver, куда
+// уходят имена проксируемого трафика.
+func (l *Ladder) DoHURLs() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]string, 0, len(l.doh))
+	seen := make(map[string]struct{}, len(l.doh))
+	for _, d := range l.doh {
+		h := strings.TrimSpace(d.H)
+		if h == "" || IsOnion(h) {
+			continue
+		}
+		path := strings.TrimSpace(d.Path)
+		if path == "" {
+			path = "/dns-query"
+		}
+		if !strings.HasPrefix(path, "/") {
+			continue
+		}
+		u := "https://" + h + path
+		if _, dup := seen[u]; dup {
+			continue
+		}
+		seen[u] = struct{}{}
+		out = append(out, u)
+	}
+	return out
+}
+
 // ApplyCatalog переносит в лестницу подписанные данные каталога: пул зеркал,
 // список DoH, пины и умолчания порядка. Пороги зажимаются отдельно, потому что
 // зажим resp_max это отказ КАТАЛОГА и решается вызывающим.
@@ -660,7 +721,7 @@ func (l *Ladder) Do(ctx context.Context, req *http.Request, opt DoOptions) (*Res
 			if !ok {
 				continue
 			}
-			a := Attempt{Rung: rung, Host: "cache", Start: start, Outcome: OutcomeOK, Status: 200}
+			a := Attempt{Rung: rung, Host: "cache", Start: start, Outcome: OutcomeOK, Status: 200, Bytes: len(body)}
 			if opt.Verify != nil {
 				if err := opt.Verify(body); err != nil {
 					a.Outcome, a.Code, a.Detail = classify(err)
@@ -811,6 +872,10 @@ func (l *Ladder) attempt(ctx context.Context, exch Exchange, t Target, req *http
 	}
 	budget.ChargeResponse(uint64(len(body)) + estimateHeaderBytes(hdr))
 	a.Status = status
+	// Размер записывается ДО развилки исхода: тело, которое не прошло проверку,
+	// тоже приехало, и скрыть его размер значило бы показать подделанный кадр
+	// как пустой ответ (02-SPEC.md 8.8).
+	a.Bytes = len(body)
 	if status != http.StatusOK && status != http.StatusNotModified {
 		a.Outcome, a.Detail = OutcomeHTTP, fmt.Sprintf("код состояния %d", status)
 		a.Millis = l.now().Sub(start).Milliseconds()

@@ -117,13 +117,44 @@ Uint8List csmWriteProofMessage({
   final out = <int>[
     ...utf8.encode('csm1-write'),
     0x00,
-    ...utf8.encode(method.toUpperCase()),
+    // Метод входит в прообраз ДОСЛОВНО. Нормативная реализация на Go пишет
+    // сюда []byte(method) как есть, и приведение регистра здесь означало бы
+    // две реализации, собирающие разные байты из одного входа: у "put" вышел
+    // бы прообраз, который проверяющий не воспроизведёт. Регистр это забота
+    // вызывающего, и 03-WIRE.md 13.6 знает только PUT и POST.
+    ...utf8.encode(method),
     0x00,
     ...utf8.encode(canonicalPath),
     0x00,
     ...sha256(body),
   ];
   return Uint8List.fromList(out);
+}
+
+/// Собирает карту `want` из очереди записей.
+///
+/// Ключ это номер поля директивы, значение типизировано так же, как карта `pol`
+/// (03-WIRE.md 8.3): текст, беззнаковое целое, булево или массив текстов.
+/// Сброс это текст `default` для ЛЮБОГО ключа, какого бы типа он ни был.
+///
+/// INV-15 держится и здесь по той же причине, что и в [CsmSettingsWrite]:
+/// `split.apps` не имеет ключа в [CsmSettingKey], поэтому его нечем записать.
+Map<int, Object?> csmWantMapFromQueue(Iterable<CsmQueuedWrite> queue) {
+  final out = <int, Object?>{};
+  for (final entry in queue) {
+    switch (entry.op) {
+      case CsmWantReset():
+        out[entry.key.wire] = kCsmDefaultSentinel;
+      case CsmWantSet(value: final v):
+        // Значение вне закрытого словаря на провод не уходит: INV-11 запрещает
+        // эхо того, что нельзя проверить.
+        if (!csmValueInVocabulary(entry.key, v)) {
+          continue;
+        }
+        out[entry.key.wire] = v.toJson();
+    }
+  }
+  return out;
 }
 
 /// Одна запись в персистентной очереди (02-SPEC.md 7.8).

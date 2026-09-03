@@ -158,6 +158,18 @@ class CarambaVpnService : VpnService() {
             // the subscription node, on the raw path it is the ABI v2 pin of the
             // CARAMBA selector to one proxy of the imported config (empty = auto).
             c.up(serverId) // blocks until applied; throws on failure.
+            // The loopback listener exists only while the engine is up, and its
+            // credential is minted per raise. The CSM core lives in the plugin
+            // and never has up() called on it, so the address is handed across
+            // the bus; without it that core's rung R4 is permanently
+            // not_configured (02-SPEC.md 8.2).
+            CarambaVpnBus.publishLoopbackProxy(
+                try {
+                    c.loopbackProxyUrl()
+                } catch (_: Throwable) {
+                    ""
+                }
+            )
             connectedSinceMs = System.currentTimeMillis()
             pollLoop(c)
         } catch (t: Throwable) {
@@ -206,6 +218,8 @@ class CarambaVpnService : VpnService() {
             // Best-effort teardown.
         }
         core = null
+        // The listener is gone with the engine, so R4 has no path again.
+        CarambaVpnBus.publishLoopbackProxy("")
         connectedSinceMs = 0L
 
         try {

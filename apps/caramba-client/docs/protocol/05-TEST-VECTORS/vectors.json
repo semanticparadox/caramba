@@ -1003,6 +1003,19 @@
       "note": "The seal opens correctly and the recovered inner 0x03 frame carries the wrong nonce. The outer verification shortcuts no inner check: the inner frame is parsed and verified in full from P1 through V14, and this fixture is the one that proves a harness actually does that rather than trusting the envelope."
     },
     {
+      "id": "neg-seal-offcurve-enc",
+      "group": "negative",
+      "file": "bin/negative/seal_offcurve_enc.bin",
+      "doc_type": 6,
+      "bytes": 454,
+      "sha256": "a10abad93aa25898d26431a4b830059fe0f9f1ca555c2c412a8f3c4a5b19f288",
+      "verdict": "reject",
+      "code": "E_SEAL_OPEN",
+      "step": "seal step 6",
+      "context": "default",
+      "note": "enc is 65 bytes and begins 0x04, so the suite check of step 4 passes, but the point is not on P-256: one bit of Y is flipped. The device DOES hold generation 1, so step 5 succeeds in finding a key and the failure happens inside ECDH, which is step 6. A recipient that reports this as E_SEAL_RECIPIENT would tell the client to rekey and re-request per 02-SPEC.md 10.3, that is, burn an agreement key generation on a corrupted byte."
+    },
+    {
       "id": "neg-seal-unknown-rkv",
       "group": "negative",
       "file": "bin/negative/seal_unknown_rkv.bin",
@@ -2513,12 +2526,12 @@
     "derivations": 9,
     "ed25519_public_key_ingest": 17,
     "ed25519_signature": 7,
-    "files": 157,
-    "negative": 89,
+    "files": 158,
+    "negative": 90,
     "positive": 52,
     "reference": 2,
     "transport": 8,
-    "vectors": 143
+    "vectors": 144
   },
   "error_code_registry": {
     "parse": [

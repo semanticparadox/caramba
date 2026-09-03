@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:caramba_vpn/src/csm/csm.dart';
+import 'package:caramba_vpn/csm.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // Сборка каталога из чанков и адресация по содержимому. Корпус проверяет

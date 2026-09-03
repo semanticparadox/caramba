@@ -19,12 +19,15 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:caramba_vpn/src/contract.dart';
 import 'package:caramba_vpn/src/core_models.dart';
 import 'package:caramba_vpn/src/core_policy.dart';
+import 'package:caramba_vpn/src/csm_device.dart';
 import 'package:caramba_vpn/src/ffi/caramba_core_bindings.dart';
 import 'package:caramba_vpn/src/ffi/core_loader.dart';
 
@@ -127,7 +130,9 @@ class FfiVpnConnection<S extends Object> implements VpnConnection<S> {
       VpnStatus<S>(
         stage: VpnStage.error,
         server: _target,
-        detail: error is CarambaCoreException ? error.message : error.toString(),
+        detail: error is CarambaCoreException
+            ? error.message
+            : error.toString(),
       ),
     );
   }
@@ -137,8 +142,9 @@ class FfiVpnConnection<S extends Object> implements VpnConnection<S> {
   /// Открывает библиотеку и создаёт хэндл ядра (идемпотентно), применяя
   /// накопленные режим захвата и политику.
   CarambaCoreLibrary _ensureCore({String panelUrl = ''}) {
-    final lib =
-        _lib ??= openCarambaCoreLibrary(explicitPath: _explicitLibraryPath);
+    final lib = _lib ??= openCarambaCoreLibrary(
+      explicitPath: _explicitLibraryPath,
+    );
     if (_handle == 0) {
       Directory(_workDir).createSync(recursive: true);
       _handle = lib.create(
@@ -329,6 +335,200 @@ class FfiVpnConnection<S extends Object> implements VpnConnection<S> {
     if (lib != null && _handle != 0) _applyTunnelMode(lib);
   }
 
+  // --- CSM/1, ABI v3 ----------------------------------------------------------
+
+  @override
+  Future<CsmDeviceKey> deviceKeygen({bool requireHardware = true}) async {
+    final lib = _ensureCore();
+    // Синхронно: заведение ключа и его чтение это операции над файлом рядом с
+    // состоянием профиля, они возвращаются мгновенно.
+    return CsmDeviceKey.fromJson(
+      lib.deviceKeygen(
+        _handle,
+        jsonEncode(<String, Object?>{
+          'purpose': 'sign',
+          'require_hardware': requireHardware,
+        }),
+      ),
+    );
+  }
+
+  @override
+  Future<Uint8List> deviceSign(Uint8List message) async {
+    final lib = _ensureCore();
+    return csmDeviceSignatureFromJson(
+      lib.deviceSign(
+        _handle,
+        jsonEncode(<String, Object?>{'message_b64': base64.encode(message)}),
+      ),
+    );
+  }
+
+  @override
+  Future<CsmAgreement> deviceAgree({
+    required Uint8List peerPublicKey,
+    int rkv = 0,
+    Uint8List? kdfInfo,
+  }) async {
+    final lib = _ensureCore();
+    return CsmAgreement.fromJson(
+      lib.deviceAgree(
+        _handle,
+        jsonEncode(<String, Object?>{
+          'rkv': rkv,
+          'peer_pub_b64': base64.encode(peerPublicKey),
+          if (kdfInfo != null) 'kdf_info_b64': base64.encode(kdfInfo),
+        }),
+      ),
+    );
+  }
+
+  @override
+  Future<String> csmRequestSettings({
+    required Map<int, Object?> want,
+    Map<int, String> sel = const <int, String>{},
+    String accountJwt = '',
+  }) async {
+    final lib = _ensureCore();
+    final body = jsonEncode(<String, Object?>{
+      'want': want.map((k, v) => MapEntry('$k', v)),
+      if (sel.isNotEmpty) 'sel': sel.map((k, v) => MapEntry('$k', v)),
+      if (accountJwt.isNotEmpty) 'account_jwt': accountJwt,
+    });
+    // Вне UI-изолята: запрос идёт по лестнице транспортов и может занять весь
+    // бюджет цикла.
+    final json = await _runOffUiIsolate(
+      libPath: lib.path,
+      handle: _handle,
+      call: _FfiCall.csmRequestSettings,
+      arg: body,
+    );
+    final err = _errorOf(json);
+    if (err != null) throw CarambaCoreException(err);
+    return json;
+  }
+
+  @override
+  Future<String> csmState() async => _readCore((lib) => lib.csmState(_handle));
+
+  @override
+  Future<String> csmLadder() async =>
+      _readCore((lib) => lib.csmLadder(_handle));
+
+  @override
+  Future<String> csmEnroll({
+    String origin = '',
+    String code = '',
+    String linkPin = '',
+    String blobB64 = '',
+    String subscriptionDomain = '',
+    String accountJwt = '',
+  }) async {
+    final lib = _ensureCore(panelUrl: origin);
+    final body = jsonEncode(<String, Object?>{
+      if (origin.isNotEmpty) 'origin': origin,
+      if (code.isNotEmpty) 'code': code,
+      if (linkPin.isNotEmpty) 'link_pin': linkPin,
+      if (blobB64.isNotEmpty) 'blob_b64': blobB64,
+      if (subscriptionDomain.isNotEmpty)
+        'subscription_domain': subscriptionDomain,
+      if (accountJwt.isNotEmpty) 'account_jwt': accountJwt,
+    });
+    // Вне UI-изолята: регистрация идёт по лестнице транспортов.
+    final json = await _runOffUiIsolate(
+      libPath: lib.path,
+      handle: _handle,
+      call: _FfiCall.csmEnroll,
+      arg: body,
+    );
+    final err = _errorOf(json);
+    if (err != null) throw CarambaCoreException(err);
+    return json;
+  }
+
+  @override
+  Future<String> csmRefresh({int timeoutSec = 30}) async {
+    final lib = _ensureCore();
+    final json = await _runOffUiIsolate(
+      libPath: lib.path,
+      handle: _handle,
+      call: _FfiCall.csmRefresh,
+      arg: '$timeoutSec',
+    );
+    final err = _errorOf(json);
+    if (err != null) throw CarambaCoreException(err);
+    return json;
+  }
+
+  @override
+  Future<void> csmSetLadder({
+    List<int> order = const <int>[],
+    Map<int, bool> enabled = const <int, bool>{},
+    String? proxy,
+  }) async {
+    final lib = _ensureCore();
+    final json = lib.csmSetLadder(
+      _handle,
+      jsonEncode(<String, Object?>{
+        if (order.isNotEmpty) 'order': order,
+        if (enabled.isNotEmpty)
+          'enabled': enabled.map((k, v) => MapEntry('$k', v)),
+        if (proxy != null) 'proxy': proxy,
+      }),
+    );
+    final err = _errorOf(json);
+    if (err != null) throw CarambaCoreException(err);
+  }
+
+  @override
+  Future<void> csmAnswerCatalogChange({required bool accept}) async {
+    final lib = _ensureCore();
+    final json = lib.csmAnswerCatalogChange(
+      _handle,
+      jsonEncode(<String, Object?>{'accept': accept}),
+    );
+    final err = _errorOf(json);
+    if (err != null) throw CarambaCoreException(err);
+  }
+
+  @override
+  Future<void> csmSelectProfile(String profileKey) async {
+    // Каталог ядра тоже разводится по профилю: у десктопной сборки ядро одно,
+    // и без этого хранилище CSM второго оператора легло бы поверх первого
+    // (02-SPEC.md 1.2).
+    final lib = _ensureCore();
+    final json = lib.csmSelectProfile(_handle, profileKey);
+    final err = _errorOf(json);
+    if (err != null) throw CarambaCoreException(err);
+  }
+
+  /// Читающий вызов ядра: без сети, без изолята и без исключения наружу.
+  ///
+  /// Отсутствие символа означает ядро, собранное до ABI v3, и это НЕ ошибка
+  /// приложения: экран деградирует до пустого состояния и говорит об этом сам.
+  ///
+  /// Ядро СОЗДАЁТСЯ при первом чтении. Раньше его создавал только подключающий
+  /// путь, и на холодном старте страж каталога 7.7.1 молчал до первого
+  /// подключения, тогда как на Android то же чтение поднимало ядро само:
+  /// одна и та же точка монтирования вела себя по-разному на разных ОС, и
+  /// разницы не было видно ни пользователю, ни экрану.
+  Future<String> _readCore(String Function(CarambaCoreLibrary lib) body) async {
+    final CarambaCoreLibrary lib;
+    try {
+      lib = _ensureCore();
+    } on Object {
+      // Библиотеки нет, ядро не поднялось: это сборка без ABI v3, а не
+      // оператор, убравший все правила.
+      return '';
+    }
+    if (_handle == 0) return '';
+    try {
+      return body(lib);
+    } on CarambaCoreMissingSymbol {
+      return '';
+    }
+  }
+
   // --- опрос -----------------------------------------------------------------
 
   void _startPolling(CarambaCoreLibrary lib) {
@@ -386,7 +586,7 @@ class FfiVpnConnection<S extends Object> implements VpnConnection<S> {
 }
 
 /// Какой блокирующий вызов исполнить в отдельном изоляте.
-enum _FfiCall { up, probe }
+enum _FfiCall { up, probe, csmRequestSettings, csmEnroll, csmRefresh }
 
 /// Выполняет блокирующий вызов ядра вне UI-изолята.
 ///
@@ -399,10 +599,19 @@ Future<String> _runOffUiIsolate({
   required _FfiCall call,
   required String arg,
 }) {
-  final isUp = call == _FfiCall.up;
   return Isolate.run<String>(() {
     final lib = CarambaCoreLibrary.open(libPath);
-    if (isUp) return lib.up(handle, arg);
-    return lib.probe(handle, int.tryParse(arg) ?? 5000);
+    switch (call) {
+      case _FfiCall.up:
+        return lib.up(handle, arg);
+      case _FfiCall.probe:
+        return lib.probe(handle, int.tryParse(arg) ?? 5000);
+      case _FfiCall.csmRequestSettings:
+        return lib.csmRequestSettings(handle, arg);
+      case _FfiCall.csmEnroll:
+        return lib.csmEnroll(handle, arg);
+      case _FfiCall.csmRefresh:
+        return lib.csmRefresh(handle, int.tryParse(arg) ?? 30);
+    }
   });
 }

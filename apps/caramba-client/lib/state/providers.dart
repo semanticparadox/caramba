@@ -15,8 +15,51 @@ import 'package:caramba_client/vpn/vpn_service.dart';
 /// Корневые DI-провайдеры: secure storage, prefs, API-клиент и VPN-движок.
 /// Остальные нотифаеры (`auth`, `servers`, `subscription`, `vpn`) зависят от них.
 
-/// Платформенное secure storage для JWT.
-final tokenStoreProvider = Provider<TokenStore>((ref) => TokenStore());
+/// Платформенное secure storage для JWT, КЛЮЧЁВАННОЕ ПО `pid` активного
+/// профиля (02-SPEC.md 1.2).
+///
+/// Единственная глобальная корзина означала бы, что энроллмент второго
+/// оператора затирает сессию первого: изоляция тенантов в CSM/1 это свойство
+/// документов И хранилища, и на слое хранения она держится ровно здесь.
+/// Профиль без закреплённого корня (legacy-импорт) остаётся в legacy-корзине,
+/// потому что тенанта у него нет.
+///
+/// Провайдер ПЕРЕСОБИРАЕТСЯ при смене активного профиля, и всё, что от него
+/// зависит (в первую очередь [apiClientProvider]), пересобирается вместе с ним:
+/// клиент, продолжающий носить bearer прежнего оператора, это ровно та ошибка,
+/// от которой ключевание и спасает.
+final tokenStoreProvider = Provider<TokenStore>((ref) {
+  final profile = ref.watch(activeConnectionProfileProvider);
+  final pid = profile?.csm?.pin.pid ?? '';
+  final TokenStore store;
+  try {
+    store = TokenStore(pid: pid);
+  } on ArgumentError {
+    // Испорченный pid не имеет права стать отказом старта: сессия просто
+    // остаётся в legacy-корзине, и это видно в состоянии профиля.
+    return TokenStore();
+  }
+  if (profile != null && pid.isNotEmpty) {
+    // Миграция 06-MIGRATION.md 7.1: единственный старый блоб переезжает в
+    // корзину профиля, КОТОРОМУ ОН ПРИНАДЛЕЖИТ. Без этого вызова вошедший
+    // пользователь терял сессию от одного обновления приложения, потому что
+    // читать её стали бы уже по имени с pid.
+    //
+    // `soleOwner` утверждается ровно тогда, когда в установке один профиль,
+    // способный владеть панельной сессией. С двумя владелец неизвестен, и
+    // правильный ответ это отказ переносить, а не догадка: отданная не тому
+    // сессия подписывает все запросы этого тенанта чужим bearer'ом.
+    final owners = ref
+        .read(connectionProfilesProvider)
+        .profiles
+        .where((p) => p.isPanel)
+        .length;
+    unawaited(
+      store.adoptLegacySession(ownerId: profile.id, soleOwner: owners <= 1),
+    );
+  }
+  return store;
+});
 
 /// Локальные несекретные настройки (CoreConfig, AppSettings, first-run, режим
 /// туннеля). Инстанс один на приложение; читается только после

@@ -15,10 +15,11 @@ import 'package:caramba_client/theme/app_theme.dart';
 import 'package:caramba_client/vpn/vpn_service.dart';
 import 'package:caramba_client/vpn/vpn_status.dart';
 import 'package:caramba_client/widgets/connect_dial.dart';
+import '../support/fake_csm_device.dart';
 
 /// The smallest thing that satisfies the tunnel contract: it reports one fixed
 /// status and never talks to a platform channel.
-class FakeVpnConnection implements VpnConnection {
+class FakeVpnConnection with FakeCsmDevice implements VpnConnection {
   @override
   final VpnStatus currentStatus;
 

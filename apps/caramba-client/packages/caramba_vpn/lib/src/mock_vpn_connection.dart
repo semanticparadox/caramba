@@ -2,10 +2,14 @@
 library;
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:caramba_vpn/src/contract.dart';
 import 'package:caramba_vpn/src/core_models.dart';
 import 'package:caramba_vpn/src/core_policy.dart';
+import 'package:caramba_vpn/src/csm/crypto/p256.dart';
+import 'package:caramba_vpn/src/csm/crypto/sha2.dart';
+import 'package:caramba_vpn/src/csm_device.dart';
 
 /// Имитация ядра для desktop/dev: проходит реальный жизненный цикл состояний
 /// и генерирует «дышащий» трафик, чтобы UI работал end-to-end без нативного
@@ -178,6 +182,211 @@ class MockVpnConnection<S extends Object> implements VpnConnection<S> {
   Future<void> setTunnelMode(TunnelMode mode, {int mixedPort = 7890}) async {
     lastMode = mode;
     lastMixedPort = mixedPort;
+  }
+
+  // --- CSM/1, ABI v3 ----------------------------------------------------------
+  //
+  // Ключевая пара здесь НАСТОЯЩАЯ: скаляр фиксирован, открытые ключи и `dtp`
+  // считаются из него, поэтому `deviceAgree` даёт корректный ECDH и код выше
+  // можно проверять целиком. Подпись же имитируется и НИКОГДА не пройдёт у
+  // оператора: ECDSA в этом пакете нет, а выдавать за подпись то, что ею не
+  // является, без этой оговорки было бы ровно тем видом лжи, против которого
+  // написан весь CSM/1.
+
+  static final Uint8List _mockScalar = Uint8List.fromList(
+    List<int>.generate(32, (i) => (i * 7 + 11) & 0xff),
+  );
+
+  /// Префикс DER `SubjectPublicKeyInfo` для открытого ключа P-256:
+  /// SEQUENCE { SEQUENCE { id-ecPublicKey, prime256v1 }, BIT STRING }.
+  static const List<int> _spkiPrefix = <int>[
+    0x30,
+    0x59,
+    0x30,
+    0x13,
+    0x06,
+    0x07,
+    0x2a,
+    0x86,
+    0x48,
+    0xce,
+    0x3d,
+    0x02,
+    0x01,
+    0x06,
+    0x08,
+    0x2a,
+    0x86,
+    0x48,
+    0xce,
+    0x3d,
+    0x03,
+    0x01,
+    0x07,
+    0x03,
+    0x42,
+    0x00,
+  ];
+
+  @override
+  Future<CsmDeviceKey> deviceKeygen({bool requireHardware = true}) async {
+    final pub = p256PublicKey(_mockScalar);
+    if (pub == null) {
+      throw StateError('мок: скаляр вне диапазона');
+    }
+    final point = pub.uncompressed;
+    final spki = Uint8List.fromList(<int>[..._spkiPrefix, ...point]);
+    final dtp = sha256(spki).sublist(0, 16);
+    return CsmDeviceKey(
+      signingSpki: spki,
+      agreementPublicKey: point,
+      deviceThumbprint: _hex(dtp),
+      // Уровень 3 и только он: у мока хранилища нет, и он это говорит.
+      hardwareTier: 3,
+      agreementKeyGeneration: 1,
+    );
+  }
+
+  @override
+  Future<Uint8List> deviceSign(Uint8List message) async {
+    // Имитация: 64 байта, выведенные из сообщения, чтобы форма совпадала с
+    // `r || s`. Криптографической силы ноль, и панель это отвергнет.
+    final a = sha256(message);
+    final b = sha256(<int>[0x01, ...a]);
+    return Uint8List.fromList(<int>[...a, ...b]);
+  }
+
+  @override
+  Future<CsmAgreement> deviceAgree({
+    required Uint8List peerPublicKey,
+    int rkv = 0,
+    Uint8List? kdfInfo,
+  }) async {
+    final peer = p256DecodeUncompressed(peerPublicKey);
+    if (peer == null) {
+      throw const FormatException('мок: точка не декодируется');
+    }
+    final shared = p256Ecdh(_mockScalar, peer);
+    final own = p256PublicKey(_mockScalar);
+    if (shared == null || own == null) {
+      throw StateError('мок: согласование не удалось');
+    }
+    return CsmAgreement(shared: shared, ownPublicKey: own.uncompressed);
+  }
+
+  @override
+  Future<String> csmRequestSettings({
+    required Map<int, Object?> want,
+    Map<int, String> sel = const <int, String>{},
+    String accountJwt = '',
+  }) async {
+    lastSettingsWrite = <int, Object?>{...want};
+    lastSettingsSel = <int, String>{...sel};
+    // Мок сети не касается: он отвечает пустым снимком, а не выдуманной
+    // директивой. Придуманная директива была бы состоянием, которого ни один
+    // оператор не подписывал.
+    return '{}';
+  }
+
+  @override
+  Future<String> csmState() async => csmStateJson;
+
+  @override
+  Future<String> csmLadder() async => csmLadderJson;
+
+  @override
+  Future<String> csmEnroll({
+    String origin = '',
+    String code = '',
+    String linkPin = '',
+    String blobB64 = '',
+    String subscriptionDomain = '',
+    String accountJwt = '',
+  }) async {
+    lastEnroll = <String, String>{
+      'origin': origin,
+      'code': code,
+      'link_pin': linkPin,
+      'blob_b64': blobB64,
+      'subscription_domain': subscriptionDomain,
+      'account_jwt': accountJwt,
+    };
+    // Мок НЕ выдумывает pid и отпечаток корня: закрепить профиль на
+    // придуманном корне значило бы показать пользователю личность оператора,
+    // которой никто не подписывал. Тест подставляет снимок сам.
+    return csmEnrollJson;
+  }
+
+  @override
+  Future<String> csmRefresh({int timeoutSec = 30}) async {
+    refreshCalls++;
+    return csmStateJson;
+  }
+
+  @override
+  Future<void> csmSetLadder({
+    List<int> order = const <int>[],
+    Map<int, bool> enabled = const <int, bool>{},
+    String? proxy,
+  }) async {
+    lastLadderOrder = List<int>.unmodifiable(order);
+    lastLadderEnabled = Map<int, bool>.unmodifiable(enabled);
+    if (proxy != null) {
+      lastLadderProxy = proxy;
+    }
+  }
+
+  @override
+  Future<void> csmAnswerCatalogChange({required bool accept}) async {
+    catalogAnswers.add(accept);
+  }
+
+  @override
+  Future<void> csmSelectProfile(String profileKey) async {
+    selectedCsmProfile = profileKey;
+  }
+
+  /// Что мок отдаёт на [csmEnroll]. Пусто по умолчанию.
+  String csmEnrollJson = '';
+
+  /// Последний запрос регистрации.
+  Map<String, String> lastEnroll = const <String, String>{};
+
+  /// Сколько раз звали [csmRefresh].
+  int refreshCalls = 0;
+
+  /// Последний порядок и набор переключателей, отданные ядру.
+  List<int> lastLadderOrder = const <int>[];
+  Map<int, bool> lastLadderEnabled = const <int, bool>{};
+  String? lastLadderProxy;
+
+  /// Ответы на карточки смены набора ресурсов, в порядке поступления.
+  final List<bool> catalogAnswers = <bool>[];
+
+  /// Профиль, чьё хранилище CSM выбрано последним.
+  String selectedCsmProfile = '';
+
+  /// Что мок отдаёт на [csmState]. Пустая строка по умолчанию: мок НЕ выдумывает
+  /// каталог, потому что выдуманный каталог поднял бы карточку 7.7.1 о
+  /// сужении, которого не было. Тест подставляет сюда свой снимок.
+  String csmStateJson = '';
+
+  /// Что мок отдаёт на [csmLadder]. Пусто по той же причине: попытка, которой
+  /// не было, в истории INV-17 быть не должна.
+  String csmLadderJson = '';
+
+  /// Последняя карта `want`, переданная в [csmRequestSettings].
+  Map<int, Object?> lastSettingsWrite = const <int, Object?>{};
+
+  /// Последняя карта `sel`, переданная в [csmRequestSettings].
+  Map<int, String> lastSettingsSel = const <int, String>{};
+
+  static String _hex(List<int> bytes) {
+    final sb = StringBuffer();
+    for (final b in bytes) {
+      sb.write(b.toRadixString(16).padLeft(2, '0'));
+    }
+    return sb.toString();
   }
 
   @override

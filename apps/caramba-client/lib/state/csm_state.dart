@@ -9,6 +9,8 @@
 /// экран не собирает состояние CSM сам.
 library;
 
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/data/models/connection_profile.dart';
@@ -21,6 +23,71 @@ import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/features/csm/csm_labels.dart';
 import 'package:caramba_client/state/core_config_state.dart';
 import 'package:caramba_client/state/core_policy_mapping.dart';
+import 'package:caramba_client/state/providers.dart';
+
+/// Исход одной попытки отдать очередь записей оператору.
+enum CsmWriteFlushOutcome {
+  /// Отдавать нечего.
+  idle,
+
+  /// Профиль не закреплял корневой ключ: записывать некуда.
+  notEnrolled,
+
+  /// Бит 3 снят: оператор записи настроек не предлагает.
+  notOffered,
+
+  /// Запрос ушёл и подписанный ответ принят ядром.
+  sent,
+
+  /// Сеть или панель отказали. Очередь цела, локальное значение цело.
+  failed,
+}
+
+/// Чем закончилось применение порядка и переключателей ступеней.
+enum CsmLadderApplyOutcome {
+  /// Порядок записан локально И принят ядром.
+  applied,
+
+  /// Профиль не закреплял корневой ключ: применять некуда.
+  notEnrolled,
+
+  /// Локально записано, а ядро отказало. Экран обязан сказать об этом:
+  /// показывать порядок, по которому ядро не ходит, значит врать.
+  coreRefused,
+}
+
+/// Что видно на экране настроек про судьбу последней записи.
+///
+/// Четыре исхода [CsmWriteFlushOutcome] раньше не доходили ни до одного
+/// виджета: `setByUser` отдавал их в `unawaited`, и пользователь менял
+/// настройку, локальное значение применялось, запись молча не уходила, и
+/// ничто на экране об этом не говорило.
+class CsmWriteStatus {
+  const CsmWriteStatus({this.outcome, this.pending = 0, this.atMs = 0});
+
+  static const CsmWriteStatus none = CsmWriteStatus();
+
+  /// Исход последней попытки отдачи. `null` до первой попытки.
+  final CsmWriteFlushOutcome? outcome;
+
+  /// Сколько записей ещё лежит в очереди.
+  final int pending;
+
+  /// Когда исход был получен.
+  final int atMs;
+
+  /// Есть ли что показывать пользователю.
+  ///
+  /// `idle` и `sent` при пустой очереди это нормальная тишина: показывать
+  /// «всё хорошо» после каждого движения ползунка незачем.
+  bool get isNoteworthy =>
+      outcome == CsmWriteFlushOutcome.notOffered ||
+      outcome == CsmWriteFlushOutcome.failed ||
+      pending > 0;
+
+  /// Отказ постоянный (оператор записи не предлагает вовсе), а не временный.
+  bool get isPermanent => outcome == CsmWriteFlushOutcome.notOffered;
+}
 
 // ------------------------------------------------------- модели для UI
 
@@ -202,6 +269,30 @@ class CsmNotifier {
 
   CsmProfileState? get state => _profile?.csm;
 
+  /// Ворота, через которые проходит КАЖДАЯ мутация состояния CSM.
+  ///
+  /// Каждая из них читает состояние профиля целиком и целиком возвращает.
+  /// Две такие, начатые в одном кадре, читают одно и то же, вторая пишет
+  /// поверх первой, и первая пропадает вместе с очередью, в которой стояла её
+  /// запись. Сегодня это не проявляется только потому, что нижний нотифаер
+  /// успевает поставить состояние синхронно; правильность, зависящая от такого
+  /// совпадения, ломается в тот день, когда между чтением и записью появляется
+  /// await. Ворота делают участок «прочитал, посчитал, записал» неделимым.
+  ///
+  /// Сеть в ворота НЕ ЗАХОДИТ: изменение настроек не блокируется на сети
+  /// (02-SPEC.md 7.8), поэтому [flushWrites] держит их только на своих двух
+  /// записях, а раунд-трип идёт снаружи.
+  Future<void> _gate = Future<void>.value();
+
+  Future<T> _serial<T>(Future<T> Function() body) {
+    final previous = _gate;
+    final done = Completer<void>();
+    // Ворота никогда не завершаются ошибкой: отказ одной мутации не имеет
+    // права остановить очередь остальных.
+    _gate = done.future;
+    return previous.then((_) => body()).whenComplete(done.complete);
+  }
+
   Future<void> _write(CsmProfileState next) async {
     final profile = _profile;
     if (profile == null) {
@@ -219,42 +310,44 @@ class CsmNotifier {
   /// После этого он неизменен на всю жизнь профиля, и смена пина это удаление
   /// профиля с новым энроллментом (02-SPEC.md 2.1 правило 1). Метод возвращает
   /// `false`, когда пин уже закреплён, и НЕ трогает состояние.
-  Future<bool> establishPin(CsmBootstrap bootstrap, {int? nowMs}) async {
-    final profile = _profile;
-    if (profile == null) {
-      return false;
-    }
-    final current = profile.csm;
-    if (current != null && current.stage.isPinned) {
-      return false;
-    }
-    final at = nowMs ?? DateTime.now().millisecondsSinceEpoch;
-    await _write(csmProfileFromBootstrap(bootstrap, nowMs: at));
-    return true;
-  }
+  Future<bool> establishPin(CsmBootstrap bootstrap, {int? nowMs}) =>
+      _serial(() async {
+        final profile = _profile;
+        if (profile == null) {
+          return false;
+        }
+        final current = profile.csm;
+        if (current != null && current.stage.isPinned) {
+          return false;
+        }
+        final at = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+        await _write(csmProfileFromBootstrap(bootstrap, nowMs: at));
+        return true;
+      });
 
   /// Устанавливает пин из ссылки энроллмента, несущей `k`.
   ///
   /// Слабее, чем блоб, продиктованный вне полосы: пин приехал с того же origin,
   /// что и документы, и экран личности оператора обязан это говорить (INV-18).
   /// Как и [establishPin], работает только пока профиль не закрепил корень.
-  Future<bool> establishPinFromLink(CsmEnrollLink link, {int? nowMs}) async {
-    final profile = _profile;
-    if (profile == null) {
-      return false;
-    }
-    final current = profile.csm;
-    if (current != null && current.stage.isPinned) {
-      return false;
-    }
-    final at = nowMs ?? DateTime.now().millisecondsSinceEpoch;
-    final next = csmProfileFromLink(link, nowMs: at);
-    if (next == null) {
-      return false;
-    }
-    await _write(next);
-    return true;
-  }
+  Future<bool> establishPinFromLink(CsmEnrollLink link, {int? nowMs}) =>
+      _serial(() async {
+        final profile = _profile;
+        if (profile == null) {
+          return false;
+        }
+        final current = profile.csm;
+        if (current != null && current.stage.isPinned) {
+          return false;
+        }
+        final at = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+        final next = csmProfileFromLink(link, nowMs: at);
+        if (next == null) {
+          return false;
+        }
+        await _write(next);
+        return true;
+      });
 
   /// Профиль перешёл в `anchored`: первый ключевой документ проверен против
   /// пина, `pid` посчитан и закреплён, временной пол установлен.
@@ -262,7 +355,7 @@ class CsmNotifier {
     required String pid,
     required CsmDocumentRecord keyDocument,
     required int timeFloorSec,
-  }) async {
+  }) => _serial(() async {
     final current = state;
     if (current == null) {
       return;
@@ -283,22 +376,22 @@ class CsmNotifier {
             : current.timeFloorSec,
       ),
     );
-  }
+  });
 
   /// Отмечает, что пришедший документ не нёс `cap`. На закреплённом профиле
   /// это жёсткая недиссмиссабельная ошибка, а не откат (INV-13).
-  Future<void> markMissingCapability() async {
+  Future<void> markMissingCapability() => _serial(() async {
     final current = state;
     if (current == null) {
       return;
     }
     await _write(csmMarkMissingCapability(current));
-  }
+  });
 
   /// Пользователь ответил «Оставить»: локальное значение удерживается, ключ
   /// помечается пользовательским, и запись, переутверждающая его, встаёт в
   /// очередь (02-SPEC.md 7.7).
-  Future<void> keepCard(String cardId, {int? nowMs}) async {
+  Future<void> keepCard(String cardId, {int? nowMs}) => _serial(() async {
     final current = state;
     if (current == null) {
       return;
@@ -327,11 +420,11 @@ class CsmNotifier {
         pendingChanges: _without(current.pendingChanges, cardId),
       ),
     );
-  }
+  });
 
   /// Пользователь ответил «Вернуть»: применяется значение оператора и отметка
   /// пользователя по этому ключу снимается.
-  Future<void> revertCard(String cardId) async {
+  Future<void> revertCard(String cardId) => _serial(() async {
     final current = state;
     if (current == null) {
       return;
@@ -363,7 +456,7 @@ class CsmNotifier {
     // действует значение оператора, а ядро, пикеры настроек и баннер
     // переподключения продолжают жить на старом. Одно значение на настройку.
     _applyToCoreConfig(merged);
-  }
+  });
 
   /// Переносит принятые значения CSM в локальную политику ядра.
   ///
@@ -373,7 +466,10 @@ class CsmNotifier {
   void _applyToCoreConfig(CsmSettings merged) {
     final notifier = _ref.read(coreConfigProvider.notifier);
     final current = _ref.read(coreConfigProvider);
-    final next = coreConfigFromPolicy(current, corePolicyFromCsm(merged, current));
+    final next = coreConfigFromPolicy(
+      current,
+      corePolicyFromCsm(merged, current),
+    );
     if (next == current) {
       return;
     }
@@ -393,39 +489,215 @@ class CsmNotifier {
     CsmSettingValue value, {
     int? nowMs,
   }) async {
-    final current = state;
-    if (current == null || !csmValueInVocabulary(key, value)) {
+    final at = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+    final accepted = await _serial(() async {
+      // Состояние читается ВНУТРИ ворот: правка, начатая в том же кадре, что и
+      // соседняя, обязана видеть её результат, а не то, что было до неё.
+      final current = state;
+      if (current == null || !csmValueInVocabulary(key, value)) {
+        return false;
+      }
+      await _write(
+        current.copyWith(
+          settings: current.settings.setByUser(key, value),
+          writeQueue: current.writeQueue.enqueue(
+            CsmQueuedWrite(key: key, op: CsmWantSet(value), queuedMs: at),
+          ),
+        ),
+      );
+      return true;
+    });
+    if (!accepted) {
       return;
     }
+    // Немедленно пробуем отдать очередь оператору. Ошибка сети не откатывает
+    // локальное значение и не теряет запись: она остаётся в очереди и уйдёт по
+    // любой доступной ступени позже (02-SPEC.md 7.8, инвариант 16).
+    //
+    // Отдача идёт ВНЕ ворот: они держатся только на записях состояния, потому
+    // что изменение настроек не имеет права ждать сеть. Исход при этом не
+    // выбрасывается: он публикуется в csmWriteStatusProvider, и экран
+    // настроек показывает "не доставлено" вместо тишины.
+    unawaited(flushWrites(nowMs: at));
+  }
+
+  /// Отдаёт очередь записей оператору одним подписанным запросом.
+  ///
+  /// Весь round trip живёт в ядре: оно собирает тело CBOR, подписывает прообраз
+  /// 03-WIRE.md 13.6 ключом устройства, ставит `X-CSM-Proof` и `If-Match`, идёт
+  /// по лестнице транспортов и ПРОВЕРЯЕТ подписанный запечатанный ответ прежде,
+  /// чем что-либо применить. Слой Dart не открывает сокетов к оператору и не
+  /// проверяет подпись второй раз по перекодированным байтам.
+  ///
+  /// Возвращает исход попытки. Отказ НЕ очищает очередь и НЕ трогает локально
+  /// принятое значение: изменение настроек не блокируется на сети.
+  /// Идёт ли отдача прямо сейчас.
+  ///
+  /// Две быстрые правки подряд давали две одновременные отдачи, каждая со
+  /// своим nonce и с одним и тем же снимком очереди: панели приходилось гасить
+  /// дубликат своей идемпотентностью по nonce, а лестница тратила два запроса
+  /// там, где нужен один. Отдача сериализуется, и хвост, поставленный в
+  /// очередь во время раунд-трипа, уходит следующей отдачей.
+  Future<CsmWriteFlushOutcome>? _inFlight;
+
+  Future<CsmWriteFlushOutcome> flushWrites({int? nowMs}) {
+    final running = _inFlight;
+    if (running != null) {
+      return running;
+    }
+    final started = _flushOnce(nowMs);
+    _inFlight = started;
+    return started.whenComplete(() {
+      if (identical(_inFlight, started)) {
+        _inFlight = null;
+      }
+    });
+  }
+
+  Future<CsmWriteFlushOutcome> _flushOnce(int? nowMs) async {
     final at = nowMs ?? DateTime.now().millisecondsSinceEpoch;
-    await _write(
-      current.copyWith(
-        settings: current.settings.setByUser(key, value),
-        writeQueue: current.writeQueue.enqueue(
-          CsmQueuedWrite(key: key, op: CsmWantSet(value), queuedMs: at),
-        ),
-      ),
+    final outcome = await _flushWrites(at);
+    // Исход публикуется ВСЕГДА, включая успех: экран настроек читает его и
+    // показывает "не доставлено" там, где раньше была тишина.
+    _publishWriteStatus(outcome, at);
+    return outcome;
+  }
+
+  void _publishWriteStatus(CsmWriteFlushOutcome outcome, int atMs) {
+    _ref.read(csmWriteStatusProvider.notifier).state = CsmWriteStatus(
+      outcome: outcome,
+      pending: state?.writeQueue.length ?? 0,
+      atMs: atMs,
     );
+  }
+
+  Future<CsmWriteFlushOutcome> _flushWrites(int at) async {
+    // Первый участок под воротами: прополка очереди и снятие снимка того, что
+    // уходит. Запись, не доставленная 7 суток, выбрасывается: она описывает
+    // желание, которого пользователь давно не помнит (02-SPEC.md 7.8).
+    final (outcome, sending) = await _serial(() async {
+      final current = state;
+      if (current == null || !current.stage.isPinned) {
+        return (CsmWriteFlushOutcome.notEnrolled, const <CsmQueuedWrite>[]);
+      }
+      final pruned = current.writeQueue.prune(at);
+      if (pruned.length != current.writeQueue.length) {
+        await _write(current.copyWith(writeQueue: pruned));
+      }
+      if (pruned.isEmpty) {
+        return (CsmWriteFlushOutcome.idle, const <CsmQueuedWrite>[]);
+      }
+      // Бит 3 снят означает, что оператор записи настроек не предлагает. Слать
+      // запрос всё равно значило бы дать пользователю обещание, которого панель
+      // не давала.
+      final nowSec = at ~/ 1000;
+      final caps = current
+          .effectiveOperatorCapabilities(nowSec)
+          .intersectWithClient();
+      if (!caps.has(CsmCapability.settingsWrite)) {
+        return (CsmWriteFlushOutcome.notOffered, const <CsmQueuedWrite>[]);
+      }
+      return (
+        CsmWriteFlushOutcome.sent,
+        List<CsmQueuedWrite>.unmodifiable(pruned.entries),
+      );
+    });
+    if (outcome != CsmWriteFlushOutcome.sent) {
+      return outcome;
+    }
+
+    final want = csmWantMapFromQueue(sending);
+    if (want.isEmpty) {
+      return CsmWriteFlushOutcome.idle;
+    }
+    // Сеть ВНЕ ворот: пока идёт раунд-трип, пользователь продолжает менять
+    // настройки, и его правки не имеют права ждать оператора.
+    try {
+      await _ref.read(vpnConnectionProvider).csmRequestSettings(want: want);
+    } on Object {
+      // Ровно инвариант 16: сетевой отказ не очищает кеш, не гасит туннель и не
+      // понижает доверенное состояние. Очередь остаётся как была.
+      return CsmWriteFlushOutcome.failed;
+    }
+    // Доставленное снимается с очереди. Состояние настроек НЕ переписывается
+    // здесь: авторитетным его делает проверенная директива, а её принимает
+    // ядро, и приложение перечитает её обычным путём.
+    await _serial(() async {
+      final after = state;
+      if (after == null) {
+        return;
+      }
+      // Снимается ИМЕННО отправленное, а не всё с этим ключом. Пока шёл
+      // раунд-трип, пользователь мог ответить на карточку «Оставить моё», и та
+      // поставила в очередь новую запись по тому же ключу; снять её здесь
+      // значило бы потерять ответ пользователя, который никуда не уходил.
+      bool delivered(CsmQueuedWrite e) => sending.any(
+        (sent) => sent.key == e.key && sent.queuedMs == e.queuedMs,
+      );
+      await _write(
+        after.copyWith(
+          writeQueue: CsmWriteQueue(
+            List<CsmQueuedWrite>.unmodifiable(
+              after.writeQueue.entries.where((e) => !delivered(e)),
+            ),
+          ),
+        ),
+      );
+    });
+    return CsmWriteFlushOutcome.sent;
   }
 
   /// Пользователь переставил или переключил ступени. С этого момента его
   /// порядок и набор побеждают подписанные умолчания навсегда.
-  Future<void> setLadder({List<int>? order, List<int>? enabled}) async {
-    final current = state;
-    if (current == null) {
-      return;
+  ///
+  /// Порядок применяется И К ЯДРУ. Лестницей ходит оно, и порядок берёт из
+  /// своего хранилища; запись, оставшаяся здесь, меняла бы только картинку:
+  /// пользователь переставляет ступени, экран показывает новый порядок, а
+  /// выборка идёт по старому. Отказ ядра возвращается наверх, а не гасится:
+  /// экран, показывающий порядок, который ядро отвергло, врёт.
+  Future<CsmLadderApplyOutcome> setLadder({
+    List<int>? order,
+    List<int>? enabled,
+  }) async {
+    final applied = await _serial(() async {
+      final current = state;
+      if (current == null) {
+        return null;
+      }
+      final next = CsmLadderPrefs(
+        order: order ?? current.ladder.order,
+        // R0 и R6 отключить нельзя.
+        enabled: <int>{
+          ...(enabled ?? current.ladder.enabled),
+          0,
+          6,
+        }.toList(growable: false)..sort(),
+        userTouched: true,
+      );
+      await _write(current.copyWith(ladder: next));
+      return next;
+    });
+    if (applied == null) {
+      return CsmLadderApplyOutcome.notEnrolled;
     }
-    final next = CsmLadderPrefs(
-      order: order ?? current.ladder.order,
-      // R0 и R6 отключить нельзя.
-      enabled: <int>{
-        ...(enabled ?? current.ladder.enabled),
-        0,
-        6,
-      }.toList(growable: false)..sort(),
-      userTouched: true,
-    );
-    await _write(current.copyWith(ladder: next));
+    // Вне ворот: ворота держатся только на записях состояния, а этот вызов
+    // уходит в ядро.
+    try {
+      await _ref
+          .read(vpnConnectionProvider)
+          .csmSetLadder(
+            order: applied.effectiveOrder
+                .map((r) => r.id)
+                .toList(growable: false),
+            enabled: <int, bool>{
+              for (final rung in applied.effectiveOrder)
+                rung.id: applied.isEnabled(rung),
+            },
+          );
+    } on Object {
+      return CsmLadderApplyOutcome.coreRefused;
+    }
+    return CsmLadderApplyOutcome.applied;
   }
 
   static CsmPendingChange? _cardById(CsmProfileState s, String id) {
@@ -447,6 +719,17 @@ class CsmNotifier {
 
 /// Точка мутации состояния CSM активного профиля.
 final csmNotifierProvider = Provider<CsmNotifier>(CsmNotifier.new);
+
+/// Судьба последней отдачи очереди записей.
+///
+/// Существует потому, что без него исход отдачи не доходил ни до одного
+/// виджета: пользователь менял настройку, локальное значение применялось,
+/// запись молча не уходила, и экран настроек об этом не говорил. Особенно это
+/// важно для `notOffered`: оператор не предлагает запись настроек ВООБЩЕ, и
+/// это постоянное свойство, а не временный отказ сети.
+final csmWriteStatusProvider = StateProvider<CsmWriteStatus>(
+  (ref) => CsmWriteStatus.none,
+);
 
 /// Состояние CSM активного профиля. `null` означает «профиль никогда не
 /// закреплял корневой ключ»: legacy-импорт таким и остаётся.
@@ -514,11 +797,12 @@ final csmCapabilitiesProvider = Provider<CsmCapabilitySet>((ref) {
 
 /// Факты о транспорте, которыми владеет ядро на Go, а не слой Dart.
 ///
-/// Пока лестницу не читают из `CsmLadderJSON`, эти два значения обязаны
-/// приходить хотя бы откуда-то: иначе `csmRungReason` берёт их из умолчаний
-/// собственных параметров и рисует R4 как `platform_unsupported`, а R5 как
-/// `not_configured` независимо от того, что на самом деле настроено. Провайдер
-/// переопределяется в месте, где ядро доступно, и переопределён в тестах.
+/// Эти два значения приходят из `CsmLadderJSON` через `CsmLadderSync.pump`:
+/// иначе `csmRungReason` берёт их из умолчаний собственных параметров и рисует
+/// R4 как `platform_unsupported`, а R5 как `not_configured` независимо от того,
+/// что на самом деле настроено. До первого подъёма из ядра оба ложны, и это
+/// правильная сторона отказа: назвать ступень доступной, не спросив ядро,
+/// значит обещать путь, которого может не быть.
 class CsmTransportFacts {
   const CsmTransportFacts({
     this.tunnelFetchSupported = false,
@@ -529,7 +813,7 @@ class CsmTransportFacts {
   final bool proxyConfigured;
 }
 
-final csmTransportFactsProvider = Provider<CsmTransportFacts>(
+final csmTransportFactsProvider = StateProvider<CsmTransportFacts>(
   (ref) => const CsmTransportFacts(),
 );
 
@@ -627,7 +911,9 @@ final csmDisabledRoutePresetsProvider = Provider<Map<int, String>>((ref) {
   final out = <int, String>{};
   for (var i = 0; i < modes.length; i++) {
     if (!offered.contains(modes[i].id)) {
-      out[i] = csmUnavailableReasonText(CsmUnavailableReason.notOfferedByOperator);
+      out[i] = csmUnavailableReasonText(
+        CsmUnavailableReason.notOfferedByOperator,
+      );
     }
   }
   return out;
@@ -640,10 +926,7 @@ final csmUnimplementedRoutesProvider = Provider<List<String>>((ref) {
   if (content == null || !content.known) {
     return const <String>[];
   }
-  final local = ref
-      .watch(routingModesProvider)
-      .map((m) => m.id)
-      .toSet();
+  final local = ref.watch(routingModesProvider).map((m) => m.id).toSet();
   return content.offeredRoutes
       .where((id) => !local.contains(id))
       .toList(growable: false);

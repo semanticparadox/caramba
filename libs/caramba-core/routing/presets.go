@@ -21,38 +21,106 @@ type Preset struct {
 	Providers   []RuleProvider
 }
 
+// PoolOptions описывает, откуда пресет берёт свои внешние списки.
+//
+// Плейсхолдер "{BASE}" исторически подставлялся одним базовым адресом панели.
+// Пул зеркал обобщает его: 02-SPEC.md 8.10 требует, чтобы подстановка шла из
+// того же упорядоченного пула, которым пользуется выборка манифеста, а не из
+// единственного адреса, который цензор блокирует первым.
+type PoolOptions struct {
+	// Bases — упорядоченный пул зеркал ("https://host"). Пусто означает, что
+	// удалённые списки недоступны: ruleset-правила и провайдеры выбрасываются.
+	//
+	// В URL провайдера подставляется ПЕРВОЕ зеркало: у http-vehicle mihomo
+	// один адрес и переключаться между ними он не умеет. Остальной пул живёт
+	// в лестнице, которая и перебирает зеркала при проверенной загрузке
+	// (см. Verified и transport.ResourceGuard).
+	Bases []string
+	// Proxy — имя исходящего для ключа proxy: у провайдеров. Обычно это
+	// группа-селектор: тогда список едет по туннелю, а не в открытый интернет.
+	Proxy string
+	// Files — проверенные локальные файлы по имени rule-set'а. Имя, которое
+	// здесь есть, всегда побеждает http-форму: байты уже сверены с подписанным
+	// sha256, и повторно качать их незачем.
+	Files map[string]string
+	// Verified требует проверенный файл на КАЖДЫЙ rule-set. Провайдер без
+	// файла и правила, которые на него ссылаются, выбрасываются: инвариант 12
+	// запрещает докачивать неподписанное вместо подписанного. Отказ, а не
+	// откат на непроверенную копию.
+	Verified bool
+}
+
 // Build возвращает Config пресета, подставляя baseURL вместо "{BASE}" в URL
 // провайдеров. group — имя группы-селектора для действия PROXY.
+//
+// Это тонкая обёртка над BuildWith для вызывающих без пула зеркал.
 func (p Preset) Build(baseURL, group string) Config {
-	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	// Без базового URL (клиент без панели, импортированная подписка) удалённые
-	// rule-provider'ы недоступны: mihomo падал бы на Get "/rulesets/..." с
-	// пустой схемой. Оставляем только geosite/geoip/домены; ruleset-правила
-	// выкидываем вместе с провайдерами.
-	if base == "" {
-		rules := make([]Rule, 0, len(p.Rules))
-		for _, r := range p.Rules {
-			if r.Type == MatchRuleSet {
-				continue
-			}
-			rules = append(rules, r)
-		}
-		return Config{
-			ProxyGroup:  group,
-			FinalAction: p.FinalAction,
-			Rules:       rules,
-			Providers:   nil,
+	base := strings.TrimSpace(baseURL)
+	opt := PoolOptions{}
+	if base != "" {
+		opt.Bases = []string{base}
+	}
+	return p.BuildWith(opt, group)
+}
+
+// BuildWith возвращает Config пресета по описанию пула.
+func (p Preset) BuildWith(opt PoolOptions, group string) Config {
+	base := ""
+	for _, b := range opt.Bases {
+		if b = strings.TrimRight(strings.TrimSpace(b), "/"); b != "" {
+			base = b
+			break
 		}
 	}
+
+	// Какие rule-set'ы вообще доступны в этой сборке конфига.
+	available := func(name string) bool {
+		if _, ok := opt.Files[name]; ok {
+			return true
+		}
+		if opt.Verified {
+			// Проверенного файла нет: неподписанная докачка запрещена.
+			return false
+		}
+		return base != ""
+	}
+
 	providers := make([]RuleProvider, 0, len(p.Providers))
 	for _, rp := range p.Providers {
-		rp.URL = strings.ReplaceAll(rp.URL, "{BASE}", base)
+		if !available(rp.Name) {
+			continue
+		}
+		if path, ok := opt.Files[rp.Name]; ok {
+			rp.URL = ""
+			rp.Interval = 0
+			rp.Proxy = ""
+			rp.Path = path
+		} else {
+			rp.URL = strings.ReplaceAll(rp.URL, "{BASE}", base)
+			rp.Proxy = opt.Proxy
+		}
 		providers = append(providers, rp)
+	}
+
+	// Без базового URL (клиент без панели, импортированная подписка) и без
+	// проверенных файлов удалённые rule-provider'ы недоступны: mihomo падал бы
+	// на Get "/rulesets/..." с пустой схемой. Оставляем только
+	// geosite/geoip/домены; ruleset-правила выкидываем вместе с провайдерами.
+	rules := make([]Rule, 0, len(p.Rules))
+	for _, r := range p.Rules {
+		if r.Type == MatchRuleSet && !available(r.Value) {
+			continue
+		}
+		rules = append(rules, r)
+	}
+
+	if len(providers) == 0 {
+		providers = nil
 	}
 	return Config{
 		ProxyGroup:  group,
 		FinalAction: p.FinalAction,
-		Rules:       append([]Rule{}, p.Rules...),
+		Rules:       rules,
 		Providers:   providers,
 	}
 }

@@ -15,9 +15,10 @@ import 'package:caramba_client/state/vpn_state.dart';
 import 'package:caramba_client/vpn/vpn_service.dart';
 import 'package:caramba_client/vpn/vpn_status.dart';
 import 'package:caramba_vpn/caramba_vpn.dart' show jsonEncodePolicy;
+import 'support/fake_csm_device.dart';
 
 /// Записывает вызовы вместо разговора с платформой.
-class FakeVpnConnection implements VpnConnection {
+class FakeVpnConnection with FakeCsmDevice implements VpnConnection {
   final _statusCtrl = StreamController<VpnStatus>.broadcast();
 
   /// Порядок вызовов: политика и режим обязаны предшествовать connect.

@@ -10,6 +10,7 @@
 #define FLUTTER_PLUGIN_CARAMBA_JSON_H_
 
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <string>
 
@@ -73,6 +74,43 @@ inline bool GetString(const std::string& src, const std::string& key,
   }
   *out = value;
   return true;
+}
+
+// EscapeString renders a value as a JSON string literal, quotes included.
+//
+// The two ABI v3 request bodies built here interpolate a value that arrives on
+// the MethodChannel unvalidated. Concatenated raw, one double quote closes the
+// literal and the caller writes sibling fields of its own choosing into
+// DeviceSignRequest or DeviceAgreeRequest: another rkv, a kdf_info_b64, a
+// different message. Android builds the same JSON with JSONObject and Apple
+// with JSONSerialization; this is the same guarantee, written out.
+inline std::string EscapeString(const std::string& value) {
+  std::string out;
+  out.reserve(value.size() + 2);
+  out.push_back('"');
+  for (const char raw : value) {
+    const unsigned char c = static_cast<unsigned char>(raw);
+    switch (c) {
+      case '"': out += "\\\""; break;
+      case '\\': out += "\\\\"; break;
+      case '\n': out += "\\n"; break;
+      case '\r': out += "\\r"; break;
+      case '\t': out += "\\t"; break;
+      case '\b': out += "\\b"; break;
+      case '\f': out += "\\f"; break;
+      default:
+        if (c < 0x20) {
+          char buf[7];
+          snprintf(buf, sizeof(buf), "\\u%04x", c);
+          out += buf;
+        } else {
+          out.push_back(raw);
+        }
+        break;
+    }
+  }
+  out.push_back('"');
+  return out;
 }
 
 // GetInt reads a top-level integer field. Returns the parsed value, or

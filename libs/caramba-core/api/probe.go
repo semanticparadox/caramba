@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/semanticparadox/caramba/libs/caramba-core/profile"
 	"github.com/semanticparadox/caramba/libs/caramba-core/subimport"
 	"gopkg.in/yaml.v3"
 )
@@ -20,6 +22,36 @@ const probeConcurrency = 8
 
 // defaultProbeTimeout — таймаут на один узел, если приложение не задало свой.
 const defaultProbeTimeout = 3 * time.Second
+
+// Цель url-test замера узлов.
+//
+// Зашитый gstatic.com здесь был той же ошибкой, что и в profile: в РФ он
+// заблокирован, и замер честно объявлял мёртвыми ВСЕ узлы, потому что через
+// живой узел не отвечал недоступный хост. Цель переезжает на хост из
+// подписанного пула зеркал (setProbeTarget вызывается при сборке конфига), а
+// зашитое значение остаётся последним средством для клиента без каталога.
+var (
+	probeTargetMu sync.RWMutex
+	probeTarget   = profile.DefaultProbeURL
+)
+
+// setProbeTarget задаёт цель замера. Пустая строка возвращает умолчание.
+func setProbeTarget(u string) {
+	probeTargetMu.Lock()
+	defer probeTargetMu.Unlock()
+	if u = strings.TrimSpace(u); u == "" {
+		probeTarget = profile.DefaultProbeURL
+		return
+	}
+	probeTarget = u
+}
+
+// probeTargetURL отдаёт текущую цель замера.
+func probeTargetURL() string {
+	probeTargetMu.RLock()
+	defer probeTargetMu.RUnlock()
+	return probeTarget
+}
 
 // ProbeServer — результат замера одного узла (контракт ABI v2, CarambaProbe).
 //

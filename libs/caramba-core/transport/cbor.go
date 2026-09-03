@@ -22,7 +22,7 @@ var ErrCBOREncode = errors.New("transport: ошибка кодирования C
 
 // CBORItem это элемент, который кодировщик умеет писать.
 type CBORItem struct {
-	kind  byte // 'u' uint, 'b' bstr, 't' tstr, 'a' array, 'm' map
+	kind  byte // 'u' uint, 'b' bstr, 't' tstr, 'a' array, 'm' map, 'f' bool
 	u     uint64
 	b     []byte
 	s     string
@@ -40,6 +40,17 @@ type CBORPair struct {
 func CBORUint(v uint64) CBORItem { return CBORItem{kind: 'u', u: v} }
 func CBORBstr(b []byte) CBORItem { return CBORItem{kind: 'b', b: b} }
 func CBORTstr(s string) CBORItem { return CBORItem{kind: 't', s: s} }
+
+// CBORBool пишет простое значение 20 или 21. Нужен потому, что карта pol
+// директивы типизирована (03-WIRE.md 8.3), и запись, отправляющая булев ключ
+// текстом, была бы отвергнута разборщиком панели по типу, а выглядело бы это
+// как отказ записи вообще.
+func CBORBool(v bool) CBORItem {
+	if v {
+		return CBORItem{kind: 'f', u: 1}
+	}
+	return CBORItem{kind: 'f', u: 0}
+}
 func CBORArray(v ...CBORItem) CBORItem {
 	return CBORItem{kind: 'a', array: v}
 }
@@ -64,6 +75,13 @@ func appendItem(dst []byte, it CBORItem) ([]byte, error) {
 	case 't':
 		dst = appendHead(dst, 3, uint64(len(it.s)))
 		return append(dst, it.s...), nil
+	case 'f':
+		// Мажор 7, простые значения: 20 это false, 21 это true. Другой формы
+		// булева в строгом профиле нет.
+		if it.u == 1 {
+			return append(dst, 0xf5), nil
+		}
+		return append(dst, 0xf4), nil
 	case 'a':
 		dst = appendHead(dst, 4, uint64(len(it.array)))
 		var err error

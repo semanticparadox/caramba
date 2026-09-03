@@ -11,6 +11,7 @@ library;
 
 import 'package:caramba_client/data/prefs_store.dart';
 import 'package:caramba_client/state/core_config_state.dart';
+import 'package:caramba_client/state/csm_catalog_guard.dart';
 import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/state/settings_state.dart';
 import 'package:caramba_client/vpn/core_policy.dart';
@@ -42,6 +43,25 @@ final appBootProvider = FutureProvider<void>((ref) async {
       ref.read(coreConfigProvider.notifier).hydrate(CoreConfig.fromJson(core));
     } catch (_) {
       // Оставляем дефолтную конфигурацию ядра.
+    }
+  }
+
+  // Страж каталога поднимается здесь по той же причине, что и всё остальное:
+  // карточка 02-SPEC.md 7.7.1 обязана пережить перезапуск. Карточка, которую
+  // закрыл перезапуск, отвечена молчанием, а молчание ответом не является.
+  //
+  // Корзина здесь СТАРАЯ, глобальная: на этот момент активный профиль ещё не
+  // известен, а привязка к профилю (csmProfileBindingProvider) перечитает
+  // корзину профиля, как только он определится. Установка, заведённая до
+  // разделения по профилям, так не теряет свою единственную карточку.
+  final guard = prefs.readJson(kCsmCatalogGuardKey);
+  if (guard.isNotEmpty) {
+    try {
+      ref
+          .read(csmCatalogGuardProvider.notifier)
+          .hydrate(CsmCatalogGuardState.fromJson(guard));
+    } catch (_) {
+      // Сломанный снимок стража не имеет права стать отказом старта.
     }
   }
 

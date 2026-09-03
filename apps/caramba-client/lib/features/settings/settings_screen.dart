@@ -9,6 +9,7 @@ import 'package:caramba_client/features/settings/reconnect_banner.dart';
 import 'package:caramba_client/features/csm/config_age_card.dart';
 import 'package:caramba_client/features/csm/keep_or_revert_card.dart';
 import 'package:caramba_client/features/settings/csm_settings_bridge.dart';
+import 'package:caramba_client/features/settings/csm_write_status_note.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/core_config_state.dart';
@@ -276,6 +277,11 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
 
+            // Судьба записи настроек. Без неё пользователь менял настройку,
+            // локальное значение применялось, запись молча не уходила, и экран
+            // об этом не говорил ничего.
+            const CsmWriteStatusNote(),
+
             // Раздел показывается только профилю, который закрепил корневой
             // ключ. Четыре строки, каждая из которых открывает пустое
             // состояние, это не прозрачность, а четыре тупика; они появляются
@@ -283,35 +289,35 @@ class SettingsScreen extends ConsumerWidget {
             if (ref.watch(csmProfileStateProvider) != null) ...[
               const SectionTitle('Проверка и прозрачность'),
               RowsGroup(
-              children: [
-                CRow(
-                  icon: Lucide.key,
-                  label: 'Оператор',
-                  value: 'отпечаток и энроллмент',
-                  chevron: true,
-                  onTap: () => context.go(AppRoute.csmOperator),
-                ),
-                CRow(
-                  icon: Lucide.fileCheck,
-                  label: 'Документы',
-                  value: 'что проверено',
-                  chevron: true,
-                  onTap: () => context.go(AppRoute.csmDocuments),
-                ),
-                CRow(
-                  icon: Lucide.listTree,
-                  label: 'Транспорт',
-                  value: 'ступени и попытки',
-                  chevron: true,
-                  onTap: () => context.go(AppRoute.csmTransport),
-                ),
-                CRow(
-                  icon: Lucide.eye,
-                  label: 'Что мы отправляем',
-                  chevron: true,
-                  onTap: () => context.go(AppRoute.csmDisclosure),
-                ),
-              ],
+                children: [
+                  CRow(
+                    icon: Lucide.key,
+                    label: 'Оператор',
+                    value: 'отпечаток и энроллмент',
+                    chevron: true,
+                    onTap: () => context.go(AppRoute.csmOperator),
+                  ),
+                  CRow(
+                    icon: Lucide.fileCheck,
+                    label: 'Документы',
+                    value: 'что проверено',
+                    chevron: true,
+                    onTap: () => context.go(AppRoute.csmDocuments),
+                  ),
+                  CRow(
+                    icon: Lucide.listTree,
+                    label: 'Транспорт',
+                    value: 'ступени и попытки',
+                    chevron: true,
+                    onTap: () => context.go(AppRoute.csmTransport),
+                  ),
+                  CRow(
+                    icon: Lucide.eye,
+                    label: 'Что мы отправляем',
+                    chevron: true,
+                    onTap: () => context.go(AppRoute.csmDisclosure),
+                  ),
+                ],
               ),
             ],
 

@@ -32,28 +32,122 @@ const CapResourceHashes = 6
 
 // ResourceGuard хранит подписанные записи rs и geo и пропускает только те
 // байты, чей sha256 совпал.
+//
+// Страж умеет УДЕРЖИВАТЬ прежний набор. Это не удобство, а то, без чего
+// карточка 02-SPEC.md 7.7.1 говорит неправду. Смена набора правил и geo-баз
+// это сужение защиты, которое приходит в каталоге, а не в настройке: хеш
+// связывает байты, но не связывает того, кто выбрал и путь, и хеш. Пока
+// пользователь не ответил, в силе обязан оставаться ПРЕЖНИЙ набор, иначе
+// кнопка "Оставить прежние" не откатывает ничего, потому что новый набор уже
+// применён к моменту, когда карточка появилась на экране.
 type ResourceGuard struct {
 	byName  map[string]csm.Resource
 	enabled bool
+	capBits uint32
+	// proposed непуст, когда пришедший каталог назвал другой набор и ответа
+	// пользователя ещё нет. Действует при этом byName, а не proposed.
+	proposed    map[string]csm.Resource
+	proposedCap uint32
+	hasProposed bool
 }
 
 // NewResourceGuard собирает страж по доверенному каталогу и эффективной
 // битовой маске возможностей.
 func NewResourceGuard(cat *csm.Catalog, capBits uint32) *ResourceGuard {
-	g := &ResourceGuard{byName: map[string]csm.Resource{}}
-	if cat == nil {
-		return g
-	}
-	for _, r := range cat.RS {
-		g.byName[r.Name] = r
-	}
-	for _, r := range cat.Geo {
-		g.byName[r.Name] = r
-	}
+	g := &ResourceGuard{byName: resourceSet(cat), capBits: capBits}
 	// Правило 02-SPEC.md 6.5: бит, утверждающий наличие содержимого, при
 	// пустом массиве считается нулём.
 	g.enabled = capBits&(1<<CapResourceHashes) != 0 && len(g.byName) > 0
 	return g
+}
+
+// resourceSet проецирует rs и geo каталога в карту по имени.
+func resourceSet(cat *csm.Catalog) map[string]csm.Resource {
+	out := map[string]csm.Resource{}
+	if cat == nil {
+		return out
+	}
+	for _, r := range cat.RS {
+		out[r.Name] = r
+	}
+	for _, r := range cat.Geo {
+		out[r.Name] = r
+	}
+	return out
+}
+
+// sameSet сравнивает два набора по именам и подписанным хешам.
+func sameSet(a, b map[string]csm.Resource) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for n, r := range a {
+		o, ok := b[n]
+		if !ok || !bytes.Equal(r.Hash, o.Hash) {
+			return false
+		}
+	}
+	return true
+}
+
+// HoldPrevious оставляет в силе набор предыдущего стража, когда новый каталог
+// назвал другой, и записывает новый как ПРЕДЛОЖЕННЫЙ.
+//
+// Первый в жизни профиля набор принимается молча: сузить относительно ничего
+// нельзя, и спрашивать здесь было бы не о чем. Дальше любое расхождение
+// удерживается до ответа.
+func (g *ResourceGuard) HoldPrevious(prev *ResourceGuard) {
+	if g == nil || prev == nil || len(prev.byName) == 0 {
+		return
+	}
+	if sameSet(prev.byName, g.byName) {
+		// Набор тот же. Незакрытое предложение прежнего стража, если оно было,
+		// переносится: пользователь на него так и не ответил.
+		if prev.hasProposed {
+			g.proposed, g.proposedCap, g.hasProposed = prev.proposed, prev.proposedCap, true
+		}
+		return
+	}
+	g.proposed, g.proposedCap, g.hasProposed = g.byName, g.capBits, true
+	g.byName, g.capBits = prev.byName, prev.capBits
+	g.enabled = g.capBits&(1<<CapResourceHashes) != 0 && len(g.byName) > 0
+}
+
+// PendingCatalogChange сообщает, что набор ресурсов ждёт ответа пользователя.
+func (g *ResourceGuard) PendingCatalogChange() bool { return g != nil && g.hasProposed }
+
+// ProposedNames перечисляет ресурсы предложенного набора. Пусто, когда
+// предложения нет.
+func (g *ResourceGuard) ProposedNames() []string {
+	if g == nil || !g.hasProposed {
+		return nil
+	}
+	out := make([]string, 0, len(g.proposed))
+	for n := range g.proposed {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// AnswerCatalogChange применяет ответ пользователя.
+//
+// accept: предложенный набор становится действующим. keep: действующим
+// остаётся прежний, а предложение снимается; следующий тот же каталог поднимет
+// вопрос заново, и это правильно, потому что оператор всё ещё предлагает то,
+// от чего пользователь отказался.
+//
+// Возвращает false, когда отвечать было не на что.
+func (g *ResourceGuard) AnswerCatalogChange(accept bool) bool {
+	if g == nil || !g.hasProposed {
+		return false
+	}
+	if accept {
+		g.byName, g.capBits = g.proposed, g.proposedCap
+		g.enabled = g.capBits&(1<<CapResourceHashes) != 0 && len(g.byName) > 0
+	}
+	g.proposed, g.proposedCap, g.hasProposed = nil, 0, false
+	return true
 }
 
 // Enabled сообщает, разрешена ли загрузка ресурсов по каталогу.

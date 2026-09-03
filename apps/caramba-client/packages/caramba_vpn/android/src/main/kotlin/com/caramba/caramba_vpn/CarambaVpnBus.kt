@@ -47,6 +47,44 @@ internal object CarambaVpnBus {
         }
     }
 
+    /**
+     * The loopback service inbound address, credential included, of the current
+     * raise. Empty while the engine is down.
+     *
+     * It travels the bus for the same reason status does: the tunnel core lives
+     * in CarambaVpnService and the CSM core lives in the plugin, and the CSM
+     * core never has `up` called on it. Without this handoff its rung R4 stays
+     * not_configured forever and the ladder quietly degrades to R1 and R5 on
+     * the one platform the loopback listener was added for.
+     *
+     * The value is a credential and it is never published to a Flutter sink:
+     * only the plugin reads it, and only to hand it back to the core.
+     */
+    @Volatile
+    private var lastLoopbackProxy: String = ""
+
+    @Volatile
+    private var loopbackListener: ((String) -> Unit)? = null
+
+    /** The plugin registers a hook and gets the current value replayed. */
+    fun setLoopbackListener(l: ((String) -> Unit)?) {
+        loopbackListener = l
+        if (l != null) {
+            val v = lastLoopbackProxy
+            mainHandler.post { l(v) }
+        }
+    }
+
+    /** Current loopback address, for a CSM core built after the raise. */
+    fun currentLoopbackProxy(): String = lastLoopbackProxy
+
+    /** Called by the service after up() and after teardown. */
+    fun publishLoopbackProxy(url: String) {
+        lastLoopbackProxy = url
+        val l = loopbackListener ?: return
+        mainHandler.post { l(url) }
+    }
+
     /** Last status, for the synchronous MethodChannel `status` call. */
     fun currentStatus(): CarambaStatusSnapshot = lastStatus
 

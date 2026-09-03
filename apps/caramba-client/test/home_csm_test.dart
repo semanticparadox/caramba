@@ -29,6 +29,7 @@ import 'package:caramba_client/theme/app_theme.dart';
 import 'package:caramba_client/vpn/vpn_service.dart';
 import 'package:caramba_client/vpn/vpn_status.dart';
 import 'package:caramba_client/widgets/connect_dial.dart';
+import 'support/fake_csm_device.dart';
 
 const _nowMs = 1788307500 * 1000;
 
@@ -39,7 +40,7 @@ const _pin = CsmPin(
   establishedMs: 1788300000000,
 );
 
-class _FakeCore implements VpnConnection {
+class _FakeCore with FakeCsmDevice implements VpnConnection {
   @override
   final VpnStatus currentStatus = const VpnStatus(stage: VpnStage.disconnected);
 

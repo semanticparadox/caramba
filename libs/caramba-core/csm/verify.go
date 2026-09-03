@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 )
 
 // Порядок проверки, 03-WIRE.md раздел 6. Разделение на разбор и проверку
@@ -68,8 +69,57 @@ type TrustState struct {
 
 	// AgreementKeys это закрытые ключи согласования устройства по поколениям
 	// (rkv -> 32-байтовый скаляр P-256). Нужны только для doc_type 0x06.
+	//
+	// Заполняется ТОЛЬКО программным уровнем ключей. Ключ в Secure Enclave или
+	// StrongBox скаляр не отдаёт по построению, поэтому у аппаратного носителя
+	// эта карта пуста, а согласование выполняет Agreement.
 	AgreementKeys map[uint64][]byte
+	// Agreement это источник согласования, когда закрытого скаляра у нас нет.
+	// Когда он задан, он побеждает AgreementKeys: аппаратный носитель ключа
+	// это точный ответ на вопрос "чем открывать", а карта скаляров это
+	// программный частный случай.
+	Agreement AgreementSource
 }
+
+// AgreementSource это устройство, умеющее выполнить ECDH ключом согласования
+// поколения rkv, не выдавая закрытого скаляра.
+//
+// Существует потому, что 03-WIRE.md 9.1 фиксирует KEM как DHKEM(P-256), а
+// 02-SPEC.md 9.4 требует держать ключ согласования в Secure Enclave или
+// StrongBox. Оба хранилища выполняют ECDH и НИКОГДА не отдают скаляр наружу,
+// поэтому распечатывание 0x06 обязано уметь работать через них.
+type AgreementSource interface {
+	// Agree выполняет ECDH поколения rkv с несжатой точкой peer (65 байт) и
+	// возвращает 32 байта общей координаты X и 65 байт СОБСТВЕННОГО открытого
+	// ключа этого поколения. Второе значение входит в kem_context DHKEM и
+	// известно только держателю ключа.
+	Agree(rkv uint64, peer []byte) (shared []byte, ownPub []byte, err error)
+}
+
+// rawAgreement это AgreementSource поверх карты скаляров: программный уровень
+// ключей и корпус фикстур.
+type rawAgreement map[uint64][]byte
+
+func (m rawAgreement) Agree(rkv uint64, peer []byte) ([]byte, []byte, error) {
+	sk, ok := m[rkv]
+	if !ok {
+		return nil, nil, ErrNoAgreementGeneration
+	}
+	return ecdhP256(sk, peer)
+}
+
+// ErrNoAgreementGeneration отделяет "у устройства нет такого поколения" от
+// любого криптографического отказа: первое это шаг 5 раздела 9.4, второе
+// это шаг 6.
+//
+// Различие не косметическое. E_SEAL_RECIPIENT предписывает клиенту сменить
+// ключ согласования и перезапросить (02-SPEC.md 10.3), то есть сжечь
+// поколение; E_SEAL_OPEN не предписывает ничего подобного. Источник
+// согласования, который не умеет сказать "такого поколения у меня нет"
+// отдельно от "ECDH не сошёлся", заставляет клиента жечь ключи по любому
+// испорченному enc, поэтому сентинел ЭКСПОРТИРОВАН: его обязан возвращать и
+// мост аппаратного хранилища, а не только карта скаляров.
+var ErrNoAgreementGeneration = errors.New("csm: нет ключа согласования этого поколения")
 
 // Result это итог успешной проверки.
 type Result struct {
@@ -556,14 +606,28 @@ func openSealed(sd *SealedDirective, st *TrustState) (*Result, []byte, error) {
 		return nil, nil, errf(ESealSuite, "seal step 4",
 			"enc must be an uncompressed P-256 point 0x04 || X || Y")
 	}
-	// Шаг 5: закрытый ключ для поколения rkv.
-	sk, ok := st.AgreementKeys[sd.RKV]
-	if !ok {
-		return nil, nil, errf(ESealRecipient, "seal step 5", "this device holds no agreement key of generation %d", sd.RKV)
+	// Шаг 5: ключ согласования поколения rkv. Аппаратный носитель скаляра не
+	// отдаёт, поэтому спрашивается не сам ключ, а результат ECDH.
+	src := st.Agreement
+	if src == nil {
+		src = rawAgreement(st.AgreementKeys)
+	}
+	shared, ownPub, aerr := src.Agree(sd.RKV, sd.Enc)
+	if aerr != nil {
+		// Шаг 5 и шаг 6 отвечают разными кодами, потому что предписывают
+		// разные действия. "Поколения нет" это E_SEAL_RECIPIENT, и клиент
+		// ОБЯЗАН сменить ключ согласования. Любой другой отказ согласования
+		// (enc с верным префиксом, но точкой не на кривой, отказ хранилища)
+		// это шаг 6: там нечего перевыпускать, и ответить кодом шага 5 значило
+		// бы предписать сжигание поколения по испорченному входу.
+		if errors.Is(aerr, ErrNoAgreementGeneration) {
+			return nil, nil, errf(ESealRecipient, "seal step 5", "this device holds no agreement key of generation %d", sd.RKV)
+		}
+		return nil, nil, errf(ESealOpen, "seal step 6", "%v", aerr)
 	}
 	// Шаг 6: открыть. aad пересчитывается из внешней полезной нагрузки.
 	aad := SealAAD(sd.Env.PID, sd.DTP, uint32(sd.Env.Ver))
-	pt, err := hpkeOpenBase(sk, sd.Enc, []byte(HPKEInfo), aad, sd.CT)
+	pt, err := hpkeOpenBaseDH(shared, ownPub, sd.Enc, []byte(HPKEInfo), aad, sd.CT)
 	if err != nil {
 		return nil, nil, errf(ESealOpen, "seal step 6", "%v", err)
 	}

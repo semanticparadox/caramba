@@ -165,7 +165,12 @@ type Attempt struct {
 	// Code это код 03-WIRE.md 6.6, когда он был.
 	Code string `json:"code,omitempty"`
 	// Status это код состояния HTTP, когда ответ пришёл.
-	Status int    `json:"status,omitempty"`
+	Status int `json:"status,omitempty"`
+	// Bytes это длина тела, которое попытка принесла, включая тело, которое
+	// потом не прошло проверку: инвариант 17 требует показать пользователю
+	// размер, а не только исход, иначе пустой ответ и подделанный кадр
+	// выглядят на экране одинаково.
+	Bytes  int    `json:"bytes,omitempty"`
 	Detail string `json:"detail,omitempty"`
 }
 

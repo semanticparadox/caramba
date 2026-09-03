@@ -17,13 +17,16 @@ import 'package:caramba_vpn/src/core_policy.dart';
 import 'package:caramba_vpn/src/ffi_vpn_connection.dart';
 import 'package:caramba_vpn/src/method_channel_vpn_connection.dart';
 import 'package:caramba_vpn/src/mock_vpn_connection.dart';
-import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/services.dart';
 
 export 'package:caramba_vpn/src/contract.dart';
 export 'package:caramba_vpn/src/core_models.dart'
     show ImportResult, ImportedServer, ProbeResult;
 export 'package:caramba_vpn/src/core_policy.dart';
+export 'package:caramba_vpn/src/csm_device.dart'
+    show CsmAgreement, CsmDeviceKey, csmDeviceSignatureFromJson;
 export 'package:caramba_vpn/src/ffi/caramba_core_bindings.dart'
     show CarambaCoreException, CarambaCoreLibrary, CarambaCoreMissingSymbol;
 export 'package:caramba_vpn/src/ffi/core_loader.dart'

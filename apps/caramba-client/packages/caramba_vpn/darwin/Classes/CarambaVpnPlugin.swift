@@ -82,6 +82,23 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     private var tools: CarambaClient?
     #endif
 
+    /// The Secure Enclave holder of the device identity. One instance: the
+    /// identity is established once, and both the channel calls and the Go
+    /// core's bridge reach the same key through it.
+    private let deviceKeys = CarambaDeviceKeys()
+
+    /// The core client that owns the CSM/1 profile. Separate from `tools`
+    /// because its work dir is PERSISTENT: the CSM store is the profile's
+    /// identity and it must survive a restart.
+    #if canImport(Caramba)
+    private var csm: CarambaClient?
+
+    /// The profile whose CSM store is selected (02-SPEC.md 1.2). Empty means the
+    /// single store in the core work dir, as installs made before the second
+    /// operator have it.
+    private var csmProfileKey: String = ""
+    #endif
+
     /// Serial queue for the blocking core calls (import parses a whole
     /// subscription, probe dials every node) so they never sit on the main thread.
     private let toolsQueue = DispatchQueue(label: "com.caramba.vpn.tools")
@@ -107,6 +124,15 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
                let legacy = args[CarambaVpnKeys.subscriptionId] {
                 pendingConfig[CarambaVpnKeys.subscriptionUuid] = legacy
             }
+            // The CSM core caches the seam it was built with, and the settings
+            // write authorizes with the account token from that core's own
+            // store. A core built before a token rotation would keep answering
+            // 401 until the app restarts, so it is dropped and rebuilt on the
+            // next CSM call. The device identity survives: it lives in the
+            // Secure Enclave, not in the core.
+            #if canImport(Caramba)
+            csm = nil
+            #endif
             result(nil)
 
         case "connect":
@@ -152,9 +178,219 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
             pendingConfig[CarambaVpnKeys.mixedPort] = String(port)
             result(nil)
 
+        // --- CSM/1 device keys (ABI v3) --------------------------------------
+        //
+        // These do NOT touch the Go core: the key lives in the Secure Enclave and
+        // CarambaDeviceKeys is its only holder. The core reaches the same key
+        // through CarambaGoDeviceKeyBridge, so one identity serves both paths.
+        // Keychain round trips run off the main thread.
+
+        case "deviceKeygen":
+            let keys = deviceKeys
+            toolsQueue.async {
+                let json = keys.keygen("{}")
+                DispatchQueue.main.async { result(json) }
+            }
+
+        case "deviceSign":
+            let args = call.arguments as? [String: Any] ?? [:]
+            let messageB64 = args[CarambaVpnKeys.messageB64] as? String ?? ""
+            let keys = deviceKeys
+            toolsQueue.async {
+                let json = keys.sign(CarambaDeviceKeys.request(["message_b64": messageB64]))
+                DispatchQueue.main.async { result(json) }
+            }
+
+        case "deviceAgree":
+            let args = call.arguments as? [String: Any] ?? [:]
+            let peerB64 = args[CarambaVpnKeys.peerPubB64] as? String ?? ""
+            let rkv = (args[CarambaVpnKeys.rkv] as? NSNumber)?.intValue ?? 0
+            let keys = deviceKeys
+            toolsQueue.async {
+                let json = keys.agree(
+                    CarambaDeviceKeys.request(["rkv": rkv, "peer_pub_b64": peerB64])
+                )
+                DispatchQueue.main.async { result(json) }
+            }
+
+        case "csmRequestSettings":
+            // The write goes through the core, never through a socket opened
+            // here: a control plane with its own sockets bypasses the transport
+            // ladder, and the app degenerates to rung R0 while the core is still
+            // climbing for a configuration it can no longer change
+            // (02-SPEC.md 8.9).
+            let args = call.arguments as? [String: Any] ?? [:]
+            csmRequestSettings(json: args["json"] as? String ?? "{}", result: result)
+
+        case "csmState":
+            // A read of what the core already verified: no socket, nothing
+            // applied. It carries the trusted catalog's resource projection,
+            // without which the client cannot notice the narrowing that arrives
+            // in the catalog rather than in a setting (02-SPEC.md 7.7.1).
+            csmRead(code: "csm_state_failed", ladder: false, result: result)
+
+        case "csmLadder":
+            // The attempt history is local and never reported to the operator
+            // (02-SPEC.md 7.10); the transport screen must show it (INV-17).
+            csmRead(code: "csm_ladder_failed", ladder: true, result: result)
+
+        case "csmEnroll":
+            // Enrolment goes through the core and up the ladder: it is the one
+            // moment trust is created, and a socket opened here would be a path
+            // to the operator the ladder cannot see.
+            let args = call.arguments as? [String: Any] ?? [:]
+            csmCall(kind: .enroll, json: args["json"] as? String ?? "{}",
+                    code: "csm_enroll_failed", result: result)
+
+        case "csmRefresh":
+            let args = call.arguments as? [String: Any] ?? [:]
+            let timeout = (args[CarambaVpnKeys.timeoutSec] as? NSNumber)?.intValue ?? 30
+            csmCall(kind: .refresh, json: "\(timeout)",
+                    code: "csm_refresh_failed", result: result)
+
+        case "csmSetLadder":
+            // A write that stops in the Dart layer only changes the picture:
+            // the user reorders the ladder, the screen shows the new order, and
+            // the fetch keeps walking the old one.
+            let args = call.arguments as? [String: Any] ?? [:]
+            csmCall(kind: .setLadder, json: args["json"] as? String ?? "{}",
+                    code: "csm_set_ladder_failed", result: result)
+
+        case "csmAnswerCatalogChange":
+            // Until this answer arrives the core holds the PREVIOUS resource set
+            // in force, which is what makes "keep the previous ones" true
+            // (02-SPEC.md 7.7.1).
+            let args = call.arguments as? [String: Any] ?? [:]
+            csmCall(kind: .answerCatalogChange, json: args["json"] as? String ?? "{}",
+                    code: "csm_catalog_answer_failed", result: result)
+
+        case "csmSelectProfile":
+            // 02-SPEC.md 1.2: every profile state store MUST be keyed by pid.
+            let args = call.arguments as? [String: Any] ?? [:]
+            let key = args[CarambaVpnKeys.csmProfileKey] as? String ?? ""
+            selectCsmProfile(key: key, result: result)
+
         default:
             result(FlutterMethodNotImplemented)
         }
+    }
+
+    /// Sends the settings write through the core and returns its state snapshot.
+    private func csmRequestSettings(json: String, result: @escaping FlutterResult) {
+        #if canImport(Caramba)
+        toolsQueue.async { [weak self] in
+            guard let self = self else { return }
+            do {
+                let client = try self.csmClient()
+                let out = try client.csmRequestSettings(json)
+                DispatchQueue.main.async { result(out) }
+            } catch {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: "csm_write_failed",
+                                        message: error.localizedDescription, details: nil))
+                }
+            }
+        }
+        #else
+        result(FlutterError(code: "core_missing",
+                            message: "exarobot.xcframework not linked", details: nil))
+        #endif
+    }
+
+    /// The CSM calls that take one JSON string and give one back.
+    private enum CsmCallKind {
+        case enroll
+        case refresh
+        case setLadder
+        case answerCatalogChange
+    }
+
+    /// Runs one CSM write call on the tools queue.
+    ///
+    /// Enrolment and refresh climb the transport ladder and can take the whole
+    /// budget of a cycle, so none of this runs on the platform thread.
+    private func csmCall(kind: CsmCallKind, json: String, code: String,
+                         result: @escaping FlutterResult) {
+        #if canImport(Caramba)
+        toolsQueue.async { [weak self] in
+            guard let self = self else { return }
+            do {
+                let client = try self.csmClient()
+                let out: String
+                switch kind {
+                case .enroll:
+                    out = try client.csmEnroll(json)
+                case .refresh:
+                    out = try client.csmRefresh(Int(json) ?? 30)
+                case .setLadder:
+                    try client.csmSetLadder(json)
+                    out = "{\"ok\":true}"
+                case .answerCatalogChange:
+                    out = try client.csmAnswerCatalogChange(json)
+                }
+                DispatchQueue.main.async { result(out) }
+            } catch {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: code,
+                                        message: error.localizedDescription, details: nil))
+                }
+            }
+        }
+        #else
+        result(FlutterError(code: "core_missing",
+                            message: "exarobot.xcframework not linked", details: nil))
+        #endif
+    }
+
+    /// Points the CSM store at one profile and drops the current core so the
+    /// next CSM call rebuilds it against that profile's directory.
+    private func selectCsmProfile(key: String, result: @escaping FlutterResult) {
+        #if canImport(Caramba)
+        toolsQueue.async { [weak self] in
+            guard let self = self else { return }
+            if self.csmProfileKey == key {
+                DispatchQueue.main.async { result("{\"ok\":true}") }
+                return
+            }
+            self.csmProfileKey = key
+            self.csm = nil
+            DispatchQueue.main.async { result("{\"ok\":true}") }
+        }
+        #else
+        result(FlutterError(code: "core_missing",
+                            message: "exarobot.xcframework not linked", details: nil))
+        #endif
+    }
+
+    /// Runs a read-only CSM call on the tools queue and returns its JSON.
+    ///
+    /// The client type only exists when the framework is linked, so the call
+    /// itself lives under the same guard as every other core call here and the
+    /// selector is a flag rather than a closure over that type.
+    private func csmRead(code: String, ladder: Bool, result: @escaping FlutterResult) {
+        #if canImport(Caramba)
+        toolsQueue.async { [weak self] in
+            guard let self = self else { return }
+            do {
+                let client = try self.csmClient()
+                let out: String
+                if ladder {
+                    out = try client.csmLadder()
+                } else {
+                    out = try client.csmState()
+                }
+                DispatchQueue.main.async { result(out) }
+            } catch {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: code,
+                                        message: error.localizedDescription, details: nil))
+                }
+            }
+        }
+        #else
+        result(FlutterError(code: "core_missing",
+                            message: "exarobot.xcframework not linked", details: nil))
+        #endif
     }
 
     // MARK: Connect / Disconnect
@@ -320,6 +556,44 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
                                        userInfo: [NSLocalizedDescriptionKey: "core init failed"])
         }
         tools = client
+        return client
+    }
+
+    /// Builds the CSM/1 core client, registering the device key bridge BEFORE any
+    /// CSM call. 02-SPEC.md 9.4 puts the device signing key in the Secure
+    /// Enclave, and a Go implementation would by definition put it in a file,
+    /// which is the software tier; registering the bridge late would leave the
+    /// core with a software identity it then has to keep, because `dtp` has
+    /// already gone to the operator.
+    private func csmClient() throws -> CarambaClient {
+        if let existing = csm { return existing }
+        let base = CarambaAppGroup.containerURL ?? FileManager.default.temporaryDirectory
+        let workDir = base.appendingPathComponent("caramba-csm", isDirectory: true).path
+        let tokenPath = base.appendingPathComponent("caramba-csm/token.json").path
+        let panelUrl = pendingConfig[CarambaVpnKeys.panelUrl] as? String ?? ""
+        var initError: NSError?
+        guard let client = CarambaNewClient(panelUrl, "", workDir, tokenPath, &initError) else {
+            throw initError ?? NSError(domain: "com.caramba.vpn", code: -1,
+                                       userInfo: [NSLocalizedDescriptionKey: "core init failed"])
+        }
+        try client.setDeviceKeyBridge(CarambaGoDeviceKeyBridge(keys: deviceKeys))
+        let subscription = pendingConfig[CarambaVpnKeys.subscriptionUuid] as? String ?? ""
+        let token = pendingConfig[CarambaVpnKeys.accessToken] as? String ?? ""
+        if !subscription.isEmpty || !token.isEmpty {
+            try client.configure(panelUrl, subscriptionID: subscription, accessToken: token)
+        }
+        if !csmProfileKey.isEmpty {
+            try client.csmSelectProfile(csmProfileKey)
+        }
+        // The loopback listener belongs to the tunnel core, which lives in the
+        // network extension; `up` is never called on THIS core. Without the
+        // handoff its rung R4 stays not_configured forever and the ladder
+        // degrades to R1 and R5 (02-SPEC.md 8.2). An empty string means the
+        // tunnel is down and R4 genuinely has no path.
+        try? client.csmSetLadder(
+            CarambaDeviceKeys.request(["tunnel_proxy": CarambaSharedState.readLoopbackProxy()])
+        )
+        csm = client
         return client
     }
     #endif

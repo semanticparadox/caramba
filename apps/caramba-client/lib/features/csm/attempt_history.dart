@@ -41,6 +41,8 @@ class CsmAttempt {
     this.host = '',
     this.errorCode,
     this.durationMs,
+    this.bytes = 0,
+    this.status = 0,
   });
 
   final CsmRung rung;
@@ -56,6 +58,16 @@ class CsmAttempt {
   final String? errorCode;
 
   final int? durationMs;
+
+  /// Сколько байт попытка принесла, включая тело, которое потом не прошло
+  /// проверку. Ноль означает «не принесла ничего», и это разные вещи: пустой
+  /// ответ и подделанный кадр обязаны выглядеть на экране по-разному
+  /// (02-SPEC.md 8.8).
+  final int bytes;
+
+  /// Код состояния HTTP, когда ответ пришёл. Ноль означает, что до ответа не
+  /// дошло.
+  final int status;
 }
 
 /// Кольцевой буфер попыток. Пишет сюда ходок по лестнице; экран только читает.

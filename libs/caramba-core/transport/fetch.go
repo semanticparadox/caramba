@@ -205,6 +205,10 @@ func (f *Fetcher) trustLocked(st State) *csm.TrustState {
 			gens = append(gens, g)
 		}
 		ts.AgreementKeys = AgreementKeyMap(f.keys, gens)
+		// Аппаратный носитель скаляра не отдаёт, и карта выше выходит
+		// пустой. Источник согласования задаётся всегда: он работает и для
+		// программных ключей, а карта остаётся для корпуса фикстур.
+		ts.Agreement = AgreementOf(f.keys)
 	}
 	return ts
 }
@@ -400,7 +404,16 @@ func (f *Fetcher) applyCatalogLocked(st State) {
 		f.ladder.SetThresholds(thr)
 	}
 	_ = f.ladder.ApplyCatalog(f.catalog, capBits)
-	f.guard = NewResourceGuard(f.catalog, capBits)
+	// Новый набор ресурсов НЕ вступает в силу сам собой. 02-SPEC.md 7.7.1
+	// делает его смену сужением защиты, а 04-THREAT-MODEL.md 7.3 шаг 5
+	// описывает ровно эту атаку: подписанный rule-set уводит названный набор
+	// доменов в DIRECT, хеш сходится, инвариант 12 доволен, трафик уходит в
+	// открытом виде. Пока пользователь не ответил на карточку, действует
+	// прежний набор, и кнопка "Оставить прежние" поэтому означает то, что на
+	// ней написано.
+	next := NewResourceGuard(f.catalog, capBits)
+	next.HoldPrevious(f.guard)
+	f.guard = next
 	if len(st.LadderOrder) > 0 {
 		_ = f.ladder.SetOrder(st.LadderOrder)
 	}
@@ -435,6 +448,17 @@ func (f *Fetcher) Guard() *ResourceGuard {
 		return NewResourceGuard(nil, 0)
 	}
 	return f.guard
+}
+
+// AnswerCatalogChange передаёт стражу ответ пользователя на карточку смены
+// набора ресурсов. Возвращает false, когда отвечать было не на что.
+func (f *Fetcher) AnswerCatalogChange(accept bool) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.guard == nil {
+		return false
+	}
+	return f.guard.AnswerCatalogChange(accept)
 }
 
 // newNonce выпускает новый nonce и запоминает его. Одновременно у профиля
@@ -989,12 +1013,37 @@ func (f *Fetcher) RefreshKeyDocument(ctx context.Context) error {
 type SettingsWrite struct {
 	// Want это карта pol: ключ поля к значению. Отсутствующий ключ означает
 	// "без изменений", текст "default" означает сброс к умолчанию оператора.
-	Want map[uint64]string
-	// Sel это карта sel.
+	//
+	// Значения ТИПИЗИРОВАНЫ: ключевое пространство то же, что у карты pol
+	// директивы (03-WIRE.md 8.3), где mtu это uint, kill switch и ipv6 это
+	// булевы, а резолверы DNS это массив текстов. Запись, отправляющая их
+	// текстом, была бы отвергнута разборщиком панели по типу, и выглядело бы
+	// это как отказ записи вообще, а не как неверная кодировка одного поля.
+	Want map[uint64]CBORItem
+	// Sel это карта sel. Все её поля текстовые.
 	Sel map[uint64]string
 	// AccountJWT обязателен: маршрут живёт в защищённой группе.
 	AccountJWT string
 }
+
+// WantText, WantUint, WantBool, WantTextList и WantDefault строят значения
+// карты Want. Сентинел сброса это текст "default" для ЛЮБОГО ключа, какого бы
+// типа он ни был: CBOR null запрещён строгим профилем разбора, и формы
+// ["default"] не существует (02-SPEC.md 7.5).
+func WantText(v string) CBORItem { return CBORTstr(v) }
+func WantUint(v uint64) CBORItem { return CBORUint(v) }
+func WantBool(v bool) CBORItem   { return CBORBool(v) }
+func WantDefault() CBORItem      { return CBORTstr(SettingsDefaultSentinel) }
+func WantTextList(v []string) CBORItem {
+	items := make([]CBORItem, 0, len(v))
+	for _, s := range v {
+		items = append(items, CBORTstr(s))
+	}
+	return CBORArray(items...)
+}
+
+// SettingsDefaultSentinel это текст сброса к умолчанию оператора.
+const SettingsDefaultSentinel = "default"
 
 // RequestSettings отправляет PUT /api/v2/app/preferences и принимает
 // подписанный и запечатанный ответ как новую директиву.
@@ -1018,7 +1067,7 @@ func (f *Fetcher) RequestSettings(ctx context.Context, w SettingsWrite) error {
 	dtp := st.DTPBytes()
 	wantPairs := make([]CBORPair, 0, len(w.Want))
 	for k, v := range w.Want {
-		wantPairs = append(wantPairs, CBORPair{Key: k, Val: CBORTstr(v)})
+		wantPairs = append(wantPairs, CBORPair{Key: k, Val: v})
 	}
 	selPairs := make([]CBORPair, 0, len(w.Sel))
 	for k, v := range w.Sel {

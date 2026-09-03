@@ -11,6 +11,8 @@
 /// её включённой и молча ничего не делающей значит продавать пустышку.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -20,6 +22,7 @@ import 'package:caramba_client/data/models/csm_profile.dart';
 import 'package:caramba_client/features/csm/attempt_history.dart';
 import 'package:caramba_client/features/csm/csm_labels.dart';
 import 'package:caramba_client/router/routes.dart';
+import 'package:caramba_client/state/csm_ladder_sync.dart';
 import 'package:caramba_client/state/csm_state.dart';
 import 'package:caramba_client/state/settings_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
@@ -28,11 +31,54 @@ import 'package:caramba_client/theme/typography.dart';
 import 'package:caramba_client/widgets/lucide.dart';
 import 'package:caramba_client/widgets/ui.dart';
 
-class TransportLadderScreen extends ConsumerWidget {
+/// Как часто экран переспрашивает ядро, пока он открыт.
+///
+/// Опроса в фоне нет намеренно: история попыток нужна ровно тому экрану,
+/// который её показывает, и заводить ради неё постоянный таймер значило бы
+/// будить ядро там, где на это никто не смотрит.
+const Duration kCsmLadderPollInterval = Duration(seconds: 3);
+
+class TransportLadderScreen extends ConsumerStatefulWidget {
   const TransportLadderScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<TransportLadderScreen> createState() =>
+      _TransportLadderScreenState();
+}
+
+class _TransportLadderScreenState extends ConsumerState<TransportLadderScreen> {
+  Timer? _poll;
+
+  /// Ядро отвергло последний порядок или переключатель.
+  ///
+  /// Экран, показывающий порядок, по которому ядро не ходит, врёт, а лестницей
+  /// ходит именно ядро. Поэтому отказ виден здесь, а не гасится.
+  bool _coreRefused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Первый подъём сразу: экран, открытый на секунду, обязан показать то, что
+    // ядро уже помнит, а не пустой список.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _pump());
+    _poll = Timer.periodic(kCsmLadderPollInterval, (_) => _pump());
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  void _pump() {
+    if (!mounted) {
+      return;
+    }
+    unawaited(ref.read(csmLadderSyncProvider).pump());
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final c = context.c;
     final ready = ref.watch(connectionProfilesReadyProvider);
     final ladder = ref.watch(csmLadderProvider);
@@ -90,6 +136,17 @@ class TransportLadderScreen extends ConsumerWidget {
                   canMoveUp: r.position > 0,
                   canMoveDown: r.position < rungs.length - 1,
                 ),
+              if (_coreRefused) ...[
+                const SizedBox(height: AppSpace.s3),
+                const InlineBanner(
+                  tone: BannerTone.warning,
+                  glyph: Lucide.alert,
+                  text:
+                      'Ядро не приняло этот порядок, поэтому выборка идёт по '
+                      'прежнему. Список выше показывает ваш выбор, а не то, по '
+                      'чему ядро сейчас ходит.',
+                ),
+              ],
               if (ladder.userTouched) ...[
                 const SizedBox(height: AppSpace.s2),
                 Text(
@@ -168,9 +225,25 @@ class TransportLadderScreen extends ConsumerWidget {
     } else {
       enabled.remove(target.rung.id);
     }
-    ref
-        .read(csmNotifierProvider)
-        .setLadder(enabled: enabled.toList(growable: false)..sort());
+    unawaited(
+      _apply(
+        () => ref
+            .read(csmNotifierProvider)
+            .setLadder(enabled: enabled.toList(growable: false)..sort()),
+      ),
+    );
+  }
+
+  /// Применяет изменение и запоминает, принято ли оно ЯДРОМ.
+  Future<void> _apply(Future<CsmLadderApplyOutcome> Function() op) async {
+    final outcome = await op();
+    if (!mounted) {
+      return;
+    }
+    final refused = outcome == CsmLadderApplyOutcome.coreRefused;
+    if (refused != _coreRefused) {
+      setState(() => _coreRefused = refused);
+    }
   }
 
   void _move(
@@ -185,7 +258,9 @@ class TransportLadderScreen extends ConsumerWidget {
     if (to < 0 || to >= order.length) return;
     final id = order.removeAt(from);
     order.insert(to, id);
-    ref.read(csmNotifierProvider).setLadder(order: order);
+    unawaited(
+      _apply(() => ref.read(csmNotifierProvider).setLadder(order: order)),
+    );
   }
 
   void _close(BuildContext context) {
@@ -325,6 +400,19 @@ class _RungCard extends StatelessWidget {
 }
 
 /// Одна попытка в истории.
+///
+/// Шесть фактов обязательны и все шесть на экране: ступень, хост, момент
+/// старта, исход, причина отказа и то, сколько байт и сколько времени попытка
+/// стоила. Неудачная попытка отрисовывается СО СВОЕЙ ПРИЧИНОЙ: попытка,
+/// проглоченная молча, делает INV-17 декорацией.
+/// Предел длины метки попытки на экране.
+const int kCsmAttemptLabelMax = 64;
+
+/// Обрезает метку до [kCsmAttemptLabelMax] символов с многоточием.
+String _capLabel(String raw) => raw.length <= kCsmAttemptLabelMax
+    ? raw
+    : '${raw.substring(0, kCsmAttemptLabelMax)}...';
+
 class _AttemptRow extends StatelessWidget {
   final CsmAttempt attempt;
   const _AttemptRow({required this.attempt});
@@ -338,18 +426,55 @@ class _AttemptRow extends StatelessWidget {
       CsmAttemptOutcome.failed => (code ?? 'отказ', c.danger),
       CsmAttemptOutcome.skipped => ('пропущена', c.textLow),
     };
-    final host = attempt.host.isEmpty ? '' : ' · ${attempt.host}';
-    return CRow(
-      label: '${csmRungId(attempt.rung)}$host',
-      value: text,
-      valueColor: color,
-      mono: true,
-      trailing: Padding(
-        padding: const EdgeInsets.only(right: AppSpace.s3),
-        child: Text(
-          csmDateTime(attempt.startedMs),
-          style: AppType.monoSm.copyWith(color: c.textLow),
-        ),
+    // Метка ступени ограничена по длине. Сегодня ядро кладёт сюда только
+    // "mirror-N", "doh-N", "tunnel", "proxy", "cache" или имя хоста, введённое
+    // самим пользователем, то есть строки оператора сюда не попадают (INV-10).
+    // Предел держит это верным и в тот день, когда в Host поедет что-то ещё.
+    final host = attempt.host.isEmpty ? '' : ' · ${_capLabel(attempt.host)}';
+    final facts = <String>[
+      csmDateTime(attempt.startedMs),
+      if (attempt.durationMs != null) '${attempt.durationMs} мс',
+      // Ноль байт это факт, а не отсутствие факта: он отличает пустой ответ от
+      // кадра, который приехал и не проверился.
+      '${attempt.bytes} Б',
+      if (attempt.status != 0) 'HTTP ${attempt.status}',
+    ];
+
+    return Container(
+      constraints: const BoxConstraints(minHeight: 54),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpace.s4,
+        vertical: AppSpace.s3,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  '${csmRungId(attempt.rung)}$host',
+                  style: AppType.monoSm.copyWith(color: c.textHi),
+                ),
+              ),
+              const SizedBox(width: AppSpace.s3),
+              Flexible(
+                child: Text(
+                  text,
+                  textAlign: TextAlign.right,
+                  style: AppType.monoSm.copyWith(color: color),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            facts.join(' · '),
+            style: AppType.monoSm.copyWith(color: c.textLow),
+          ),
+        ],
       ),
     );
   }

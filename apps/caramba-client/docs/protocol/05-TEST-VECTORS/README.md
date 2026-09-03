@@ -19,12 +19,12 @@ Key words MUST, MUST NOT, SHOULD and MAY carry their RFC 2119 meanings and apply
     positive.go  negative.go  armor.go  main.go
   bin/
     positive/   54 files   documents a conforming verifier MUST accept
-    negative/   84 files   documents a conforming verifier MUST reject
+    negative/   90 files   documents a conforming verifier MUST reject
     anchors/     3 files   trust anchors that a vector's context names; never verified as vectors themselves
   armor/        11 files   CARCAP1 text form, 5 accepted sets and 6 rejected ones
 ```
 
-153 files, 306173 bytes, `vectors.json` included. The generator is 10 files and 161638 bytes of Go source.
+159 files, 313630 bytes, `vectors.json` included. The generator is 10 files and 169900 bytes of Go source.
 
 The corpus is fully deterministic. Running the generator twice produces byte-identical output; the check is in section 3.
 
@@ -40,8 +40,8 @@ go run .
 Go 1.26 or later, no network, no third-party modules. The program writes `../vectors.json`, `../bin/**` and `../armor/**`, re-reads every file it wrote, re-hashes it, and fails loudly rather than emitting a corpus it cannot vouch for. Expected output:
 
 ```
-wrote 152 fixture files + vectors.json, 306173 bytes total
-vectors: 52 positive, 84 negative, 11 armor, 17 ed25519 key, 7 ed25519 sig, 8 transport
+wrote 158 fixture files + vectors.json, 313630 bytes total
+vectors: 52 positive, 90 negative, 11 armor, 17 ed25519 key, 7 ed25519 sig, 8 transport
   03-WIRE.md 15 key document        257 bytes  MATCH
   03-WIRE.md 15 catalog             272 bytes  MATCH
   03-WIRE.md 15 catalog chunk 0/1   407 bytes  MATCH
@@ -78,10 +78,10 @@ find bin armor vectors.json -type f | sort | xargs shasum -a 256 | shasum -a 256
 At the corpus version recorded here this prints:
 
 ```
-b36a2e11704936400f2cedb21d5cbc59c4f31c9fefad6ce90429e5552e12512b  -
+1198fa706d5f00ebc8efb28cbe1ba5d2356d6b4a05d9c1cf582bef0d20f8119e  -
 ```
 
-CI SHOULD run the generator and assert this aggregate is unchanged, which catches an accidental edit to a fixture more cheaply than diffing 152 files. Changing a fixture on purpose changes this value, and the change belongs in the same commit as the reason for it.
+CI SHOULD run the generator and assert this aggregate is unchanged, which catches an accidental edit to a fixture more cheaply than diffing 158 files. Changing a fixture on purpose changes this value, and the change belongs in the same commit as the reason for it.
 
 ---
 
@@ -92,10 +92,10 @@ One object, 21 top-level keys. The sections a harness reads are these.
 | Key | Contents |
 |---|---|
 | `fixture_keys` | Every seed, public key, key id, `pid`, `link_pin`, `loc`, `dtp`, nonce, device agreement key pair and enrollment code, as hex or text. A harness that wants to sign its own extra fixtures has everything it needs here. |
-| `contexts` | Named verification contexts (section 5). |
+| `contexts` | Named verification contexts (section 5), including the two fields that carry the trusted directive's binding: `bound_cat` and `bound_tier`. |
 | `published_digest_check` | The five frame digests of `03-WIRE.md` section 15, expected against actual, with a boolean. |
 | `published_armor_check` | The armored line of `03-WIRE.md` section 10.5, expected against actual. |
-| `vectors` | 138 frame fixtures. |
+| `vectors` | 144 frame fixtures. |
 | `armor` | 11 CARCAP1 sets. |
 | `ed25519_public_key_ingest` | 17 raw public keys with a verdict and the clause of `03-WIRE.md` 2.1 that decides it. |
 | `ed25519_signature` | 7 (key, message, signature) triples with a verdict and the clause of 2.2 that decides it. |
@@ -145,6 +145,16 @@ A frame does not carry the state a verifier checks it against. `contexts` suppli
 | `rotation_v1` | `bin/positive/k1_rot_v1.bin` | Trusted version 1 of the rotation chain, `hwm` 1. |
 | `rotation_v2` | `bin/positive/k1_rot_v2.bin` | Trusted version 2, whose root role holds `rootB` only. |
 | `root_only` | `bin/anchors/k1_root_only.bin` | A tenant with a root role and no online role. The only shape in which `E_VERIFY_ROLE` is reachable. |
+| `tiers` | `bin/positive/k1_typical.bin` | A trust anchor that publishes `tiers` `{1: chash(c1_min), 2: chash(c1_max)}`, plus `bound_tier` 1. The bound tier comes from the trusted directive, so a verifier that reads the tier from the catalog in front of it accepts `neg-verify-tier-not-anchored`. |
+
+Two fields of a context are not verifier state in the usual sense, and they exist so that no harness has to read a fixture's prose `note`:
+
+| Field | Type | Read by | Meaning |
+|---|---|---|---|
+| `bound_cat` | fixture path, or absent | V14a | the catalog the previously trusted directive named. A harness reads the file at that path, takes `sha256` of the whole frame, and that digest is the `cat` the catalog in front of it MUST match. |
+| `bound_tier` | integer, or absent | V14b | the plan tier that same trusted directive named. It indexes `tiers` in the trust anchor. |
+
+Both may also appear inside a vector's `context_override`, and an override replaces the base context's value. They are **structured fields, not prose.** `cat` and `tier` are read from the previously trusted document at steps V14a and V14b, so a harness that recovered them by pattern-matching a `note` would be testing its own regex rather than the rule, and a reworded note would silently turn the vector inert. `neg-verify-cathash-mismatch` supplies `bound_cat` through an override; the `tiers` context supplies `bound_tier`. A harness that ignores both fields accepts `neg-verify-cathash-mismatch` and `neg-verify-tier-not-anchored`, which is the intended signal.
 
 Notes a harness MUST honor:
 
@@ -180,7 +190,7 @@ Two positives deserve attention because they are the ones a lazy implementation 
 
 **`pos-m1-max`**, at 3840 bytes, is a valid `0x03` frame padded to the `pd` limit and a verifier MUST accept it. It is **not** a delivery precedent, and `03-WIRE.md` 12.2 now says so: a directive is never transmitted bare, and the sealed `0x06` that carries one can hold an inner frame of at most 3056 bytes because `ct` is bounded by `MAX_BSTR_BYTES`, so `INNER_DIRECTIVE_MAX` is 2816 and a signer MUST NOT emit a padded directive above it. The fixture exercises the parser and the padding field at their limits, which is what a corpus is for; the clamp is what a signer is held to.
 
-### 6.2 Negative frames, 84
+### 6.2 Negative frames, 90
 
 Every code in the registry of `03-WIRE.md` 6.6 is exercised at least once, and no vector uses a code outside it.
 
@@ -195,7 +205,7 @@ Every code in the registry of `03-WIRE.md` 6.6 is exercised at least once, and n
 | `E_PARSE_SLOTORDER` | P8 | 2 |
 | `E_PARSE_CBOR` | P9 | 22 |
 | `E_PARSE_ENVELOPE` | P10 | 3 |
-| `E_PARSE_FIELD` | P11 | 15 |
+| `E_PARSE_FIELD` | P11 | 19 |
 | `E_VERIFY_NOANCHOR` | V2 | 1 |
 | `E_VERIFY_ROLE` | V3 | 1 |
 | `E_VERIFY_UNAUTHORIZED` | V4 | 5 |
@@ -209,12 +219,15 @@ Every code in the registry of `03-WIRE.md` 6.6 is exercised at least once, and n
 | `E_VERIFY_EXPIRED` | V12 | 1 |
 | `E_VERIFY_NONCE` | V13, and inner V13 through a seal | 2 |
 | `E_VERIFY_DEVICE` | V13 | 1 |
+| `E_VERIFY_CATHASH` | V14a | 1 |
 | `E_VERIFY_CATHASH` | V14b | 1 |
 | `E_SEAL_RECIPIENT` | seal steps 3 and 5 | 2 |
 | `E_SEAL_SUITE` | seal step 4 | 2 |
-| `E_SEAL_OPEN` | seal step 6 | 2 |
+| `E_SEAL_OPEN` | seal step 6 | 3 |
 
 The named cases from the document plan of `01-DECISION.md` section 9 map as follows. Wrong-role signing pairs are four vectors (`keydoc_signed_by_online`, `catalog_signed_by_root`, `directive_signed_by_root`, `signed_by_stranger`), and they return `E_VERIFY_UNAUTHORIZED` rather than `E_VERIFY_ROLE`, because the role resolves correctly and it is the key set membership test at V4 that fails. Threshold violation, version regression, expiry, inexact framing, trailing bytes, inflated `nsigs`, duplicate CBOR map keys, non-minimal integers, indefinite lengths, unknown tags, floats and invalid UTF-8 each have a vector under those names. Small-order and non-canonical Ed25519 public keys and non-canonical `S` are in the key-material sections rather than as frames, for the reason in section 6.4. HPKE wrong-recipient and tampered AAD are `neg-seal-wrong-recipient` and `neg-seal-aad-version`. Oversized payload is `neg-parse-len-over` plus the transport entry `tr-payload-len-over-cap`. Decompression bounds are the transport entry `tr-content-encoding`: CSM/1 has no compression, `03-WIRE.md` 12.4 forbids `Content-Encoding` on a CSM response, and the correct behavior is to refuse the response rather than to bound a decompressor, so there is no decompression bound to get wrong and the vector states that rather than inventing one.
+
+Note also the distinction between `neg-seal-unknown-rkv` and `neg-seal-offcurve-enc`. Both reach step 5 with a well-formed 65-byte `enc`; the first names a generation the device does not hold and is `E_SEAL_RECIPIENT`, the second holds the generation and fails inside ECDH because the point is not on P-256, which is `E_SEAL_OPEN` at step 6. The two codes prescribe different reactions: `E_SEAL_RECIPIENT` tells the client to rekey its agreement key and re-request per `02-SPEC.md` 10.3, `E_SEAL_OPEN` does not. An implementation that reports every agreement failure as step 5 burns a key generation on a corrupted byte, and neither `neg-seal-hybrid-enc` (stopped at step 4 by its leading `0x06`) nor `neg-seal-unknown-rkv` (never reaches ECDH) catches it.
 
 Note the distinction between `neg-cbor-trailing-in-payload` and `neg-parse-framing-trailing`. The first appends a byte inside `payload_len`, after the top-level map ends, and is a CBOR rule C2 failure. The second appends a byte after the last signature slot and is an exact-length failure at P7. An implementation that conflates them will pass one and fail the other.
 
@@ -335,7 +348,9 @@ Two things a harness cannot check here, named so nobody assumes coverage that do
 
 ## Changelog
 
-One review pass, 2026-09-02, over the whole specification set. **The corpus itself did not change**: the generator was re-run and reproduces byte-identically, the aggregate digest in section 3 is unchanged at `b36a2e11704936400f2cedb21d5cbc59c4f31c9fefad6ce90429e5552e12512b`, and all five published digests still match. What changed is that several of this file's corrections are now closed by the documents they were raised against, and this file says so:
+A gap-closing pass, 2026-09-03, added exactly one fixture: `neg-seal-offcurve-enc`, which pins the boundary between `E_SEAL_RECIPIENT` at seal step 5 and `E_SEAL_OPEN` at seal step 6. The corpus therefore moved for the first time since it was published: 143 vectors became 144, negatives 89 became 90, and the aggregate digest of section 3 moved from `b36a2e11704936400f2cedb21d5cbc59c4f31c9fefad6ce90429e5552e12512b` to `1198fa706d5f00ebc8efb28cbe1ba5d2356d6b4a05d9c1cf582bef0d20f8119e`. Every other fixture reproduces byte-identically and all five published digests still match.
+
+One review pass, 2026-09-02, over the whole specification set. **The corpus itself did not change in that pass**: the generator was re-run and reproduced byte-identically, and all five published digests matched. What changed is that several of this file's corrections are now closed by the documents they were raised against, and this file says so:
 
 - `cor-3`'s open half is closed by `03-WIRE.md` step **P12**, which validates key material inside a key document and returns `E_PARSE_FIELD`, exactly as recommended here.
 - `cor-4` is closed by `03-WIRE.md` **`DOC_FRAME_MAX`** and by the size-derived `?since=` rule.

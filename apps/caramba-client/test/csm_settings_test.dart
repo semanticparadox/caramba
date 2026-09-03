@@ -6,6 +6,7 @@
 
 import 'dart:typed_data';
 
+import 'package:caramba_vpn/csm.dart' show sha256;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:caramba_client/data/models/csm_settings.dart';
@@ -110,6 +111,34 @@ void main() {
         '2656e63657300e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495'
         '991b7852b855',
       );
+
+      // Дайджест это то, что подписывает сама операция ECDSA, и документ
+      // называет его отдельно. Он проверяется здесь по той же причине, по
+      // которой закреплён в TestDeviceProofPreImage ядра: реализация, которая
+      // хеширует заранее и подписывает дайджест КАК СООБЩЕНИЕ, собрала бы
+      // верный прообраз и всё равно выдала подпись, которую панель отвергнет.
+      final digest = sha256(
+        message,
+      ).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+      expect(
+        digest,
+        '45ae6e7f2d6e63113532b04a140183d21319b6d3af86993c3360c31eb80b3716',
+      );
+
+      // Разделителей ровно три и они нулевые: без них PUT и путь склеились бы,
+      // и два разных запроса дали бы один прообраз.
+      expect(message.where((b) => b == 0).length, 3);
+    });
+
+    test('прообраз связывает метод, канонический путь и тело', () {
+      Uint8List m(String method, String path, List<int> body) =>
+          csmWriteProofMessage(method: method, canonicalPath: path, body: body);
+
+      final base = m('PUT', kCsmWritePathPreferences, const <int>[]);
+      expect(m('PUT', kCsmWritePathPreferences, const <int>[]), base);
+      expect(m('POST', kCsmWritePathPreferences, const <int>[]), isNot(base));
+      expect(m('PUT', kCsmWritePathEnrollCode, const <int>[]), isNot(base));
+      expect(m('PUT', kCsmWritePathPreferences, const <int>[1]), isNot(base));
     });
   });
 

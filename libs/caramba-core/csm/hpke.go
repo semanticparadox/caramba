@@ -88,26 +88,38 @@ func labeledExpand(suiteID, prk []byte, label string, info []byte, length int) [
 	return hkdfExpand(prk, buf, length)
 }
 
-// dhkemDecap выводит общий секрет на стороне получателя.
-// enc это 65-байтовая несжатая точка отправителя, skR это 32-байтовый скаляр.
-func dhkemDecap(skR, enc []byte) ([]byte, error) {
+// ecdhP256 выполняет ECDH программным скаляром. Отдельно от dhkemDecap,
+// потому что аппаратный носитель ключа делает ровно этот шаг сам и отдаёт уже
+// готовые dh и собственный открытый ключ.
+func ecdhP256(skR, peer []byte) (dh []byte, ownPub []byte, err error) {
 	curve := ecdh.P256()
 	priv, err := curve.NewPrivateKey(skR)
 	if err != nil {
-		return nil, errHPKE
+		return nil, nil, errHPKE
 	}
-	pub, err := curve.NewPublicKey(enc)
+	pub, err := curve.NewPublicKey(peer)
 	if err != nil {
-		return nil, errHPKE
+		return nil, nil, errHPKE
 	}
-	dh, err := priv.ECDH(pub)
+	z, err := priv.ECDH(pub)
 	if err != nil {
+		return nil, nil, errHPKE
+	}
+	return z, priv.PublicKey().Bytes(), nil
+}
+
+// dhkemDecap выводит общий секрет на стороне получателя из уже выполненного
+// ECDH. dh это 32 байта общей координаты X, ownPub это 65 байт открытого
+// ключа получателя: оба входят в kem_context, и оба известны только держателю
+// закрытого ключа, программного или аппаратного.
+func dhkemDecap(dh, ownPub, enc []byte) ([]byte, error) {
+	if len(dh) != 32 || len(ownPub) != 65 || len(enc) != 65 {
 		return nil, errHPKE
 	}
 	suite := kemSuiteID()
-	kemContext := make([]byte, 0, len(enc)+65)
+	kemContext := make([]byte, 0, len(enc)+len(ownPub))
 	kemContext = append(kemContext, enc...)
-	kemContext = append(kemContext, priv.PublicKey().Bytes()...)
+	kemContext = append(kemContext, ownPub...)
 
 	eaePrk := labeledExtract(suite, nil, "eae_prk", dh)
 	return labeledExpand(suite, eaePrk, "shared_secret", kemContext, hpkeNsecret), nil
@@ -144,9 +156,10 @@ func hpkeNonce(baseNonce []byte, seq uint64) []byte {
 	return out
 }
 
-// hpkeOpenBase распечатывает одно сообщение с номером 0 в режиме base.
-func hpkeOpenBase(skR, enc, info, aad, ct []byte) ([]byte, error) {
-	shared, err := dhkemDecap(skR, enc)
+// hpkeOpenBaseDH распечатывает одно сообщение с номером 0 в режиме base по
+// уже выполненному ECDH.
+func hpkeOpenBaseDH(dh, ownPub, enc, info, aad, ct []byte) ([]byte, error) {
+	shared, err := dhkemDecap(dh, ownPub, enc)
 	if err != nil {
 		return nil, err
 	}

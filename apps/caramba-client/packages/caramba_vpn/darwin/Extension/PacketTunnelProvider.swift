@@ -204,6 +204,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         // `Up(serverID string) (string, error)` to a throwing Swift method returning
         // the UpResult JSON; we only need its success/throw.
         _ = try client.up(serverId)
+        // The loopback service inbound exists only while the engine is up, and
+        // its credential is minted per raise. The CSM core lives in the app
+        // process and never has `up` called on it, so the address travels the
+        // App Group; without it that core's rung R4 is permanently
+        // not_configured and the ladder degrades to R1 and R5 on the one
+        // platform the listener was added for (02-SPEC.md 8.2).
+        CarambaSharedState.writeLoopbackProxy(client.loopbackProxyURL())
         #else
         _ = serverId
         _ = rawMode

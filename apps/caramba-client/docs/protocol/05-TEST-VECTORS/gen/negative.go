@@ -687,6 +687,30 @@ func buildSeals() {
 		"E_SEAL_OPEN", "seal step 6", "default", nil,
 		"The ciphertext was sealed with ver 452 in its aad and the outer payload says 453. A recipient MUST recompute aad from the outer payload's own pid, dtp and ver and MUST NOT accept an aad supplied on the wire, which is what makes this a rejection rather than a silent version downgrade.")
 
+	// enc carries the correct 0x04 prefix and 65 bytes, so step 4 passes, but
+	// the point is not on P-256. Step 5 finds the agreement key of generation 1
+	// and hands it to ECDH, which fails there: that is step 6, not step 5.
+	//
+	// The distinction is the point of the fixture. E_SEAL_RECIPIENT tells the
+	// client to rekey its agreement key and re-request (02-SPEC.md 10.3);
+	// E_SEAL_OPEN tells it nothing of the kind. An implementation that reports
+	// every agreement failure as step 5 makes a corrupted enc burn a key
+	// generation, and no other fixture catches it: neg-seal-hybrid-enc stops at
+	// step 4 on its leading byte, and neg-seal-unknown-rkv never reaches ECDH.
+	aadOff := sealAAD(pid, dtp, 455)
+	encOff, ctOff := hpkeSeal(eph, dev.PublicKey(), info, aadOff, dirMinFrame)
+	encOff = clone(encOff)
+	encOff[64] ^= 0x01
+	if _, err := ecdh.P256().NewPublicKey(encOff); err == nil {
+		panic("neg-seal-offcurve-enc: the mangled enc is still a valid P-256 point")
+	}
+	oOff := buildSealed(sealedOpts{pid: pid, ver: 455, iat: fixIAT, dtp: dtp,
+		kem: 16, kdf: 1, aead: 3, enc: encOff, ct: ctOff, rkv: 1})
+	negCtx("neg-seal-offcurve-enc", "seal_offcurve_enc.bin", dtSealed,
+		buildFrame(dtSealed, encode(oOff), []signer{online}),
+		"E_SEAL_OPEN", "seal step 6", "default", nil,
+		"enc is 65 bytes and begins 0x04, so the suite check of step 4 passes, but the point is not on P-256: one bit of Y is flipped. The device DOES hold generation 1, so step 5 succeeds in finding a key and the failure happens inside ECDH, which is step 6. A recipient that reports this as E_SEAL_RECIPIENT would tell the client to rekey and re-request per 02-SPEC.md 10.3, that is, burn an agreement key generation on a corrupted byte.")
+
 	// Outer opens, inner directive fails its own nonce check.
 	innerBad := buildFrame(dtDirective, encode(buildDirective(directiveOpts{
 		pid: pid, ver: 454, iat: fixIAT, nonce: flip(nonce, 3), dtp: dtp, st: 3,
